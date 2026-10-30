@@ -13,7 +13,7 @@ import { CHROME_NOTE } from './chrome.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { chooseProject, dropProject, readMode, setHarness, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
+import { answerAllowance, chooseProject, dropProject, readMode, setHarness, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
 import { atomicJson, loadConfig } from './config.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
@@ -182,6 +182,13 @@ export class CompanionApplication {
     const notices = (this.snapshot.messages ?? []).filter(message => message.role === 'notice');
     const noticeIds = new Set(notices.map(message => message.id));
     const noticedRunIds = new Set(this.noticeRunIds);
+    const work = this.workView();
+    const asked = work.allowanceRequest;
+    const askedId = asked && `notice:work-allowance:${asked.at}`;
+    if (asked && !noticeIds.has(askedId)) {
+      notices.push({ id: askedId, role: 'notice', content: asked.reason, tone: asked.atLimit ? 'critical' : 'useful', at: asked.at });
+      noticeIds.add(askedId);
+    }
     const scheduledReports = runs.filter(isVisibleScheduledReport)
       .sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? ''));
     for (const run of scheduledReports) {
@@ -294,7 +301,7 @@ export class CompanionApplication {
       usage: this.ledger.sync(state),
       memoryBytes: memoryBytes(this.runtime.directory),
       reportAttention: this.telemetry.attention(runs, this.now()),
-      work: this.workView(),
+      work,
       connection: 'connected',
       busy: this.runtime.mainBusy,
       main: {
@@ -340,6 +347,8 @@ export class CompanionApplication {
       toggle: () => (readMode(root).enabled ? writeMode(root, { enabled: false }) : startWork(root)),
       start: () => startWork(root, slug),
       harness: () => setHarness(root, slug),
+      allow: () => answerAllowance(root, true),
+      keep: () => answerAllowance(root, false),
       choose: () => chooseProject(root, slug, value),
       level: () => chooseProject(root, slug, value),
       skip: () => skipProject(root, slug),

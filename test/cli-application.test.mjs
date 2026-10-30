@@ -9,6 +9,7 @@ import { CompanionRuntime } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
+import { writeMode } from '../src/cli/work/store.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
@@ -859,6 +860,41 @@ test('the note Chrome leaves when authorized stays out of Chat', async t => {
     const view = await app.refresh();
 
     assert.deepEqual(view.messages.map(message => message.content), ['Worth showing.']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a request for more tokens reaches Chat once', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const day = new Date().toDateString();
+  try {
+    writeMode(h.root, { enabled: true, allowanceRequest: { day, limit: 100, proposed: 200, atLimit: true, at: new Date().toISOString(), reason: 'Work mode paused: 3 items are waiting.' } });
+
+    await app.refresh();
+    const view = await app.refresh();
+
+    const notices = view.messages.filter(message => message.role === 'notice');
+    assert.deepEqual(notices.map(({ content, tone }) => [content, tone]), [['Work mode paused: 3 items are waiting.', 'critical']]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a pause for the hour reads as news, and running out for the day posts again', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const request = { day: new Date().toDateString(), limit: 100, proposed: 200 };
+  try {
+    writeMode(h.root, { enabled: true, allowanceRequest: { ...request, atLimit: false, at: new Date(1000).toISOString(), reason: 'Paused for the hour.' } });
+    await app.refresh();
+    writeMode(h.root, { allowanceRequest: { ...request, atLimit: true, at: new Date(2000).toISOString(), reason: 'Paused for the day.' } });
+
+    const view = await app.refresh();
+
+    const notices = view.messages.filter(message => message.role === 'notice');
+    assert.deepEqual(notices.map(({ content, tone }) => [content, tone]), [['Paused for the hour.', 'useful'], ['Paused for the day.', 'critical']]);
   } finally {
     await app.close();
   }

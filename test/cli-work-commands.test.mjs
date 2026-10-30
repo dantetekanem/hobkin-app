@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { main, parseArguments } from '../src/cli/main.mjs';
-import { readItems, readMode, readProjects } from '../src/cli/work/store.mjs';
+import { readItems, readMode, readProjects, writeMode } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-work-cli-')));
@@ -61,6 +61,26 @@ test('the daily token limit can be set, and status reports the day so far', asyn
 
   const { result } = await work(root, []);
   assert.deepEqual([result.dailyTokens, result.tokensToday], [250000, 0]);
+});
+
+test('the allowance can be answered from the command line, so the main agent can act on a yes', async t => {
+  const root = dataRoot(t);
+
+  await work(root, ['allow', '5000000']);
+  assert.equal((await work(root, [])).result.dailyTokens, 5000000);
+
+  await work(root, ['allow', 'no']);
+  assert.ok(readMode(root).declinedOn);
+});
+
+test('a request only stands while work mode is on', async t => {
+  const root = dataRoot(t);
+  writeMode(root, { allowanceRequest: { day: new Date().toDateString(), limit: 100, proposed: 200 } });
+  assert.equal((await work(root, [])).result.allowanceRequest, null);
+
+  writeMode(root, { enabled: true });
+
+  assert.equal((await work(root, [])).result.allowanceRequest.proposed, 200);
 });
 
 test('an agent proposes a project, and the user takes or skips it', async t => {

@@ -4,8 +4,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  chooseProject, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode, readProjects,
-  recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode,
+  readProjects, recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -82,10 +82,10 @@ test('a session\'s fresh tokens are counted without the cache reads that repeat 
     { type: 'session', id: 'session-1' },
     { type: 'message', message: { role: 'user', content: 'Go.' } },
     { type: 'message', message: { role: 'assistant', usage: { input: 1000, output: 200, cacheRead: 50000, cost: { total: 0.5 } } } },
-    { type: 'message', message: { role: 'assistant', usage: { input: 300, output: 100, cacheRead: 60000, cost: { total: 0.25 } } } },
+    { type: 'message', message: { role: 'assistant', usage: { input: 300, output: 100, cacheRead: 60000, cacheWrite: 4000, cost: { total: 0.25 } } } },
   ].map(entry => JSON.stringify(entry)).join('\n'));
 
-  assert.deepEqual(sessionUsage(file), { tokens: 1600, usd: 0.75, sessionId: 'session-1' });
+  assert.deepEqual(sessionUsage(file), { tokens: 5600, usd: 0.75, sessionId: 'session-1' });
   assert.deepEqual(sessionUsage(join(root, 'missing.jsonl')), { tokens: 0, usd: 0, sessionId: null });
 });
 
@@ -111,12 +111,74 @@ test('the last hour of tokens is a rolling window', t => {
   assert.equal(tokensLastHour(root, noon + 3700000), 500);
 });
 
+test('a raised allowance lasts for today and the usual limit comes back tomorrow', t => {
+  const root = dataRoot(t);
+  const today = new Date(2026, 5, 1, 12).getTime();
+  writeMode(root, { allowanceRequest: { day: new Date(today).toDateString(), limit: 100, proposed: 200 } });
+
+  answerAllowance(root, true, today);
+
+  const mode = readMode(root);
+  assert.equal(dailyLimit(mode, today), 200);
+  assert.equal(dailyLimit(mode, today + 86400000), 100000000);
+  assert.equal(mode.allowanceRequest, null);
+});
+
+test('the user can name their own allowance, or keep it paused for the day', t => {
+  const root = dataRoot(t);
+  const today = new Date(2026, 5, 1, 12).getTime();
+
+  answerAllowance(root, 500, today);
+  assert.equal(dailyLimit(readMode(root), today), 500);
+
+  answerAllowance(root, false, today);
+  assert.equal(readMode(root).declinedOn, new Date(today).toDateString());
+});
+
+test('naming a figure after saying no takes the no back', t => {
+  const root = dataRoot(t);
+  const today = new Date(2026, 5, 1, 12).getTime();
+  answerAllowance(root, false, today);
+
+  const mode = answerAllowance(root, 500, today);
+
+  assert.equal(declinedToday(mode, today), false);
+});
+
+test('there is nothing to accept when nothing was asked', t => {
+  assert.throws(() => answerAllowance(dataRoot(t), true), /Nothing is waiting/);
+});
+
+test('a figure that is not a positive number is refused as one', t => {
+  assert.throws(() => answerAllowance(dataRoot(t), Number('lots')), /positive number/);
+});
+
+test('an unanswered request from yesterday no longer stands', t => {
+  const today = new Date(2026, 5, 1, 12).getTime();
+  const mode = { allowanceRequest: { day: new Date(today).toDateString(), limit: 100, proposed: 200 } };
+
+  assert.equal(currentRequest(mode, today).proposed, 200);
+  assert.equal(currentRequest(mode, today + 86400000), null);
+});
+
 test('the daily token limit has a default and can be changed', t => {
   const root = dataRoot(t);
   assert.equal(readMode(root).dailyTokens, 100000000);
 
   assert.equal(setDailyTokens(root, 250000).dailyTokens, 250000);
   assert.throws(() => setDailyTokens(root, -1), /positive number/);
+});
+
+test('a new daily limit applies today, and a proposal made before it cannot lower it', t => {
+  const root = dataRoot(t);
+  const today = new Date(2026, 5, 1, 12).getTime();
+  answerAllowance(root, 500, today);
+  writeMode(root, { allowanceRequest: { day: new Date(today).toDateString(), limit: 500, proposed: 1000 } });
+
+  const mode = setDailyTokens(root, 3000);
+
+  assert.equal(dailyLimit(mode, today), 3000);
+  assert.equal(currentRequest(mode, today), null);
 });
 
 test('a proposal updates in place until the user answers it', t => {

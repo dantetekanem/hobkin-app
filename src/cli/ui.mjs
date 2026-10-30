@@ -6,7 +6,7 @@ import {
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { followPiTheme } from './theme.mjs';
-import { workHarnesses } from './work/store.mjs';
+import { tokenLabel, workHarnesses } from './work/store.mjs';
 
 // The caller supplies already-loaded arrays; render never reads history or starts work.
 const clean = value => stripTerminalSequences(String(value ?? '')).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
@@ -162,8 +162,6 @@ const outcomes = {
   imported: ['◇', muted],
 };
 const outcome = value => Object.hasOwn(outcomes, value) ? outcomes[value] : ['•', dim];
-const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-const tokenCount = value => compactNumber.format(value).toLowerCase();
 const kilobytes = bytes => `${Number((bytes / 1024).toFixed(1))}kb`;
 
 const pad = value => String(value).padStart(2, '0');
@@ -310,7 +308,7 @@ const contextLabel = (context, withGauge) => {
   const percent = Number.isFinite(context?.percent)
     ? `${withGauge ? `${gauge(context.percent)} ` : ''}${dim(`${Math.round(context.percent)}%`)}` : '';
   const usage = Number.isFinite(context?.tokens)
-    ? `~${tokenCount(context.tokens)}${Number.isFinite(context.contextWindow) ? `/${tokenCount(context.contextWindow)}` : ''}` : '';
+    ? `~${tokenLabel(context.tokens)}${Number.isFinite(context.contextWindow) ? `/${tokenLabel(context.contextWindow)}` : ''}` : '';
   const details = [
     percent,
     usage ? muted(usage) : '',
@@ -585,14 +583,23 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
     .toSorted((left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity));
   const names = [...projects.map(named), ...(work.attention ?? []).map(item => clean(item.slug))];
   const nameWidth = Math.min(24, Math.max(0, ...names.map(name => visibleWidth(name))));
+  const asked = work.allowanceRequest;
+  const allowance = asked ? [{
+    key: 'allowance',
+    type: 'allowance',
+    lines: [
+      `${caution('▲')} ${bold(`Raise today's tokens to ${tokenLabel(asked.proposed)}?`)}`,
+      ...wrapped(asked.reason, inner - 2).map(value => `  ${dim(value)}`),
+    ],
+  }] : [];
   const sections = [
-    ['NEEDS ATTENTION', (work.attention ?? []).map(item => ({
+    ['NEEDS ATTENTION', [...allowance, ...(work.attention ?? []).map(item => ({
       key: `attention:${item.slug}:${item.id}`,
       type: 'attention',
       slug: item.slug,
       id: item.id,
       lines: [`${item.state === 'stuck' ? negative('✕') : caution('▲')} ${cell(clean(item.slug), nameWidth)}  ${clean(item.title)}`],
-    }))],
+    }))]],
     ['RUNNING', runs.map(run => ({
       key: `run:${run.id}`,
       type: 'run',
@@ -619,10 +626,15 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
   ];
   return sections.filter(([, rows]) => rows.length);
 };
+const workCircle = work => {
+  if (work.paused) return caution('●');
+  return work.enabled ? positive('●') : muted('●');
+};
 const workLines = ({ work, sections, selected, inner, frame }) => {
-  const state = work.enabled ? `${positive('●')} ${dim('active')}` : `${muted('●')} ${dim('offline')}`;
+  const label = work.paused ? 'paused' : work.enabled ? 'active' : 'offline';
+  const state = `${workCircle(work)} ${dim(label)}`;
   const atLimit = work.dailyTokens && work.tokensToday >= work.dailyTokens;
-  const tokens = work.dailyTokens ? `${tokenCount(work.tokensToday ?? 0)}/${tokenCount(work.dailyTokens)} tokens` : '';
+  const tokens = work.dailyTokens ? `${tokenLabel(work.tokensToday ?? 0)}/${tokenLabel(work.dailyTokens)} tokens` : '';
   const status = [state, work.harness ? dim(clean(work.harness)) : '', tokens ? (atLimit ? caution : dim)(tokens) : '']
     .filter(Boolean).join(muted(' · '));
   const content = [row(muted(bold('WORK MODE')), status, inner), ''];
@@ -931,6 +943,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       ? [`${connectionStatus}${dim(' · ')}${running}`, connectionStatus, indicator]
       : [connectionStatus];
     const scheduleCount = Object.values(snapshot.counts ?? {}).reduce((sum, count) => sum + count, 0);
+    const needsYou = (snapshot.work?.attention?.length ?? 0) + (snapshot.work?.allowanceRequest ? 1 : 0);
     const tabs = [
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
@@ -938,8 +951,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       ...(workVisible() ? [{
         name: 'work',
         label: 'Work Mode',
-        count: snapshot.work.attention?.length ? String(snapshot.work.attention.length) : '',
-        prefix: `${snapshot.work.enabled ? positive('●') : muted('●')} `,
+        count: needsYou ? String(needsYou) : '',
+        prefix: `${workCircle(snapshot.work)} `,
       }] : []),
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
     ].map(tab => tabText(tab, tab.name === view));
@@ -961,6 +974,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         proposal: [['y', 'take'], ['1 2 3', 'level'], ['n', 'skip']],
         project: [['1 2 3', 'level'], ['d d', 'drop']],
         attention: [['x', 'done']],
+        allowance: [['y', 'raise'], ['n', 'keep paused']],
         run: [['enter', 'watch']],
       };
       const start = snapshot.work?.enabled ? [] : [['enter', 'start']];
@@ -1148,6 +1162,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else if (selected?.type === 'project' && level) runWorkAction('level', selected.slug, level);
     else if (selected?.type === 'project' && data === 'd') dropProjectTwice(selected);
     else if (selected?.type === 'attention' && data === 'x') runWorkAction('done', selected.slug, selected.id);
+    else if (selected?.type === 'allowance' && data === 'y') runWorkAction('allow');
+    else if (selected?.type === 'allowance' && data === 'n') runWorkAction('keep');
     else if (selected?.type === 'run' && key(data, 'enter')) {
       view = `job:${selected.id}`;
       focus = 'job';

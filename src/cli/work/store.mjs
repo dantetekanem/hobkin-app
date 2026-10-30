@@ -111,9 +111,37 @@ export function setHarness(root, harness) {
   return writeMode(root, { harness });
 }
 
+const localDay = now => new Date(now).toDateString();
+const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+export const tokenLabel = tokens => compactNumber.format(tokens).toLowerCase();
+
+export const dailyLimit = (mode, now = Date.now()) => (mode.raisedOn === localDay(now) ? mode.raisedTo : mode.dailyTokens);
+
+/** A request only stands on the day it was made; the limit is back to normal the next morning. */
+export const currentRequest = (mode, now = Date.now()) => (mode.allowanceRequest?.day === localDay(now) ? mode.allowanceRequest : null);
+
+export const declinedToday = (mode, now = Date.now()) => mode.declinedOn === localDay(now);
+
+export function requestAllowance(root, request, now = Date.now()) {
+  const asked = { ...request, day: localDay(now), at: new Date(now).toISOString() };
+  return writeMode(root, { allowanceRequest: asked });
+}
+
+/** `answer` is true for what Companion proposed, a number for the user's own figure, or false to stay paused today. */
+export function answerAllowance(root, answer, now = Date.now()) {
+  if (answer === false) return writeMode(root, { allowanceRequest: null, declinedOn: localDay(now) });
+
+  const proposed = currentRequest(readMode(root), now)?.proposed;
+  if (answer === true && !proposed) throw Error('Nothing is waiting for a higher allowance.');
+
+  const raisedTo = answer === true ? proposed : answer;
+  if (!Number.isInteger(raisedTo) || raisedTo <= 0) throw Error('The allowance must be a positive number.');
+  return writeMode(root, { allowanceRequest: null, declinedOn: null, raisedTo, raisedOn: localDay(now) });
+}
+
 export function setDailyTokens(root, tokens) {
   if (!Number.isInteger(tokens) || tokens <= 0) throw Error('The daily token limit must be a positive number.');
-  return writeMode(root, { dailyTokens: tokens });
+  return writeMode(root, { dailyTokens: tokens, raisedTo: null, raisedOn: null, allowanceRequest: null, declinedOn: null });
 }
 
 /** Fresh tokens only: cache reads repeat earlier context, so counting them would swamp what a run really used. */
@@ -121,7 +149,7 @@ export function sessionUsage(file) {
   const entries = parseEvents(file);
   const usages = entries.flatMap(({ message }) => (message?.role === 'assistant' && message.usage ? [message.usage] : []));
   return {
-    tokens: usages.reduce((sum, usage) => sum + (usage.input ?? 0) + (usage.output ?? 0), 0),
+    tokens: usages.reduce((sum, usage) => sum + (usage.input ?? 0) + (usage.cacheWrite ?? 0) + (usage.output ?? 0), 0),
     usd: usages.reduce((sum, usage) => sum + (usage.cost?.total ?? 0), 0),
     sessionId: entries[0]?.id ?? null,
   };
@@ -132,9 +160,8 @@ export function recordTokens(root, { slug, lane, tokens }, now = Date.now()) {
 }
 
 export function tokensToday(root, now = Date.now()) {
-  const today = new Date(now).toDateString();
   return parseEvents(tokensPath(root))
-    .filter(event => new Date(event.at).toDateString() === today)
+    .filter(event => localDay(event.at) === localDay(now))
     .reduce((sum, event) => sum + event.tokens, 0);
 }
 

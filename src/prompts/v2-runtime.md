@@ -54,10 +54,13 @@ When the user answers or steers in Chat, act on it with `pi-companion work`, usi
 - `pi-companion work` prints status as JSON.
 - `pi-companion work on <folder>` starts it from that folder, or looks in a new one.
 - `pi-companion work harness <pi|claude|codex>` picks which agent works on projects, in panes of a Herdr tab called Work Mode.
-- `pi-companion work tokens <number>` sets the daily limit on fresh tokens. Any rolling hour can use at most a 24th of it, and at the limit nothing new starts until tomorrow. Urgent items always start.
+- `pi-companion work tokens <number>` sets the daily limit on fresh tokens. Any rolling hour can use at most a 24th of it. Urgent items always start.
+- `pi-companion work allow` accepts the higher allowance Companion proposed, for today only. `pi-companion work allow <number>` sets the user's own figure, and `pi-companion work allow no` keeps today's limit and stops asking.
 - `pi-companion work choose <slug or path> [critical|important|casual]` takes a project or changes its level. A path works for a repository the agent left out.
 - `pi-companion work skip <slug>` and `pi-companion work drop <slug>` skip a proposal or stop work on a project. Dropping keeps its items, branches and PRs.
 - Pipe JSON to `pi-companion work item <slug>` to hand a project work: `{ "key": "...", "kind": "feature", "title": "...", "brief": "...", "urgent": true }`.
+
+Either limit pauses work mode: running agents finish and items stay. The hourly pause clears on its own, and the daily one lasts until tomorrow. If work is waiting, Companion posts why in Chat with the allowance it proposes. When the user answers there, act on it with the `allow` commands above.
 
 Put the user's standing instructions for a project in `work/<slug>/directions.md`, in their own words. Every run on that project receives them. What agents learned about a project is in `work/<slug>/project.md`.
 

@@ -10,8 +10,8 @@ import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mj
 import { readMemory } from '../memory.mjs';
 import { agentName } from './panes.mjs';
 import {
-  isPacing, landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState, recordTokens, sessionUsage, slugOf,
-  tokensToday, updateItem, writeMode, writeState,
+  currentRequest, dailyLimit, declinedToday, isPacing, landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState,
+  recordTokens, requestAllowance, sessionUsage, slugOf, tokenLabel, tokensToday, updateItem, writeMode, writeState,
 } from './store.mjs';
 import { prepareTree } from './tree.mjs';
 
@@ -72,14 +72,16 @@ export class WorkDirector {
       if (this.active.size) await this.stopRuns();
       return;
     }
-    const tokens = { today: tokensToday(this.root, this.now()), limit: mode.dailyTokens };
-    const holding = tokens.today >= tokens.limit || isPacing(this.root, tokens.limit, this.now());
+    const tokens = { today: tokensToday(this.root, this.now()), limit: dailyLimit(mode, this.now()) };
+    const atLimit = tokens.today >= tokens.limit;
+    const holding = atLimit || isPacing(this.root, tokens.limit, this.now());
     const hasRoom = () => this.active.size < mode.pool;
     if (hasRoom() && !holding && this.discoveryDue(mode)) this.startDiscovery(mode.folder, tokens);
 
     const projects = readProjects(this.root)
       .filter(project => project.state === 'chosen')
       .toSorted((left, right) => levels[left.level].rank - levels[right.level].rank);
+    if (holding) this.askForAllowance(mode, projects, tokens, atLimit);
     for (const project of projects) {
       if (holding || !hasRoom() || this.active.has(laneKey(project.slug, 'look'))) continue;
       const focus = this.nextLook(project, tokens);
@@ -91,6 +93,29 @@ export class WorkDirector {
       const item = nextItem(this.root, project.slug);
       if (item && (!holding || item.urgent)) this.startDo(project, item);
     }
+  }
+
+  // Pausing is not stopping: running agents finish and items stay. The user just gets the choice, once, with the reason.
+  askForAllowance(mode, projects, { today, limit }, atLimit) {
+    const asked = currentRequest(mode, this.now());
+    const alreadyAsked = asked?.limit === limit && asked.atLimit === atLimit;
+    if (alreadyAsked || declinedToday(mode, this.now())) return;
+
+    const waiting = projects.flatMap(project => readItems(this.root, project.slug)
+      .filter(item => ['open', 'doing'].includes(item.state) && item.kind !== 'attention')
+      .map(item => ({ item, project })));
+    if (!waiting.length) return;
+
+    const proposed = limit * 2;
+    const [{ item, project }] = waiting;
+    const used = atLimit ? `it has used ${tokenLabel(today)} of today's ${tokenLabel(limit)} tokens`
+      : `it used this hour's share of today's ${tokenLabel(limit)} tokens`;
+    const count = waiting.length === 1 ? '1 item is' : `${waiting.length} items are`;
+    const otherwise = atLimit ? 'they wait until tomorrow' : 'they carry on as the hour moves on';
+    const reason = `Work mode paused: ${used}. ${count} waiting, starting with "${item.title}" on ${project.name}. `
+      + `Raising today's allowance to ${tokenLabel(proposed)} lets them run now; otherwise ${otherwise}.`;
+    requestAllowance(this.root, { limit, proposed, atLimit, reason }, this.now());
+    this.onChange();
   }
 
   async stopRuns() {

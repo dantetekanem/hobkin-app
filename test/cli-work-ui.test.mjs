@@ -280,6 +280,28 @@ test('the day\'s tokens show against the limit, and reaching it says what happen
   ui.stop();
 });
 
+test('a paused mode reads paused, and the request is answered with a key', async () => {
+  const actions = [];
+  const allowanceRequest = { proposed: 200000000, reason: 'Work mode paused: it has used 100m of today\'s 100m tokens.' };
+  const ui = createDashboard({ ...base, work: { enabled: true, paused: true, allowanceRequest, projects: [], attention: [] } }, {
+    workAction: async (...args) => { actions.push(args); },
+  });
+  ui.input('\x1b[D');
+
+  const text = screen(ui);
+  assert.match(text, /WORK MODE\s+● paused/);
+  assert.match(text, /Raise today's tokens to 200m\?/);
+  assert.match(text, /it has used 100m of today's 100m tokens/);
+  assert.match(text, /y\s+raise/);
+
+  ui.input('y');
+  ui.input('n');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['allow'], ['keep']]);
+  ui.stop();
+});
+
 test('pacing says why new work is waiting', () => {
   const ui = createDashboard({ ...base, work: { enabled: true, pacing: true, tokensToday: 5000000, dailyTokens: 100000000, projects: [], attention: [] } });
   ui.input('\x1b[D');

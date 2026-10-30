@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { CompanionRunner } from '../src/cli/runner.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import {
-  chooseProject, fileItem, paths, proposeProject, readItems, readMode, recordTokens, tokensToday, updateItem, writeMode, writeState,
+  answerAllowance, chooseProject, fileItem, paths, proposeProject, readItems, readMode, recordTokens, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 
 const HOUR = 3600000;
@@ -335,6 +335,122 @@ test('tokens spread across the day: past an hour\'s share, new work waits for th
   h.clock += 61 * 60000;
   await h.tick();
   assert.ok(h.calls.length > 1, 'the rest starts once the window moves on');
+});
+
+const pausedAtLimit = h => {
+  h.agent = () => {};
+  onProject(h);
+  fileItem(h.root, 'api', item);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock - 2 * HOUR);
+};
+const pausedForTheHour = h => {
+  h.agent = () => {};
+  onProject(h);
+  writeMode(h.root, { dailyTokens: 2400000 });
+  fileItem(h.root, 'api', item);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 100000 }, h.clock);
+};
+
+test('at the limit work pauses and Companion asks for more, saying why and what is waiting', async t => {
+  const h = fixture(t);
+  pausedAtLimit(h);
+
+  await h.tick();
+
+  assert.deepEqual(h.calls, []);
+  assert.equal(readMode(h.root).enabled, true, 'paused, not turned off');
+  assert.equal(readItems(h.root, 'api')[0].state, 'open', 'the work is still there');
+  const { proposed, reason } = readMode(h.root).allowanceRequest;
+  assert.equal(proposed, 2000000);
+  assert.match(reason, /Work mode paused/);
+  assert.match(reason, /1m of today's 1m tokens/);
+  assert.match(reason, /1 item is waiting/);
+  assert.match(reason, /Update rack/);
+  assert.match(reason, /tomorrow/);
+});
+
+test('it asks once for each allowance, not on every tick', async t => {
+  const h = fixture(t);
+  pausedAtLimit(h);
+  await h.tick();
+  const first = readMode(h.root).allowanceRequest;
+
+  h.clock += 60000;
+  await h.tick();
+
+  assert.deepEqual(readMode(h.root).allowanceRequest, first);
+});
+
+test('saying yes resumes work at once on the higher allowance', async t => {
+  const h = fixture(t);
+  pausedAtLimit(h);
+  await h.tick();
+
+  answerAllowance(h.root, true, h.clock);
+  await h.tick();
+
+  assert.ok(h.calls.length > 0, 'work started again');
+});
+
+test('reaching a raised allowance asks again for more', async t => {
+  const h = fixture(t);
+  pausedAtLimit(h);
+  await h.tick();
+  answerAllowance(h.root, true, h.clock);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock - HOUR - 60000);
+
+  await h.tick();
+
+  assert.equal(readMode(h.root).allowanceRequest.proposed, 4000000);
+});
+
+test('saying no keeps it paused for the day without asking again', async t => {
+  const h = fixture(t);
+  pausedAtLimit(h);
+  await h.tick();
+
+  answerAllowance(h.root, false, h.clock);
+  h.clock += 60000;
+  await h.tick();
+
+  assert.equal(readMode(h.root).allowanceRequest, null);
+  assert.deepEqual(h.calls, []);
+});
+
+test('with nothing waiting, there is nothing to ask', async t => {
+  const h = fixture(t);
+  h.agent = () => {};
+  onProject(h);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock - 2 * HOUR);
+
+  await h.tick();
+
+  assert.equal(readMode(h.root).allowanceRequest ?? null, null);
+});
+
+test('pacing asks too, and says the work picks up on its own', async t => {
+  const h = fixture(t);
+  pausedForTheHour(h);
+
+  await h.tick();
+
+  const { reason, proposed } = readMode(h.root).allowanceRequest;
+  assert.equal(proposed, 4800000);
+  assert.match(reason, /this hour's share/);
+  assert.match(reason, /as the hour moves on/);
+});
+
+test('a request made for the hour gives way when the day runs out', async t => {
+  const h = fixture(t);
+  pausedForTheHour(h);
+  await h.tick();
+
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 2300000 }, h.clock - 2 * HOUR);
+  await h.tick();
+
+  const { reason, atLimit } = readMode(h.root).allowanceRequest;
+  assert.equal(atLimit, true);
+  assert.match(reason, /tomorrow/);
 });
 
 test('the tokens a run used are recorded when it finishes', async t => {
