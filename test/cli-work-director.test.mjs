@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { CompanionRunner } from '../src/cli/runner.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import {
-  chooseProject, fileItem, paths, proposeProject, readItems, readMode, updateItem, writeMode,
+  chooseProject, fileItem, paths, proposeProject, readItems, readMode, recordTokens, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 
 const HOUR = 3600000;
@@ -205,7 +205,7 @@ test('after the study the agent looks for work and starts on what is open', asyn
   await h.tick();
 
   const looks = h.calls.filter(call => call.purpose === 'work-look').map(call => h.work(call).focus);
-  assert.deepEqual(looks, ['study', 'security']);
+  assert.deepEqual(looks.slice(0, 2), ['study', 'security']);
   const run = h.calls.find(call => call.purpose === 'work-do');
   assert.ok(run, 'a do run started');
   assert.equal(run.cwd, paths(h.root, 'api').doTree);
@@ -222,14 +222,136 @@ test('each lens comes up in turn, as often as the level says', async t => {
   chooseProject(h.root, repository(h.base, 'api'), 'critical');
   await h.tick();
   await h.tick();
+  await h.tick();
 
   h.clock += 7 * HOUR;
   await h.tick();
-  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls.length, 3);
 
   h.clock += 2 * HOUR;
   await h.tick();
-  assert.deepEqual(h.calls.map(call => h.work(call).focus), ['study', 'security', 'bugs']);
+  assert.deepEqual(h.calls.map(call => h.work(call).focus), ['study', 'security', 'ideas', 'bugs']);
+});
+
+const studied = (h, name) => {
+  const slug = name;
+  mkdirSync(paths(h.root, slug).directory, { recursive: true });
+  writeFileSync(paths(h.root, slug).project, '# What it is\n');
+  writeState(h.root, slug, { lastLensAt: new Date(h.clock).toISOString() });
+};
+const ideaRuns = h => h.calls.filter(call => h.work(call).focus === 'ideas').map(call => h.work(call));
+const onProject = (h, level = 'important') => {
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'), level);
+  studied(h, 'api');
+};
+const fileOpen = (h, count) => {
+  for (let index = 0; index < count; index++) fileItem(h.root, 'api', { ...item, key: `open-${index}` });
+};
+const keepItemsBusy = h => {
+  h.director.startDo = () => {};
+};
+
+test('ideas come once a day, and more of them when a project has little to do', async t => {
+  const h = fixture(t);
+  onProject(h);
+  keepItemsBusy(h);
+
+  await h.tick();
+  await h.tick();
+
+  assert.equal(ideaRuns(h).length, 1);
+  assert.equal(ideaRuns(h)[0].ideas, 3);
+
+  h.clock += 25 * HOUR;
+  writeState(h.root, 'api', { lastLensAt: new Date(h.clock).toISOString() });
+  fileOpen(h, 2);
+  await h.tick();
+
+  assert.equal(ideaRuns(h).length, 2);
+  assert.equal(ideaRuns(h)[1].ideas, 1);
+});
+
+test('a project with plenty of open work gets no new ideas', async t => {
+  const h = fixture(t);
+  onProject(h);
+  keepItemsBusy(h);
+  fileOpen(h, 5);
+
+  await h.tick();
+
+  assert.equal(ideaRuns(h).length, 0);
+});
+
+test('past half the day\'s tokens, a project gets one idea at most', async t => {
+  const h = fixture(t);
+  onProject(h);
+  keepItemsBusy(h);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 600000 }, h.clock);
+
+  await h.tick();
+
+  assert.equal(ideaRuns(h)[0].ideas, 1);
+  assert.deepEqual(ideaRuns(h)[0].tokens, { today: 600000, limit: 1000000 });
+});
+
+test('at the daily token limit nothing new starts until tomorrow, except urgent work', async t => {
+  const h = fixture(t);
+  h.agent = () => {};
+  onProject(h, 'critical');
+  fileItem(h.root, 'api', item);
+  writeState(h.root, 'api', { lastLensAt: null });
+  writeMode(h.root, { lastDiscoveryAt: null, folder: '/repos' });
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock);
+
+  await h.tick();
+  assert.deepEqual(h.calls, [], 'discovery, looks, ideas and ordinary items all wait');
+
+  fileItem(h.root, 'api', { ...item, key: 'ci:main', kind: 'fix', urgent: true });
+  await h.tick();
+  assert.deepEqual(h.calls.map(call => h.work(call).item?.key), ['ci:main']);
+
+  h.clock += 24 * HOUR;
+  await h.tick();
+  assert.ok(h.calls.length > 1, 'a new day starts again');
+});
+
+test('the tokens a run used are recorded when it finishes', async t => {
+  const h = fixture(t);
+  h.agent = request => {
+    writeFileSync(request.sessionFile, [
+      { type: 'session', id: 'one' },
+      { type: 'message', message: { role: 'assistant', usage: { input: 700, output: 300, cacheRead: 9000 } } },
+    ].map(entry => JSON.stringify(entry)).join('\n'));
+  };
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(tokensToday(h.root, h.clock), 1000);
+});
+
+test('a pane run is costed from its session like any other', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'));
+  h.director.panes = {
+    run: async options => {
+      writeFileSync(options.sessionFile, [
+        { type: 'session', id: 'pane-session' },
+        { type: 'message', message: { role: 'assistant', usage: { input: 100, output: 50, cost: { total: 0.2 } } } },
+      ].map(entry => JSON.stringify(entry)).join('\n'));
+      return { status: 'completed', text: 'Useful: Done.', cost: null };
+    },
+  };
+
+  await h.tick();
+  await new Promise(resolve => setImmediate(resolve));
+
+  const run = Object.values(h.runtime.data.runs)[0];
+  assert.deepEqual(run.result.cost, { usd: 0.2, kind: 'estimate', cumulative: true, sessionId: 'pane-session' });
+  assert.equal(tokensToday(h.root, h.clock), 150);
 });
 
 test('a project gets one look and one do at a time', async t => {

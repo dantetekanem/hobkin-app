@@ -1,9 +1,10 @@
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  chooseProject, dropProject, fileItem, proposeProject, readItems, readMode, readProjects, setHarness, skipProject, startWork, updateItem, writeMode,
+  chooseProject, dropProject, fileItem, proposeProject, readItems, readMode, readProjects, setDailyTokens, setHarness, skipProject,
+  startWork, tokensToday, updateItem, writeMode,
 } from './store.mjs';
 
-const USAGE = 'Usage: pi-companion work [on [folder] | off | harness <kind> | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
+const USAGE = 'Usage: pi-companion work [on [folder] | off | harness <kind> | tokens <daily limit> | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
 
 async function readJson(input) {
   let text = '';
@@ -25,8 +26,8 @@ export function workStatus(root) {
   const attention = readProjects(root).flatMap(({ slug }) => readItems(root, slug)
     .filter(item => (item.kind === 'attention' && item.state === 'open') || item.state === 'stuck')
     .map(({ id, title, state }) => ({ slug, id, title, state })));
-  const { enabled, folder, harness } = readMode(root);
-  return { enabled, folder, harness, projects, attention };
+  const { enabled, folder, harness, dailyTokens } = readMode(root);
+  return { enabled, folder, harness, dailyTokens, tokensToday: tokensToday(root), projects, attention };
 }
 
 /** These take no lock. They only append or rewrite `mode.json`, and the owner picks that up on its next tick. */
@@ -37,6 +38,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input) {
     case 'on': return startWork(root, args[0]);
     case 'off': return writeMode(root, { enabled: false });
     case 'harness': return setHarness(root, args[0]);
+    case 'tokens': return setDailyTokens(root, Number(args[0]));
     case 'propose': return proposeProject(root, await readJson(input));
     case 'choose': return chooseProject(root, args[0], args[1]);
     case 'skip': return skipProject(root, args[0]);

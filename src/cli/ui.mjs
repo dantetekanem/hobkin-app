@@ -581,7 +581,8 @@ const projectStatus = ({ open, prs, stuck }) => [
 const workSections = ({ work, runs, inner, clock, frame }) => {
   const named = project => clean(project.name ?? project.slug);
   const projects = (work.projects ?? []).filter(project => project.state === 'chosen');
-  const proposed = (work.projects ?? []).filter(project => project.state === 'proposed');
+  const proposed = (work.projects ?? []).filter(project => project.state === 'proposed')
+    .toSorted((left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity));
   const names = [...projects.map(named), ...(work.attention ?? []).map(item => clean(item.slug))];
   const nameWidth = Math.min(24, Math.max(0, ...names.map(name => visibleWidth(name))));
   const sections = [
@@ -620,10 +621,14 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
 };
 const workLines = ({ work, sections, selected, inner, frame }) => {
   const state = work.enabled ? `${positive('●')} ${dim('active')}` : `${muted('●')} ${dim('offline')}`;
-  const status = work.harness ? `${state}${muted(' · ')}${dim(clean(work.harness))}` : state;
+  const atLimit = work.dailyTokens && work.tokensToday >= work.dailyTokens;
+  const tokens = work.dailyTokens ? `${tokenCount(work.tokensToday ?? 0)}/${tokenCount(work.dailyTokens)} tokens` : '';
+  const status = [state, work.harness ? dim(clean(work.harness)) : '', tokens ? (atLimit ? caution : dim)(tokens) : '']
+    .filter(Boolean).join(muted(' · '));
   const content = [row(muted(bold('WORK MODE')), status, inner), ''];
   let selectedRange;
   if (!work.enabled) content.push(dim('Work mode is off. Press enter to start.'), '');
+  if (work.enabled && atLimit) content.push(caution('Token limit reached for today. Only urgent work runs until tomorrow.'), '');
   if (work.discovering) {
     const found = (work.projects ?? []).filter(project => project.state === 'proposed').length;
     content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading ${clean(work.folder)} · ${found} proposed so far`)}`, '');

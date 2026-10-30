@@ -16,10 +16,12 @@ const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvemen
 const itemKinds = [...doableKinds, 'attention'];
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;
+const DEFAULT_DAILY_TOKENS = 1000000;
 
 const workRoot = root => join(root, 'work');
 const modePath = root => join(workRoot(root), 'mode.json');
 const projectsPath = root => join(workRoot(root), 'projects.jsonl');
+const tokensPath = root => join(workRoot(root), 'tokens.jsonl');
 
 export const paths = (root, slug) => {
   const directory = join(workRoot(root), slug);
@@ -74,7 +76,8 @@ function fold(events, identify) {
 
 export function readMode(root) {
   const pool = Math.max(2, Math.floor(availableParallelism() / 2));
-  return { version: 1, enabled: false, pool, folder: null, harness: 'pi', lastDiscoveryAt: null, ...readJson(modePath(root), {}) };
+  const defaults = { version: 1, enabled: false, pool, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS, lastDiscoveryAt: null };
+  return { ...defaults, ...readJson(modePath(root), {}) };
 }
 
 export function writeMode(root, change) {
@@ -104,6 +107,33 @@ export function startWork(root, requested) {
 export function setHarness(root, harness) {
   if (!workHarnesses.includes(harness)) throw Error(`harness must be one of: ${workHarnesses.join(', ')}`);
   return writeMode(root, { harness });
+}
+
+export function setDailyTokens(root, tokens) {
+  if (!Number.isInteger(tokens) || tokens <= 0) throw Error('The daily token limit must be a positive number.');
+  return writeMode(root, { dailyTokens: tokens });
+}
+
+/** Fresh tokens only: cache reads repeat earlier context, so counting them would swamp what a run really used. */
+export function sessionUsage(file) {
+  const entries = parseEvents(file);
+  const usages = entries.flatMap(({ message }) => (message?.role === 'assistant' && message.usage ? [message.usage] : []));
+  return {
+    tokens: usages.reduce((sum, usage) => sum + (usage.input ?? 0) + (usage.output ?? 0), 0),
+    usd: usages.reduce((sum, usage) => sum + (usage.cost?.total ?? 0), 0),
+    sessionId: entries[0]?.id ?? null,
+  };
+}
+
+export function recordTokens(root, { slug, lane, tokens }, now = Date.now()) {
+  appendEvent(tokensPath(root), { at: new Date(now).toISOString(), slug, lane, tokens });
+}
+
+export function tokensToday(root, now = Date.now()) {
+  const today = new Date(now).toDateString();
+  return parseEvents(tokensPath(root))
+    .filter(event => new Date(event.at).toDateString() === today)
+    .reduce((sum, event) => sum + event.tokens, 0);
 }
 
 export const readProjects = root => fold(parseEvents(projectsPath(root)), event => event.slug);

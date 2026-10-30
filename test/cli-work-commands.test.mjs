@@ -54,6 +54,15 @@ test('the harness can be chosen from the command line', async t => {
   assert.equal((await work(root, [])).result.harness, 'codex');
 });
 
+test('the daily token limit can be set, and status reports the day so far', async t => {
+  const root = dataRoot(t);
+
+  await work(root, ['tokens', '250000']);
+
+  const { result } = await work(root, []);
+  assert.deepEqual([result.dailyTokens, result.tokensToday], [250000, 0]);
+});
+
 test('an agent proposes a project, and the user takes or skips it', async t => {
   const root = dataRoot(t);
 

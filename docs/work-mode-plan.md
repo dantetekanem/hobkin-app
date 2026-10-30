@@ -163,7 +163,7 @@ Work mode runs only while a dashboard or `pi-companion run` owns the workspace, 
 
 Discovery is one agent run with all its tools, `work.discover`, directed by `src/prompts/work-discover.md`. It runs in `work/` on the main chat model at `medium`, and it changes nothing in any repository.
 
-Discovery starts from one folder the user names. Without a starting point it would read session history, every sibling folder and all of GitHub, which burns time and money before the user has chosen anything. So the first start asks for the folder, saves it in `mode.json`, and looks only there, two levels down for `.git`. `/work <folder>` or `pi-companion work on <folder>` names another one, which runs discovery again.
+Discovery starts from one folder the user names. Without a starting point it would read session history, every sibling folder and all of GitHub, which burns time and money before the user has chosen anything. So the first start asks for the folder, saves it in `mode.json`, and looks only there. An agent explores it rather than a script: it lists the top level, then takes the folders one by one and goes deeper where it needs to, keeping its place in check memory. It reads each repository's git history for what is published and still moving, ranks the main projects, and offers them first. `/work <folder>` or `pi-companion work on <folder>` names another one, which runs discovery again.
 
 Other sources can come later, once the user asks for them: Pi session folders, GitHub, Companion's own `cwd` values and Pi packages.
 

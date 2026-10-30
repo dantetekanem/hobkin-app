@@ -256,6 +256,30 @@ test('a proposal is answered with a key', async () => {
   ui.stop();
 });
 
+test('proposals are offered main projects first', () => {
+  const ranked = (slug, rank) => ({ ...proposed, slug, name: slug, rank });
+  const projects = [ranked('third', 3), ranked('first', 1), ranked('second', 2)];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects, attention: [] } });
+  ui.input('\x1b[D');
+
+  const text = screen(ui);
+
+  assert.ok(text.indexOf('first') < text.indexOf('second'));
+  assert.ok(text.indexOf('second') < text.indexOf('third'));
+  ui.stop();
+});
+
+test('the day\'s tokens show against the limit, and reaching it says what happens', () => {
+  const ui = createDashboard({ ...base, work: { enabled: true, harness: 'pi', tokensToday: 120000, dailyTokens: 1000000, projects: [], attention: [] } });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /120k\/1m tokens/);
+
+  ui.update({ ...base, work: { enabled: true, harness: 'pi', tokensToday: 1000000, dailyTokens: 1000000, projects: [], attention: [] } });
+
+  assert.match(screen(ui), /Token limit reached for today\. Only urgent work runs until tomorrow\./);
+  ui.stop();
+});
+
 test('the Work Mode tab shows the harness, and h moves to the next one', async () => {
   const actions = [];
   const ui = createDashboard({ ...base, work: { enabled: true, harness: 'claude', projects: [], attention: [] } }, {

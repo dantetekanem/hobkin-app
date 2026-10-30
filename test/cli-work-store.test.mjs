@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   chooseProject, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode, readProjects,
-  setHarness, skipProject, startWork, updateItem, writeMode,
+  recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -73,6 +73,39 @@ test('Pi is the default harness, and the user can pick another that Herdr knows'
 
   assert.equal(readMode(root).harness, 'claude');
   assert.throws(() => setHarness(root, 'notepad'), /harness must be one of/);
+});
+
+test('a session\'s fresh tokens are counted without the cache reads that repeat earlier context', t => {
+  const root = dataRoot(t);
+  const file = join(root, 'job.jsonl');
+  writeFileSync(file, [
+    { type: 'session', id: 'session-1' },
+    { type: 'message', message: { role: 'user', content: 'Go.' } },
+    { type: 'message', message: { role: 'assistant', usage: { input: 1000, output: 200, cacheRead: 50000, cost: { total: 0.5 } } } },
+    { type: 'message', message: { role: 'assistant', usage: { input: 300, output: 100, cacheRead: 60000, cost: { total: 0.25 } } } },
+  ].map(entry => JSON.stringify(entry)).join('\n'));
+
+  assert.deepEqual(sessionUsage(file), { tokens: 1600, usd: 0.75, sessionId: 'session-1' });
+  assert.deepEqual(sessionUsage(join(root, 'missing.jsonl')), { tokens: 0, usd: 0, sessionId: null });
+});
+
+test('tokens count toward the day they were used, and a new day starts clean', t => {
+  const root = dataRoot(t);
+  const noon = new Date(2026, 5, 1, 12).getTime();
+
+  recordTokens(root, { slug: 'api', lane: 'do', tokens: 1000 }, noon);
+  recordTokens(root, { slug: 'site', lane: 'look', tokens: 500 }, noon + 3600000);
+
+  assert.equal(tokensToday(root, noon + 7200000), 1500);
+  assert.equal(tokensToday(root, new Date(2026, 5, 2, 1).getTime()), 0);
+});
+
+test('the daily token limit starts cautious and can be changed', t => {
+  const root = dataRoot(t);
+  assert.equal(readMode(root).dailyTokens, 1000000);
+
+  assert.equal(setDailyTokens(root, 250000).dailyTokens, 250000);
+  assert.throws(() => setDailyTokens(root, -1), /positive number/);
 });
 
 test('a proposal updates in place until the user answers it', t => {

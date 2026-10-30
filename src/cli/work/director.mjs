@@ -10,7 +10,8 @@ import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mj
 import { readMemory } from '../memory.mjs';
 import { agentName } from './panes.mjs';
 import {
-  landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState, slugOf, updateItem, writeMode, writeState,
+  landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState, recordTokens, sessionUsage, slugOf, tokensToday,
+  updateItem, writeMode, writeState,
 } from './store.mjs';
 import { prepareTree } from './tree.mjs';
 
@@ -18,6 +19,10 @@ const HOUR_MS = 3600000;
 const DISCOVERY_EVERY_MS = 24 * HOUR_MS;
 const STUDY_RETRY_MS = HOUR_MS / 4;
 const DISCOVERY_RETRY_MS = HOUR_MS / 4;
+const IDEAS_EVERY_MS = 24 * HOUR_MS;
+const MOST_IDEAS = 3;
+const SOME_OPEN_ITEMS = 2;
+const PLENTY_OPEN_ITEMS = 5;
 const MAX_ATTEMPTS = 2;
 const MAX_NOTES_BYTES = 16384;
 const MAX_ITEMS_SENT = 40;
@@ -67,20 +72,24 @@ export class WorkDirector {
       if (this.active.size) await this.stopRuns();
       return;
     }
+    const tokens = { today: tokensToday(this.root, this.now()), limit: mode.dailyTokens };
+    const atLimit = tokens.today >= tokens.limit;
     const hasRoom = () => this.active.size < mode.pool;
-    if (hasRoom() && this.discoveryDue(mode)) this.startDiscovery(mode.folder);
+    if (hasRoom() && !atLimit && this.discoveryDue(mode)) this.startDiscovery(mode.folder, tokens);
 
     const projects = readProjects(this.root)
       .filter(project => project.state === 'chosen')
       .toSorted((left, right) => levels[left.level].rank - levels[right.level].rank);
     for (const project of projects) {
-      if (hasRoom() && !this.active.has(laneKey(project.slug, 'look')) && this.lookDue(project)) this.startLook(project);
+      if (atLimit || !hasRoom() || this.active.has(laneKey(project.slug, 'look'))) continue;
+      const focus = this.nextLook(project, tokens);
+      if (focus) this.startLook(project, focus, tokens);
     }
     for (const project of projects) {
       if (!hasRoom() || this.active.has(laneKey(project.slug, 'do'))) continue;
       if (!existsSync(paths(this.root, project.slug).project)) continue;
       const item = nextItem(this.root, project.slug);
-      if (item) this.startDo(project, item);
+      if (item && (!atLimit || item.urgent)) this.startDo(project, item);
     }
   }
 
@@ -93,10 +102,21 @@ export class WorkDirector {
       && elapsedSince(mode.lastDiscoveryAt, this.now()) >= DISCOVERY_EVERY_MS;
   }
 
-  lookDue({ slug, level }) {
+  nextLook({ slug, level }, tokens) {
     const state = readState(this.root, slug);
-    if (!existsSync(paths(this.root, slug).project)) return elapsedSince(state.lastLookAt, this.now()) >= STUDY_RETRY_MS;
-    return elapsedSince(state.lastLensAt, this.now()) >= levels[level].lookEveryHours * HOUR_MS;
+    const elapsed = at => elapsedSince(at, this.now());
+    if (!existsSync(paths(this.root, slug).project)) return elapsed(state.lastLookAt) >= STUDY_RETRY_MS ? 'study' : null;
+    if (elapsed(state.lastLensAt) >= levels[level].lookEveryHours * HOUR_MS) return lenses[(state.lensIndex ?? 0) % lenses.length];
+    return elapsed(state.lastIdeasAt) >= IDEAS_EVERY_MS && this.ideasWanted(slug, tokens) ? 'ideas' : null;
+  }
+
+  // Ideas add work, so a project already full of it gets fewer, and so does a day that has used most of its tokens.
+  ideasWanted(slug, tokens) {
+    const open = readItems(this.root, slug)
+      .filter(item => ['open', 'doing'].includes(item.state) && item.kind !== 'attention').length;
+    if (open >= PLENTY_OPEN_ITEMS) return 0;
+    const wanted = open >= SOME_OPEN_ITEMS ? 1 : MOST_IDEAS;
+    return tokens.today >= tokens.limit / 2 ? Math.min(wanted, 1) : wanted;
   }
 
   modelFor(level) {
@@ -129,7 +149,7 @@ export class WorkDirector {
     return repo;
   }
 
-  startDiscovery(folder) {
+  startDiscovery(folder, tokens) {
     writeMode(this.root, { lastDiscoveryAt: new Date(this.now()).toISOString() });
     const cwd = join(this.root, 'work');
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
@@ -145,6 +165,7 @@ export class WorkDirector {
       work: () => ({
         lane: 'discover',
         folder,
+        tokens,
         known: readProjects(this.root).map(({ slug, path, state }) => ({ slug, path, state })),
         commands: { propose: this.command('propose') },
       }),
@@ -163,14 +184,13 @@ export class WorkDirector {
     writeMode(this.root, { lastDiscoveryAt: new Date(retryAt).toISOString() });
   }
 
-  startLook(project) {
+  startLook(project, focus, tokens) {
     const { slug, level } = project;
     const state = readState(this.root, slug);
-    const studied = existsSync(paths(this.root, slug).project);
-    const index = state.lensIndex ?? 0;
-    const focus = studied ? lenses[index % lenses.length] : 'study';
     const now = new Date(this.now()).toISOString();
-    writeState(this.root, slug, studied ? { lastLookAt: now, lastLensAt: now, lensIndex: index + 1 } : { lastLookAt: now });
+    const lens = { lastLookAt: now, lastLensAt: now, lensIndex: (state.lensIndex ?? 0) + 1 };
+    writeState(this.root, slug, { study: { lastLookAt: now }, ideas: { lastIdeasAt: now } }[focus] ?? lens);
+    const ideas = focus === 'ideas' ? { ideas: this.ideasWanted(slug, tokens) } : {};
 
     const cwd = paths(this.root, slug).lookTree;
     this.start({
@@ -184,7 +204,7 @@ export class WorkDirector {
       effort: levels[level].lookEffort,
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: async () => { await prepareTree({ repo: await this.repositoryFor(project), tree: cwd }); },
-      work: () => ({ lane: 'look', focus, ...this.describe(project) }),
+      work: () => ({ lane: 'look', focus, tokens, ...ideas, ...this.describe(project) }),
     });
   }
 
@@ -226,13 +246,13 @@ export class WorkDirector {
     updateItem(this.root, slug, id, { state: attempts >= MAX_ATTEMPTS ? 'stuck' : 'open', attempts }, this.now());
   }
 
-  runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal }) {
+  async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal }) {
     const directory = join(paths(this.root, slug).directory, 'runs');
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const brief = join(directory, `${harnessId}.md`);
     const report = join(directory, `${harnessId}.report.md`);
     writeFileSync(brief, paneBrief(purpose, prompt, report), { mode: 0o600 });
-    return this.panes.run({
+    const result = await this.panes.run({
       name: agentName(lane, slug),
       kind: readMode(this.root).harness,
       cwd,
@@ -243,6 +263,8 @@ export class WorkDirector {
       report,
       signal,
     });
+    const { usd, sessionId } = sessionUsage(sessionFile);
+    return usd ? { ...result, cost: { usd, kind: 'estimate', cumulative: true, sessionId } } : result;
   }
 
   start({ key, lane, slug, item, title, purpose, cwd, model, effort, instructions, prepare, work, settle }) {
@@ -261,6 +283,7 @@ export class WorkDirector {
       harnessId,
       work: { slug, lane, item },
     };
+    const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
     const effect = async signal => {
       await prepare?.();
       const schedule = { id: scheduleId, title, prompt: instructions, cwd, harness: 'pi', model, context: [] };
@@ -269,9 +292,7 @@ export class WorkDirector {
         .filter(run => run.scheduleId === scheduleId && run.status !== 'running')
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work());
-      const directory = join(this.root, 'jobs');
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
-      const sessionFile = join(directory, `${harnessId}.jsonl`);
+      mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
       if (slug && this.panes) {
         return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal });
       }
@@ -291,6 +312,8 @@ export class WorkDirector {
     const { work: finished } = this.runner.startTracked(request, effect);
     finished.then(run => {
       this.active.delete(key);
+      const { tokens } = sessionUsage(sessionFile);
+      if (tokens) recordTokens(this.root, { slug, lane, tokens }, this.now());
       settle?.(run);
       this.onChange();
     });
