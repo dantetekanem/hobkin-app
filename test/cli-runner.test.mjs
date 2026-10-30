@@ -587,6 +587,80 @@ test('capacity is bounded, schedule runs never overlap, and stop cancels only ow
   assert.throws(() => new CompanionRunner({ ...fixtureData, config: { ...config, concurrency: 5 } }), /concurrency/);
 });
 
+test('a running check takes a message, and one that is not running says so', async t => {
+  const fixtureData = await fixture(t);
+  const received = [];
+  const finish = Promise.withResolvers();
+  const runner = new CompanionRunner({
+    ...fixtureData,
+    config,
+    now: () => new Date('2026-04-27T10:00:00Z'),
+    runHarness: (_request, { onReady }) => {
+      onReady(async text => { received.push(text); });
+      return finish.promise;
+    },
+  });
+  t.after(() => runner.stop());
+  await assert.rejects(runner.messageCheck({ scheduleId: 'check', message: 'hello' }), /not running/);
+
+  await runner.tick();
+
+  assert.deepEqual(await runner.messageCheck({}), { running: [{ scheduleId: 'check', title: 'Check' }] });
+  await assert.rejects(runner.messageCheck({ scheduleId: 'check' }), /what to tell/);
+  assert.deepEqual(await runner.messageCheck({ scheduleId: 'check', message: 'look at the invoices' }), { scheduleId: 'check', status: 'delivered' });
+  assert.deepEqual(received, ['look at the invoices']);
+
+  finish.resolve({ status: 'completed', text: 'Done' });
+  await Promise.all(runner.jobs.values());
+
+  assert.deepEqual(await runner.messageCheck({}), { running: [] });
+});
+
+test('a message to a check that is still starting waits for it', async t => {
+  const fixtureData = await fixture(t);
+  const received = [];
+  const ready = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const runner = new CompanionRunner({
+    ...fixtureData,
+    config,
+    now: () => new Date('2026-04-27T10:00:00Z'),
+    runHarness: async (_request, { onReady }) => {
+      await ready.promise;
+      onReady(async text => { received.push(text); });
+      return finish.promise;
+    },
+  });
+  t.after(() => runner.stop());
+  await runner.tick();
+
+  const sent = runner.messageCheck({ scheduleId: 'check', message: 'hello' });
+  ready.resolve();
+
+  assert.deepEqual(await sent, { scheduleId: 'check', status: 'delivered' });
+  assert.deepEqual(received, ['hello']);
+  finish.resolve({ status: 'completed', text: 'Done' });
+  await Promise.all(runner.jobs.values());
+});
+
+test('a message to a check that ends before it starts fails instead of waiting forever', async t => {
+  const fixtureData = await fixture(t);
+  const failing = Promise.withResolvers();
+  const runner = new CompanionRunner({
+    ...fixtureData,
+    config,
+    now: () => new Date('2026-04-27T10:00:00Z'),
+    runHarness: () => failing.promise,
+  });
+  t.after(() => runner.stop());
+  await runner.tick();
+
+  const sent = runner.messageCheck({ scheduleId: 'check', message: 'hello' });
+  failing.resolve({ status: 'failed', error: 'No credentials.' });
+
+  await assert.rejects(sent, /has finished/);
+});
+
 test('kill stops only the named owned native run and keeps its schedule', async t => {
   const fixtureData = await fixture(t);
   await fixtureData.save({ ...fixtureData.schedule, id: 'other' });

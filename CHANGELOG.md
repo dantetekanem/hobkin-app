@@ -32,6 +32,7 @@
 - Add `m` inside a report to message about it: the report goes to the agent with your question, Chat shows only what you typed, and the conversation continues there.
 - Draw the composer with a line above and below instead of a box.
 - Show a sent message in Chat at once under `You`, gray until the agent has it. One sent while the conversation is busy waits its turn instead of failing.
+- Let the main agent message a running check, so what the user says reaches it before its report.
 - Add `pi-companion skill`, which prints a skill that teaches other agents to work with Companion.
 
 ## 0.1.6 - 2026-10-29

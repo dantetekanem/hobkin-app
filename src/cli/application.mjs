@@ -81,6 +81,7 @@ export class CompanionApplication {
       createMain,
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
+      messageCheck: request => app.runner.messageCheck(request),
       onChange: () => app.requestRefresh(),
     });
     try {

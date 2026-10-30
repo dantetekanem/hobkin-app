@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-export const companionTools = ['ask_question', 'run_schedule', 'companion_memory', 'model_settings'];
+export const companionTools = ['ask_question', 'run_schedule', 'message_check', 'companion_memory', 'model_settings'];
 const argument = (args, flag) => args[args.indexOf(flag) + 1];
 
 /**

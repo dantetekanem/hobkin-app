@@ -221,7 +221,7 @@ test('a binding, identity or missing tool that differs is disposed before any pr
     [{ thinking: 'low' }, /binding/],
     [{ model: { provider: 'fixture', id: 'other' } }, /binding/],
     [{ hello: false }, /did not activate/],
-    [{ hello: ['ask_question'] }, /run_schedule, companion_memory, model_settings/],
+    [{ hello: ['ask_question'] }, /run_schedule, message_check, companion_memory, model_settings/],
   ]) {
     const h = fixture(t, pi);
     await assert.rejects(openPiSession({ root: h.root, config: h.config }, h.dependencies), expected);
@@ -393,6 +393,7 @@ test('bridge requests run the real Companion tools in Companion with the childâ€
       triggered.push({ scheduleId, callId, signal });
       return { status: 'admitted', scheduleId };
     },
+    messageCheck: async ({ scheduleId }) => ({ scheduleId, status: 'delivered' }),
   });
   const sessionId = runtime.main.sessionId;
 
@@ -404,6 +405,9 @@ test('bridge requests run the real Companion tools in Companion with the childâ€
   const scheduled = await bridge(h.fake, { op: 'tool', name: 'run_schedule', id: 'call-2', params: { scheduleId: 'daily-check' } });
   assert.deepEqual(scheduled.answer.result.details, { status: 'admitted', scheduleId: 'daily-check' });
   assert.deepEqual(triggered.map(({ scheduleId, callId }) => ({ scheduleId, callId })), [{ scheduleId: 'daily-check', callId: `${sessionId}:call-2` }]);
+
+  const messaged = await bridge(h.fake, { op: 'tool', name: 'message_check', id: 'call-4', params: { scheduleId: 'daily-check', message: 'Hurry.' } });
+  assert.deepEqual(messaged.answer.result.details, { scheduleId: 'daily-check', status: 'delivered' });
 
   const remembered = await bridge(h.fake, { op: 'tool', name: 'companion_memory', id: 'call-3', params: { action: 'add', text: 'Rent is due November 1' } });
   assert.equal(remembered.answer.ok, true);

@@ -61,7 +61,7 @@ async function fixture(t, runHarness) {
         ...options,
         modelRuntime: models,
         model,
-        tools: ['run_schedule'],
+        tools: ['run_schedule', 'message_check'],
         settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       }),
     }),
@@ -78,6 +78,15 @@ const outcome = {
   status: 'completed',
   text: 'Checked fixture: nothing new',
 };
+
+test('the main agent has a tool that reaches running checks', async t => {
+  const h = await fixture(t, async () => ({ status: 'completed', text: 'Done' }));
+  const tool = h.app.runtime.main.agent.state.tools.find(item => item.name === 'message_check');
+
+  const { details } = await tool.execute('call', {});
+
+  assert.deepEqual(details, { running: [] });
+});
 
 test('exact-ID one-off is durable, asynchronous, replay-safe, visible and leaves paused settings intact', async t => {
   const done = Promise.withResolvers();

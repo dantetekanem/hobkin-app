@@ -8,7 +8,7 @@ import { validateBinding } from './schedules.mjs';
 import { createMemoryExtension, createMemoryTool } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { grantChrome } from './chrome.mjs';
-import { createScheduleTool, createSettingsTool } from './companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './companion-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 
@@ -51,7 +51,7 @@ export async function closePiSession(session) {
 
 /** Pi owns the transcript format. Durable stores only its identity and dispatch receipts. */
 export async function openPiSession(
-  { root, config, saved, fresh = false, askQuestion, triggerSchedule },
+  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck },
   dependencies = {},
 ) {
   root = assertRuntimeAdmission(root);
@@ -69,6 +69,7 @@ export async function openPiSession(
       expected,
       askQuestion,
       triggerSchedule,
+      messageCheck,
       prompts: mainPrompts(root, config),
     }, dependencies);
   }
@@ -78,7 +79,7 @@ export async function openPiSession(
     expected,
     file,
     fresh,
-    customTools: [createQuestionTool(askQuestion), createScheduleTool(triggerSchedule), createMemoryTool(root)],
+    customTools: [createQuestionTool(askQuestion), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root)],
     modelSettings: { root, config },
   }, dependencies);
 }

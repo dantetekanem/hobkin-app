@@ -29,12 +29,13 @@ const costOf = session => {
 };
 
 export class CompanionRuntime {
-  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
     this.askQuestion = askQuestion;
     this.triggerSchedule = triggerSchedule;
+    this.messageCheck = messageCheck;
     this.onChange = onChange;
     this.active = new Map();
     this.busySessions = new Set();
@@ -139,6 +140,7 @@ export class CompanionRuntime {
       fresh,
       askQuestion: this.askQuestion,
       triggerSchedule: (scheduleId, callId, signal) => this.triggerSchedule(scheduleId, `${this.main.sessionId}:${callId}`, signal),
+      messageCheck: this.messageCheck,
     });
     if (this.closing || this.fault) {
       await closePiSession(main);

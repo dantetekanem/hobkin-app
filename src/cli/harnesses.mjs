@@ -61,7 +61,7 @@ export function buildInvocation(request) {
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes = 1048576, onEvent = () => {} } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes = 1048576, onEvent = () => {}, onReady = () => {} } = {}) {
   const invocation = buildInvocation(request);
   if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw Error('Invalid harness bounds.');
   const result = {
@@ -84,6 +84,7 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
   // Agents live in this child and report as later turns, so a settled lead may not be finished.
   const agents = new Set();
   const extensionErrors = new Set();
+  let takesMessages = false;
   const accept = record => {
     // Nobody is watching a job, so a dialog from any extension is declined. Chrome's the user allowed for every run.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
@@ -109,7 +110,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     }
     if (record.type === 'agent_settled') {
       if (record.aborted === true) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
-      else if (!agents.size) settled.resolve();
+      else if (!agents.size) {
+        takesMessages = false;
+        settled.resolve();
+      }
     }
     onEvent(record);
   };
@@ -152,6 +156,12 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     if (response?.disposition === 'handled') {
       throw Error('Pi handled the prompt without starting an assistant response.');
     }
+    takesMessages = true;
+    // A plain steer would sit unread while the lead waits on its agents, so this also starts a turn on an idle one.
+    onReady(async message => {
+      if (!takesMessages) throw Error('That check has finished.');
+      await child.request('prompt', { message, streamingBehavior: 'steer' });
+    });
     await settled.promise;
     result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
     if (assistant?.stopReason !== 'stop' || !result.text.trim()) {
@@ -182,6 +192,7 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     result.status = (child.failure ?? error).interrupted ? 'interrupted' : 'failed';
     result.error = clean((child.failure ?? error).message).slice(0, 2000);
   } finally {
+    takesMessages = false;
     request.signal?.removeEventListener('abort', cancel);
     child.terminate();
     await child.closed;

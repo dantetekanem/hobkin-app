@@ -36,6 +36,26 @@ export function createScheduleTool(triggerSchedule) {
   });
 }
 
+export function createCheckMessageTool(messageCheck) {
+  const parameters = Type.Object({
+    scheduleId: settingsScheduleId,
+    message: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
+  }, { additionalProperties: false });
+  return defineTool({
+    name: 'message_check',
+    label: 'Message a running check',
+    description: 'Send a message to a scheduled check while it runs, to pass on what the user said, redirect it or ask it to wrap up. It reads the message at its next step and carries on; its report holds the result. Omit both fields to list the checks running now.',
+    parameters,
+    async execute(_id, request, signal) {
+      if (!Check(parameters, request)) throw Error('Invalid check message.');
+      signal?.throwIfAborted();
+      if (!messageCheck) throw Error('Messaging checks is unavailable.');
+      const details = await messageCheck(request);
+      return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
+    },
+  });
+}
+
 /** `run(request, signal)` returns the receipt; the host that owns the session and settings supplies it. */
 export function createSettingsTool(run) {
   return defineTool({

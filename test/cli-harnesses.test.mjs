@@ -227,6 +227,28 @@ test('a failed spawn leaves nothing to wait for', { timeout: 3000 }, async t => 
   assert.equal(result.text, 'Useful: the agent could not start.');
 });
 
+test('a running job takes a message as a steer, until the run is over', async t => {
+  const program = rpc(`${teamEvents}
+    if (cmd.streamingBehavior === 'steer') {
+      say('Took: ' + cmd.message);
+      settled();
+    }
+  `);
+  let message;
+
+  const result = await runHarness(request(t), {
+    spawnProcess: fake(program),
+    onReady: send => {
+      message = send;
+      void send('look at the invoices');
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Took: look at the invoices');
+  await assert.rejects(message('too late'), /has finished/);
+});
+
 test('an extension error is noted in the report and does not end a healthy run', async t => {
   const result = await runHarness(request(t), { spawnProcess: fake(rpc(`
     send({ type: 'extension_error', extensionPath: '/extensions/example.ts', event: 'agent_end', error: 'handler failed' });

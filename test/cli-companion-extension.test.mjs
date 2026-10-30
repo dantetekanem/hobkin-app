@@ -8,7 +8,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { BRIDGE, callBridge, serveBridge } from '../src/cli/bridge.mjs';
-import { createScheduleTool, createSettingsTool } from '../src/cli/companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '../src/cli/companion-tools.mjs';
 import companion from '../src/cli/companion-extension.mjs';
 import { createMemoryTool, readMemory } from '../src/cli/memory.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
@@ -86,6 +86,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
         scheduled.push({ scheduleId, id });
         return { status: 'admitted', scheduleId };
       }),
+      message_check: createCheckMessageTool(async ({ scheduleId }) => ({ scheduleId, status: 'delivered' })),
       companion_memory: createMemoryTool(root),
       model_settings: createSettingsTool(async request => ({ action: request.action, scope: request.scope })),
     },
@@ -117,9 +118,9 @@ async function fixture(t, { mode = 'rpc' } = {}) {
 
 const toolResults = session => session.messages.filter(message => message.role === 'toolResult');
 
-test('Pi registers the four Companion tools with their ordinary definitions and reports them on start', async t => {
+test('Pi registers the Companion tools with their ordinary definitions and reports them on start', async t => {
   const { session, statuses } = await fixture(t);
-  const originals = [createQuestionTool(), createScheduleTool(), createMemoryTool(), createSettingsTool()];
+  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool()];
   const registered = session.agent.state.tools;
   for (const tool of originals) {
     const found = registered.find(item => item.name === tool.name);
@@ -139,15 +140,17 @@ test('a tool the model calls runs in the host through the input dialog and its r
     { name: 'run_schedule', arguments: { scheduleId: 'daily-check' } },
     { name: 'companion_memory', arguments: { action: 'add', text: 'Rent is due November 1' } },
     { name: 'model_settings', arguments: { action: 'inspect', scope: 'main' } },
+    { name: 'message_check', arguments: { scheduleId: 'daily-check', message: 'Hurry.' } },
   ]);
   await session.prompt('Use every Companion tool.', { preflightResult() {} });
 
   const results = toolResults(session);
-  assert.equal(results.length, 4);
+  assert.equal(results.length, 5);
   assert.deepEqual(JSON.parse(results[0].content[0].text), { status: 'answered', answer: question.choices[1] });
   assert.deepEqual(JSON.parse(results[1].content[0].text), { status: 'admitted', scheduleId: 'daily-check' });
   assert.match(results[2].content[0].text, /Memory holds 1 of 20 items\.\n- Rent is due November 1/);
   assert.deepEqual(JSON.parse(results[3].content[0].text), { action: 'inspect', scope: 'main' });
+  assert.deepEqual(JSON.parse(results[4].content[0].text), { scheduleId: 'daily-check', status: 'delivered' });
   assert.ok(results.every(result => result.isError !== true));
   assert.deepEqual(asked.map(item => item.request), [question]);
   assert.deepEqual(scheduled, [{ scheduleId: 'daily-check', id: 'call-2' }]);

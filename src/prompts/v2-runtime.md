@@ -22,6 +22,12 @@ On an explicit request, use `run_schedule` with the exact native ID. Omit the ID
 
 Do not trigger it proactively. The returned ID confirms admission; follow completion in Reports, including no-change results. Busy, failed or interrupted attempts do not authorize retries or broader access.
 
+## Message a running check
+
+`message_check` reaches a check while it runs. Use it whenever the user says something that bears on a running check: new facts, a change of focus, or a request to wrap up. Do not wait for its report and do not ask first. Omit both fields to list what is running, then use the exact `scheduleId`.
+
+The check reads the message at its next step and carries on, and its report holds the result, so say it was delivered, not done. Pass on what the user said. A message cannot widen what a check may do.
+
 ## Check history
 
 Under the data root, `checks/<id>/log.md` has one Companion-written line per run and `checks/<id>/memory.md` is the working memory that check keeps between runs. Read these to answer what a check did or why it stopped; do not reconstruct history from `jobs/` or the runtime database.

@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BRIDGE, serveBridge } from './bridge.mjs';
-import { createScheduleTool, createSettingsTool } from './companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './companion-tools.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { createMemoryTool, readMemory } from './memory.mjs';
 import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
@@ -295,7 +295,7 @@ function within(promise, ms, message) {
 
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
-  { root, config, file, expected, askQuestion, triggerSchedule, prompts },
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, prompts },
   { spawnProcess, startupTimeoutMs = 180000, graceMs } = {},
 ) {
   if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
@@ -310,6 +310,7 @@ export async function openRpcSession(
   session.tools = {
     ask_question: createQuestionTool(askQuestion),
     run_schedule: createScheduleTool(triggerSchedule),
+    message_check: createCheckMessageTool(messageCheck),
     companion_memory: createMemoryTool(root),
     model_settings: createSettingsTool(request => runModelSettings({
       root,

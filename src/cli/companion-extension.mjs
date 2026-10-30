@@ -1,7 +1,7 @@
 import { BRIDGE, callBridge } from './bridge.mjs';
 import { createMemoryTool, memorySection } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
-import { createScheduleTool, createSettingsTool } from './companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './companion-tools.mjs';
 
 /**
  * Loaded with --extension by the Pi child that Companion starts for its main chat. The tools keep their
@@ -9,7 +9,7 @@ import { createScheduleTool, createSettingsTool } from './companion-tools.mjs';
  * settings and memory. The model is Pi's, under whatever launcher started it.
  */
 export default function companion(pi) {
-  const tools = [createQuestionTool(), createScheduleTool(), createMemoryTool(), createSettingsTool()];
+  const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool()];
   for (const tool of tools) {
     pi.registerTool({
       ...tool,

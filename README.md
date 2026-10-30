@@ -41,7 +41,7 @@ Type `/` to see local commands. `/clear` hides visible chat without deleting his
 
 Colors follow Pi's saved theme. The header shows connection state; the status bar shows the next check, the total size of Companion's memory files, model, context usage and estimated cost. Critical and useful report summaries appear in Chat; no-news reports stay in Reports. Occasional tips appear above the shortcuts.
 
-Ask the agent to run a configured check now, even if its recurring schedule is paused. This runs it once without changing its schedule.
+Ask the agent to run a configured check now, even if its recurring schedule is paused. This runs it once without changing its schedule. While a check runs, tell the agent anything that bears on it and the agent passes it on: the check reads the message at its next step and carries on, and its report holds the result.
 
 Ask the agent for a different model or thinking effort and the conversation switches on its next model call, with no restart. Each schedule has its own model and effort, and its reports use them: name a check to change only that one, and its next run picks it up. Schedules shows each check's effort.
 

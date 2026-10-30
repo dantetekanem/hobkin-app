@@ -123,6 +123,7 @@ export class CompanionRunner {
     };
     this.loaded = { schedules: [], errors: [], counts: { daily: 0, weekly: 0, monthly: 0, once: 0 } };
     this.jobs = new Map();
+    this.inboxes = new Map();
     this.legacySessions = new Set();
     this.stopped = false;
     this.lastError = null;
@@ -261,6 +262,9 @@ export class CompanionRunner {
     }
     signal?.throwIfAborted();
     if (this.stopped) throw Error('Runner has stopped');
+    const inbox = Promise.withResolvers();
+    inbox.promise.catch(() => {});
+    this.inboxes.set(occurrence.id, inbox);
     return this.startTracked({
       ...occurrence,
       kind: 'background',
@@ -293,7 +297,10 @@ export class CompanionRunner {
         prompt,
         sessionFile: join(directory, `${id}.jsonl`),
         signal,
-      }, { onEvent: event => this.onActivity(occurrence.id, event) });
+      }, {
+        onEvent: event => this.onActivity(occurrence.id, event),
+        onReady: send => inbox.resolve(send),
+      });
     }, onAdmitted);
   }
 
@@ -301,7 +308,11 @@ export class CompanionRunner {
   startTracked(request, effect, onAdmitted) {
     const tracked = this.runtime.dispatch(request, effect, onAdmitted)
       .catch(error => { this.lastError = error.message; })
-      .finally(() => this.jobs.delete(request.id));
+      .finally(() => {
+        this.jobs.delete(request.id);
+        this.inboxes.get(request.id)?.reject(Error('That check has finished.'));
+        this.inboxes.delete(request.id);
+      });
     this.jobs.set(request.id, tracked);
     return { work: tracked };
   }
@@ -428,6 +439,21 @@ export class CompanionRunner {
     // A cancelled compatibility attempt finishes interrupted, so it still requires explicit reconciliation.
     await this.runtime.cancel(runId);
     return true;
+  }
+
+  /** A check shows as running before Pi is ready for it, so a message sent that early waits. With no schedule named, lists what is running. */
+  async messageCheck({ scheduleId, message }) {
+    const runs = Object.values((await this.runtime.state()).runs);
+    const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id));
+    if (!scheduleId) return { running: reachable.map(run => ({ scheduleId: run.scheduleId, title: run.title })) };
+
+    const run = reachable.find(item => item.scheduleId === scheduleId);
+    if (!run) throw Error('That check is not running.');
+    if (!message) throw Error('Say what to tell the check.');
+
+    const send = await this.inboxes.get(run.id).promise;
+    await send(message);
+    return { scheduleId, status: 'delivered' };
   }
 
   async stop() {
