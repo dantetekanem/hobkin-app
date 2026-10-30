@@ -100,9 +100,9 @@ test('tokens count toward the day they were used, and a new day starts clean', t
   assert.equal(tokensToday(root, new Date(2026, 5, 2, 1).getTime()), 0);
 });
 
-test('the daily token limit starts cautious and can be changed', t => {
+test('the daily token limit has a default and can be changed', t => {
   const root = dataRoot(t);
-  assert.equal(readMode(root).dailyTokens, 1000000);
+  assert.equal(readMode(root).dailyTokens, 100000000);
 
   assert.equal(setDailyTokens(root, 250000).dailyTokens, 250000);
   assert.throws(() => setDailyTokens(root, -1), /positive number/);

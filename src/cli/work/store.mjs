@@ -16,7 +16,7 @@ const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvemen
 const itemKinds = [...doableKinds, 'attention'];
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;
-const DEFAULT_DAILY_TOKENS = 1000000;
+const DEFAULT_DAILY_TOKENS = 100000000;
 
 const workRoot = root => join(root, 'work');
 const modePath = root => join(workRoot(root), 'mode.json');

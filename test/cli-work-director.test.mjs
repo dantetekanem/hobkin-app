@@ -241,7 +241,7 @@ const studied = (h, name) => {
 };
 const ideaRuns = h => h.calls.filter(call => h.work(call).focus === 'ideas').map(call => h.work(call));
 const onProject = (h, level = 'important') => {
-  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  writeMode(h.root, { enabled: true, dailyTokens: 1000000, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'), level);
   studied(h, 'api');
 };
