@@ -33,11 +33,13 @@ test('work arguments keep their order and the home option still applies', () => 
   assert.equal(options.root, '/tmp/home');
 });
 
-test('work on and off set the mode a running owner picks up', async t => {
+test('work on needs a folder the first time, and off sets the mode a running owner picks up', async t => {
   const root = dataRoot(t);
 
-  assert.equal((await work(root, ['on'])).result.enabled, true);
+  await assert.rejects(work(root, ['on']), /Say which folder/);
+  assert.equal((await work(root, ['on', root])).result.enabled, true);
   assert.equal(readMode(root).enabled, true);
+  assert.equal(readMode(root).folder, root);
 
   assert.equal((await work(root, ['off'])).result.enabled, false);
   assert.equal(readMode(root).enabled, false);

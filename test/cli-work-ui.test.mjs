@@ -35,7 +35,7 @@ test('a dashboard with no work data has no Work tab', () => {
 test('the Work tab is there with the mode off, and the arrows reach it', () => {
   const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } });
 
-  assert.match(screen(ui).split('\n')[0], /Work/);
+  assert.match(screen(ui).split('\n')[0], /Work Mode/);
   for (const view of ['reports', 'schedules', 'work', 'conversation']) {
     ui.input('\x1b[C');
     assert.equal(ui.state().view, view);
@@ -47,16 +47,111 @@ test('Work reads offline until the mode is on, then active', () => {
   const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } });
   ui.input('\x1b[D');
 
-  assert.match(screen(ui), /WORK\s+● offline/);
+  assert.match(screen(ui), /WORK MODE\s+● offline/);
 
   ui.update({ ...base, work: { enabled: true, projects: [], attention: [] } });
-  assert.match(screen(ui), /WORK\s+● active/);
+  assert.match(screen(ui), /WORK MODE\s+● active/);
   ui.stop();
 });
 
-test('/work turns the mode on and stays where the user is', async () => {
+test('/work asks for a folder first, and the answer starts it without moving the user', async () => {
   const actions = [];
   const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+    send() {},
+    workAction: async (...args) => { actions.push(args); },
+  });
+
+  ui.input('/work');
+  ui.input('\r');
+  await ui.pending();
+  assert.deepEqual(actions, []);
+  assert.equal(ui.state().draft, '');
+  assert.match(screen(ui), /Which folder should work mode start from/);
+
+  ui.input('/Users/me/projects');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['start', '/Users/me/projects']]);
+  assert.deepEqual([ui.state().view, ui.state().focus, ui.state().draft], ['conversation', 'composer', '']);
+  assert.doesNotMatch(screen(ui), /Which folder/);
+  ui.stop();
+});
+
+test('/work can name the folder directly', async () => {
+  const actions = [];
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+    send() {},
+    workAction: async (...args) => { actions.push(args); },
+  });
+
+  ui.input('/work ~/Poetry');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['start', '~/Poetry']]);
+  ui.stop();
+});
+
+test('a folder that fails keeps the question open and shows why', async () => {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+    send() {},
+    workAction: async () => { throw Error('Not a folder: /nope'); },
+  });
+  ui.input('/work');
+  ui.input('\r');
+  await ui.pending();
+
+  ui.input('/nope');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.equal(ui.state().draft, '/nope');
+  assert.match(screen(ui), /Not a folder/);
+  assert.match(screen(ui), /Which folder/);
+  ui.stop();
+});
+
+test('Escape drops the folder question', async () => {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+    send() {},
+    workAction: async () => {},
+  });
+  ui.input('/work');
+  ui.input('\r');
+  await ui.pending();
+
+  ui.input('\x1b');
+
+  assert.doesNotMatch(screen(ui), /Which folder/);
+  ui.stop();
+});
+
+test('Enter in the Work Mode tab asks for a folder there, and stays in the tab', async () => {
+  const actions = [];
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+    workAction: async (...args) => { actions.push(args); },
+  });
+  ui.input('\x1b[D');
+
+  ui.input('\r');
+  assert.deepEqual([ui.state().view, ui.state().focus], ['work', 'composer']);
+  assert.match(screen(ui), /Which folder/);
+
+  ui.input('~/Poetry');
+  ui.input('\x1b[D');
+  assert.equal(ui.state().view, 'work', 'the arrows edit the answer');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['start', '~/Poetry']]);
+  assert.deepEqual([ui.state().view, ui.state().focus], ['work', 'work']);
+  ui.stop();
+});
+
+test('/work turns the mode on and stays where the user is once a folder is known', async () => {
+  const actions = [];
+  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [], attention: [] } }, {
     send() {},
     workAction: async (...args) => {
       actions.push(args);
@@ -74,9 +169,9 @@ test('/work turns the mode on and stays where the user is', async () => {
   ui.stop();
 });
 
-test('Enter in the Work tab starts the mode when it is off', async () => {
+test('Enter in the Work Mode tab starts the mode when a folder is known', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [chosen], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [chosen], attention: [] } }, {
     workAction: async (...args) => { actions.push(args); },
   });
   ui.input('\x1b[D');
@@ -90,7 +185,7 @@ test('Enter in the Work tab starts the mode when it is off', async () => {
 });
 
 test('/work turning it off stays in Chat and says so', async () => {
-  const ui = createDashboard({ ...base, work: on }, { send() {}, workAction: async () => ({ enabled: false }) });
+  const ui = createDashboard({ ...base, work: { ...on, folder: '/repos' } }, { send() {}, workAction: async () => ({ enabled: false }) });
 
   ui.input('/work');
   ui.input('\r');
@@ -102,7 +197,7 @@ test('/work turning it off stays in Chat and says so', async () => {
 });
 
 test('a failed /work keeps the draft and shows why', async () => {
-  const ui = createDashboard(base, { send() {}, workAction: async () => { throw Error('still connecting'); } });
+  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [], attention: [] } }, { send() {}, workAction: async () => { throw Error('still connecting'); } });
 
   ui.input('/work');
   ui.input('\r');

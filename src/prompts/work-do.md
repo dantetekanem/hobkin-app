@@ -21,7 +21,7 @@ The request's `work` field holds the item, the project, `projectNotes` (what ear
 
 If the repository has no remote, stop at your committed branch and record `{ "id": "<id>", "state": "pr", "pr": "local branch <name>" }`. Never merge in this version.
 
-If you cannot finish, record nothing and report `Blocked:` with what stopped you. An item left unrecorded gets one more try, then it shows in Work as stuck.
+If you cannot finish, record nothing and report `Blocked:` with what stopped you. An item left unrecorded gets one more try, then it shows in Work Mode as stuck.
 
 ## Rules
 

@@ -107,17 +107,27 @@ test('nothing runs while work mode is off', async t => {
   assert.deepEqual(h.calls, []);
 });
 
-test('turning work mode on sends the agent to find projects, once a day', async t => {
+test('with no folder named, nothing goes looking', async t => {
   const h = fixture(t);
   writeMode(h.root, { enabled: true });
+
+  await h.tick();
+
+  assert.deepEqual(h.calls, []);
+});
+
+test('turning work mode on sends the agent to the folder the user named, once a day', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, folder: '/repos' });
 
   await h.tick();
   await h.tick();
 
   assert.deepEqual(h.purposes(), ['work-discover']);
   assert.equal(h.calls[0].model, 'fixture/main');
-  assert.equal(h.calls[0].effort, 'high');
+  assert.equal(h.calls[0].effort, 'medium');
   assert.equal(h.calls[0].cwd, join(h.root, 'work'));
+  assert.equal(h.work(h.calls[0]).folder, '/repos');
   assert.match(h.work(h.calls[0]).commands.propose, /work propose --home/);
 
   h.clock += 25 * HOUR;
@@ -128,7 +138,7 @@ test('turning work mode on sends the agent to find projects, once a day', async 
 test('discovery is told what is already known so it reads only what is new', async t => {
   const h = fixture(t);
   proposeProject(h.root, { name: 'api', path: '/repos/api', level: 'casual', summary: 'An API.' });
-  writeMode(h.root, { enabled: true });
+  writeMode(h.root, { enabled: true, folder: '/repos' });
 
   await h.tick();
 

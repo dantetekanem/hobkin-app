@@ -80,7 +80,7 @@ test('the main chat starts as `<launcher> --mode rpc` with its session, binding,
   assert.equal(main.sessionFile, join(h.root, 'sessions', 'main.jsonl'));
   assert.equal(runtime.main.sessionId, main.sessionId);
   assert.equal(runtime.main.model.id, 'local');
-  assert.deepEqual(h.fake.received.map(record => record.type), ['get_state', 'get_state', 'get_messages', 'get_session_stats']);
+  assert.deepEqual(h.fake.received.map(record => record.type), ['get_state', 'get_commands', 'get_state', 'get_messages', 'get_session_stats']);
   assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
 });
 
@@ -493,6 +493,41 @@ test('model_settings through the bridge can target one schedule', async t => {
   assert.deepEqual(answer.result.details.persisted.completed, ['schedules:check']);
   assert.match(readFileSync(file, 'utf8'), /"effort": "high"/);
   assert.equal(h.fake.received.some(record => record.type === 'set_thinking_level'), false);
+});
+
+test('the launcher chat gets Chrome with no time limit when Pi offers it', async t => {
+  const h = fixture(t, { script: { get_commands: reply => reply({ commands: [{ name: 'chrome' }] }) } });
+
+  await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
+
+  const prompts = h.fake.received.filter(record => record.type === 'prompt').map(record => record.message);
+  assert.deepEqual(prompts, ['/chrome authorize indefinite']);
+});
+
+test('the launcher chat answers the Chrome consent dialog itself', async t => {
+  const h = fixture(t, {
+    script: {
+      get_commands: reply => reply({ commands: [{ name: 'chrome' }] }),
+      prompt: (reply, _reject, command, { emit }) => {
+        if (!command.message.startsWith('/chrome')) return reply({ disposition: 'started' });
+        emit({ type: 'extension_ui_request', id: 'consent', method: 'confirm', title: 'Authorize pi-chrome control?' });
+        return reply({ disposition: 'handled' });
+      },
+    },
+  });
+
+  await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
+
+  const answer = h.fake.received.find(record => record.type === 'extension_ui_response');
+  assert.deepEqual([answer.id, answer.confirmed], ['consent', true]);
+});
+
+test('the launcher chat sends nothing for Chrome when Pi does not offer it', async t => {
+  const h = fixture(t);
+
+  await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
+
+  assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
 });
 
 test('a saved level the model lacks still opens the launcher chat at the level Pi chose', async t => {

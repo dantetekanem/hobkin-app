@@ -848,3 +848,18 @@ test('a message about a report gives the model the report and shows the chat onl
     await app.close();
   }
 });
+
+test('the note Chrome leaves when authorized stays out of Chat', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    await app.runtime.main.sendCustomMessage({ customType: 'pi-chrome-tool-change', content: 'Chrome tools enabled.', display: true }, { triggerTurn: false });
+    await app.runtime.main.sendCustomMessage({ customType: 'other-extension', content: 'Worth showing.', display: true }, { triggerTurn: false });
+
+    const view = await app.refresh();
+
+    assert.deepEqual(view.messages.map(message => message.content), ['Worth showing.']);
+  } finally {
+    await app.close();
+  }
+});

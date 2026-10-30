@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Add work mode: a Work tab, started with Enter or `/work`, sends an agent to find the user's projects and propose them, and agents then study each project taken, file work and open PRs from their own worktrees.
+- Add work mode: a Work Mode tab, started with Enter or `/work` and a folder to start from, sends an agent to find the projects there and propose them, and agents then study each project taken, file work and open PRs from their own worktrees.
+- Let every Companion run use Chrome with no time limit. Private accounts and changes through the browser need an approved plan.
 - Add an optional `launcher` setting. With it, every Pi process starts through the configured command: the main chat as an RPC child that keeps Companion's tools, and checks, reflection, pattern review and repair. `managedExtensions` skips `--no-extensions` for installations that refuse it. Without `launcher`, nothing changes.
 - Show the main binding and any launcher in `pi-companion status`.
 - Read large Pi output records in linear time, stop Pi children when Companion exits, and decline extension dialogs in unattended checks instead of waiting.

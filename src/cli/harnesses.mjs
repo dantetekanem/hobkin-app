@@ -2,11 +2,13 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { validateBinding } from './schedules.mjs';
+import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { keptEffort } from './model-settings.mjs';
 import { clean, startRpcProcess } from './rpc-process.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
+const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || workPurposes.includes(purpose);
 const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const validCost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -33,7 +35,7 @@ export function buildInvocation(request) {
     throw Error('Unsupported harness purpose.');
   }
   const isWork = workPurposes.includes(request.purpose);
-  const noTools = request.purpose !== undefined && request.purpose !== 'compatibility-check' && !isWork;
+  const noTools = !usesTools(request.purpose);
   const system = prompt(isWork ? 'background' : request.purpose ?? 'background');
   if (!isAbsolute(request.sessionFile ?? '')) throw Error('Pi requires an explicit job session file.');
   const args = [
@@ -80,9 +82,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
   // Agents live in this child and report as later turns, so a settled lead may not be finished.
   const agents = new Set();
   const accept = record => {
-    // Nobody is watching a job, so a dialog from any extension is declined.
+    // Nobody is watching a job, so a dialog from any extension is declined. Chrome's the user allowed for every run.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
-      child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
+      const answer = isChromeConsent(record) ? { confirmed: true } : { cancelled: true };
+      child.send({ type: 'extension_ui_response', id: record.id, ...answer });
     }
     if (record.type === 'message_end' && record.message?.role === 'assistant') {
       assistant = record.message;
@@ -135,6 +138,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     }
     result.sessionId = state.sessionId;
     result.model = model;
+    if (usesTools(request.purpose)) {
+      const { commands } = await child.request('get_commands');
+      if (offersChrome(commands)) await child.request('prompt', { message: CHROME_GRANT });
+    }
     const response = await child.request('prompt', { message: request.prompt });
     if (response?.disposition === 'handled') {
       throw Error('Pi handled the prompt without starting an assistant response.');

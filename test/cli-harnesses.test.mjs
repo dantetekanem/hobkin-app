@@ -55,6 +55,8 @@ process.stdin.on('data', chunk => {
       ${statsResponse};
     } else if (cmd.type === 'set_auto_retry' || cmd.type === 'set_auto_compaction') {
       reply();
+    } else if (cmd.type === 'get_commands') {
+      reply({ commands: [] });
     } else if (cmd.type === 'prompt') {
       reply({ disposition: 'started' });
       ${body}

@@ -7,6 +7,7 @@ import { readSource, sha256 } from './migration/inventory.mjs';
 import { validateBinding } from './schedules.mjs';
 import { createMemoryExtension, createMemoryTool } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
+import { grantChrome } from './chrome.mjs';
 import { createScheduleTool, createSettingsTool } from './companion-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { openRpcSession } from './rpc-session.mjs';
@@ -290,6 +291,7 @@ async function openConversation(
   }
   try {
     await session.bindExtensions({});
+    await grantChrome(session);
     return session;
   } catch (error) {
     await closePiSession(session);

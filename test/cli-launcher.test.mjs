@@ -36,6 +36,7 @@ process.stdin.on('data', chunk => {
     input = input.slice(end + 1);
     const reply = data => send({ type: 'response', id: cmd.id, command: cmd.type, success: true, data });
     if (cmd.type === 'get_state') reply({ sessionId: 'job', thinkingLevel: 'medium', model: { provider: 'test', id: 'model' } });
+    else if (cmd.type === 'get_commands') reply({ commands: [] });
     else if (cmd.type === 'get_session_stats') reply({ sessionId: 'job', cost: 0.1 });
     else if (cmd.type === 'prompt') { reply({ disposition: 'started' }); ${body} }
     else if (cmd.type === 'extension_ui_response') received.push(cmd);

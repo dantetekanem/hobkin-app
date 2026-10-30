@@ -619,12 +619,12 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
 };
 const workLines = ({ work, sections, selected, inner, frame }) => {
   const status = work.enabled ? `${positive('●')} ${dim('active')}` : `${muted('●')} ${dim('offline')}`;
-  const content = [row(muted(bold('WORK')), status, inner), ''];
+  const content = [row(muted(bold('WORK MODE')), status, inner), ''];
   let selectedRange;
   if (!work.enabled) content.push(dim('Work mode is off. Press enter to start.'), '');
   if (work.discovering) {
     const found = (work.projects ?? []).filter(project => project.state === 'proposed').length;
-    content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading repositories · ${found} proposed so far`)}`, '');
+    content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading ${clean(work.folder)} · ${found} proposed so far`)}`, '');
   }
   for (const [heading, rows] of sections) {
     content.push(row(muted(bold(heading)), muted(String(rows.length)), inner), '');
@@ -697,6 +697,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let referencedReport = null;
   let workKey = null;
   let armedDrop = null;
+  let askingWorkFolder = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
   const visibleMessageIds = () => (snapshot.messages ?? [])
@@ -782,9 +783,41 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   for (const message of snapshot.messages ?? []) {
     if (message.role === 'user') editor.addToHistory(message.content);
   }
+  const needsWorkFolder = () => !snapshot.work?.enabled && !snapshot.work?.folder;
+  const askForWorkFolder = () => {
+    askingWorkFolder = true;
+    focus = 'composer';
+    say('');
+  };
+  const stopAskingForWorkFolder = () => {
+    askingWorkFolder = false;
+    if (view === 'work') focus = 'work';
+  };
+  const startWorkIn = folder => {
+    clearing = true;
+    pending = Promise.resolve().then(() => {
+      if (typeof callbacks.workAction !== 'function') throw Error('Work mode unavailable');
+      return callbacks.workAction('start', folder);
+    }).then(() => {
+      editor.setText('');
+      stopAskingForWorkFolder();
+      say('Work mode on.', 'success', { timeout: 3000 });
+    }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+      .finally(() => { clearing = false; changed(); });
+  };
   editor.onSubmit = submitted => {
     // Editor clears before onSubmit; keep the draft until the runtime accepts it.
     editor.setText(submitted);
+    if (askingWorkFolder) {
+      // A path starts with a slash, so this comes before command handling.
+      if (submitted.trim() && !clearing) startWorkIn(submitted.trim());
+      return;
+    }
+    const namedFolder = submitted.match(/^\/work\s+(.+)$/)?.[1];
+    if (namedFolder && !clearing) {
+      startWorkIn(namedFolder.trim());
+      return;
+    }
     if (submitted.startsWith('/')) {
       if (!['/clear', '/reset', '/work'].includes(submitted)) {
         say('Unknown command. Use /clear, /reset or /work.', 'warning');
@@ -792,6 +825,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         return;
       }
       if (clearing) return;
+      if (submitted === '/work' && needsWorkFolder()) {
+        editor.setText('');
+        askForWorkFolder();
+        changed();
+        return;
+      }
       if (submitted === '/work') {
         clearing = true;
         pending = Promise.resolve().then(() => {
@@ -890,7 +929,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       { name: 'schedules', label: 'Schedules', count: String(scheduleCount) },
       ...(workVisible() ? [{
         name: 'work',
-        label: 'Work',
+        label: 'Work Mode',
         count: snapshot.work.attention?.length ? String(snapshot.work.attention.length) : '',
         prefix: `${snapshot.work.enabled ? positive('●') : muted('●')} `,
       }] : []),
@@ -904,6 +943,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
   const hintsFor = draft => {
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
+    if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'detail') return [['m', 'message'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
@@ -967,13 +1007,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const below = lines.pop();
     const paint = editor.focused && connected() ? assistantColor : muted;
     const prompted = referencedReport ? 'Ask about this report…' : 'Message Companion…';
-    const placeholder = connected() ? prompted : 'Waiting for the main conversation…';
+    const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
+      : connected() ? prompted : 'Waiting for the main conversation…';
     const empty = !editor.getExpandedText();
     const content = lines.map((value, index) => {
       const prompt = index ? '    ' : `  ${connected() ? highlight('❯') : muted('❯')} `;
       return prompt + (empty && !index ? value.trimEnd() + muted(placeholder) : value);
     });
-    const reference = referencedReport ? `${accent('↳')} ${dim(line(clean(referencedReport.title), inner - 16))}` : '';
+    const subject = askingWorkFolder ? 'Which folder should work mode start from?' : referencedReport?.title;
+    const reference = subject ? `${accent('↳')} ${dim(line(clean(subject), inner - 16))}` : '';
     const top = [reference, above && muted(above)].filter(Boolean).join(muted(' · '));
     return ruled({ paint, top, bottom: below && muted(below), lines: content, inner });
   };
@@ -1004,7 +1046,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     // The row stays reserved so a tip coming or going never moves anything.
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
-    if (view === 'conversation') return [...composerLines(inner), ...tipRows, ...statusLines];
+    if (view === 'conversation' || askingWorkFolder) return [...composerLines(inner), ...tipRows, ...statusLines];
     return [tipRows[0] ?? '', ...statusLines];
   };
   const renderContent = (inner, available, clock, frame) => {
@@ -1077,7 +1119,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const handleWorkKey = data => {
     if (!snapshot.work?.enabled && key(data, 'enter')) {
-      runWorkAction('toggle');
+      if (needsWorkFolder()) askForWorkFolder();
+      else runWorkAction('toggle');
       return true;
     }
     if (key(data, 'up') || key(data, 'down')) {
@@ -1212,7 +1255,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         focus = 'composer';
         scroll = 0;
       } else if ((key(data, 'left') || key(data, 'right'))
-        && (view !== 'conversation' || !editor.getExpandedText())) {
+        && (focus !== 'composer' || !editor.getExpandedText())) {
+        askingWorkFolder = false;
         const tabs = views();
         const direction = key(data, 'left') ? -1 : 1;
         view = tabs[(tabs.indexOf(view) + direction + tabs.length) % tabs.length];
@@ -1234,6 +1278,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         if (key(data, 'escape')) {
           say('');
           referencedReport = null;
+          stopAskingForWorkFolder();
         } else {
           editor.disableSubmit = clearing;
           editor.handleInput(data);

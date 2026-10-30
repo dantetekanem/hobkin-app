@@ -4,7 +4,7 @@ Work mode is a proactive agent mode to get work done. When the user turns it on,
 
 ## Turning it on
 
-The Work tab sits beside Schedules, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
+The Work Mode tab sits beside Schedules, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
 
 ```
 ◆ Pi Companion    Chat   Reports 12   Schedules 4   Work              ● connected · 1 running
@@ -139,7 +139,7 @@ A project is a git repository.
 
 ### Turning it on and off
 
-Enter in the Work tab turns it on. So does `/work` in Chat, asking the main agent, or `pi-companion work on` for a headless `pi-companion run`. All three write `work/mode.json`, and the director picks that up on its next tick.
+Enter in the Work Mode tab turns it on. So does `/work` in Chat, asking the main agent, or `pi-companion work on` for a headless `pi-companion run`. All three write `work/mode.json`, and the director picks that up on its next tick.
 
 When it goes on:
 
@@ -161,17 +161,11 @@ Work mode runs only while a dashboard or `pi-companion run` owns the workspace, 
 
 ### Finding projects
 
-Discovery is one agent run with all its tools, `work.discover`, directed by `src/prompts/work-discover.md`. It runs in `work/` on the main chat model at `high`, and it changes nothing in any repository.
+Discovery is one agent run with all its tools, `work.discover`, directed by `src/prompts/work-discover.md`. It runs in `work/` on the main chat model at `medium`, and it changes nothing in any repository.
 
-It gathers candidates from five places:
+Discovery starts from one folder the user names. Without a starting point it would read session history, every sibling folder and all of GitHub, which burns time and money before the user has chosen anything. So the first start asks for the folder, saves it in `mode.json`, and looks only there, two levels down for `.git`. `/work <folder>` or `pi-companion work on <folder>` names another one, which runs discovery again.
 
-1. Where the user works. Pi keeps sessions in `~/.pi/agent/sessions/<encoded cwd>/`. The first line of each session file holds the real `cwd`, and file times show when it was used. Folder names cannot be decoded reliably, so it reads the header. This finds work repositories at any path and shows which ones the user uses.
-2. Next to those. The parent folders of those paths, such as `~/Poetry`, are searched two levels down for `.git`. That catches repositories with no sessions.
-3. GitHub. `gh repo list` for the user and for each org in `gh api user/orgs`, then `gh search prs --author=@me` over the last 90 days for repositories the user contributes to. A repository that is not cloned locally is still a candidate.
-4. Companion itself: the `cwd` of each schedule, and `config.main.cwd`.
-5. Pi packages. Local paths under `packages` in Pi's `settings.json` are the user's own extensions.
-
-It never walks the whole home folder and never enters `Desktop`, `Documents`, `Downloads`, `Library` or cloud drive folders. Those hold personal files and raise macOS privacy prompts, and it is only looking for repositories.
+Other sources can come later, once the user asks for them: Pi session folders, GitHub, Companion's own `cwd` values and Pi packages.
 
 Then it cleans the list. A repository cloned twice, or a worktree of another repository, counts once (`git rev-parse --git-common-dir` and the remote URL). It sets aside clones with no commits from the user, unchanged forks, archived repositories, tutorials, and anything with no commit in two years and nothing deployed. Those go in the report under "Left out", so the user can still say "add that one".
 

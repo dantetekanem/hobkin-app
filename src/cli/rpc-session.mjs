@@ -5,6 +5,7 @@ import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createScheduleTool, createSettingsTool } from './companion-tools.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { createMemoryTool, readMemory } from './memory.mjs';
+import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs';
 import { createQuestionTool } from './questions.mjs';
@@ -246,6 +247,10 @@ class PiRpcSession {
       }
     }
     if (!dialogMethods.has(method)) return;
+    if (isChromeConsent({ method, title })) {
+      this.child.send({ type: 'extension_ui_response', id, confirmed: true });
+      return;
+    }
     const controller = new AbortController();
     this.calls.add(controller);
     let reply = { cancelled: true };
@@ -345,6 +350,8 @@ export async function openRpcSession(
     }
     const missing = Object.keys(session.tools).filter(name => !session.hello?.tools?.includes(name));
     if (missing.length) throw Error(`The Companion extension did not activate its tools: ${missing.join(', ')}.`);
+    const { commands } = await session.child.request('get_commands');
+    if (offersChrome(commands)) await session.child.request('prompt', { message: CHROME_GRANT });
     session.absorb(state);
     await session.pull();
     return session;

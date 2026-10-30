@@ -9,9 +9,10 @@ import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
+import { CHROME_NOTE } from './chrome.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { chooseProject, dropProject, readMode, skipProject, updateItem, writeMode } from './work/store.mjs';
+import { chooseProject, dropProject, readMode, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
 import { atomicJson, loadConfig } from './config.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
@@ -208,7 +209,7 @@ export class CompanionApplication {
     }
     const messages = [
       ...this.runtime.messages()
-        .filter(message => ['user', 'assistant', 'custom'].includes(message.role))
+        .filter(message => ['user', 'assistant', 'custom'].includes(message.role) && message.customType !== CHROME_NOTE)
         .slice(-100)
         .map(chatMessage),
       ...notices,
@@ -334,7 +335,8 @@ export class CompanionApplication {
   async workAction(action, slug, value) {
     const root = this.runtime.directory;
     const actions = {
-      toggle: () => writeMode(root, { enabled: !readMode(root).enabled }),
+      toggle: () => (readMode(root).enabled ? writeMode(root, { enabled: false }) : startWork(root)),
+      start: () => startWork(root, slug),
       choose: () => chooseProject(root, slug, value),
       level: () => chooseProject(root, slug, value),
       skip: () => skipProject(root, slug),

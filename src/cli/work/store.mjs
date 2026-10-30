@@ -1,6 +1,6 @@
-import { appendFileSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { availableParallelism } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
@@ -73,13 +73,31 @@ function fold(events, identify) {
 
 export function readMode(root) {
   const pool = Math.max(2, Math.floor(availableParallelism() / 2));
-  return { version: 1, enabled: false, pool, lastDiscoveryAt: null, ...readJson(modePath(root), {}) };
+  return { version: 1, enabled: false, pool, folder: null, lastDiscoveryAt: null, ...readJson(modePath(root), {}) };
 }
 
 export function writeMode(root, change) {
   const mode = { ...readMode(root), ...change };
   atomicJson(modePath(root), mode);
   return mode;
+}
+
+function realFolder(path) {
+  try {
+    const folder = realpathSync(path.replace(/^~(?=$|\/)/, homedir()));
+    if (statSync(folder).isDirectory()) return folder;
+  } catch {
+    // Reported below, with the path the user gave.
+  }
+  throw Error(`Not a folder: ${path}`);
+}
+
+/** Discovery searches only where the user said to start, so the first start needs a folder. */
+export function startWork(root, requested) {
+  const { folder: saved } = readMode(root);
+  const folder = requested ? realFolder(requested) : saved;
+  if (!folder) throw Error('Say which folder to start from.');
+  return writeMode(root, { enabled: true, folder, ...(folder === saved ? {} : { lastDiscoveryAt: null }) });
 }
 
 export const readProjects = root => fold(parseEvents(projectsPath(root)), event => event.slug);

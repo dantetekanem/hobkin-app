@@ -100,6 +100,7 @@ export function fakePiRpc({ model = { provider: 'fixture', id: 'local' }, thinki
     };
     const commands = {
       get_state: reply => reply(state()),
+      get_commands: reply => reply({ commands: [] }),
       get_messages: reply => reply({ messages: pi.messages }),
       get_session_stats: reply => reply({
         sessionFile: file, sessionId: id, cost: pi.cost, contextUsage: { tokens: 10, contextWindow: 1000, percent: 1 },

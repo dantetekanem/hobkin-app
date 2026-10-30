@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   chooseProject, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode, readProjects,
-  skipProject, updateItem, writeMode,
+  skipProject, startWork, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -33,6 +33,37 @@ test('work mode starts off, and a change survives a reread', t => {
 
   assert.equal(readMode(root).enabled, true);
   assert.ok(readMode(root).pool >= 2);
+});
+
+test('work mode starts from a real folder the user named, and remembers it', t => {
+  const root = dataRoot(t);
+
+  assert.throws(() => startWork(root), /Say which folder/);
+  assert.throws(() => startWork(root, join(root, 'missing')), /Not a folder/);
+  assert.equal(readMode(root).enabled, false);
+
+  assert.equal(startWork(root, root).folder, root);
+  writeMode(root, { enabled: false });
+
+  const resumed = startWork(root);
+  assert.deepEqual([resumed.enabled, resumed.folder], [true, root]);
+});
+
+test('a home-relative folder is expanded', t => {
+  const root = dataRoot(t);
+
+  assert.equal(startWork(root, '~').folder, realpathSync(homedir()));
+});
+
+test('naming a new folder runs discovery again, and the same folder does not', t => {
+  const root = dataRoot(t);
+  const other = join(root, 'other');
+  mkdirSync(other);
+  startWork(root, root);
+  writeMode(root, { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' });
+
+  assert.equal(startWork(root, root).lastDiscoveryAt, '2026-01-01T00:00:00.000Z');
+  assert.equal(startWork(root, other).lastDiscoveryAt, null);
 });
 
 test('a proposal updates in place until the user answers it', t => {

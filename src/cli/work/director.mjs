@@ -52,7 +52,7 @@ export class WorkDirector {
       return;
     }
     const hasRoom = () => this.active.size < mode.pool;
-    if (hasRoom() && this.discoveryDue(mode)) this.startDiscovery();
+    if (hasRoom() && this.discoveryDue(mode)) this.startDiscovery(mode.folder);
 
     const projects = readProjects(this.root)
       .filter(project => project.state === 'chosen')
@@ -73,7 +73,8 @@ export class WorkDirector {
   }
 
   discoveryDue(mode) {
-    return !this.active.has('discover') && elapsedSince(mode.lastDiscoveryAt, this.now()) >= DISCOVERY_EVERY_MS;
+    return Boolean(mode.folder) && !this.active.has('discover')
+      && elapsedSince(mode.lastDiscoveryAt, this.now()) >= DISCOVERY_EVERY_MS;
   }
 
   lookDue({ slug, level }) {
@@ -112,7 +113,7 @@ export class WorkDirector {
     return repo;
   }
 
-  startDiscovery() {
+  startDiscovery(folder) {
     writeMode(this.root, { lastDiscoveryAt: new Date(this.now()).toISOString() });
     const cwd = join(this.root, 'work');
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
@@ -123,10 +124,11 @@ export class WorkDirector {
       purpose: 'work-discover',
       cwd,
       model: this.config.main.model,
-      effort: 'high',
-      instructions: 'Find the user\'s projects and propose the ones worth working on.',
+      effort: 'medium',
+      instructions: `Find the projects in ${folder} and propose the ones worth working on.`,
       work: () => ({
         lane: 'discover',
+        folder,
         known: readProjects(this.root).map(({ slug, path, state }) => ({ slug, path, state })),
         commands: { propose: this.command('propose') },
       }),
