@@ -629,6 +629,7 @@ const workLines = ({ work, sections, selected, inner, frame }) => {
   let selectedRange;
   if (!work.enabled) content.push(dim('Work mode is off. Press enter to start.'), '');
   if (work.enabled && atLimit) content.push(caution('Token limit reached for today. Only urgent work runs until tomorrow.'), '');
+  else if (work.enabled && work.pacing) content.push(dim('Spreading tokens across the day. New work starts as the hour moves on.'), '');
   if (work.discovering) {
     const found = (work.projects ?? []).filter(project => project.state === 'proposed').length;
     content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading ${clean(work.folder)} · ${found} proposed so far`)}`, '');

@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   chooseProject, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode, readProjects,
-  recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
+  recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -98,6 +98,17 @@ test('tokens count toward the day they were used, and a new day starts clean', t
 
   assert.equal(tokensToday(root, noon + 7200000), 1500);
   assert.equal(tokensToday(root, new Date(2026, 5, 2, 1).getTime()), 0);
+});
+
+test('the last hour of tokens is a rolling window', t => {
+  const root = dataRoot(t);
+  const noon = new Date(2026, 5, 1, 12).getTime();
+
+  recordTokens(root, { slug: 'api', lane: 'do', tokens: 1000 }, noon);
+  recordTokens(root, { slug: 'api', lane: 'do', tokens: 500 }, noon + 3000000);
+
+  assert.equal(tokensLastHour(root, noon + 3100000), 1500);
+  assert.equal(tokensLastHour(root, noon + 3700000), 500);
 });
 
 test('the daily token limit has a default and can be changed', t => {

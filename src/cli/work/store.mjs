@@ -17,6 +17,8 @@ const itemKinds = [...doableKinds, 'attention'];
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;
 const DEFAULT_DAILY_TOKENS = 100000000;
+const HOUR_MS = 3600000;
+const HOURS_IN_DAY = 24;
 
 const workRoot = root => join(root, 'work');
 const modePath = root => join(workRoot(root), 'mode.json');
@@ -135,6 +137,15 @@ export function tokensToday(root, now = Date.now()) {
     .filter(event => new Date(event.at).toDateString() === today)
     .reduce((sum, event) => sum + event.tokens, 0);
 }
+
+export function tokensLastHour(root, now = Date.now()) {
+  return parseEvents(tokensPath(root))
+    .filter(event => now - Date.parse(event.at) < HOUR_MS)
+    .reduce((sum, event) => sum + event.tokens, 0);
+}
+
+/** A rolling hour spreads work wherever it starts, so turning the mode on late cannot release the whole day at once. */
+export const isPacing = (root, dailyTokens, now = Date.now()) => tokensLastHour(root, now) >= dailyTokens / HOURS_IN_DAY;
 
 export const readProjects = root => fold(parseEvents(projectsPath(root)), event => event.slug);
 

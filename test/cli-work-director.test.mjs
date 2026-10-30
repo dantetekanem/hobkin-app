@@ -287,7 +287,7 @@ test('past half the day\'s tokens, a project gets one idea at most', async t => 
   const h = fixture(t);
   onProject(h);
   keepItemsBusy(h);
-  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 600000 }, h.clock);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 600000 }, h.clock - 2 * HOUR);
 
   await h.tick();
 
@@ -302,7 +302,7 @@ test('at the daily token limit nothing new starts until tomorrow, except urgent 
   fileItem(h.root, 'api', item);
   writeState(h.root, 'api', { lastLensAt: null });
   writeMode(h.root, { lastDiscoveryAt: null, folder: '/repos' });
-  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock - 2 * HOUR);
 
   await h.tick();
   assert.deepEqual(h.calls, [], 'discovery, looks, ideas and ordinary items all wait');
@@ -314,6 +314,27 @@ test('at the daily token limit nothing new starts until tomorrow, except urgent 
   h.clock += 24 * HOUR;
   await h.tick();
   assert.ok(h.calls.length > 1, 'a new day starts again');
+});
+
+test('tokens spread across the day: past an hour\'s share, new work waits for the window to move', async t => {
+  const h = fixture(t);
+  h.agent = () => {};
+  onProject(h);
+  writeMode(h.root, { dailyTokens: 2400000 });
+  fileItem(h.root, 'api', item);
+  writeState(h.root, 'api', { lastLensAt: null });
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 100000 }, h.clock);
+
+  await h.tick();
+  assert.deepEqual(h.calls, [], 'an hour\'s share of a 2.4M day is 100k');
+
+  fileItem(h.root, 'api', { ...item, key: 'ci:main', kind: 'fix', urgent: true });
+  await h.tick();
+  assert.deepEqual(h.calls.map(call => h.work(call).item?.key), ['ci:main'], 'urgent work does not wait');
+
+  h.clock += 61 * 60000;
+  await h.tick();
+  assert.ok(h.calls.length > 1, 'the rest starts once the window moves on');
 });
 
 test('the tokens a run used are recorded when it finishes', async t => {

@@ -10,8 +10,8 @@ import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mj
 import { readMemory } from '../memory.mjs';
 import { agentName } from './panes.mjs';
 import {
-  landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState, recordTokens, sessionUsage, slugOf, tokensToday,
-  updateItem, writeMode, writeState,
+  isPacing, landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState, recordTokens, sessionUsage, slugOf,
+  tokensToday, updateItem, writeMode, writeState,
 } from './store.mjs';
 import { prepareTree } from './tree.mjs';
 
@@ -73,15 +73,15 @@ export class WorkDirector {
       return;
     }
     const tokens = { today: tokensToday(this.root, this.now()), limit: mode.dailyTokens };
-    const atLimit = tokens.today >= tokens.limit;
+    const holding = tokens.today >= tokens.limit || isPacing(this.root, tokens.limit, this.now());
     const hasRoom = () => this.active.size < mode.pool;
-    if (hasRoom() && !atLimit && this.discoveryDue(mode)) this.startDiscovery(mode.folder, tokens);
+    if (hasRoom() && !holding && this.discoveryDue(mode)) this.startDiscovery(mode.folder, tokens);
 
     const projects = readProjects(this.root)
       .filter(project => project.state === 'chosen')
       .toSorted((left, right) => levels[left.level].rank - levels[right.level].rank);
     for (const project of projects) {
-      if (atLimit || !hasRoom() || this.active.has(laneKey(project.slug, 'look'))) continue;
+      if (holding || !hasRoom() || this.active.has(laneKey(project.slug, 'look'))) continue;
       const focus = this.nextLook(project, tokens);
       if (focus) this.startLook(project, focus, tokens);
     }
@@ -89,7 +89,7 @@ export class WorkDirector {
       if (!hasRoom() || this.active.has(laneKey(project.slug, 'do'))) continue;
       if (!existsSync(paths(this.root, project.slug).project)) continue;
       const item = nextItem(this.root, project.slug);
-      if (item && (!atLimit || item.urgent)) this.startDo(project, item);
+      if (item && (!holding || item.urgent)) this.startDo(project, item);
     }
   }
 

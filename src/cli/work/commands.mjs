@@ -1,7 +1,7 @@
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  chooseProject, dropProject, fileItem, proposeProject, readItems, readMode, readProjects, setDailyTokens, setHarness, skipProject,
-  startWork, tokensToday, updateItem, writeMode,
+  chooseProject, dropProject, fileItem, isPacing, proposeProject, readItems, readMode, readProjects, setDailyTokens, setHarness,
+  skipProject, startWork, tokensToday, updateItem, writeMode,
 } from './store.mjs';
 
 const USAGE = 'Usage: pi-companion work [on [folder] | off | harness <kind> | tokens <daily limit> | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
@@ -27,7 +27,7 @@ export function workStatus(root) {
     .filter(item => (item.kind === 'attention' && item.state === 'open') || item.state === 'stuck')
     .map(({ id, title, state }) => ({ slug, id, title, state })));
   const { enabled, folder, harness, dailyTokens } = readMode(root);
-  return { enabled, folder, harness, dailyTokens, tokensToday: tokensToday(root), projects, attention };
+  return { enabled, folder, harness, dailyTokens, tokensToday: tokensToday(root), pacing: isPacing(root, dailyTokens), projects, attention };
 }
 
 /** These take no lock. They only append or rewrite `mode.json`, and the owner picks that up on its next tick. */

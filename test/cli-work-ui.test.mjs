@@ -280,6 +280,14 @@ test('the day\'s tokens show against the limit, and reaching it says what happen
   ui.stop();
 });
 
+test('pacing says why new work is waiting', () => {
+  const ui = createDashboard({ ...base, work: { enabled: true, pacing: true, tokensToday: 5000000, dailyTokens: 100000000, projects: [], attention: [] } });
+  ui.input('\x1b[D');
+
+  assert.match(screen(ui), /Spreading tokens across the day\. New work starts as the hour moves on\./);
+  ui.stop();
+});
+
 test('the Work Mode tab shows the harness, and h moves to the next one', async () => {
   const actions = [];
   const ui = createDashboard({ ...base, work: { enabled: true, harness: 'claude', projects: [], attention: [] } }, {
