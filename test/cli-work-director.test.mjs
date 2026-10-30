@@ -135,6 +135,38 @@ test('turning work mode on sends the agent to the folder the user named, once a 
   assert.deepEqual(h.purposes(), ['work-discover', 'work-discover']);
 });
 
+test('a failed discovery tries again soon instead of waiting a day', async t => {
+  const h = fixture(t, async () => { throw Error('Provider is down.'); });
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+  await h.tick();
+  assert.equal(h.calls.length, 1);
+
+  h.clock += 20 * 60000;
+  await h.tick();
+
+  assert.equal(h.calls.length, 2);
+});
+
+test('an interrupted discovery starts over on the next tick', async t => {
+  const h = fixture(t, async request => {
+    await new Promise(resolve => {
+      if (request.signal.aborted) resolve();
+      request.signal.addEventListener('abort', resolve, { once: true });
+    });
+  });
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.director.tick();
+  while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
+
+  await h.director.stopRuns();
+  await h.settled();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(readMode(h.root).lastDiscoveryAt, null);
+});
+
 test('discovery is told what is already known so it reads only what is new', async t => {
   const h = fixture(t);
   proposeProject(h.root, { name: 'api', path: '/repos/api', level: 'casual', summary: 'An API.' });
@@ -325,6 +357,45 @@ test('work runs do not take a place from ordinary checks', async t => {
 
   release.resolve();
   await h.settled();
+});
+
+test('in Herdr, project work runs in panes on the chosen harness while discovery stays hidden', async t => {
+  const h = fixture(t);
+  const runs = [];
+  h.director.panes = {
+    run: async options => {
+      runs.push({ ...options, briefText: readFileSync(options.brief, 'utf8') });
+      return { status: 'completed', text: 'Useful: Done.', cost: null };
+    },
+  };
+  writeMode(h.root, { enabled: true, folder: h.base, harness: 'claude' });
+  chooseProject(h.root, repository(h.base, 'api'));
+
+  await h.tick();
+
+  assert.deepEqual(h.purposes(), ['work-discover']);
+  assert.equal(runs.length, 1);
+  const [look] = runs;
+  assert.deepEqual([look.kind, look.name, look.cwd], ['claude', 'work-look-api', paths(h.root, 'api').lookTree]);
+  assert.equal(look.effort, 'medium');
+  assert.match(look.briefText, /Companion background check/);
+  assert.match(look.briefText, /look at a project/);
+  assert.ok(look.briefText.includes(look.report), 'the brief names where to write the report');
+  assert.match(look.briefText, /"focus":"study"/);
+});
+
+test('a failed pane run counts against its item like any other', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'));
+  fileItem(h.root, 'api', item);
+  mkdirSync(paths(h.root, 'api').directory, { recursive: true });
+  writeFileSync(paths(h.root, 'api').project, '# What it is\n');
+  h.director.panes = { run: async () => ({ status: 'failed', cost: null, error: 'The agent exited.' }) };
+
+  await h.tick();
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['open', 1]]);
 });
 
 test('the user\'s directions reach every run', async t => {

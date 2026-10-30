@@ -53,6 +53,7 @@ When the user answers or steers in Chat, act on it with `pi-companion work`, usi
 
 - `pi-companion work` prints status as JSON.
 - `pi-companion work on <folder>` starts it from that folder, or looks in a new one.
+- `pi-companion work harness <pi|claude|codex>` picks which agent works on projects, in panes of a Herdr tab called Work Mode.
 - `pi-companion work choose <slug or path> [critical|important|casual]` takes a project or changes its level. A path works for a repository the agent left out.
 - `pi-companion work skip <slug>` and `pi-companion work drop <slug>` skip a proposal or stop work on a project. Dropping keeps its items, branches and PRs.
 - Pipe JSON to `pi-companion work item <slug>` to hand a project work: `{ "key": "...", "kind": "feature", "title": "...", "brief": "...", "urgent": true }`.

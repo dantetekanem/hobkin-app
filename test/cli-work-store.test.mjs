@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   chooseProject, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode, readProjects,
-  skipProject, startWork, updateItem, writeMode,
+  setHarness, skipProject, startWork, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -55,15 +55,24 @@ test('a home-relative folder is expanded', t => {
   assert.equal(startWork(root, '~').folder, realpathSync(homedir()));
 });
 
-test('naming a new folder runs discovery again, and the same folder does not', t => {
+test('naming a folder always runs discovery, and resuming does not', t => {
   const root = dataRoot(t);
-  const other = join(root, 'other');
-  mkdirSync(other);
+  const lookedToday = { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' };
   startWork(root, root);
-  writeMode(root, { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' });
+  writeMode(root, lookedToday);
 
-  assert.equal(startWork(root, root).lastDiscoveryAt, '2026-01-01T00:00:00.000Z');
-  assert.equal(startWork(root, other).lastDiscoveryAt, null);
+  assert.equal(startWork(root).lastDiscoveryAt, lookedToday.lastDiscoveryAt);
+  assert.equal(startWork(root, root).lastDiscoveryAt, null);
+});
+
+test('Pi is the default harness, and the user can pick another that Herdr knows', t => {
+  const root = dataRoot(t);
+  assert.equal(readMode(root).harness, 'pi');
+
+  assert.equal(setHarness(root, 'claude').harness, 'claude');
+
+  assert.equal(readMode(root).harness, 'claude');
+  assert.throws(() => setHarness(root, 'notepad'), /harness must be one of/);
 });
 
 test('a proposal updates in place until the user answers it', t => {

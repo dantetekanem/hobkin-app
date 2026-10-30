@@ -10,6 +10,7 @@ export const levels = {
   casual: { rank: 2, lookEveryHours: 72, lookEffort: 'low', doEffort: 'medium', model: 'background' },
 };
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
+export const workHarnesses = ['pi', 'claude', 'codex'];
 
 const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
 const itemKinds = [...doableKinds, 'attention'];
@@ -73,7 +74,7 @@ function fold(events, identify) {
 
 export function readMode(root) {
   const pool = Math.max(2, Math.floor(availableParallelism() / 2));
-  return { version: 1, enabled: false, pool, folder: null, lastDiscoveryAt: null, ...readJson(modePath(root), {}) };
+  return { version: 1, enabled: false, pool, folder: null, harness: 'pi', lastDiscoveryAt: null, ...readJson(modePath(root), {}) };
 }
 
 export function writeMode(root, change) {
@@ -97,7 +98,12 @@ export function startWork(root, requested) {
   const { folder: saved } = readMode(root);
   const folder = requested ? realFolder(requested) : saved;
   if (!folder) throw Error('Say which folder to start from.');
-  return writeMode(root, { enabled: true, folder, ...(folder === saved ? {} : { lastDiscoveryAt: null }) });
+  return writeMode(root, { enabled: true, folder, ...(requested ? { lastDiscoveryAt: null } : {}) });
+}
+
+export function setHarness(root, harness) {
+  if (!workHarnesses.includes(harness)) throw Error(`harness must be one of: ${workHarnesses.join(', ')}`);
+  return writeMode(root, { harness });
 }
 
 export const readProjects = root => fold(parseEvents(projectsPath(root)), event => event.slug);

@@ -1,13 +1,14 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
-import { runHarness as defaultRunHarness } from '../harnesses.mjs';
+import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
+import { agentName } from './panes.mjs';
 import {
   landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState, slugOf, updateItem, writeMode, writeState,
 } from './store.mjs';
@@ -16,6 +17,7 @@ import { prepareTree } from './tree.mjs';
 const HOUR_MS = 3600000;
 const DISCOVERY_EVERY_MS = 24 * HOUR_MS;
 const STUDY_RETRY_MS = HOUR_MS / 4;
+const DISCOVERY_RETRY_MS = HOUR_MS / 4;
 const MAX_ATTEMPTS = 2;
 const MAX_NOTES_BYTES = 16384;
 const MAX_ITEMS_SENT = 40;
@@ -34,12 +36,26 @@ const readBounded = file => {
   return Buffer.from(readFileSync(file)).subarray(0, MAX_NOTES_BYTES).toString('utf8');
 };
 const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
+const paneBrief = (purpose, request, report) => `${workDirections(purpose)}
+
+## Your report
+
+You are working in a terminal pane the user can watch. When you are finished, write your final report to \`${report}\`, then stop. Companion reads that file to know you are done, so write it last, and write it even if you are blocked.
+
+If the \`chrome_*\` tools say Chrome is locked in this pane, carry on without them and say so in your report.
+
+## The request
+
+\`\`\`json
+${request}
+\`\`\`
+`;
 const laneKey = (slug, lane) => `${slug}:${lane}`;
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, now = Date.now, onChange = () => {} }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, now, onChange });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {} }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange });
     this.active = new Map();
   }
 
@@ -132,7 +148,19 @@ export class WorkDirector {
         known: readProjects(this.root).map(({ slug, path, state }) => ({ slug, path, state })),
         commands: { propose: this.command('propose') },
       }),
+      settle: run => this.settleDiscovery(run),
     });
+  }
+
+  // A run that did not finish found nothing the user can rely on, so it must not count as today's discovery.
+  settleDiscovery(run) {
+    if (run?.status === 'completed') return;
+    if (run?.status === 'interrupted') {
+      writeMode(this.root, { lastDiscoveryAt: null });
+      return;
+    }
+    const retryAt = this.now() - DISCOVERY_EVERY_MS + DISCOVERY_RETRY_MS;
+    writeMode(this.root, { lastDiscoveryAt: new Date(retryAt).toISOString() });
   }
 
   startLook(project) {
@@ -198,6 +226,25 @@ export class WorkDirector {
     updateItem(this.root, slug, id, { state: attempts >= MAX_ATTEMPTS ? 'stuck' : 'open', attempts }, this.now());
   }
 
+  runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal }) {
+    const directory = join(paths(this.root, slug).directory, 'runs');
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const brief = join(directory, `${harnessId}.md`);
+    const report = join(directory, `${harnessId}.report.md`);
+    writeFileSync(brief, paneBrief(purpose, prompt, report), { mode: 0o600 });
+    return this.panes.run({
+      name: agentName(lane, slug),
+      kind: readMode(this.root).harness,
+      cwd,
+      model,
+      effort,
+      sessionFile,
+      brief,
+      report,
+      signal,
+    });
+  }
+
   start({ key, lane, slug, item, title, purpose, cwd, model, effort, instructions, prepare, work, settle }) {
     const harnessId = randomUUID();
     const id = `work:${slug ?? 'discover'}:${lane}:${harnessId}`;
@@ -224,6 +271,10 @@ export class WorkDirector {
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work());
       const directory = join(this.root, 'jobs');
       mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const sessionFile = join(directory, `${harnessId}.jsonl`);
+      if (slug && this.panes) {
+        return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal });
+      }
       return this.runHarness({
         id: harnessId,
         harness: 'pi',
@@ -232,7 +283,7 @@ export class WorkDirector {
         model,
         effort,
         prompt,
-        sessionFile: join(directory, `${harnessId}.jsonl`),
+        sessionFile,
         signal,
       }, { onEvent: event => this.runner.onActivity(id, event) });
     };

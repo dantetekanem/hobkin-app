@@ -256,6 +256,22 @@ test('a proposal is answered with a key', async () => {
   ui.stop();
 });
 
+test('the Work Mode tab shows the harness, and h moves to the next one', async () => {
+  const actions = [];
+  const ui = createDashboard({ ...base, work: { enabled: true, harness: 'claude', projects: [], attention: [] } }, {
+    workAction: async (...args) => { actions.push(args); },
+  });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /WORK MODE\s+● active · claude/);
+  assert.match(screen(ui), /h\s+harness/);
+
+  ui.input('h');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['harness', 'codex']]);
+  ui.stop();
+});
+
 test('the arrows move between rows, and each row has its own keys', async () => {
   const actions = [];
   const ui = createDashboard({ ...base, work: on }, { workAction: async (...args) => { actions.push(args); } });

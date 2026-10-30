@@ -10,6 +10,8 @@ import { clean, startRpcProcess } from './rpc-process.mjs';
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || workPurposes.includes(purpose);
 const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
+/** What a work run is told, for a harness that cannot take it as a system prompt. */
+export const workDirections = purpose => `${prompt('background')}\n${prompt(purpose)}`;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const validCost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const completionGroup = Symbol('completion group');
@@ -81,6 +83,7 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
   let assistant;
   // Agents live in this child and report as later turns, so a settled lead may not be finished.
   const agents = new Set();
+  const extensionErrors = new Set();
   const accept = record => {
     // Nobody is watching a job, so a dialog from any extension is declined. Chrome's the user allowed for every run.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
@@ -100,7 +103,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     if (record.type === 'message_end' && record.message?.customType === 'pi-extended-teams-wake') {
       agents.delete(completionGroup);
     }
-    if (record.type === 'extension_error') child.fail(Error(clean(record.error || 'Pi extension handler failed.')));
+    // A side extension's bug says nothing about the work, so it goes in the report instead of ending the run.
+    if (record.type === 'extension_error') {
+      extensionErrors.add(clean(`${record.extensionPath ?? 'An extension'} (${record.event ?? 'event'}): ${record.error ?? 'handler failed'}`));
+    }
     if (record.type === 'agent_settled') {
       if (record.aborted === true) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
       else if (!agents.size) settled.resolve();
@@ -150,6 +156,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
     if (assistant?.stopReason !== 'stop' || !result.text.trim()) {
       throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
+    }
+    if (extensionErrors.size) {
+      const noted = [...extensionErrors].map(error => `- ${error}`).join('\n');
+      result.text += `\n\n---\n\n**Extension errors during this run:**\n${noted}`;
     }
     let stats;
     let statsUnavailable = false;

@@ -6,6 +6,7 @@ import {
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { followPiTheme } from './theme.mjs';
+import { workHarnesses } from './work/store.mjs';
 
 // The caller supplies already-loaded arrays; render never reads history or starts work.
 const clean = value => stripTerminalSequences(String(value ?? '')).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
@@ -618,7 +619,8 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
   return sections.filter(([, rows]) => rows.length);
 };
 const workLines = ({ work, sections, selected, inner, frame }) => {
-  const status = work.enabled ? `${positive('●')} ${dim('active')}` : `${muted('●')} ${dim('offline')}`;
+  const state = work.enabled ? `${positive('●')} ${dim('active')}` : `${muted('●')} ${dim('offline')}`;
+  const status = work.harness ? `${state}${muted(' · ')}${dim(clean(work.harness))}` : state;
   const content = [row(muted(bold('WORK MODE')), status, inner), ''];
   let selectedRange;
   if (!work.enabled) content.push(dim('Work mode is off. Press enter to start.'), '');
@@ -956,7 +958,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         run: [['enter', 'watch']],
       };
       const start = snapshot.work?.enabled ? [] : [['enter', 'start']];
-      return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
+      return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['h', 'harness'], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
     if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context'], ['/work', 'work mode']];
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
@@ -1125,6 +1127,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     if (key(data, 'up') || key(data, 'down')) {
       moveWorkSelection(key(data, 'down') ? 1 : -1);
+      return true;
+    }
+    if (data === 'h') {
+      const next = workHarnesses.indexOf(snapshot.work?.harness) + 1;
+      runWorkAction('harness', workHarnesses[next % workHarnesses.length]);
       return true;
     }
     const selected = selectedWorkRow();

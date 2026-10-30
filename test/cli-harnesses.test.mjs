@@ -227,15 +227,27 @@ test('a failed spawn leaves nothing to wait for', { timeout: 3000 }, async t => 
   assert.equal(result.text, 'Useful: the agent could not start.');
 });
 
-test('Pi RPC extension errors fail the run without discarding the completed answer', async t => {
+test('an extension error is noted in the report and does not end a healthy run', async t => {
+  const result = await runHarness(request(t), { spawnProcess: fake(rpc(`
+    send({ type: 'extension_error', extensionPath: '/extensions/example.ts', event: 'agent_end', error: 'handler failed' });
+    send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Useful: The answer.' }] } });
+    send({ type: 'agent_settled' });
+  `)) });
+
+  assert.equal(result.status, 'completed');
+  assert.match(result.text, /^Useful: The answer\./);
+  assert.match(result.text, /\/extensions\/example\.ts \(agent_end\): handler failed/);
+});
+
+test('an aborted run stays interrupted even after an extension error', async t => {
   const result = await runHarness(request(t), { spawnProcess: fake(rpc(`
     send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Answer retained' }] } });
     send({ type: 'extension_error', extensionPath: '/extensions/example.ts', event: 'agent_end', error: 'handler failed' });
     send({ type: 'agent_settled', aborted: true });
   `)) });
-  assert.equal(result.status, 'failed');
+
+  assert.equal(result.status, 'interrupted');
   assert.equal(result.text, 'Answer retained');
-  assert.equal(result.error, 'handler failed');
 });
 
 test('Pi RPC aborted settlement without an extension error is interrupted, not completed', async t => {

@@ -95,6 +95,8 @@ Work mode is a proactive agent mode to get work done on your projects. The Work 
 
 From then on, agents work on those projects without being asked. One studies each project and then looks through it for security issues, bugs, updates, chores, improvements, features and trends, filing what it finds. Another takes those items one at a time and opens a PR, in its own worktree, so your checkout is never touched. The level sets how often it looks, how hard it thinks, and whether PRs start as drafts. Run `/work` again to stop; projects, items and branches stay.
 
+Inside Herdr, work on the projects you took runs where you can watch it: a Herdr tab called Work Mode opens without taking focus, with one pane per agent, and each pane closes when its agent finishes. A pane stays open if its run fails, so you can read why. Press `h` in the Work Mode tab to pick the harness: `pi`, `claude` or `codex`. Each starts with your own settings for that harness, so one that asks for approvals will wait in its pane. Outside Herdr, the same work runs in the background through Pi.
+
 Work mode runs only while the dashboard or `pi-companion run` is open. Drive it from scripts with `pi-companion work`.
 
 ## Chrome

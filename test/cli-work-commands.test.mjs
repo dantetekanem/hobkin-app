@@ -45,6 +45,15 @@ test('work on needs a folder the first time, and off sets the mode a running own
   assert.equal(readMode(root).enabled, false);
 });
 
+test('the harness can be chosen from the command line', async t => {
+  const root = dataRoot(t);
+
+  await work(root, ['harness', 'codex']);
+
+  assert.equal(readMode(root).harness, 'codex');
+  assert.equal((await work(root, [])).result.harness, 'codex');
+});
+
 test('an agent proposes a project, and the user takes or skips it', async t => {
   const root = dataRoot(t);
 

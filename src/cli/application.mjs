@@ -11,8 +11,9 @@ import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
 import { WorkDirector } from './work/director.mjs';
+import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { chooseProject, dropProject, readMode, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
+import { chooseProject, dropProject, readMode, setHarness, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
 import { atomicJson, loadConfig } from './config.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
@@ -111,6 +112,7 @@ export class CompanionApplication {
         runtime: app.runtime,
         runner: app.runner,
         ...(runHarness ? { runHarness } : {}),
+        panes: insideHerdr() ? new WorkPanes() : null,
         now: app.now,
         onChange: () => app.requestRefresh(),
       });
@@ -337,6 +339,7 @@ export class CompanionApplication {
     const actions = {
       toggle: () => (readMode(root).enabled ? writeMode(root, { enabled: false }) : startWork(root)),
       start: () => startWork(root, slug),
+      harness: () => setHarness(root, slug),
       choose: () => chooseProject(root, slug, value),
       level: () => chooseProject(root, slug, value),
       skip: () => skipProject(root, slug),
