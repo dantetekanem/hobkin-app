@@ -267,6 +267,42 @@ test('Pi still rejects session statistics attributed to a different session', as
   assert.match(result.error, /identity/);
 });
 
+test('a work run keeps every tool and carries both the check directions and its own', t => {
+  for (const [purpose, heading] of [['work-discover', /find the user's projects/], ['work-look', /look at a project/], ['work-do', /finish one item/]]) {
+    const { args } = buildInvocation({ ...request(t), purpose });
+
+    assert.equal(args.includes('--no-tools'), false);
+    assert.equal(args.includes('--no-extensions'), false);
+    assert.equal(args.includes('--approve'), true);
+    const appended = args.flatMap((arg, index) => (arg === '--append-system-prompt' ? [args[index + 1]] : []));
+    assert.equal(appended.length, 2);
+    assert.match(appended[0], /Companion background check/);
+    assert.match(appended[1], heading);
+  }
+});
+
+test('a work run accepts the level Pi clamps to, because the top level differs by model', async t => {
+  const finish = `
+    send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Useful: Done.' }], usage: { cost: { total: 0 } } } });
+    send({ type: 'agent_end', messages: [] });
+    send({ type: 'agent_settled' });
+  `;
+  const model = { provider: 'test', id: 'model', reasoning: true };
+
+  const clamped = await runHarness(
+    { ...request(t), purpose: 'work-do', effort: 'xhigh' },
+    { spawnProcess: fake(rpc(finish, 'high', model)) },
+  );
+  assert.equal(clamped.status, 'completed');
+
+  const changed = await runHarness(
+    { ...request(t), purpose: 'work-do', effort: 'xhigh' },
+    { spawnProcess: fake(rpc(finish, 'low', model)) },
+  );
+  assert.equal(changed.status, 'failed');
+  assert.match(changed.error, /effort/);
+});
+
 test('a clamped Pi effort fails before any prompt is submitted', async t => {
   const result = await runHarness(request(t), { spawnProcess: fake(rpc("process.stderr.write('PROMPT_WAS_SENT');", 'low')) });
   assert.equal(result.status, 'failed');

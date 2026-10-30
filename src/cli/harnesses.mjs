@@ -3,8 +3,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { validateBinding } from './schedules.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
+import { keptEffort } from './model-settings.mjs';
 import { clean, startRpcProcess } from './rpc-process.mjs';
 
+const workPurposes = ['work-discover', 'work-look', 'work-do'];
+const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const validCost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const completionGroup = Symbol('completion group');
@@ -26,11 +29,12 @@ export function buildInvocation(request) {
     || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 65536) {
     throw Error('Invalid harness request identity, cwd or bounded prompt.');
   }
-  if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check'].includes(request.purpose)) {
+  if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', ...workPurposes].includes(request.purpose)) {
     throw Error('Unsupported harness purpose.');
   }
-  const noTools = request.purpose !== undefined && request.purpose !== 'compatibility-check';
-  const system = readFileSync(new URL(`../prompts/${request.purpose ?? 'background'}.md`, import.meta.url), 'utf8');
+  const isWork = workPurposes.includes(request.purpose);
+  const noTools = request.purpose !== undefined && request.purpose !== 'compatibility-check' && !isWork;
+  const system = prompt(isWork ? 'background' : request.purpose ?? 'background');
   if (!isAbsolute(request.sessionFile ?? '')) throw Error('Pi requires an explicit job session file.');
   const args = [
     '--mode', 'rpc',
@@ -45,6 +49,8 @@ export function buildInvocation(request) {
       '--no-context-files', '--no-approve',
       '--system-prompt', system,
     ] : ['--append-system-prompt', system]),
+    // A tree is a new folder to Pi, so a trust decision saved for the real repository would not reach it.
+    ...(isWork ? ['--append-system-prompt', prompt(request.purpose), '--approve'] : []),
   ];
   if (request.model) args.push('--model', request.model);
   return piCommand(request.launcher, args);
@@ -117,7 +123,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
   request.signal?.addEventListener('abort', cancel, { once: true });
   try {
     const state = await child.request('get_state');
-    if (!state?.sessionId || state.thinkingLevel !== request.effort) {
+    const effortHeld = workPurposes.includes(request.purpose)
+      ? keptEffort(state?.model, request.effort, state?.thinkingLevel)
+      : state?.thinkingLevel === request.effort;
+    if (!state?.sessionId || !effortHeld) {
       throw Error('Pi did not retain the requested effort; no prompt was submitted.');
     }
     const model = state.model && `${state.model.provider}/${state.model.id}`;

@@ -7,7 +7,7 @@ const MAX_FILE_BYTES = 32768;
 const MAX_PROMPT_BYTES = 65536;
 
 /** Explicit regular-file sources only. This bounds context, not the child's filesystem access. */
-export async function buildContext(schedule, latestOutcome = null, memory = [], check = { memory: null, log: [] }) {
+export async function buildContext(schedule, latestOutcome = null, memory = [], check = { memory: null, log: [] }, work = undefined) {
   const cwd = resolve(schedule.cwd);
   if (await realpath(cwd) !== cwd || !(await lstat(cwd)).isDirectory()) {
     throw Error('cwd must be a real directory without symlinks');
@@ -55,6 +55,7 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
       status: latestOutcome.status,
       text: String(runOutcomeText(latestOutcome)).slice(0, 4096),
     } : null,
+    ...(work ? { work } : {}),
   };
   const prompt = JSON.stringify(envelope);
   if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw Error('context envelope exceeded its byte limit');

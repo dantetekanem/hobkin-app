@@ -9,6 +9,9 @@ import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
+import { WorkDirector } from './work/director.mjs';
+import { workStatus } from './work/commands.mjs';
+import { chooseProject, dropProject, readMode, skipProject, updateItem, writeMode } from './work/store.mjs';
 import { atomicJson, loadConfig } from './config.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
@@ -99,6 +102,16 @@ export class CompanionApplication {
         now,
         compatibility: app.delivery.adapter,
         onActivity: (id, event) => app.observeActivity(id, event),
+        onTick: () => app.tickWork(),
+      });
+      app.director = new WorkDirector({
+        root: app.runtime.directory,
+        config: app.config,
+        runtime: app.runtime,
+        runner: app.runner,
+        ...(runHarness ? { runHarness } : {}),
+        now: app.now,
+        onChange: () => app.requestRefresh(),
       });
       signal?.throwIfAborted();
       app.runner.start({ intervalMs });
@@ -176,6 +189,8 @@ export class CompanionApplication {
       const scheduleName = String(run.title ?? run.scheduleId ?? 'your schedule').slice(0, 512);
       const triage = reportTriage(run);
       if (triage?.level === 'nothing') continue;
+      // A busy project would push the conversation out of Chat, so only what needs the user reaches it.
+      if (run.work?.slug && !['critical', 'blocked'].includes(triage?.level)) continue;
 
       const schedule = loaded.schedules.find(item => item.id === run.scheduleId);
       const held = schedule?.nextRun?.state === 'held';
@@ -225,6 +240,7 @@ export class CompanionApplication {
           harnessId: run.harnessId,
           cwd: run.cwd ?? (run.kind === 'main' ? this.config.main.cwd : undefined),
           startedAt: run.startedAt,
+          work: run.work,
         })),
       ],
       lastTick: loaded.lastTick,
@@ -275,6 +291,7 @@ export class CompanionApplication {
       usage: this.ledger.sync(state),
       memoryBytes: memoryBytes(this.runtime.directory),
       reportAttention: this.telemetry.attention(runs, this.now()),
+      work: this.workView(),
       connection: 'connected',
       busy: this.runtime.mainBusy,
       main: {
@@ -299,6 +316,36 @@ export class CompanionApplication {
   }
 
   kill(runId) { return this.runner.kill(runId); }
+
+  workView() {
+    const discovering = this.director.running().some(run => run.lane === 'discover');
+    return { ...workStatus(this.runtime.directory), discovering };
+  }
+
+  // Agents file work from their own processes, and nothing else tells the dashboard it changed.
+  async tickWork() {
+    await this.director.tick();
+    const signature = JSON.stringify(workStatus(this.runtime.directory));
+    if (signature === this.workSignature) return;
+    this.workSignature = signature;
+    this.requestRefresh();
+  }
+
+  async workAction(action, slug, value) {
+    const root = this.runtime.directory;
+    const actions = {
+      toggle: () => writeMode(root, { enabled: !readMode(root).enabled }),
+      choose: () => chooseProject(root, slug, value),
+      level: () => chooseProject(root, slug, value),
+      skip: () => skipProject(root, slug),
+      drop: () => dropProject(root, slug),
+      done: () => updateItem(root, slug, value, { state: 'done' }),
+    };
+    const result = actions[action]();
+    await this.director.tick();
+    await this.refresh();
+    return result;
+  }
 
   recordReportRead(read) {
     this.telemetry.recordReportRead(read, this.now());

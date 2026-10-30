@@ -39,6 +39,7 @@ const isRealRead = event => event.type === 'report_discussed'
 // A report from before tracking began was never watched, so it says nothing about being ignored.
 const isTrackedReport = (run, since) => run.kind === 'background'
   && run.scheduleId
+  && !run.work
   && run.status === 'completed'
   && Date.parse(run.finishedAt) >= since;
 

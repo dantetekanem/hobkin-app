@@ -101,10 +101,10 @@ export function nextOccurrence(schedule, now = new Date(), { runs = [], notBefor
 }
 
 export class CompanionRunner {
-  constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {} }) {
+  constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {} }) {
     if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) throw Error('concurrency must be 1–4');
     if (!Number.isFinite(new Date(config.initializedAt).getTime())) throw Error('Invalid scheduler configuration bounds');
-    Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility });
+    Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick });
     this.onActivity = (id, event) => {
       try {
         onActivity(id, event);
@@ -144,9 +144,7 @@ export class CompanionRunner {
     this.loaded = loadSchedules(this.root);
     this.lastError = null;
     const state = await this.runtime.state();
-    const runningCount = Object.values(state.runs)
-      .filter(run => run.kind === 'background' && run.status === 'running').length;
-    let capacity = this.config.concurrency - Math.max(this.jobs.size, runningCount);
+    let capacity = this.config.concurrency - this.scheduledJobCount(state);
     for (const schedule of this.loaded.schedules) {
       if (this.stopped || capacity <= 0) break;
       if (schedule.cadence === 'compatibility') {
@@ -173,6 +171,15 @@ export class CompanionRunner {
       }
     }
     this.lastTick = now.toISOString();
+    await this.onTick();
+  }
+
+  /** Work runs have their own pool, so they never take a place from ordinary checks. */
+  scheduledJobCount(state) {
+    const running = Object.values(state.runs)
+      .filter(run => run.kind === 'background' && run.status === 'running' && !run.work);
+    const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:'));
+    return Math.max(tracked.length, running.length);
   }
 
   serialize(operation) {
@@ -201,7 +208,7 @@ export class CompanionRunner {
       }
       const running = Object.values(state.runs).filter(run => run.kind === 'background' && run.status === 'running');
       if (running.some(run => run.scheduleId === scheduleId)) throw Error('Schedule is already running.');
-      if (Math.max(this.jobs.size, running.length) >= this.config.concurrency) throw Error('Background capacity is full.');
+      if (this.scheduledJobCount(state) >= this.config.concurrency) throw Error('Background capacity is full.');
       const accepted = Promise.withResolvers();
       const occurrence = { id, requestedAt: new Date(this.now()).toISOString(), trigger: 'manual' };
       const { work } = await this.startNative(schedule, occurrence, state, signal, accepted.resolve);
@@ -228,7 +235,7 @@ export class CompanionRunner {
     }
     signal?.throwIfAborted();
     if (this.stopped) throw Error('Runner has stopped');
-    const work = this.runtime.dispatch({
+    return this.startTracked({
       ...occurrence,
       kind: 'background',
       scheduleId: schedule.id,
@@ -262,10 +269,14 @@ export class CompanionRunner {
         signal,
       }, { onEvent: event => this.onActivity(occurrence.id, event) });
     }, onAdmitted);
-    const tracked = work
+  }
+
+  /** Dispatches work that `kill` and `stop` can reach. */
+  startTracked(request, effect, onAdmitted) {
+    const tracked = this.runtime.dispatch(request, effect, onAdmitted)
       .catch(error => { this.lastError = error.message; })
-      .finally(() => this.jobs.delete(occurrence.id));
-    this.jobs.set(occurrence.id, tracked);
+      .finally(() => this.jobs.delete(request.id));
+    this.jobs.set(request.id, tracked);
     return { work: tracked };
   }
 

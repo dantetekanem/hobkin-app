@@ -571,6 +571,71 @@ const reportListLines = ({ reports, total, selectedId, inner, clock }) => {
   if (!reports.length) content.push(dim('No reports yet.'));
   return { content, ranges };
 };
+const projectStatus = ({ open, prs, stuck }) => [
+  open ? count(open, 'item') : '',
+  prs ? count(prs, 'PR') : '',
+  stuck ? `${stuck} stuck` : '',
+].filter(Boolean).join(' · ') || 'looking';
+// The rows the user can act on, grouped as they appear. A row's key keeps it selected across refreshes.
+const workSections = ({ work, runs, inner, clock, frame }) => {
+  const named = project => clean(project.name ?? project.slug);
+  const projects = (work.projects ?? []).filter(project => project.state === 'chosen');
+  const proposed = (work.projects ?? []).filter(project => project.state === 'proposed');
+  const names = [...projects.map(named), ...(work.attention ?? []).map(item => clean(item.slug))];
+  const nameWidth = Math.min(24, Math.max(0, ...names.map(name => visibleWidth(name))));
+  const sections = [
+    ['NEEDS ATTENTION', (work.attention ?? []).map(item => ({
+      key: `attention:${item.slug}:${item.id}`,
+      type: 'attention',
+      slug: item.slug,
+      id: item.id,
+      lines: [`${item.state === 'stuck' ? negative('✕') : caution('▲')} ${cell(clean(item.slug), nameWidth)}  ${clean(item.title)}`],
+    }))],
+    ['RUNNING', runs.map(run => ({
+      key: `run:${run.id}`,
+      type: 'run',
+      id: run.id,
+      lines: [`${positive(frame)} ${row(clean(run.title), dim(`${clean(run.effort)} · ${elapsed(Date.parse(run.startedAt), clock)}`), inner - 2)}`],
+    }))],
+    ['PROJECTS', projects.map(project => ({
+      key: `project:${project.slug}`,
+      type: 'project',
+      slug: project.slug,
+      name: named(project),
+      lines: [`${positive('●')} ${cell(bold(named(project)), nameWidth)}  ${cell(dim(project.level), 9)}  ${muted(projectStatus(project))}`],
+    }))],
+    ['PROPOSED', proposed.map(project => ({
+      key: `proposal:${project.slug}`,
+      type: 'proposal',
+      slug: project.slug,
+      lines: [
+        `${muted('◇')} ${row(bold(named(project)), dim(project.level), inner - 2)}`,
+        ...[project.summary, project.found].filter(Boolean).map(text => `  ${dim(clean(text))}`),
+        ...(project.first?.[0] ? [`  ${muted(`First: ${clean(project.first[0].title)}`)}`] : []),
+      ],
+    }))],
+  ];
+  return sections.filter(([, rows]) => rows.length);
+};
+const workLines = ({ work, sections, selected, inner, frame }) => {
+  const content = [];
+  let selectedRange;
+  if (!work.enabled) content.push(dim('Work mode is off. Type /work to start.'), '');
+  if (work.discovering) {
+    const found = (work.projects ?? []).filter(project => project.state === 'proposed').length;
+    content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading repositories · ${found} proposed so far`)}`, '');
+  }
+  for (const [heading, rows] of sections) {
+    content.push(row(muted(bold(heading)), muted(String(rows.length)), inner), '');
+    for (const item of rows) {
+      const isSelected = item.key === selected?.key;
+      if (isSelected) selectedRange = [content.length, content.length + item.lines.length];
+      content.push(...item.lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
+    }
+    content.push('');
+  }
+  return { content, selectedRange };
+};
 const reportDetailLines = ({ report, inner, clock, markdown }) => {
   if (!report) return [dim('No report selected.')];
   const [glyph, tone] = outcome(report.outcome);
@@ -629,6 +694,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let ticker = null;
   let reading = null;
   let referencedReport = null;
+  let workKey = null;
+  let armedDrop = null;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
   const visibleMessageIds = () => (snapshot.messages ?? [])
@@ -656,10 +723,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const reports = () => (snapshot.reports ?? []).slice(0, 25);
   const allReports = () => snapshot.reports ?? [];
   const liveJobs = () => snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run =>
-    run.state === 'running' && run.kind === 'background'
+    run.state === 'running' && run.kind === 'background' && !run.work
     && typeof run.scheduleId === 'string' && run.scheduleId.trim()) : [];
+  const workRuns = () => (snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run => run.state === 'running' && run.work) : []);
+  const workVisible = () => Boolean(snapshot.work?.enabled || snapshot.work?.projects?.length);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
-  const views = () => ['conversation', 'reports', 'schedules', ...liveJobs().map(run => `job:${run.id}`)];
+  const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
+  const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
+  const currentWorkSections = (inner, clock, frame) => workSections({ work: snapshot.work ?? {}, runs: workRuns(), inner, clock, frame });
+  const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
+    const rows = sections.flatMap(([, entries]) => entries);
+    return rows.find(entry => entry.key === workKey) ?? rows[0] ?? null;
+  };
   const isJob = () => view.startsWith('job:');
   const followsTail = () => view === 'conversation' || isJob();
   const showsReportList = () => view === 'reports' && (question?.previous.focus ?? focus) === 'reports';
@@ -684,7 +759,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const animate = () => {
     const live = snapshot.connection === 'connected';
     busySince = live && snapshot.busy ? busySince ?? now() : null;
-    const active = !stopped && live && Boolean(snapshot.busy || snapshot.context?.compacting || liveJobs().length);
+    const active = !stopped && live && Boolean(snapshot.busy || snapshot.context?.compacting || jobViews().length || snapshot.work?.discovering);
     if (active && !ticker) {
       ticker = setInterval(changed, 100);
       ticker.unref?.();
@@ -710,12 +785,31 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     // Editor clears before onSubmit; keep the draft until the runtime accepts it.
     editor.setText(submitted);
     if (submitted.startsWith('/')) {
-      if (!['/clear', '/reset'].includes(submitted)) {
-        say('Unknown command. Use /clear or /reset.', 'warning');
+      if (!['/clear', '/reset', '/work'].includes(submitted)) {
+        say('Unknown command. Use /clear, /reset or /work.', 'warning');
         changed();
         return;
       }
       if (clearing) return;
+      if (submitted === '/work') {
+        clearing = true;
+        pending = Promise.resolve().then(() => {
+          if (typeof callbacks.workAction !== 'function') throw Error('Work mode unavailable');
+          return callbacks.workAction('toggle');
+        }).then(mode => {
+          if (editor.getExpandedText() === submitted) editor.setText('');
+          if (mode?.enabled) {
+            view = 'work';
+            focus = 'work';
+            scroll = 0;
+            say('');
+          } else {
+            say('Work mode off. Projects and items are kept.', 'success', { timeout: 3000 });
+          }
+        }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+          .finally(() => { clearing = false; changed(); });
+        return;
+      }
       if (submitted === '/reset') {
         clearing = true;
         pending = Promise.resolve().then(() => {
@@ -790,8 +884,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const working = busySince ? `working ${elapsed(busySince, clock)}` : 'working';
     const connection = live && snapshot.busy ? working : clean(snapshot.connection ?? 'offline');
     const connectionStatus = `${indicator} ${dim(connection)}`;
-    const running = positive(`${activeRuns.length} running`);
-    const statuses = activeRuns.length
+    const runningCount = activeRuns.length + workRuns().length;
+    const running = positive(`${runningCount} running`);
+    const statuses = runningCount
       ? [`${connectionStatus}${dim(' · ')}${running}`, connectionStatus, indicator]
       : [connectionStatus];
     const scheduleCount = Object.values(snapshot.counts ?? {}).reduce((sum, count) => sum + count, 0);
@@ -799,6 +894,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
       { name: 'schedules', label: 'Schedules', count: String(scheduleCount) },
+      ...(workVisible() ? [{ name: 'work', label: 'Work', count: snapshot.work.attention?.length ? String(snapshot.work.attention.length) : '' }] : []),
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
     ].map(tab => tabText(tab, tab.name === view));
     const header = headerLines({ tabs, statuses, inner });
@@ -813,7 +909,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'detail') return [['m', 'message'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
-    if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context']];
+    if (focus === 'work') {
+      const rowKeys = {
+        proposal: [['y', 'take'], ['1 2 3', 'level'], ['n', 'skip']],
+        project: [['1 2 3', 'level'], ['d d', 'drop']],
+        attention: [['x', 'done']],
+        run: [['enter', 'watch']],
+      };
+      return [...rowKeys[selectedWorkRow()?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
+    }
+    if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context'], ['/work', 'work mode']];
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+c', 'quit']];
@@ -892,7 +997,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) + 2 > inner) shown--;
     const activity = activityText(keys(hints.slice(0, shown)), frame);
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
-    const memory = memorySize();
+    const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
+    const memory = [workNote, memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [`  ${activity}`, rule, nextCheckRow, sessionBar(inner)];
     // The row stays reserved so a tip coming or going never moves anything.
@@ -919,10 +1025,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }),
       };
     }
+    if (view === 'work') {
+      const sections = currentWorkSections(inner, clock, frame);
+      return workLines({ work: snapshot.work ?? {}, sections, selected: selectedWorkRow(sections), inner, frame });
+    }
     if (isJob()) {
       return {
         content: jobActivityLines({
-          run: activeRuns.find(run => `job:${run.id}` === view),
+          run: [...activeRuns, ...workRuns()].find(run => `job:${run.id}` === view),
           blocks: snapshot.jobActivity?.[view.slice(4)] ?? [],
           inner,
           clock,
@@ -945,6 +1055,47 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     };
   };
 
+  const runWorkAction = (...request) => {
+    pending = Promise.resolve().then(() => callbacks.workAction(...request))
+      .catch(error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+      .finally(changed);
+  };
+  const moveWorkSelection = delta => {
+    const rows = currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries);
+    const index = Math.max(0, rows.findIndex(entry => entry.key === selectedWorkRow()?.key));
+    workKey = rows[Math.max(0, Math.min(rows.length - 1, index + delta))]?.key ?? null;
+  };
+  const dropProjectTwice = selected => {
+    if (armedDrop === selected.slug) {
+      armedDrop = null;
+      say('');
+      runWorkAction('drop', selected.slug);
+      return;
+    }
+    armedDrop = selected.slug;
+    say(`Press d again to drop ${clean(selected.name ?? selected.slug)}.`, 'warning', { timeout: 3000 });
+  };
+  const handleWorkKey = data => {
+    if (key(data, 'up') || key(data, 'down')) {
+      moveWorkSelection(key(data, 'down') ? 1 : -1);
+      return true;
+    }
+    const selected = selectedWorkRow();
+    const level = { 1: 'critical', 2: 'important', 3: 'casual' }[data];
+    if (selected?.type === 'proposal' && data === 'y') runWorkAction('choose', selected.slug);
+    else if (selected?.type === 'proposal' && level) runWorkAction('choose', selected.slug, level);
+    else if (selected?.type === 'proposal' && data === 'n') runWorkAction('skip', selected.slug);
+    else if (selected?.type === 'project' && level) runWorkAction('level', selected.slug, level);
+    else if (selected?.type === 'project' && data === 'd') dropProjectTwice(selected);
+    else if (selected?.type === 'attention' && data === 'x') runWorkAction('done', selected.slug, selected.id);
+    else if (selected?.type === 'run' && key(data, 'enter')) {
+      view = `job:${selected.id}`;
+      focus = 'job';
+      scroll = 0;
+    } else return false;
+    return true;
+  };
+
   const controller = {
     state: () => ({ selectedId, focus, view, scroll, draft: editor.getExpandedText(), notice }),
     get focused() { return hasFocus; },
@@ -958,7 +1109,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       snapshot = next;
       for (const id of next.presentation?.hiddenMessageIds ?? []) hiddenMessages.add(id);
       const target = question?.previous ?? { view, focus, scroll };
-      if (target.view.startsWith('job:') && !views().includes(target.view)) {
+      if (target.view === 'work' && !workVisible()) {
+        target.view = 'conversation';
+        target.focus = 'composer';
+      }
+      if (target.view.startsWith('job:') && !jobViews().includes(target.view)) {
         completedReport = next.completedJobReports?.[target.view.slice(4)] ?? null;
         if (completedReport) selectedId = completedReport.id;
         target.view = completedReport ? 'reports' : 'conversation';
@@ -1045,6 +1200,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           else say('No owned running job.', 'warning');
         }, error => { say(`Kill failed: ${clean(error?.message ?? error)}`, 'error'); })
           .finally(changed);
+      } else if (focus === 'work' && handleWorkKey(data)) {
+        // The Work tab handled it.
       } else if (key(data, 'm') && focus === 'detail') {
         referencedReport = reportOnScreen();
         view = 'conversation';
@@ -1083,8 +1240,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           completedReport = null;
           if (!reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
         } else {
-          view = 'conversation';
-          focus = 'composer';
+          const watchingWork = workRuns().some(run => `job:${run.id}` === view);
+          view = watchingWork ? 'work' : 'conversation';
+          focus = watchingWork ? 'work' : 'composer';
         }
         scroll = 0;
       } else if (view === 'reports' && focus === 'reports' && (key(data, 'up') || key(data, 'down'))) {
@@ -1119,13 +1277,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const available = Math.max(1, height - header.length - footer.length);
       contentBounds = { top: header.length, bottom: height - footer.length };
 
-      const { content, ranges = [], days = [] } = renderContent(inner, available, clock, frame);
+      const { content, ranges = [], days = [], selectedRange } = renderContent(inner, available, clock, frame);
       const maximum = Math.max(0, content.length - available);
       if (!question) scroll = Math.min(scroll, maximum);
       const displayScroll = Math.min(scroll, maximum);
-      const listMode = showsReportList();
+      const listMode = showsReportList() || view === 'work';
       if (listMode) {
-        const [start, end] = ranges[selectedIndex()] ?? [0, 0];
+        const [start, end] = selectedRange ?? ranges[selectedIndex()] ?? [0, 0];
         if (start < listTop) listTop = start;
         if (end > listTop + available) listTop = end - available;
         listTop = Math.max(0, Math.min(listTop, maximum));

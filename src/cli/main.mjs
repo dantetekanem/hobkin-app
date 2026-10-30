@@ -19,7 +19,7 @@ export function parseArguments(args) {
       options[flag.slice(2)] = values.shift();
     } else if (flag === '--plain') options.plain = true;
     else if (flag === '--help' || flag === '-h') options.command = 'help';
-    else if (options.command === 'reports' && !flag.startsWith('-')) options.args.push(flag);
+    else if (['reports', 'work'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
   }
   return options;
@@ -57,6 +57,10 @@ async function connected(options, snapshot, output, dependencies) {
           return app.kill(runId);
         },
         reportRead: read => app?.recordReportRead(read),
+        workAction: (...request) => {
+          if (!app) throw Error('Companion is still connecting.');
+          return app.workAction(...request);
+        },
       }, { theme: { cwd: snapshot.config.main.cwd } });
     } else {
       keepAlive = setInterval(() => {}, 60000);
@@ -87,11 +91,17 @@ async function connected(options, snapshot, output, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Pi Companion\nUsage: pi-companion [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Companion\n');
+    output.write('Pi Companion\nUsage: pi-companion [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Companion\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n');
     return 0;
   }
   if (options.command === 'skill') {
     output.write(readFileSync(new URL('../prompts/companion-skill.md', import.meta.url), 'utf8'));
+    return 0;
+  }
+  if (options.command === 'work') {
+    const { runWorkCommand } = await import('./work/commands.mjs');
+    const result = await runWorkCommand(options.root, options.args, dependencies.input ?? process.stdin);
+    output.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
   if (options.command.startsWith('upgrade-')) {

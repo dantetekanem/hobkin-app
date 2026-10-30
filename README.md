@@ -89,6 +89,14 @@ If Pi must start through a wrapper, for example one that sets up credentials or 
 
 Companion then starts every Pi process with that command. The main chat runs as an RPC child (`my-pi-launcher pi --mode rpc`), and checks, reflection, pattern review and repair use the same command. `env` adds variables and rejects credential-like names. Companion passes its own environment through and never reads credentials. Set `managedExtensions` when the launcher loads required extensions and refuses `--no-extensions`. Tool-free jobs then keep their other isolation flags. If the main chat's child exits, Companion says so and keeps running scheduled checks; restart it to reconnect the chat. Without `launcher`, Companion runs `pi` directly, as before.
 
+## Work mode
+
+Work mode is a proactive agent mode to get work done on your projects. Type `/work` and the agent goes looking: it reads your repositories, proposes the ones worth working on with what it found and how critical it thinks each one is, and you say which ones. In the Work tab, `y` takes a proposal, `1`, `2` or `3` takes it as critical, important or casual, and `n` skips it. You can also answer in Chat.
+
+From then on, agents work on those projects without being asked. One studies each project and then looks through it for security issues, bugs, updates, chores, improvements, features and trends, filing what it finds. Another takes those items one at a time and opens a PR, in its own worktree, so your checkout is never touched. The level sets how often it looks, how hard it thinks, and whether PRs start as drafts. Run `/work` again to stop; projects, items and branches stay.
+
+Work mode runs only while the dashboard or `pi-companion run` is open. Drive it from scripts with `pi-companion work`.
+
 ## Use it from other agents
 
 `pi-companion skill` prints a skill that teaches an agent to read reports and run history, add checks, queue one-time work and stay out of Companion's internals. Read it directly, or save it where your agent loads skills:
