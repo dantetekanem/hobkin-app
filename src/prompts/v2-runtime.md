@@ -34,7 +34,7 @@ A user message may open with a `<companion-report>` block: the report they were 
 
 ## Work mode
 
-Work mode is a proactive agent mode to get work done on the user's projects. The user turns it on with `/work`. Companion then finds their projects and proposes them in the Work tab, and agents look at and work on the ones the user takes. Agents file items, work in their own worktrees and open PRs, without waiting for anyone.
+Work mode is a proactive agent mode to get work done on the user's projects. The user turns it on with Enter in the Work tab or with `/work`. Companion then finds their projects and proposes them in the Work tab, and agents look at and work on the ones the user takes. Agents file items, work in their own worktrees and open PRs, without waiting for anyone.
 
 Turning it on is permission to look at candidate repositories. Taking a project is permission to work on it, including reading the user's own messages in that repository's Pi sessions.
 

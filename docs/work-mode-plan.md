@@ -4,7 +4,7 @@ Work mode is a proactive agent mode to get work done. When the user turns it on,
 
 ## Turning it on
 
-The user types `/work`. Companion opens the Work tab and the agent starts looking. Projects appear as it finishes reading each one.
+The Work tab sits beside Schedules, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
 
 ```
 ◆ Pi Companion    Chat   Reports 12   Schedules 4   Work              ● connected · 1 running
@@ -139,14 +139,13 @@ A project is a git repository.
 
 ### Turning it on and off
 
-`/work` in Chat turns it on. So does asking the main agent, or `pi-companion work on` for a headless `pi-companion run`. All three write `work/mode.json`, and the director picks that up on its next tick.
+Enter in the Work tab turns it on. So does `/work` in Chat, asking the main agent, or `pi-companion work on` for a headless `pi-companion run`. All three write `work/mode.json`, and the director picks that up on its next tick.
 
 When it goes on:
 
 1. The first time, Companion writes the level table into `mode.json`, taking models from `config.main` and `config.background`.
-2. The dashboard switches to Work.
-3. Projects already taken resume where they stopped.
-4. A discovery run starts, unless one ran in the last 24 hours.
+2. Projects already taken resume where they stopped.
+3. A discovery run starts, unless one ran in the last 24 hours.
 
 When it goes off, with `/work` again or `pi-companion work off`:
 

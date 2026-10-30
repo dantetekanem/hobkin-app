@@ -21,7 +21,7 @@ const on = { enabled: true, projects: [proposed, chosen], attention: [attention]
 
 const screen = (ui, width = 100, height = 40) => stripTerminalSequences(ui.render(width, height).join('\n'));
 
-test('with no work mode the tabs stay as they were', () => {
+test('a dashboard with no work data has no Work tab', () => {
   const ui = createDashboard(base);
 
   assert.doesNotMatch(screen(ui), /Work/);
@@ -32,13 +32,34 @@ test('with no work mode the tabs stay as they were', () => {
   ui.stop();
 });
 
-test('/work turns the mode on and opens the Work tab', async () => {
+test('the Work tab is there with the mode off, and the arrows reach it', () => {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } });
+
+  assert.match(screen(ui).split('\n')[0], /Work/);
+  for (const view of ['reports', 'schedules', 'work', 'conversation']) {
+    ui.input('\x1b[C');
+    assert.equal(ui.state().view, view);
+  }
+  ui.stop();
+});
+
+test('Work reads offline until the mode is on, then active', () => {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } });
+  ui.input('\x1b[D');
+
+  assert.match(screen(ui), /WORK\s+● offline/);
+
+  ui.update({ ...base, work: { enabled: true, projects: [], attention: [] } });
+  assert.match(screen(ui), /WORK\s+● active/);
+  ui.stop();
+});
+
+test('/work turns the mode on and stays where the user is', async () => {
   const actions = [];
-  const ui = createDashboard(base, {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
     send() {},
     workAction: async (...args) => {
       actions.push(args);
-      ui.update({ ...base, work: { enabled: true, projects: [], attention: [] } });
       return { enabled: true };
     },
   });
@@ -48,8 +69,23 @@ test('/work turns the mode on and opens the Work tab', async () => {
   await ui.pending();
 
   assert.deepEqual(actions, [['toggle']]);
-  assert.deepEqual([ui.state().view, ui.state().focus, ui.state().draft], ['work', 'work', '']);
-  assert.match(screen(ui), /Work/);
+  assert.deepEqual([ui.state().view, ui.state().focus, ui.state().draft], ['conversation', 'composer', '']);
+  assert.match(screen(ui), /Work mode on/);
+  ui.stop();
+});
+
+test('Enter in the Work tab starts the mode when it is off', async () => {
+  const actions = [];
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [chosen], attention: [] } }, {
+    workAction: async (...args) => { actions.push(args); },
+  });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /enter\s+start/);
+
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['toggle']]);
   ui.stop();
 });
 
@@ -161,7 +197,7 @@ test('with the mode off, Work says how to start and keeps showing saved projects
 
   const text = screen(ui);
 
-  assert.match(text, /Work mode is off\. Type \/work to start\./);
+  assert.match(text, /Work mode is off\. Press enter to start\./);
   assert.match(text, /website/);
   ui.stop();
 });

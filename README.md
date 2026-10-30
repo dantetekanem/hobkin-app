@@ -91,7 +91,7 @@ Companion then starts every Pi process with that command. The main chat runs as 
 
 ## Work mode
 
-Work mode is a proactive agent mode to get work done on your projects. Type `/work` and the agent goes looking: it reads your repositories, proposes the ones worth working on with what it found and how critical it thinks each one is, and you say which ones. In the Work tab, `y` takes a proposal, `1`, `2` or `3` takes it as critical, important or casual, and `n` skips it. You can also answer in Chat.
+Work mode is a proactive agent mode to get work done on your projects. The Work tab sits beside Schedules, with a grey circle while it is offline and a green one while it is active. Press Enter in that tab, or type `/work` from anywhere, and the agent goes looking: it reads your repositories, proposes the ones worth working on with what it found and how critical it thinks each one is, and you say which ones. In the Work tab, `y` takes a proposal, `1`, `2` or `3` takes it as critical, important or casual, and `n` skips it. You can also answer in Chat.
 
 From then on, agents work on those projects without being asked. One studies each project and then looks through it for security issues, bugs, updates, chores, improvements, features and trends, filing what it finds. Another takes those items one at a time and opens a PR, in its own worktree, so your checkout is never touched. The level sets how often it looks, how hard it thinks, and whether PRs start as drafts. Run `/work` again to stop; projects, items and branches stay.
 

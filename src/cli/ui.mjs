@@ -618,9 +618,10 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
   return sections.filter(([, rows]) => rows.length);
 };
 const workLines = ({ work, sections, selected, inner, frame }) => {
-  const content = [];
+  const status = work.enabled ? `${positive('●')} ${dim('active')}` : `${muted('●')} ${dim('offline')}`;
+  const content = [row(muted(bold('WORK')), status, inner), ''];
   let selectedRange;
-  if (!work.enabled) content.push(dim('Work mode is off. Type /work to start.'), '');
+  if (!work.enabled) content.push(dim('Work mode is off. Press enter to start.'), '');
   if (work.discovering) {
     const found = (work.projects ?? []).filter(project => project.state === 'proposed').length;
     content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading repositories · ${found} proposed so far`)}`, '');
@@ -726,7 +727,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     run.state === 'running' && run.kind === 'background' && !run.work
     && typeof run.scheduleId === 'string' && run.scheduleId.trim()) : [];
   const workRuns = () => (snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run => run.state === 'running' && run.work) : []);
-  const workVisible = () => Boolean(snapshot.work?.enabled || snapshot.work?.projects?.length);
+  const workVisible = () => Boolean(snapshot.work);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
   const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
@@ -798,14 +799,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           return callbacks.workAction('toggle');
         }).then(mode => {
           if (editor.getExpandedText() === submitted) editor.setText('');
-          if (mode?.enabled) {
-            view = 'work';
-            focus = 'work';
-            scroll = 0;
-            say('');
-          } else {
-            say('Work mode off. Projects and items are kept.', 'success', { timeout: 3000 });
-          }
+          say(mode?.enabled ? 'Work mode on.' : 'Work mode off. Projects and items are kept.', 'success', { timeout: 3000 });
         }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
           .finally(() => { clearing = false; changed(); });
         return;
@@ -894,7 +888,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
       { name: 'schedules', label: 'Schedules', count: String(scheduleCount) },
-      ...(workVisible() ? [{ name: 'work', label: 'Work', count: snapshot.work.attention?.length ? String(snapshot.work.attention.length) : '' }] : []),
+      ...(workVisible() ? [{
+        name: 'work',
+        label: 'Work',
+        count: snapshot.work.attention?.length ? String(snapshot.work.attention.length) : '',
+        prefix: `${snapshot.work.enabled ? positive('●') : muted('●')} `,
+      }] : []),
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
     ].map(tab => tabText(tab, tab.name === view));
     const header = headerLines({ tabs, statuses, inner });
@@ -916,7 +915,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         attention: [['x', 'done']],
         run: [['enter', 'watch']],
       };
-      return [...rowKeys[selectedWorkRow()?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
+      const start = snapshot.work?.enabled ? [] : [['enter', 'start']];
+      return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
     if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context'], ['/work', 'work mode']];
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
@@ -1076,6 +1076,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     say(`Press d again to drop ${clean(selected.name ?? selected.slug)}.`, 'warning', { timeout: 3000 });
   };
   const handleWorkKey = data => {
+    if (!snapshot.work?.enabled && key(data, 'enter')) {
+      runWorkAction('toggle');
+      return true;
+    }
     if (key(data, 'up') || key(data, 'down')) {
       moveWorkSelection(key(data, 'down') ? 1 : -1);
       return true;
