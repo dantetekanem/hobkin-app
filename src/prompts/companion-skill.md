@@ -138,7 +138,7 @@ Only the main agent can run a schedule on request. From outside, write a one-tim
 2. An owner picks it up within seconds of that minute. If none is running, it runs once as soon as one starts, however late.
 3. Watch `pi-companion reports` for its `scheduleId`, or `checks/<id>/log.md`.
 
-A one-time file never runs twice and stays in place as the record. Use a new ID for new work.
+A one-time file never runs twice. Once it has run, Companion moves it to `checks/<id>/once-<date>.md`, so it leaves `schedules/once/`. Use a new ID for new work.
 
 ## Stay out of
 

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize, atomicJson } from '../src/cli/config.mjs';
 import { CompanionApplication, readLocalView } from '../src/cli/application.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { CompanionRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
@@ -860,6 +860,44 @@ test('the note Chrome leaves when authorized stays out of Chat', async t => {
     const view = await app.refresh();
 
     assert.deepEqual(view.messages.map(message => message.content), ['Worth showing.']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('messages go out in the order they were typed, waiting while the conversation cannot take one', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const sent = [];
+  let refusals = 2;
+  app.runtime.send = async text => {
+    if (text === 'first' && refusals-- > 0) throw Error(MAIN_BUSY);
+    sent.push(text);
+    return { id: text };
+  };
+  try {
+    await Promise.all([app.send('first'), app.send('second')]);
+
+    assert.deepEqual(sent, ['first', 'second']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a message that cannot go out fails on its own and the next one still goes', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const sent = [];
+  app.runtime.send = async text => {
+    if (text === 'bad') throw Error('no route');
+    sent.push(text);
+    return { id: text };
+  };
+  try {
+    await assert.rejects(app.send('bad'), /no route/);
+    await app.send('next');
+
+    assert.deepEqual(sent, ['next']);
   } finally {
     await app.close();
   }

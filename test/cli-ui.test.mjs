@@ -124,6 +124,108 @@ test('offline input is disabled, editing shortcuts stay in composer and draft su
   assert.match(screen(ui, 80, 24), /failed/i);
 });
 
+const lineWith = (ui, text) => ui.render(80, 24).find(value => stripVTControlCharacters(value).includes(text));
+const soon = () => new Date(Date.now() + 1000).toISOString();
+
+test('your messages sit under You, the way replies sit under Companion', () => {
+  const at = '2026-05-04T15:00:00Z';
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [
+    { id: 'one', role: 'user', content: 'hello', at },
+    { id: 'two', role: 'assistant', content: 'hi', at },
+  ] });
+
+  const lines = screen(ui, 80, 24).split('\n');
+  const you = lines.findIndex(value => /◆ You/.test(value));
+
+  assert.match(lines[you], /\d$|\d\s*[│|]?\s*$/);
+  assert.match(lines[you + 1], /^\s+hello/);
+});
+
+test('a sent message shows at once in gray, and reads normally when the agent has it', async () => {
+  const accepted = Promise.withResolvers();
+  const busy = { ...snapshot, connection: 'connected', busy: true, messages: [] };
+  const ui = createDashboard(busy, { send: () => accepted.promise });
+
+  ui.input('are you there?');
+  ui.input('\r');
+
+  assert.equal(ui.state().draft, '');
+  assert.match(screen(ui, 80, 24), /◆ You/);
+  const gray = lineWith(ui, 'are you there?');
+
+  accepted.resolve();
+  await ui.pending();
+  ui.update(busy);
+  assert.equal(lineWith(ui, 'are you there?'), gray, 'accepted is not delivered: it stays gray until the agent has it');
+
+  ui.update({ ...busy, messages: [{ id: 'one', role: 'user', content: 'are you there?', at: soon() }] });
+
+  const shown = ui.render(80, 24).filter(value => stripVTControlCharacters(value).includes('are you there?'));
+  assert.equal(shown.length, 1);
+  assert.notEqual(shown[0], gray);
+});
+
+test('a repeated message stays gray until its own copy arrives', async () => {
+  const busy = { ...snapshot, connection: 'connected', busy: true, messages: [] };
+  const ui = createDashboard(busy, { send: async () => {} });
+  const first = { id: 'one', role: 'user', content: 'yes', at: soon() };
+  ui.input('yes');
+  ui.input('\r');
+  ui.input('yes');
+  ui.input('\r');
+  await ui.pending();
+
+  ui.update({ ...busy, messages: [first] });
+  ui.update({ ...busy, messages: [first] });
+
+  assert.equal(screen(ui, 80, 24).match(/◆ You/g).length, 2);
+
+  ui.update({ ...busy, messages: [first, { ...first, id: 'two' }] });
+
+  assert.equal(screen(ui, 80, 24).match(/◆ You/g).length, 2);
+  assert.equal(new Set(ui.render(80, 24).filter(value => /yes/.test(stripVTControlCharacters(value)))).size, 1);
+});
+
+test('a message the conversation never shows leaves when the turn ends', async () => {
+  const busy = { ...snapshot, connection: 'connected', busy: true, messages: [] };
+  const ui = createDashboard(busy, { send: async () => {} });
+  ui.input('handled by an extension');
+  ui.input('\r');
+  await ui.pending();
+  ui.update(busy);
+  assert.match(screen(ui, 80, 24), /handled by an extension/);
+
+  ui.update({ ...busy, busy: false });
+
+  assert.doesNotMatch(screen(ui, 80, 24), /handled by an extension/);
+});
+
+test('a message that fails leaves Chat and comes back to the composer', async () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => { throw Error('no route'); } });
+
+  ui.input('hello');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.equal(ui.state().draft, 'hello');
+  assert.doesNotMatch(screen(ui, 80, 24), /◆ You/);
+  assert.match(screen(ui, 80, 24), /no route/);
+});
+
+test('a failed message never overwrites what was typed since', async () => {
+  const failing = Promise.withResolvers();
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: () => failing.promise });
+  ui.input('first');
+  ui.input('\r');
+  ui.input('second');
+
+  failing.reject(Error('no route'));
+  await ui.pending();
+
+  assert.equal(ui.state().draft, 'second');
+  assert.match(screen(ui, 80, 24), /no route/);
+});
+
 test('chat opens at the latest message and pages through history while input remains active', () => {
   const messages = Array.from({ length: 20 }, (_, i) => ({ role: 'assistant', content: `Message ${i} ` + 'hello '.repeat(20) }));
   const ui = createDashboard({ ...snapshot, messages });
@@ -356,15 +458,15 @@ test('native editing supports word/line shortcuts, undo, multiline submission an
   assert.equal(ui.state().draft, sent[0]);
 });
 
-test('pending acceptance preserves edits and long multiline drafts remain within the terminal', async () => {
+test('typing carries on while a message goes out, and long multiline drafts remain within the terminal', async () => {
   const gate = Promise.withResolvers();
   const ui = createDashboard({ ...snapshot, connection: 'connected' }, { send: () => gate.promise });
   ui.input('first');
   ui.input('\r');
-  ui.input(' second');
+  ui.input('second');
   gate.resolve();
   await ui.pending();
-  assert.equal(ui.state().draft, 'first second');
+  assert.equal(ui.state().draft, 'second');
   for (let i = 0; i < 20; i++) {
     ui.input('\n');
     ui.input(`line ${i}`);
@@ -800,7 +902,6 @@ test('schedule lifecycle survives snapshot refreshes without inventing completio
     ['blocked', 'missing_final_receipt', 'missing final receipt'],
     ['blocked', 'interrupted_attempt', 'interrupted attempt'],
     ['pending', 'awaiting_scheduler', 'awaiting scheduler'],
-    ['done', undefined, 'Done'],
     ['completed', undefined, 'Completed'],
     ['failed', undefined, 'Failed'],
     ['cancelled', undefined, 'Cancelled'],
@@ -824,10 +925,10 @@ test('a held schedule reads as held, not as an ordinary upcoming check', () => {
   assert.match(screen(ui, 120, 40), /held, retries in/i);
 });
 
-test('Schedules shows once files with their date, count and done state', () => {
+test('Schedules shows once files with their date and count', () => {
   const once = {
     id: 'dentist', title: 'Dentist reminder', cadence: 'once', date: '2026-05-04', at: '15:00', timezone: 'UTC', enabled: true,
-    nextRun: { state: 'done', at: null },
+    nextRun: { state: 'expired', at: null },
   };
   const ui = createDashboard({ ...snapshot, connection: 'connected', counts: { ...snapshot.counts, once: 1 }, schedules: [once] });
   ui.input('\x1b[D');
@@ -835,7 +936,6 @@ test('Schedules shows once files with their date, count and done state', () => {
   const text = screen(ui, 120, 40);
   assert.match(text, /1 once/);
   assert.match(text, /once · 2026-05-04 · 15:00/);
-  assert.match(text, /Done/);
 });
 
 test('Schedules labels weekday lists as a range or a list', () => {
@@ -1051,7 +1151,7 @@ test('m in a report moves to the composer with that report attached, and sending
   ui.input('\r');
   await ui.pending();
   assert.deepEqual(sent, [['why', 'one']]);
-  assert.doesNotMatch(screen(ui, 120, 40), /↳ First report/);
+  assert.match(screen(ui, 120, 40), /Message Companion/);
 
   ui.input('next');
   ui.input('\r');

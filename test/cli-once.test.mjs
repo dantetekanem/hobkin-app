@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
@@ -174,23 +174,24 @@ const tickAt = async (h, time) => {
   await h.runtime.idle();
 };
 const nextRun = async h => (await h.runner.snapshot()).schedules[0].nextRun;
+const assertGone = async h => assert.deepEqual((await h.runner.snapshot()).schedules, []);
 
-test('the runner starts a once file at its time, shows scheduled then done, and never repeats', async t => {
+test('the runner starts a once file at its time, then it leaves Schedules and never repeats', async t => {
   const h = harness(t);
   await tickAt(h, '2026-05-04T14:00:00Z');
   assert.equal(h.prompts.length, 0);
   assert.deepEqual(await nextRun(h), { state: 'scheduled', at: '2026-05-04T15:00:00.000Z' });
   await tickAt(h, '2026-05-04T15:00:30Z');
   assert.equal(h.prompts.length, 1);
-  assert.deepEqual(await nextRun(h), { state: 'done', at: null });
+  await assertGone(h);
   await tickAt(h, '2026-05-04T15:01:00Z');
   await tickAt(h, '2026-05-05T15:00:00Z');
   await tickAt(h, '2027-05-04T15:00:00Z');
   assert.equal(h.prompts.length, 1);
-  assert.deepEqual(await nextRun(h), { state: 'done', at: null });
+  await assertGone(h);
 });
 
-test('the runner catches up a missed once file at the next tick and then stays done', async t => {
+test('the runner catches up a missed once file at the next tick and then it leaves Schedules', async t => {
   const h = harness(t);
   await tickAt(h, '2026-05-19T09:00:00Z');
   assert.equal(h.prompts.length, 1);
@@ -198,16 +199,16 @@ test('the runner catches up a missed once file at the next tick and then stays d
   assert.equal(run.scheduledAt, '2026-05-04T15:00:00.000Z');
   await tickAt(h, '2026-05-19T09:00:05Z');
   assert.equal(h.prompts.length, 1);
-  assert.deepEqual(await nextRun(h), { state: 'done', at: null });
+  await assertGone(h);
 });
 
-test('a failed or incomplete once run is still done and is not retried', async t => {
+test('a failed or incomplete once run also leaves Schedules and is not retried', async t => {
   const h = harness(t, {}, { outcome: { status: 'failed', error: 'provider down' } });
   await tickAt(h, '2026-05-04T15:00:00Z');
   await tickAt(h, '2026-05-04T16:00:00Z');
   assert.equal(h.prompts.length, 1);
   assert.equal(Object.values(h.runtime.data.runs)[0].status, 'failed');
-  assert.deepEqual(await nextRun(h), { state: 'done', at: null });
+  await assertGone(h);
 });
 
 test('a once run admitted before a restart does not repeat, even if its file changes to a list', async t => {
@@ -235,8 +236,7 @@ test('a once run admitted before a restart does not repeat, even if its file cha
     await session.runner.tick();
     await session.runtime.idle();
     assert.equal(calls, 1);
-    const [next] = (await session.runner.snapshot()).schedules;
-    assert.equal(next.nextRun.state, 'done');
+    assert.deepEqual((await session.runner.snapshot()).schedules, []);
   } finally {
     await session.runner.stop();
     await session.runtime.close();
@@ -250,7 +250,7 @@ test('each time of a once list runs once and earlier missed times are skipped', 
   assert.deepEqual(await nextRun(h), { state: 'scheduled', at: '2026-05-04T15:00:00.000Z' });
   await tickAt(h, '2026-05-04T15:05:00Z');
   assert.equal(h.prompts.length, 2);
-  assert.deepEqual(await nextRun(h), { state: 'done', at: null });
+  await assertGone(h);
   await tickAt(h, '2026-05-06T00:00:00Z');
   assert.equal(h.prompts.length, 2);
 });
@@ -265,11 +265,29 @@ test('a disabled once file is paused and never runs; enabling it afterwards catc
   assert.equal(h.prompts.length, 1);
 });
 
-test('a once file whose time passed before initialization is expired, not scheduled or done', async t => {
+test('a once file whose time passed before initialization is expired, even after a manual run', async t => {
   const h = harness(t, { date: '2025-12-31' });
   await tickAt(h, '2026-05-04T09:00:00Z');
   assert.equal(h.prompts.length, 0);
   assert.deepEqual(await nextRun(h), { state: 'expired', at: null });
+
+  await h.runner.trigger('dentist', 'request-1');
+  await h.runtime.idle();
+  await h.runner.tick();
+
+  assert.deepEqual(await nextRun(h), { state: 'expired', at: null });
+});
+
+test('a once file that has run moves in with its check, and no longer counts', async t => {
+  const h = harness(t);
+  await tickAt(h, '2026-05-04T15:00:30Z');
+  assert.equal((await h.runner.snapshot()).counts.once, 0, 'it stops counting as soon as it has run');
+
+  await tickAt(h, '2026-05-04T15:00:31Z');
+
+  assert.equal(existsSync(join(h.root, 'schedules/once/dentist.md')), false);
+  assert.match(readFileSync(join(h.root, 'checks/dentist/once-2026-05-04.md'), 'utf8'), /Remind me about the dentist/);
+  assert.equal((await h.runner.snapshot()).counts.once, 0);
 });
 
 test('a once file is running while its job runs', async t => {
@@ -290,7 +308,7 @@ test('a manual run of a once file works, leaves it pending and does not consume 
   assert.deepEqual(await nextRun(h), { state: 'scheduled', at: '2026-05-04T15:00:00.000Z' });
   await tickAt(h, '2026-05-04T15:00:00Z');
   assert.equal(h.prompts.length, 2);
-  assert.deepEqual(await nextRun(h), { state: 'done', at: null });
+  await assertGone(h);
   const paused = harness(t, { enabled: false });
   await paused.runner.tick();
   assert.equal((await paused.runner.trigger('dentist', 'request-2')).status, 'running');

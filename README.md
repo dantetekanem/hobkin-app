@@ -29,7 +29,7 @@ Already using Companion? Read the [CLI update steps](docs/upgrade.md#already-usi
 
 Chat opens ready to type. Reports holds completed checks; Schedules shows their next run and any configuration errors. Running checks get their own read-only tabs. Finishing the selected check opens its report.
 
-- **Enter** sends a message or opens the selected report.
+- **Enter** sends a message or opens the selected report. Your message shows in Chat straight away, gray until the agent has it. One sent while the agent is busy waits its turn.
 - **Left/Right** changes views when the chat draft is empty; otherwise it moves the cursor.
 - **Arrow keys** select reports. **Page Up/Down** and the mouse wheel scroll.
 - **m** inside a report moves to the composer with that report attached, so you can ask about it and carry on in Chat. **Escape** in the composer drops the report and keeps your draft.
@@ -77,7 +77,7 @@ Check the approved notes for changes worth acting on. Cite the evidence.
 
 Set your paths, timezone and model, then enable the file. `model: null` uses Pi's default. Weekly files take a `weekday`, or a list such as `[1, 2, 3, 4, 5]` for Monday to Friday.
 
-For a check that runs once, put the file in `once/` with a `date` (`YYYY-MM-DD` in the file's timezone) plus `at` or `window`. If Companion was not running at that time, the check runs as soon as it is, however late. It never runs twice and then shows as done. The [schedule guide](src/prompts/schedule-setup.md) covers multiple daily times, hourly windows and weekly/monthly settings. Companion reloads edited schedules automatically. Keep the dashboard or headless runner open for checks to run.
+For a check that runs once, put the file in `once/` with a `date` (`YYYY-MM-DD` in the file's timezone) plus `at` or `window`. If Companion was not running at that time, the check runs as soon as it is, however late. It never runs twice, and once it has run it leaves Schedules: its file moves to `checks/<id>/`, next to its log. The [schedule guide](src/prompts/schedule-setup.md) covers multiple daily times, hourly windows and weekly/monthly settings. Companion reloads edited schedules automatically. Keep the dashboard or headless runner open for checks to run.
 
 ## Start Pi through a launcher
 

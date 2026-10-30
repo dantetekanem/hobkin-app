@@ -11,6 +11,7 @@ import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 
+export const MAIN_BUSY = 'Main conversation is busy.';
 const context = BACKGROUND_CONTEXT;
 const RuntimeDoc = defineDoc({
   kind: 'companion.v2.runtime',
@@ -240,7 +241,7 @@ export class CompanionRuntime {
     const previous = this.main;
     const ownedTurn = this.mainTurn?.session === previous ? this.mainTurn : null;
     const hasBusyMainWork = this.mainBusy || previous.isStreaming;
-    if (hasBusyMainWork && !ownedTurn) throw Error('Main conversation is busy.');
+    if (hasBusyMainWork && !ownedTurn) throw Error(MAIN_BUSY);
 
     this.resetting = true;
     this.notify();
@@ -358,7 +359,7 @@ export class CompanionRuntime {
         interruptedByReset = this.resetting || this.mainTurn !== turn;
         if (interruptedByReset) throw Error('Main conversation is resetting.');
         if (this.main !== turn.session || !turn.session.isStreaming || typeof turn.session.steer !== 'function') {
-          throw Error('Main conversation is busy.');
+          throw Error(MAIN_BUSY);
         }
         await turn.session.steer(text);
         turn.children.push(id);
@@ -413,13 +414,13 @@ export class CompanionRuntime {
       if (activeTurn.preflight && this.main.isStreaming && typeof this.main.steer === 'function') {
         return this.queueSteering(text, id, activeTurn);
       }
-      if (this.mainBusy || this.main.isStreaming) throw Error('Main conversation is busy.');
+      if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
       await this.mainWork;
       this.check();
       if (this.resetting) throw Error('Main conversation is resetting.');
       return this.send(text, id);
     }
-    if (this.mainBusy || this.main.isStreaming) throw Error('Main conversation is busy.');
+    if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
 
     const release = this.reserveSession(this.main.sessionId);
     const accepted = Promise.withResolvers();

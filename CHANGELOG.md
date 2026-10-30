@@ -10,7 +10,7 @@
 - Add an optional `launcher` setting. With it, every Pi process starts through the configured command: the main chat as an RPC child that keeps Companion's tools, and checks, reflection, pattern review and repair. `managedExtensions` skips `--no-extensions` for installations that refuse it. Without `launcher`, nothing changes.
 - Show the main binding and any launcher in `pi-companion status`.
 - Read large Pi output records in linear time, stop Pi children when Companion exits, and decline extension dialogs in unattended checks instead of waiting.
-- Add one-time schedules: files in `schedules/once/` with a required `date`. They run once at their local time, catch up after downtime, never repeat, and show as done. Status and the dashboard count them.
+- Add one-time schedules: files in `schedules/once/` with a required `date`. They run once at their local time, catch up after downtime, never repeat, and then leave Schedules, with the file kept in `checks/<id>/`. Status and the dashboard count the ones still to come.
 - Let weekly schedules take a list of weekdays, such as `[1, 2, 3, 4, 5]` for Monday to Friday.
 - Migrate a home that has no pi-scheduler records without installing the scheduler package. A saved daily wake that was never scheduled no longer blocks migration.
 - Accept saved sessions up to 256 MiB in migration, and check the main conversation's identity from its header line at startup, so long-running conversations keep starting.
@@ -31,6 +31,7 @@
 - Keep the header on one row when a job starts, where it fits, by shortening the status first.
 - Add `m` inside a report to message about it: the report goes to the agent with your question, Chat shows only what you typed, and the conversation continues there.
 - Draw the composer with a line above and below instead of a box.
+- Show a sent message in Chat at once under `You`, gray until the agent has it. One sent while the conversation is busy waits its turn instead of failing.
 - Add `pi-companion skill`, which prints a skill that teaches other agents to work with Companion.
 
 ## 0.1.6 - 2026-10-29

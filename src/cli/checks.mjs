@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { reportText, reportTriage, runOutcomeText, writePrivate } from './reports.mjs';
 
@@ -58,6 +58,13 @@ function readCheckLog(path) {
   if (!stat) return [];
   if (!stat.isFile()) throw Error('Check log must be a regular file.');
   return readFileSync(path, 'utf8').trim().split('\n').slice(-LOG_LINES);
+}
+
+/** A once file that has run stays with its check, as the record of what was asked. */
+export function keepOnceFile(root, schedule) {
+  const directory = checkDirectory(root, schedule.id);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  renameSync(schedule.path, join(directory, `once-${schedule.date}.md`));
 }
 
 /** What earlier runs left for this one. Every run is a fresh process, so this is all it inherits. */

@@ -352,7 +352,7 @@ const scheduleWhen = (schedule, clock) => {
   ].filter(Boolean).join(' · ');
 };
 const lifecycleLabels = {
-  done: 'Done', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', expired: 'Expired',
+  completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', expired: 'Expired',
   paused: 'Paused', pending: 'Awaiting scheduler', blocked: 'Invalid schedule',
 };
 const scheduleStatus = ({ schedule, jobs, live, clock, frame }) => {
@@ -491,6 +491,12 @@ const chatEntries = messages => {
   }
   return entries;
 };
+const authorLabel = message => {
+  if (message.waiting) return muted(bold('◆ You'));
+  if (message.role === 'user') return accent(bold('◆ You'));
+  if (message.role === 'assistant') return assistantColor(bold('◆ Companion'));
+  return muted(bold(`◇ ${clean(message.role)}`));
+};
 const chatLines = ({ messages, inner, clock, markdown }) => {
   const entries = chatEntries(messages);
   const content = [];
@@ -516,15 +522,12 @@ const chatLines = ({ messages, inner, clock, markdown }) => {
       content.push('');
       return;
     }
-    if (message.role === 'user') {
-      if (message.about) content.push(`${accent('┃')} ${muted(`↳ ${clean(message.about)}`)}`);
-      content.push(...markdown(message.content, inner - 9).map((value, part) =>
-        `${accent('┃')} ${part || !time ? value : row(value, time, inner - 2)}`));
-    } else {
-      const author = message.role === 'assistant' ? assistantColor(bold('◆ Companion')) : muted(bold(`◇ ${clean(message.role)}`));
-      content.push(row(author, time, inner), ...markdown(message.content, inner - 2).map(value => `  ${value}`));
-    }
-    content.push('');
+    const about = message.about ? [`  ${muted(`↳ ${clean(message.about)}`)}`] : [];
+    // Markdown paints its own colors, so a waiting message stays plain to read as one gray block.
+    const body = message.waiting
+      ? wrapped(message.content, inner - 2).map(value => `  ${dim(value)}`)
+      : markdown(message.content, inner - 2).map(value => `  ${value}`);
+    content.push(row(authorLabel(message), time, inner), ...about, ...body, '');
   });
   return { content, days };
 };
@@ -720,6 +723,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let askingWorkFolder = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
+  // What the user sent that the conversation does not show yet, oldest first.
+  let outbox = [];
+  const delivered = new Set();
+  // A message leaves when the conversation shows it, or when a turn ends without it, as one an extension handled does.
+  const settleOutbox = () => {
+    const isCopyOf = (message, entry) => message.role === 'user' && !delivered.has(messageKey(message))
+      && timeOf(message.at) >= timeOf(entry.at);
+    outbox = outbox.filter(entry => {
+      const copy = (snapshot.messages ?? []).find(message => isCopyOf(message, entry));
+      if (copy) delivered.add(messageKey(copy));
+      return !copy && !(entry.accepted && !snapshot.busy);
+    });
+  };
   const visibleMessageIds = () => (snapshot.messages ?? [])
     .filter(message => !hiddenMessages.has(messageKey(message)) && clean(message.content).trim())
     .map(messageKey);
@@ -825,8 +841,33 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
       .finally(() => { clearing = false; changed(); });
   };
+  const sendMessage = text => {
+    const report = referencedReport;
+    const entry = { role: 'user', content: text, about: report?.title, at: new Date(now()).toISOString(), waiting: true };
+    outbox.push(entry);
+    editor.setText('');
+    editor.addToHistory(text);
+    referencedReport = null;
+    view = 'conversation';
+    focus = 'composer';
+    scroll = 0;
+    say('');
+    changed();
+    pending = Promise.resolve().then(() => callbacks.send(text, report)).then(() => {
+      entry.accepted = true;
+    }, error => {
+      outbox = outbox.filter(item => item !== entry);
+      if (!editor.getExpandedText()) {
+        editor.setText(text);
+        referencedReport = report;
+      }
+      say(`Send failed: ${clean(error?.message ?? error)}`, 'error');
+    }).finally(() => {
+      changed();
+    });
+  };
   editor.onSubmit = submitted => {
-    // Editor clears before onSubmit; keep the draft until the runtime accepts it.
+    // Editor clears before onSubmit; a command keeps the draft until it succeeds.
     editor.setText(submitted);
     if (askingWorkFolder) {
       // A path starts with a slash, so this comes before command handling.
@@ -901,20 +942,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
       return;
     }
-    say('Sending…', 'progress');
-    pending = Promise.resolve().then(() => callbacks.send(submitted, referencedReport)).then(() => {
-      if (editor.getExpandedText() === submitted) editor.setText('');
-      referencedReport = null;
-      editor.addToHistory(submitted);
-      view = 'conversation';
-      focus = 'composer';
-      scroll = 0;
-      say('');
-    }, error => {
-      say(`Send failed: ${clean(error?.message ?? error)}`, 'error');
-    }).finally(() => {
-      changed();
-    });
+    sendMessage(submitted);
   };
 
   const documents = new Map();
@@ -1108,7 +1136,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (view === 'conversation') {
       const messages = (snapshot.messages ?? []).filter(message =>
         !hiddenMessages.has(messageKey(message)) && clean(message.content).trim());
-      const { content, days } = chatLines({ messages, inner, clock, markdown });
+      const { content, days } = chatLines({ messages: [...messages, ...outbox], inner, clock, markdown });
       return content.length ? { content, days } : { content: welcomeLines(inner, available) };
     }
     if (showsReportList()) {
@@ -1183,6 +1211,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     },
     update(next) {
       snapshot = next;
+      settleOutbox();
       for (const id of next.presentation?.hiddenMessageIds ?? []) hiddenMessages.add(id);
       const target = question?.previous ?? { view, focus, scroll };
       if (target.view === 'work' && !workVisible()) {

@@ -1,7 +1,8 @@
 import { watch } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { CompanionRuntime } from './runtime.mjs';
+import { setTimeout as wait } from 'node:timers/promises';
+import { CompanionRuntime, MAIN_BUSY } from './runtime.mjs';
 import { CompanionRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
@@ -44,9 +45,12 @@ const messageTime = message => {
   return Number.isFinite(time) ? time : null;
 };
 
+const BUSY_RETRY_MS = 100;
+
 export class CompanionApplication {
   jobActivity = new Map();
   activeJobIds = new Set();
+  outgoing = Promise.resolve();
 
   observeActivity(id, event) {
     try {
@@ -317,12 +321,30 @@ export class CompanionApplication {
     return this.snapshot;
   }
 
-  async send(text, report) {
-    if (!report) return this.runtime.send(text);
+  // Messages go out in the order they were typed, and one the conversation cannot take yet waits here.
+  send(text, report) {
+    const sent = this.outgoing.then(() => this.deliver(text, report));
+    this.outgoing = sent.catch(() => {});
+    return sent;
+  }
 
-    const accepted = await this.runtime.send(referToReport(this.runtime.directory, report, text));
-    this.telemetry.recordReportDiscussed(report.id, this.now());
+  async deliver(text, report) {
+    const message = report ? referToReport(this.runtime.directory, report, text) : text;
+    const accepted = await this.sendWhenFree(message);
+    if (report) this.telemetry.recordReportDiscussed(report.id, this.now());
+    this.requestRefresh();
     return accepted;
+  }
+
+  async sendWhenFree(message) {
+    for (;;) {
+      try {
+        return await this.runtime.send(message);
+      } catch (error) {
+        if (error.message !== MAIN_BUSY) throw error;
+        await wait(BUSY_RETRY_MS);
+      }
+    }
   }
 
   kill(runId) { return this.runner.kill(runId); }

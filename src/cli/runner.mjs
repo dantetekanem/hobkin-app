@@ -5,7 +5,7 @@ import { loadSchedules, scheduleDate, scheduleTimes } from './schedules.mjs';
 import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { buildContext } from './context.mjs';
 import { readMemory } from './memory.mjs';
-import { checkHold, openCheck, scheduleDefinition } from './checks.mjs';
+import { checkHold, keepOnceFile, openCheck, scheduleDefinition } from './checks.mjs';
 
 function partsAt(formatter, time) {
   return Object.fromEntries(formatter.formatToParts(time)
@@ -100,6 +100,15 @@ export function nextOccurrence(schedule, now = new Date(), { runs = [], notBefor
   return null;
 }
 
+/** A once file is finished when its latest time has run and no later one is left. */
+const isFinishedOnce = (schedule, runs, now, notBefore) => {
+  if (schedule.cadence !== 'once' || !schedule.enabled) return false;
+  if (runs.some(run => run.status === 'running') || nextOccurrence(schedule, now, { runs, notBefore })) return false;
+
+  const latest = dueOccurrence(schedule, now, { notBefore });
+  return Boolean(latest) && runs.some(run => run.scheduledAt === latest.scheduledAt);
+};
+
 export class CompanionRunner {
   constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {} }) {
     if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) throw Error('concurrency must be 1–4');
@@ -170,8 +179,25 @@ export class CompanionRunner {
         this.loaded.errors.push({ path: schedule.path, message: error.message });
       }
     }
+    await this.retireFinishedOnce(now);
     this.lastTick = now.toISOString();
     await this.onTick();
+  }
+
+  /** This comes after dispatch, so a time that was missed gets its run before the file leaves. */
+  async retireFinishedOnce(now) {
+    if (!this.loaded.counts.once) return;
+
+    const runs = Object.values((await this.runtime.state()).runs);
+    for (const schedule of this.loaded.schedules) {
+      const own = runs.filter(run => run.scheduleId === schedule.id);
+      if (!isFinishedOnce(schedule, own, now, this.config.initializedAt)) continue;
+      try {
+        keepOnceFile(this.root, schedule);
+      } catch (error) {
+        this.loaded.errors.push({ path: schedule.path, message: error.message });
+      }
+    }
   }
 
   /** Work runs have their own pool, so they never take a place from ordinary checks. */
@@ -339,7 +365,11 @@ export class CompanionRunner {
         finishedAt: run.finishedAt,
       }));
     const now = new Date(this.now());
-    const schedules = this.loaded.schedules.map(schedule => {
+    const stillToCome = schedule => {
+      const own = runs.filter(run => run.scheduleId === schedule.id);
+      return !isFinishedOnce(schedule, own, now, this.config.initializedAt);
+    };
+    const schedules = this.loaded.schedules.filter(stillToCome).map(schedule => {
       const related = runs.filter(run => run.scheduleId === schedule.id);
       let nextRun = { state: 'paused', at: null };
       if (schedule.enabled) {
@@ -380,13 +410,14 @@ export class CompanionRunner {
           } else if (schedule.cadence !== 'once') {
             nextRun = { state: 'blocked', at: null, reason: 'no_occurrence_in_forecast' };
           } else {
-            nextRun = { state: related.some(run => run.trigger !== 'manual') ? 'done' : 'expired', at: null };
+            nextRun = { state: 'expired', at: null };
           }
         }
       }
       return { ...structuredClone(schedule), nextRun };
     });
-    return { ...structuredClone(this.loaded), schedules, runs, reports, lastTick: this.lastTick ?? state.lastTick, error: this.lastError };
+    const counts = { ...this.loaded.counts, once: schedules.filter(schedule => schedule.cadence === 'once').length };
+    return { ...structuredClone(this.loaded), counts, schedules, runs, reports, lastTick: this.lastTick ?? state.lastTick, error: this.lastError };
   }
 
   /** Stops one running scheduled job this runner owns; its schedule file stays unchanged. */
