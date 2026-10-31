@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { moods } from './face.mjs';
 
 // Herdr stretches the picture onto these cells, so the box has to be square on screen. A cell is about 2.2 times as tall as it is wide.
-export const IMAGE_FACE_COLUMNS = 8;
+export const IMAGE_FACE_COLUMNS = 10;
 export const IMAGE_FACE_ROWS = 5;
 export const WORDMARK_COLUMNS = 10;
 
@@ -38,7 +38,7 @@ const deletion = ids => ids.map(id => `\x1b_Ga=d,d=I,i=${id},q=2\x1b\\`).join(''
 /**
  * Shows the design's frames through text cells that stand for an image. Every frame is its own image, sent once,
  * so moving to the next one only changes a text colour; replacing an image in place is what flickers inside Herdr.
- * Only the mood on screen stays in the terminal, because Herdr turns each image into raw pixels, about 170 KB a frame.
+ * Only the mood on screen stays in the terminal, because Herdr turns each image into raw pixels, about 210 KB a frame.
  */
 export class FaceImages {
   constructor({ write, theme = 'dark', directory = ASSETS }) {

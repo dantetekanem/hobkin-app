@@ -11,7 +11,9 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VIEW_WIDTH = 200;
 const VIEW_HEIGHT = 276;
 const HEIGHT = 240;
-const WIDTH = Math.round((HEIGHT * VIEW_WIDTH) / VIEW_HEIGHT);
+// The hood is drawn a quarter wider than the design.
+const STRETCH = 1.25;
+const WIDTH = Math.round((HEIGHT * VIEW_WIDTH * STRETCH) / VIEW_HEIGHT);
 // Centred on the hood's own box, 40,22 to 160,188. The moods set its size: listening and hello reach x = 1 and 199, celebrating's confetti y = -31.5.
 const VIEW_BOX = `0 -33 ${VIEW_WIDTH} ${VIEW_HEIGHT}`;
 const AT_ONCE = 4;
@@ -85,7 +87,7 @@ async function renderMood(theme, file) {
   const [seconds, fps] = loops[mood];
   const source = readFileSync(join(root, 'assets/animations', theme, file), 'utf8')
     .replace(/<rect x="-28" y="-28" width="256" height="256"[^>]*><\/rect>/, '')
-    .replace('viewBox="-28 -28 256 256"', `viewBox="${VIEW_BOX}"`)
+    .replace('viewBox="-28 -28 256 256"', `viewBox="${VIEW_BOX}" preserveAspectRatio="none"`)
     .replace('width="512" height="512"', `width="${WIDTH}" height="${HEIGHT}"`);
   const page = join(work, `${theme}-${mood}.html`);
   writeFileSync(page, `<!doctype html><meta charset="utf-8"><body>${source}<pre id="result"></pre><script>${frameScript(seconds, Math.round(seconds * fps))}</script></body>`);
