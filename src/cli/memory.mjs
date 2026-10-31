@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
+import { directionsSection, readDirections } from './directions.mjs';
 import { writePrivate } from './reports.mjs';
 
 const MAX_ITEMS = 20;
@@ -82,5 +83,7 @@ export const memorySection = items => `## Current memory\n\n${items.length ? bul
 
 /** Read each turn so a change or a hand edit applies without a restart. */
 export const createMemoryExtension = root => pi => {
-  pi.on('before_agent_start', event => ({ systemPrompt: `${event.systemPrompt}\n\n${memorySection(readMemory(root))}` }));
+  pi.on('before_agent_start', event => ({
+    systemPrompt: `${event.systemPrompt}\n\n${directionsSection(readDirections(root))}\n\n${memorySection(readMemory(root))}`,
+  }));
 };

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { readDirections } from './directions.mjs';
 import { reportText, reportTriage, runOutcomeText, writePrivate } from './reports.mjs';
 
 const MAX_MEMORY_BYTES = 8192;
@@ -71,6 +72,7 @@ export function keepOnceFile(root, schedule) {
 export function openCheck(root, id) {
   mkdirSync(checkDirectory(root, id), { recursive: true, mode: 0o700 });
   return {
+    directions: readDirections(root),
     memory: readCheckMemory(memoryPath(root, id)),
     log: readCheckLog(logPath(root, id)),
   };

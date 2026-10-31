@@ -14,11 +14,12 @@ export async function callBridge(ctx, request, signal) {
 }
 
 /** Host side. A request can only run a tool the host registered, under that tool's own validation. */
-export async function serveBridge(placeholder, { tools, memory }, signal) {
+export async function serveBridge(placeholder, { tools, memory, directions }, signal) {
   try {
     if (typeof placeholder !== 'string' || Buffer.byteLength(placeholder) > MAX_REQUEST_BYTES) throw Error('Invalid bridge request.');
     const request = JSON.parse(placeholder);
     if (request?.op === 'memory') return { ok: true, result: memory() };
+    if (request?.op === 'directions') return { ok: true, result: directions() };
     if (request?.op !== 'tool' || !Object.hasOwn(tools, request.name)
       || typeof request.id !== 'string' || !request.id || request.id.length > 200
       || !request.params || typeof request.params !== 'object') {

@@ -15,11 +15,11 @@ export function parseArguments(args) {
     if (flag === '--home' && values[0] && !values[0].startsWith('-')) {
       options.root = resolve(values.shift());
       options.explicitRoot = true;
-    } else if (['--selection', '--preview', '--confirm'].includes(flag) && values[0] && !values[0].startsWith('-')) {
+    } else if (['--selection', '--preview', '--confirm', '--title', '--cwd'].includes(flag) && values[0] && !values[0].startsWith('-')) {
       options[flag.slice(2)] = values.shift();
     } else if (flag === '--plain') options.plain = true;
     else if (flag === '--help' || flag === '-h') options.command = 'help';
-    else if (['reports', 'work'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
+    else if (['reports', 'work', 'import', 'jev'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
   }
   return options;
@@ -91,11 +91,23 @@ async function connected(options, snapshot, output, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  session [--title name] [--cwd directory]  hand the brief on stdin to a full Pi session in a Herdr pane\n');
     return 0;
   }
   if (options.command === 'skill') {
     output.write(readFileSync(new URL('../prompts/hobkin-skill.md', import.meta.url), 'utf8'));
+    return 0;
+  }
+  if (options.command === 'import') {
+    const { importHome } = await import('./import.mjs');
+    output.write(`${JSON.stringify(await importHome(options.root, options.args[0]), null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'session') {
+    const { readBrief, startSession } = await import('./session.mjs');
+    const brief = await readBrief(dependencies.input ?? process.stdin);
+    const started = await startSession({ title: options.title, cwd: options.cwd, brief });
+    output.write(`${JSON.stringify(started, null, 2)}\n`);
     return 0;
   }
   if (options.command === 'work') {

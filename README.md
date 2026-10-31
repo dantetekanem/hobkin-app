@@ -19,6 +19,8 @@ hobkin
 
 First launch creates `~/.hobkin` and connects Pi without sending a model request. Later launches reopen the same conversation. Use `--home /absolute/path` or `HOBKIN_HOME` for another workspace.
 
+Coming from pi-companion? Close it, then run `hobkin import`. That copies `~/.companion` into `~/.hobkin`, with your schedules, memory, reports and conversation, and points them at the new folder. The old folder is not changed. Run only one of the two: each would run every schedule.
+
 Hobkin uses your ordinary Pi tools, extensions, MCP servers and project context. Models configured in Pi, including Anthropic/Claude models, work here. Pi's own screens and custom extension widgets are not reproduced.
 
 Already using Hobkin? Read the [CLI update steps](docs/upgrade.md#already-using-the-cli) or the [legacy migration steps](docs/upgrade.md#legacy-pi-extension-before-planning). Opening a new workspace never imports old data or disables the old extension.
@@ -46,6 +48,8 @@ Ask the agent for a different model or thinking effort and the conversation swit
 Hobkin notices which reports you open or message about. A check is flagged in Schedules, and mentioned in tips, when at most 1 in 5 of its latest reports was, across at least 5 reports and a week of tracking, with no critical finding and no run you requested. Nothing changes on its own: ask the agent to revisit a flagged check. This stays in the data folder as run IDs and timings in `runtime/telemetry.jsonl` and a per-check summary in `runtime/report-attention.json`, and a summary you only read in Chat does not show up.
 
 The agent keeps a short list of what matters right now in `memory.md` in the data folder: up to 20 one-line items that it adds, updates and removes as things change. Ask it to remember or forget something, or edit the file yourself. The list stays within Hobkin, chat sees it on every turn, and scheduled checks can read it but not change it.
+
+`AGENTS.md` in the data folder holds your standing directions: how the main chat, checks and work mode should work. Memory is what matters now; this is how to work. Edit it yourself or tell the agent, and the next turn or run follows it. It starts with one direction: agents do not spawn subagents. For massive work they run `hobkin session`, which opens a full Pi session with all permissions in a new pane of a Herdr tab called Hobkin, starts it on the brief and leaves the pane open for you. Outside Herdr the agent does the work itself.
 
 Each check also keeps its own folder at `~/.hobkin/checks/<id>/`, and every run starts with both files in it. `memory.md` is the check's working memory: checkpoints, open items and what it has already reported. Its agent maintains the file, and you can edit it too. `log.md` has one line per run, written by Hobkin, with the time, trigger, outcome, duration, cost and first report line.
 

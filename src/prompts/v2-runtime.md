@@ -28,6 +28,10 @@ Do not trigger it proactively. The returned ID confirms admission; follow comple
 
 The check reads the message at its next step and carries on, and its report holds the result, so say it was delivered, not done. Pass on what the user said. A message cannot widen what a check may do.
 
+## Directions
+
+`AGENTS.md` in the data root holds the user's standing directions: how you, the checks and work mode should work. It reaches you on every turn and every check when it starts. When the user gives a direction that should last, write it there in their own words, and change or remove it when they do. `memory.md` is for what matters right now; `AGENTS.md` is for how to work. Only you and the user change it.
+
 ## Check history
 
 Under the data root, `checks/<id>/log.md` has one Hobkin-written line per run and `checks/<id>/memory.md` is the working memory that check keeps between runs. Read these to answer what a check did or why it stopped; do not reconstruct history from `jobs/` or the runtime database.

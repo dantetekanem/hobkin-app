@@ -55,7 +55,8 @@ test('a first run gets an empty memory and a folder to save it in', t => {
 
   const check = openCheck(root, 'mail');
 
-  assert.deepEqual(check, { memory: { path: join(root, 'checks/mail/memory.md'), text: '', truncated: false }, log: [] });
+  assert.deepEqual(check.memory, { path: join(root, 'checks/mail/memory.md'), text: '', truncated: false });
+  assert.deepEqual(check.log, []);
   assert.equal(statSync(join(root, 'checks/mail')).mode & 0o777, 0o700);
 });
 

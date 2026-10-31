@@ -91,6 +91,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
       model_settings: createSettingsTool(async request => ({ action: request.action, scope: request.scope })),
     },
     memory: () => readMemory(root),
+    directions: () => 'Keep reports short.',
   };
   const statuses = [];
   const dialogs = [];

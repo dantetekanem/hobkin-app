@@ -28,8 +28,8 @@ export const agentName = (lane, slug) => `work-${lane}-${slug}`.toLowerCase().re
 
 /** Runs project work where the user can watch it: one agent per pane, in a Herdr tab of their own. */
 export class WorkPanes {
-  constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS } = {}) {
-    Object.assign(this, { workspace, exec, pollMs, idleGraceMs });
+  constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS, tab = TAB_LABEL } = {}) {
+    Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab });
   }
 
   async herdr(...args) {
@@ -45,9 +45,9 @@ export class WorkPanes {
 
   async createPane(cwd) {
     const { tabs } = await this.herdr('tab', 'list', '--workspace', this.workspace);
-    const tab = tabs.find(entry => entry.label === TAB_LABEL);
+    const tab = tabs.find(entry => entry.label === this.tab);
     if (!tab) {
-      const created = await this.herdr('tab', 'create', '--workspace', this.workspace, '--label', TAB_LABEL, '--cwd', cwd, '--no-focus');
+      const created = await this.herdr('tab', 'create', '--workspace', this.workspace, '--label', this.tab, '--cwd', cwd, '--no-focus');
       return created.root_pane.pane_id;
     }
     const { panes } = await this.herdr('pane', 'list', '--workspace', this.workspace);
@@ -94,6 +94,14 @@ export class WorkPanes {
       }
       await delay(this.pollMs, undefined, { signal }).catch(() => {});
     }
+  }
+
+  /** Unlike a run, this is the user's to keep: the pane stays open and nobody waits for a report. */
+  async startSession({ name, cwd, brief }) {
+    const pane = await this.openPane(cwd);
+    await this.herdr('agent', 'start', name, '--kind', 'pi', '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', '--approve');
+    await this.prompt(name, brief);
+    return { name, pane };
   }
 
   async run({ name, kind, cwd, model, effort, sessionFile, brief, report, signal }) {
