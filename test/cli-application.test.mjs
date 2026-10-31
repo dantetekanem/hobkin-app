@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initialize, atomicJson, jevEnabled } from '../src/cli/config.mjs';
+import { initialize, atomicJson, jevEnabled, setJev } from '../src/cli/config.mjs';
 import { HobkinApplication, readLocalView } from '../src/cli/application.mjs';
 import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
@@ -996,6 +996,25 @@ test('with Jev off a useful scheduled report makes Hobkin happy through a real r
     const view = await app.refresh();
 
     assert.equal(view.mood.mood, 'happy');
+  } finally {
+    await app.close();
+  }
+});
+
+test('Jev switched here and back from another terminal between ticks still reaches the footer', async t => {
+  const h = fixture(t);
+  setJevKey(t, 'test-key');
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ answers: {} }) }));
+  const app = await h.openApp();
+  try {
+    await app.tickWork();
+    await app.toggleJev();
+    setJev(h.root, false);
+    const refreshes = t.mock.method(app, 'requestRefresh');
+
+    await app.tickWork();
+
+    assert.equal(refreshes.mock.callCount() > 0, true);
   } finally {
     await app.close();
   }

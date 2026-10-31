@@ -90,11 +90,10 @@ const decorations = {
     if (up) stamp(pixels, ['#', '#'], 23, 5, EYE);
   },
   sound(pixels, seconds) {
-    const arcs = [['#.', '.#', '.#', '#.'], ['#.', '.#', '.#', '.#', '.#', '#.'], ['#', '#', '#', '#', '#', '#']];
     const lit = step(seconds, 1.5, [0, 1, 2, 3]);
     if (lit > 0) stamp(pixels, ['.#', '#.', '#.', '.#'], 4, 11, HOOD);
     if (lit > 1) stamp(pixels, ['.#', '#.', '#.', '#.', '#.', '.#'], 2, 10, HOOD);
-    if (lit > 2) stamp(pixels, arcs[2], 0, 10, HOOD);
+    if (lit > 2) stamp(pixels, ['#', '#', '#', '#', '#', '#'], 0, 10, HOOD);
   },
   dots(pixels, seconds) {
     const lit = step(seconds, 1.2, [1, 2, 3, 3]);

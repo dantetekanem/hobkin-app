@@ -34,7 +34,8 @@ const MOOD_MEANINGS = {
 export const defaultMoods = ['idle', 'thinking', 'working', 'happy'];
 
 export function currentMood({ reaction, busy, running, now }) {
-  if (reaction && now < reaction.until) return reaction.mood;
+  const stepsAside = reaction?.yields && (busy || running);
+  if (reaction && now < reaction.until && !stepsAside) return reaction.mood;
   if (busy) return 'thinking';
   return running ? 'working' : 'idle';
 }
@@ -130,11 +131,11 @@ export class Moods {
   }
 
   showDefault({ outcome }) {
-    if (outcome === 'useful') this.show('happy');
+    if (outcome === 'useful') this.show('happy', { yields: true });
   }
 
-  show(mood, lasting = false) {
-    this.reaction = { mood, lasting, until: lasting ? Number.MAX_SAFE_INTEGER : this.now() + REACTION_MS };
+  show(mood, { lasting = false, yields = false } = {}) {
+    this.reaction = { mood, lasting, yields, until: lasting ? Number.MAX_SAFE_INTEGER : this.now() + REACTION_MS };
     this.onChange();
   }
 
@@ -162,7 +163,7 @@ export class Moods {
     const state = { ...details, userSaid: quoted(this.seen?.user), agentSaid: quoted(this.seen?.agent), running: this.seen?.running };
     this.ask(state).then(mood => {
       if (this.stopped || (lasting && !this.quiet)) return;
-      if (moods.includes(mood)) this.show(mood, lasting);
+      if (moods.includes(mood)) this.show(mood, { lasting });
       else this.showDefault(moment);
     }, () => {
       if (!this.stopped) this.showDefault(moment);

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import {
-  Editor, Markdown, ProcessTerminal, SelectList, TuiAltScreen, getKeybindings, matchesKey,
+  Editor, Markdown, ProcessTerminal, SelectList, TuiAltScreen, getKeybindings, matchesKey, setCapabilityOverrides,
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
@@ -1478,8 +1478,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 }
 
 export function startDashboard(snapshot, handlers = {}, options = {}) {
-  const tui = new TuiAltScreen(options.terminal ?? new ProcessTerminal(), false, undefined, { mouse: true, wheelScrollLines: 3 });
   const images = options.images ?? (!options.terminal && supportsFaceImages() ? new FaceImages({ write: data => tui.terminal.write(data) }) : null);
+  // Left to itself, the screen code deletes every image on the terminal at each full redraw, and it does not know about these.
+  if (images) setCapabilityOverrides({ images: null });
+  const tui = new TuiAltScreen(options.terminal ?? new ProcessTerminal(), false, undefined, { mouse: true, wheelScrollLines: 3 });
   const controller = createDashboard(snapshot, handlers, { tui, images, onChange: () => tui.requestRender() });
   const component = {
     render: width => controller.render(width, tui.terminal.rows),

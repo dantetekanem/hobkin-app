@@ -377,6 +377,7 @@ export class HobkinApplication {
   async toggleJev() {
     const root = this.runtime.directory;
     const result = setJev(root, !jevEnabled(root));
+    this.workSignature = null;
     await this.refresh();
     return result;
   }

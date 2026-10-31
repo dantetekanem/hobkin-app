@@ -33,6 +33,22 @@ test('without Jev a good report makes Hobkin happy, and nothing leaves the machi
   assert.deepEqual(h.asked, []);
 });
 
+test('the happy Hobkin works out for itself steps aside for real work, and one Jev chose does not', async () => {
+  const h = fixture({ enabled: false });
+  h.moods.observe(view());
+  h.moods.observe(view(report('useful')));
+  assert.equal(h.moods.reaction.yields, true);
+
+  const jev = fixture({ answer: 'happy' });
+  jev.moods.observe(view());
+  await jev.settle();
+  jev.clock += 60000;
+  jev.moods.observe(view(report('useful')));
+  await jev.settle();
+
+  assert.equal(jev.moods.reaction.yields, false);
+});
+
 test('a request for more tokens is no reason to look happy', async () => {
   const h = fixture({ enabled: false });
   h.moods.observe(view());

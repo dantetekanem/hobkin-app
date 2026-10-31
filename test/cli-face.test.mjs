@@ -68,6 +68,14 @@ test('with nothing to react to, the mood follows the work', () => {
   assert.equal(currentMood({ busy: true, running: 1, now }), 'thinking');
 });
 
+test('the default happy gives way as soon as real work starts', () => {
+  const reaction = { mood: 'happy', until: 2000, yields: true };
+
+  assert.equal(currentMood({ reaction, now: 1000 }), 'happy');
+  assert.equal(currentMood({ reaction, busy: true, now: 1000 }), 'thinking');
+  assert.equal(currentMood({ reaction, running: 1, now: 1000 }), 'working');
+});
+
 test('a reaction shows until it runs out', () => {
   const reaction = { mood: 'happy', until: 2000 };
 

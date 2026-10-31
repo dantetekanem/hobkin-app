@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { stripVTControlCharacters } from 'node:util';
 import {
   CURSOR_MARKER, getCapabilities, getCellDimensions, getKeybindings, resetCapabilitiesCache, setCapabilities,
-  setCellDimensions, stripTerminalSequences, visibleWidth,
+  setCapabilityOverrides, setCellDimensions, stripTerminalSequences, visibleWidth,
 } from '@earendil-works/pi-tui';
 import { FaceImages } from '../src/cli/face-images.mjs';
 import { createDashboard, startDashboard } from '../src/cli/ui.mjs';
@@ -299,6 +299,30 @@ test('the face moves at the design\'s own speed', () => {
 
   assert.notEqual(frameAt(2500), first);
   assert.equal(written.length, uploads, 'no image data moves after the first upload');
+});
+
+test('Pi\'s screen code is kept away from the pictures, at first paint, on resize and on exit', async t => {
+  const terminal = new FakeTerminal();
+  const protocol = process.env.PI_IMAGE_PROTOCOL;
+  process.env.PI_IMAGE_PROTOCOL = 'kitty';
+  t.after(() => {
+    if (protocol === undefined) delete process.env.PI_IMAGE_PROTOCOL;
+    else process.env.PI_IMAGE_PROTOCOL = protocol;
+    setCapabilityOverrides({});
+  });
+  const images = new FaceImages({ write: data => terminal.write(data) });
+
+  const ui = startDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { terminal, images });
+  await new Promise(resolve => { setTimeout(resolve, 40); });
+  terminal.columns = 130;
+  terminal.resize();
+  await new Promise(resolve => { setTimeout(resolve, 40); });
+  ui.stop();
+
+  const output = terminal.writes.join('');
+  assert.match(output, /a=T/);
+  assert.doesNotMatch(output, /d=A/);
+  assert.match(output, /a=d,d=I/);
 });
 
 test('the face starts moving as soon as it is drawn', t => {
