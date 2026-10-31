@@ -301,6 +301,18 @@ test('the face moves at the design\'s own speed', () => {
   assert.equal(written.length, uploads, 'no image data moves after the first upload');
 });
 
+test('the face starts moving as soon as it is drawn', t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let redraws = 0;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { onChange: () => { redraws++; } });
+
+  ui.render(100, 30);
+  t.mock.timers.tick(1000);
+
+  assert.ok(redraws > 1, `redrew ${redraws} times`);
+  ui.stop();
+});
+
 test('a narrow or short terminal keeps the whole input instead of the face', () => {
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
   const leftOf = (width, height) => {

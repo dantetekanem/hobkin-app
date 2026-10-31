@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { startSession } from '../src/cli/session.mjs';
+import { Readable } from 'node:stream';
+import { readBrief, startSession } from '../src/cli/session.mjs';
 import { WorkPanes } from '../src/cli/work/panes.mjs';
 
 const herdr = { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' };
@@ -33,6 +34,47 @@ test('a session is a full Pi with every permission, in its own tab, and starts o
   assert.equal(start[start.indexOf('--kind') + 1], 'pi');
   assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve']);
   assert.deepEqual(prompt.slice(0, 4), ['agent', 'prompt', name, 'Rebuild it all.']);
+});
+
+test('a Pi that cannot start does not leave an empty pane behind', async () => {
+  const closed = [];
+  const exec = async (_command, args) => {
+    if (args[0] === 'tab' && args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
+    if (args[0] === 'tab') return JSON.stringify({ result: { root_pane: { pane_id: 'w1:p9' } } });
+    if (args[0] === 'pane' && args[1] === 'close') closed.push(args[2]);
+    if (args[0] === 'agent') throw Error('agent_not_ready');
+    return JSON.stringify({ result: {} });
+  };
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
+
+  await assert.rejects(startSession({ brief: 'Rebuild it all.', env: herdr, panes }), /agent_not_ready/);
+
+  assert.deepEqual(closed, ['w1:p9']);
+});
+
+test('a brief that may not have arrived says where the session is, so nobody starts a second one', async () => {
+  const closed = [];
+  const exec = async (_command, args) => {
+    if (args[0] === 'tab' && args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
+    if (args[0] === 'tab') return JSON.stringify({ result: { root_pane: { pane_id: 'w1:p9' } } });
+    if (args[0] === 'pane' && args[1] === 'close') closed.push(args[2]);
+    if (args[0] === 'agent' && args[1] === 'prompt') throw Error('agent_prompt_stalled');
+    return JSON.stringify({ result: {} });
+  };
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
+
+  await assert.rejects(startSession({ title: 'big job', brief: 'Rebuild it all.', env: herdr, panes }), /w1:p9.*hobkin-big-job/);
+
+  assert.deepEqual(closed, [], 'the session stays for the user to look at');
+});
+
+test('a long brief survives being cut mid-character', async () => {
+  const text = Buffer.from('Reforma do módulo de relatórios. ✅');
+  const cut = text.indexOf(Buffer.from('✅')) + 1;
+
+  const brief = await readBrief(Readable.from([text.subarray(0, cut), text.subarray(cut)]));
+
+  assert.equal(brief, 'Reforma do módulo de relatórios. ✅');
 });
 
 test('outside Herdr there is no pane to open, so the agent is told to do the work itself', async () => {

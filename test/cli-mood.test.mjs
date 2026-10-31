@@ -149,6 +149,74 @@ test('moments arriving quickly are read one at a time, and the newest wins', asy
   assert.match(h.asked[1].event, /Third/);
 });
 
+test('nothing leaves the machine after Jev is turned off, even a moment already waiting', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture();
+  h.moods.observe(view());
+  await h.settle();
+  h.asked.length = 0;
+  h.clock += 60000;
+  h.moods.observe(view({ runs: [check('First')] }));
+  h.moods.observe(view({ runs: [check('First'), check('Second')] }));
+  await h.settle();
+  assert.equal(h.asked.length, 1);
+
+  h.enabled = false;
+  h.clock += 60000;
+  t.mock.timers.tick(60000);
+  await h.settle();
+
+  assert.equal(h.asked.length, 1);
+});
+
+test('a mood held through a quiet spell ends with the next moment, even if Jev cannot answer', async () => {
+  const h = fixture({ answer: 'sleepy' });
+  h.moods.observe(view());
+  await h.settle();
+  h.clock += 20 * 60000;
+  h.moods.notice();
+  await h.settle();
+  assert.equal(h.moods.reaction.mood, 'sleepy');
+
+  h.answer = Error('Offline.');
+  h.clock += 60000;
+  h.moods.observe(view({ messages: [{ id: 'c', role: 'user', content: 'hi' }] }));
+  await h.settle();
+
+  assert.equal(h.moods.reaction, null);
+});
+
+test('a quiet answer that lands after something happened does not stick', async () => {
+  const h = fixture({ answer: 'sleepy' });
+  const slow = Promise.withResolvers();
+  h.moods.ask = () => slow.promise;
+  h.moods.observe(view());
+  await h.settle();
+  h.moods.ask = () => slow.promise;
+  h.clock += 20 * 60000;
+  h.moods.notice();
+
+  h.moods.observe(view({ messages: [{ id: 'c', role: 'user', content: 'hi' }] }));
+  slow.resolve('sleepy');
+  await h.settle();
+
+  assert.notEqual(h.moods.reaction?.until, Number.MAX_SAFE_INTEGER);
+});
+
+test('once stopped, it asks nothing more', async () => {
+  const h = fixture();
+  h.moods.observe(view());
+  await h.settle();
+  h.asked.length = 0;
+  h.clock += 60000;
+
+  h.moods.stop();
+  h.moods.observe(view(report('useful')));
+  await h.settle();
+
+  assert.deepEqual(h.asked, []);
+});
+
 test('a mood the design does not have is ignored', async () => {
   const h = fixture({ answer: 'furious' });
   h.moods.observe(view());

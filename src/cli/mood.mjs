@@ -97,6 +97,7 @@ export class Moods {
     this.askedAt = -Infinity;
     this.lastMomentAt = now();
     this.quiet = false;
+    this.stopped = false;
   }
 
   observe(view) {
@@ -114,8 +115,12 @@ export class Moods {
   }
 
   react(moment) {
+    if (this.stopped) return;
     this.lastMomentAt = this.now();
-    if (!moment.lasting) this.quiet = false;
+    if (!moment.lasting) {
+      this.quiet = false;
+      if (this.reaction?.lasting) this.reaction = null;
+    }
     if (!this.enabled()) {
       this.showDefault(moment);
       return;
@@ -125,15 +130,20 @@ export class Moods {
   }
 
   showDefault({ outcome }) {
-    if (outcome === 'useful') this.show('happy', REACTION_MS);
+    if (outcome === 'useful') this.show('happy');
   }
 
-  show(mood, lasts) {
-    this.reaction = { mood, until: this.now() + lasts };
+  show(mood, lasting = false) {
+    this.reaction = { mood, lasting, until: lasting ? Number.MAX_SAFE_INTEGER : this.now() + REACTION_MS };
     this.onChange();
   }
 
   askNext() {
+    // A moment can wait a few seconds, and by then the user may have turned Jev off.
+    if (this.stopped || !this.enabled()) {
+      this.waiting = null;
+      return;
+    }
     if (this.asking || this.timer || !this.waiting) return;
     const wait = this.askedAt + MIN_GAP_MS - this.now();
     if (wait > 0) {
@@ -151,16 +161,21 @@ export class Moods {
     const { lasting, ...details } = moment;
     const state = { ...details, userSaid: quoted(this.seen?.user), agentSaid: quoted(this.seen?.agent), running: this.seen?.running };
     this.ask(state).then(mood => {
-      if (moods.includes(mood)) this.show(mood, lasting ? Number.MAX_SAFE_INTEGER - this.now() : REACTION_MS);
+      if (this.stopped || (lasting && !this.quiet)) return;
+      if (moods.includes(mood)) this.show(mood, lasting);
       else this.showDefault(moment);
-    }, () => this.showDefault(moment)).finally(() => {
+    }, () => {
+      if (!this.stopped) this.showDefault(moment);
+    }).finally(() => {
       this.asking = false;
       this.askNext();
     });
   }
 
   stop() {
+    this.stopped = true;
     clearTimeout(this.timer);
+    this.timer = null;
     this.waiting = null;
   }
 }

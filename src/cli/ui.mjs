@@ -1133,7 +1133,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
     const hasComposer = !question && (view === 'conversation' || askingWorkFolder);
-    faceShown = hasComposer && inner >= (images ? MIN_WIDTH_FOR_IMAGE_FACE : MIN_WIDTH_FOR_FACE) && height >= MIN_ROWS_FOR_TIP_LINE;
+    const faceFits = hasComposer && inner >= (images ? MIN_WIDTH_FOR_IMAGE_FACE : MIN_WIDTH_FOR_FACE) && height >= MIN_ROWS_FOR_TIP_LINE;
+    if (faceFits !== faceShown) {
+      faceShown = faceFits;
+      animate();
+    }
     const faceWidth = faceColumns() + FACE_GAP;
     const room = faceShown ? inner - faceWidth : inner;
     const hints = hintsFor(editor.getExpandedText());

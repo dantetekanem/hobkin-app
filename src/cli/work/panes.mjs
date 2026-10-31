@@ -99,8 +99,17 @@ export class WorkPanes {
   /** Unlike a run, this is the user's to keep: the pane stays open and nobody waits for a report. */
   async startSession({ name, cwd, brief }) {
     const pane = await this.openPane(cwd);
-    await this.herdr('agent', 'start', name, '--kind', 'pi', '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', '--approve');
-    await this.prompt(name, brief);
+    try {
+      await this.herdr('agent', 'start', name, '--kind', 'pi', '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', '--approve');
+    } catch (error) {
+      await this.closePane(pane);
+      throw error;
+    }
+    try {
+      await this.prompt(name, brief);
+    } catch (error) {
+      throw Error(`Pi is running in pane ${pane} as ${name}, but the brief may not have arrived: ${error.message}. Look there before starting another session.`);
+    }
     return { name, pane };
   }
 

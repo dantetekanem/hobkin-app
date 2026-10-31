@@ -59,6 +59,8 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
     ...(work ? { work } : {}),
   };
   const prompt = JSON.stringify(envelope);
-  if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw Error('context envelope exceeded its byte limit');
+  if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) {
+    throw Error('context envelope exceeded its byte limit: shorten the sources, AGENTS.md or this check\'s memory');
+  }
   return prompt;
 }

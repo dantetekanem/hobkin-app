@@ -10,15 +10,19 @@ const sessionName = title => {
   return `hobkin-${words || 'session'}-${randomBytes(2).toString('hex')}`;
 };
 
+export function requireHerdr(env = process.env) {
+  if (!insideHerdr(env)) throw Error('Not inside Herdr, so do this work here.');
+}
+
 export async function readBrief(input) {
-  let text = '';
-  for await (const chunk of input) text += chunk;
-  return text;
+  const pieces = [];
+  for await (const piece of input) pieces.push(Buffer.from(piece));
+  return Buffer.concat(pieces).toString('utf8');
 }
 
 /** Hands massive work to a full Pi session the user can watch and carry on in. Nothing waits for it. */
-export function startSession({ title = 'session', cwd = process.cwd(), brief, env = process.env, panes = new WorkPanes({ tab: TAB_LABEL }) }) {
-  if (!insideHerdr(env)) return Promise.reject(Error('Not inside Herdr, so do this work here.'));
-  if (!brief.trim()) return Promise.reject(Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.'));
+export async function startSession({ title = 'session', cwd = process.cwd(), brief, env = process.env, panes = new WorkPanes({ tab: TAB_LABEL }) }) {
+  requireHerdr(env);
+  if (!brief.trim()) throw Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.');
   return panes.startSession({ name: sessionName(title), cwd: resolve(cwd), brief });
 }
