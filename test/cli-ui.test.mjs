@@ -330,6 +330,30 @@ test('Tab on a bare slash walks every command and comes back round', () => {
   assert.deepEqual(Array.from({ length: 6 }, tab), ['/help', '/clear', '/reset', '/work', '/jev', '/help']);
 });
 
+test('a slash command comes back with the up arrow', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  ui.input('/help');
+  ui.input('\r');
+  ui.input('\x1b[A');
+
+  assert.equal(ui.state().draft, '/help');
+});
+
+test('a command with a folder comes back whole', async () => {
+  const ui = createDashboard(
+    { ...snapshot, connection: 'connected', messages: [], work: { enabled: false } },
+    { send: async () => {}, workAction: async () => ({}) },
+  );
+
+  ui.input('/work ~/Projects');
+  ui.input('\r');
+  await ui.pending();
+  ui.input('\x1b[A');
+
+  assert.equal(ui.state().draft, '/work ~/Projects');
+});
+
 test('Tab leaves a path alone while Hobkin is asking for a folder', () => {
   const ui = createDashboard(
     { ...snapshot, connection: 'connected', messages: [], work: { enabled: false } },

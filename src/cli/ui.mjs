@@ -918,6 +918,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     const namedFolder = submitted.match(/^\/work\s+(.+)$/)?.[1];
     if (namedFolder && !clearing) {
+      editor.addToHistory(submitted);
       startWorkIn(namedFolder.trim());
       return;
     }
@@ -927,6 +928,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return;
       }
+      editor.addToHistory(submitted);
       if (submitted === '/help') {
         editor.setText('');
         say('');
