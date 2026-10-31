@@ -35,11 +35,14 @@ const textFiles = path => {
 
 const shortForm = path => (path.startsWith(`${homedir()}/`) ? `~${path.slice(homedir().length)}` : path);
 
+// A whole path only, so `.companion-notes` beside the old folder stays as it is.
+const wholePath = path => new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[/"'\`\\s.,;:)]*(?:[/"'\`\\s)]|$))`, 'gm');
+
 /** Schedules name their notes by absolute path, and those notes moved with them. Files beside the old folder did not. */
 function movePathsInText(staged, from, to) {
   for (const file of TEXT_ROOTS.flatMap(name => textFiles(join(staged, name)))) {
     const text = readFileSync(file, 'utf8');
-    const moved = text.replaceAll(`${from}/`, `${to}/`).replaceAll('~/.companion/', `${shortForm(to)}/`);
+    const moved = text.replace(wholePath(from), to).replace(wholePath('~/.companion'), shortForm(to));
     if (moved !== text) writeFileSync(file, moved);
   }
 }

@@ -35,7 +35,7 @@ async function companionHome(root) {
 test('an imported folder reopens the same conversation, with its paths moved', async t => {
   const { from, to } = folders(t);
   await companionHome(from);
-  const note = `Read ${from}/notes/plan.md, ~/.companion/notes/plan.md and ~/.companion-notes/old.md.\n`;
+  const note = `Read ${from}/notes/plan.md, ~/.companion/notes/plan.md and ~/.companion-notes/old.md. Home is "${from}", or ~/.companion.\n`;
   mkdirSync(join(from, 'notes'), { recursive: true });
   writeFileSync(join(from, 'notes/plan.md'), 'The plan.\n');
   writeFileSync(join(from, 'memory.md'), note);
@@ -45,7 +45,7 @@ test('an imported folder reopens the same conversation, with its paths moved', a
   assert.equal(readFileSync(join(to, 'notes/plan.md'), 'utf8'), 'The plan.\n');
   assert.equal(existsSync(join(to, 'runtime/hobkin.sqlite')), true);
   assert.equal(existsSync(join(to, 'runtime/companion.sqlite')), false);
-  assert.equal(readFileSync(join(to, 'memory.md'), 'utf8'), `Read ${to}/notes/plan.md, ${to}/notes/plan.md and ~/.companion-notes/old.md.\n`);
+  assert.equal(readFileSync(join(to, 'memory.md'), 'utf8'), `Read ${to}/notes/plan.md, ${to}/notes/plan.md and ~/.companion-notes/old.md. Home is "${to}", or ${to}.\n`);
   assert.equal(readFileSync(join(from, 'memory.md'), 'utf8'), note, 'the old folder is left as it was');
   const app = await opened(to);
   t.after(() => app.close());
