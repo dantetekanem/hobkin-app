@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { main, parseArguments } from '../src/cli/main.mjs';
-import { readItems, readMode, readProjects, writeMode } from '../src/cli/work/store.mjs';
+import { readItems, readMode, readProjects, writeMode, writeState } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-work-cli-')));
@@ -105,6 +105,28 @@ test('an agent files an item, then updates it by id', async t => {
   await work(root, ['item', 'api'], { id: filed.id, state: 'pr', pr: 'https://example.com/1' });
 
   assert.deepEqual(readItems(root, 'api').map(({ state, pr }) => [state, pr]), [['pr', 'https://example.com/1']]);
+});
+
+test('a discovery agent says where it is, and status carries that and the next look', async t => {
+  const root = dataRoot(t);
+  writeMode(root, { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' });
+
+  await work(root, ['progress'], { folder: '/repos/api', doing: 'Reading its history', repositories: ['api'] });
+
+  const { result } = await work(root, []);
+  assert.deepEqual([result.discovery.current, result.discovery.doing, result.discovery.repositories], ['/repos/api', 'Reading its history', ['api']]);
+  assert.equal(result.nextDiscoveryAt, '2026-01-02T00:00:00.000Z');
+});
+
+test('status says when a taken project is next looked at, and why its last look failed', async t => {
+  const root = dataRoot(t);
+  await work(root, ['choose', '/repos/api', 'critical']);
+  writeState(root, 'api', { lastLensAt: '2026-01-01T00:00:00.000Z', lookError: 'The clone is gone.' });
+
+  const { result: { projects: [project] } } = await work(root, []);
+
+  assert.equal(project.nextLookAt, '2026-01-01T08:00:00.000Z');
+  assert.equal(project.lookError, 'The clone is gone.');
 });
 
 test('bare work prints status as JSON', async t => {

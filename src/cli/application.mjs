@@ -12,10 +12,11 @@ import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
+import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { answerAllowance, chooseProject, dropProject, readMode, setHarness, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
+import { answerAllowance, chooseProject, dropProject, readMode, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
 import { atomicJson, jevEnabled, loadConfig, setJev } from './config.mjs';
 import { Moods } from './mood.mjs';
 import { readLocalView } from './view.mjs';
@@ -25,7 +26,7 @@ export { readLocalView } from './view.mjs';
 const textOf = message => (typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n'));
 const chatMessage = message => {
-  const { text, about } = splitReportReference(textOf(message));
+  const { text, about } = splitReportReference(withoutWorkNote(textOf(message)));
   return {
     id: createHash('sha256').update(JSON.stringify(message)).digest('hex'),
     role: message.role,
@@ -46,6 +47,8 @@ const messageTime = message => {
   const time = typeof value === 'number' ? value : Date.parse(value ?? '');
   return Number.isFinite(time) ? time : null;
 };
+const DISCOVERY_POST = 'notice:work-discovery:';
+const isOwnPost = message => message.role === 'notice' || message.id?.startsWith(DISCOVERY_POST);
 
 const BUSY_RETRY_MS = 100;
 
@@ -192,7 +195,7 @@ export class HobkinApplication {
           outcome: run.status,
         };
       });
-    const notices = (this.snapshot.messages ?? []).filter(message => message.role === 'notice');
+    const notices = (this.snapshot.messages ?? []).filter(isOwnPost);
     const noticeIds = new Set(notices.map(message => message.id));
     const noticedRunIds = new Set(this.noticeRunIds);
     const work = this.workView();
@@ -201,6 +204,13 @@ export class HobkinApplication {
     if (asked && !noticeIds.has(askedId)) {
       notices.push({ id: askedId, role: 'notice', content: asked.reason, tone: asked.atLimit ? 'critical' : 'useful', at: asked.at });
       noticeIds.add(askedId);
+    }
+    // It reads as Hobkin speaking, because the user is meant to answer it.
+    const { message: looked, finishedAt } = work.discovery;
+    const lookedId = looked && `${DISCOVERY_POST}${finishedAt}`;
+    if (looked && !noticeIds.has(lookedId)) {
+      notices.push({ id: lookedId, role: 'assistant', content: looked, at: finishedAt });
+      noticeIds.add(lookedId);
     }
     const scheduledReports = runs.filter(isVisibleScheduledReport)
       .sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? ''));
@@ -214,6 +224,8 @@ export class HobkinApplication {
       if (triage?.level === 'nothing') continue;
       // A busy project would push the conversation out of Chat, so only what needs the user reaches it.
       if (run.work?.slug && !['critical', 'blocked'].includes(triage?.level)) continue;
+      // A look speaks for itself above, with every proposal in it.
+      if (run.work?.lane === 'discover') continue;
 
       const schedule = loaded.schedules.find(item => item.id === run.scheduleId);
       const held = schedule?.nextRun?.state === 'held';
@@ -342,7 +354,9 @@ export class HobkinApplication {
 
   async deliver(text, report) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
-    const accepted = await this.sendWhenFree(message);
+    const note = workNote(workStatus(this.runtime.directory), this.director.answerCommands());
+    const accepted = await this.sendWhenFree(note === this.workNoteSeen ? message : `${note}${message}`);
+    this.workNoteSeen = note;
     if (report) this.telemetry.recordReportDiscussed(report.id, this.now());
     this.requestRefresh();
     return accepted;
@@ -389,7 +403,6 @@ export class HobkinApplication {
     const actions = {
       toggle: () => (readMode(root).enabled ? writeMode(root, { enabled: false }) : startWork(root)),
       start: () => startWork(root, slug),
-      harness: () => setHarness(root, slug),
       allow: () => answerAllowance(root, true),
       keep: () => answerAllowance(root, false),
       choose: () => chooseProject(root, slug, value),
@@ -400,6 +413,8 @@ export class HobkinApplication {
     };
     const result = actions[action]();
     await this.director.tick();
+    // A refresh already under way read the state before this change, and the screen must show the change.
+    await this.refreshing?.catch(() => {});
     await this.refresh();
     return result;
   }
@@ -411,6 +426,7 @@ export class HobkinApplication {
 
   async reset() {
     const result = await this.runtime.reset();
+    this.workNoteSeen = null;
     await this.refreshing?.catch(() => {});
     clearTimeout(this.refreshTimer);
     this.refreshTimer = null;

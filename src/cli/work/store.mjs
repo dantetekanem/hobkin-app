@@ -19,11 +19,13 @@ const MAX_NAME_LENGTH = 60;
 const DEFAULT_DAILY_TOKENS = 100000000;
 const HOUR_MS = 3600000;
 const HOURS_IN_DAY = 24;
+export const DISCOVERY_EVERY_MS = HOURS_IN_DAY * HOUR_MS;
 
 const workRoot = root => join(root, 'work');
 const modePath = root => join(workRoot(root), 'mode.json');
 const projectsPath = root => join(workRoot(root), 'projects.jsonl');
 const tokensPath = root => join(workRoot(root), 'tokens.jsonl');
+const discoveryPath = root => join(workRoot(root), 'discovery.jsonl');
 
 export const paths = (root, slug) => {
   const directory = join(workRoot(root), slug);
@@ -98,12 +100,16 @@ function realFolder(path) {
   throw Error(`Not a folder: ${path}`);
 }
 
-/** Discovery searches only where the user said to start, so the first start needs a folder. */
+/**
+ * Discovery searches only where the user said to start, so the first start needs a folder.
+ * The daily clock is for looking again at projects that exist, so with nothing to show a start looks now.
+ */
 export function startWork(root, requested) {
   const { folder: saved } = readMode(root);
   const folder = requested ? realFolder(requested) : saved;
   if (!folder) throw Error('Say which folder to start from.');
-  return writeMode(root, { enabled: true, folder, ...(requested ? { lastDiscoveryAt: null } : {}) });
+  const looksNow = requested || !hasWorkToShow(root);
+  return writeMode(root, { enabled: true, folder, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
 }
 
 export function setHarness(root, harness) {
@@ -144,6 +150,36 @@ export function setDailyTokens(root, tokens) {
   return writeMode(root, { dailyTokens: tokens, raisedTo: null, raisedOn: null, allowanceRequest: null, declinedOn: null });
 }
 
+export const nextDiscoveryAt = ({ lastDiscoveryAt }) => (lastDiscoveryAt
+  ? new Date(Date.parse(lastDiscoveryAt) + DISCOVERY_EVERY_MS).toISOString() : null);
+
+const folderNames = value => [value].flat().filter(Boolean).map(folder => basename(String(folder)));
+
+/** The latest discovery: the event that started it, and everything written since. */
+export function readDiscovery(root) {
+  const events = parseEvents(discoveryPath(root));
+  return Object.assign({}, ...events.slice(Math.max(0, events.findLastIndex(event => event.startedAt))));
+}
+
+export const recordDiscovery = (root, change) => appendEvent(discoveryPath(root), change);
+
+/** What the agent says as it goes. The lists only grow, so a run that stops leaves them for the next one. */
+export function noteDiscovery(root, { folder, doing, repositories, rootFolders, finishedFolders }) {
+  const { repositories: found = [], finishedFolders: finished = [] } = readDiscovery(root);
+  recordDiscovery(root, {
+    current: folder,
+    doing,
+    rootFolders: rootFolders && folderNames(rootFolders),
+    repositories: [...new Set([...found, ...[repositories].flat().filter(Boolean)])],
+    finishedFolders: [...new Set([...finished, ...folderNames(finishedFolders)])],
+  });
+  return readDiscovery(root);
+}
+
+/** The root folders still to do, or `null` while the agent has not said which there are. Only an empty list is a finished look. */
+export const foldersLeft = ({ rootFolders, finishedFolders = [] }) => (rootFolders
+  ? rootFolders.filter(folder => !finishedFolders.includes(folder)) : null);
+
 /** Fresh tokens only: cache reads repeat earlier context, so counting them would swamp what a run really used. */
 export function sessionUsage(file) {
   const entries = parseEvents(file);
@@ -180,11 +216,24 @@ export function readProject(root, slug) {
   return readProjects(root).find(project => project.slug === slug) ?? null;
 }
 
+export const hasWorkToShow = root => readProjects(root).some(project => ['proposed', 'chosen'].includes(project.state));
+
+export const byRank = (left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity);
+
+export const proposedProjects = root => readProjects(root).filter(project => project.state === 'proposed').toSorted(byRank);
+
+function assertItem({ key, kind, title, brief }) {
+  if (!key) throw Error('An item needs a stable key.');
+  if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
+  if (!title || !brief) throw Error('An item needs a title and a brief.');
+}
+
 export function proposeProject(root, proposal, now = Date.now()) {
   const slug = slugOf(proposal.slug ?? proposal.name);
   if (!slug) throw Error('A proposal needs a name.');
   if (!proposal.path && !proposal.remote) throw Error('A proposal needs a path or a remote.');
   if (!levels[proposal.level]) throw Error(`level must be one of: ${Object.keys(levels).join(', ')}`);
+  (proposal.first ?? []).forEach(assertItem);
 
   const known = readProject(root, slug);
   if (known && known.state !== 'proposed') return known;
@@ -222,9 +271,7 @@ export const readItems = (root, slug) => fold(parseEvents(paths(root, slug).item
 
 export function fileItem(root, slug, item, now = Date.now()) {
   const { key, kind, title, brief, urgent = false, reopen } = item;
-  if (!key) throw Error('An item needs a stable key.');
-  if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
-  if (!title || !brief) throw Error('An item needs a title and a brief.');
+  assertItem(item);
 
   const known = readItems(root, slug).find(existing => existing.key === key);
   if (known && !(closedForGood.includes(known.state) && reopen)) return known;
@@ -266,4 +313,9 @@ export const readState = (root, slug) => readJson(paths(root, slug).state, {});
 
 export function writeState(root, slug, change) {
   atomicJson(paths(root, slug).state, { ...readState(root, slug), ...change });
+}
+
+export function nextLookAt(root, { slug, level }) {
+  const { lastLensAt } = readState(root, slug);
+  return lastLensAt ? new Date(Date.parse(lastLensAt) + levels[level].lookEveryHours * HOUR_MS).toISOString() : null;
 }

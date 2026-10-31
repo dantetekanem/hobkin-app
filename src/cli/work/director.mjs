@@ -8,15 +8,17 @@ import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
 import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
+import { reportTriage } from '../reports.mjs';
+import { discoveryMessage } from './chat.mjs';
 import { agentName } from './panes.mjs';
 import {
-  currentRequest, dailyLimit, declinedToday, isPacing, landing, lenses, levels, nextItem, paths, readItems, readMode, readProjects, readState,
-  recordTokens, requestAllowance, sessionUsage, slugOf, tokenLabel, tokensToday, updateItem, writeMode, writeState,
+  currentRequest, dailyLimit, declinedToday, DISCOVERY_EVERY_MS, foldersLeft, hasWorkToShow, isPacing, landing, lenses, levels, nextDiscoveryAt, nextItem, paths,
+  proposedProjects, readDiscovery, readItems, readMode, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, sessionUsage, slugOf, tokenLabel,
+  tokensToday, updateItem, writeMode, writeState,
 } from './store.mjs';
 import { prepareTree } from './tree.mjs';
 
 const HOUR_MS = 3600000;
-const DISCOVERY_EVERY_MS = 24 * HOUR_MS;
 const STUDY_RETRY_MS = HOUR_MS / 4;
 const DISCOVERY_RETRY_MS = HOUR_MS / 4;
 const IDEAS_EVERY_MS = 24 * HOUR_MS;
@@ -24,9 +26,13 @@ const MOST_IDEAS = 3;
 const SOME_OPEN_ITEMS = 2;
 const PLENTY_OPEN_ITEMS = 5;
 const MAX_ATTEMPTS = 2;
+const MAX_DISCOVERY_CONTINUATIONS = 2;
 const MAX_NOTES_BYTES = 16384;
 const MAX_ITEMS_SENT = 40;
 const MAX_BRANCH_NAME = 40;
+const MAX_REASON_LENGTH = 500;
+// A look that ended one of these ways has had its say, so an empty tab is not a reason to look again today.
+const lookOutcomes = ['finished', 'failed', 'unfinished', 'cancelled'];
 
 const mainScript = fileURLToPath(new URL('../main.mjs', import.meta.url));
 const shellWord = value => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -41,6 +47,8 @@ const readBounded = file => {
   return Buffer.from(readFileSync(file)).subarray(0, MAX_NOTES_BYTES).toString('utf8');
 };
 const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
+const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim().slice(0, MAX_REASON_LENGTH);
+const runError = run => firstLine(run?.result?.error ?? run?.error);
 const paneBrief = (purpose, request, report) => `${workDirections(purpose)}
 
 ## Your report
@@ -66,16 +74,18 @@ export class WorkDirector {
 
   running() { return [...this.active.values()]; }
 
+  // Turning work mode off starts nothing new, and whatever is running finishes.
   async tick() {
+    this.recoverDiscovery();
+    this.tellNewProposals();
     const mode = readMode(this.root);
-    if (!mode.enabled) {
-      if (this.active.size) await this.stopRuns();
-      return;
-    }
+    if (!mode.enabled) return;
+
     const tokens = { today: tokensToday(this.root, this.now()), limit: dailyLimit(mode, this.now()) };
     const atLimit = tokens.today >= tokens.limit;
     const holding = atLimit || isPacing(this.root, tokens.limit, this.now());
     const hasRoom = () => this.active.size < mode.pool;
+    if (holding) this.holdDiscovery();
     if (hasRoom() && !holding && this.discoveryDue(mode)) this.startDiscovery(mode.folder, tokens);
 
     const projects = readProjects(this.root)
@@ -118,13 +128,37 @@ export class WorkDirector {
     this.onChange();
   }
 
-  async stopRuns() {
-    await Promise.all(this.running().map(({ id }) => this.runner.kill(id)));
+  // The clock is for looking again. With nothing to show, it counts only if a look at this folder really ended.
+  discoveryDue(mode) {
+    if (!mode.folder || this.active.has('discover')) return false;
+    const { status, folder } = readDiscovery(this.root);
+    const looked = folder === mode.folder && lookOutcomes.includes(status);
+    if (!looked && !hasWorkToShow(this.root)) return true;
+    return elapsedSince(mode.lastDiscoveryAt, this.now()) >= DISCOVERY_EVERY_MS;
   }
 
-  discoveryDue(mode) {
-    return Boolean(mode.folder) && !this.active.has('discover')
-      && elapsedSince(mode.lastDiscoveryAt, this.now()) >= DISCOVERY_EVERY_MS;
+  // Marked running with no agent behind it, a look lost its owner: Hobkin was killed, not closed, so it ends here.
+  recoverDiscovery() {
+    if (this.active.has('discover') || readDiscovery(this.root).status !== 'running') return;
+    recordDiscovery(this.root, { status: 'interrupted', finishedAt: new Date(this.now()).toISOString() });
+    writeMode(this.root, { lastDiscoveryAt: null });
+  }
+
+  // A proposal can arrive with no look behind it, and an imported one was never told, so nothing here waits for a look to end.
+  tellNewProposals() {
+    const { status, told = [] } = readDiscovery(this.root);
+    if (this.active.has('discover') || status === 'continuing') return;
+
+    const isNew = ({ slug }) => !told.includes(slug);
+    if (proposedProjects(this.root).some(isNew)) this.concludeDiscovery({ status: 'offered' });
+  }
+
+  // Tokens stop the next run in a chain, so the user hears what it has so far instead of waiting for the limit to lift.
+  holdDiscovery() {
+    const { status, folder } = readDiscovery(this.root);
+    if (status !== 'continuing') return;
+
+    this.concludeDiscovery({ status: 'unfinished', folder, reason: 'The token limit stopped it.', nextAt: null });
   }
 
   nextLook({ slug, level }, tokens) {
@@ -152,6 +186,15 @@ export class WorkDirector {
     return `${shellWord(process.execPath)} ${shellWord(mainScript)} work ${subcommand} --home ${shellWord(this.root)}`;
   }
 
+  /** Exact commands, so the main agent's answer lands in this home whatever is on its path. */
+  answerCommands() {
+    return {
+      choose: this.command('choose <slug> [critical|important|casual]'),
+      skip: this.command('skip <slug>'),
+      allow: this.command('allow [tokens | no]'),
+    };
+  }
+
   describe(project) {
     const { slug, name, level, summary } = project;
     const { project: notes, directions } = paths(this.root, slug);
@@ -174,8 +217,26 @@ export class WorkDirector {
     return repo;
   }
 
+  // Only a look that finished starts clean. Anything else left a list to pick up, here and in `checkMemory`.
   startDiscovery(folder, tokens) {
-    writeMode(this.root, { lastDiscoveryAt: new Date(this.now()).toISOString() });
+    const startedAt = new Date(this.now()).toISOString();
+    const last = readDiscovery(this.root);
+    const resuming = last.folder === folder && last.status !== 'finished';
+    const { rootFolders, finishedFolders, repositories } = resuming ? last : {};
+    const continuation = last.status === 'continuing' ? (last.continuation ?? 0) + 1 : 0;
+    const carryOn = resuming ? ' An earlier run stopped before it finished, so carry on from where it stopped.' : '';
+    writeMode(this.root, { lastDiscoveryAt: startedAt });
+    recordDiscovery(this.root, {
+      status: 'running',
+      folder,
+      startedAt,
+      continuation,
+      rootFolders,
+      finishedFolders,
+      repositories,
+      told: last.told,
+      lastFailure: last.status === 'failed' ? last.reason : last.lastFailure,
+    });
     const cwd = join(this.root, 'work');
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
     this.start({
@@ -186,27 +247,75 @@ export class WorkDirector {
       cwd,
       model: this.config.main.model,
       effort: 'medium',
-      instructions: `Find the projects in ${folder} and propose the ones worth working on.`,
+      instructions: `Find the projects in ${folder} and propose the ones worth working on.${carryOn}`,
       work: () => ({
         lane: 'discover',
         folder,
         tokens,
+        ...(rootFolders ? { folders: { root: rootFolders, finished: finishedFolders ?? [] } } : {}),
         known: readProjects(this.root).map(({ slug, path, state }) => ({ slug, path, state })),
-        commands: { propose: this.command('propose') },
+        commands: { propose: this.command('propose'), progress: this.command('progress') },
       }),
-      settle: run => this.settleDiscovery(run),
+      settle: run => this.settleDiscovery(run, folder),
     });
   }
 
-  // A run that did not finish found nothing the user can rely on, so it must not count as today's discovery.
-  settleDiscovery(run) {
-    if (run?.status === 'completed') return;
-    if (run?.status === 'interrupted') {
-      writeMode(this.root, { lastDiscoveryAt: null });
-      return;
+  // A run only says it stopped. The folder list says whether the look is done, so a clean stop with folders left is not.
+  discoveryOutcome(run, enabled) {
+    if (run?.status === 'interrupted') return { status: 'cancelled' };
+    if (run?.status !== 'completed') return { status: 'failed', reason: runError(run) || 'The run ended without saying why.' };
+
+    const triage = reportTriage(run);
+    const reason = triage?.message ?? (firstLine(run.result?.text) || 'The agent did not say why.');
+    const discovery = readDiscovery(this.root);
+    if (foldersLeft(discovery)?.length === 0) return { status: 'finished', reason };
+
+    const carriesOn = enabled && triage?.level !== 'blocked' && (discovery.continuation ?? 0) < MAX_DISCOVERY_CONTINUATIONS;
+    return { status: carriesOn ? 'continuing' : 'unfinished', reason };
+  }
+
+  // `null` means look again as soon as nothing stands in the way.
+  clockAfter(status, enabled) {
+    const now = this.now();
+    if (status === 'interrupted' || status === 'continuing') return null;
+    if (status === 'failed') return new Date(now - DISCOVERY_EVERY_MS + DISCOVERY_RETRY_MS).toISOString();
+    return status === 'unfinished' && !enabled ? null : new Date(now).toISOString();
+  }
+
+  /** Closing Hobkin is not an outcome, so that look just starts over. Everything else ends with the user being told. */
+  settleDiscovery(run, folder) {
+    const { enabled, folder: currentFolder } = readMode(this.root);
+    const closing = run?.status === 'interrupted' && this.runner.stopped;
+    const { status, reason } = closing ? { status: 'interrupted' } : this.discoveryOutcome(run, enabled);
+
+    // A folder named during the run has its own look coming, so this one leaves the clock alone.
+    if (currentFolder === folder) writeMode(this.root, { lastDiscoveryAt: this.clockAfter(status, enabled) });
+
+    if (status === 'interrupted' || status === 'continuing') {
+      recordDiscovery(this.root, { status, reason, finishedAt: new Date(this.now()).toISOString() });
+    } else {
+      this.concludeDiscovery({ status, reason, folder });
     }
-    const retryAt = this.now() - DISCOVERY_EVERY_MS + DISCOVERY_RETRY_MS;
-    writeMode(this.root, { lastDiscoveryAt: new Date(retryAt).toISOString() });
+  }
+
+  /** Each proposal is told once, a repeated failure is not told again, and a quiet day with projects says nothing. */
+  concludeDiscovery({ status, reason, folder, nextAt = nextDiscoveryAt(readMode(this.root)) }) {
+    const now = this.now();
+    const discovery = readDiscovery(this.root);
+    const { told = [], lastFailure } = discovery;
+    const proposals = proposedProjects(this.root);
+    const hasNews = proposals.some(({ slug }) => !told.includes(slug));
+    const isNewFailure = status === 'failed' && reason !== lastFailure;
+    const foundNothing = status === 'finished' && !hasWorkToShow(this.root);
+    const worthSaying = hasNews || isNewFailure || foundNothing || status === 'unfinished';
+    const message = worthSaying
+      ? discoveryMessage({ folder: folder ?? discovery.folder, proposals, status, reason, left: foldersLeft(discovery), nextAt, now }) : '';
+    recordDiscovery(this.root, {
+      ...(status === 'offered' ? {} : { status, reason, offered: proposals.length }),
+      finishedAt: new Date(now).toISOString(),
+      told: [...new Set([...told, ...proposals.map(({ slug }) => slug)])],
+      ...(message ? { message } : {}),
+    });
   }
 
   startLook(project, focus, tokens) {
@@ -230,7 +339,16 @@ export class WorkDirector {
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: async () => { await prepareTree({ repo: await this.repositoryFor(project), tree: cwd }); },
       work: () => ({ lane: 'look', focus, tokens, ...ideas, ...this.describe(project) }),
+      settle: run => this.settleLook(slug, run),
     });
+  }
+
+  // The tab is the only place a failed look shows, because a busy project stays out of Chat.
+  settleLook(slug, run) {
+    if (run?.status === 'interrupted') return;
+
+    const lookError = run?.status === 'completed' ? null : runError(run) || 'The look failed.';
+    writeState(this.root, slug, { lookError });
   }
 
   startDo(project, item) {
@@ -262,13 +380,15 @@ export class WorkDirector {
     });
   }
 
-  // A run that ended without recording an outcome did not finish. An interruption keeps the item, so it resumes.
+  // A run that ended without recording an outcome did not finish. Closing Hobkin keeps the item, so it resumes.
+  // Cancelling one is the user saying stop, so it waits for them instead of starting again on the next tick.
   settleItem(slug, id, run) {
-    if (run?.status === 'interrupted') return;
+    const interrupted = run?.status === 'interrupted';
+    if (interrupted && this.runner.stopped) return;
     const item = readItems(this.root, slug).find(entry => entry.id === id);
     if (item?.state !== 'doing') return;
     const attempts = (item.attempts ?? 0) + 1;
-    updateItem(this.root, slug, id, { state: attempts >= MAX_ATTEMPTS ? 'stuck' : 'open', attempts }, this.now());
+    updateItem(this.root, slug, id, { state: interrupted || attempts >= MAX_ATTEMPTS ? 'stuck' : 'open', attempts }, this.now());
   }
 
   async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal }) {
@@ -296,6 +416,7 @@ export class WorkDirector {
     const harnessId = randomUUID();
     const id = `work:${slug ?? 'discover'}:${lane}:${harnessId}`;
     const scheduleId = slug ? `work.${slug}.${lane}` : 'work.discover';
+    const inPane = Boolean(slug && this.panes);
     const request = {
       id,
       kind: 'background',
@@ -306,7 +427,7 @@ export class WorkDirector {
       effort,
       cwd,
       harnessId,
-      work: { slug, lane, item },
+      work: { slug, lane, item, ...(inPane ? { pane: agentName(lane, slug) } : {}) },
     };
     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
     const effect = async signal => {
@@ -318,9 +439,7 @@ export class WorkDirector {
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work());
       mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
-      if (slug && this.panes) {
-        return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal });
-      }
+      if (inPane) return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal });
       return this.runHarness({
         id: harnessId,
         harness: 'pi',

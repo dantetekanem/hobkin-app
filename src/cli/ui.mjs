@@ -10,7 +10,8 @@ import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
 import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
 import { currentMood } from './mood.mjs';
 import { followPiTheme } from './theme.mjs';
-import { tokenLabel, workHarnesses } from './work/store.mjs';
+import { lookTime, shortPath } from './work/chat.mjs';
+import { byRank, foldersLeft, tokenLabel } from './work/store.mjs';
 
 // The caller supplies already-loaded arrays; render never reads history or starts work.
 const clean = value => stripTerminalSequences(String(value ?? '')).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
@@ -142,6 +143,9 @@ const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
 const RESTING_FACE_MS = 250;
 const MIN_ROWS_FOR_PINNED_DAY = 8;
+const MAX_REPOSITORIES_SHOWN = 8;
+// With no row picked yet, the tab opens on the first thing that needs an answer.
+const answerableRows = ['allowance', 'attention', 'proposal'];
 const localCommands = [
   ['/help', 'what Hobkin can do'],
   ['/clear', 'hide visible chat'],
@@ -488,7 +492,10 @@ const jobActivityLines = ({ run, blocks, inner, clock, frame, markdown }) => {
       content.push('');
     }
   }
-  if (!blocks.length) content.push(dim('No parent activity received yet.'));
+  const pane = run?.work?.pane;
+  const silence = pane ? `This agent runs in pane ${pane} of the Work Mode tab in Herdr. Watch it there, or press k to cancel it.`
+    : 'No parent activity received yet.';
+  if (!blocks.length) content.push(...wrapped(silence, inner).map(dim));
   return content;
 };
 // Critical, blocked and useful report messages read as messages; other notices stay quiet.
@@ -601,17 +608,106 @@ const reportListLines = ({ reports, total, selectedId, inner, clock }) => {
   if (!reports.length) content.push(dim('No reports yet.'));
   return { content, ranges };
 };
-const projectStatus = ({ open, prs, stuck }) => [
+const projectStatus = ({ open, prs, stuck, nextLookAt }, clock) => [
   open ? count(open, 'item') : '',
   prs ? count(prs, 'PR') : '',
   stuck ? `${stuck} stuck` : '',
-].filter(Boolean).join(' · ') || 'looking';
+  nextLookAt ? `next look ${until(nextLookAt, clock)}` : '',
+].filter(Boolean).join(' · ') || 'not looked at yet';
+const stoppedLine = running => {
+  const kept = 'Projects, items and branches stay.';
+  if (!running) return `Nothing new starts. ${kept}`;
+
+  const finishing = running === 1 ? 'The running agent finishes what it started' : `The ${running} running agents finish what they started`;
+  return `${finishing}, and nothing new starts. ${kept}`;
+};
+const lastLookLine = ({ status, reason, offered }) => {
+  if (status === 'failed') return `The last look failed: ${clean(reason)}`;
+  if (status === 'unfinished') return `The last look stopped early: ${clean(reason)}`;
+  if (status === 'cancelled') return 'The last look was cancelled.';
+  return status === 'finished' && !offered ? `The last look proposed nothing: ${clean(reason)}` : '';
+};
+const upcomingLook = (work, clock) => {
+  const projects = (work.projects ?? []).filter(project => project.state === 'chosen');
+  const looks = [
+    { at: work.nextDiscoveryAt, name: shortPath(work.folder) },
+    ...projects.map(project => ({ at: project.nextLookAt, name: clean(project.name ?? project.slug) })),
+  ];
+  return looks.filter(look => timeOf(look.at) > clock).toSorted((left, right) => timeOf(left.at) - timeOf(right.at))[0];
+};
+const foldersDone = discovery => {
+  const left = foldersLeft(discovery);
+  if (!left) return '';
+
+  const total = discovery.rootFolders.length;
+  return ` (${total - left.length} of ${total} folders done)`;
+};
+// The tab always answers these two questions, so it can never be an empty page that looks broken.
+const workSituation = ({ work, runs, clock }) => {
+  const { discovery = {}, folder, projects = [], paused } = work;
+  const where = folder ? shortPath(folder) : '';
+  const waiting = projects.filter(project => project.state === 'proposed').length;
+  const answers = waiting ? ` ${waiting === 1 ? '1 proposal is' : `${waiting} proposals are`} waiting for an answer.` : '';
+  const look = upcomingLook(work, clock);
+  const scheduled = look ? `A look at ${look.name} at ${lookTime(look.at, clock)} (${until(look.at, clock)}).` : '';
+  if (work.discovering) {
+    const others = runs.filter(run => run.work?.lane !== 'discover').length;
+    return {
+      now: `Looking through ${where}${foldersDone(discovery)}.${others ? ` ${count(others, 'other agent')} running.` : ''}${answers}`,
+      next: 'It asks in Chat which projects to take when it finishes.',
+      scheduled,
+    };
+  }
+  const running = runs.length ? `${count(runs.length, 'agent')} running.` : 'Nothing is running.';
+  const dueNow = paused ? 'It looks again when the token limit allows.' : `It looks${where ? ` in ${where}` : ''} now.`;
+  return {
+    now: [paused ? 'Paused by the token limit.' : running, lastLookLine(discovery)].filter(Boolean).join(' ') + answers,
+    next: scheduled ? '' : dueNow,
+    scheduled,
+  };
+};
+const foundLine = names => {
+  const latest = names.slice(-MAX_REPOSITORIES_SHOWN).map(clean).join(', ');
+  const amount = names.length === 1 ? '1 repository' : `${names.length} repositories`;
+  return `Found ${amount}: ${names.length > MAX_REPOSITORIES_SHOWN ? 'latest ' : ''}${latest}`;
+};
+// The agent's report says what it means to do. This says what it just did, so the tab moves even if it never reports.
+const latestStep = blocks => {
+  const block = blocks?.findLast(entry => entry.kind === 'tool' && !/ work (?:progress|propose) /.test(entry.input ?? ''));
+  if (!block) return '';
+  let detail = block.input ?? '';
+  try {
+    const input = JSON.parse(detail);
+    detail = input?.command ?? input?.path ?? detail;
+  } catch {
+    // Not every tool's input is JSON, and the text says enough.
+  }
+  return clean(`${block.name} ${detail}`);
+};
+const discoveryLines = ({ work, step, inner, clock, frame }) => {
+  const { discovery = {}, projects = [] } = work;
+  const proposed = projects.filter(project => project.state === 'proposed').length;
+  const started = timeOf(discovery.startedAt);
+  const summary = [`${proposed} proposed so far`, started === null ? '' : elapsed(started, clock)].filter(Boolean).join(' · ');
+  const place = discovery.current ? `Going through ${shortPath(discovery.current)}` : '';
+  const going = [place, discovery.doing].filter(Boolean).join(': ');
+  const found = discovery.repositories?.length ? foundLine(discovery.repositories) : '';
+  const indented = (text, paint) => wrapped(text, inner - 2).map(value => `  ${paint(value)}`);
+  return [
+    muted(bold('FINDING PROJECTS')),
+    '',
+    `${highlight(frame)} ${dim(summary)}`,
+    ...(going ? indented(going, dim) : []),
+    ...(found ? indented(found, muted) : []),
+    ...(step ? [`  ${muted(`Last step: ${step}`)}`] : []),
+    '',
+  ];
+};
 // The rows the user can act on, grouped as they appear. A row's key keeps it selected across refreshes.
 const workSections = ({ work, runs, inner, clock, frame }) => {
   const named = project => clean(project.name ?? project.slug);
   const projects = (work.projects ?? []).filter(project => project.state === 'chosen');
-  const proposed = (work.projects ?? []).filter(project => project.state === 'proposed')
-    .toSorted((left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity));
+  const proposed = (work.projects ?? []).filter(project => project.state === 'proposed').toSorted(byRank);
   const names = [...projects.map(named), ...(work.attention ?? []).map(item => clean(item.slug))];
   const nameWidth = Math.min(24, Math.max(0, ...names.map(name => visibleWidth(name))));
   const asked = work.allowanceRequest;
@@ -642,7 +738,10 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
       type: 'project',
       slug: project.slug,
       name: named(project),
-      lines: [`${positive('●')} ${cell(bold(named(project)), nameWidth)}  ${cell(dim(project.level), 9)}  ${muted(projectStatus(project))}`],
+      lines: [
+        `${positive('●')} ${cell(bold(named(project)), nameWidth)}  ${cell(dim(project.level), 9)}  ${muted(projectStatus(project, clock))}`,
+        ...(project.lookError ? wrapped(`Last look failed: ${project.lookError}`, inner - 2).map(value => `  ${negative(value)}`) : []),
+      ],
     }))],
     ['PROPOSED', proposed.map(project => ({
       key: `proposal:${project.slug}`,
@@ -650,40 +749,44 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
       slug: project.slug,
       lines: [
         `${muted('◇')} ${row(bold(named(project)), dim(project.level), inner - 2)}`,
-        ...[project.summary, project.found].filter(Boolean).map(text => `  ${dim(clean(text))}`),
+        ...[project.summary, project.found, project.reason].filter(Boolean).flatMap(text => wrapped(text, inner - 2)).map(value => `  ${dim(value)}`),
         ...(project.first?.[0] ? [`  ${muted(`First: ${clean(project.first[0].title)}`)}`] : []),
       ],
-    }))],
+    })), keys([['y', 'take'], ['1', 'critical'], ['2', 'important'], ['3', 'casual'], ['n', 'skip']])],
   ];
   return sections.filter(([, rows]) => rows.length);
 };
-const workCircle = work => {
-  if (work.paused) return caution('●');
-  return work.enabled ? positive('●') : muted('●');
-};
-const workLines = ({ work, sections, selected, inner, frame }) => {
-  const label = work.paused ? 'paused' : work.enabled ? 'active' : 'offline';
-  const state = `${workCircle(work)} ${dim(label)}`;
+const workCircle = work => (work.paused ? caution('●') : positive('●'));
+const workLines = ({ work, runs, sections, selected, step, inner, clock, frame }) => {
+  const state = `${workCircle(work)} ${dim(work.paused ? 'paused' : 'active')}`;
   const atLimit = work.dailyTokens && work.tokensToday >= work.dailyTokens;
   const tokens = work.dailyTokens ? `${tokenLabel(work.tokensToday ?? 0)}/${tokenLabel(work.dailyTokens)} tokens` : '';
   const status = [state, work.harness ? dim(clean(work.harness)) : '', tokens ? (atLimit ? caution : dim)(tokens) : '']
     .filter(Boolean).join(muted(' · '));
-  const content = [row(muted(bold('WORK MODE')), status, inner), ''];
+  const { now, next, scheduled } = workSituation({ work, runs, clock });
+  const where = work.folder ? `, starting from ${shortPath(work.folder)}` : '';
+  const content = [
+    row(muted(bold('WORK MODE')), status, inner),
+    '',
+    ...wrapped(`Work mode is on${where}. Type /work in Chat to stop.`, inner).map(bold),
+    ...wrapped(`Now: ${now}`, inner).map(dim),
+    ...wrapped(`Next: ${[next, scheduled].filter(Boolean).join(' ')}`, inner).map(dim),
+    '',
+  ];
   let selectedRange;
-  if (!work.enabled) content.push(dim('Work mode is off. Press enter to start.'), '');
-  if (work.enabled && atLimit) content.push(caution('Token limit reached for today. Only urgent work runs until tomorrow.'), '');
-  else if (work.enabled && work.pacing) content.push(dim('Spreading tokens across the day. New work starts as the hour moves on.'), '');
-  if (work.discovering) {
-    const found = (work.projects ?? []).filter(project => project.state === 'proposed').length;
-    content.push(muted(bold('FINDING PROJECTS')), '', `${highlight(frame)} ${dim(`Reading ${clean(work.folder)} · ${found} proposed so far`)}`, '');
-  }
-  for (const [heading, rows] of sections) {
+  if (atLimit) content.push(caution('Token limit reached for today. Only urgent work runs until tomorrow.'), '');
+  else if (work.pacing) content.push(dim('Spreading tokens across the day. New work starts as the hour moves on.'), '');
+  if (work.discovering) content.push(...discoveryLines({ work, step, inner, clock, frame }));
+  for (const [heading, rows, note] of sections) {
     content.push(row(muted(bold(heading)), muted(String(rows.length)), inner), '');
-    for (const item of rows) {
+    if (note) content.push(note, '');
+    rows.forEach((item, index) => {
       const isSelected = item.key === selected?.key;
       if (isSelected) selectedRange = [content.length, content.length + item.lines.length];
       content.push(...item.lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
-    }
+      // Rows of several lines would otherwise run together.
+      if (item.lines.length > 1 && index < rows.length - 1) content.push('');
+    });
     content.push('');
   }
   return { content, selectedRange };
@@ -795,7 +898,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     run.state === 'running' && run.kind === 'background' && !run.work
     && typeof run.scheduleId === 'string' && run.scheduleId.trim()) : [];
   const workRuns = () => (snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run => run.state === 'running' && run.work) : []);
-  const workVisible = () => Boolean(snapshot.work);
+  const workVisible = () => Boolean(snapshot.work?.enabled);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
   const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
@@ -814,7 +917,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const currentWorkSections = (inner, clock, frame) => workSections({ work: snapshot.work ?? {}, runs: workRuns(), inner, clock, frame });
   const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
     const rows = sections.flatMap(([, entries]) => entries);
-    return rows.find(entry => entry.key === workKey) ?? rows[0] ?? null;
+    const answerable = rows.find(entry => answerableRows.includes(entry.type));
+    return rows.find(entry => entry.key === workKey) ?? answerable ?? rows[0] ?? null;
   };
   const isJob = () => view.startsWith('job:');
   const followsTail = () => view === 'conversation' || isJob();
@@ -869,9 +973,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     focus = 'composer';
     say('');
   };
-  const stopAskingForWorkFolder = () => {
-    askingWorkFolder = false;
-    if (view === 'work') focus = 'work';
+  // The notice row is short beside the face, so what stopped and what stays goes in the conversation.
+  const announceWork = enabled => {
+    const { now: happening, next, scheduled } = workSituation({ work: snapshot.work ?? {}, runs: workRuns(), clock: now() });
+    localMessages.push({
+      id: `work:${randomUUID()}`,
+      role: 'assistant',
+      content: enabled ? `Work mode on. ${happening} ${next || scheduled}` : `Work mode off. ${stoppedLine(workRuns().length)}`,
+      at: new Date(now()).toISOString(),
+    });
   };
   const startWorkIn = folder => {
     clearing = true;
@@ -880,10 +990,32 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return callbacks.workAction('start', folder);
     }).then(() => {
       editor.setText('');
-      stopAskingForWorkFolder();
-      say('Work mode on.', 'success', { timeout: 3000 });
+      askingWorkFolder = false;
+      announceWork(true);
     }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
       .finally(() => { clearing = false; changed(); });
+  };
+  const toggleWorkFromChat = submitted => {
+    clearing = true;
+    pending = Promise.resolve().then(() => {
+      if (typeof callbacks.workAction !== 'function') throw Error('Work mode unavailable');
+      return callbacks.workAction('toggle');
+    }).then(mode => {
+      if (editor.getExpandedText() === submitted) editor.setText('');
+      announceWork(Boolean(mode?.enabled));
+    }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+      .finally(() => { clearing = false; changed(); });
+  };
+  const setWorkFromChat = (submitted, wanted) => {
+    if (wanted === Boolean(snapshot.work?.enabled)) {
+      editor.setText('');
+      say(`Work mode is already ${wanted ? 'on' : 'off'}.`, 'warning', { timeout: 3000 });
+      changed();
+    } else if (needsWorkFolder()) {
+      editor.setText('');
+      askForWorkFolder();
+      changed();
+    } else toggleWorkFromChat(submitted);
   };
   const sendMessage = text => {
     const report = referencedReport;
@@ -918,10 +1050,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       if (submitted.trim() && !clearing) startWorkIn(submitted.trim());
       return;
     }
-    const namedFolder = submitted.match(/^\/work\s+(.+)$/)?.[1];
-    if (namedFolder && !clearing) {
+    const named = submitted.match(/^\/work\s+(.+)$/)?.[1]?.trim();
+    if (named && !clearing) {
       editor.addToHistory(submitted);
-      startWorkIn(namedFolder.trim());
+      if (['on', 'off'].includes(named)) setWorkFromChat(submitted, named === 'on');
+      else startWorkIn(named);
       return;
     }
     if (submitted.startsWith('/')) {
@@ -952,15 +1085,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         return;
       }
       if (submitted === '/work') {
-        clearing = true;
-        pending = Promise.resolve().then(() => {
-          if (typeof callbacks.workAction !== 'function') throw Error('Work mode unavailable');
-          return callbacks.workAction('toggle');
-        }).then(mode => {
-          if (editor.getExpandedText() === submitted) editor.setText('');
-          say(mode?.enabled ? 'Work mode on.' : 'Work mode off. Projects and items are kept.', 'success', { timeout: 3000 });
-        }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
-          .finally(() => { clearing = false; changed(); });
+        toggleWorkFromChat(submitted);
         return;
       }
       if (submitted === '/jev') {
@@ -1055,7 +1180,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       ? [`${connectionStatus}${dim(' · ')}${running}`, connectionStatus, indicator]
       : [connectionStatus];
     const scheduleCount = Object.values(snapshot.counts ?? {}).reduce((sum, count) => sum + count, 0);
-    const needsYou = (snapshot.work?.attention?.length ?? 0) + (snapshot.work?.allowanceRequest ? 1 : 0);
+    const proposals = (snapshot.work?.projects ?? []).filter(project => project.state === 'proposed').length;
+    const needsYou = (snapshot.work?.attention?.length ?? 0) + (snapshot.work?.allowanceRequest ? 1 : 0) + proposals;
     const tabs = [
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
@@ -1090,8 +1216,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         allowance: [['y', 'raise'], ['n', 'keep paused']],
         run: [['enter', 'watch']],
       };
-      const start = snapshot.work?.enabled ? [] : [['enter', 'start']];
-      return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['h', 'harness'], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
+      return [...rowKeys[selectedWorkRow()?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
@@ -1229,7 +1354,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     if (view === 'work') {
       const sections = currentWorkSections(inner, clock, frame);
-      return workLines({ work: snapshot.work ?? {}, sections, selected: selectedWorkRow(sections), inner, frame });
+      const runs = workRuns();
+      const looking = runs.find(run => run.work?.lane === 'discover');
+      const step = latestStep(snapshot.jobActivity?.[looking?.id]);
+      return workLines({ work: snapshot.work ?? {}, runs, sections, selected: selectedWorkRow(sections), step, inner, clock, frame });
     }
     if (isJob()) {
       return {
@@ -1262,8 +1390,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       .catch(error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
       .finally(changed);
   };
+  const workRows = () => currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries);
   const moveWorkSelection = delta => {
-    const rows = currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries);
+    const rows = workRows();
     const index = Math.max(0, rows.findIndex(entry => entry.key === selectedWorkRow()?.key));
     workKey = rows[Math.max(0, Math.min(rows.length - 1, index + delta))]?.key ?? null;
   };
@@ -1277,26 +1406,23 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     armedDrop = selected.slug;
     say(`Press d again to drop ${clean(selected.name ?? selected.slug)}.`, 'warning', { timeout: 3000 });
   };
+  // A row that was answered leaves the list, so the next proposal is ready for the next key.
+  const answerProposal = (selected, ...request) => {
+    const proposals = workRows().filter(entry => entry.type === 'proposal');
+    const index = proposals.findIndex(entry => entry.key === selected.key);
+    workKey = (proposals[index + 1] ?? proposals[index - 1])?.key ?? null;
+    runWorkAction(...request);
+  };
   const handleWorkKey = data => {
-    if (!snapshot.work?.enabled && key(data, 'enter')) {
-      if (needsWorkFolder()) askForWorkFolder();
-      else runWorkAction('toggle');
-      return true;
-    }
     if (key(data, 'up') || key(data, 'down')) {
       moveWorkSelection(key(data, 'down') ? 1 : -1);
       return true;
     }
-    if (data === 'h') {
-      const next = workHarnesses.indexOf(snapshot.work?.harness) + 1;
-      runWorkAction('harness', workHarnesses[next % workHarnesses.length]);
-      return true;
-    }
     const selected = selectedWorkRow();
     const level = { 1: 'critical', 2: 'important', 3: 'casual' }[data];
-    if (selected?.type === 'proposal' && data === 'y') runWorkAction('choose', selected.slug);
-    else if (selected?.type === 'proposal' && level) runWorkAction('choose', selected.slug, level);
-    else if (selected?.type === 'proposal' && data === 'n') runWorkAction('skip', selected.slug);
+    if (selected?.type === 'proposal' && data === 'y') answerProposal(selected, 'choose', selected.slug);
+    else if (selected?.type === 'proposal' && level) answerProposal(selected, 'choose', selected.slug, level);
+    else if (selected?.type === 'proposal' && data === 'n') answerProposal(selected, 'skip', selected.slug);
     else if (selected?.type === 'project' && level) runWorkAction('level', selected.slug, level);
     else if (selected?.type === 'project' && data === 'd') dropProjectTwice(selected);
     else if (selected?.type === 'attention' && data === 'x') runWorkAction('done', selected.slug, selected.id);
@@ -1320,7 +1446,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
     },
     update(next) {
+      const wasOn = workVisible();
       snapshot = next;
+      // Here rather than in /work, because the main agent can turn it on or off too.
+      if (workVisible() !== wasOn) {
+        say(wasOn ? 'Work mode off. The Work Mode tab is hidden.' : 'Work mode on. The Work Mode tab has appeared.', 'success', { timeout: 5000 });
+      }
       settleOutbox();
       for (const id of next.presentation?.hiddenMessageIds ?? []) hiddenMessages.add(id);
       const target = question?.previous ?? { view, focus, scroll };
@@ -1447,7 +1578,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         if (key(data, 'escape')) {
           say('');
           referencedReport = null;
-          stopAskingForWorkFolder();
+          askingWorkFolder = false;
         } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
           // Tab finished the command.
         } else {
@@ -1460,7 +1591,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           completedReport = null;
           if (!reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
         } else {
-          const watchingWork = workRuns().some(run => `job:${run.id}` === view);
+          const watchingWork = workVisible() && workRuns().some(run => `job:${run.id}` === view);
           view = watchingWork ? 'work' : 'conversation';
           focus = watchingWork ? 'work' : 'composer';
         }

@@ -1,10 +1,10 @@
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  answerAllowance, chooseProject, currentRequest, dailyLimit, dropProject, fileItem, isPacing, proposeProject, readItems, readMode, readProjects,
-  setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
+  answerAllowance, chooseProject, currentRequest, dailyLimit, dropProject, fileItem, isPacing, nextDiscoveryAt, nextLookAt, noteDiscovery, proposeProject,
+  readDiscovery, readItems, readMode, readProjects, readState, setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
 } from './store.mjs';
 
-const USAGE = 'Usage: hobkin work [on [folder] | off | harness <kind> | tokens <daily limit> | allow [tokens | no] | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
+const USAGE = 'Usage: hobkin work [on [folder] | off | harness <kind> | tokens <daily limit> | allow [tokens | no] | progress | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
 
 async function readJson(input) {
   let text = '';
@@ -21,6 +21,8 @@ export function workStatus(root) {
       open: items.filter(item => ['open', 'doing'].includes(item.state) && item.kind !== 'attention').length,
       prs: items.filter(item => item.state === 'pr').length,
       stuck: items.filter(item => item.state === 'stuck').length,
+      nextLookAt: project.state === 'chosen' ? nextLookAt(root, project) : null,
+      lookError: readState(root, project.slug).lookError ?? null,
     };
   });
   const attention = readProjects(root).flatMap(({ slug }) => readItems(root, slug)
@@ -40,6 +42,8 @@ export function workStatus(root) {
     pacing,
     paused: enabled && (pacing || today >= limit),
     allowanceRequest: enabled ? currentRequest(mode) : null,
+    discovery: readDiscovery(root),
+    nextDiscoveryAt: nextDiscoveryAt(mode),
     projects,
     attention,
   };
@@ -58,6 +62,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input) {
       if (args[0] === 'no') return answerAllowance(root, false);
       return answerAllowance(root, args[0] ? Number(args[0]) : true);
     }
+    case 'progress': return noteDiscovery(root, await readJson(input));
     case 'propose': return proposeProject(root, await readJson(input));
     case 'choose': return chooseProject(root, args[0], args[1]);
     case 'skip': return skipProject(root, args[0]);

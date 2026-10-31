@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Turn work mode on and off with `/work` alone. The Work Mode tab shows only while it is on, and the harness changes by asking the agent.
+- Let running agents finish when work mode stops, and stop a cancelled agent from starting again by itself.
+- Look straight away when work mode starts with nothing to show, and always say in the tab what is happening now and when the next look is.
+- Show the folder, the step and the repositories found while discovery looks, then say in Chat what it proposes and ask which to take. Answering there works, because what is waiting now travels with the next message to the main agent. A look that finds nothing or fails says why.
+- Count a look as finished only when every root folder is done. A run that stops sooner is picked up from where it stopped, up to two more times, and the user is told if it stops early.
 - Add `/help`, a short guide in Chat.
 - Let Tab finish a `/` command, and walk through them when several fit.
 - Leave `pi-emote` out of everything Hobkin starts: the main chat, checks, work panes and `hobkin session`. Pi keeps it.
@@ -11,7 +16,7 @@
 - Add `AGENTS.md` in the data folder: standing directions for the main chat, checks and work mode.
 - Add `hobkin session`, which hands massive work to a full Pi session in a Herdr pane.
 - Add `hobkin import`, which copies a pi-companion folder into this one and leaves the old folder unchanged.
-- Add work mode: a Work Mode tab, started with Enter or `/work` and a folder to start from, sends an agent to find the projects there and propose them, and agents then study each project taken, file work and open PRs from their own worktrees.
+- Add work mode: `/work` and a folder to start from sends an agent to find the projects there and propose them, and agents then study each project taken, file work and open PRs from their own worktrees.
 - Run work on chosen projects in panes of a Herdr tab called Work Mode, on the harness the user picks.
 - Design ideas for each project daily, fewer when it has open work, and spread work mode's tokens across a daily limit. At the limit it pauses and asks for a higher allowance, saying why.
 - Let every Companion run use Chrome with no time limit. Private accounts and changes through the browser need an approved plan.

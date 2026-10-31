@@ -4,8 +4,9 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, landing, nextItem, paths, proposeProject, readItems, readMode,
-  readProjects, recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, nextItem, noteDiscovery,
+  paths, proposeProject, readDiscovery, readItems, readMode, readProjects, recordDiscovery, recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject,
+  startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -55,14 +56,93 @@ test('a home-relative folder is expanded', t => {
   assert.equal(startWork(root, '~').folder, realpathSync(homedir()));
 });
 
-test('naming a folder always runs discovery, and resuming does not', t => {
+test('naming a folder always runs discovery, and resuming does only with nothing to show', t => {
   const root = dataRoot(t);
   const lookedToday = { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' };
   startWork(root, root);
   writeMode(root, lookedToday);
 
-  assert.equal(startWork(root).lastDiscoveryAt, lookedToday.lastDiscoveryAt);
+  assert.equal(startWork(root).lastDiscoveryAt, null, 'an empty tab with a day to wait tells the user nothing');
+
+  writeMode(root, lookedToday);
+  proposeProject(root, proposal);
+  assert.equal(startWork(root).lastDiscoveryAt, lookedToday.lastDiscoveryAt, 'the proposals are there to answer');
   assert.equal(startWork(root, root).lastDiscoveryAt, null);
+});
+
+test('a project already taken also keeps the clock when work mode resumes', t => {
+  const root = dataRoot(t);
+  const lookedToday = { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' };
+  startWork(root, root);
+  chooseProject(root, '/repos/api');
+  writeMode(root, lookedToday);
+
+  assert.equal(startWork(root).lastDiscoveryAt, lookedToday.lastDiscoveryAt);
+});
+
+test('only a proposal or a taken project counts as something to show', t => {
+  const root = dataRoot(t);
+  assert.equal(hasWorkToShow(root), false);
+
+  proposeProject(root, proposal);
+  assert.equal(hasWorkToShow(root), true);
+
+  skipProject(root, 'finboard-api');
+  assert.equal(hasWorkToShow(root), false);
+
+  chooseProject(root, '/repos/api');
+  assert.equal(hasWorkToShow(root), true);
+
+  dropProject(root, 'api');
+  assert.equal(hasWorkToShow(root), false);
+});
+
+test('the next discovery is a day after the last one, or due now if there was none', t => {
+  const root = dataRoot(t);
+
+  assert.equal(nextDiscoveryAt(readMode(root)), null);
+
+  writeMode(root, { lastDiscoveryAt: '2026-01-01T00:00:00.000Z' });
+  assert.equal(nextDiscoveryAt(readMode(root)), '2026-01-02T00:00:00.000Z');
+});
+
+test('a discovery adds up what its agent reports, and the next one starts clean', t => {
+  const root = dataRoot(t);
+  assert.deepEqual(readDiscovery(root), {});
+
+  recordDiscovery(root, { status: 'running', folder: '/repos', startedAt: '2026-01-01T00:00:00.000Z' });
+  noteDiscovery(root, { folder: '/repos/api', doing: 'Reading its history', repositories: ['api'], rootFolders: ['api', 'site'] });
+  noteDiscovery(root, { folder: '/repos/site', repositories: ['site', 'api'], finishedFolders: ['/repos/api'] });
+
+  assert.deepEqual(readDiscovery(root), {
+    status: 'running',
+    folder: '/repos',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    current: '/repos/site',
+    doing: 'Reading its history',
+    repositories: ['api', 'site'],
+    rootFolders: ['api', 'site'],
+    finishedFolders: ['api'],
+  });
+
+  recordDiscovery(root, { status: 'running', folder: '/other', startedAt: '2026-01-02T00:00:00.000Z' });
+  assert.deepEqual(readDiscovery(root), { status: 'running', folder: '/other', startedAt: '2026-01-02T00:00:00.000Z' });
+});
+
+test('only a list with nothing left on it is a finished look', () => {
+  assert.equal(foldersLeft({}), null, 'with no list there is nothing to say it finished');
+  assert.deepEqual(foldersLeft({ rootFolders: ['api', 'site'], finishedFolders: ['api'] }), ['site']);
+  assert.deepEqual(foldersLeft({ rootFolders: ['api'], finishedFolders: ['api'] }), []);
+  assert.deepEqual(foldersLeft({ rootFolders: [] }), []);
+});
+
+test('a proposal whose first work could not be filed is refused, so taking it never half fails', t => {
+  const root = dataRoot(t);
+
+  assert.throws(() => proposeProject(root, { ...proposal, first: [{ title: 'No key', kind: 'fix', brief: 'Evidence.' }] }), /stable key/);
+  assert.throws(() => proposeProject(root, { ...proposal, first: [{ ...item, kind: 'someday' }] }), /kind must be/);
+
+  assert.deepEqual(readProjects(root), []);
 });
 
 test('Pi is the default harness, and the user can pick another that Herdr knows', t => {

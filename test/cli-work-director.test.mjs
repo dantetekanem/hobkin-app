@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import {
-  answerAllowance, chooseProject, fileItem, paths, proposeProject, readItems, readMode, recordTokens, tokensToday, updateItem, writeMode, writeState,
+  answerAllowance, chooseProject, fileItem, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery, recordTokens,
+  skipProject, startWork, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 
 const HOUR = 3600000;
@@ -77,7 +78,9 @@ function fixture(t, agent = async () => {}) {
     runHarness: async (request, options) => {
       h.calls.push(request);
       await h.agent(request, options);
-      return { status: request.signal.aborted ? 'interrupted' : 'completed', text: 'Useful: Done.' };
+      // A discovery that does its job reports every root folder finished.
+      if (request.purpose === 'work-discover' && !h.stopsEarly) noteDiscovery(root, { rootFolders: ['everything'], finishedFolders: ['everything'] });
+      return { status: request.signal.aborted ? 'interrupted' : 'completed', text: h.report ?? 'Useful: Done.' };
     },
   });
   h.settled = async () => {
@@ -149,22 +152,453 @@ test('a failed discovery tries again soon instead of waiting a day', async t => 
   assert.equal(h.calls.length, 2);
 });
 
-test('an interrupted discovery starts over on the next tick', async t => {
-  const h = fixture(t, async request => {
-    await new Promise(resolve => {
-      if (request.signal.aborted) resolve();
-      request.signal.addEventListener('abort', resolve, { once: true });
-    });
+const waitForAbort = async request => {
+  await new Promise(resolve => {
+    if (request.signal.aborted) resolve();
+    request.signal.addEventListener('abort', resolve, { once: true });
   });
+};
+const hoursAgo = (h, hours) => new Date(h.clock - hours * HOUR).toISOString();
+
+test('closing Hobkin during a discovery starts it over next time', async t => {
+  const h = fixture(t, waitForAbort);
   writeMode(h.root, { enabled: true, folder: '/repos' });
   await h.director.tick();
   while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
 
-  await h.director.stopRuns();
-  await h.settled();
+  await h.runner.stop();
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(readMode(h.root).lastDiscoveryAt, null);
+  assert.equal(readDiscovery(h.root).status, 'interrupted');
+});
+
+test('a discovery whose owner died starts over when Hobkin reopens', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 1) });
+  recordDiscovery(h.root, { status: 'running', folder: '/repos', startedAt: hoursAgo(h, 1) });
+
+  await h.tick();
+
+  assert.deepEqual(h.purposes(), ['work-discover']);
+});
+
+test('a discovery whose owner died is put right even with work mode off', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: false, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 1) });
+  recordDiscovery(h.root, { status: 'running', folder: '/repos', startedAt: hoursAgo(h, 1) });
+
+  await h.tick();
+
+  assert.equal(readDiscovery(h.root).status, 'interrupted');
+  assert.deepEqual(h.calls, []);
+});
+
+test('cancelling a discovery does not start it again', async t => {
+  const h = fixture(t, waitForAbort);
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.director.tick();
+  while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(await h.runner.kill(h.director.running()[0].id), true);
+  await h.settled();
+  await new Promise(resolve => setImmediate(resolve));
+  await h.tick();
+
+  assert.equal(h.calls.length, 1);
+  assert.equal(readDiscovery(h.root).status, 'cancelled');
+});
+
+test('turning work mode on with nothing to show looks at once, whatever the clock says', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: false, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 22.6) });
+
+  startWork(h.root);
+  await h.tick();
+
+  assert.deepEqual(h.purposes(), ['work-discover']);
+});
+
+test('opening Hobkin with work mode on and a clock no finished look explains looks at once', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 22.6) });
+
+  await h.tick();
+
+  assert.deepEqual(h.purposes(), ['work-discover']);
+});
+
+test('a recent look that really found nothing is not repeated on reopening', async t => {
+  const h = fixture(t);
+  h.report = 'Useful: Offers none, because they are all forks.';
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.tick();
+
+  h.clock += HOUR;
+  await h.tick();
+  assert.equal(h.calls.length, 1);
+
+  h.clock += 24 * HOUR;
+  await h.tick();
+  assert.equal(h.calls.length, 2);
+});
+
+test('a look in another folder says nothing about this one', async t => {
+  const h = fixture(t);
+  h.report = 'Nothing new.';
+  writeMode(h.root, { enabled: true, folder: '/old' });
+  await h.tick();
+
+  writeMode(h.root, { folder: '/repos' });
+  await h.tick();
+
+  assert.deepEqual(h.calls.map(call => h.work(call).folder), ['/old', '/repos']);
+});
+
+test('once there are projects, repeat looks keep to the daily clock', async t => {
+  const h = fixture(t);
+  proposeProject(h.root, { name: 'api', path: '/repos/api', level: 'casual' });
+  writeMode(h.root, { enabled: true, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 22.6) });
+
+  await h.tick();
+  assert.deepEqual(h.calls, []);
+
+  writeMode(h.root, { enabled: false });
+  startWork(h.root);
+  await h.tick();
+  assert.deepEqual(h.calls, [], 'turning it off and on again does not pay for another look');
+});
+
+test('turning work mode off and on while a discovery runs does not send a second one after it', async t => {
+  const finish = Promise.withResolvers();
+  const h = fixture(t, () => finish.promise);
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.director.tick();
+  while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
+
+  writeMode(h.root, { enabled: false });
+  await h.director.tick();
+  startWork(h.root);
+  await h.director.tick();
+  finish.resolve();
+  await h.settled();
+  await h.tick();
+
+  assert.equal(h.calls.length, 1);
+});
+
+test('a new folder named during a discovery still gets its own look', async t => {
+  const finish = Promise.withResolvers();
+  const h = fixture(t, () => finish.promise);
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.director.tick();
+  while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
+
+  startWork(h.root, h.base);
+  finish.resolve();
+  await h.settled();
+  await h.tick();
+
+  assert.deepEqual(h.calls.map(call => h.work(call).folder), ['/repos', h.base]);
+});
+
+const offering = (h, ...names) => () => {
+  for (const [index, name] of names.entries()) {
+    proposeProject(h.root, {
+      name,
+      path: `/repos/${name}`,
+      rank: index + 1,
+      level: index ? 'casual' : 'critical',
+      summary: `What ${name} is.`,
+      found: `CI on ${name} is red.`,
+      reason: `Why ${name} matters.`,
+    });
+  }
+};
+
+test('when discovery ends the message names each repository, what was found and how critical, in rank order', async t => {
+  const h = fixture(t);
+  h.agent = offering(h, 'billing', 'site');
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+
+  const { status, offered, message, finishedAt } = readDiscovery(h.root);
+  assert.deepEqual([status, offered], ['finished', 2]);
+  assert.ok(finishedAt);
+  assert.ok(message.indexOf('billing') < message.indexOf('site'));
+  for (const text of ['billing', 'critical', 'CI on billing is red', 'site', 'casual', 'CI on site is red']) assert.ok(message.includes(text), text);
+});
+
+test('a project already answered is not offered again', async t => {
+  const h = fixture(t);
+  h.agent = offering(h, 'billing', 'site');
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  proposeProject(h.root, { name: 'site', path: '/repos/site', level: 'casual' });
+  skipProject(h.root, 'site');
+
+  await h.tick();
+
+  assert.doesNotMatch(readDiscovery(h.root).message, /site/);
+});
+
+test('a discovery that proposes nothing says so with the reason from its report', async t => {
+  const h = fixture(t);
+  h.report = 'Useful: Looked through 12 repositories and offers none, because they are all forks.\n\n## Left out\n';
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+
+  const { status, offered, reason, message } = readDiscovery(h.root);
+  assert.deepEqual([status, offered], ['finished', 0]);
+  assert.match(reason, /they are all forks/);
+  assert.match(message, /they are all forks/);
+});
+
+test('a discovery with nothing to say still leaves the user a reason', async t => {
+  const h = fixture(t);
+  h.report = 'Nothing new.';
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+
+  assert.ok(readDiscovery(h.root).reason);
+  assert.ok(readDiscovery(h.root).message);
+});
+
+test('a discovery that fails says why, and a retry that fails the same way stays quiet', async t => {
+  const h = fixture(t, async () => { throw Error('Provider is down.'); });
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+
+  const first = readDiscovery(h.root);
+  assert.equal(first.status, 'failed');
+  assert.match(first.reason, /Provider is down/);
+  assert.match(first.message, /Provider is down/);
+
+  h.clock += 20 * 60000;
+  await h.tick();
+
+  assert.equal(h.calls.length, 2);
+  assert.equal(readDiscovery(h.root).status, 'failed');
+  assert.equal(readDiscovery(h.root).message, undefined);
+});
+
+test('a discovery that fails after proposing still offers what it found', async t => {
+  const h = fixture(t);
+  h.agent = async () => {
+    offering(h, 'billing')();
+    throw Error('Provider is down.');
+  };
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+
+  const { message } = readDiscovery(h.root);
+  assert.match(message, /Provider is down/);
+  assert.match(message, /billing/);
+});
+
+test('a daily look with nothing new stays out of Chat once its proposals have been told', async t => {
+  const h = fixture(t);
+  h.agent = offering(h, 'billing');
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.tick();
+  assert.match(readDiscovery(h.root).message, /billing/);
+
+  h.clock += 25 * HOUR;
+  await h.tick();
+
+  assert.equal(h.calls.length, 2);
+  assert.equal(readDiscovery(h.root).message, undefined);
+});
+
+test('a new proposal on a later look is told, along with those still waiting', async t => {
+  const h = fixture(t);
+  h.agent = offering(h, 'billing');
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.tick();
+
+  h.clock += 25 * HOUR;
+  h.agent = offering(h, 'billing', 'site');
+  await h.tick();
+
+  const { message } = readDiscovery(h.root);
+  assert.match(message, /billing/);
+  assert.match(message, /site/);
+});
+
+test('a proposal with no look behind it still reaches Chat, once', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: false, folder: '/repos' });
+  proposeProject(h.root, { name: 'api', path: '/repos/api', level: 'casual' });
+
+  await h.tick();
+  const { message, finishedAt } = readDiscovery(h.root);
+  assert.match(message, /api/);
+
+  h.clock += 60000;
+  await h.tick();
+  assert.equal(readDiscovery(h.root).finishedAt, finishedAt);
+});
+
+test('a run that ends with folders left is not a finished look, and the next carries on from there', async t => {
+  const h = fixture(t);
+  h.stopsEarly = true;
+  h.report = 'Useful: More to do.';
+  h.agent = () => {
+    if (h.calls.length === 1) noteDiscovery(h.root, { rootFolders: ['api', 'site'], finishedFolders: ['api'], repositories: ['api'] });
+    else noteDiscovery(h.root, { finishedFolders: ['site'] });
+  };
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+  assert.equal(readDiscovery(h.root).status, 'continuing');
+  assert.equal(readDiscovery(h.root).message, undefined, 'nothing is final yet');
+
+  await h.tick();
+
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.work(h.calls[1]).folders, { root: ['api', 'site'], finished: ['api'] });
+  assert.equal(readDiscovery(h.root).status, 'finished');
+  assert.deepEqual(readDiscovery(h.root).repositories, ['api']);
+});
+
+test('a run that writes its memory, says one line and stops never counts as done', async t => {
+  const h = fixture(t);
+  h.stopsEarly = true;
+  h.report = 'Continuing read-only project discovery.';
+  h.agent = request => writeFileSync(JSON.parse(request.prompt).checkMemory.path, '# Discovery in progress\n');
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  for (let tick = 0; tick < 6; tick++) await h.tick();
+
+  assert.equal(h.calls.length, 3, 'it carries on, but only so far');
+  const { status, reason, message } = readDiscovery(h.root);
+  assert.equal(status, 'unfinished');
+  assert.match(reason, /Continuing read-only/);
+  assert.match(message, /Continuing read-only/);
+
+  h.clock += 25 * HOUR;
+  await h.tick();
+  assert.equal(h.calls.length, 4, 'the next day it tries again from a fresh count');
+});
+
+test('proposals from a look that never finishes still reach the user', async t => {
+  const h = fixture(t);
+  h.stopsEarly = true;
+  h.agent = offering(h, 'billing');
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  for (let tick = 0; tick < 4; tick++) await h.tick();
+
+  assert.equal(readDiscovery(h.root).status, 'unfinished');
+  assert.match(readDiscovery(h.root).message, /billing/);
+});
+
+test('a run that says it is blocked is told at once instead of paying to find out again', async t => {
+  const h = fixture(t);
+  h.stopsEarly = true;
+  h.report = 'Blocked: The folder cannot be read.';
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+  await h.tick();
+
+  assert.equal(h.calls.length, 1);
+  assert.equal(readDiscovery(h.root).status, 'unfinished');
+  assert.match(readDiscovery(h.root).message, /cannot be read/);
+});
+
+test('stopping work mode during a look tells what it has so far, and starting again carries on', async t => {
+  const h = fixture(t);
+  h.stopsEarly = true;
+  h.agent = () => {
+    offering(h, 'billing')();
+    noteDiscovery(h.root, { rootFolders: ['api', 'site'], finishedFolders: ['api'] });
+    writeMode(h.root, { enabled: false });
+  };
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+  await h.tick();
+
+  assert.equal(h.calls.length, 1);
+  assert.equal(readDiscovery(h.root).status, 'unfinished');
+  assert.match(readDiscovery(h.root).message, /billing/);
+
+  h.agent = () => noteDiscovery(h.root, { finishedFolders: ['site'] });
+  startWork(h.root);
+  await h.tick();
+
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.work(h.calls[1]).folders.finished, ['api']);
+  assert.equal(readDiscovery(h.root).status, 'finished');
+});
+
+test('the token limit ends a look part way with the user told, and it resumes when the limit lifts', async t => {
+  const h = fixture(t);
+  h.stopsEarly = true;
+  h.agent = () => {
+    offering(h, 'billing')();
+    recordTokens(h.root, { lane: 'discover', tokens: 1000000 }, h.clock - 2 * HOUR);
+  };
+  writeMode(h.root, { enabled: true, folder: '/repos', dailyTokens: 1000000 });
+
+  await h.tick();
+  await h.tick();
+
+  assert.equal(h.calls.length, 1);
+  assert.equal(readDiscovery(h.root).status, 'unfinished');
+  assert.match(readDiscovery(h.root).message, /billing/);
+
+  h.agent = () => {};
+  h.stopsEarly = false;
+  h.clock += 24 * HOUR;
+  await h.tick();
+
+  assert.equal(h.calls.length, 2);
+  assert.equal(readDiscovery(h.root).status, 'finished');
+});
+
+test('a memory left in progress by an older run reaches the next one, which finishes the look', async t => {
+  const h = fixture(t);
+  const checkFolder = join(h.root, 'checks', 'work.discover');
+  mkdirSync(checkFolder, { recursive: true });
+  writeFileSync(join(checkFolder, 'memory.md'), '# Discovery in progress\n\n- api: finished\n- site: waiting on a helper\n');
+  h.agent = offering(h, 'site');
+  writeMode(h.root, { enabled: true, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 22.6) });
+
+  await h.tick();
+
+  assert.match(JSON.parse(h.calls[0].prompt).checkMemory.text, /in progress/);
+  assert.deepEqual(h.purposes(), ['work-discover']);
+  assert.equal(readDiscovery(h.root).status, 'finished');
+  assert.match(readDiscovery(h.root).message, /site/);
+});
+
+test('discovery is given the command that reports where it is', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+
+  await h.tick();
+
+  assert.match(h.work(h.calls[0]).commands.progress, /work progress --home/);
+});
+
+test('nothing starts on a project until the user has picked it', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: true, folder: h.base });
+  h.agent = () => proposeProject(h.root, { name: 'api', path: repository(h.base, 'api'), level: 'critical', first: [item] });
+
+  await h.tick();
+  await h.tick();
+  h.clock += 25 * HOUR;
+  await h.tick();
+
+  assert.ok(h.purposes().every(purpose => purpose === 'work-discover'));
+  assert.deepEqual(readItems(h.root, 'api'), []);
 });
 
 test('discovery is told what is already known so it reads only what is new', async t => {
@@ -578,27 +1012,119 @@ test('a do run that records its PR leaves the item alone', async t => {
   assert.equal(readItems(h.root, 'api')[0].state, 'pr');
 });
 
-test('turning work mode off stops running work and keeps its items to resume', async t => {
+test('turning work mode off lets a running agent finish, starts nothing new and keeps every item', async t => {
+  const finish = Promise.withResolvers();
   const h = fixture(t);
   h.agent = async (request) => {
     study(h.root)(request);
     if (request.purpose !== 'work-do') return;
-    await new Promise(resolve => request.signal.addEventListener('abort', resolve, { once: true }));
+    await finish.promise;
+    updateItem(h.root, 'api', h.work(request).item.id, { state: 'pr', pr: 'https://example.com/1' });
   };
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
+  fileItem(h.root, 'api', { ...item, key: 'second' });
   await h.tick();
   await h.director.tick();
   while (!h.calls.some(call => call.purpose === 'work-do')) await new Promise(resolve => setTimeout(resolve, 20));
 
   writeMode(h.root, { enabled: false });
   await h.director.tick();
-  await h.settled();
+  assert.equal(h.calls.at(-1).signal.aborted, false, 'the agent was left to finish');
+  assert.equal(h.director.running().length, 1);
 
-  assert.equal(h.director.running().length, 0);
-  assert.equal(readItems(h.root, 'api')[0].state, 'doing');
+  finish.resolve();
+  await h.settled();
+  await h.tick();
+
+  assert.equal(h.calls.filter(call => call.purpose === 'work-do').length, 1, 'the second item waits');
+  assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['pr', 'open']);
   assert.equal(readMode(h.root).enabled, false);
+});
+
+test('starting again picks up where stopping left off', async t => {
+  const h = fixture(t);
+  h.agent = study(h.root);
+  writeMode(h.root, { enabled: false, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'));
+  fileItem(h.root, 'api', item);
+  await h.tick();
+  assert.deepEqual(h.calls, []);
+
+  writeMode(h.root, { enabled: true });
+  await h.tick();
+
+  assert.deepEqual(h.purposes(), ['work-look']);
+});
+
+test('closing Hobkin keeps an item to resume, and cancelling one leaves it for the user', async t => {
+  const h = fixture(t);
+  h.agent = async request => {
+    study(h.root)(request);
+    if (request.purpose === 'work-do') await waitForAbort(request);
+  };
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'));
+  fileItem(h.root, 'api', item);
+  fileItem(h.root, 'api', { ...item, key: 'second' });
+  await h.tick();
+  await h.director.tick();
+  while (!h.calls.some(call => call.purpose === 'work-do')) await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(await h.runner.kill(h.director.running().find(run => run.lane === 'do').id), true);
+  await h.settled();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['stuck', 'open'], 'a cancelled item does not start again by itself');
+
+  await h.director.tick();
+  while (h.calls.filter(call => call.purpose === 'work-do').length < 2) await new Promise(resolve => setTimeout(resolve, 20));
+  await h.runner.stop();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['stuck', 'doing'], 'closing keeps the item to resume');
+});
+
+test('a look that fails shows on its project until one works', async t => {
+  const h = fixture(t);
+  let broken = true;
+  h.agent = async request => {
+    if (broken) throw Error('The clone is gone.');
+    study(h.root)(request);
+  };
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'));
+
+  await h.tick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(readState(h.root, 'api').lookError, /The clone is gone/);
+
+  broken = false;
+  h.clock += 20 * 60000;
+  await h.tick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(readState(h.root, 'api').lookError, null);
+});
+
+test('a pane run says which pane it is in', async t => {
+  const h = fixture(t);
+  const release = Promise.withResolvers();
+  h.director.panes = {
+    run: async () => {
+      await release.promise;
+      return { status: 'completed', text: 'Useful: Done.', cost: null };
+    },
+  };
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'api'));
+
+  await h.director.tick();
+  while (!Object.keys(h.runtime.data.runs).length) await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(Object.values(h.runtime.data.runs)[0].work.pane, 'work-look-api');
+  release.resolve();
+  await h.settled();
 });
 
 test('work runs do not take a place from ordinary checks', async t => {
