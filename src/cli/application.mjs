@@ -368,7 +368,7 @@ export class HobkinApplication {
   async tickWork() {
     this.moods.notice();
     await this.director.tick();
-    const signature = JSON.stringify(workStatus(this.runtime.directory));
+    const signature = JSON.stringify({ work: workStatus(this.runtime.directory), jev: jevEnabled(this.runtime.directory) });
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();

@@ -69,8 +69,27 @@ test('a folder that already has its own history is never overwritten', async t =
   await companionHome(from);
   prepared(to);
   await (await opened(to)).close();
+  mkdirSync(join(to, 'reports'), { recursive: true });
+  writeFileSync(join(to, 'reports/one.md'), 'A real report.\n');
 
   await assert.rejects(importHome(to, from), /already has its own history/);
+
+  assert.equal(readFileSync(join(to, 'reports/one.md'), 'utf8'), 'A real report.\n');
+});
+
+test('a folder Hobkin has only been started in takes the import', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  writeFileSync(join(from, 'memory.md'), '- Rent is due November 1\n');
+  prepared(to);
+  await (await opened(to)).close();
+
+  await importHome(to, from);
+
+  assert.equal(readFileSync(join(to, 'memory.md'), 'utf8'), '- Rent is due November 1\n');
+  const app = await opened(to);
+  t.after(() => app.close());
+  assert.equal(app.snapshot.connection, 'connected');
 });
 
 test('a setting made before the import survives it', async t => {

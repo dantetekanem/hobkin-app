@@ -9,6 +9,7 @@ import {
   CURSOR_MARKER, getCapabilities, getCellDimensions, getKeybindings, resetCapabilitiesCache, setCapabilities,
   setCellDimensions, stripTerminalSequences, visibleWidth,
 } from '@earendil-works/pi-tui';
+import { FaceImages } from '../src/cli/face-images.mjs';
 import { createDashboard, startDashboard } from '../src/cli/ui.mjs';
 
 const snapshot = {
@@ -247,6 +248,57 @@ test('the footer is no taller with the face, so nothing jumps when it comes and 
   const without = screen(ui, 60, 30).split('\n').findIndex(value => value.includes('Message Hobkin'));
 
   assert.equal(beside, without);
+});
+
+test('with image support the design\'s own face and wordmark show, and nothing else moves', () => {
+  const live = { ...snapshot, connection: 'connected', messages: [] };
+  const written = [];
+  const images = new FaceImages({ write: data => written.push(data) });
+  const plain = createDashboard(live, { send: async () => {} });
+  const ui = createDashboard(live, { send: async () => {} }, { images });
+  const rows = screen(ui, 120, 30).split('\n');
+  const placeholder = '\u{10EEEE}';
+
+  assert.ok(rows[0].includes(placeholder), 'the wordmark is a picture');
+  assert.doesNotMatch(rows[0], /hobkin/);
+  const input = rows.findIndex(value => value.includes('Message Hobkin'));
+  assert.ok(rows[input].startsWith(placeholder) === false && rows[input].includes(placeholder), 'the face sits on the input row');
+  assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message Hobkin'), 'left of the input');
+  const beside = rows.filter(value => value.includes(placeholder));
+  assert.equal(beside.length, 7, 'six rows of face and one of wordmark');
+  assert.deepEqual(
+    [rows.findIndex(value => /next check/.test(value)), rows.length],
+    (plainRows => [plainRows.findIndex(value => /next check/.test(value)), plainRows.length])(screen(plain, 120, 30).split('\n')),
+    'the footer is the same height with the picture',
+  );
+  assert.ok(rows[input + 4].includes('─'), 'the divider stays, beside the last row of the face');
+  assert.ok(written.join('').includes('a=T'), 'the frames went to the terminal');
+});
+
+test('a terminal too narrow for the picture and the divider drops the picture', () => {
+  const images = new FaceImages({ write: () => {} });
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { images });
+
+  const rows = screen(ui, 85, 30).split('\n');
+
+  assert.equal(rows.filter(value => value.includes('\u{10EEEE}')).length, 1, 'only the wordmark');
+});
+
+test('the face moves at the design\'s own speed', () => {
+  const written = [];
+  const images = new FaceImages({ write: data => written.push(data) });
+  let clock = 1000;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { images, now: () => clock });
+  const frameAt = time => {
+    clock = time;
+    return ui.render(120, 30).filter(value => value.includes('\u{10EEEE}̅̅')).at(-1);
+  };
+
+  const first = frameAt(1000);
+  const uploads = written.length;
+
+  assert.notEqual(frameAt(2500), first);
+  assert.equal(written.length, uploads, 'no image data moves after the first upload');
 });
 
 test('a narrow or short terminal keeps the whole input instead of the face', () => {
@@ -839,6 +891,65 @@ test('a newer notice outlives the /clear confirmation timer', async t => {
   assert.match(ui.state().notice, /Unknown command/);
 });
 
+test('/jev turns Jev on and off from the composer and never becomes a prompt', async () => {
+  const answers = [{ enabled: true }, { enabled: false }];
+  const sent = [];
+  const ui = createDashboard({ ...snapshot, connection: 'connected' }, {
+    send: text => { sent.push(text); },
+    toggleJev: async () => answers.shift(),
+  });
+  const submit = async () => {
+    ui.input('/jev');
+    ui.input('\r');
+    await ui.pending();
+  };
+
+  await submit();
+  assert.equal(ui.state().draft, '');
+  assert.match(ui.state().notice, /^Jev on\./);
+
+  await submit();
+  assert.equal(ui.state().draft, '');
+  assert.match(ui.state().notice, /^Jev off\./);
+
+  assert.deepEqual(answers, []);
+  assert.deepEqual(sent, []);
+  ui.stop();
+});
+
+test('a failed /jev keeps the draft and shows why', async () => {
+  for (const [toggleJev, why] of [
+    [undefined, 'Jev failed: Jev unavailable'],
+    [async () => { throw Error('Set TYPESAFE_API_KEY first.'); }, 'Jev failed: Set TYPESAFE_API_KEY first.'],
+  ]) {
+    const ui = createDashboard(snapshot, { toggleJev });
+    ui.input('/jev');
+    ui.input('\r');
+    await ui.pending();
+
+    assert.equal(ui.state().draft, '/jev');
+    assert.equal(ui.state().notice, why);
+    ui.stop();
+  }
+});
+
+test('/jev keeps whatever was typed while it ran', async () => {
+  const gate = Promise.withResolvers();
+  let calls = 0;
+  const ui = createDashboard(snapshot, { toggleJev: () => { calls++; return gate.promise; } });
+  ui.input('/jev');
+  ui.input('\r');
+  await Promise.resolve();
+
+  ui.input(' more');
+  gate.resolve({ enabled: true });
+  await ui.pending();
+
+  assert.equal(calls, 1);
+  assert.equal(ui.state().draft, '/jev more');
+  ui.stop();
+});
+
 test('Schedules groups live background jobs, sorts active schedules first and keeps offline truth', () => {
   const now = () => Date.parse('2026-10-28T00:03:00Z');
   const schedules = [
@@ -1319,6 +1430,34 @@ test('tips come and go on the clock, and mention checks that go unread', () => {
   assert.ok([...seen].some(tip => /Morning recap: 0 of 7 reports opened/.test(tip)));
   assert.ok([...seen].some(tip => /model or thinking effort/.test(tip)));
   ui.stop();
+});
+
+test('the footer names Jev beside the memory size only while it is on', () => {
+  const nextCheckRow = ui => screen(ui, 120, 40).split('\n').find(row => row.includes('next check'));
+  const ui = createDashboard({ ...snapshot, memoryBytes: 2436, jev: true });
+
+  assert.match(nextCheckRow(ui), /jev · memory 2\.4kb/);
+
+  ui.update({ ...snapshot, memoryBytes: 2436, jev: false });
+  assert.doesNotMatch(nextCheckRow(ui), /jev/);
+  ui.stop();
+});
+
+test('the /jev tip comes up only while Jev is off', () => {
+  const tipShows = view => {
+    const period = 180000;
+    let clock = 0;
+    const ui = createDashboard(view, {}, { now: () => clock });
+    const shown = Array.from({ length: 60 }, (_, turn) => {
+      clock = period * turn;
+      return screen(ui, 120, 40).includes('Type /jev');
+    });
+    ui.stop();
+    return shown.some(Boolean);
+  };
+
+  assert.equal(tipShows({ ...snapshot, jev: false }), true);
+  assert.equal(tipShows({ ...snapshot, jev: true }), false);
 });
 
 test('an idle dashboard redraws often enough for tips and countdowns, then stops with it', async t => {

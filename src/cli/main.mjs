@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defaultRoot, initialize, legacySources } from './config.mjs';
+import { defaultRoot, initialize, jevEnabled, legacySources, setJev } from './config.mjs';
 import { loadImportedHistory } from './history.mjs';
 import { readLocalView, savePresentationState } from './view.mjs';
 import { deleteReports } from './reports.mjs';
@@ -61,6 +61,10 @@ async function connected(options, snapshot, output, dependencies) {
           if (!app) throw Error('Hobkin is still connecting.');
           return app.workAction(...request);
         },
+        toggleJev: () => {
+          if (!app) throw Error('Hobkin is still connecting.');
+          return app.toggleJev();
+        },
       }, { theme: { cwd: snapshot.config.main.cwd } });
     } else {
       keepAlive = setInterval(() => {}, 60000);
@@ -91,7 +95,7 @@ async function connected(options, snapshot, output, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  session [--title name] [--cwd directory]  hand the brief on stdin to a full Pi session in a Herdr pane\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  session [--title name] [--cwd directory]  hand the brief on stdin to a full Pi session in a Herdr pane\n');
     return 0;
   }
   if (options.command === 'skill') {
@@ -101,6 +105,13 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'import') {
     const { importHome } = await import('./import.mjs');
     output.write(`${JSON.stringify(await importHome(options.root, options.args[0]), null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'jev') {
+    const [choice, ...extra] = options.args;
+    if (extra.length || ![undefined, 'on', 'off'].includes(choice)) throw Error('Usage: hobkin jev [on | off]');
+    const result = choice ? setJev(options.root, choice === 'on') : { enabled: jevEnabled(options.root) };
+    output.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
   if (options.command === 'session') {

@@ -81,5 +81,6 @@ export function readLocalView(requestedRoot) {
     usage: UsageLedger.open(root, config.initializedAt).snapshot(),
     memoryBytes: memoryBytes(root),
     work: workStatus(root),
+    jev: config.jev?.enabled === true,
   };
 }

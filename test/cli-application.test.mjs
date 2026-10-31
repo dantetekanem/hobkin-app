@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initialize, atomicJson } from '../src/cli/config.mjs';
+import { initialize, atomicJson, jevEnabled } from '../src/cli/config.mjs';
 import { HobkinApplication, readLocalView } from '../src/cli/application.mjs';
 import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
@@ -933,6 +933,92 @@ test('a pause for the hour reads as news, and running out for the day posts agai
 
     const notices = view.messages.filter(message => message.role === 'notice');
     assert.deepEqual(notices.map(({ content, tone }) => [content, tone]), [['Paused for the hour.', 'useful'], ['Paused for the day.', 'critical']]);
+  } finally {
+    await app.close();
+  }
+});
+
+const setJevKey = (t, key) => {
+  const original = process.env.TYPESAFE_API_KEY;
+  t.after(() => {
+    if (original === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = original;
+  });
+  if (key === undefined) delete process.env.TYPESAFE_API_KEY;
+  else process.env.TYPESAFE_API_KEY = key;
+};
+const usefulReport = () => backgroundRun('useful', {
+  title: 'Health progress',
+  result: { status: 'completed', text: 'Useful: Resting heart rate fell 3 bpm over two weeks.\n\nDetails.' },
+});
+
+test('toggleJev flips the setting and the next snapshot shows it', async t => {
+  const h = fixture(t);
+  setJevKey(t, 'test-key');
+  t.mock.method(globalThis, 'fetch', async () => { throw Error('Unexpected network call in a local Jev test.'); });
+  const app = await h.openApp();
+  try {
+    assert.equal((await app.refresh()).jev, false);
+
+    assert.deepEqual(await app.toggleJev(), { enabled: true });
+    assert.equal(jevEnabled(h.root), true);
+    assert.equal(app.snapshot.jev, true);
+
+    assert.deepEqual(await app.toggleJev(), { enabled: false });
+    assert.equal(jevEnabled(h.root), false);
+    assert.equal(app.snapshot.jev, false);
+  } finally {
+    await app.close();
+  }
+});
+
+test('turning Jev on without a key fails and leaves it off', async t => {
+  const h = fixture(t);
+  setJevKey(t, undefined);
+  const app = await h.openApp();
+  try {
+    await assert.rejects(app.toggleJev(), { message: 'Set TYPESAFE_API_KEY first.' });
+
+    assert.equal(jevEnabled(h.root), false);
+    assert.equal((await app.refresh()).jev, false);
+  } finally {
+    await app.close();
+  }
+});
+
+test('with Jev off a useful scheduled report makes Hobkin happy through a real refresh', async t => {
+  const h = fixture(t);
+  const runHarness = async () => { throw Error('Unexpected provider call in synthetic mood test.'); };
+  const app = await h.openApp({ runHarness });
+  try {
+    await app.runtime.change(state => { state.runs.useful = usefulReport(); });
+
+    const view = await app.refresh();
+
+    assert.equal(view.mood.mood, 'happy');
+  } finally {
+    await app.close();
+  }
+});
+
+test('with Jev on a useful scheduled report goes to Jev, and the mood it picks reaches the dashboard', async t => {
+  const h = fixture(t);
+  setJevKey(t, 'test-key');
+  const asked = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    asked.push(JSON.parse(request.body).state);
+    return { ok: true, json: async () => ({ answers: { mood: { choice: 'surprised' } } }) };
+  });
+  const runHarness = async () => { throw Error('Unexpected provider call in synthetic mood test.'); };
+  const shown = Promise.withResolvers();
+  const app = await h.openApp({ runHarness, onChange: view => { if (view.mood?.mood === 'surprised') shown.resolve(); } });
+  try {
+    await app.toggleJev();
+    await app.runtime.change(state => { state.runs.useful = usefulReport(); });
+
+    await shown.promise;
+
+    assert.deepEqual(asked.map(({ event, outcome }) => [event, outcome]), [['A report just arrived', 'useful']]);
   } finally {
     await app.close();
   }

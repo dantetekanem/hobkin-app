@@ -6,6 +6,7 @@ import {
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
+import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
 import { currentMood } from './mood.mjs';
 import { followPiTheme } from './theme.mjs';
 import { tokenLabel, workHarnesses } from './work/store.mjs';
@@ -37,7 +38,7 @@ const comment = color(98, 114, 164);
 const shadow = color(68, 71, 90);
 // Dracula until the fullscreen dashboard loads the user's Pi theme (see theme.mjs for the same roles).
 const builtInPalette = {
-  face: { hood: [240, 234, 214], eye: [232, 163, 23] },
+  face: { theme: 'dark', hood: [240, 234, 214], eye: [232, 163, 23] },
   dim: slate,
   muted: comment,
   faint: shadow,
@@ -105,7 +106,8 @@ const gradient = (value, from, to) => {
   return `${painted.join('')}\x1b[39m`;
 };
 // 256-color themes have no RGB endpoints, so the name falls back to the solid accent.
-const brand = () => {
+const brand = wordmark => {
+  if (wordmark) return `${highlight('◆')} ${wordmark}`;
   const [from, to] = palette.gradient;
   const name = from && to ? gradient('hobkin', from, to) : highlight('hobkin');
   return `${highlight('◆')} ${bold(name)}`;
@@ -134,6 +136,8 @@ const IDLE_REDRAW_MS = 5000;
 const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
 const MIN_WIDTH_FOR_FACE = 72;
+// The picture's last row sits left of the centred divider, so the divider's margin has to be wider than the picture.
+const MIN_WIDTH_FOR_IMAGE_FACE = 92;
 const FACE_GAP = 2;
 const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
@@ -147,6 +151,7 @@ const tips = [
   'Tell Hobkin what matters. It remembers across chats.',
   '/clear hides the chat. /reset starts a fresh conversation.',
 ];
+const jevTip = 'Type /jev so Hobkin can show all 18 moods.';
 const ignoredTips = attention => attention.filter(item => item.ignored).map(({ title, read, reports }) =>
   `${clean(title)}: ${read} of ${reports} reports opened. Revisit it?`);
 // Tips follow the clock rather than a timer, so each one holds still for its whole turn on screen.
@@ -269,10 +274,10 @@ const tabText = ({ label, count = '', prefix = '' }, active) => {
 };
 // Tabs share the brand row when everything fits, shortening the status before giving up the row, because a
 // second row would push the whole screen down each time a job starts. Otherwise they get a row windowed around the active tab.
-const headerLines = ({ tabs, statuses, inner }) => {
+const headerLines = ({ tabs, statuses, inner, wordmark }) => {
   const span = (from, to) => tabs.slice(from, to + 1).reduce((sum, tab) => sum + tab.width, 0) + 3 * (to - from);
   const activeTab = Math.max(0, tabs.findIndex(tab => tab.active));
-  const brandText = brand();
+  const brandText = brand(wordmark);
   const brandWidth = visibleWidth(brandText);
   const tabsEnd = brandWidth + 4 + span(0, tabs.length - 1) + 2;
   const inlineStatus = statuses.find(status => tabsEnd + visibleWidth(status) <= inner);
@@ -778,6 +783,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
   const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
+  const images = options.images ?? null;
+  const faceColumns = () => (images ? IMAGE_FACE_COLUMNS : FACE_COLUMNS);
+  const faceFrameMs = mood => {
+    if (images) return images.frameMs(mood);
+    return ['idle', 'sleepy'].includes(mood) ? RESTING_FACE_MS : MOVING_FACE_MS;
+  };
   const moodNow = clock => currentMood({
     reaction: snapshot.mood,
     busy: snapshot.connection === 'connected' && snapshot.busy,
@@ -815,9 +826,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const live = snapshot.connection === 'connected';
     busySince = live && snapshot.busy ? busySince ?? now() : null;
     const active = !stopped && live && Boolean(snapshot.busy || snapshot.context?.compacting || jobViews().length || snapshot.work?.discovering);
-    const resting = ['idle', 'sleepy'].includes(moodNow(now()));
-    const faceFrames = faceShown && !stopped ? (resting ? RESTING_FACE_MS : MOVING_FACE_MS) : 0;
-    const wanted = active ? ACTIVE_FRAME_MS : faceFrames;
+    const faceMs = faceShown && !stopped ? faceFrameMs(moodNow(now())) : 0;
+    const wanted = active ? Math.min(ACTIVE_FRAME_MS, faceMs || ACTIVE_FRAME_MS) : faceMs;
     if (wanted === tickerMs) return;
     clearInterval(ticker);
     ticker = wanted ? setInterval(changed, wanted) : null;
@@ -898,8 +908,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return;
     }
     if (submitted.startsWith('/')) {
-      if (!['/clear', '/reset', '/work'].includes(submitted)) {
-        say('Unknown command. Use /clear, /reset or /work.', 'warning');
+      if (!['/clear', '/reset', '/work', '/jev'].includes(submitted)) {
+        say('Unknown command. Use /clear, /reset, /work or /jev.', 'warning');
         changed();
         return;
       }
@@ -919,6 +929,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           if (editor.getExpandedText() === submitted) editor.setText('');
           say(mode?.enabled ? 'Work mode on.' : 'Work mode off. Projects and items are kept.', 'success', { timeout: 3000 });
         }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+          .finally(() => { clearing = false; changed(); });
+        return;
+      }
+      if (submitted === '/jev') {
+        clearing = true;
+        pending = Promise.resolve().then(() => {
+          if (typeof callbacks.toggleJev !== 'function') throw Error('Jev unavailable');
+          return callbacks.toggleJev();
+        }).then(jev => {
+          if (editor.getExpandedText() === submitted) editor.setText('');
+          say(jev?.enabled ? 'Jev on. Hobkin can show all 18 moods.' : 'Jev off. Hobkin keeps its four moods.', 'success', { timeout: 3000 });
+        }, error => { say(`Jev failed: ${clean(error?.message ?? error)}`, 'error'); })
           .finally(() => { clearing = false; changed(); });
         return;
       }
@@ -1002,7 +1024,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       }] : []),
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
     ].map(tab => tabText(tab, tab.name === view));
-    const header = headerLines({ tabs, statuses, inner });
+    images?.useTheme(palette.face.theme);
+    const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
     const invalid = invalidSchedules().length;
     if (invalid) header.push(warning(`▲ ${invalid} invalid schedule${invalid === 1 ? '' : 's'} · see Schedules`));
     return [...header, ''];
@@ -1026,7 +1049,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const start = snapshot.work?.enabled ? [] : [['enter', 'start']];
       return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['h', 'harness'], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
-    if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context'], ['/work', 'work mode']];
+    if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context'], ['/work', 'work mode'], ['/jev', 'moods']];
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+c', 'quit']];
@@ -1067,12 +1090,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const memorySize = () => (Number.isFinite(snapshot.memoryBytes)
     ? `${muted('memory')} ${dim(kilobytes(snapshot.memoryBytes))}` : '');
   const tipLine = clock => {
-    const tip = tipAt([...tips, ...ignoredTips(snapshot.reportAttention ?? [])], clock);
+    const tip = tipAt([...tips, ...(snapshot.jev ? [] : [jevTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
     return tip ? `  ${muted('tip')}  ${dim(tip)}` : '';
   };
-  const besideFace = (rows, width, clock) => {
-    const face = faceLines(moodNow(clock), clock, { ...palette.face, octants: supportsOctants() });
-    const blank = ' '.repeat(FACE_COLUMNS);
+  const drawnFace = clock => {
+    const mood = moodNow(clock);
+    return images ? images.lines(mood, clock) : faceLines(mood, clock, { ...palette.face, octants: supportsOctants() });
+  };
+  const besideFace = (face, rows, width) => {
+    const blank = ' '.repeat(faceColumns());
     return rows.map((value, index) => `${face[index] ?? blank}${' '.repeat(FACE_GAP)}${line(value, width)}`);
   };
   const composerLines = inner => {
@@ -1107,8 +1133,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
     const hasComposer = !question && (view === 'conversation' || askingWorkFolder);
-    faceShown = hasComposer && inner >= MIN_WIDTH_FOR_FACE && height >= MIN_ROWS_FOR_TIP_LINE;
-    const room = faceShown ? inner - FACE_COLUMNS - FACE_GAP : inner;
+    faceShown = hasComposer && inner >= (images ? MIN_WIDTH_FOR_IMAGE_FACE : MIN_WIDTH_FOR_FACE) && height >= MIN_ROWS_FOR_TIP_LINE;
+    const faceWidth = faceColumns() + FACE_GAP;
+    const room = faceShown ? inner - faceWidth : inner;
     const hints = hintsFor(editor.getExpandedText());
     // Drop whole hints from the end rather than cutting one mid-word.
     let shown = hints.length;
@@ -1116,15 +1143,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const activity = activityText(keys(hints.slice(0, shown)), frame);
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
-    const memory = [workNote, memorySize()].filter(Boolean).join(muted(' · '));
+    const memory = [workNote, snapshot.jev ? muted('jev') : '', memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [`  ${activity}`, rule, nextCheckRow, sessionBar(inner)];
     // The row stays reserved so a tip coming or going never moves anything.
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
     if (faceShown) {
-      const [activityRow, ...rest] = statusLines;
-      return [...besideFace([...composerLines(room), ...tipRows, activityRow], room, clock), ...rest];
+      const [activityRow, ruleRow, ...rest] = statusLines;
+      const face = drawnFace(clock);
+      const beside = [...composerLines(room), ...tipRows, activityRow];
+      if (face.length <= beside.length) return [...besideFace(face, beside, room), ruleRow, ...rest];
+      // The divider is centred, so a taller face fits in the blank space to its left without moving anything.
+      return [...besideFace(face, [...beside, ruleRow.slice(faceWidth)], room), ...rest];
     }
     if (hasComposer) return [...composerLines(inner), ...tipRows, ...statusLines];
     return [tipRows[0] ?? '', ...statusLines];
@@ -1299,6 +1330,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       clearTimeout(noticeTimer);
       clearInterval(idleRedraw);
       animate();
+      images?.clear();
       question?.finish(null);
     },
     handleMouse(event) {
@@ -1443,7 +1475,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
 export function startDashboard(snapshot, handlers = {}, options = {}) {
   const tui = new TuiAltScreen(options.terminal ?? new ProcessTerminal(), false, undefined, { mouse: true, wheelScrollLines: 3 });
-  const controller = createDashboard(snapshot, handlers, { tui, onChange: () => tui.requestRender() });
+  const images = options.images ?? (!options.terminal && supportsFaceImages() ? new FaceImages({ write: data => tui.terminal.write(data) }) : null);
+  const controller = createDashboard(snapshot, handlers, { tui, images, onChange: () => tui.requestRender() });
   const component = {
     render: width => controller.render(width, tui.terminal.rows),
     handleInput: data => controller.input(data),

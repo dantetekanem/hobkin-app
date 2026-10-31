@@ -4,6 +4,8 @@
 !/README.md
 !/src/
 !/test/
+!/assets/
+!/scripts/
 /src/*
 !/src/*.ts
 !/src/*.mjs
