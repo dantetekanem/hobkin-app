@@ -312,10 +312,10 @@ const headerLines = ({ tabs, statuses, inner, wordmark }) => {
   const tabRow = before + tabs.slice(first, last + 1).map(tab => tab.text).join('   ') + after;
   const underlineStart = (inline ? brandWidth + 4 : 0) + visibleWidth(before) + span(first, activeTab) - tabs[activeTab].width;
   const underlineWidth = Math.min(tabs[activeTab].width, Math.max(0, inner - underlineStart));
-  // A terminal's smallest gap is a row, but an underline sits low in its row, which gives the tabs a little air.
-  const lowRule = width => faint(`\x1b[4m${' '.repeat(width)}\x1b[24m`);
-  const underline = lowRule(underlineStart) + highlight('▁'.repeat(underlineWidth))
-    + lowRule(Math.max(0, inner - underlineStart - underlineWidth));
+  // The tabs' row cannot move, so the line evens the gaps: this glyph sits a little below the middle of its row.
+  const rule = '⎼';
+  const underline = faint(rule.repeat(underlineStart)) + highlight(rule.repeat(underlineWidth))
+    + faint(rule.repeat(Math.max(0, inner - underlineStart - underlineWidth)));
   const titleRows = inline ? [row(`${brandText}    ${tabRow}`, inlineStatus, inner)] : [row(brandText, statuses[0], inner), tabRow];
   return [...titleRows, underline];
 };
