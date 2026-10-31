@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { importHome } from '../src/cli/import.mjs';
@@ -90,6 +92,82 @@ test('a folder Hobkin has only been started in takes the import', async t => {
   const app = await opened(to);
   t.after(() => app.close());
   assert.equal(app.snapshot.connection, 'connected');
+});
+
+test('a folder that is not a Hobkin home is never replaced', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  mkdirSync(to, { recursive: true });
+  writeFileSync(join(to, 'thesis.md'), 'Three years of work.\n');
+
+  await assert.rejects(importHome(to, from), /not a Hobkin folder/);
+
+  assert.equal(readFileSync(join(to, 'thesis.md'), 'utf8'), 'Three years of work.\n');
+  assert.deepEqual(readdirSync(dirname(to)).filter(name => name.includes('importing')), []);
+});
+
+test('a home that was migrated keeps its journal', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  mkdirSync(join(to, 'migration/one/data'), { recursive: true });
+  writeFileSync(join(to, 'active.json'), '{}\n');
+
+  await assert.rejects(importHome(to, from), /not a Hobkin folder/);
+
+  assert.equal(existsSync(join(to, 'active.json')), true);
+});
+
+test('folders that overlap are refused, so the old one cannot be lost', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+
+  await assert.rejects(importHome(from, from), /overlap/);
+  await assert.rejects(importHome(dirname(from), from), /overlap/);
+  await assert.rejects(importHome(join(from, 'inner'), from), /overlap/);
+
+  assert.equal(existsSync(join(from, 'runtime/companion.sqlite')), true);
+  assert.equal(existsSync(to), false);
+});
+
+test('work trees stay behind, because a copied one still points into the old folder', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  mkdirSync(join(from, 'work/api/trees/look'), { recursive: true });
+  writeFileSync(join(from, 'work/api/trees/look/.git'), `gitdir: ${from}/work/api/repo/.git/worktrees/look\n`);
+  writeFileSync(join(from, 'work/api/project.md'), 'What agents learned.\n');
+  mkdirSync(join(from, 'notes/trees'), { recursive: true });
+  writeFileSync(join(from, 'notes/trees/oak.md'), 'A note about trees.\n');
+
+  await importHome(to, from);
+
+  assert.equal(existsSync(join(to, 'work/api/trees')), false);
+  assert.equal(existsSync(join(to, 'work/api/project.md')), true);
+  assert.equal(existsSync(join(to, 'notes/trees/oak.md')), true);
+});
+
+test('a link is copied as a link, and what it points at is never rewritten', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  const outside = join(dirname(from), 'outside.md');
+  writeFileSync(outside, `Notes live in ${from}/notes.\n`);
+  mkdirSync(join(from, 'notes'), { recursive: true });
+  symlinkSync(outside, join(from, 'notes/shared.md'));
+
+  await importHome(to, from);
+
+  assert.equal(readFileSync(outside, 'utf8'), `Notes live in ${from}/notes.\n`);
+  assert.equal(lstatSync(join(to, 'notes/shared.md')).isSymbolicLink(), true);
+});
+
+test('only whole paths move, and a target path is taken literally', async t => {
+  const { from } = folders(t);
+  await companionHome(from);
+  const to = join(dirname(from), 'dollar$&home');
+  writeFileSync(join(from, 'memory.md'), `Mine: ${from}/a.md. Not mine: /Volumes/Backup${from}/a.md.\n`);
+
+  await importHome(to, from);
+
+  assert.equal(readFileSync(join(to, 'memory.md'), 'utf8'), `Mine: ${to}/a.md. Not mine: /Volumes/Backup${from}/a.md.\n`);
 });
 
 test('a setting made before the import survives it', async t => {
