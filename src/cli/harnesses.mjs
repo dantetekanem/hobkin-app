@@ -52,9 +52,9 @@ export function buildInvocation(request) {
       '--no-skills', '--no-prompt-templates', '--no-themes',
       '--no-context-files', '--no-approve',
       '--system-prompt', system,
-    ] : ['--append-system-prompt', system]),
-    // A tree is a new folder to Pi, so a trust decision saved for the real repository would not reach it.
-    ...(isWork ? ['--append-system-prompt', prompt(request.purpose), '--approve'] : []),
+      // Nothing here can stop to ask, and a worktree is a new folder a saved trust decision would not reach.
+    ] : ['--append-system-prompt', system, '--approve']),
+    ...(isWork ? ['--append-system-prompt', prompt(request.purpose)] : []),
   ];
   if (request.model) args.push('--model', request.model);
   return piCommand(request.launcher, args);

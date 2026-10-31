@@ -303,6 +303,10 @@ test('Pi still rejects session statistics attributed to a different session', as
   assert.match(result.error, /identity/);
 });
 
+test('a check trusts its own folder, so it has everything the user has', t => {
+  assert.equal(buildInvocation(request(t)).args.includes('--approve'), true);
+});
+
 test('a work run keeps every tool and carries both the check directions and its own', t => {
   for (const [purpose, heading] of [['work-discover', /find the user's projects/], ['work-look', /look at a project/], ['work-do', /finish one item/]]) {
     const { args } = buildInvocation({ ...request(t), purpose });

@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { assertRuntimeAdmission, adoptedSession } from './migration/admission.mjs';
@@ -218,12 +218,18 @@ export async function openImportedPiSession({ root, config, sessionId, binding, 
   }, dependencies);
 }
 
+/** Extensions find the running Pi from this path, and through a link they reach an older copy of their own instead. */
+export function followEntryLink(argv = process.argv) {
+  if (argv[1] && existsSync(argv[1])) argv[1] = realpathSync(argv[1]);
+}
+
 async function openConversation(
   { root, config, expected, file, fresh = false, customTools = [], modelSettings },
   { createSession, agentDir, modelRuntime: suppliedModelRuntime } = {},
 ) {
   refuseInProcess(config);
   validateBinding({ harness: 'pi', ...config.main });
+  followEntryLink();
   const {
     SessionManager,
     createAgentSession,

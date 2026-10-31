@@ -1,16 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAgentSession, ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { initialize } from '../src/cli/config.mjs';
-import { openPiSession } from '../src/cli/pi-session.mjs';
+import { followEntryLink, openPiSession } from '../src/cli/pi-session.mjs';
 import { CompanionRuntime } from '../src/cli/runtime.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
 // Real Pi discovery and tools, isolated from personal settings, MCP servers and providers.
+test('a command started through a link still shows extensions the real path', t => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'companion-link-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const entry = join(root, 'main.mjs');
+  const link = join(root, 'pi-companion');
+  writeFileSync(entry, '');
+  symlinkSync(entry, link);
+  const argv = ['node', link];
+
+  followEntryLink(argv);
+
+  assert.equal(argv[1], entry);
+});
+
 test('main conversation uses Pi tools and MCP with native extension lifecycle', async t => {
   const root = mkdtempSync(join(tmpdir(), 'companion-capabilities-'));
   const agentDir = join(root, 'agent');
