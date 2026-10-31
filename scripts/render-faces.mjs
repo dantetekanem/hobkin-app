@@ -8,9 +8,12 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const SIZE = 240;
-// Square and centred on the hood's own box, 40,22 to 160,188. Its size comes from the moods: celebrating's confetti reaches y = -31.5.
-const VIEW_BOX = '-38 -33 276 276';
+const VIEW_WIDTH = 200;
+const VIEW_HEIGHT = 276;
+const HEIGHT = 240;
+const WIDTH = Math.round((HEIGHT * VIEW_WIDTH) / VIEW_HEIGHT);
+// Centred on the hood's own box, 40,22 to 160,188. The moods set its size: listening and hello reach x = 1 and 199, celebrating's confetti y = -31.5.
+const VIEW_BOX = `0 -33 ${VIEW_WIDTH} ${VIEW_HEIGHT}`;
 const AT_ONCE = 4;
 const WORDMARK_HEIGHT = 96;
 
@@ -50,7 +53,8 @@ const frameScript = (seconds, count) => `
     animation.effect.updateTiming({ duration: duration * ratio, delay: delay * ratio });
   }
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = ${SIZE};
+  canvas.width = ${WIDTH};
+  canvas.height = ${HEIGHT};
   const context = canvas.getContext('2d');
   const frames = [];
   for (let frame = 0; frame < COUNT; frame++) {
@@ -69,8 +73,8 @@ const frameScript = (seconds, count) => `
     const image = new Image();
     image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(copy));
     await image.decode();
-    context.clearRect(0, 0, ${SIZE}, ${SIZE});
-    context.drawImage(image, 0, 0, ${SIZE}, ${SIZE});
+    context.clearRect(0, 0, ${WIDTH}, ${HEIGHT});
+    context.drawImage(image, 0, 0, ${WIDTH}, ${HEIGHT});
     frames.push(canvas.toDataURL('image/png').split(',')[1]);
   }
   document.getElementById('result').textContent = JSON.stringify({ frames });
@@ -82,7 +86,7 @@ async function renderMood(theme, file) {
   const source = readFileSync(join(root, 'assets/animations', theme, file), 'utf8')
     .replace(/<rect x="-28" y="-28" width="256" height="256"[^>]*><\/rect>/, '')
     .replace('viewBox="-28 -28 256 256"', `viewBox="${VIEW_BOX}"`)
-    .replace('width="512" height="512"', `width="${SIZE}" height="${SIZE}"`);
+    .replace('width="512" height="512"', `width="${WIDTH}" height="${HEIGHT}"`);
   const page = join(work, `${theme}-${mood}.html`);
   writeFileSync(page, `<!doctype html><meta charset="utf-8"><body>${source}<pre id="result"></pre><script>${frameScript(seconds, Math.round(seconds * fps))}</script></body>`);
   const { frames } = await chrome(page);

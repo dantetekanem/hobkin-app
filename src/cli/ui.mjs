@@ -137,7 +137,7 @@ const IDLE_REDRAW_MS = 5000;
 const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
 const MIN_WIDTH_FOR_FACE = 72;
-const FACE_GAP = 2;
+const FACE_GAP = 1;
 const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
 const RESTING_FACE_MS = 250;
@@ -1134,7 +1134,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     ? `${muted('memory')} ${dim(kilobytes(snapshot.memoryBytes))}` : '');
   const tipLine = clock => {
     const tip = tipAt([...tips, ...(snapshot.jev ? [] : [jevTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
-    return tip ? `  ${muted('tip')}  ${dim(tip)}` : '';
+    return tip ? `${muted('tip')}  ${dim(tip)}` : '';
   };
   const drawnFace = clock => {
     const mood = moodNow(clock);
@@ -1186,13 +1186,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const hints = hintsFor(editor.getExpandedText());
     // Drop whole hints from the end rather than cutting one mid-word.
     let shown = hints.length;
-    while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) + 2 > room) shown--;
+    while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) > room) shown--;
     const activity = activityText(keys(hints.slice(0, shown)), frame);
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
     const memory = [workNote, snapshot.jev ? muted('jev') : '', memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
-    const statusLines = [`  ${activity}`, rule, nextCheckRow, sessionBar(inner)];
+    const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
     // The row stays reserved so a tip coming or going never moves anything.
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];

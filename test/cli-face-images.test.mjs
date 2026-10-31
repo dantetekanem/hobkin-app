@@ -29,14 +29,14 @@ test('every mood has real frames in both themes, and so does the wordmark', () =
   }
 });
 
-test('the face is a fixed box of 11 by 5 text cells, and the terminal is told the same box', () => {
+test('the face is a fixed box of 8 by 5 text cells, and the terminal is told the same box', () => {
   const { faces, written } = images();
 
   const rows = faces.lines('thinking', 1234);
 
   assert.equal(rows.length, 5);
-  for (const value of rows) assert.equal(visibleWidth(value), 11);
-  assert.ok(transmissions(written.join('')).every(control => control.includes('c=11,r=5,')));
+  for (const value of rows) assert.equal(visibleWidth(value), 8);
+  assert.ok(transmissions(written.join('')).every(control => control.includes('c=8,r=5,')));
 });
 
 test('each row of cells names its own row of the picture', () => {
