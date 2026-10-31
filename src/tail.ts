@@ -7,9 +7,9 @@ import { join } from 'node:path';
 type LocationPaths = { locationRoot?: string };
 const nonempty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 const locationFile = (paths: LocationPaths, workspace: string) =>
-  join(paths.locationRoot ?? tmpdir(), `pi-companion-${process.getuid?.() ?? 'user'}-${encodeURIComponent(workspace)}.json`);
+  join(paths.locationRoot ?? tmpdir(), `hobkin-${process.getuid?.() ?? 'user'}-${encodeURIComponent(workspace)}.json`);
 
-export async function saveCompanionLocation(pi: ExtensionAPI, paths: LocationPaths, active: () => boolean): Promise<void> {
+export async function saveHobkinLocation(pi: ExtensionAPI, paths: LocationPaths, active: () => boolean): Promise<void> {
   if (process.env.HERDR_ENV !== '1') return;
   try {
     const result = await pi.exec('herdr', ['pane', 'current', '--current'], { timeout: 1000 });
@@ -21,15 +21,15 @@ export async function saveCompanionLocation(pi: ExtensionAPI, paths: LocationPat
       writeFileSync(temporary, JSON.stringify({ workspace: pane.workspace_id, pane: pane.pane_id }), { flag: 'wx', mode: 0o600 });
       renameSync(temporary, file);
     } finally { rmSync(temporary, { force: true }); }
-  } catch { /* A location handoff must not block Companion startup. */ }
+  } catch { /* A location handoff must not block Hobkin startup. */ }
 }
 
-export function companionTailNotice(paths: LocationPaths): string | undefined {
+export function hobkinTailNotice(paths: LocationPaths): string | undefined {
   const workspace = process.env.HERDR_WORKSPACE_ID;
   if (process.env.HERDR_ENV !== '1' || !nonempty(workspace)) return;
   try {
     const location = JSON.parse(readFileSync(locationFile(paths, workspace), 'utf8'));
     if (location?.workspace !== workspace || !nonempty(location.pane) || location.pane === process.env.HERDR_PANE_ID) return;
-    return `${readFileSync(new URL('./prompts/tail.md', import.meta.url), 'utf8')}\nCompanion location: pane ${location.pane} (workspace ${workspace})`;
+    return `${readFileSync(new URL('./prompts/tail.md', import.meta.url), 'utf8')}\nHobkin location: pane ${location.pane} (workspace ${workspace})`;
   } catch { /* Missing or invalid location files produce no notice. */ }
 }

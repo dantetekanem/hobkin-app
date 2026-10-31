@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
 export const reportText = value => String(value ?? '')
-  .replace(/<!--\s*companion-(?:publication|question):[\s\S]*?(?:-->|$)/gi, '')
+  .replace(/<!--\s*hobkin-(?:publication|question):[\s\S]*?(?:-->|$)/gi, '')
   .trim();
 
 export const runOutcomeText = run => run.result?.text || run.result?.error || run.error || '';
@@ -34,7 +34,8 @@ const statOrMissing = file => {
 
 // Well under Runtime's 64 KiB message limit, leaving the user room to write.
 const MAX_REFERENCED_BYTES = 24576;
-const referenceBlock = /^<companion-report>\n(.+)\n[\s\S]*?\n<\/companion-report>\n\n/;
+// The old tag still appears in conversations imported from pi-companion.
+const referenceBlock = /^<(?:hobkin|companion)-report>\n(.+)\n[\s\S]*?\n<\/(?:hobkin|companion)-report>\n\n/;
 
 /** Puts a report in front of a message. Escaping its closing tag means report text can never end the block early. */
 export function referToReport(root, report, text) {
@@ -47,8 +48,8 @@ export function referToReport(root, report, text) {
     path: statOrMissing(saved) ? saved : null,
     truncated: bytes.length > MAX_REFERENCED_BYTES,
   };
-  const body = bytes.subarray(0, MAX_REFERENCED_BYTES).toString('utf8').replaceAll('</companion-report', '<\\/companion-report');
-  return `<companion-report>\n${JSON.stringify(details)}\n${body}\n</companion-report>\n\n${text}`;
+  const body = bytes.subarray(0, MAX_REFERENCED_BYTES).toString('utf8').replaceAll('</hobkin-report', '<\\/hobkin-report');
+  return `<hobkin-report>\n${JSON.stringify(details)}\n${body}\n</hobkin-report>\n\n${text}`;
 }
 
 /** Recovers what the user typed and the title of the report it was about. */

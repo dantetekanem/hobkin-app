@@ -10,7 +10,7 @@ import { readLocalView } from '../src/cli/view.mjs';
 import { buildInvocation } from '../src/cli/harnesses.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-patterns-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-patterns-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root });
   const source = join(root, 'selected.jsonl');

@@ -8,12 +8,12 @@ import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { initialize } from '../src/cli/config.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
 
 // Real SDK, session storage and Durable; no authentication/network or executable external tools.
 async function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-controls-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-controls-'));
   isolatePiHome(t, join(root, 'agent'));
   const config = initialize(root, { cwd: root });
   const model = {
@@ -66,7 +66,7 @@ async function fixture(t) {
       return result;
     },
   });
-  const runtime = await CompanionRuntime.open(root, config, { createMain });
+  const runtime = await HobkinRuntime.open(root, config, { createMain });
   await runtime.connect();
   t.after(async () => { await runtime.close(); rmSync(root, { recursive: true, force: true }); });
   return {
@@ -136,7 +136,7 @@ test('reset preserves transcript, accounting and background work but reopens wit
   releaseBackground.resolve();
   await background;
   await h.runtime.close();
-  const reopened = await CompanionRuntime.open(h.root, h.config, { createMain: h.createMain });
+  const reopened = await HobkinRuntime.open(h.root, h.config, { createMain: h.createMain });
   try {
     await reopened.connect();
     assert.equal(reopened.main.sessionId, reset.sessionId);

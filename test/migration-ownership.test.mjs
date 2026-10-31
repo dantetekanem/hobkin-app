@@ -7,12 +7,12 @@ import { inventoryLegacy, sha256 } from '../src/cli/migration/inventory.mjs';
 import { pinSession, readSessionHeader, validateOwnership } from '../src/cli/migration/ownership.mjs';
 const id = 'b6502857-3ca4-4a30-a305-c6ae2b2d65da';
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), 'companion-owner-'));
+  const home = mkdtempSync(join(tmpdir(), 'hobkin-owner-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  mkdirSync(join(home, '.pi/agent/companion'), { recursive: true });
+  mkdirSync(join(home, '.pi/agent/hobkin'), { recursive: true });
   const sessionFile = join(home, 'selected.jsonl');
   writeFileSync(sessionFile, JSON.stringify({ type: 'session', version: 3, id, cwd: home, timestamp: '2026-10-26T00:00:00Z' }) + '\n');
-  writeFileSync(join(home, `.pi/agent/companion/${sha256(id)}.json`), JSON.stringify({ version: 1, items: [], paused: [] }));
+  writeFileSync(join(home, `.pi/agent/hobkin/${sha256(id)}.json`), JSON.stringify({ version: 1, items: [], paused: [] }));
   return { home, sessionFile, selection: { sessionFile, sessionId: id } };
 }
 const stopped = manifest => ({
@@ -25,7 +25,7 @@ const stopped = manifest => ({
 
 test('explicit saved selection maps its origin without treating stale owner or pane hints as authority', t => {
   const { home, selection } = fixture(t);
-  writeFileSync(join(home, '.pi/agent/companion/owner.json'), JSON.stringify({ version: 1, sessionId: 'old-owner' }));
+  writeFileSync(join(home, '.pi/agent/hobkin/owner.json'), JSON.stringify({ version: 1, sessionId: 'old-owner' }));
   const manifest = inventoryLegacy({ home, references: [{ kind: 'pi-session', path: selection.sessionFile }, { kind: 'location', path: join(home, 'pane.json') }] });
   const proof = stopped(manifest);
   proof.sessions.push({ sessionId: 'old-owner', state: 'stopped' });
@@ -50,7 +50,7 @@ test('missing, active or differently scoped shutdown evidence never authorizes a
 test('every origin needs a stopped owner, including a second saved conversation not selected as main', t => {
   const { home, selection } = fixture(t);
   const other = 'd4d6b65f-6c57-4fea-b57d-2dfce14040ca';
-  writeFileSync(join(home, `.pi/agent/companion/${sha256(other)}.json`), '{"version":1,"items":[],"paused":[]}');
+  writeFileSync(join(home, `.pi/agent/hobkin/${sha256(other)}.json`), '{"version":1,"items":[],"paused":[]}');
   const manifest = inventoryLegacy({ home });
   assert.throws(() => validateOwnership({ manifest, selection, quiescence: stopped(manifest) }), /Unmapped/);
   const proof = stopped(manifest);
@@ -62,8 +62,8 @@ test('every origin needs a stopped owner, including a second saved conversation 
 
 test('optional lifecycle must be supplied from the pinned archive and cannot contain uncertain control work', t => {
   const { home, selection } = fixture(t);
-  mkdirSync(join(home, '.pi/agent/companion/durable'));
-  writeFileSync(join(home, '.pi/agent/companion/durable/companion.sqlite'), 'synthetic checkpoint bytes');
+  mkdirSync(join(home, '.pi/agent/hobkin/durable'));
+  writeFileSync(join(home, '.pi/agent/hobkin/durable/hobkin.sqlite'), 'synthetic checkpoint bytes');
   const manifest = inventoryLegacy({ home });
   const checkpoint = {
     sha256: manifest.files.find(file => file.category === 'durable').sha256,

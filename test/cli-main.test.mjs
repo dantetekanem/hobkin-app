@@ -11,7 +11,7 @@ import { main } from '../src/cli/main.mjs';
 import { readPresentationState } from '../src/cli/view.mjs';
 
 function fixture(t, isTTY = false) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-main-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-main-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root });
   const signals = new EventEmitter();
@@ -20,10 +20,10 @@ function fixture(t, isTTY = false) {
 }
 
 function freshHome(t) {
-  const home = mkdtempSync(join(tmpdir(), 'companion-first-run-'));
-  const original = { HOME: process.env.HOME, COMPANION_HOME: process.env.COMPANION_HOME };
+  const home = mkdtempSync(join(tmpdir(), 'hobkin-first-run-'));
+  const original = { HOME: process.env.HOME, HOBKIN_HOME: process.env.HOBKIN_HOME };
   process.env.HOME = home;
-  delete process.env.COMPANION_HOME;
+  delete process.env.HOBKIN_HOME;
   t.after(() => {
     for (const [key, value] of Object.entries(original)) {
       if (value === undefined) delete process.env[key];
@@ -31,13 +31,13 @@ function freshHome(t) {
     }
     rmSync(home, { recursive: true, force: true });
   });
-  return { home, root: join(home, '.companion') };
+  return { home, root: join(home, '.hobkin') };
 }
 
 for (const [args, isTTY] of [[[], true], [['run'], false]]) {
   test(`${args[0] ?? 'interactive launch'} initializes the default workspace without touching legacy data`, async t => {
     const { home, root } = freshHome(t);
-    const legacy = join(home, '.pi/agent/companion');
+    const legacy = join(home, '.pi/agent/hobkin');
     mkdirSync(legacy, { recursive: true });
     writeFileSync(join(legacy, 'state.json'), '{"legacy":"preserved"}');
     const signals = new EventEmitter();
@@ -85,13 +85,13 @@ test('finite reads do not initialize, and connected startup cannot bypass an inc
   }
 });
 
-test('the published pi-companion executable runs from PATH outside the checkout and preserves failure exits', t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-bin-'));
+test('the published hobkin executable runs from PATH outside the checkout and preserves failure exits', t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-bin-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  const entry = manifest.bin['pi-companion'];
+  const entry = manifest.bin['hobkin'];
   assert.equal(typeof entry, 'string');
-  const executable = join(root, 'pi-companion');
+  const executable = join(root, 'hobkin');
   const home = join(root, 'home');
   symlinkSync(fileURLToPath(new URL(`../${entry}`, import.meta.url)), executable);
   const options = {
@@ -101,12 +101,12 @@ test('the published pi-companion executable runs from PATH outside the checkout 
     timeout: 10000,
   };
 
-  const initialized = spawnSync('pi-companion', ['init', '--home', home], options);
+  const initialized = spawnSync('hobkin', ['init', '--home', home], options);
   assert.equal(initialized.status, 0, initialized.stderr);
   assert.equal(existsSync(join(home, 'config.json')), true);
   assert.ok(initialized.stdout.length > 0);
 
-  const rejected = spawnSync('pi-companion', ['invalid-command', '--home', home], options);
+  const rejected = spawnSync('hobkin', ['invalid-command', '--home', home], options);
   assert.equal(rejected.status, 1);
   assert.ok(rejected.stderr.length > 0);
 });

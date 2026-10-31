@@ -10,15 +10,15 @@ import { validateOwnership } from '../src/cli/migration/ownership.mjs';
 import { importSessions, pinSession } from '../src/cli/migration/adoption.mjs';
 import { resolveDataRoot } from '../src/cli/migration/admission.mjs';
 import { initialize, loadConfig } from '../src/cli/config.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
 
 async function fixture(t) {
-  const directory = mkdtempSync(join(tmpdir(), 'companion-admission-'));
+  const directory = mkdtempSync(join(tmpdir(), 'hobkin-admission-'));
   const home = join(directory, 'old');
   const root = join(directory, 'new');
-  mkdirSync(join(home, '.pi/agent/companion'), { recursive: true });
+  mkdirSync(join(home, '.pi/agent/hobkin'), { recursive: true });
   const sessionFile = join(home, 'selected.jsonl'), sessionId = '08347d55-30b3-4078-9ed5-f99c130a3b4f';
   const session = { type: 'session', version: 3, id: sessionId, cwd: home, timestamp: '2026-10-26T00:00:00Z' };
   const transcript = {
@@ -35,9 +35,9 @@ async function fixture(t) {
   });
   await journal.stage();
   const controlRoot = join(directory, 'control'), migration = { id: journal.record.id, fingerprint: manifest.fingerprint, destination: root, owners: [selection] };
-  await installLegacyFence(join(home, '.pi/agent/companion'), migration, { controlRoot });
+  await installLegacyFence(join(home, '.pi/agent/hobkin'), migration, { controlRoot });
   const offline = { confirmed: true, migrationId: migration.id, fingerprint: manifest.fingerprint, sessions: [selection], confirmedAt: new Date().toISOString() };
-  const quiescence = await collectShutdownReceipt(join(home, '.pi/agent/companion'), migration, { controlRoot, offline });
+  const quiescence = await collectShutdownReceipt(join(home, '.pi/agent/hobkin'), migration, { controlRoot, offline });
   const ownership = validateOwnership({ manifest, selection, quiescence });
   const imported = importSessions(journal, { ownership, sessions: [pinSession(sessionFile)] });
   const config = { version: 2, initializedAt: new Date().toISOString(), main: { cwd: home, model: null, effort: 'medium' }, background: { harness: 'pi', model: null, effort: 'medium' }, concurrency: 2, timeoutMs: 300000 };
@@ -65,7 +65,7 @@ test('unfinished and merely committed migrations cannot initialize, connect or o
     }
     assert.throws(() => initialize(h.root), /migration|verif/i);
     assert.throws(() => loadConfig(h.root), /migration|verif/i);
-    await assert.rejects(CompanionRuntime.open(h.root, h.config), /migration|verif/i);
+    await assert.rejects(HobkinRuntime.open(h.root, h.config), /migration|verif/i);
     await assert.rejects(openPiSession({ root: h.journal.dataRoot, config: h.config }), /migration|verif/i);
     assert.equal(existsSync(join(h.root, 'config.json')), false);
     assert.equal(existsSync(join(h.root, 'runtime')), false);
@@ -109,7 +109,7 @@ test('adopted identity is checked before provider creation; missing or changed m
 test('runtime uses the adopted Pi identity and captures its historical cost as baseline, not new spend', async t => {
   const h = await fixture(t);
   h.complete();
-  const runtime = await CompanionRuntime.open(h.root, h.config, {
+  const runtime = await HobkinRuntime.open(h.root, h.config, {
     createMain: options => openPiSession(options, {
       agentDir: join(h.root, 'pi-agent'),
       createSession: async ({ sessionManager }) => ({
@@ -158,7 +158,7 @@ test('runtime uses the adopted Pi identity and captures its historical cost as b
   } finally {
     await runtime.close();
   }
-  const reopened = await CompanionRuntime.open(h.root, h.config, { createMain: runtime.createMain });
+  const reopened = await HobkinRuntime.open(h.root, h.config, { createMain: runtime.createMain });
   try {
     await reopened.connect();
     const state = await reopened.state();
@@ -174,5 +174,5 @@ test('runtime uses the adopted Pi identity and captures its historical cost as b
   }
   const history = join(h.journal.dataRoot, 'imported/sessions/index.json');
   writeFileSync(history, '{}');
-  await assert.rejects(CompanionRuntime.open(h.root, h.config), /history|changed|immutable/);
+  await assert.rejects(HobkinRuntime.open(h.root, h.config), /history|changed|immutable/);
 });

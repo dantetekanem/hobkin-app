@@ -29,7 +29,7 @@ const task = (id, values = {}) => ({
   ...values,
 });
 async function fixture(t, tasks, state = { version: 1, items: [], paused: [], started: true }) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-schedules-migration-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-schedules-migration-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'home');
   const sessionFile = join(root, 'owner.jsonl');
@@ -41,8 +41,8 @@ async function fixture(t, tasks, state = { version: 1, items: [], paused: [], st
   put(sessionFile, JSON.stringify({ type: 'session', version: 3, id: sessionId, cwd: home }) + '\n');
   tasks = tasks.map(value => ({ sessionFile, ...value }));
   if (typeof state === 'function') state = state(tasks);
-  put(join(home, `.pi/agent/companion/${sha256(sessionId)}.json`), JSON.stringify(state));
-  put(join(home, '.companion-schedules.md'), '# Routines\n\n## Routine\nPrivate instructions.\n');
+  put(join(home, `.pi/agent/hobkin/${sha256(sessionId)}.json`), JSON.stringify(state));
+  put(join(home, '.hobkin-schedules.md'), '# Routines\n\n## Routine\nPrivate instructions.\n');
   put(join(home, '.pi/agent/state/scheduler/tasks.json'), JSON.stringify({ version: 2, revision: 4, updatedAt: at, extra: 'preserved', tasks }));
   const manifest = inventoryLegacy({ home });
   const selection = { sessionFile, sessionId };
@@ -65,7 +65,7 @@ async function fixture(t, tasks, state = { version: 1, items: [], paused: [], st
     taskId: value.id,
     sha256: sha256(JSON.stringify(value)),
     origin: ownership.main.origin,
-    classification: 'companion',
+    classification: 'hobkin',
     timezone: 'America/New_York',
     reason: 'Explicit fixture attribution.',
   }));
@@ -129,7 +129,7 @@ test('changed signatures, unconfirmed stops and active runs block rather than re
 test('daily-wake references must resolve exactly, and malformed or unsupported owned records remain errors', async t => {
   const wake = { token: 'token', schedule: '24h', schedulerId: 'task_wake' };
   const experience = { version: 1, enabled: true, generation: 1, wake, evidence: [], questions: [], decisions: [], lessons: [], assessments: [], reviews: [] };
-  const { journal, options, load } = await fixture(t, [task('wake', { name: 'Daily review', prompt: 'companion-daily:token' })], { version: 1, items: [], paused: [], experience });
+  const { journal, options, load } = await fixture(t, [task('wake', { name: 'Daily review', prompt: 'hobkin-daily:token' })], { version: 1, items: [], paused: [], experience });
   const result = await importSchedules(journal, options);
   assert.deepEqual(result.errors, []);
   assert.equal(load(result.artifacts.find(value => value.kind === 'schedule')).role, 'daily-wake');
@@ -143,7 +143,7 @@ test('daily-wake references must resolve exactly, and malformed or unsupported o
 
 test('a later origin wake cannot erase another origin control claim', async t => {
   for (const control of ['stopping', 'paused']) {
-    const root = mkdtempSync(join(tmpdir(), 'companion-origin-collision-'));
+    const root = mkdtempSync(join(tmpdir(), 'hobkin-origin-collision-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const home = join(root, 'home');
     const put = (path, value) => {
@@ -156,7 +156,7 @@ test('a later origin wake cannot erase another origin control claim', async t =>
       return pinSession(sessionFile);
     });
     assert.ok(sessions[0].origin < sessions[1].origin);
-    const wakeTask = task('wake', { sessionFile: sessions[1].sessionFile, prompt: 'companion-daily:token' });
+    const wakeTask = task('wake', { sessionFile: sessions[1].sessionFile, prompt: 'hobkin-daily:token' });
     const foreign = {
       version: 1,
       items: [],
@@ -185,7 +185,7 @@ test('a later origin wake cannot erase another origin control claim', async t =>
       },
     };
     for (const [index, state] of [foreign, owner].entries()) {
-      put(join(home, `.pi/agent/companion/${sha256(sessions[index].sessionId)}.json`), JSON.stringify(state));
+      put(join(home, `.pi/agent/hobkin/${sha256(sessions[index].sessionId)}.json`), JSON.stringify(state));
     }
     put(join(home, '.pi/agent/state/scheduler/tasks.json'), JSON.stringify({ version: 2, tasks: [wakeTask] }));
     const manifest = inventoryLegacy({ home });
@@ -213,7 +213,7 @@ test('a later origin wake cannot erase another origin control claim', async t =>
         taskId: wakeTask.id,
         sha256: sha256(JSON.stringify(wakeTask)),
         origin: sessions[1].origin,
-        classification: 'companion',
+        classification: 'hobkin',
         timezone: 'UTC',
         reason: 'Explicit owner',
       }],

@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path';
 import { main } from '../../src/cli/main.mjs';
 import { initialize, atomicJson } from '../../src/cli/config.mjs';
-import { CompanionApplication } from '../../src/cli/application.mjs';
+import { HobkinApplication } from '../../src/cli/application.mjs';
 import { startDashboard } from '../../src/cli/ui.mjs';
 import { fakePi } from './pi-session.mjs';
 
@@ -57,7 +57,7 @@ try {
       return ui;
     },
     openApplication: async (home, options) => {
-      const app = await CompanionApplication.open(home, {
+      const app = await HobkinApplication.open(home, {
         ...options,
         sessionDependencies: fake.dependencies,
         now: () => new Date('2026-01-02T10:00:00Z'),

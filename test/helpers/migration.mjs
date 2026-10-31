@@ -7,7 +7,7 @@ import { pinSession } from '../../src/cli/migration/adoption.mjs';
 
 const at = '2026-10-26T00:00:00Z';
 export async function migrationFixture(t, { malformed = false, failpoint, mutateState = () => {}, mutateTasks = () => {}, secondState = null, references = [] } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), 'companion-cutover-'));
+  const directory = mkdtempSync(join(tmpdir(), 'hobkin-cutover-'));
   const home = join(directory, 'old');
   const root = join(directory, 'new');
   const put = (path, data) => {
@@ -39,12 +39,12 @@ export async function migrationFixture(t, { malformed = false, failpoint, mutate
   const extra = secondState ? { sessionId: '6637629d-d8b2-4b35-9afb-3f098f37c252', sessionFile: join(home, 'second.jsonl') } : null;
   if (extra) {
     put(extra.sessionFile, JSON.stringify({ type: 'session', version: 3, id: extra.sessionId, cwd: home, timestamp: at }) + '\n');
-    put(join(home, `.pi/agent/companion/${sha256(extra.sessionId)}.json`), JSON.stringify(secondState));
+    put(join(home, `.pi/agent/hobkin/${sha256(extra.sessionId)}.json`), JSON.stringify(secondState));
   }
-  const stateFile = join(home, `.pi/agent/companion/${sha256(selection.sessionId)}.json`);
-  put(join(home, '.companion-schedules.md'), '## Routine\nOriginal instructions\n');
-  put(join(home, '.companion-notes/nested/note.bin'), Buffer.from([0, 10, 255, 3]));
-  put(join(home, '.companion-reports-updates.md'), 'Saved report\n<!-- historical attribution -->\n');
+  const stateFile = join(home, `.pi/agent/hobkin/${sha256(selection.sessionId)}.json`);
+  put(join(home, '.hobkin-schedules.md'), '## Routine\nOriginal instructions\n');
+  put(join(home, '.hobkin-notes/nested/note.bin'), Buffer.from([0, 10, 255, 3]));
+  put(join(home, '.hobkin-reports-updates.md'), 'Saved report\n<!-- historical attribution -->\n');
   const task = (id, patch = {}) => ({
     id,
     name: 'Routine',
@@ -63,7 +63,7 @@ export async function migrationFixture(t, { malformed = false, failpoint, mutate
     runCount: 2,
     ...patch,
   });
-  const tasks = [task('task_routine'), task('task_paused', { enabled: false, disabledAt: at }), task('task_wake', { prompt: 'companion-daily:daily' }), task('task_other', { sessionFile: '/unrelated/session.jsonl' })];
+  const tasks = [task('task_routine'), task('task_paused', { enabled: false, disabledAt: at }), task('task_wake', { prompt: 'hobkin-daily:daily' }), task('task_other', { sessionFile: '/unrelated/session.jsonl' })];
   mutateTasks(tasks, { state, selection, extra });
   put(stateFile, malformed ? '{ broken private' : JSON.stringify(state));
   const schedulerFile = join(home, '.pi/agent/state/scheduler/tasks.json');
@@ -87,7 +87,7 @@ export async function migrationFixture(t, { malformed = false, failpoint, mutate
       taskId: task.id,
       sha256: sha256(JSON.stringify(task)),
       origin: sessions.find(session => session.sessionFile === task.sessionFile).origin,
-      classification: 'companion',
+      classification: 'hobkin',
       timezone: 'UTC',
       reason: 'Explicit synthetic attribution.',
     })),

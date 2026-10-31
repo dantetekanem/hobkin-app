@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SchedulerCompatibility } from '../src/cli/legacy-engine.mjs';
 import { LegacySchedules } from '../src/cli/legacy-schedules.mjs';
-import { CompanionRunner } from '../src/cli/runner.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRunner } from '../src/cli/runner.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { loadSchedules } from '../src/cli/schedules.mjs';
 import { sha256 } from '../src/cli/migration/inventory.mjs';
 
-const packageDirectory = process.env.COMPANION_TEST_SCHEDULER;
-const realEngine = { skip: packageDirectory ? false : 'Set COMPANION_TEST_SCHEDULER to an existing pi-scheduler 0.5.1 installation.' };
+const packageDirectory = process.env.HOBKIN_TEST_SCHEDULER;
+const realEngine = { skip: packageDirectory ? false : 'Set HOBKIN_TEST_SCHEDULER to an existing pi-scheduler 0.5.1 installation.' };
 const time = '2026-03-08T16:00:00.000Z';
 const rawTask = (overrides = {}) => ({
   id: 'task_fixture',
@@ -114,7 +114,7 @@ test('legacy action adapter routes the four actions and daily review without tre
   }
   assert.deepEqual(calls.map(call => call.kind), ['prompt', 'notify', 'message', 'shell', 'prompt']);
   assert.equal(calls[2].input.triggerTurn, false);
-  const wake = rawTask({ prompt: 'companion-daily:token' });
+  const wake = rawTask({ prompt: 'hobkin-daily:token' });
   const value = { ...wrapper(wake, await engine.validate(wake, 'America/New_York')), role: 'daily-wake' };
   await adapter.execute(value, { task: wake, occurrence: { id: 'wake', scheduledAt: time } }, new AbortController().signal);
   assert.equal(calls.at(-1).kind, 'dailyReview');
@@ -136,7 +136,7 @@ test('real shell wake-on-change fingerprint and once completion use upstream sem
 });
 
 test('runner admits compatibility work once, retains completion state and blocks uncertain replay after reopening', realEngine, async t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-legacy-runner-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-legacy-runner-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const engine = SchedulerCompatibility.open(packageDirectory), task = rawTask();
   const value = wrapper(task, await engine.validate(task, 'America/New_York'));
@@ -146,7 +146,7 @@ test('runner admits compatibility work once, retains completion state and blocks
   assert.equal(loadSchedules(root).counts.compatibility, 1);
   let calls = 0;
   const config = { initializedAt: '2026-03-06T00:00:00Z', concurrency: 2, timeoutMs: 1000 };
-  const runtime = await CompanionRuntime.open(root, config);
+  const runtime = await HobkinRuntime.open(root, config);
   const adapter = new LegacySchedules({
     engine,
     handlers: {
@@ -157,7 +157,7 @@ test('runner admits compatibility work once, retains completion state and blocks
     },
     now: () => new Date(time),
   });
-  const runner = new CompanionRunner({ runtime, root, config, compatibility: adapter, now: () => new Date(time) });
+  const runner = new HobkinRunner({ runtime, root, config, compatibility: adapter, now: () => new Date(time) });
   await runner.tick();
   await runtime.idle();
   await runner.tick();
@@ -165,18 +165,18 @@ test('runner admits compatibility work once, retains completion state and blocks
   assert.equal((await runner.snapshot()).reports.length, 1);
   await runner.stop();
   await runtime.close();
-  const reopened = await CompanionRuntime.open(root, config);
-  const next = new CompanionRunner({ runtime: reopened, root, config, compatibility: adapter, now: () => new Date(time) });
+  const reopened = await HobkinRuntime.open(root, config);
+  const next = new HobkinRunner({ runtime: reopened, root, config, compatibility: adapter, now: () => new Date(time) });
   await next.tick();
   await reopened.idle();
   assert.equal(calls, 1);
   await next.stop();
   await reopened.close();
-  const interrupted = await CompanionRuntime.open(root, config);
+  const interrupted = await HobkinRuntime.open(root, config);
   await interrupted.admit({ id: 'uncertain', kind: 'background', scheduleId: value.id, scheduledAt: '2026-03-09T16:00:00Z', title: 'Legacy' });
   await interrupted.close();
-  const recovered = await CompanionRuntime.open(root, config);
-  const recovery = new CompanionRunner({ runtime: recovered, root, config, compatibility: adapter, now: () => new Date('2026-03-10T16:00:00Z') });
+  const recovered = await HobkinRuntime.open(root, config);
+  const recovery = new HobkinRunner({ runtime: recovered, root, config, compatibility: adapter, now: () => new Date('2026-03-10T16:00:00Z') });
   await recovery.tick();
   await recovered.idle();
   assert.equal(calls, 1);

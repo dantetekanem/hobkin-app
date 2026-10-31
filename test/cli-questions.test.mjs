@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createQuestionTool } from '../src/cli/questions.mjs';
-import { CompanionApplication } from '../src/cli/application.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
@@ -36,7 +36,7 @@ test('question tool validates choices and returns only the exact selected answer
 });
 
 test('real SDK registers the main question tool and application delivers selection and cancellation to it', async t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-questions-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-questions-'));
   isolatePiHome(t, join(root, 'agent'));
   const config = initialize(root, { cwd: root });
   const ui = createDashboard({ config, connection: 'connected' });
@@ -62,7 +62,7 @@ test('real SDK registers the main question tool and application delivers selecti
   models.getModel = () => model;
   models.streamSimple = () => { throw Error('No provider call allowed'); };
   let questionShown;
-  const app = await CompanionApplication.open(root, {
+  const app = await HobkinApplication.open(root, {
     askQuestion: (request, signal) => {
       const pending = ui.askQuestion(request, signal);
       questionShown?.resolve();

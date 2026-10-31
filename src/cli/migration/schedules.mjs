@@ -95,7 +95,7 @@ export async function importSchedules(journal, { ownership, states, sessions, de
     for (const decision of decisions) {
       const task = byId.get(decision.taskId);
       requireValue(task && !selections.has(decision.taskId) && decision.sha256 === sha256(JSON.stringify(task)), 'A selected task changed or was selected more than once.', 'changed_selection');
-      requireValue(['companion', 'unrelated'].includes(decision.classification) && nonempty(decision.reason), 'Attribution needs an explicit classification and reason.', 'attribution_required');
+      requireValue(['hobkin', 'unrelated'].includes(decision.classification) && nonempty(decision.reason), 'Attribution needs an explicit classification and reason.', 'attribution_required');
       selections.set(decision.taskId, decision);
     }
     const linked = new Map();
@@ -124,7 +124,7 @@ export async function importSchedules(journal, { ownership, states, sessions, de
         continue;
       }
       const candidates = tasks.filter(task => mapped.get(task.sessionFile)?.origin === origin
-        && (wake.schedulerId ? task.id === wake.schedulerId : task.prompt === `companion-daily:${wake.token}`));
+        && (wake.schedulerId ? task.id === wake.schedulerId : task.prompt === `hobkin-daily:${wake.token}`));
       if (candidates.length !== 1) {
         error(wake.schedulerId ?? null, Object.assign(Error('Daily-wake identity is missing or ambiguous.'), { code: 'missing_schedule' }));
         continue;
@@ -144,7 +144,7 @@ export async function importSchedules(journal, { ownership, states, sessions, de
       if (decision?.classification !== 'unrelated') result.scheduleIds.push(task.id);
       try {
         requireValue(decision, 'Explicit attribution is required; headings are only evidence.', 'attribution_required');
-        requireValue(!link || decision.classification === 'companion', 'A Companion control or wake reference cannot be excluded.', 'owned_reference');
+        requireValue(!link || decision.classification === 'hobkin', 'A Hobkin control or wake reference cannot be excluded.', 'owned_reference');
         if (decision.classification === 'unrelated') {
           unrelatedIds.push(task.id);
           continue;
@@ -157,7 +157,7 @@ export async function importSchedules(journal, { ownership, states, sessions, de
         const pause = state.paused.find(item => item.id === task.id);
         requireValue(!pause || (pause.signature === scheduleSignature(task) && task.enabled === false && pause.disabledAt === task.disabledAt), 'Pause receipt no longer matches the exact task.', 'changed_receipt');
         if (link?.wake) requireValue(task.action === 'prompt' && task.type === 'interval' && task.schedule === link.wake.schedule
-          && task.prompt === `companion-daily:${link.wake.token}`, 'Daily-wake configuration changed.', 'changed_receipt');
+          && task.prompt === `hobkin-daily:${link.wake.token}`, 'Daily-wake configuration changed.', 'changed_receipt');
         validateTask(task);
         requireValue(nonempty(decision.timezone), 'Original scheduler timezone must be explicitly supplied.', 'timezone_required');
         new Intl.DateTimeFormat('en', { timeZone: decision.timezone }).format();

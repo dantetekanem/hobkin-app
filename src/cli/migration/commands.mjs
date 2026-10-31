@@ -29,7 +29,7 @@ const planFile = root => join(root, 'migration', 'plan.json');
 const journalFile = root => join(root, 'migration', 'journal.json');
 
 function canonicalControlRoot(home, selected) {
-  const legacyRoot = legacyLayout(home).find(source => source.category === 'companion').path;
+  const legacyRoot = legacyLayout(home).find(source => source.category === 'hobkin').path;
   const canonical = legacyControlRoot(legacyRoot);
   if (selected !== undefined && (typeof selected !== 'string' || !isAbsolute(selected) || resolve(selected) !== canonical)) {
     throw Error('Public upgrades require the canonical legacy control root.');
@@ -103,7 +103,7 @@ export async function prepareUpgrade(root, plan, confirmation) {
   if (!confirmation || confirmation !== plan.hash) throw Error('Confirm the exact reviewed plan hash before preparing an upgrade.');
   if (plan.version !== 1 || planHash(plan) !== plan.hash) throw Error('Upgrade plan hash changed. Plan again.');
   canonicalControlRoot(plan.manifest.spec.home, plan.options.controlRoot);
-  if (existsSync(join(root, 'config.json')) || existsSync(join(root, 'runtime'))) throw Error('Choose a new destination, not an initialized Companion home.');
+  if (existsSync(join(root, 'config.json')) || existsSync(join(root, 'runtime'))) throw Error('Choose a new destination, not an initialized Hobkin home.');
   openEngine(plan);
   const existing = existsSync(planFile(root)) ? readUpgradeJson(planFile(root)) : null;
   if (existing && !isDeepStrictEqual(existing, plan)) throw Error('Prepared plan changed. Existing originals will not be replaced.');

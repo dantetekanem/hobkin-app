@@ -17,7 +17,7 @@ const { review } = await jiti.import('../src/reflection.ts');
 const emptyReview = () => ({ assessments: [], lessons: [], decisions: [], answers: [] });
 const response = data => ({ stopReason: 'stop', content: [{ type: 'text', text: JSON.stringify(data) }], usage: { cost: { total: 0.02 } } });
 function fixture(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'companion-reinforcement-'));
+  const dir = mkdtempSync(join(tmpdir(), 'hobkin-reinforcement-'));
   const shutdowns = [];
   t.after(async () => {
     for (const shutdown of shutdowns) await shutdown();
@@ -242,7 +242,7 @@ test('start creates one daily wake, busy delivery waits for settlement, and lear
   assert.equal(h.tasks[0].enabled, false);
   await h.events.get('input')(wake, h.ctx);
   assert.equal(h.calls.length, 1);
-  assert.equal(await h.events.get('input')({ source: 'extension', text: '[Scheduled task manual fired]\nNotes about companion-daily:example' }, h.ctx), undefined);
+  assert.equal(await h.events.get('input')({ source: 'extension', text: '[Scheduled task manual fired]\nNotes about hobkin-daily:example' }, h.ctx), undefined);
 });
 
 test('a daily review can finish after two minutes and publish its learned context', async t => {
@@ -288,7 +288,7 @@ test('stopping a pending daily review propagates cancellation and rejects late l
 test('the agent can publish a question and a normal user answer is captured without manual feedback commands', async t => {
   const h = await runtimeFixture(t);
   await h.runtime.start(h.ctx);
-  await h.tools.get('companion_record').execute('q-call', { kind: 'question', id: 'timing', text: 'When should the weekly check happen?', evidenceIds: [] }, undefined, undefined, h.ctx);
+  await h.tools.get('hobkin_record').execute('q-call', { kind: 'question', id: 'timing', text: 'When should the weekly check happen?', evidenceIds: [] }, undefined, undefined, h.ctx);
   assert.match(readFileSync(h.paths.reportsFile, 'utf8'), /When should the weekly check happen/);
   await h.events.get('input')({ source: 'interactive', text: 'Friday afternoons, please.' }, h.ctx);
   const answer = h.store.load().evidence.find(item => item.kind === 'user' && item.text === 'Friday afternoons, please.');
@@ -323,7 +323,7 @@ test('stop preserves an externally disabled daily wake instead of adopting and r
   h.tasks[0].disabledAt = 'manually-disabled';
   h.save();
   await h.runtime.stop(h.ctx);
-  await assert.rejects(h.runtime.start(h.ctx), /outside Companion/);
+  await assert.rejects(h.runtime.start(h.ctx), /outside Hobkin/);
   assert.equal(h.tasks[0].enabled, false);
 });
 
@@ -341,7 +341,7 @@ test('applied changes retain their intended benefit for later outcome comparison
 test('questions survive reload and answers lead to an applied change evaluated on the next day', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-18T16:00:00Z') });
   const h = await runtimeFixture(t);
-  const { registerCompanion } = await jiti.import('../src/index.ts');
+  const { registerHobkin } = await jiti.import('../src/index.ts');
   await h.runtime.start(h.ctx);
   const dailyId = h.store.load().wake.schedulerId;
   const task = {
@@ -350,7 +350,7 @@ test('questions survive reload and answers lead to an applied change evaluated o
   };
   h.tasks.push(task);
   h.save();
-  const record = params => h.tools.get('companion_record').execute('record', params, undefined, undefined, h.ctx);
+  const record = params => h.tools.get('hobkin_record').execute('record', params, undefined, undefined, h.ctx);
   const input = text => h.events.get('input')({ source: 'interactive', text }, h.ctx);
   const daily = () => h.events.get('input')({ source: 'extension', text: h.fire(h.tasks[0]) }, h.ctx);
   const question = { kind: 'question', id: 'timing', text: 'When would this check help?', evidenceIds: [] };
@@ -358,13 +358,13 @@ test('questions survive reload and answers lead to an applied change evaluated o
   await record({ ...question, id: 'interests', text: 'Which topic should we explore next?' });
 
   h.runtime.shutdown();
-  registerCompanion(h.pi, h.paths);
+  registerHobkin(h.pi, h.paths);
   await h.events.get('session_start')({ reason: 'reload' }, h.ctx);
   assert.equal(h.tasks.length, 2);
   assert.equal(h.store.load().wake.schedulerId, dailyId);
   assert.equal(h.store.load().enabled, true);
   assert.equal(h.store.load().questions[0].status, 'open');
-  assert.equal(h.tools.get('companion_record').parameters.type, 'object');
+  assert.equal(h.tools.get('hobkin_record').parameters.type, 'object');
   await record(question);
   await input('Friday afternoon, after the work week ends.');
   const answer = h.store.load().evidence.find(item => item.text === 'Friday afternoon, after the work week ends.');

@@ -13,7 +13,7 @@ const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 const grant = '/chrome authorize indefinite';
 
 function folder(t) {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), 'companion-chrome-')));
+  const path = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-chrome-')));
   t.after(() => rmSync(path, { recursive: true, force: true }));
   return path;
 }

@@ -7,7 +7,7 @@ import { validateResult, type State } from './result.ts';
 export class Store {
   readonly file: string;
   constructor(private root: string, sessionId: string) {
-    if (!sessionId) throw new Error('Companion requires an owning session.');
+    if (!sessionId) throw new Error('Hobkin requires an owning session.');
     this.file = join(root, `${createHash('sha256').update(sessionId).digest('hex')}.json`);
   }
   load(): State {
@@ -19,7 +19,7 @@ export class Store {
     }
     const state = JSON.parse(raw);
     if (state.stopping === undefined) state.stopping = [];
-    if (state.version !== 1 || !Array.isArray(state.items) || !Array.isArray(state.paused) || !Array.isArray(state.stopping)) throw new Error('Invalid Companion storage.');
+    if (state.version !== 1 || !Array.isArray(state.items) || !Array.isArray(state.paused) || !Array.isArray(state.stopping)) throw new Error('Invalid Hobkin storage.');
     const ids = new Set<string>();
     for (const item of state.items) {
       const { savedAt, readAt, ...result } = item;
@@ -50,7 +50,7 @@ export class Store {
     const existing = state.items.find(item => item.id === result.id);
     if (existing) {
       const { savedAt, readAt, ...previous } = existing;
-      if (!isDeepStrictEqual(previous, result)) throw new Error('Companion result ID already exists with different content.');
+      if (!isDeepStrictEqual(previous, result)) throw new Error('Hobkin result ID already exists with different content.');
       return false;
     }
     state.items.push({ ...result, savedAt: new Date().toISOString() });
@@ -59,7 +59,7 @@ export class Store {
   }
   markRead(id: string): void {
     const state = this.load(), item = state.items.find(item => item.id === id);
-    if (!item) throw new Error('Companion result not found.');
+    if (!item) throw new Error('Hobkin result not found.');
     if (item.readAt) return;
     item.readAt = new Date().toISOString();
     this.save(state);

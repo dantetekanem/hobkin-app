@@ -16,7 +16,7 @@ const at = '2026-09-19T12:00:00.000Z';
 const reflection = patch => ({ assessments: [], lessons: [], decisions: [], answers: [], ...patch });
 const evidence = (id, kind, text, extra = {}) => ({ id, kind, text, provider: 'test', ...extra });
 function fixture(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'companion-experience-'));
+  const dir = mkdtempSync(join(tmpdir(), 'hobkin-experience-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const store = new ExperienceStore(dir, 'owner');
   store.update(state => { state.enabled = true; });

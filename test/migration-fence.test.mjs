@@ -11,11 +11,11 @@ const packageRoot = resolve(fileURLToPath(import.meta.resolve('@earendil-works/p
 const require = createRequire(join(packageRoot, 'package.json')), { createJiti } = require('jiti');
 const host = createJiti(join(packageRoot, 'package.json'));
 const alias = Object.fromEntries(['@earendil-works/pi-coding-agent', '@earendil-works/pi-tui', '@earendil-works/pi-ai', 'typebox/value', 'typebox'].map(name => [name, fileURLToPath(host.esmResolve(name))]));
-const { registerCompanion } = await createJiti(import.meta.url, { moduleCache: false, alias }).import('../src/index.ts');
+const { registerHobkin } = await createJiti(import.meta.url, { moduleCache: false, alias }).import('../src/index.ts');
 const identity = { sessionId: 'synthetic-owner', sessionFile: '/synthetic/owner.jsonl' };
 const migration = { id: 'migration-fixture', fingerprint: 'f'.repeat(64), destination: '/synthetic/new-home', owners: [identity] };
 function fixture(t) {
-  const directory = mkdtempSync(join(tmpdir(), 'companion-fence-'));
+  const directory = mkdtempSync(join(tmpdir(), 'hobkin-fence-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = join(directory, 'legacy'), controlRoot = join(directory, 'control');
   mkdirSync(root);
@@ -101,7 +101,7 @@ for (const started of [false, true]) test(`fenced extension hooks reject mutatio
   writeFileSync(paths.schedulerFile, '[]');
   const ctx = { hasUI: false, model: { provider: 'test' }, isIdle: () => true,
     sessionManager: { getSessionId: () => identity.sessionId, getSessionFile: () => identity.sessionFile, getLeafId: () => 'leaf' } };
-  registerCompanion(pi, paths);
+  registerHobkin(pi, paths);
   const emit = async (name, event = {}) => {
     const results = [];
     for (const handler of handlers.get(name) ?? []) results.push(await handler(event, ctx));
@@ -114,12 +114,12 @@ for (const started of [false, true]) test(`fenced extension hooks reject mutatio
   await emit('input', { source: 'interactive', text: 'An ordinary message' });
   await emit('agent_settled');
   await emit('tool_result', { toolName: 'schedule_task', details: {}, isError: false });
-  await commands.get('companion').handler('start', ctx);
-  await assert.rejects(tools.get('companion_record').execute('call', { kind: 'observation', id: 'record', text: 'No write', evidenceIds: [] }, null, null, ctx), /fenced/);
+  await commands.get('hobkin').handler('start', ctx);
+  await assert.rejects(tools.get('hobkin_record').execute('call', { kind: 'observation', id: 'record', text: 'No write', evidenceIds: [] }, null, null, ctx), /fenced/);
   const blocked = await emit('tool_call', { toolName: 'schedule_task', input: { name: 'Routine', action: 'prompt' } });
   assert.ok(blocked.some(value => value?.block));
   assert.deepEqual(sent, []);
-  assert.equal(existsSync(join(root, 'durable/companion.sqlite')), false);
+  assert.equal(existsSync(join(root, 'durable/hobkin.sqlite')), false);
   assert.equal(existsSync(paths.reportsFile), false);
   assert.equal(readFileSync(paths.schedulerFile, 'utf8'), '[]');
   await emit('session_shutdown');

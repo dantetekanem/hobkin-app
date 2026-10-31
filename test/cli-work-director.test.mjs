@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CompanionRunner } from '../src/cli/runner.mjs';
+import { HobkinRunner } from '../src/cli/runner.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import {
   answerAllowance, chooseProject, fileItem, paths, proposeProject, readItems, readMode, recordTokens, tokensToday, updateItem, writeMode, writeState,
@@ -57,14 +57,14 @@ function repository(base, name) {
 }
 
 function fixture(t, agent = async () => {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'companion-director-')));
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-director-')));
   const root = join(base, 'home');
   mkdirSync(root);
   t.after(() => rmSync(base, { recursive: true, force: true }));
 
   const h = { base, root, clock: Date.parse('2026-06-01T12:00:00Z'), calls: [], changes: 0, agent };
   const runtime = new MemoryRuntime();
-  const runner = new CompanionRunner({ runtime, root, config, now: () => new Date(h.clock) });
+  const runner = new HobkinRunner({ runtime, root, config, now: () => new Date(h.clock) });
   h.runtime = runtime;
   h.runner = runner;
   h.director = new WorkDirector({
@@ -209,7 +209,7 @@ test('after the study the agent looks for work and starts on what is open', asyn
   const run = h.calls.find(call => call.purpose === 'work-do');
   assert.ok(run, 'a do run started');
   assert.equal(run.cwd, paths(h.root, 'api').doTree);
-  assert.match(git(run.cwd, 'branch', '--show-current'), /^companion\/[0-9a-f]{6}-update-rack$/);
+  assert.match(git(run.cwd, 'branch', '--show-current'), /^hobkin\/[0-9a-f]{6}-update-rack$/);
   assert.deepEqual([h.work(run).item.key, h.work(run).landing], ['update:rack', 'pr']);
   assert.match(h.work(run).projectNotes, /An API/);
   assert.match(h.work(run).commands.item, /work item api --home/);
@@ -351,7 +351,7 @@ const pausedForTheHour = h => {
   recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 100000 }, h.clock);
 };
 
-test('at the limit work pauses and Companion asks for more, saying why and what is waiting', async t => {
+test('at the limit work pauses and Hobkin asks for more, saying why and what is waiting', async t => {
   const h = fixture(t);
   pausedAtLimit(h);
 
@@ -637,7 +637,7 @@ test('in Herdr, project work runs in panes on the chosen harness while discovery
   const [look] = runs;
   assert.deepEqual([look.kind, look.name, look.cwd], ['claude', 'work-look-api', paths(h.root, 'api').lookTree]);
   assert.equal(look.effort, 'medium');
-  assert.match(look.briefText, /Companion background check/);
+  assert.match(look.briefText, /Hobkin background check/);
   assert.match(look.briefText, /look at a project/);
   assert.ok(look.briefText.includes(look.report), 'the brief names where to write the report');
   assert.match(look.briefText, /"focus":"study"/);

@@ -17,17 +17,17 @@ const jiti = createJiti(import.meta.url, { moduleCache: false, alias: aliases })
 const { Store } = await jiti.import('../src/store.ts');
 const { label, validateResult } = await jiti.import('../src/result.ts');
 const { controlSchedules } = await jiti.import('../src/scheduler.ts');
-const { registerCompanion } = await jiti.import('../src/index.ts');
-const { DurableCompanion } = await jiti.import('../src/durable.ts');
+const { registerHobkin } = await jiti.import('../src/index.ts');
+const { DurableHobkin } = await jiti.import('../src/durable.ts');
 const tasteInstructions = readFileSync(new URL('../src/prompts/taste.md', import.meta.url), 'utf8');
-const companionInstructions = [readFileSync(new URL('../src/prompts/prompt.md', import.meta.url), 'utf8'), tasteInstructions].join('\n\n');
+const hobkinInstructions = [readFileSync(new URL('../src/prompts/prompt.md', import.meta.url), 'utf8'), tasteInstructions].join('\n\n');
 const report = (id = 'digest-1', outcome = 'no_change') => ({
   id, kind: 'report', final: true, title: 'Reading', body: 'Useful result with evidence.',
   checks: [{ source: 'Paper source', outcome, detail: 'Checked the current listing.' }],
 });
 const update = (id = 'update-1') => ({ ...report(id, 'findings'), kind: 'update', reason: 'action', title: 'Review a breaking change' });
 function fixture(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'companion-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'hobkin-test-'));
   const shutdowns = [];
   t.after(async () => {
     for (const shutdown of shutdowns) await shutdown();
@@ -41,7 +41,7 @@ test('installed Pi loader discovers the real extension without starting a sessio
   const { loadExtensions } = await import(join(root, 'dist/core/extensions/loader.js'));
   const loaded = await loadExtensions([fileURLToPath(new URL('../src/index.ts', import.meta.url))], dir);
   assert.deepEqual(loaded.errors, []);
-  assert.ok(loaded.extensions[0].commands.has('companion'));
+  assert.ok(loaded.extensions[0].commands.has('hobkin'));
 });
 
 test('save survives a new store instance; opening is not reading; explicit read persists', t => {
@@ -180,7 +180,7 @@ function harness(t, sessionId = 'owner', paths) {
       writeFileSync(options.schedulerFile, JSON.stringify({ tasks }));
     },
   };
-  registerCompanion(pi, options);
+  registerHobkin(pi, options);
   fixturePaths.shutdowns.push(() => events.get('session_shutdown')({}, ctx));
   return {
     ...fixturePaths,
@@ -193,7 +193,7 @@ function harness(t, sessionId = 'owner', paths) {
     notices,
     selections,
     messages,
-    command: args => commands.get('companion').handler(args, ctx),
+    command: args => commands.get('hobkin').handler(args, ctx),
     ingest: params => new Store(fixturePaths.dir, sessionId).ingest(params),
   };
 }
@@ -220,7 +220,7 @@ test('stopped state is durable even when scheduler control fails', async t => {
   assert.equal(new Store(h.dir, 'owner').load().experience.enabled, false);
 });
 
-test('stopped Companion blocks queued resumption of owned tasks but preserves unrelated schedules', async t => {
+test('stopped Hobkin blocks queued resumption of owned tasks but preserves unrelated schedules', async t => {
   const h = schedulerFixture(t), runtime = harness(t, 'owner', h);
   await runtime.command('stop');
   const gate = runtime.events.get('tool_call');
@@ -231,13 +231,13 @@ test('stopped Companion blocks queued resumption of owned tasks but preserves un
 });
 
 test('cold setup sends instructions once; repeated starts restore the saved runtime without model work', async t => {
-  const h = harness(t), command = h.commands.get('companion');
+  const h = harness(t), command = h.commands.get('hobkin');
   assert.deepEqual(command.getArgumentCompletions('')?.map(item => item.value), ['start', 'stop']);
   assert.deepEqual(command.getArgumentCompletions('sta')?.map(item => item.value), ['start']);
   assert.equal(command.getArgumentCompletions('missing'), null);
   await h.command('start'); await h.command('');
   assert.equal(h.messages.length, 1);
-  assert.equal(h.messages[0].content, companionInstructions);
+  assert.equal(h.messages[0].content, hobkinInstructions);
   assert.equal(h.notices.some(([message]) => /failed|required/i.test(message)), false);
   await h.events.get('session_shutdown')({}, h.ctx);
   const reopened = harness(t, 'owner', h);
@@ -260,7 +260,7 @@ test('session-local startup retries initial setup after scheduler admission fail
   await resumed.events.get('session_start')({}, resumed.ctx);
   await Promise.all([resumed.command('start'), resumed.command('start')]);
   assert.equal(resumed.messages.length, 1, 'successful concurrent retries must submit one initial setup turn');
-  assert.equal(resumed.messages[0].content, companionInstructions);
+  assert.equal(resumed.messages[0].content, hobkinInstructions);
   assert.equal(h.store.load().started, true);
   await resumed.command('start');
   assert.equal(resumed.messages.length, 1);
@@ -293,7 +293,7 @@ test('legacy startup works in a fresh Pi session without adopting or copying ano
   assert.equal(store.load().started, true, JSON.stringify(runtime.notices));
   assert.equal(store.load().experience.enabled, true);
   assert.equal(runtime.messages.length, 1);
-  assert.equal(runtime.messages[0].content, companionInstructions);
+  assert.equal(runtime.messages[0].content, hobkinInstructions);
   const wake = scheduler.tasks.find(task => task.sessionFile === 'fresh.jsonl');
   assert.equal(wake.schedule, '24h');
 
@@ -319,7 +319,7 @@ test('legacy startup works in a fresh Pi session without adopting or copying ano
 });
 
 async function withCheckpoint(fixture) {
-  const checkpoint = await DurableCompanion.open(join(fixture.dir, 'durable'), {
+  const checkpoint = await DurableHobkin.open(join(fixture.dir, 'durable'), {
     sessionId: 'owner', sessionFile: 'owner.jsonl',
   }, true);
   await checkpoint.close();
@@ -337,20 +337,20 @@ function locationHarness(t, h = harness(t)) {
     assert.deepEqual(args, ['pane', 'current', '--current']);
     return { code: 0, stdout: JSON.stringify({ result: { pane } }), killed: false };
   };
-  const file = join(h.dir, `pi-companion-${process.getuid?.() ?? 'user'}-w1.json`);
+  const file = join(h.dir, `hobkin-${process.getuid?.() ?? 'user'}-w1.json`);
   return { ...h, pane, calls, file };
 }
 
-test('Companion location saved by start is automatically injected once in a new agent without discovery', async t => {
+test('Hobkin location saved by start is automatically injected once in a new agent without discovery', async t => {
   const h = locationHarness(t); await h.command('start');
   assert.deepEqual(JSON.parse(readFileSync(h.file, 'utf8')), { workspace: 'w1', pane: 'w1:p1' });
   assert.equal(statSync(h.file).mode & 0o777, 0o600);
-  assert.equal(h.messages[0].content, companionInstructions);
+  assert.equal(h.messages[0].content, hobkinInstructions);
   const reader = harness(t, 'reader', h), calls = [];
   reader.pi.exec = async (...args) => { calls.push(args); throw Error('No discovery allowed'); };
   const notice = () => reader.events.get('before_agent_start')({}, reader.ctx);
-  assert.deepEqual(await notice(), { message: { customType: 'companion-tail', display: false,
-    content: `${readFileSync(new URL('../src/prompts/tail.md', import.meta.url), 'utf8')}\nCompanion location: pane w1:p1 (workspace w1)` } });
+  assert.deepEqual(await notice(), { message: { customType: 'hobkin-tail', display: false,
+    content: `${readFileSync(new URL('../src/prompts/tail.md', import.meta.url), 'utf8')}\nHobkin location: pane w1:p1 (workspace w1)` } });
   assert.equal(await notice(), undefined);
   await reader.events.get('session_start')({}, reader.ctx);
   assert.ok((await notice())?.message);
@@ -360,7 +360,7 @@ test('Companion location saved by start is automatically injected once in a new 
   assert.ok((await notice())?.message.content.endsWith('pane w1:p3 (workspace w1)'));
 });
 
-test('Companion location excludes self, other workspaces, missing and malformed records', async t => {
+test('Hobkin location excludes self, other workspaces, missing and malformed records', async t => {
   const h = locationHarness(t); await h.command('start');
   const saved = readFileSync(h.file, 'utf8');
   for (const data of ['{broken', '{}', JSON.stringify({ workspace: 'w2', pane: 'w2:p1' }),
@@ -378,7 +378,7 @@ test('Companion location excludes self, other workspaces, missing and malformed 
   assert.equal(await missing.events.get('before_agent_start')({}, missing.ctx), undefined);
 });
 
-test('Companion location failures do not block start and stale start cannot register', async t => {
+test('Hobkin location failures do not block start and stale start cannot register', async t => {
   const h = locationHarness(t);
   for (const result of [{ code: 1, stdout: '{}' }, { code: 0, stdout: '{broken' },
     { code: 0, stdout: '{"result":{"pane":{"pane_id":"","workspace_id":"w1"}}}' }]) {
@@ -409,7 +409,7 @@ test('a new session resumes the Durable owner instead of creating another set of
   await first.events.get('session_shutdown')({}, first.ctx);
   const resumed = harness(t, 'owner', scheduler), switched = [];
   resumed.ctx.sendUserMessage = async (command, options) => {
-    assert.equal(command, '/companion start');
+    assert.equal(command, '/hobkin start');
     assert.equal(options.expandPromptTemplates, true);
     await resumed.command('start');
   };
@@ -429,12 +429,12 @@ test('a new session resumes the Durable owner instead of creating another set of
   assert.equal(scheduler.tasks.find(task => task.id === 'task_other').enabled, true);
 });
 
-test('identifiable Companion schedule creation is session-scoped in every session', async t => {
+test('identifiable Hobkin schedule creation is session-scoped in every session', async t => {
   const scheduler = schedulerFixture(t);
   const owner = harness(t, 'owner', scheduler), other = harness(t, 'other', scheduler);
   const gate = owner.events.get('tool_call');
   assert.deepEqual(await gate({ toolName: 'schedule_task', input: { name: 'Reading', scope: 'cwd' } }, owner.ctx),
-    { block: true, reason: 'Companion schedules must use session scope.' });
+    { block: true, reason: 'Hobkin schedules must use session scope.' });
   assert.equal(await gate({ toolName: 'schedule_task', input: { name: 'CI poll', scope: 'global' } }, owner.ctx), undefined);
   await owner.command('start');
   assert.equal(await gate({ toolName: 'schedule_task', input: { name: 'Reading', scope: 'session' } }, owner.ctx), undefined);
@@ -692,7 +692,7 @@ test('legacy startup resumes its own saved schedules without rebuilding setup', 
   runtime.pi.getCommands = h.pi.getCommands;
   runtime.pi.sendUserMessage = (content, options) => {
     sequence.push(content);
-    if (content === companionInstructions) runtime.messages.push({ content, options });
+    if (content === hobkinInstructions) runtime.messages.push({ content, options });
     else dispatch(content, options);
   };
   await runtime.command('start');

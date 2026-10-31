@@ -9,7 +9,7 @@ import { readSettings, updateSettings } from '../src/cli/settings.mjs';
 
 const model = { provider: 'openai-codex', id: 'gpt-6-luna', reasoning: true, thinkingLevelMap: { xhigh: 'xhigh' } };
 function fixture(t, background = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-settings-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-settings-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = initialize(root, { cwd: root });
   config.main.model = 'openai-codex/old';

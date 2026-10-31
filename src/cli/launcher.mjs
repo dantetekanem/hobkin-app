@@ -1,6 +1,6 @@
 const controls = /[\x00-\x1f\x7f-\x9f]/;
 const plain = value => typeof value === 'string' && value.trim() !== '' && !controls.test(value);
-// A launcher supplies Pi's credentials itself; Companion neither reads nor stores them.
+// A launcher supplies Pi's credentials itself; Hobkin neither reads nor stores them.
 const credentialWords = new Set(['KEY', 'APIKEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'CREDENTIAL', 'CREDENTIALS', 'AUTH', 'BEARER']);
 const credential = name => name.split('_').some(word => credentialWords.has(word));
 
@@ -32,7 +32,7 @@ export function piCommand(launcher, args) {
     : { command: 'pi', args };
 }
 
-// A launcher owns Pi's environment, so Companion adds only launcher.env and leaves network and telemetry defaults to it.
+// A launcher owns Pi's environment, so Hobkin adds only launcher.env and leaves network and telemetry defaults to it.
 export const piEnvironment = launcher => launcher
   ? { ...process.env, ...launcher.env }
   : { ...process.env, PI_OFFLINE: '1', PI_TELEMETRY: '0' };

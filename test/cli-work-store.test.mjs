@@ -9,7 +9,7 @@ import {
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-work-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-work-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }

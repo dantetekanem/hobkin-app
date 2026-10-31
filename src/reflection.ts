@@ -10,7 +10,7 @@ export function reviewBinding(ctx: ExtensionContext, file: string) {
   // Teams documents favorite models as global-only; separate Pi packages do not share imports.
   const value = JSON.parse(readFileSync(file, 'utf8')).favoriteModels?.['read-critical'];
   if (typeof value?.model !== 'string' || typeof value.thinking !== 'string') {
-    throw Error('Companion daily review has no configured read-critical binding.');
+    throw Error('Hobkin daily review has no configured read-critical binding.');
   }
   const slash = value.model.indexOf('/');
   if (slash < 1 || slash === value.model.length - 1) throw Error('The existing review model must be fully qualified.');
@@ -65,7 +65,7 @@ export async function review(store: ExperienceStore, ctx: ExtensionContext, sett
     if (!text.trim() || Buffer.byteLength(text) > 32000) throw Error('Daily review returned empty or oversized output.');
     const result: Reflection = JSON.parse(text);
     store.update(state => {
-      if (!state.enabled || state.generation !== initial.generation) throw Error('Companion changed or stopped during review.');
+      if (!state.enabled || state.generation !== initial.generation) throw Error('Hobkin changed or stopped during review.');
       curate(state, result, visibleIds);
       const run = state.reviews.find(item => item.id === id)!;
       run.status = 'completed';

@@ -14,7 +14,6 @@
 !/docs/*.md
 !/docs/images/
 /docs/images/*
-!/docs/images/companion-cli.png
 /src/prompts/*
 !/src/prompts/*.md
 /test/*

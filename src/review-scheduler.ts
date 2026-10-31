@@ -27,7 +27,7 @@ export function matchDelivery(text: string, task: ScheduledTask): string | undef
   if (at.includes('\n') || !Number.isFinite(Date.parse(at)) || Date.parse(at) > Date.now() + 5000) return;
   return `${task.id}:${at}`;
 }
-export const reviewWakeText = (wake: Wake) => `companion-daily:${wake.token}`;
+export const reviewWakeText = (wake: Wake) => `hobkin-daily:${wake.token}`;
 export class ReviewScheduler {
   constructor(private pi: ExtensionAPI, private ctx: ExtensionContext, private file: string) {}
   private command(name: string) {
@@ -38,23 +38,23 @@ export class ReviewScheduler {
   }
   find(wake: Wake): ScheduledTask | undefined {
     const sessionFile = this.ctx.sessionManager.getSessionFile();
-    if (!sessionFile) throw Error('Companion requires a saved owning session.');
+    if (!sessionFile) throw Error('Hobkin requires a saved owning session.');
     const matches = scheduledTasks(this.file).filter(task => task.scope === 'session' && task.sessionFile === sessionFile && task.prompt === reviewWakeText(wake));
-    if (matches.length > 1) throw Error('Duplicate Companion daily wakes.');
+    if (matches.length > 1) throw Error('Duplicate Hobkin daily wakes.');
     const task = matches[0];
     if (!task) {
-      if (wake.schedulerId) throw Error('The Companion daily schedule was removed or changed.');
+      if (wake.schedulerId) throw Error('The Hobkin daily schedule was removed or changed.');
       return;
     }
     if (task.action !== 'prompt' || task.type !== 'interval' || task.schedule !== wake.schedule
-      || !/^task_[a-zA-Z0-9_]+$/.test(task.id) || (wake.schedulerId && wake.schedulerId !== task.id)) throw Error('The Companion daily schedule configuration changed.');
+      || !/^task_[a-zA-Z0-9_]+$/.test(task.id) || (wake.schedulerId && wake.schedulerId !== task.id)) throw Error('The Hobkin daily schedule configuration changed.');
     return task;
   }
   async ensure(wake: Wake, beforeCreate: () => void): Promise<string> {
     const task = this.find(wake);
     if (task) {
       if (task.enabled && ['pending', 'running'].includes(task.status)) return task.id;
-      if (task.status !== 'pending' || !wake.pausedAt || task.disabledAt !== wake.pausedAt) throw Error('The daily schedule was stopped outside Companion; it will not be revived.');
+      if (task.status !== 'pending' || !wake.pausedAt || task.disabledAt !== wake.pausedAt) throw Error('The daily schedule was stopped outside Hobkin; it will not be revived.');
       this.pi.sendUserMessage(`/${this.command('schedule-enable')} ${task.id}`, { expandPromptTemplates: true, deliverAs: 'followUp' });
     } else {
       if (wake.requested) throw Error('Daily schedule creation is unconfirmed; it will not be duplicated.');
@@ -76,7 +76,7 @@ export class ReviewScheduler {
     do {
       const task = this.find(wake);
       if (!task) {
-        if (wake.requested) throw Error('Daily schedule creation remains unconfirmed while Companion is stopped.');
+        if (wake.requested) throw Error('Daily schedule creation remains unconfirmed while Hobkin is stopped.');
         return;
       }
       if (!task.enabled && !task.runOwner && task.status !== 'running') return requested ? task.disabledAt : undefined;
@@ -86,6 +86,6 @@ export class ReviewScheduler {
       }
       await delay(25);
     } while (Date.now() < deadline);
-    throw Error('Daily schedule stop is pending; Companion is stopped locally.');
+    throw Error('Daily schedule stop is pending; Hobkin is stopped locally.');
   }
 }

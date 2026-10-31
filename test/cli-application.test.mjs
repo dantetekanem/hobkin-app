@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize, atomicJson } from '../src/cli/config.mjs';
-import { CompanionApplication, readLocalView } from '../src/cli/application.mjs';
-import { CompanionRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
+import { HobkinApplication, readLocalView } from '../src/cli/application.mjs';
+import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
@@ -14,7 +14,7 @@ import { createDashboard } from '../src/cli/ui.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
 function fixture(t) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-app-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-app-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
   config.main.model = 'fixture/local';
@@ -23,7 +23,7 @@ function fixture(t) {
   const fake = fakePi(root);
   return {
     root, config, fake,
-    openApp: (options = {}) => CompanionApplication.open(root, { createMain: fake.createMain, ...options }),
+    openApp: (options = {}) => HobkinApplication.open(root, { createMain: fake.createMain, ...options }),
   };
 }
 
@@ -369,7 +369,7 @@ test('visible scheduled reports add stable local notices without changing contex
     readAt: null,
   };
   atomicJson(join(h.root, 'runtime/imported-reports.json'), { version: 1, reports: [importedReport] });
-  const seed = await CompanionRuntime.open(h.root, h.config);
+  const seed = await HobkinRuntime.open(h.root, h.config);
   await seed.change(state => { state.runs['old-schedule'] = backgroundRun('old-schedule'); });
   await seed.close();
 
@@ -551,7 +551,7 @@ test('application reset refreshes the connected view after preserving the previo
   app.onChange = view => dashboard.update(view);
   const reset = await app.reset();
   const tools = toolSets.at(-1);
-  assert.deepEqual(tools.map(tool => tool.name), ['ask_question', 'run_schedule', 'message_check', 'companion_memory', 'model_settings']);
+  assert.deepEqual(tools.map(tool => tool.name), ['ask_question', 'run_schedule', 'message_check', 'hobkin_memory', 'model_settings']);
   const activeBinding = (await tools.find(tool => tool.name === 'model_settings').execute('binding', {
     action: 'inspect', scope: 'main',
   })).details.activeMainBinding;
@@ -688,7 +688,7 @@ test('job activity is transient and quiet completion hands off exact saved Markd
 });
 
 test('event refresh during projection gets a follow-up instead of joining stale work', async t => {
-  const app = Object.create(CompanionApplication.prototype);
+  const app = Object.create(HobkinApplication.prototype);
   const entered = Promise.withResolvers();
   const release = Promise.withResolvers();
   const delivered = Promise.withResolvers();

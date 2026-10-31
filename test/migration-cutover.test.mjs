@@ -68,7 +68,7 @@ test('missing attribution and non-scheduler drift block all activation, not a pa
   await assert.rejects(runUpgrade(h.journal, {
     ...h.options,
     failpoint: at => {
-      if (at === 'scheduler-written') writeFileSync(join(h.home, '.companion-notes/nested/note.bin'), 'new source');
+      if (at === 'scheduler-written') writeFileSync(join(h.home, '.hobkin-notes/nested/note.bin'), 'new source');
     },
   }), /changed|drift/);
   assert.equal(existsSync(join(h.root, 'active.json')), false);

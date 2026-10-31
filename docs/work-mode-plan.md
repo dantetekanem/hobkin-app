@@ -7,7 +7,7 @@ Work mode is a proactive agent mode to get work done. When the user turns it on,
 The Work Mode tab sits beside Schedules, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
 
 ```
-◆ Pi Companion    Chat   Reports 12   Schedules 4   Work              ● connected · 1 running
+◆ Hobkin    Chat   Reports 12   Schedules 4   Work              ● connected · 1 running
 ─────────────────────────────────────────────────────━━━━━━──────────────────────────────────
 
   FINDING PROJECTS
@@ -54,7 +54,7 @@ Work starts the moment a project is taken. The agent has already found the first
 
 ## A working day
 
-Six projects are on: `finboard-api` and `northwind-billing` (critical), `pi-package`, `pi-companion` and `finboard-ios` (important), and `website` (casual). The user did not ask for anything below, except where they appear themselves.
+Six projects are on: `finboard-api` and `northwind-billing` (critical), `pi-package`, `hobkin` and `finboard-ios` (important), and `website` (casual). The user did not ask for anything below, except where they appear themselves.
 
 A look is an agent reading a project, a lens is a look at one subject, a do run is an agent changing code, and a tree is the agent's own worktree of the repository.
 
@@ -70,7 +70,7 @@ A look is an agent reading a project, a lens is a look at one subject, a do run 
 | 11:40 | northwind-billing | Draft PR #212 fixes the puma advisory. Nobody at the client is notified, because code owners are not requested on drafts. |
 | 12:15 | finboard-api | The user marks #418 ready and merges it. The pulse sees the merge, the item closes and the project is `running` again. |
 | 13:05 | finboard-api | The `features` lens finds a half-built CSV import on a branch the user left 3 weeks ago, with an issue asking for it. A do run finishes the smallest useful part and opens draft PR #421 at 14:20. |
-| 13:30 | pi-companion | The user reviews PR #57: "don't add a class for this." The pulse sees the review and a do run pushes the change to the same branch. |
+| 13:30 | hobkin | The user reviews PR #57: "don't add a class for this." The pulse sees the review and a do run pushes the change to the same branch. |
 | 14:50 | northwind-billing | The checkout has been quiet for 30 minutes. The waiting item runs. |
 | 15:05 | northwind-billing | Its tests need a Postgres role the tree cannot create. The run says `Blocked:`, and a second blocked run holds this project's do lane. The reason shows in Work. |
 | 15:40 | finboard-ios | The `security` lens finds an API token in git history. It opens draft PR #77 to remove it and files an item for the user, because only they can rotate the token. Chat shows the `Critical:` line. |
@@ -79,7 +79,7 @@ A look is an agent reading a project, a lens is a look at one subject, a do run 
 At 16:10 the Work tab looks like this:
 
 ```
-◆ Pi Companion    Chat   Reports 12   Schedules 4   Work 6            ● connected · 3 running
+◆ Hobkin    Chat   Reports 12   Schedules 4   Work 6            ● connected · 3 running
 ─────────────────────────────────────────────────────━━━━━━──────────────────────────────────
 
   NEEDS ATTENTION                                                                           6
@@ -87,14 +87,14 @@ At 16:10 the Work tab looks like this:
   ▲ finboard-ios       Rotate the API token found in git history. Draft PR #77 removes it.
   ✕ northwind-billing  Do runs held: tests need a Postgres role the tree cannot create.
   ● finboard-api       Draft PR #421 finishes the CSV import from the old branch.
-  ● pi-companion       PR #57 updated after the review.
+  ● hobkin       PR #57 updated after the review.
   ● northwind-billing  Draft PR #212 fixes the puma advisory.
   ● pi-package         PR #31 moves to Pi 1.5.
 
   RUNNING                                                                                   3
 
   ⠹ finboard-api       update: sidekiq 8.0.4                                      xhigh · 6m
-  ⠹ pi-companion       chore: remove an unused flag                                high · 3m
+  ⠹ hobkin       chore: remove an unused flag                                high · 3m
   ⠹ website            look: changes                                                low · 1m
 
   DONE TODAY                                                                                3
@@ -108,7 +108,7 @@ At 16:10 the Work tab looks like this:
   ● finboard-api       critical    running · 1 PR · next lens 5h
   ● northwind-billing  critical    running · 2 PRs · do runs held
   ● pi-package         important   running · 1 PR · next lens 18h
-  ● pi-companion       important   running · 1 PR · checkout in use
+  ● hobkin       important   running · 1 PR · checkout in use
   ◌ finboard-ios       important   unknown · no CI · 1 draft PR
   ● website            casual      running · 1 merged today
 
@@ -139,39 +139,39 @@ A project is a git repository.
 
 ### Turning it on and off
 
-Enter in the Work Mode tab turns it on. So does `/work` in Chat, asking the main agent, or `pi-companion work on` for a headless `pi-companion run`. All three write `work/mode.json`, and the director picks that up on its next tick.
+Enter in the Work Mode tab turns it on. So does `/work` in Chat, asking the main agent, or `hobkin work on` for a headless `hobkin run`. All three write `work/mode.json`, and the director picks that up on its next tick.
 
 When it goes on:
 
-1. The first time, Companion writes the level table into `mode.json`, taking models from `config.main` and `config.background`.
+1. The first time, Hobkin writes the level table into `mode.json`, taking models from `config.main` and `config.background`.
 2. Projects already taken resume where they stopped.
 3. A discovery run starts, unless one ran in the last 24 hours.
 
-When it goes off, with `/work` again or `pi-companion work off`:
+When it goes off, with `/work` again or `hobkin work off`:
 
-1. Companion cancels every running work run and stops pulses. Their items stay `doing`, so they resume when work mode comes back.
+1. Hobkin cancels every running work run and stops pulses. Their items stay `doing`, so they resume when work mode comes back.
 2. Trees, branches, open PRs, projects, levels and items all stay. Nothing is deleted or closed.
 3. Ordinary checks keep running.
 
 Turning work mode on is the user's permission to look at candidate repositories. Taking a project is the permission to work on it, which includes reading the user's own messages in that repository's Pi sessions. `v2-runtime.md` says so, because the main agent's rules otherwise treat new source access as needing a fresh yes.
 
-Work mode runs only while a dashboard or `pi-companion run` owns the workspace, the same as checks.
+Work mode runs only while a dashboard or `hobkin run` owns the workspace, the same as checks.
 
-`ask_question` does not fit the proposal. It offers 2 to 6 choices, asks one thing at a time, takes over the screen and needs a main turn in progress. Seven projects would be seven modal questions, and headless mode has no screen. The proposal is a list the agent fills on its own, and the user answers it whenever they want while the rest of Companion keeps working.
+`ask_question` does not fit the proposal. It offers 2 to 6 choices, asks one thing at a time, takes over the screen and needs a main turn in progress. Seven projects would be seven modal questions, and headless mode has no screen. The proposal is a list the agent fills on its own, and the user answers it whenever they want while the rest of Hobkin keeps working.
 
 ### Finding projects
 
 Discovery is one agent run with all its tools, `work.discover`, directed by `src/prompts/work-discover.md`. It runs in `work/` on the main chat model at `medium`, and it changes nothing in any repository.
 
-Discovery starts from one folder the user names. Without a starting point it would read session history, every sibling folder and all of GitHub, which burns time and money before the user has chosen anything. So the first start asks for the folder, saves it in `mode.json`, and looks only there. An agent explores it rather than a script: it lists the top level, then takes the folders one by one and goes deeper where it needs to, keeping its place in check memory. It reads each repository's git history for what is published and still moving, ranks the main projects, and offers them first. `/work <folder>` or `pi-companion work on <folder>` names another one, which runs discovery again.
+Discovery starts from one folder the user names. Without a starting point it would read session history, every sibling folder and all of GitHub, which burns time and money before the user has chosen anything. So the first start asks for the folder, saves it in `mode.json`, and looks only there. An agent explores it rather than a script: it lists the top level, then takes the folders one by one and goes deeper where it needs to, keeping its place in check memory. It reads each repository's git history for what is published and still moving, ranks the main projects, and offers them first. `/work <folder>` or `hobkin work on <folder>` names another one, which runs discovery again.
 
-Other sources can come later, once the user asks for them: Pi session folders, GitHub, Companion's own `cwd` values and Pi packages.
+Other sources can come later, once the user asks for them: Pi session folders, GitHub, Hobkin's own `cwd` values and Pi packages.
 
 Then it cleans the list. A repository cloned twice, or a worktree of another repository, counts once (`git rev-parse --git-common-dir` and the remote URL). It sets aside clones with no commits from the user, unchanged forks, archived repositories, tutorials, and anything with no commit in two years and nothing deployed. Those go in the report under "Left out", so the user can still say "add that one".
 
 For each one left it reads the README, `AGENTS.md`, the manifest, CI workflows, deploy config and the last 90 days of `git log`, plus open PRs, issues, CI state and alerts through `gh`. If the user's Pi has sub-agents it can split this up, and `runHarness` already waits for them.
 
-It writes each proposal with `pi-companion work propose` as soon as it is ready, so the list grows on screen. A proposal holds:
+It writes each proposal with `hobkin work propose` as soon as it is ready, so the list grows on screen. A proposal holds:
 
 - the name and path, or the GitHub name if it is not cloned
 - one line on what the project is
@@ -212,11 +212,11 @@ How far a change goes on its own:
 | Improvement | Draft PR | PR | PR |
 | Feature | Draft PR | Draft PR | PR |
 
-"Merges on green" means CI ran on that PR and passed. A repository with no CI stays at PR. A repository with no remote stops at a local `companion/*` branch, listed in Work. Drafts on critical projects matter for client repositories: code owners are not requested on a draft, so nobody else hears about it until the user marks it ready.
+"Merges on green" means CI ran on that PR and passed. A repository with no CI stays at PR. A repository with no remote stops at a local `hobkin/*` branch, listed in Work. Drafts on critical projects matter for client repositories: code owners are not requested on a draft, so nobody else hears about it until the user marks it ready.
 
 A project's own rule on how changes land wins, except that a critical project is never merged or pushed to its default branch.
 
-The level table lives in `work/mode.json`. The user changes a project's level with `1`, `2` or `3` in Work, in Chat, or with `pi-companion work choose`, and the next run uses it. `model_settings` gets a `work` scope with an optional level, so "use the fast model for casual projects" works the way schedule changes do, with the same catalog and credential checks. Work runs accept the effort Pi clamps to (`keptEffort`, as the main chat does), so `xhigh` on a model that lacks it runs at that model's top level.
+The level table lives in `work/mode.json`. The user changes a project's level with `1`, `2` or `3` in Work, in Chat, or with `hobkin work choose`, and the next run uses it. `model_settings` gets a `work` scope with an optional level, so "use the fast model for casual projects" works the way schedule changes do, with the same catalog and credential checks. Work runs accept the effort Pi clamps to (`keptEffort`, as the main chat does), so `xhigh` on a model that lacks it runs at that model's top level.
 
 ### What the agent looks at
 
@@ -258,7 +258,7 @@ It compares the result with the last reading, writes `pulse.json` and records ev
 
 Events go to one of three places:
 
-- On the agent's own `companion/*` PRs, `ci-failed`, `review-added` and `conflict` file a `pr-fix` item directly. `pr-merged` and `pr-closed` update the item and wake a short look that learns from the outcome.
+- On the agent's own `hobkin/*` PRs, `ci-failed`, `review-added` and `conflict` file a `pr-fix` item directly. `pr-merged` and `pr-closed` update the item and wake a short look that learns from the outcome.
 - `commits-landed` from the user wakes nothing. The next lens reads them.
 - Everything else wakes a `changes` look. Events pile up while a look runs and the next look takes them all. A look consumes its events when it starts, so cancelling one does not restart it.
 
@@ -297,7 +297,7 @@ Only commands the agent has run go in. The study proves setup and tests in the l
 
 Pi loads `AGENTS.md` and `CLAUDE.md` from a run's working directory, and a tree is a real checkout, so each project's own rules apply with no extra work. Context files in folders above the real repository do not load, because the tree lives elsewhere, so the study reads those and records what applies.
 
-Findings go into `items.jsonl` through `pi-companion work item <slug>`. An item has a stable `key` (`advisory:GHSA-xxxx`, `update:rack:3.1`, `ci:main:nightly`, `issue:142`, `idea:csv-import`), a kind (`security`, `fix`, `update`, `chore`, `improvement`, `feature`, `pr-fix`, or `attention` for something only the user can do), a title and a brief. Its state is `open`, `doing`, `waiting`, `pr`, `merged`, `done`, `declined`, `dropped`, `stuck` or `noted`.
+Findings go into `items.jsonl` through `hobkin work item <slug>`. An item has a stable `key` (`advisory:GHSA-xxxx`, `update:rack:3.1`, `ci:main:nightly`, `issue:142`, `idea:csv-import`), a kind (`security`, `fix`, `update`, `chore`, `improvement`, `feature`, `pr-fix`, or `attention` for something only the user can do), a title and a brief. Its state is `open`, `doing`, `waiting`, `pr`, `merged`, `done`, `declined`, `dropped`, `stuck` or `noted`.
 
 An item needs four things:
 
@@ -316,7 +316,7 @@ Do runs take one project's items in this order: anything marked `urgent`, then `
 
 ### Doing the work
 
-Every tool stays available in every run. The rules in this section are directions in the prompts, and Companion enforces none of them.
+Every tool stays available in every run. The rules in this section are directions in the prompts, and Hobkin enforces none of them.
 
 Each project has two linked worktrees of the user's own repository under `work/<slug>/trees/`:
 
@@ -325,20 +325,20 @@ Each project has two linked worktrees of the user's own repository under `work/<
 
 Linked worktrees share the repository, so remotes, hooks and credentials work and a local-only repository behaves the same way. One `do` tree is enough because a project runs one do at a time, and it keeps installed dependencies and caches between items, since `git clean -fd` leaves ignored files alone. One do at a time also means a project's tests never race each other for a database or port.
 
-Before a run, inside the dispatched effect, Companion prepares the tree:
+Before a run, inside the dispatched effect, Hobkin prepares the tree:
 
 ```sh
 git -C <repo> -c gc.auto=0 fetch origin
 git -C <repo> worktree add --detach <tree> origin/<default>      # first time only
 git -C <tree> reset --hard && git -C <tree> clean -fd
-git -C <tree> switch -C companion/<id>-<name> origin/<default>   # new item
-git -C <tree> switch companion/<id>-<name>                       # follow-up on its own branch
+git -C <tree> switch -C hobkin/<id>-<name> origin/<default>   # new item
+git -C <tree> switch hobkin/<id>-<name>                       # follow-up on its own branch
 git -C <tree> switch --detach origin/<default>                   # look tree
 ```
 
 A repository with no remote skips the fetch and uses its local default branch.
 
-The run's working directory is the tree, so the agent's relative paths land there. Git refuses to check out a branch that another worktree holds, and the agent only uses its own `companion/*` branches, so it never collides with the user's. A `doing` item left by a crash or by turning work mode off resumes without the reset, so its work is kept. That run has a new ID and starts by reading the branch and PR, so it continues the job and does not repeat it.
+The run's working directory is the tree, so the agent's relative paths land there. Git refuses to check out a branch that another worktree holds, and the agent only uses its own `hobkin/*` branches, so it never collides with the user's. A `doing` item left by a crash or by turning work mode off resumes without the reset, so its work is kept. That run has a new ID and starts by reading the branch and PR, so it continues the job and does not repeat it.
 
 `src/prompts/work-do.md` tells the run to:
 
@@ -347,20 +347,20 @@ The run's working directory is the tree, so the agent's relative paths land ther
 3. For a bug, write the failing test first.
 4. Make the smallest change that finishes the item, with no changes on the side.
 5. Run the project's tests and linters.
-6. Commit in the project's style, push the branch, and open the PR with `--repo <owner/name>`, so a fork never targets its upstream. The body says what changed, why, how it was tested, what could not be tested, and that Companion work mode opened it.
+6. Commit in the project's style, push the branch, and open the PR with `--repo <owner/name>`, so a fork never targets its upstream. The body says what changed, why, how it was tested, what could not be tested, and that Hobkin work mode opened it.
 7. Watch CI with `gh pr checks --watch` and fix what fails.
 8. Land it as the level table says, using `gh pr merge` after the checks pass. `--auto` waits only for required checks, and many personal repositories have none.
-9. Record the state with `pi-companion work item`.
+9. Record the state with `hobkin work item`.
 10. Report with a triage line.
 
 For a feature, it builds the smallest useful slice and puts the rest of the plan in the PR body. If the project's tests cannot run in the tree, the PR says the change is unverified and it does not merge itself. If CI on the default branch goes red after the agent's own merge, the next item is an urgent revert.
 
-Every run's request carries this line, because Pi loads the user's global rules into every run and those rules want explicit permission for commits and pushes: "Turning on work mode and taking this project is the user's authorization to install dependencies in the tree, run the full test suite, commit to `companion/*` branches, push them, open pull requests, and merge where the landing table says so."
+Every run's request carries this line, because Pi loads the user's global rules into every run and those rules want explicit permission for commits and pushes: "Turning on work mode and taking this project is the user's authorization to install dependencies in the tree, run the full test suite, commit to `hobkin/*` branches, push them, open pull requests, and merge where the landing table says so."
 
 These hold at every level:
 
 - Nothing happens in the user's checkout: no switch, stash, reset, rebase or commit.
-- The agent pushes only to `companion/*` branches, apart from a project whose own rule lands changes directly, as the level section allows.
+- The agent pushes only to `hobkin/*` branches, apart from a project whose own rule lands changes directly, as the level section allows.
 - It never runs a deploy. Where merging deploys, the project's own pipeline does that.
 - It posts only on PRs it opened. It writes no comments on other people's issues or PRs, no reviews and no messages.
 - Each run stays in its project. It reads no other repository and copies nothing between repositories.
@@ -440,7 +440,7 @@ Enter on a project opens its page:
 
 The footer shows only the keys for the selected row. Narrow terminals stack each row, the way Schedules does, and each view is checked at 120×40, 80×24 and 60×18.
 
-Chat shows `Critical:` and `Blocked:` lines from work runs, plus discovery's line. `Useful:` lines from other work runs stay in Work, because Chat keeps only its latest 100 messages and a busy day would push the conversation out. Work reports stay out of the Reports list for the same reason: that list shows 25. They are under each project, `m` works on them as usual, and `pi-companion reports` still lists them. Discovery's report does go in Reports.
+Chat shows `Critical:` and `Blocked:` lines from work runs, plus discovery's line. `Useful:` lines from other work runs stay in Work, because Chat keeps only its latest 100 messages and a busy day would push the conversation out. Work reports stay out of the Reports list for the same reason: that list shows 25. They are under each project, `m` works on them as usual, and `hobkin reports` still lists them. Discovery's report does go in Reports.
 
 The user steers in Chat, with `m` to attach what they are talking about, and the main agent acts through a new `work_mode` tool.
 
@@ -458,7 +458,7 @@ The user steers in Chat, with `m` to attach what they are talking about, and the
 
 `directions.md` holds the user's own words and is the only project text a run treats as instructions. The user can edit it by hand, and it overrides the level's defaults.
 
-### How it fits Companion
+### How it fits Hobkin
 
 | Piece | Fit |
 |---|---|
@@ -466,8 +466,8 @@ The user steers in Chat, with `m` to attach what they are talking about, and the
 | Reports and triage lines | Used. Same four lines, same `saveReport`. `Critical:` also files an `attention` item, which is how it reaches Needs attention. |
 | Check memory and `log.md` | Used through `openCheck`, one pair per lane. They hold what that lane needs next. `project.md` is separate because both lanes share it and 8 KiB is too small. |
 | Holds | Used. `checkHold` runs per lane, with a stable definition hash for the lane so that changing items does not clear a streak. A `look` request runs anyway, and a working run or a level change clears the hold. |
-| `buildContext` | Used, with one new argument that adds a `work` field to the same request: project, level, lane, focus, item, landing, `directions.md`, `project.md`, the latest pulse, events, open and closed items, and `cli`, the absolute command with `--home`, because `pi-companion` may not be on PATH. It stays under the 64 KiB limit in `buildInvocation`. |
-| `runHarness` | Used. New purposes `work-discover`, `work-look` and `work-do` keep tools on. `background.md` still loads, and the purpose's prompt is a second `--append-system-prompt`. Runs in a tree pass `--approve`: unless `defaultProjectTrust` is `always`, RPC mode loads a project's `.pi/` resources only if trust is saved for that folder or a parent. A saved decision for the real path does not reach a tree under `~/.companion`, and taking a project is the trust decision. |
+| `buildContext` | Used, with one new argument that adds a `work` field to the same request: project, level, lane, focus, item, landing, `directions.md`, `project.md`, the latest pulse, events, open and closed items, and `cli`, the absolute command with `--home`, because `hobkin` may not be on PATH. It stays under the 64 KiB limit in `buildInvocation`. |
+| `runHarness` | Used. New purposes `work-discover`, `work-look` and `work-do` keep tools on. `background.md` still loads, and the purpose's prompt is a second `--append-system-prompt`. Runs in a tree pass `--approve`: unless `defaultProjectTrust` is `always`, RPC mode loads a project's `.pi/` resources only if trust is saved for that folder or a parent. A saved decision for the real path does not reach a tree under `~/.hobkin`, and taking a project is the trust decision. |
 | Schedule files, `dueOccurrence`, `schedules/once/` | Not used. Looks run on intervals and events with no calendar. A once file needs its `cwd` when it is written, but a tree is prepared at start. It has no order by level, and it stays forever in a folder loaded on every tick. Schedule files remain the user's own. |
 | Per-schedule model and effort | Not used. The level table carries them, and `model_settings` gets the `work` scope. |
 | Report telemetry | Reads and messages are still recorded. Work runs are left out of `ignored`, because nobody is meant to read each one. PR outcomes are the signal that steers the agent. |
@@ -476,14 +476,14 @@ The user steers in Chat, with `m` to attach what they are talking about, and the
 | `ui.mjs` | `/work` joins `/clear` and `/reset` in the composer. New `work` view. Line builders go in `src/cli/work-view.mjs`. Live runs reuse `job:<id>` and `jobActivityLines`, and finished ones reuse `reportDetailLines`. `liveJobs()` leaves work runs out, so they get no tab and no orphan row in Schedules. Work's keys join `input()`. |
 | `main.mjs` | `parseArguments` takes positional arguments for `work`, as it does for `reports`. JSON arrives on stdin. |
 | `/clear`, `/reset` | Unchanged. `/reset` starts a fresh chat and touches no work state, because that state lives in files the main agent reads through `work_mode`. |
-| Main tools | `work_mode` joins `pi-session.mjs`, `rpc-session.mjs`, `companion-extension.mjs` and the fake Pi's tool list. |
-| `pi-companion skill` | Adds how to read `work/`, how to hand a project work with `pi-companion work item`, and `work/*/trees` under "Stay out of". |
-| Owner lock | The director and pulse run only in the owner. `pi-companion work` commands take no lock. They only append or write `mode.json`, and the owner picks that up on its next tick, the way report deletion works. |
+| Main tools | `work_mode` joins `pi-session.mjs`, `rpc-session.mjs`, `hobkin-extension.mjs` and the fake Pi's tool list. |
+| `hobkin skill` | Adds how to read `work/`, how to hand a project work with `hobkin work item`, and `work/*/trees` under "Stay out of". |
+| Owner lock | The director and pulse run only in the owner. `hobkin work` commands take no lock. They only append or write `mode.json`, and the owner picks that up on its next tick, the way report deletion works. |
 
 Work mode runs far more often than checks, roughly 80 runs a day on twelve projects, and five things in the current code do not hold up at that rate:
 
 1. `runtime.state()` copies the whole document, with every finished run and its report text, on each tick and refresh. Work receipts keep only the first 1 KiB of report text, because the full report is on disk. Finished work receipts are deleted after 14 days, at startup and daily, along with their session files in `jobs/`. The report, the log line and the item stay. Replays cannot happen because work run IDs are never reused.
-2. `usage.json` keeps a receipt per run, and Companion refuses to start once that file passes 16 MiB. That is about a year at this rate. When a work receipt is deleted, its usage receipt and session segment fold into one `prunedUsd` total, so the shown estimate does not change.
+2. `usage.json` keeps a receipt per run, and Hobkin refuses to start once that file passes 16 MiB. That is about a year at this rate. When a work receipt is deleted, its usage receipt and session segment fold into one `prunedUsd` total, so the shown estimate does not change.
 3. `project()` reads every report file on every refresh. Work reports are read when opened.
 4. Every job event asks for a full `project()`. Activity events update `snapshot.jobActivity` and redraw with no state read.
 5. `syncEvidence` stores a receipt, and up to 2 KB of reflection evidence, in the runtime document for every finished run, and nothing removes them. It skips work runs.
@@ -512,7 +512,7 @@ Both `.jsonl` files are append-only, the same way as `runtime/telemetry.jsonl`, 
 
 | Command | Used by | Effect |
 |---|---|---|
-| `pi-companion work` | Anyone | Prints status as JSON |
+| `hobkin work` | Anyone | Prints status as JSON |
 | `work on`, `work off` | The user, headless setups | Sets the mode |
 | `work propose` | Discovery | JSON on stdin: adds or updates a proposal |
 | `work choose <slug or path> [level]` | The user | Takes a project |
@@ -524,7 +524,7 @@ Both `.jsonl` files are append-only, the same way as `runtime/telemetry.jsonl`, 
 Each step ships alone. Each one adds its own CHANGELOG and README lines. New tests are `test/cli-work-*.test.mjs` under `pnpm test:cli`, using temporary roots, the `MemoryRuntime` from `cli-runner.test.mjs` and a fake `runHarness`, with real `git` in `mkdtemp` folders. Prompts are checked by running them on a real project.
 
 1. One item, one tree, one PR.
-   - Ships: `work/store.mjs`, `work/tree.mjs`, the director's do lane, `work-do.md`, `pi-companion work on|off|choose|item`, the new purpose with `--approve`, `startTracked`, the separate count from `concurrency`.
+   - Ships: `work/store.mjs`, `work/tree.mjs`, the director's do lane, `work-do.md`, `hobkin work on|off|choose|item`, the new purpose with `--approve`, `startTracked`, the separate count from `concurrency`.
    - The user can: hand one real repository an item and get a branch and a PR while they keep working in it.
    - Test: a real bare `origin` and checkout. After a run the checkout has the same branch, the same `git status --porcelain` and the same bytes in a dirty file. Folding, key dedupe and two writers on `items.jsonl`. A second item reuses the tree, and an interrupted item resumes. Then one real item on one real repository.
 
@@ -540,7 +540,7 @@ Each step ships alone. Each one adds its own CHANGELOG and README lines. New tes
 
 4. Several projects at once.
    - Ships: the work pool, run order, and the five rate fixes (receipts, `usage.json`, report reads, activity redraw, evidence).
-   - The user can: run all their projects without Companion slowing down or ordinary checks waiting.
+   - The user can: run all their projects without Hobkin slowing down or ordinary checks waiting.
    - Test: an ordinary check starts while the work pool is full. Critical starts before casual. Pruning leaves the usage total unchanged. An activity event does not call `runtime.state()`.
 
 5. `/work` and discovery.
@@ -584,7 +584,7 @@ Each step ships alone. Each one adds its own CHANGELOG and README lines. New tes
     - Test: known projects are not proposed again. A skipped project returns only after three days of activity. An archived repository is dropped with a notice.
 
 13. Finish the docs.
-    - Ships: a work mode section in `docs/v2-design.md`, the README section, the `pi-companion skill` additions.
+    - Ships: a work mode section in `docs/v2-design.md`, the README section, the `hobkin skill` additions.
     - Test: the existing `cli-skill.test.mjs` cases, and the skill's example run by hand.
 
 ## Sources

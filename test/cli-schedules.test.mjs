@@ -8,7 +8,7 @@ import { initialize, loadConfig, validateConfig } from '../src/cli/config.mjs';
 import { parseSchedule, loadSchedules, formatSchedule, validateBinding } from '../src/cli/schedules.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-cli-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-cli-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }

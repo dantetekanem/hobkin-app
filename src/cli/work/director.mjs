@@ -34,7 +34,7 @@ const clone = promisify(execFile);
 
 // Pi loads the user's global rules into every run, and those ask for explicit permission for these actions.
 const authorization = 'Turning on work mode and taking this project is the user\'s authorization to install dependencies in the '
-  + 'tree, run the full test suite, commit to companion/* branches, push them and open pull requests.';
+  + 'tree, run the full test suite, commit to hobkin/* branches, push them and open pull requests.';
 
 const readBounded = file => {
   if (!existsSync(file)) return '';
@@ -45,7 +45,7 @@ const paneBrief = (purpose, request, report) => `${workDirections(purpose)}
 
 ## Your report
 
-You are working in a terminal pane the user can watch. When you are finished, write your final report to \`${report}\`, then stop. Companion reads that file to know you are done, so write it last, and write it even if you are blocked.
+You are working in a terminal pane the user can watch. When you are finished, write your final report to \`${report}\`, then stop. Hobkin reads that file to know you are done, so write it last, and write it even if you are blocked.
 
 If the \`chrome_*\` tools say Chrome is locked in this pane, carry on without them and say so in your report.
 
@@ -235,7 +235,7 @@ export class WorkDirector {
 
   startDo(project, item) {
     const { slug, level } = project;
-    const branch = item.branch ?? `companion/${item.id}-${slugOf(item.title).slice(0, MAX_BRANCH_NAME)}`;
+    const branch = item.branch ?? `hobkin/${item.id}-${slugOf(item.title).slice(0, MAX_BRANCH_NAME)}`;
     const resume = Boolean(item.branch);
     updateItem(this.root, slug, item.id, { state: 'doing', branch }, this.now());
 

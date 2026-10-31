@@ -118,7 +118,7 @@ export class ExperienceStore {
     if (value === undefined) return empty();
     if (value.version !== 1 || typeof value.enabled !== 'boolean' || !Number.isInteger(value.generation)
       || !['evidence', 'questions', 'lessons', 'decisions', 'assessments', 'reviews'].every(key => Array.isArray(value[key as keyof Experience]))) {
-      throw Error('Invalid Companion experience storage.');
+      throw Error('Invalid Hobkin experience storage.');
     }
     return value;
   }
@@ -142,8 +142,8 @@ export function recordEvidence(state: Experience, input: Omit<Evidence, 'at'>, a
   return true;
 }
 export function record(state: Experience, input: Static<typeof RecordSchema>, reports: string, provider: string, at = new Date().toISOString(), publicationScope = 'local'): void {
-  if (!state.enabled) throw Error('Companion is stopped.');
-  if (!Check(RecordSchema, input)) throw Error('Invalid Companion record.');
+  if (!state.enabled) throw Error('Hobkin is stopped.');
+  if (!Check(RecordSchema, input)) throw Error('Invalid Hobkin record.');
   const refs = references(state, input.evidenceIds);
   if (refs.some(item => item.provider !== provider)) throw Error('Evidence belongs to a different provider.');
   if (!recordEvidence(state, {
@@ -161,7 +161,7 @@ export function record(state: Experience, input: Static<typeof RecordSchema>, re
     throw Error('Outcome or publication requires its own recorded task delivery.');
   }
   if (input.kind === 'question' || input.kind === 'publication') {
-    const prefix = `<!-- companion-${input.kind}:${publicationScope}:${input.id}:`;
+    const prefix = `<!-- hobkin-${input.kind}:${publicationScope}:${input.id}:`;
     const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
     const marker = `${prefix}${digest} -->`;
     let published = '';

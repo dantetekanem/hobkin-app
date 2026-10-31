@@ -53,20 +53,20 @@ async function connected(options, snapshot, output, dependencies) {
           return app.reset();
         },
         kill: runId => {
-          if (!app) throw Error('Companion is still connecting.');
+          if (!app) throw Error('Hobkin is still connecting.');
           return app.kill(runId);
         },
         reportRead: read => app?.recordReportRead(read),
         workAction: (...request) => {
-          if (!app) throw Error('Companion is still connecting.');
+          if (!app) throw Error('Hobkin is still connecting.');
           return app.workAction(...request);
         },
       }, { theme: { cwd: snapshot.config.main.cwd } });
     } else {
       keepAlive = setInterval(() => {}, 60000);
-      output.write('Pi Companion running in this process. SIGINT/SIGTERM stops owned work.\n');
+      output.write('Hobkin running in this process. SIGINT/SIGTERM stops owned work.\n');
     }
-    const open = dependencies.openApplication ?? (await import('./application.mjs')).CompanionApplication.open;
+    const open = dependencies.openApplication ?? (await import('./application.mjs')).HobkinApplication.open;
     const opening = open(options.root, {
       signal: cancellation.signal,
       onChange: view => dashboard?.update(view),
@@ -91,11 +91,11 @@ async function connected(options, snapshot, output, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Pi Companion\nUsage: pi-companion [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Companion\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [on | off | propose | choose | skip | drop | item]  drive work mode\n');
     return 0;
   }
   if (options.command === 'skill') {
-    output.write(readFileSync(new URL('../prompts/companion-skill.md', import.meta.url), 'utf8'));
+    output.write(readFileSync(new URL('../prompts/hobkin-skill.md', import.meta.url), 'utf8'));
     return 0;
   }
   if (options.command === 'work') {
@@ -162,7 +162,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
       return 0;
     }
     const [action, ...ids] = options.args;
-    if (action !== 'delete' || !ids.length) throw Error('Usage: pi-companion reports [delete ID...]');
+    if (action !== 'delete' || !ids.length) throw Error('Usage: hobkin reports [delete ID...]');
 
     const before = inventory();
     const known = new Set(before.map(report => report.id));
@@ -195,7 +195,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     dependencies.exit?.(code);
     return code;
   }
-  output.write(`Pi Companion · ${options.root}\nDaily ${counts.daily} · Weekly ${counts.weekly} · Monthly ${counts.monthly} · Once ${counts.once} · Migrated ${counts.compatibility ?? 0}\n`);
+  output.write(`Hobkin · ${options.root}\nDaily ${counts.daily} · Weekly ${counts.weekly} · Monthly ${counts.monthly} · Once ${counts.once} · Migrated ${counts.compatibility ?? 0}\n`);
   output.write(`Main ${config.main.effort} · ${config.main.model ?? 'configured default'} · ${config.main.cwd}\n`);
   output.write(`Background ${config.background.harness} · ${config.background.effort} · ${config.background.model ?? 'configured default'}\n`);
   if (config.launcher) output.write(`Launcher ${config.launcher.command.join(' ')}${config.launcher.managedExtensions ? ' · managed extensions' : ''}\n`);
@@ -212,7 +212,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
 
 if (import.meta.main) {
   main(undefined, undefined, { exit: process.exit }).then(code => { process.exitCode = code; }).catch(error => {
-    process.stderr.write(`Pi Companion: ${error.message}\n`);
+    process.stderr.write(`Hobkin: ${error.message}\n`);
     if (error.diagnostics) process.stderr.write(`${JSON.stringify(error.diagnostics, null, 2)}\n`);
     process.exitCode = 1;
   });

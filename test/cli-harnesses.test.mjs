@@ -8,7 +8,7 @@ import { buildInvocation, runHarness } from '../src/cli/harnesses.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 function request(t, harness = 'pi') {
-  const cwd = mkdtempSync(join(tmpdir(), 'companion-harness-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'hobkin-harness-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   return {
     id,
@@ -36,7 +36,7 @@ function assertOrdinaryPiDefaults(args) {
     assert.ok(!args.includes(flag), `${flag} should use Pi defaults`);
   }
   const appended = args.indexOf('--append-system-prompt');
-  assert.ok(appended >= 0 && args[appended + 1].trim(), 'Companion instructions should extend the normal Pi prompt');
+  assert.ok(appended >= 0 && args[appended + 1].trim(), 'Hobkin instructions should extend the normal Pi prompt');
 }
 const rpc = (body, thinking = 'medium', model = { provider: 'test', id: 'model' }, statsResponse = "reply({ sessionId: 'pi-job', cost: 0.25, tokens: { input: 10, output: 5 } })") => `
 let input = '';
@@ -316,7 +316,7 @@ test('a work run keeps every tool and carries both the check directions and its 
     assert.equal(args.includes('--approve'), true);
     const appended = args.flatMap((arg, index) => (arg === '--append-system-prompt' ? [args[index + 1]] : []));
     assert.equal(appended.length, 2);
-    assert.match(appended[0], /Companion background check/);
+    assert.match(appended[0], /Hobkin background check/);
     assert.match(appended[1], heading);
   }
 });

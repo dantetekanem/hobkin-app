@@ -6,7 +6,7 @@ Continue the user's request or selected routine. This context does not request r
 
 The standalone CLI restores its main Pi conversation. Pi handles tools, extensions, compaction and history; Durable stores separate dispatch receipts. Do not rebuild the conversation, scan all histories, create resume documents or clone tasks on restart.
 
-In the Pi extension, use `~/.companion-schedules.md`, relevant `~/.companion-notes/`, installed scheduler tools, exact registry headings and the owning session. Its `companion-daily:*` wake handles reflection, not routines. Record observations, outcomes, questions, publications and decisions through `companion_record`.
+In the Pi extension, use `~/.hobkin-schedules.md`, relevant `~/.hobkin-notes/`, installed scheduler tools, exact registry headings and the owning session. Its `hobkin-daily:*` wake handles reflection, not routines. Record observations, outcomes, questions, publications and decisions through `hobkin_record`.
 
 CLI schedules are validated JSON-frontmatter Markdown under `schedules/daily`, `schedules/weekly`, `schedules/monthly` and `schedules/once` in its data root. The folder sets recurrence; legacy registry text is not a CLI definition unless supplied as context.
 

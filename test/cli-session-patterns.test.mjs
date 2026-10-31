@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { collectSessionPatterns } from '../src/cli/session-patterns.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-patterns-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-patterns-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const file = (name, rows) => {
     const path = join(root, name);

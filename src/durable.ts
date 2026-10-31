@@ -6,23 +6,23 @@ import { createModels } from '@earendil-works/pi-ai';
 import { createRegistry, defineDoc, defineExtension, defineTask, Harness, type TaskId } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 
-export type CompanionOwner = { sessionId: string; sessionFile: string };
+export type HobkinOwner = { sessionId: string; sessionFile: string };
 type Action = 'start' | 'stop';
 type Lifecycle = {
-  owner: CompanionOwner | null;
+  owner: HobkinOwner | null;
   active: boolean;
   setup: 'needed' | 'requested' | 'ready';
   taskId: TaskId<null> | null;
   action: Action | null;
 };
 type Checkpoint = { phase: 'daily' } | { phase: 'routines'; errors?: string[] };
-export type CompanionControls = {
+export type HobkinControls = {
   // Both effects must reconcile their existing receipts before repeating an external action.
   daily(action: Action, signal: AbortSignal): Promise<void>;
   routines(action: Action, signal: AbortSignal): Promise<void>;
 };
 const LifecycleDoc = defineDoc<Lifecycle>({
-  kind: 'companion.lifecycle',
+  kind: 'hobkin.lifecycle',
   version: 1,
   scope: 'conversation',
   history: 'latest',
@@ -31,17 +31,17 @@ const LifecycleDoc = defineDoc<Lifecycle>({
 });
 
 /** Durable owns lifecycle tasks; Pi still owns model turns, tools, and scheduler execution. */
-export class DurableCompanion {
+export class DurableHobkin {
   private harness!: Harness;
   private root!: Awaited<ReturnType<Harness['root']>>;
   private release!: () => Promise<void>;
   private closing?: Promise<void>;
-  private controls?: CompanionControls;
+  private controls?: HobkinControls;
   private admissions = Promise.resolve();
   private readonly waiter = withCancel(BACKGROUND_CONTEXT);
   private fault?: Error;
   private task = defineTask<Action, Checkpoint, null, Record<never, never>>({
-    name: 'companion.control', version: 1,
+    name: 'hobkin.control', version: 1,
     initial: () => ({ phase: 'daily' }),
     phases: {
       daily: async (task, runtime, context) => {
@@ -71,8 +71,8 @@ export class DurableCompanion {
 
   private constructor() {}
 
-  static async open(directory: string, owner: CompanionOwner, configured: boolean): Promise<DurableCompanion> {
-    const instance = new DurableCompanion();
+  static async open(directory: string, owner: HobkinOwner, configured: boolean): Promise<DurableHobkin> {
+    const instance = new DurableHobkin();
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     try {
       instance.release = await lockfile.lock(directory, {
@@ -83,16 +83,16 @@ export class DurableCompanion {
         },
       });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ELOCKED') throw Error('Companion is already running in another Pi session. Resume it there.');
+      if ((error as NodeJS.ErrnoException).code === 'ELOCKED') throw Error('Hobkin is already running in another Pi session. Resume it there.');
       throw error;
     }
     let storage;
     try {
-      const file = join(directory, 'companion.sqlite');
+      const file = join(directory, 'hobkin.sqlite');
       storage = await openNodeSqliteStorage(file);
       chmodSync(file, 0o600);
       const registry = createRegistry();
-      registry.install(defineExtension({ name: 'companion', tasks: [instance.task] }));
+      registry.install(defineExtension({ name: 'hobkin', tasks: [instance.task] }));
       instance.harness = await Harness.open(storage, { models: createModels(), registry }, BACKGROUND_CONTEXT);
       instance.root = await instance.harness.root(BACKGROUND_CONTEXT, {
         init: async (tx, id) => {
@@ -101,7 +101,7 @@ export class DurableCompanion {
           state.setup = configured ? 'ready' : 'needed';
         },
       });
-      if (!(await instance.state()).owner) throw Error('Companion has no saved owner; refusing to replace its state.');
+      if (!(await instance.state()).owner) throw Error('Hobkin has no saved owner; refusing to replace its state.');
       return instance;
     } catch (error) {
       if (instance.harness) await instance.harness.close(BACKGROUND_CONTEXT);
@@ -113,12 +113,12 @@ export class DurableCompanion {
 
   private check() {
     if (this.fault) throw this.fault;
-    if (this.closing) throw Error('Companion runtime is closing.');
+    if (this.closing) throw Error('Hobkin runtime is closing.');
   }
 
-  private async applyControl(action: Action, phase: keyof CompanionControls, signal: AbortSignal): Promise<string | null> {
+  private async applyControl(action: Action, phase: keyof HobkinControls, signal: AbortSignal): Promise<string | null> {
     this.check();
-    if (!this.controls) throw Error('Companion controls are unavailable.');
+    if (!this.controls) throw Error('Hobkin controls are unavailable.');
     let failure: string | null = null;
     try {
       await this.controls[phase](action, signal);
@@ -134,7 +134,7 @@ export class DurableCompanion {
   async state(): Promise<Lifecycle> {
     this.check();
     const state = await this.harness.snapshot(LifecycleDoc, this.root.id, BACKGROUND_CONTEXT);
-    if (!state) throw Error('Companion lifecycle checkpoint is missing.');
+    if (!state) throw Error('Hobkin lifecycle checkpoint is missing.');
     return state;
   }
 
@@ -152,11 +152,11 @@ export class DurableCompanion {
     const outcome = task.state.outcome;
     if (outcome.status !== 'completed') {
       const reason = outcome.error?.message ?? outcome.reason ?? 'No completion receipt.';
-      throw Error(`Companion control ${outcome.status}: ${reason}`);
+      throw Error(`Hobkin control ${outcome.status}: ${reason}`);
     }
   }
 
-  async control(action: Action, controls: CompanionControls): Promise<void> {
+  async control(action: Action, controls: HobkinControls): Promise<void> {
     let taskId: TaskId<null> | undefined;
     await this.enqueue(async () => {
       this.controls = controls;
@@ -182,7 +182,7 @@ export class DurableCompanion {
     if (taskId !== undefined) await this.wait(taskId);
   }
 
-  async recover(controls: CompanionControls): Promise<void> {
+  async recover(controls: HobkinControls): Promise<void> {
     let taskId: TaskId<null> | null = null;
     await this.enqueue(async () => {
       this.controls = controls;
@@ -204,7 +204,7 @@ export class DurableCompanion {
 
   close(): Promise<void> {
     if (!this.closing) {
-      this.waiter.cancel(new Error('Companion runtime closed.'));
+      this.waiter.cancel(new Error('Hobkin runtime closed.'));
       this.closing = this.harness.close(BACKGROUND_CONTEXT).then(() => this.release());
     }
     return this.closing;

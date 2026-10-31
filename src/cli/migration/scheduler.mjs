@@ -35,7 +35,7 @@ function taskMap(raw) {
   return map;
 }
 function writeStore(path, value, mode) {
-  const temporary = join(dirname(path), `.companion-${randomUUID()}.tmp`);
+  const temporary = join(dirname(path), `.hobkin-${randomUUID()}.tmp`);
   try {
     const fd = openSync(temporary, 'wx', mode);
     try {
@@ -61,7 +61,7 @@ async function shutdownProof(journal, options) {
   if (migration?.id !== record.id || migration.fingerprint !== record.manifest.fingerprint || migration.destination !== journal.root
     || !Array.isArray(migration.owners) || JSON.stringify(migration.owners.map(owner => owner.sessionId).sort()) !== JSON.stringify([...record.validation.ownership.owners].sort()))
     throw Error('Scheduler fence ownership scope changed.');
-  const root = legacyLayout(record.manifest.spec.home).find(source => source.category === 'companion').path;
+  const root = legacyLayout(record.manifest.spec.home).find(source => source.category === 'hobkin').path;
   const proof = await collectShutdownReceipt(root, migration, options);
   if (proof.receiptId !== record.validation.ownership.shutdownReceipt) throw Error('Legacy shutdown receipt changed.');
   return proof;

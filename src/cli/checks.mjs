@@ -76,7 +76,7 @@ export function openCheck(root, id) {
   };
 }
 
-/** Companion writes the log so no agent has to reconstruct run history from transcripts or the database. */
+/** Hobkin writes the log so no agent has to reconstruct run history from transcripts or the database. */
 export function logRun(root, run) {
   if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(run.scheduleId ?? '')) return;
   try {

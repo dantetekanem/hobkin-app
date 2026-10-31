@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { migrationFixture } from './helpers/migration.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { runUpgrade } from '../src/cli/migration/cutover.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { SessionDelivery } from '../src/cli/delivery.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
 import { loadConfig } from '../src/cli/config.mjs';
@@ -31,12 +31,12 @@ async function fixture(t, { mappedCwd } = {}) {
   await runUpgrade(h.journal, h.options);
   const config = loadConfig(h.root);
   const fake = fakePi(h.root);
-  const runtime = await CompanionRuntime.open(h.root, config, { createMain: fake.createMain });
+  const runtime = await HobkinRuntime.open(h.root, config, { createMain: fake.createMain });
   await runtime.connect();
   const calls = [];
   const delivery = new SessionDelivery({ root: runtime.directory, runtime, config, runHarness: async input => {
     calls.push(input);
-    return { status: 'completed', text: 'Ordinary<!-- companion-publication: fixture --> answer', sessionId: input.id, freshSession: true,
+    return { status: 'completed', text: 'Ordinary<!-- hobkin-publication: fixture --> answer', sessionId: input.id, freshSession: true,
       model: input.model, effort: input.effort,
       cost: { usd: 0.25, sessionId: input.id, kind: 'estimate', cumulative: true } };
   } });
@@ -200,7 +200,7 @@ test('every turn revalidates binding and mapped cwd before provider dispatch', a
   await assert.rejects(h.delivery.prompt(h.request(0)), /harness must be pi/);
   delete h.delivery.config.legacySessions;
   assert.equal(h.calls.length, 2);
-  for (const mappedCwd of ['/missing-companion-fixture-cwd']) {
+  for (const mappedCwd of ['/missing-hobkin-fixture-cwd']) {
     const invalid = await fixture(t, { mappedCwd });
     await assert.rejects(invalid.delivery.prompt(invalid.request(1)), /cwd|directory/i);
     assert.equal(invalid.calls.length, 0);

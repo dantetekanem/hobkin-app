@@ -61,7 +61,7 @@ export function createSettingsTool(run) {
   return defineTool({
     name: 'model_settings',
     label: 'Model and effort settings',
-    description: 'Inspect or update model and effort for exactly main, background, schedules, or all. Add scheduleId with scope schedules to target one schedule. Inspect lists availableModels. Updates require an installed provider/model reference and persist only Companion settings, never Pi global defaults. Main updates also change this session without saving Pi defaults and apply from the next model call; the receipt separates saved settings from the observed active binding.',
+    description: 'Inspect or update model and effort for exactly main, background, schedules, or all. Add scheduleId with scope schedules to target one schedule. Inspect lists availableModels. Updates require an installed provider/model reference and persist only Hobkin settings, never Pi global defaults. Main updates also change this session without saving Pi defaults and apply from the next model call; the receipt separates saved settings from the observed active binding.',
     parameters: settingsParameters,
     async execute(_id, request, signal) {
       if (!Check(settingsParameters, request)) throw Error('Invalid model settings request.');

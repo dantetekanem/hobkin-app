@@ -1,6 +1,6 @@
 # Taste memory
 
-Maintain the user's reusable taste profile at the notes path supplied by the current runtime. The legacy extension uses `~/.companion-notes/taste.md`; the standalone CLI uses its own data root. If the runtime supplies no destination, keep the proposed update in the conversation rather than guessing a path. This package file contains instructions, not the profile. Update the profile only when current input or an approved history source supports a preference or interest.
+Maintain the user's reusable taste profile at the notes path supplied by the current runtime. The legacy extension uses `~/.hobkin-notes/taste.md`; the standalone CLI uses its own data root. If the runtime supplies no destination, keep the proposed update in the conversation rather than guessing a path. This package file contains instructions, not the profile. Update the profile only when current input or an approved history source supports a preference or interest.
 
 ## Evidence
 

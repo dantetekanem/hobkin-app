@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CompanionApplication } from '../src/cli/application.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { dialog, fakePiRpc } from './helpers/fake-rpc-pi.mjs';
@@ -12,7 +12,7 @@ import { fakePi } from './helpers/pi-session.mjs';
 const launcher = { command: ['my-pi-launcher', 'pi'], env: { EXAMPLE_MODE: '1' }, managedExtensions: true };
 
 function fixture(t, withLauncher) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-launcher-app-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-launcher-app-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
   config.main = { cwd: root, model: 'fixture/local', effort: 'medium' };
@@ -34,7 +34,7 @@ function fixture(t, withLauncher) {
 test('with a launcher the main chat is an RPC child and a schedule it starts runs its job through the same launcher', async t => {
   const h = fixture(t, true);
   const pi = fakePiRpc();
-  const app = await CompanionApplication.open(h.root, {
+  const app = await HobkinApplication.open(h.root, {
     now: () => new Date('2026-04-27T23:00:00Z'),
     intervalMs: 60000,
     runHarness: h.runHarness,
@@ -47,7 +47,7 @@ test('with a launcher the main chat is an RPC child and a schedule it starts run
 
   const id = dialog(pi.children[0], {
     method: 'input',
-    title: 'companion/bridge',
+    title: 'hobkin/bridge',
     placeholder: JSON.stringify({ op: 'tool', name: 'run_schedule', id: 'call-1', params: { scheduleId: 'email' } }),
   });
   while (!pi.received.some(record => record.id === id)) await new Promise(resolve => setImmediate(resolve));
@@ -74,7 +74,7 @@ test('with a launcher the main chat is an RPC child and a schedule it starts run
 test('without a launcher the main chat stays in process and job requests are exactly as before', async t => {
   const h = fixture(t, false);
   const fake = fakePi(h.root);
-  const app = await CompanionApplication.open(h.root, {
+  const app = await HobkinApplication.open(h.root, {
     now: () => new Date('2026-04-27T23:00:00Z'),
     intervalMs: 60000,
     runHarness: h.runHarness,

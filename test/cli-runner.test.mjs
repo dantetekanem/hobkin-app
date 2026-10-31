@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CompanionRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
+import { HobkinRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
 import { LegacySchedules } from '../src/cli/legacy-schedules.mjs';
 import { sha256 } from '../src/cli/migration/inventory.mjs';
 
@@ -54,7 +54,7 @@ class MemoryRuntime {
 }
 
 async function fixture(t, options = {}) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'companion-runner-')));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'hobkin-runner-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, 'schedules/daily'), { recursive: true });
 
@@ -71,7 +71,7 @@ async function fixture(t, options = {}) {
 test('harness previews bind to occurrence IDs, not fresh harness UUIDs, and observers cannot fail work', async t => {
   const h = await fixture(t);
   const seen = [];
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...h, config, now: () => new Date('2026-01-02T10:00:00Z'),
     onActivity: (id, event) => {
       seen.push([id, event]);
@@ -106,7 +106,7 @@ test('a run receives its check memory, log and the newest outcome, even when tha
     },
   });
   let envelope;
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...h, config, now: () => new Date('2026-01-02T10:00:00Z'),
     runHarness: async request => {
       envelope = JSON.parse(request.prompt);
@@ -138,7 +138,7 @@ test('a check blocked twice stops being scheduled, shows when it resumes, and st
   }
   let now = new Date('2026-01-02T11:00:00Z');
   let calls = 0;
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...h, config, now: () => now,
     runHarness: async () => {
       calls++;
@@ -178,7 +178,7 @@ test('a hold that ends after hours resumes at the next allowed time', async t =>
       result: { status: 'failed', error: 'Model overloaded.' },
     };
   }
-  const runner = new CompanionRunner({ ...h, config, now: () => new Date('2026-01-02T18:00:00Z') });
+  const runner = new HobkinRunner({ ...h, config, now: () => new Date('2026-01-02T18:00:00Z') });
 
   await runner.tick();
 
@@ -187,7 +187,7 @@ test('a hold that ends after hours resumes at the next allowed time', async t =>
 
 test('native dispatch rejects an explicit non-Pi binding before admission', async t => {
   const h = await fixture(t);
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...h, config,
     runHarness: async () => { throw Error('Unexpected provider dispatch'); },
   });
@@ -249,7 +249,7 @@ test('window checks stay within local hours, use an anchored interval and retain
 });
 
 test('multiple times and windows deduplicate across restart and single-time edits without replaying missed checks', async t => {
-  const { CompanionRuntime } = await import('../src/cli/runtime.mjs');
+  const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
   const h = await fixture(t);
   let now = '2026-04-27T09:00:00Z';
   let calls = 0;
@@ -265,8 +265,8 @@ test('multiple times and windows deduplicate across restart and single-time edit
       };
     },
   };
-  let runtime = await CompanionRuntime.open(h.root, config);
-  let runner = new CompanionRunner({ ...options, runtime });
+  let runtime = await HobkinRuntime.open(h.root, config);
+  let runner = new HobkinRunner({ ...options, runtime });
   try {
     await runner.tick();
     await runtime.idle();
@@ -286,8 +286,8 @@ test('multiple times and windows deduplicate across restart and single-time edit
     assert.equal(calls, 2); // Changing the settings must not repeat 15:00.
     await runner.stop();
     await runtime.close();
-    runtime = await CompanionRuntime.open(h.root, config);
-    runner = new CompanionRunner({ ...options, runtime });
+    runtime = await HobkinRuntime.open(h.root, config);
+    runner = new HobkinRunner({ ...options, runtime });
     await runner.tick();
     await runtime.idle();
     assert.equal(calls, 2);
@@ -315,7 +315,7 @@ test('a window expiring during admission cannot start a provider outside its hou
     now = '2026-04-27T10:01:00Z';
     return effect(signal);
   });
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...h,
     config,
     now: () => new Date(now),
@@ -389,7 +389,7 @@ test('runner snapshots forecast only enabled, unblocked schedules and distinguis
   let changes = 0;
   const change = h.runtime.change.bind(h.runtime);
   h.runtime.change = async operation => { changes++; return change(operation); };
-  const runner = new CompanionRunner({ ...h, config, now: () => now });
+  const runner = new HobkinRunner({ ...h, config, now: () => now });
   t.after(() => runner.stop());
   await runner.tick();
   let snapshot = await runner.snapshot();
@@ -414,7 +414,7 @@ test('runner snapshots forecast only enabled, unblocked schedules and distinguis
 test('a running recurring check keeps its next occurrence on the forecast', async t => {
   const h = await fixture(t, { at: undefined, window: { start: '09:00', end: '18:00', everyMinutes: 60 } });
   let now;
-  const runner = new CompanionRunner({ ...h, config, now: () => now });
+  const runner = new HobkinRunner({ ...h, config, now: () => now });
   t.after(() => runner.stop());
   const forecastWhileRunning = async (id, time, run) => {
     now = new Date(time);
@@ -436,7 +436,7 @@ test('a running recurring check keeps its next occurrence on the forecast', asyn
 
 test('legacy forecasts use saved next runs but never hide uncertain earlier attempts', async t => {
   const h = await fixture(t);
-  const runner = new CompanionRunner({ ...h, config, now: () => new Date('2026-04-27T08:00:00Z') });
+  const runner = new HobkinRunner({ ...h, config, now: () => new Date('2026-04-27T08:00:00Z') });
   const task = { enabled: true, status: 'pending', nextRun: '2026-04-27T09:00:00Z' };
   runner.loaded.schedules = [{ ...h.schedule, cadence: 'compatibility', legacy: { legacy: task } }];
   assert.equal((await runner.snapshot()).schedules[0].nextRun.at, task.nextRun);
@@ -475,7 +475,7 @@ test('tick returns before completion, deduplicates and exposes durable full repo
   let finish;
   let dispatched;
   let calls = 0;
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -527,7 +527,7 @@ test('tick returns before completion, deduplicates and exposes durable full repo
 test('reload rejects malformed cached authority and unsafe/missing context before any dispatch', async t => {
   const fixtureData = await fixture(t);
   let calls = 0;
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -564,7 +564,7 @@ test('capacity is bounded, schedule runs never overlap, and stop cancels only ow
   await fixtureData.save({ ...fixtureData.schedule, id: 'other' });
   let calls = 0;
   let date = new Date('2026-04-27T10:00:00Z');
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config: { ...config, concurrency: 1 },
     now: () => date,
@@ -584,14 +584,14 @@ test('capacity is bounded, schedule runs never overlap, and stop cancels only ow
 
   await runner.stop();
   assert.equal(Object.values(fixtureData.runtime.data.runs)[0].status, 'interrupted');
-  assert.throws(() => new CompanionRunner({ ...fixtureData, config: { ...config, concurrency: 5 } }), /concurrency/);
+  assert.throws(() => new HobkinRunner({ ...fixtureData, config: { ...config, concurrency: 5 } }), /concurrency/);
 });
 
 test('a running check takes a message, and one that is not running says so', async t => {
   const fixtureData = await fixture(t);
   const received = [];
   const finish = Promise.withResolvers();
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -621,7 +621,7 @@ test('a message to a check that is still starting waits for it', async t => {
   const received = [];
   const ready = Promise.withResolvers();
   const finish = Promise.withResolvers();
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -646,7 +646,7 @@ test('a message to a check that is still starting waits for it', async t => {
 test('a message to a check that ends before it starts fails instead of waiting forever', async t => {
   const fixtureData = await fixture(t);
   const failing = Promise.withResolvers();
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -667,7 +667,7 @@ test('kill stops only the named owned native run and keeps its schedule', async 
   const held = request => new Promise(resolve => {
     request.signal.addEventListener('abort', () => resolve({ status: 'interrupted', error: 'Harness cancelled.' }), { once: true });
   });
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -694,7 +694,7 @@ test('kill stops only the named owned native run and keeps its schedule', async 
 });
 
 test('kill interrupts only the named compatibility attempt and keeps explicit reconciliation', async t => {
-  const { CompanionRuntime } = await import('../src/cli/runtime.mjs');
+  const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
   const h = await fixture(t);
   await mkdir(join(h.root, 'schedules/compatibility'));
   const files = [];
@@ -734,9 +734,9 @@ test('kill interrupts only the named compatibility attempt and keeps explicit re
     },
   });
   const limits = { ...config, concurrency: 3 };
-  const runtime = await CompanionRuntime.open(h.root, limits);
+  const runtime = await HobkinRuntime.open(h.root, limits);
   let now = new Date('2026-04-27T10:00:00Z');
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...h, runtime, config: limits, now: () => now, compatibility: adapter,
     runHarness: hold('check', { status: 'interrupted', error: 'Harness cancelled.' }),
   });
@@ -776,7 +776,7 @@ test('context file and total envelope limits fail closed without provider use', 
   const fixtureData = await fixture(t, { context: ['large'] });
   await writeFile(join(fixtureData.root, 'large'), 'x'.repeat(33000));
   let calls = 0;
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -796,7 +796,7 @@ test('context file and total envelope limits fail closed without provider use', 
 });
 
 test('real durable receipts and ordinary reports survive reopening without rerunning', async t => {
-  const { CompanionRuntime } = await import('../src/cli/runtime.mjs');
+  const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
   const fixtureData = await fixture(t);
   let calls = 0;
   const options = {
@@ -812,8 +812,8 @@ test('real durable receipts and ordinary reports survive reopening without rerun
       };
     },
   };
-  let runtime = await CompanionRuntime.open(fixtureData.root, config);
-  let runner = new CompanionRunner({ ...options, runtime });
+  let runtime = await HobkinRuntime.open(fixtureData.root, config);
+  let runner = new HobkinRunner({ ...options, runtime });
   try {
     await runner.tick();
     await runtime.idle();
@@ -822,8 +822,8 @@ test('real durable receipts and ordinary reports survive reopening without rerun
     await runtime.close();
   }
 
-  runtime = await CompanionRuntime.open(fixtureData.root, config);
-  runner = new CompanionRunner({ ...options, runtime });
+  runtime = await HobkinRuntime.open(fixtureData.root, config);
+  runner = new HobkinRunner({ ...options, runtime });
   try {
     await runner.tick();
     await runtime.idle();
@@ -846,7 +846,7 @@ test('a definition changed after reservation cannot use the old provider authori
     await writeFile(join(fixtureData.root, 'schedules/daily/check.md'), 'broken');
     return effect(signal);
   });
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
@@ -864,7 +864,7 @@ test('start is idempotent and a running schedule cannot overlap on a later date'
   const fixtureData = await fixture(t);
   let calls = 0;
   let date = new Date('2026-04-27T10:00:00Z');
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => date,
@@ -900,7 +900,7 @@ test('directory context and nested symlinks cannot cross explicit source permiss
   await writeFile(join(fixtureData.root, 'folder/source'), 'data');
   await symlink('folder', join(fixtureData.root, 'alias'));
   let calls = 0;
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     ...fixtureData,
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),

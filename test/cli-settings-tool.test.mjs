@@ -92,7 +92,7 @@ async function syntheticRuntime(root, models) {
 }
 
 test('SDK model settings tool persists exact scopes, updates the active session, and reports SDK clamping', async t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-settings-tool-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-settings-tool-'));
   const config = initialize(root, { cwd: root });
   const schedulePath = schedule(root);
   const agentDir = join(root, 'agent');
@@ -181,7 +181,7 @@ test('SDK model settings tool persists exact scopes, updates the active session,
 });
 
 test('a request for one schedule changes that schedule through the settings tool', async t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-settings-tool-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-settings-tool-'));
   const config = initialize(root, { cwd: root });
   schedule(root);
   const agentDir = join(root, 'agent');

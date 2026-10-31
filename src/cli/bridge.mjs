@@ -1,13 +1,13 @@
-// Extension code in the Pi child reaches Companion through an RPC input dialog with this title,
+// Extension code in the Pi child reaches Hobkin through an RPC input dialog with this title,
 // so the only channel is the child's own stdio pipe; nothing listens on a socket or in the environment.
-export const BRIDGE = 'companion/bridge';
+export const BRIDGE = 'hobkin/bridge';
 const MAX_REQUEST_BYTES = 1048576;
 
 /** Child side. Resolves the host's result or throws its error. */
 export async function callBridge(ctx, request, signal) {
-  if (ctx?.mode !== 'rpc') throw Error('Companion tools run only under a Companion host.');
+  if (ctx?.mode !== 'rpc') throw Error('Hobkin tools run only under a Hobkin host.');
   const answer = await ctx.ui.input(BRIDGE, JSON.stringify(request), { signal });
-  if (answer === undefined) throw Error(signal?.aborted ? 'Cancelled.' : 'The Companion host did not answer.');
+  if (answer === undefined) throw Error(signal?.aborted ? 'Cancelled.' : 'The Hobkin host did not answer.');
   const reply = JSON.parse(answer);
   if (!reply.ok) throw Error(reply.error);
   return reply.result;

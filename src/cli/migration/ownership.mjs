@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { readSource, sha256 } from './inventory.mjs';
 
-// Long-running Companion conversations exceed 64 MiB within days.
+// Long-running Hobkin conversations exceed 64 MiB within days.
 export const MAX_SESSION_BYTES = 268435456;
 
 /** Identity only. Live main conversations grow without bound, so startup reads just the header line. */
@@ -87,7 +87,7 @@ export function validateOwnership({ manifest, selection, quiescence, checkpoint 
     required.add(historicalClaim.sessionId);
     if (historicalClaim.sessionId !== main.sessionId) warnings.push('historical_owner_differs');
   }
-  const database = manifest.files.find(entry => entry.category === 'durable' && entry.path.endsWith('companion.sqlite'));
+  const database = manifest.files.find(entry => entry.category === 'durable' && entry.path.endsWith('hobkin.sqlite'));
   if (database) {
     if (!checkpoint || checkpoint.sha256 !== database.sha256 || !checkpoint.lifecycle) throw Error('Read the pinned Durable checkpoint before adopting ownership.');
     const lifecycle = checkpoint.lifecycle;

@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os';
 import { inventoryLegacy, sha256, verifyInventory } from '../src/cli/migration/inventory.mjs';
 import { MigrationJournal } from '../src/cli/migration/journal.mjs';
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), 'companion-journal-'));
+  const home = mkdtempSync(join(tmpdir(), 'hobkin-journal-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  mkdirSync(join(home, '.companion-notes/nested'), { recursive: true });
-  writeFileSync(join(home, '.companion-notes/nested/a.md'), 'preserve\n<!-- historical -->\n');
+  mkdirSync(join(home, '.hobkin-notes/nested'), { recursive: true });
+  writeFileSync(join(home, '.hobkin-notes/nested/a.md'), 'preserve\n<!-- historical -->\n');
   return {
     home,
     root: join(home, 'v2'),
@@ -124,7 +124,7 @@ test('failure after each durable phase resumes that migration and never creates 
 test('a destination aliased inside a source is rejected before creating any directories', async t => {
   const f = fixture(t);
   const alias = join(f.home, 'notes-alias');
-  const source = join(f.home, '.companion-notes');
+  const source = join(f.home, '.hobkin-notes');
   symlinkSync(source, alias, 'dir');
 
   for (const root of [alias, join(alias, 'new-parent/v2')]) {

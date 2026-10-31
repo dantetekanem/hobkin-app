@@ -9,7 +9,7 @@ import { main, parseArguments } from '../src/cli/main.mjs';
 import { readItems, readMode, readProjects, writeMode } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-work-cli-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-work-cli-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root });
   return root;

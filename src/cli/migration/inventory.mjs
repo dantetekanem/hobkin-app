@@ -6,11 +6,11 @@ export const sha256 = value => createHash('sha256').update(value).digest('hex');
 export function legacyLayout(home) {
   if (!isAbsolute(home ?? '')) throw Error('Migration requires an explicit absolute source home.');
   return [
-    { category: 'companion', path: join(home, '.pi/agent/companion') },
+    { category: 'hobkin', path: join(home, '.pi/agent/hobkin') },
     { category: 'scheduler', path: join(home, '.pi/agent/state/scheduler/tasks.json') },
-    { category: 'registry', path: join(home, '.companion-schedules.md') },
-    { category: 'notes', path: join(home, '.companion-notes') },
-    { category: 'feed', path: join(home, '.companion-reports-updates.md') },
+    { category: 'registry', path: join(home, '.hobkin-schedules.md') },
+    { category: 'notes', path: join(home, '.hobkin-notes') },
+    { category: 'feed', path: join(home, '.hobkin-reports-updates.md') },
   ];
 }
 function readRegular(path, limit) {
@@ -35,7 +35,7 @@ function readRegular(path, limit) {
   }
 }
 function classify(category, path, root) {
-  if (category !== 'companion') return { category, origin: category };
+  if (category !== 'hobkin') return { category, origin: category };
   const local = relative(root, path);
   if (/^[a-f0-9]{64}\.json$/.test(local)) return { category: 'state', origin: `session:${basename(local, '.json')}` };
   if (local === 'owner.json') return { category: 'owner', origin: 'historical-owner' };

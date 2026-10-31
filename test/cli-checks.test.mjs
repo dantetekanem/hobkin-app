@@ -10,7 +10,7 @@ const schedule = { id: 'mail', title: 'Mail', prompt: 'Check mail.' };
 const start = Date.parse('2026-01-10T12:00:00.000Z');
 
 function home(t) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-checks-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-checks-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }

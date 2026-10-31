@@ -48,7 +48,7 @@ async function stageUpgrade(journal, options) {
   if (!Array.isArray(sessions) || !sessions.length) throw Error('Explicit session pins are required for upgrade.');
   const requestedConfig = configFor(journal, options.config);
   let config = requestedConfig;
-  const root = legacyLayout(record.manifest.spec.home).find(source => source.category === 'companion').path;
+  const root = legacyLayout(record.manifest.spec.home).find(source => source.category === 'hobkin').path;
   const migration = {
     id: record.id,
     fingerprint: record.manifest.fingerprint,

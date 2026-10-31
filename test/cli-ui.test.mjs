@@ -127,7 +127,7 @@ test('offline input is disabled, editing shortcuts stay in composer and draft su
 const lineWith = (ui, text) => ui.render(80, 24).find(value => stripVTControlCharacters(value).includes(text));
 const soon = () => new Date(Date.now() + 1000).toISOString();
 
-test('your messages sit under You, the way replies sit under Companion', () => {
+test('your messages sit under You, the way replies sit under Hobkin', () => {
   const at = '2026-05-04T15:00:00Z';
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [
     { id: 'one', role: 'user', content: 'hello', at },
@@ -491,7 +491,7 @@ test('only visible chat entries have author blocks and the header times the busy
   now += 15000;
 
   const rendered = screen(ui, 80, 24).split('\n');
-  assert.equal(rendered.filter(value => /^\s*◆ Companion\b/.test(value)).length, 1);
+  assert.equal(rendered.filter(value => /^\s*◆ Hobkin\b/.test(value)).length, 1);
   assert.match(rendered[0], /working 15s/);
 
   ui.update({ ...snapshot, messages, busy: false, connection: 'connected' });
@@ -526,7 +526,7 @@ test('busy or live-job activity animates only while work runs and never after st
 });
 
 test('fullscreen editor loads namespaced Pi typing bindings without changing the file', t => {
-  const agentDir = mkdtempSync(join(tmpdir(), 'companion-keybindings-'));
+  const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-keybindings-'));
   t.after(() => rmSync(agentDir, { recursive: true, force: true }));
   writeFileSync(join(agentDir, 'keybindings.json'), JSON.stringify({ 'tui.editor.cursorLineStart': 'ctrl+q' }));
   const terminal = new FakeTerminal();
@@ -539,7 +539,7 @@ test('fullscreen editor loads namespaced Pi typing bindings without changing the
 });
 
 test('fullscreen dashboard follows the saved Pi theme and switches live when the setting changes', async t => {
-  const agentDir = mkdtempSync(join(tmpdir(), 'companion-theme-'));
+  const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-theme-'));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   const terminal = new FakeTerminal();
   let ui;
@@ -1151,7 +1151,7 @@ test('m in a report moves to the composer with that report attached, and sending
   ui.input('\r');
   await ui.pending();
   assert.deepEqual(sent, [['why', 'one']]);
-  assert.match(screen(ui, 120, 40), /Message Companion/);
+  assert.match(screen(ui, 120, 40), /Message Hobkin/);
 
   ui.input('next');
   ui.input('\r');
@@ -1275,7 +1275,7 @@ test('an idle dashboard redraws often enough for tips and countdowns, then stops
 });
 
 test('non-TTY status stays finite, local and ANSI-free', t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-ui-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-ui-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const run = (...args) => spawnSync(process.execPath, ['src/cli/main.mjs', ...args, '--home', root], { encoding: 'utf8', timeout: 5000 });
   assert.equal(run('init').status, 0);

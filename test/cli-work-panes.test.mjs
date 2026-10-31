@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { agentName, insideHerdr, WorkPanes } from '../src/cli/work/panes.mjs';
 
 function folder(t) {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), 'companion-panes-')));
+  const path = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-panes-')));
   t.after(() => rmSync(path, { recursive: true, force: true }));
   return path;
 }
@@ -75,7 +75,7 @@ const run = (base, overrides = {}) => ({
 });
 const called = (herdr, group, action) => herdr.calls.filter(args => args[0] === group && args[1] === action);
 
-test('work mode only uses panes when Companion runs inside Herdr', () => {
+test('work mode only uses panes when Hobkin runs inside Herdr', () => {
   assert.equal(insideHerdr({ HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }), true);
   assert.equal(insideHerdr({ HERDR_ENV: '1' }), false);
   assert.equal(insideHerdr({}), false);

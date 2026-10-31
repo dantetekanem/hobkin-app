@@ -79,12 +79,12 @@ test('responses are matched by id, a refusal is marked, and the response callbac
   const sent = [];
   child.stdin.on('data', chunk => sent.push(...String(chunk).trim().split('\n').map(line => JSON.parse(line))));
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(sent.map(({ id, type }) => [id, type]), [['companion-1', 'get_state'], ['companion-2', 'prompt'], ['companion-3', 'abort']]);
+  assert.deepEqual(sent.map(({ id, type }) => [id, type]), [['hobkin-1', 'get_state'], ['hobkin-2', 'prompt'], ['hobkin-3', 'abort']]);
   child.stdout.write([
-    { type: 'response', id: 'companion-3', command: 'abort', success: false, error: 'Nothing to abort\u0007' },
-    { type: 'response', id: 'companion-2', command: 'prompt', success: true, data: { disposition: 'started' } },
+    { type: 'response', id: 'hobkin-3', command: 'abort', success: false, error: 'Nothing to abort\u0007' },
+    { type: 'response', id: 'hobkin-2', command: 'prompt', success: true, data: { disposition: 'started' } },
     { type: 'agent_start' },
-    { type: 'response', id: 'companion-1', command: 'get_state', success: true, data: { ok: true } },
+    { type: 'response', id: 'hobkin-1', command: 'get_state', success: true, data: { ok: true } },
   ].map(record => `${JSON.stringify(record)}\n`).join(''));
   assert.deepEqual(await first, { ok: true });
   assert.deepEqual(await second, { disposition: 'started' });

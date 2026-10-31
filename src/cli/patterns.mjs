@@ -5,7 +5,7 @@ import { collectSessionPatterns } from './session-patterns.mjs';
 import { validateBinding } from './schedules.mjs';
 import { atomicJson, loadConfig } from './config.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
-import { CompanionRuntime } from './runtime.mjs';
+import { HobkinRuntime } from './runtime.mjs';
 import { runHarness } from './harnesses.mjs';
 import { UsageLedger } from './usage.mjs';
 import { readLocalView } from './view.mjs';
@@ -53,7 +53,7 @@ export async function submitPatterns(root, { hash, confirmation, run = runHarnes
     throw Error('The preview, destination or selected sources changed. Preview again.');
   }
   const config = loadConfig(root);
-  const runtime = await CompanionRuntime.open(root, config);
+  const runtime = await HobkinRuntime.open(root, config);
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });

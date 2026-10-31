@@ -77,7 +77,7 @@ export class LegacyOwner {
     if (!identity?.sessionId || !isAbsolute(identity.sessionFile ?? '')) throw Error('A saved legacy session identity is required.');
     const directory = directoryFor(root, options);
     return gated(directory, async check => {
-      if (legacyIsFenced(root, directory)) throw Error('Legacy Companion is fenced for its v2 upgrade.');
+      if (legacyIsFenced(root, directory)) throw Error('Legacy Hobkin is fenced for its v2 upgrade.');
       const owner = new LegacyOwner();
       owner.file = ownerPath(directory, identity.sessionId);
       owner.directory = directory;

@@ -13,7 +13,7 @@ const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 const finished = "send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Done' }] } }); send({ type: 'agent_settled' });";
 
 function request(t, extra = {}) {
-  const cwd = mkdtempSync(join(tmpdir(), 'companion-launcher-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'hobkin-launcher-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   return { id, harness: 'pi', cwd, model: 'test/model', effort: 'medium', prompt: 'Check.', sessionFile: join(cwd, 'job.jsonl'), ...extra };
 }
@@ -72,7 +72,7 @@ test('a launcher is optional and validated strictly', () => {
 });
 
 test('configuration carries a validated launcher through save and load and rejects a bad one', t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-launcher-config-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-launcher-config-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
   assert.equal(config.launcher, undefined);

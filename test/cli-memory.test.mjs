@@ -7,7 +7,7 @@ import { buildContext } from '../src/cli/context.mjs';
 import { createMemoryExtension, createMemoryTool, memoryBytes, readMemory } from '../src/cli/memory.mjs';
 
 function dataRoot(t) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-memory-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-memory-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }

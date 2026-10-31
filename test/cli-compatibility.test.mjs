@@ -4,14 +4,14 @@ import { migrationFixture } from './helpers/migration.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { runUpgrade } from '../src/cli/migration/cutover.mjs';
 import { SchedulerCompatibility } from '../src/cli/legacy-engine.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
-import { CompanionRunner } from '../src/cli/runner.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRunner } from '../src/cli/runner.mjs';
 import { CompatibilityDelivery } from '../src/cli/compatibility.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
 import { loadConfig } from '../src/cli/config.mjs';
 
-const directory = process.env.COMPANION_TEST_SCHEDULER;
-const realEngine = { skip: directory ? false : 'Set COMPANION_TEST_SCHEDULER to the installed 0.5.1 package.' };
+const directory = process.env.HOBKIN_TEST_SCHEDULER;
+const realEngine = { skip: directory ? false : 'Set HOBKIN_TEST_SCHEDULER to the installed 0.5.1 package.' };
 
 test('joined delivery runs shell wake, local notifications, messages and reflection with honest cost and evidence', realEngine, async t => {
   const h = await migrationFixture(t, {
@@ -34,7 +34,7 @@ test('joined delivery runs shell wake, local notifications, messages and reflect
   await runUpgrade(h.journal, h.options);
   const config = loadConfig(h.root);
   const fake = fakePi(h.root);
-  const runtime = await CompanionRuntime.open(h.root, config, { createMain: fake.createMain });
+  const runtime = await HobkinRuntime.open(h.root, config, { createMain: fake.createMain });
   await runtime.connect();
   const now = () => new Date(Date.parse(config.initializedAt) + 86400000);
   let shells = 0;
@@ -70,7 +70,7 @@ test('joined delivery runs shell wake, local notifications, messages and reflect
       };
     },
   });
-  const runner = new CompanionRunner({ runtime, root: runtime.directory, config, compatibility: joined.adapter, now });
+  const runner = new HobkinRunner({ runtime, root: runtime.directory, config, compatibility: joined.adapter, now });
   t.after(async () => {
     await runner.stop();
     await joined.close();
@@ -119,7 +119,7 @@ test('main input during legacy preparation proceeds independently', realEngine, 
   await runUpgrade(h.journal, h.options);
   const config = loadConfig(h.root);
   const fake = fakePi(h.root);
-  const runtime = await CompanionRuntime.open(h.root, config, { createMain: fake.createMain });
+  const runtime = await HobkinRuntime.open(h.root, config, { createMain: fake.createMain });
   await runtime.connect();
   const now = () => new Date(Date.parse(config.initializedAt) + 86400000);
   let checks = 0;
@@ -127,7 +127,7 @@ test('main input during legacy preparation proceeds independently', realEngine, 
     checks++;
     return { status: 'completed', text: 'Independent check', sessionId: input.id, freshSession: true, cost: null };
   } });
-  const runner = new CompanionRunner({ runtime, root: runtime.directory, config, compatibility: joined.adapter, now });
+  const runner = new HobkinRunner({ runtime, root: runtime.directory, config, compatibility: joined.adapter, now });
   const prepared = Promise.withResolvers();
   const resumePreparation = Promise.withResolvers();
   const prepare = joined.adapter.prepare.bind(joined.adapter);

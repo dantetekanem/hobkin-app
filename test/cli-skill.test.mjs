@@ -13,7 +13,7 @@ async function run(args) {
 }
 
 test('skill prints without a workspace and creates nothing', async t => {
-  const parent = mkdtempSync(join(tmpdir(), 'companion-skill-'));
+  const parent = mkdtempSync(join(tmpdir(), 'hobkin-skill-'));
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const home = join(parent, 'never-created');
 
@@ -30,12 +30,12 @@ test('the printed skill has the frontmatter skill loaders read', async () => {
   const frontmatter = text.match(/^---\nname: (.+)\ndescription: (.+)\n---\n/);
   assert.ok(frontmatter, 'expected name and description frontmatter');
   const [, name, description] = frontmatter;
-  assert.equal(name, 'pi-companion');
+  assert.equal(name, 'hobkin');
   assert.ok(description.length <= 1024);
   assert.doesNotMatch(description, /: /, 'a colon would break the plain YAML value');
 });
 
-test('the example schedule in the skill is one Companion accepts', async () => {
+test('the example schedule in the skill is one Hobkin accepts', async () => {
   const { text } = await run(['skill']);
 
   const [, example] = text.match(/```markdown\n([\s\S]*?\n)```/);

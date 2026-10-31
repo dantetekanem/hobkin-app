@@ -104,7 +104,7 @@ const gradient = (value, from, to) => {
 // 256-color themes have no RGB endpoints, so the name falls back to the solid accent.
 const brand = () => {
   const [from, to] = palette.gradient;
-  const name = from && to ? gradient('Pi Companion', from, to) : highlight('Pi Companion');
+  const name = from && to ? gradient('hobkin', from, to) : highlight('hobkin');
   return `${highlight('◆')} ${bold(name)}`;
 };
 // Re-open the background after resets so truncated, styled text keeps the selection bar intact.
@@ -132,11 +132,11 @@ const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
 const MIN_ROWS_FOR_PINNED_DAY = 8;
 const tips = [
-  'Try another model or thinking effort? Just ask Companion.',
+  'Try another model or thinking effort? Just ask Hobkin.',
   'Each schedule can have its own model and thinking effort.',
-  'Ask Companion to run any check now, even a paused one.',
+  'Ask Hobkin to run any check now, even a paused one.',
   'Ask why a check stopped. Every check keeps a run log.',
-  'Tell Companion what matters. It remembers across chats.',
+  'Tell Hobkin what matters. It remembers across chats.',
   '/clear hides the chat. /reset starts a fresh conversation.',
 ];
 const ignoredTips = attention => attention.filter(item => item.ignored).map(({ title, read, reports }) =>
@@ -456,7 +456,7 @@ const jobActivityLines = ({ run, blocks, inner, clock, frame, markdown }) => {
   }
   for (const block of blocks) {
     if (block.kind === 'assistant' && clean(block.text).trim()) {
-      content.push(assistantColor(bold('◆ Companion')), ...markdown(block.text, inner - 2).map(value => `  ${value}`), '');
+      content.push(assistantColor(bold('◆ Hobkin')), ...markdown(block.text, inner - 2).map(value => `  ${value}`), '');
     } else if (block.kind === 'tool') {
       const [glyph, tone] = toolState(block.state, frame);
       content.push(`${tone(glyph)} ${bold(clean(block.name))} ${muted(clean(block.state))}`);
@@ -494,7 +494,7 @@ const chatEntries = messages => {
 const authorLabel = message => {
   if (message.waiting) return muted(bold('◆ You'));
   if (message.role === 'user') return accent(bold('◆ You'));
-  if (message.role === 'assistant') return assistantColor(bold('◆ Companion'));
+  if (message.role === 'assistant') return assistantColor(bold('◆ Hobkin'));
   return muted(bold(`◇ ${clean(message.role)}`));
 };
 const chatLines = ({ messages, inner, clock, markdown }) => {
@@ -1056,7 +1056,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const [above, ...lines] = editor.render(inner - 4);
     const below = lines.pop();
     const paint = editor.focused && connected() ? assistantColor : muted;
-    const prompted = referencedReport ? 'Ask about this report…' : 'Message Companion…';
+    const prompted = referencedReport ? 'Ask about this report…' : 'Message Hobkin…';
     const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
       : connected() ? prompted : 'Waiting for the main conversation…';
     const empty = !editor.getExpandedText();
@@ -1079,7 +1079,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       height - headerLength - choices.length - 11));
     question.scroll = Math.min(question.scroll, Math.max(0, text.length - capacity));
     const visibleText = text.slice(question.scroll, question.scroll + capacity);
-    return boxed({ paint: highlight, top: highlight(bold('Companion asks')), lines: [...visibleText, '', ...choices], inner });
+    return boxed({ paint: highlight, top: highlight(bold('Hobkin asks')), lines: [...visibleText, '', ...choices], inner });
   };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
@@ -1375,7 +1375,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       columns = width;
       contentBounds = { top: 0, bottom: 0 };
       if (question && (width < 60 || height < 18)) return [line('Enlarge to 60x18 to answer; Esc cancels.', width)];
-      if (width < 35 || height < 14) return [line('Pi Companion · enlarge terminal (35x14)', width)];
+      if (width < 35 || height < 14) return [line('Hobkin · enlarge terminal (35x14)', width)];
       const inner = width - 4;
       const clock = now();
       const frame = spinner(clock);

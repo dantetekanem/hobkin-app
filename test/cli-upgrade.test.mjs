@@ -10,8 +10,8 @@ import { readLocalView } from '../src/cli/view.mjs';
 import { legacyControlRoot, legacyIsFenced, LegacyOwner } from '../src/cli/migration/fence.mjs';
 import { sha256 } from '../src/cli/migration/inventory.mjs';
 
-const directory = process.env.COMPANION_TEST_SCHEDULER;
-const realEngine = { skip: directory ? false : 'Set COMPANION_TEST_SCHEDULER to the installed 0.5.1 package.' };
+const directory = process.env.HOBKIN_TEST_SCHEDULER;
+const realEngine = { skip: directory ? false : 'Set HOBKIN_TEST_SCHEDULER to the installed 0.5.1 package.' };
 async function fixture(t) {
   const h = await migrationFixture(t);
   await h.journal.close();
@@ -61,7 +61,7 @@ test('read-only plan and explicit preparation precede a single resumable, source
   assert.deepEqual(readFileSync(h.schedulerFile), after);
   assert.equal(readFileSync(h.stateFile, 'utf8'), JSON.stringify(h.state));
   assert.equal(readLocalView(h.root).usage.usd, 0.3);
-  const legacyRoot = join(h.home, '.pi/agent/companion');
+  const legacyRoot = join(h.home, '.pi/agent/hobkin');
   assert.equal(legacyIsFenced(legacyRoot), true);
   await assert.rejects(LegacyOwner.open(legacyRoot, plan.selection), /fenced/);
 });
@@ -83,7 +83,7 @@ test('a home without scheduler records migrates without a compatibility engine, 
   const index = JSON.parse(readFileSync(join(result.root, 'imported/schedules/index.json'), 'utf8'));
   assert.deepEqual(index.skippedWakes, [{ origin: h.options.sessions[0].origin, schedule: '24h' }]);
   assert.equal(readFileSync(h.stateFile, 'utf8'), JSON.stringify(h.state));
-  assert.equal(legacyIsFenced(join(h.home, '.pi/agent/companion')), true);
+  assert.equal(legacyIsFenced(join(h.home, '.pi/agent/hobkin')), true);
 });
 
 test('CLI plan/status are finite and plain activation is rejected without staging or mutation', realEngine, async t => {
@@ -100,7 +100,7 @@ test('CLI plan/status are finite and plain activation is rejected without stagin
 
 test('public upgrade phases reject a noncanonical fence path before writing', realEngine, async t => {
   const h = await fixture(t);
-  const legacyRoot = join(h.home, '.pi/agent/companion');
+  const legacyRoot = join(h.home, '.pi/agent/hobkin');
   const elsewhere = join(h.home, 'wrong-control');
   assert.throws(() => planUpgrade({ ...h.selection, controlRoot: elsewhere }), /canonical|control.*root/i);
   assert.equal(existsSync(elsewhere), false);

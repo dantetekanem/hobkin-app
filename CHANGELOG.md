@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rename the project from Pi Companion to Hobkin: a new repository, the `hobkin` command, `~/.hobkin` as the data folder and `HOBKIN_HOME` to move it. `pi-companion` stays as it was, and entries below keep its name.
 - Add work mode: a Work Mode tab, started with Enter or `/work` and a folder to start from, sends an agent to find the projects there and propose them, and agents then study each project taken, file work and open PRs from their own worktrees.
 - Run work on chosen projects in panes of a Herdr tab called Work Mode, on the harness the user picks.
 - Design ideas for each project daily, fewer when it has open work, and spread work mode's tokens across a daily limit. At the limit it pauses and asks for a higher allowance, saying why.

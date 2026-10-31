@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-export const companionTools = ['ask_question', 'run_schedule', 'message_check', 'companion_memory', 'model_settings'];
+export const hobkinTools = ['ask_question', 'run_schedule', 'message_check', 'hobkin_memory', 'model_settings'];
 const argument = (args, flag) => args[args.indexOf(flag) + 1];
 
 /**
@@ -11,7 +11,7 @@ const argument = (args, flag) => args[args.indexOf(flag) + 1];
  * It writes the session header Pi would write, so saved identities survive a reconnect.
  * `script` may replace any command: script.prompt(command, { reply, reject, emit, pi }).
  */
-export function fakePiRpc({ model = { provider: 'fixture', id: 'local' }, thinking, hello = companionTools, script = {}, models, ignoreStdinEnd = false } = {}) {
+export function fakePiRpc({ model = { provider: 'fixture', id: 'local' }, thinking, hello = hobkinTools, script = {}, models, ignoreStdinEnd = false } = {}) {
   const pi = {
     spawned: [],
     children: [],
@@ -144,13 +144,13 @@ export function fakePiRpc({ model = { provider: 'fixture', id: 'local' }, thinki
     });
     child.stdin.on('end', () => { if (!ignoreStdinEnd) close(0); });
     // Pi's extensions start before it reads input, so the status record precedes every response.
-    if (hello) emit({ type: 'extension_ui_request', id: 'hello', method: 'setStatus', statusKey: 'companion/bridge', statusText: JSON.stringify({ version: 1, tools: hello }) });
+    if (hello) emit({ type: 'extension_ui_request', id: 'hello', method: 'setStatus', statusKey: 'hobkin/bridge', statusText: JSON.stringify({ version: 1, tools: hello }) });
     return child;
   };
   return pi;
 }
 
-/** Ask the host as the Companion extension does, and resolve its decoded answer. */
+/** Ask the host as the Hobkin extension does, and resolve its decoded answer. */
 export function dialog(child, record) {
   const id = `ui-${randomUUID()}`;
   child.emit_({ type: 'extension_ui_request', id, ...record });

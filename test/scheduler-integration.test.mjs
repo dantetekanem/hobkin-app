@@ -21,7 +21,7 @@ const { ExperienceStore } = await jiti.import('../src/experience.ts');
 const { registerReinforcement } = await jiti.import('../src/reinforcement.ts');
 
 test('installed scheduler controls pending and firing tasks without changing cadence or unrelated tasks', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'companion-scheduler-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'hobkin-scheduler-test-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const schedulerFile = join(dir, '.pi/agent/state/scheduler/tasks.json'), schedulesFile = join(dir, 'schedules.md');
   mkdirSync(join(dir, '.pi/agent/state/scheduler'), { recursive: true });
@@ -80,7 +80,7 @@ test('installed scheduler controls pending and firing tasks without changing cad
 });
 
 test('installed scheduler delivers an exact internal wake to isolated reflection rather than the conversation model', { timeout: 10000 }, async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'companion-daily-integration-'));
+  const dir = mkdtempSync(join(tmpdir(), 'hobkin-daily-integration-'));
   const paths = { root: join(dir, 'memory'), schedulerFile: join(dir, 'tasks.json'), schedulesFile: join(dir, 'schedules.md'),
     reportsFile: join(dir, 'reports.md'), reviewSettingsFile: join(dir, 'teams.json') };
   writeFileSync(paths.schedulesFile, '# Schedules\n');

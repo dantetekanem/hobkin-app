@@ -39,7 +39,7 @@ export async function controlSchedules(action: 'start' | 'stop' | 'finish-stop',
   const approved = (task: Task) => task.scope === 'session' && task.sessionFile === sessionFile
     && ['cron', 'interval'].includes(task.type) && names().has(task.name) && /^task_[a-zA-Z0-9_]+$/.test(task.id);
   const active = () => {
-    if (paths.isActive && !paths.isActive()) throw new Error('Companion session changed; unfinished stop requests remain saved.');
+    if (paths.isActive && !paths.isActive()) throw new Error('Hobkin session changed; unfinished stop requests remain saved.');
   };
   const state = store.load();
   if (action === 'stop') {
@@ -49,7 +49,7 @@ export async function controlSchedules(action: 'start' | 'stop' | 'finish-stop',
       state.stopping.push({ id: task.id, signature: signature(task) });
     }
     store.save(state);
-    if (tasks.some(firing) && ctx.hasUI) ctx.ui.notify('Companion stop requested; waiting for running deliveries to finish. History is preserved.', 'info');
+    if (tasks.some(firing) && ctx.hasUI) ctx.ui.notify('Hobkin stop requested; waiting for running deliveries to finish. History is preserved.', 'info');
   }
   const candidates = [...(stopping ? state.stopping : state.paused)];
   let changed = 0, skipped = 0;
@@ -94,5 +94,5 @@ export async function controlSchedules(action: 'start' | 'stop' | 'finish-stop',
     store.save(latest);
     changed++;
   }
-  return `${stopping ? 'Stopped' : 'Resumed'} ${changed} Companion schedule(s) in this session.${skipped ? ` Skipped ${skipped} changed or no-longer-approved task(s).` : ''} History preserved; already-delivered checks are not aborted.`;
+  return `${stopping ? 'Stopped' : 'Resumed'} ${changed} Hobkin schedule(s) in this session.${skipped ? ` Skipped ${skipped} changed or no-longer-approved task(s).` : ''} History preserved; already-delivered checks are not aborted.`;
 }

@@ -19,7 +19,7 @@ const prompt = (name: string) => readFileSync(new URL(`./prompts/${name}.md`, im
 export function registerReinforcement(pi: ExtensionAPI, paths: ReinforcementPaths, admitted = () => true) {
   const allowed = () => admitted() && !legacyIsFenced(paths.root, paths.migrationControlRoot);
   const assertAllowed = () => {
-    if (!allowed()) throw Error('Legacy Companion is fenced or has no active owner.');
+    if (!allowed()) throw Error('Legacy Hobkin is fenced or has no active owner.');
   };
   let running: Promise<void> | undefined;
   let controller: AbortController | undefined;
@@ -27,7 +27,7 @@ export function registerReinforcement(pi: ExtensionAPI, paths: ReinforcementPath
   let epoch = 0;
   const storeFor = (ctx: ExtensionContext) => new ExperienceStore(paths.root, ctx.sessionManager.getSessionId());
   const notify = (ctx: ExtensionContext, error: unknown) => {
-    if (ctx.hasUI) ctx.ui.notify(`Companion: ${error instanceof Error ? error.message : 'learning failed'}`, 'error');
+    if (ctx.hasUI) ctx.ui.notify(`Hobkin: ${error instanceof Error ? error.message : 'learning failed'}`, 'error');
   };
   const owned = (ctx: ExtensionContext, task: ScheduledTask) => {
     if (task.scope !== 'session' || task.sessionFile !== ctx.sessionManager.getSessionFile()) return false;
@@ -182,14 +182,14 @@ export function registerReinforcement(pi: ExtensionAPI, paths: ReinforcementPath
     controller?.abort(new Error('Session branch changed during daily review.'));
   });
   pi.registerTool({
-    name: 'companion_record',
-    label: 'Companion record',
-    description: 'Record Companion observations, run outcomes, questions, natural answers and applied schedule decisions. Questions publish to the existing Markdown feed. Use evidence IDs from Companion context; never invent user feedback. This is an agent tool, not a user workflow.',
+    name: 'hobkin_record',
+    label: 'Hobkin record',
+    description: 'Record Hobkin observations, run outcomes, questions, natural answers and applied schedule decisions. Questions publish to the existing Markdown feed. Use evidence IDs from Hobkin context; never invent user feedback. This is an agent tool, not a user workflow.',
     parameters: { ...RecordSchema, type: 'object' },
     async execute(_callId, params, _signal, _onUpdate, ctx) {
       assertAllowed();
       const provider = ctx.model?.provider;
-      if (!provider) throw Error('Companion requires a model provider for evidence provenance.');
+      if (!provider) throw Error('Hobkin requires a model provider for evidence provenance.');
       const session = hash(ctx.sessionManager.getSessionId());
       storeFor(ctx).update(state => record(state, params, paths.reportsFile, provider, undefined, session));
       return {
@@ -232,7 +232,7 @@ export function registerReinforcement(pi: ExtensionAPI, paths: ReinforcementPath
         state.generation++;
         delete state.pendingWake;
       });
-      controller?.abort(new Error('Companion stopped.'));
+      controller?.abort(new Error('Hobkin stopped.'));
       const operation = controls.catch(() => {}).then(async () => {
         const wake = store.load().wake;
         if (!wake) return;
@@ -248,7 +248,7 @@ export function registerReinforcement(pi: ExtensionAPI, paths: ReinforcementPath
     },
     shutdown() {
       epoch++;
-      controller?.abort(new Error('Companion session closed or changed.'));
+      controller?.abort(new Error('Hobkin session closed or changed.'));
     },
     async drain() {
       await Promise.allSettled([controls, running]);

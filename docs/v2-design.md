@@ -1,26 +1,26 @@
-# Companion CLI architecture
+# Hobkin CLI architecture
 
-Companion owns a persistent Pi conversation and a scheduler. Pi handles model turns, tools, extensions, compaction and conversation history. Pi Durable records dispatch and lifecycle state separately. The CLI does not attach to another Pi pane or share a live session file.
+Hobkin owns a persistent Pi conversation and a scheduler. Pi handles model turns, tools, extensions, compaction and conversation history. Pi Durable records dispatch and lifecycle state separately. The CLI does not attach to another Pi pane or share a live session file.
 
 ## Execution
 
 The main conversation uses Pi's SDK and SessionManager. It loads ordinary tools, configured extensions, project resources, codemode, tool search and MCP. Startup binds extensions without a model request; reset and shutdown close their lifecycle.
 
-With a configured `launcher`, the main conversation instead runs as a launcher-started Pi RPC child, and every job uses the same command. Companion's tools still run in the host. A small extension loaded with `--extension` registers matching proxies and reaches the host through RPC `input` dialogs titled `companion/bridge`. Startup verifies the session identity, model, effort and the proxied tools before use. An unexpected child exit stops the chat until a restart, without respawning; scheduled checks keep running.
+With a configured `launcher`, the main conversation instead runs as a launcher-started Pi RPC child, and every job uses the same command. Hobkin's tools still run in the host. A small extension loaded with `--extension` registers matching proxies and reaches the host through RPC `input` dialogs titled `hobkin/bridge`. Startup verifies the session identity, model, effort and the proxied tools before use. An unexpected child exit stops the chat until a restart, without respawning; scheduled checks keep running.
 
 Background checks use separate Pi RPC sessions and verify each schedule's model/effort before submission. Anthropic/Claude models work through Pi. The CLI has no Claude executable or Teams-specific integration.
 
 Checks receive their instructions, named context files, their working memory, their recent log lines and a limited previous outcome rather than the main transcript. Each run is a fresh process, so these are all it inherits. Context files must be regular files within the working directory, at most 32 KiB each. The complete supplied context is limited to 64 KiB. This preload rule is not a sandbox: Pi tools retain their configured access.
 
-Companion reserves each dispatch before work starts and saves its result before reporting completion. After a crash, a dispatch without a conclusive result becomes interrupted rather than replaying automatically. Cancellation terminates and reaps owned children. Jobs have no automatic execution deadline.
+Hobkin reserves each dispatch before work starts and saves its result before reporting completion. After a crash, a dispatch without a conclusive result becomes interrupted rather than replaying automatically. Cancellation terminates and reaps owned children. Jobs have no automatic execution deadline.
 
 ## State and reports
 
-Under the workspace root, `runtime/companion.sqlite` stores dispatch receipts, `runtime/usage.json` stores usage, and `reports/` holds new Markdown reports. Listings also include imported history and runtime records. Pi owns conversation files.
+Under the workspace root, `runtime/hobkin.sqlite` stores dispatch receipts, `runtime/usage.json` stores usage, and `reports/` holds new Markdown reports. Listings also include imported history and runtime records. Pi owns conversation files.
 
-`checks/<id>/memory.md` is a check's working memory, written by its agent; only the first 8 KiB reach a run, flagged as truncated when cut. `checks/<id>/log.md` has one line per finished run, written by Companion after the receipt commits, and keeps its newest lines once it passes 64 KiB. Receipts stay authoritative; a log write failure never changes an outcome.
+`checks/<id>/memory.md` is a check's working memory, written by its agent; only the first 8 KiB reach a run, flagged as truncated when cut. `checks/<id>/log.md` has one line per finished run, written by Hobkin after the receipt commits, and keeps its newest lines once it passes 64 KiB. Receipts stay authoritative; a log write failure never changes an outcome.
 
-`runtime/telemetry.jsonl` is an append-only local log of report reads and messages about reports, with run IDs and timings but no report text. It starts with a `tracking_started` event, so reports from before tracking are never judged, and keeps its newest half once it passes 1 MiB. Companion joins it with run receipts on each refresh to write `runtime/report-attention.json`, a per-check rollup with no model call. Telemetry only observes: a write failure never reaches the dashboard, and the rollup never changes a schedule.
+`runtime/telemetry.jsonl` is an append-only local log of report reads and messages about reports, with run IDs and timings but no report text. It starts with a `tracking_started` event, so reports from before tracking are never judged, and keeps its newest half once it passes 1 MiB. Hobkin joins it with run receipts on each refresh to write `runtime/report-attention.json`, a per-check rollup with no model call. Telemetry only observes: a write failure never reaches the dashboard, and the rollup never changes a schedule.
 
 Reports retain output alongside execution errors without a JSON envelope or tracking comments. Model completion does not establish successful collection, reading or usefulness.
 
@@ -70,6 +70,6 @@ Optional pattern review sends only previewed excerpts from explicitly selected s
 
 The CLI uses ESM `.mjs`, Node 22.19+, Pi SDK/TUI 1.4.0 and Durable 1.1.0. The legacy extension remains TypeScript.
 
-Tests use temporary roots, synthetic histories, fake provider boundaries and real Durable/SessionManager. Migration compatibility checks need `COMPANION_TEST_SCHEDULER` set to an installed scheduler package; otherwise those cases skip. Use the package's `test`, `test:cli` and `test:migration` scripts for their respective areas.
+Tests use temporary roots, synthetic histories, fake provider boundaries and real Durable/SessionManager. Migration compatibility checks need `HOBKIN_TEST_SCHEDULER` set to an installed scheduler package; otherwise those cases skip. Use the package's `test`, `test:cli` and `test:migration` scripts for their respective areas.
 
 Terminal checks cover 120×40, 80×24 and 60×18 layouts, input, scrolling, resize and clean shutdown. Source and fixture checks do not establish live-provider permissions, billing or collection success.

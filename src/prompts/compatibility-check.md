@@ -1,4 +1,4 @@
-# Migrated Companion check
+# Migrated Hobkin check
 
 Perform this scheduled request within its stated workspace, sources and provider permissions, using Pi's ordinary tools and extensions. Tool access grants no extra permission. Respect missing access and source-specific stops; the process is not an OS sandbox.
 

@@ -2,8 +2,8 @@ import { watch } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
-import { CompanionRuntime, MAIN_BUSY } from './runtime.mjs';
-import { CompanionRunner } from './runner.mjs';
+import { HobkinRuntime, MAIN_BUSY } from './runtime.mjs';
+import { HobkinRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { runHarness as defaultRunHarness } from './harnesses.mjs';
@@ -47,7 +47,7 @@ const messageTime = message => {
 
 const BUSY_RETRY_MS = 100;
 
-export class CompanionApplication {
+export class HobkinApplication {
   jobActivity = new Map();
   activeJobIds = new Set();
   outgoing = Promise.resolve();
@@ -66,7 +66,7 @@ export class CompanionApplication {
 
   static async open(root, { createMain, askQuestion, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null } = {}) {
     signal?.throwIfAborted();
-    const app = new CompanionApplication();
+    const app = new HobkinApplication();
     app.onChange = onChange;
     app.now = () => new Date(now?.() ?? Date.now()).getTime();
     app.config = loadConfig(root);
@@ -77,7 +77,7 @@ export class CompanionApplication {
       runHarness = (request, options) => run({ ...request, launcher }, options);
     }
     app.snapshot = readLocalView(root);
-    app.runtime = await CompanionRuntime.open(root, app.config, {
+    app.runtime = await HobkinRuntime.open(root, app.config, {
       createMain,
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
@@ -101,7 +101,7 @@ export class CompanionApplication {
       });
       app.ledger = UsageLedger.open(app.runtime.directory, app.config.initializedAt);
       app.telemetry = Telemetry.open(app.runtime.directory, app.now());
-      app.runner = new CompanionRunner({
+      app.runner = new HobkinRunner({
         runtime: app.runtime,
         root: app.runtime.directory,
         config: app.config,
@@ -123,7 +123,7 @@ export class CompanionApplication {
       });
       signal?.throwIfAborted();
       app.runner.start({ intervalMs });
-      // `pi-companion reports delete` runs in another process and changes no runtime state.
+      // `hobkin reports delete` runs in another process and changes no runtime state.
       app.deletionWatcher = watch(join(app.runtime.directory, 'runtime'), (event, name) => {
         if (name?.startsWith('deleted-reports.json')) app.requestRefresh();
       });
@@ -260,7 +260,7 @@ export class CompanionApplication {
       ],
       lastTick: loaded.lastTick,
       error: this.runtime.mainFault
-        ? `Main chat stopped: ${this.runtime.mainFault.message} Restart Companion to reconnect; scheduled checks keep running.`
+        ? `Main chat stopped: ${this.runtime.mainFault.message} Restart Hobkin to reconnect; scheduled checks keep running.`
         : loaded.error,
     };
     const saved = {

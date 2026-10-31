@@ -9,14 +9,14 @@ import { sha256 } from '../src/cli/migration/inventory.mjs';
 import { LegacyOwner, legacyIsFenced } from '../src/cli/migration/fence.mjs';
 import { SchedulerCompatibility } from '../src/cli/legacy-engine.mjs';
 import { LegacySchedules } from '../src/cli/legacy-schedules.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
-import { CompanionRunner } from '../src/cli/runner.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRunner } from '../src/cli/runner.mjs';
 import { loadConfig } from '../src/cli/config.mjs';
 import { loadSchedules } from '../src/cli/schedules.mjs';
 import { loadImportedHistory } from '../src/cli/history.mjs';
 
-const packageDirectory = process.env.COMPANION_TEST_SCHEDULER;
-const realEngine = { skip: packageDirectory ? false : 'Set COMPANION_TEST_SCHEDULER to installed pi-scheduler 0.5.1.' };
+const packageDirectory = process.env.HOBKIN_TEST_SCHEDULER;
+const realEngine = { skip: packageDirectory ? false : 'Set HOBKIN_TEST_SCHEDULER to installed pi-scheduler 0.5.1.' };
 
 test('real-engine upgrade preserves mixed origins/actions/stops and fences the old owner before one-time execution', realEngine, async t => {
   // Future even minute keeps this fixture independent of the actual migration creation time.
@@ -43,13 +43,13 @@ test('real-engine upgrade preserves mixed origins/actions/stops and fences the o
   const engine = SchedulerCompatibility.open(packageDirectory);
   h.options.engine = engine;
   h.options.decisions.forEach(decision => { decision.timezone = 'America/New_York'; });
-  const legacyRoot = join(h.home, '.pi/agent/companion');
+  const legacyRoot = join(h.home, '.pi/agent/hobkin');
   const owner = await LegacyOwner.open(legacyRoot, h.journal.record.selection, { controlRoot: h.options.controlRoot });
   t.after(() => owner.close(async () => {}));
   await assert.rejects(runUpgrade(h.journal, h.options), /owner|active|running/i);
   assert.equal(owner.active, true); // The fence blocks admission; it does not pretend to stop a process.
   assert.equal(legacyIsFenced(legacyRoot, h.options.controlRoot), true);
-  await assert.rejects(CompanionRuntime.open(h.root, h.options.config), /incomplete|verified/i);
+  await assert.rejects(HobkinRuntime.open(h.root, h.options.config), /incomplete|verified/i);
   await owner.close(async () => {});
   const result = await runUpgrade(h.journal, h.options), root = result.root;
   assert.equal(result.status, 'verified');
@@ -91,8 +91,8 @@ test('real-engine upgrade preserves mixed origins/actions/stops and fences the o
     return { stdout: 'Synthetic output', stderr: '', code: 0, killed: false };
   };
   const adapter = new LegacySchedules({ engine, handlers, now: () => new Date(due) }), config = loadConfig(h.root);
-  const runtime = await CompanionRuntime.open(h.root, config);
-  const runner = new CompanionRunner({ root, config, runtime, compatibility: adapter, now: () => new Date(due) });
+  const runtime = await HobkinRuntime.open(h.root, config);
+  const runner = new HobkinRunner({ root, config, runtime, compatibility: adapter, now: () => new Date(due) });
   t.after(async () => {
     await runner.stop();
     await runtime.close();
@@ -117,8 +117,8 @@ test('real-engine upgrade preserves mixed origins/actions/stops and fences the o
   assert.deepEqual(readFileSync(reopened.file), journalBytes);
   assert.deepEqual(readFileSync(h.schedulerFile), schedulerBytes);
   assert.equal(readdirSync(join(root, 'schedules/compatibility')).length, 7);
-  const restored = await CompanionRuntime.open(h.root, config);
-  const next = new CompanionRunner({ root, config, runtime: restored, compatibility: adapter, now: () => new Date(due) });
+  const restored = await HobkinRuntime.open(h.root, config);
+  const next = new HobkinRunner({ root, config, runtime: restored, compatibility: adapter, now: () => new Date(due) });
   t.after(async () => {
     await next.stop();
     await restored.close();

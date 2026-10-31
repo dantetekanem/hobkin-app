@@ -1,6 +1,6 @@
 # Find work worth automating
 
-Companion can review selected Pi or historical Claude JSONL sessions for recurring requests. This is optional; startup collects and sends nothing.
+Hobkin can review selected Pi or historical Claude JSONL sessions for recurring requests. This is optional; startup collects and sends nothing.
 
 Create a local JSON selection naming the files, date window and destination:
 
@@ -15,9 +15,9 @@ Create a local JSON selection naming the files, date window and destination:
 }
 ```
 
-1. Run `pi-companion patterns-preview --selection /absolute/selection.json`.
+1. Run `hobkin patterns-preview --selection /absolute/selection.json`.
 2. Inspect the local preview's excerpts, source hashes, omissions and destination. It contains user text and tool names, not full transcripts or tool arguments. Keep it private.
-3. Stop the running Companion owner, then submit the reviewed preview with `pi-companion patterns-submit --preview HASH --confirm HASH`, using the returned hash twice. Changed sources or destination require another preview.
+3. Stop the running Hobkin owner, then submit the reviewed preview with `hobkin patterns-submit --preview HASH --confirm HASH`, using the returned hash twice. Changed sources or destination require another preview.
 
 Use the same `--home` for both commands and the dashboard. Submission sends the preview to the chosen Pi model with tools disabled. The report proposes schedules without creating or enabling them. Submitting the same preview again does not rerun it.
 

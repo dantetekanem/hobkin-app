@@ -11,7 +11,7 @@ export { pinSession };
 export async function inspectCheckpoint(journal) {
   journal.verifyArchive();
   const files = journal.record.manifest.files.filter(file => file.category === 'durable');
-  const databases = files.filter(file => basename(file.path) === 'companion.sqlite');
+  const databases = files.filter(file => basename(file.path) === 'hobkin.sqlite');
   if (!databases.length) {
     if (files.length) throw Error('Unrecognized legacy Durable files require reconciliation.');
     return null;
@@ -22,16 +22,16 @@ export async function inspectCheckpoint(journal) {
   let storage;
   try {
     for (const file of files) {
-      if (dirname(file.path) !== dirname(database.path) || !['companion.sqlite', 'companion.sqlite-wal', 'companion.sqlite-shm'].includes(basename(file.path)))
+      if (dirname(file.path) !== dirname(database.path) || !['hobkin.sqlite', 'hobkin.sqlite-wal', 'hobkin.sqlite-shm'].includes(basename(file.path)))
         throw Error('Unrecognized legacy Durable file requires reconciliation.');
       writeFileSync(join(directory, basename(file.path)), readFileSync(journal.sourcePath(file)), { flag: 'wx', mode: 0o600 });
     }
-    storage = await openNodeSqliteStorage(join(directory, 'companion.sqlite'));
+    storage = await openNodeSqliteStorage(join(directory, 'hobkin.sqlite'));
     const conversations = await storage.scanConversations({}, 1001, undefined, BACKGROUND_CONTEXT);
     if (conversations.next || conversations.items.length > 1000) throw Error('Legacy checkpoint conversation limit exceeded.');
     const documents = [];
     for (const conversation of conversations.items) {
-      const page = await storage.scanDocuments({ kind: 'companion.lifecycle', scope: { kind: 'conversation', conversationId: conversation.id }, at: 'current' }, 2, undefined, BACKGROUND_CONTEXT);
+      const page = await storage.scanDocuments({ kind: 'hobkin.lifecycle', scope: { kind: 'conversation', conversationId: conversation.id }, at: 'current' }, 2, undefined, BACKGROUND_CONTEXT);
       if (page.next) throw Error('Ambiguous legacy lifecycle checkpoint.');
       documents.push(...page.items);
     }
@@ -52,7 +52,7 @@ export async function inspectCheckpoint(journal) {
       if (page.items.some(task => task.state.status !== 'terminal')) throw Error('Legacy control is unfinished; inspection will not execute it.');
     } while (cursor);
     const control = lifecycle.taskId ? await storage.task(lifecycle.taskId, BACKGROUND_CONTEXT) : null;
-    if (lifecycle.taskId && (!control || control.kind !== 'companion.control' || control.version !== 1
+    if (lifecycle.taskId && (!control || control.kind !== 'hobkin.control' || control.version !== 1
       || control.state.outcome?.status !== 'completed')) throw Error('Legacy control has no successful terminal receipt.');
     return {
       sha256: database.sha256,

@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BRIDGE, serveBridge } from './bridge.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { createMemoryTool, readMemory } from './memory.mjs';
 import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
@@ -11,7 +11,7 @@ import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs'
 import { createQuestionTool } from './questions.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
 
-export const extensionPath = fileURLToPath(new URL('./companion-extension.mjs', import.meta.url));
+export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
 // An approval must show everything it approves, so text that would be cut declines the dialog instead.
 const fullLine = (value, limit) => {
@@ -311,7 +311,7 @@ export async function openRpcSession(
     ask_question: createQuestionTool(askQuestion),
     run_schedule: createScheduleTool(triggerSchedule),
     message_check: createCheckMessageTool(messageCheck),
-    companion_memory: createMemoryTool(root),
+    hobkin_memory: createMemoryTool(root),
     model_settings: createSettingsTool(request => runModelSettings({
       root,
       config,
@@ -350,7 +350,7 @@ export async function openRpcSession(
       throw Error('Pi model or thinking binding changed.');
     }
     const missing = Object.keys(session.tools).filter(name => !session.hello?.tools?.includes(name));
-    if (missing.length) throw Error(`The Companion extension did not activate its tools: ${missing.join(', ')}.`);
+    if (missing.length) throw Error(`The Hobkin extension did not activate its tools: ${missing.join(', ')}.`);
     const { commands } = await session.child.request('get_commands');
     if (offersChrome(commands)) await session.child.request('prompt', { message: CHROME_GRANT });
     session.absorb(state);

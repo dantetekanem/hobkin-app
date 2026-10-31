@@ -14,8 +14,8 @@ The request's `work` field holds the item, the project, `projectNotes` (what ear
 4. For a bug, write the failing test first.
 5. Make the smallest change that finishes the item, with no changes on the side.
 6. Run the project's tests and linters. Follow the project's own `AGENTS.md`.
-7. Commit in the project's style and push your branch. Push only `companion/*` branches.
-8. Open the PR with `--repo <owner/name>`, so a fork never targets its upstream. Use `--draft` when `work.landing` is `draft`. The body says what changed, why, how it was tested, what could not be tested, and that Companion work mode opened it. For a feature, build the smallest useful slice and put the rest of the plan in the PR body.
+7. Commit in the project's style and push your branch. Push only `hobkin/*` branches.
+8. Open the PR with `--repo <owner/name>`, so a fork never targets its upstream. Use `--draft` when `work.landing` is `draft`. The body says what changed, why, how it was tested, what could not be tested, and that Hobkin work mode opened it. For a feature, build the smallest useful slice and put the rest of the plan in the PR body.
 9. Watch CI with `gh pr checks --watch` and fix what fails.
 10. Record the outcome by piping JSON to `work.commands.item`: `{ "id": "<id>", "state": "pr", "pr": "<url>" }`.
 

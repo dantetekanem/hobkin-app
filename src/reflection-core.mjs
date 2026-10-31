@@ -128,7 +128,7 @@ export function experienceContext(state, provider, maxBytes = 32000) {
       context.lessons,
       context.questions,
     ].find(items => items.length);
-    if (!collection) throw Error('Companion review context cannot fit its bound.');
+    if (!collection) throw Error('Hobkin review context cannot fit its bound.');
     collection.shift();
     context.omittedHistory = true;
   }

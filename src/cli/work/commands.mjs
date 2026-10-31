@@ -4,7 +4,7 @@ import {
   setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
 } from './store.mjs';
 
-const USAGE = 'Usage: pi-companion work [on [folder] | off | harness <kind> | tokens <daily limit> | allow [tokens | no] | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
+const USAGE = 'Usage: hobkin work [on [folder] | off | harness <kind> | tokens <daily limit> | allow [tokens | no] | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
 
 async function readJson(input) {
   let text = '';

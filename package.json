@@ -1,12 +1,12 @@
 {
-  "name": "pi-companion",
+  "name": "hobkin",
   "version": "0.1.6",
   "private": true,
   "type": "module",
-  "description": "A chat-first Companion CLI with recurring Pi checks and a persistent Pi conversation.",
-  "bin": { "pi-companion": "./src/cli/main.mjs" },
+  "description": "A chat-first CLI agent with recurring Pi checks, work mode and a persistent Pi conversation.",
+  "bin": { "hobkin": "./src/cli/main.mjs" },
   "keywords": ["pi-package"],
-  "repository": "https://github.com/dantetekanem/pi-companion",
+  "repository": "https://github.com/dantetekanem/hobkin",
   "files": ["src", "README.md", "docs/upgrade.md", "docs/legacy.md"],
   "pi": { "extensions": ["./src/index.ts"] },
   "peerDependencies": {
@@ -16,8 +16,8 @@
     "typebox": "*"
   },
   "scripts": {
-    "pi-companion": "node src/cli/main.mjs",
-    "test": "node --test test/companion.test.mjs test/durable.test.mjs test/experience.test.mjs test/reinforcement.test.mjs",
+    "hobkin": "node src/cli/main.mjs",
+    "test": "node --test test/hobkin.test.mjs test/durable.test.mjs test/experience.test.mjs test/reinforcement.test.mjs",
     "test:cli": "node --test test/cli-*.test.mjs",
     "test:migration": "node --test test/migration.test.mjs test/migration-*.test.mjs"
   },

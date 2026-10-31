@@ -59,9 +59,9 @@ function applyChange(items, { action, item, text }) {
 
 export function createMemoryTool(root) {
   return defineTool({
-    name: 'companion_memory',
-    label: 'Companion memory',
-    description: `Change the user's short list of things that matter, kept across Companion conversations. `
+    name: 'hobkin_memory',
+    label: 'Hobkin memory',
+    description: `Change the user's short list of things that matter, kept across Hobkin conversations. `
       + `Add an item, or replace or remove one by its exact text. Holds at most ${MAX_ITEMS} one-line items.`,
     parameters,
     async execute(_id, request) {

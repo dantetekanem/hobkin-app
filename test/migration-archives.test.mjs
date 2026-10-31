@@ -8,14 +8,14 @@ import { MigrationJournal } from '../src/cli/migration/journal.mjs';
 import { importArchives } from '../src/cli/migration/archives.mjs';
 
 test('registry, entire nested notes tree and feed keep their bytes, paths and original mode provenance in private history', async t => {
-  const home = mkdtempSync(join(tmpdir(), 'companion-archives-'));
+  const home = mkdtempSync(join(tmpdir(), 'hobkin-archives-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  mkdirSync(join(home, '.companion-notes/nested/empty'), { recursive: true });
+  mkdirSync(join(home, '.hobkin-notes/nested/empty'), { recursive: true });
   const contents = {
-    '.companion-schedules.md': '## Task\r\nUnstructured permissions\r\n',
-    '.companion-reports-updates.md': '<!-- companion-publication:old -->\nOlder report\n',
-    '.companion-notes/taste.md': 'Preferences\n',
-    '.companion-notes/nested/notes.bin': Buffer.from([0, 1, 255, 10]),
+    '.hobkin-schedules.md': '## Task\r\nUnstructured permissions\r\n',
+    '.hobkin-reports-updates.md': '<!-- hobkin-publication:old -->\nOlder report\n',
+    '.hobkin-notes/taste.md': 'Preferences\n',
+    '.hobkin-notes/nested/notes.bin': Buffer.from([0, 1, 255, 10]),
   };
   for (const [path, bytes] of Object.entries(contents)) writeFileSync(join(home, path), bytes, { mode: 0o644 });
   const manifest = inventoryLegacy({ home });
@@ -35,7 +35,7 @@ test('registry, entire nested notes tree and feed keep their bytes, paths and or
     assert.equal(statSync(empty).isDirectory(), true);
     assert.equal(statSync(empty).mode & 0o777, 0o700);
     assert.deepEqual(importArchives(journal), receipt);
-    assert.equal(readFileSync(join(home, '.companion-reports-updates.md'), 'utf8'), contents['.companion-reports-updates.md']);
+    assert.equal(readFileSync(join(home, '.hobkin-reports-updates.md'), 'utf8'), contents['.hobkin-reports-updates.md']);
   } finally {
     await journal.close();
   }

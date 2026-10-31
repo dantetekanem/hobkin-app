@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DurableCompanion } from '../src/durable.ts';
+import { DurableHobkin } from '../src/durable.ts';
 
 function fixture(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'companion-durable-'));
+  const dir = mkdtempSync(join(tmpdir(), 'hobkin-durable-'));
   const opened = [];
   const owner = { sessionId: 'owner', sessionFile: join(dir, 'owner.jsonl') };
   t.after(async () => {
@@ -14,7 +14,7 @@ function fixture(t) {
     rmSync(dir, { recursive: true, force: true });
   });
   return { dir, owner, async open(candidate = owner, configured = true) {
-    const runtime = await DurableCompanion.open(dir, candidate, configured);
+    const runtime = await DurableHobkin.open(dir, candidate, configured);
     opened.push(runtime);
     return runtime;
   } };
@@ -36,7 +36,7 @@ test('real Durable SQLite retains the owner and setup receipt without any model 
   assert.deepEqual(calls, ['daily:start', 'routines:start']);
   assert.equal((await resumed.state()).active, true);
   assert.equal(await resumed.claimSetup(), false);
-  assert.equal(statSync(join(h.dir, 'companion.sqlite')).mode & 0o777, 0o600);
+  assert.equal(statSync(join(h.dir, 'hobkin.sqlite')).mode & 0o777, 0o600);
 });
 
 test('cold setup is reserved once and an interrupted dispatch is not blindly replayed', async t => {

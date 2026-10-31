@@ -1,14 +1,14 @@
 import { BRIDGE, callBridge } from './bridge.mjs';
 import { createMemoryTool, memorySection } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 
 /**
- * Loaded with --extension by the Pi child that Companion starts for its main chat. The tools keep their
- * names, schemas and descriptions; each call runs in Companion, which owns the questions, schedules,
+ * Loaded with --extension by the Pi child that Hobkin starts for its main chat. The tools keep their
+ * names, schemas and descriptions; each call runs in Hobkin, which owns the questions, schedules,
  * settings and memory. The model is Pi's, under whatever launcher started it.
  */
-export default function companion(pi) {
+export default function hobkin(pi) {
   const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool()];
   for (const tool of tools) {
     pi.registerTool({

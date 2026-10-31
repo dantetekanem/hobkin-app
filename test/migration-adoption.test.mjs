@@ -3,17 +3,17 @@ import test from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DurableCompanion } from '../src/durable.ts';
+import { DurableHobkin } from '../src/durable.ts';
 import { inventoryLegacy, verifyInventory } from '../src/cli/migration/inventory.mjs';
 import { MigrationJournal } from '../src/cli/migration/journal.mjs';
 import { validateOwnership } from '../src/cli/migration/ownership.mjs';
 import { pinSession, inspectCheckpoint, importSessions } from '../src/cli/migration/adoption.mjs';
 
 function fixture(t) {
-  const directory = mkdtempSync(join(tmpdir(), 'companion-adopt-'));
+  const directory = mkdtempSync(join(tmpdir(), 'hobkin-adopt-'));
   const home = join(directory, 'old');
   const root = join(directory, 'new');
-  const legacy = join(home, '.pi/agent/companion');
+  const legacy = join(home, '.pi/agent/hobkin');
   mkdirSync(legacy, { recursive: true });
   const sessionFile = join(home, 'selected.jsonl');
   const sessionId = '784bb2a9-7469-498d-b230-7711b266b889';
@@ -67,7 +67,7 @@ test('absent Durable and two exact sessions import privately without changing id
 
 test('terminal enabled lifecycle is desired state, not a live owner, and storage inspection preserves archive bytes', async t => {
   const h = fixture(t);
-  const runtime = await DurableCompanion.open(join(h.legacy, 'durable'), h.selection, true);
+  const runtime = await DurableHobkin.open(join(h.legacy, 'durable'), h.selection, true);
   h.opened.push(runtime);
   await runtime.control('start', { daily: async () => {}, routines: async () => {} });
   await runtime.close();
@@ -86,7 +86,7 @@ test('terminal enabled lifecycle is desired state, not a live owner, and storage
 test('requested setup and interrupted control block adoption without executing either', async t => {
   for (const kind of ['setup', 'control']) {
     const h = fixture(t);
-    const runtime = await DurableCompanion.open(join(h.legacy, 'durable'), h.selection, kind !== 'setup');
+    const runtime = await DurableHobkin.open(join(h.legacy, 'durable'), h.selection, kind !== 'setup');
     h.opened.push(runtime);
     if (kind === 'setup') await runtime.claimSetup();
     else {

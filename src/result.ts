@@ -25,7 +25,7 @@ export type Paused = StopRequest & { disabledAt: string };
 export type State = { version: 1; started?: boolean; experience?: Experience; items: Saved[]; paused: Paused[]; stopping: StopRequest[] };
 export const incomplete = (item: Result) => item.checks.some(c => ['failed', 'incomplete', 'not_run'].includes(c.outcome));
 export function validateResult(value: unknown): Result {
-  if (!Check(ResultSchema, value)) throw new Error('Invalid Companion result: supply a final result with explicit source checks.');
+  if (!Check(ResultSchema, value)) throw new Error('Invalid Hobkin result: supply a final result with explicit source checks.');
   if (value.kind === 'update' && (!value.reason || (value.reason !== 'blocker' && !value.checks.some(c => c.outcome === 'findings'))
     || (value.reason === 'blocker' && !incomplete(value) && !value.checks.some(c => c.outcome === 'findings')))) {
     throw new Error('An update needs an actionable finding, material change, or explicit blocker; no-change belongs in a report.');

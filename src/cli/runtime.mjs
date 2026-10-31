@@ -28,7 +28,7 @@ const costOf = session => {
     ? { usd: stats.cost, kind: 'estimate', cumulative: true, sessionId: session.sessionId } : null;
 };
 
-export class CompanionRuntime {
+export class HobkinRuntime {
   constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
@@ -48,7 +48,7 @@ export class CompanionRuntime {
 
   static async open(root, config, options) {
     root = assertRuntimeAdmission(root);
-    const runtime = new CompanionRuntime(root, config, options);
+    const runtime = new HobkinRuntime(root, config, options);
     const directory = join(root, 'runtime');
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     try {
@@ -62,12 +62,12 @@ export class CompanionRuntime {
         },
       });
     } catch (error) {
-      if (error.code === 'ELOCKED') throw Error('Companion is already running for this home.');
+      if (error.code === 'ELOCKED') throw Error('Hobkin is already running for this home.');
       throw error;
     }
     let storage;
     try {
-      const file = join(directory, 'companion.sqlite');
+      const file = join(directory, 'hobkin.sqlite');
       storage = await openNodeSqliteStorage(file);
       chmodSync(file, 0o600);
       runtime.harness = await Harness.open(storage, { models: createModels(), registry: createRegistry() }, context);
@@ -98,7 +98,7 @@ export class CompanionRuntime {
 
   check() {
     if (this.fault) throw this.fault;
-    if (this.closing) throw Error('Companion is closing.');
+    if (this.closing) throw Error('Hobkin is closing.');
   }
 
   notify() {
@@ -407,7 +407,7 @@ export class CompanionRuntime {
   async send(text, id = randomUUID()) {
     this.check();
     if (!this.main) throw Error('Main conversation is not connected.');
-    if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart Companion to reconnect.`);
+    if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart Hobkin to reconnect.`);
     if (this.resetting) throw Error('Main conversation is resetting.');
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 65536) throw Error('Message must contain 1–65536 bytes.');
 

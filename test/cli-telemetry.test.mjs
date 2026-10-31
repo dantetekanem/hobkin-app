@@ -10,7 +10,7 @@ const started = Date.parse('2026-10-01T00:00:00Z');
 const later = days => started + days * DAY;
 
 function dataRoot(t) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-telemetry-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-telemetry-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'runtime'), { mode: 0o700 });
   return root;

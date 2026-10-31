@@ -7,14 +7,14 @@ import { createAgentSession, ModelRuntime, SettingsManager } from '@earendil-wor
 import { initialize } from '../src/cli/config.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { UsageLedger } from '../src/cli/usage.mjs';
-import { CompanionApplication } from '../src/cli/application.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
 
 // Real SDK preflight and Agent lifecycle; authentication and provider submission are synthetic.
 async function fixture(t, { history = false, application = false } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-preflight-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-preflight-'));
   isolatePiHome(t, join(root, 'agent'));
   const config = initialize(root, { cwd: root });
   const authStarted = Promise.withResolvers();
@@ -94,8 +94,8 @@ async function fixture(t, { history = false, application = false } = {}) {
       return result;
     },
   });
-  const app = application ? await CompanionApplication.open(root, { createMain }) : null;
-  const runtime = app?.runtime ?? await CompanionRuntime.open(root, config, { createMain });
+  const app = application ? await HobkinApplication.open(root, { createMain }) : null;
+  const runtime = app?.runtime ?? await HobkinRuntime.open(root, config, { createMain });
   await runtime.connect();
   runtime.main.subscribe(event => {
     if (event.type === 'tool_execution_start') toolCalls++;
@@ -211,7 +211,7 @@ for (const [action, history] of [['cancel', false], ['close', false], ['close', 
     assert.deepEqual(h.calls(), { submissions: 0, toolCalls: 0 });
     assert.equal(h.runtime.main.agent.streamFunction, originalStream);
     if (action === 'close') {
-      const reopened = await CompanionRuntime.open(h.root, h.config);
+      const reopened = await HobkinRuntime.open(h.root, h.config);
       try {
         assert.equal((await reopened.state()).runs.preflight.status, 'interrupted');
       } finally {

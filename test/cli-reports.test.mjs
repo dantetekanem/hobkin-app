@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { saveReport, readReport, reportText } from '../src/cli/reports.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-report-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-report-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
@@ -35,6 +35,6 @@ test('saved reports reject symlinks and public files rather than reading another
 });
 
 test('visible legacy reports strip private publication markers without dropping the report', () => {
-  const body = '# Finding\n<!-- companion-publication:scope:id:hash -->\nUseful evidence.\n<!-- companion-question:id:unfinished';
+  const body = '# Finding\n<!-- hobkin-publication:scope:id:hash -->\nUseful evidence.\n<!-- hobkin-question:id:unfinished';
   assert.equal(reportText(body), '# Finding\n\nUseful evidence.');
 });

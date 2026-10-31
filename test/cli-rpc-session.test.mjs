@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { closePiSession, openImportedPiSession, openPiSession } from '../src/cli/pi-session.mjs';
 import { extensionPath } from '../src/cli/rpc-session.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { dialog, fakePiRpc } from './helpers/fake-rpc-pi.mjs';
 
 const launcher = { command: ['my-pi-launcher', 'pi'], env: { EXAMPLE_MODE: '1' }, managedExtensions: true };
@@ -20,7 +20,7 @@ async function until(condition, message = 'condition') {
 }
 
 function fixture(t, pi = {}, options = {}) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-rpc-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-rpc-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
   config.main = { cwd: root, model: 'fixture/local', effort: 'medium' };
@@ -34,7 +34,7 @@ function fixture(t, pi = {}, options = {}) {
     createSession: () => { throw Error('Pi started in this process.'); },
     ...options.dependencies,
   };
-  const open = (runtimeOptions = {}) => CompanionRuntime.open(root, config, {
+  const open = (runtimeOptions = {}) => HobkinRuntime.open(root, config, {
     createMain: openOptions => openPiSession(openOptions, dependencies),
     ...runtimeOptions,
   });
@@ -54,7 +54,7 @@ const answerOf = async (fake, id) => {
   return responses(fake, id)[0];
 };
 const bridge = (fake, request) => {
-  const id = dialog(fake.children.at(-1), { method: 'input', title: 'companion/bridge', placeholder: JSON.stringify(request) });
+  const id = dialog(fake.children.at(-1), { method: 'input', title: 'hobkin/bridge', placeholder: JSON.stringify(request) });
   return answerOf(fake, id).then(reply => ({ reply, answer: reply.value === undefined ? undefined : JSON.parse(reply.value) }));
 };
 const question = { question: 'Which?', choices: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] };
@@ -221,14 +221,14 @@ test('a binding, identity or missing tool that differs is disposed before any pr
     [{ thinking: 'low' }, /binding/],
     [{ model: { provider: 'fixture', id: 'other' } }, /binding/],
     [{ hello: false }, /did not activate/],
-    [{ hello: ['ask_question'] }, /run_schedule, message_check, companion_memory, model_settings/],
+    [{ hello: ['ask_question'] }, /run_schedule, message_check, hobkin_memory, model_settings/],
   ]) {
     const h = fixture(t, pi);
     await assert.rejects(openPiSession({ root: h.root, config: h.config }, h.dependencies), expected);
     const [child] = h.fake.children;
     assert.ok(child.stdin.writableEnded, 'the rejected child was asked to exit');
     assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
-    assert.equal(existsSync(join(h.root, 'runtime', 'companion.sqlite')), false);
+    assert.equal(existsSync(join(h.root, 'runtime', 'hobkin.sqlite')), false);
   }
 
   const h = fixture(t);
@@ -284,7 +284,7 @@ test('a child that exits unasked stops the chat but not scheduled work; a reques
   assert.match(run.result.error, /exited before completion \(3\).*credentials expired/);
   await until(() => runtime.mainFault, 'the chat fault');
   assert.equal(runtime.fault, null);
-  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*Restart Companion/);
+  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*Restart Hobkin/);
   const check = await runtime.dispatch({ id: 'check-after-exit', kind: 'background', title: 'Check' },
     async () => ({ status: 'completed', text: 'Nothing new.', cost: null }));
   assert.equal(check.status, 'completed');
@@ -380,7 +380,7 @@ test('without an interface a dialog is declined, and a timeout or abort ends a w
   assert.equal(pending[1].aborted, true);
 });
 
-test('bridge requests run the real Companion tools in Companion with the child’s own call identity', async t => {
+test('bridge requests run the real Hobkin tools in Hobkin with the child’s own call identity', async t => {
   const asked = [];
   const triggered = [];
   const h = fixture(t);
@@ -409,7 +409,7 @@ test('bridge requests run the real Companion tools in Companion with the child�
   const messaged = await bridge(h.fake, { op: 'tool', name: 'message_check', id: 'call-4', params: { scheduleId: 'daily-check', message: 'Hurry.' } });
   assert.deepEqual(messaged.answer.result.details, { scheduleId: 'daily-check', status: 'delivered' });
 
-  const remembered = await bridge(h.fake, { op: 'tool', name: 'companion_memory', id: 'call-3', params: { action: 'add', text: 'Rent is due November 1' } });
+  const remembered = await bridge(h.fake, { op: 'tool', name: 'hobkin_memory', id: 'call-3', params: { action: 'add', text: 'Rent is due November 1' } });
   assert.equal(remembered.answer.ok, true);
   assert.equal(readFileSync(join(h.root, 'memory.md'), 'utf8'), '- Rent is due November 1\n');
   assert.deepEqual((await bridge(h.fake, { op: 'memory' })).answer, { ok: true, result: ['Rent is due November 1'] });
@@ -441,11 +441,11 @@ test('a bridge request cannot reach anything but the registered tools', async t 
     assert.match(answer.error, /Invalid bridge request/);
   }
   for (const placeholder of ['{not json', undefined, 'x'.repeat(1048577)]) {
-    const id = dialog(h.fake.children[0], { method: 'input', title: 'companion/bridge', placeholder });
+    const id = dialog(h.fake.children[0], { method: 'input', title: 'hobkin/bridge', placeholder });
     const reply = await answerOf(h.fake, id);
     assert.equal(JSON.parse(reply.value).ok, false);
   }
-  const other = dialog(h.fake.children[0], { method: 'select', title: 'companion/bridge', options: ['a', 'b'] });
+  const other = dialog(h.fake.children[0], { method: 'select', title: 'hobkin/bridge', options: ['a', 'b'] });
   assert.equal((await answerOf(h.fake, other)).cancelled, true);
   assert.equal(existsSync(join(h.root, 'memory.md')), false);
 });
@@ -550,7 +550,7 @@ test('a bridge answer is not delivered after the child that asked has gone', asy
   const signals = [];
   await h.connected({ askQuestion: (_request, signal) => { signals.push(signal); return released.promise; } });
   const child = h.fake.children[0];
-  const id = dialog(child, { method: 'input', title: 'companion/bridge', placeholder: JSON.stringify({ op: 'tool', name: 'ask_question', id: 'late', params: question }) });
+  const id = dialog(child, { method: 'input', title: 'hobkin/bridge', placeholder: JSON.stringify({ op: 'tool', name: 'ask_question', id: 'late', params: question }) });
   await until(() => signals.length === 1, 'the question to wait');
   child.exit(0);
   await until(() => signals[0].aborted, 'the question to be cancelled');

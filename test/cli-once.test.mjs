@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { formatSchedule, loadSchedules, parseSchedule, scheduleDate } from '../src/cli/schedules.mjs';
-import { CompanionRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { main } from '../src/cli/main.mjs';
 
 const metadata = {
@@ -27,7 +27,7 @@ const once = (patch = {}) => ({ ...metadata, cadence: 'once', prompt: 'Remind me
 const initializedAt = '2026-01-01T00:00:00Z';
 
 function fixture(t, patch = {}) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-once-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-once-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root, now: initializedAt });
   const save = (value = patch, name = 'dentist') =>
@@ -154,7 +154,7 @@ function harness(t, patch, options = {}) {
   let now = new Date('2026-05-04T14:00:00Z');
   const prompts = [];
   const runtime = options.runtime ?? new MemoryRuntime();
-  const runner = new CompanionRunner({
+  const runner = new HobkinRunner({
     root: h.root,
     runtime,
     config: { concurrency: 2, initializedAt },
@@ -212,7 +212,7 @@ test('a failed or incomplete once run also leaves Schedules and is not retried',
 });
 
 test('a once run admitted before a restart does not repeat, even if its file changes to a list', async t => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-once-real-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-once-real-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root, now: initializedAt });
   const save = patch => writeFileSync(join(root, 'schedules/once/dentist.md'), source({ cwd: root, ...patch }));
@@ -220,8 +220,8 @@ test('a once run admitted before a restart does not repeat, even if its file cha
   let calls = 0;
   const config = { concurrency: 2, initializedAt };
   const open = async now => {
-    const runtime = await CompanionRuntime.open(root, config);
-    const runner = new CompanionRunner({ root, runtime, config, now: () => new Date(now), runHarness: async () => { calls++; return { status: 'completed', text: 'Reminded' }; } });
+    const runtime = await HobkinRuntime.open(root, config);
+    const runner = new HobkinRunner({ root, runtime, config, now: () => new Date(now), runHarness: async () => { calls++; return { status: 'completed', text: 'Reminded' }; } });
     return { runtime, runner };
   };
   let session = await open('2026-05-10T10:00:00Z');

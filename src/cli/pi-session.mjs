@@ -8,7 +8,7 @@ import { validateBinding } from './schedules.mjs';
 import { createMemoryExtension, createMemoryTool } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { grantChrome } from './chrome.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './companion-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 

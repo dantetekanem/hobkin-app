@@ -1,4 +1,4 @@
-// Every Companion run may use the user's Chrome with no time limit. What it may do there is in its directions.
+// Every Hobkin run may use the user's Chrome with no time limit. What it may do there is in its directions.
 export const CHROME_GRANT = '/chrome authorize indefinite';
 export const CHROME_NOTE = 'pi-chrome-tool-change';
 

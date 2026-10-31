@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { migrationFixture } from './helpers/migration.mjs';
 import { runUpgrade } from '../src/cli/migration/cutover.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { DailyReflection } from '../src/cli/reflection.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
 import { loadConfig } from '../src/cli/config.mjs';
@@ -44,7 +44,7 @@ async function fixture(t, run) {
     legacySessions: { [session.sessionId]: { model: 'fixture/local', effort: 'medium' } },
     legacyReviews: { [session.sessionId]: { model: 'fixture/reviewer', effort: 'high' } },
   };
-  const runtime = await CompanionRuntime.open(h.root, config);
+  const runtime = await HobkinRuntime.open(h.root, config);
   const reflection = new DailyReflection({ root: runtime.directory, runtime, config, runHarness: run, now: () => new Date(at) });
   t.after(() => runtime.close());
   return {

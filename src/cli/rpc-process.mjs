@@ -75,7 +75,7 @@ export function startRpcProcess({
   });
   const request = (type, data = {}, onResponse) => {
     if (failure || exited || !child.stdin.writable) return Promise.reject(failure ?? Error(`${name} exited.`));
-    const id = `companion-${++serial}`;
+    const id = `hobkin-${++serial}`;
     const waiter = Promise.withResolvers();
     pending.set(id, { ...waiter, onResponse });
     write({ id, type, ...data });

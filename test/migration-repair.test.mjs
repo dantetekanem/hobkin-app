@@ -10,9 +10,9 @@ import { buildInvocation } from '../src/cli/harnesses.mjs';
 
 const valid = { version: 1, items: [], paused: [], started: false };
 async function fixture(t, source = '{broken') {
-  const root = mkdtempSync(join(tmpdir(), 'companion-repair-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-repair-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const home = join(root, 'home'), directory = join(home, '.pi/agent/companion');
+  const home = join(root, 'home'), directory = join(home, '.pi/agent/hobkin');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, `${sha256('synthetic')}.json`), source);
   const manifest = inventoryLegacy({ home });

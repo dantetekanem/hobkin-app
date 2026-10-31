@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { UsageLedger } from '../src/cli/usage.mjs';
 const epoch = '2026-10-26T00:00:00Z';
 function ledger(t) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-usage-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-usage-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { root, usage: UsageLedger.open(root, epoch) };
 }

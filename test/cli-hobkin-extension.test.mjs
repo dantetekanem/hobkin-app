@@ -8,8 +8,8 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { BRIDGE, callBridge, serveBridge } from '../src/cli/bridge.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '../src/cli/companion-tools.mjs';
-import companion from '../src/cli/companion-extension.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '../src/cli/hobkin-tools.mjs';
+import hobkin from '../src/cli/hobkin-extension.mjs';
 import { createMemoryTool, readMemory } from '../src/cli/memory.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
@@ -59,7 +59,7 @@ function scriptedModel(session, calls, requests = []) {
 }
 
 async function fixture(t, { mode = 'rpc' } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-extension-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-extension-'));
   const agentDir = join(root, 'agent');
   isolatePiHome(t, agentDir);
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -87,7 +87,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
         return { status: 'admitted', scheduleId };
       }),
       message_check: createCheckMessageTool(async ({ scheduleId }) => ({ scheduleId, status: 'delivered' })),
-      companion_memory: createMemoryTool(root),
+      hobkin_memory: createMemoryTool(root),
       model_settings: createSettingsTool(async request => ({ action: request.action, scope: request.scope })),
     },
     memory: () => readMemory(root),
@@ -105,7 +105,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
   const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
   const resourceLoader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [companion],
+    extensionFactories: [hobkin],
   });
   await resourceLoader.reload();
   const { session } = await createAgentSession({
@@ -118,7 +118,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
 
 const toolResults = session => session.messages.filter(message => message.role === 'toolResult');
 
-test('Pi registers the Companion tools with their ordinary definitions and reports them on start', async t => {
+test('Pi registers the Hobkin tools with their ordinary definitions and reports them on start', async t => {
   const { session, statuses } = await fixture(t);
   const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool()];
   const registered = session.agent.state.tools;
@@ -138,11 +138,11 @@ test('a tool the model calls runs in the host through the input dialog and its r
   scriptedModel(session, [
     { name: 'ask_question', arguments: question },
     { name: 'run_schedule', arguments: { scheduleId: 'daily-check' } },
-    { name: 'companion_memory', arguments: { action: 'add', text: 'Rent is due November 1' } },
+    { name: 'hobkin_memory', arguments: { action: 'add', text: 'Rent is due November 1' } },
     { name: 'model_settings', arguments: { action: 'inspect', scope: 'main' } },
     { name: 'message_check', arguments: { scheduleId: 'daily-check', message: 'Hurry.' } },
   ]);
-  await session.prompt('Use every Companion tool.', { preflightResult() {} });
+  await session.prompt('Use every Hobkin tool.', { preflightResult() {} });
 
   const results = toolResults(session);
   assert.equal(results.length, 5);
@@ -187,7 +187,7 @@ test('the current memory is added to every turn’s system prompt through the ho
 });
 
 test('outside an RPC host the tools refuse to ask anyone, and a missing answer is an error', async () => {
-  await assert.rejects(callBridge({ mode: 'tui', ui: { input: async () => '{}' } }, { op: 'memory' }), /only under a Companion host/);
+  await assert.rejects(callBridge({ mode: 'tui', ui: { input: async () => '{}' } }, { op: 'memory' }), /only under a Hobkin host/);
   await assert.rejects(callBridge({ mode: 'rpc', ui: { input: async () => undefined } }, { op: 'memory' }), /did not answer/);
   await assert.rejects(callBridge({ mode: 'rpc', ui: { input: async () => '{"ok":false,"error":"Nope."}' } }, { op: 'memory' }), /Nope\./);
   assert.deepEqual(await callBridge({ mode: 'rpc', ui: { input: async () => '{"ok":true,"result":[1]}' } }, { op: 'memory' }), [1]);

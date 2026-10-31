@@ -7,15 +7,15 @@ import { createAgentSession, ModelRuntime } from '@earendil-works/pi-coding-agen
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { initialize } from '../src/cli/config.mjs';
 import { followEntryLink, openPiSession } from '../src/cli/pi-session.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
 // Real Pi discovery and tools, isolated from personal settings, MCP servers and providers.
 test('a command started through a link still shows extensions the real path', t => {
-  const root = mkdtempSync(join(realpathSync(tmpdir()), 'companion-link-'));
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'hobkin-link-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const entry = join(root, 'main.mjs');
-  const link = join(root, 'pi-companion');
+  const link = join(root, 'hobkin');
   writeFileSync(entry, '');
   symlinkSync(entry, link);
   const argv = ['node', link];
@@ -26,7 +26,7 @@ test('a command started through a link still shows extensions the real path', t 
 });
 
 test('main conversation uses Pi tools and MCP with native extension lifecycle', async t => {
-  const root = mkdtempSync(join(tmpdir(), 'companion-capabilities-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-capabilities-'));
   const agentDir = join(root, 'agent');
   isolatePiHome(t, agentDir);
   const extensions = join(agentDir, 'extensions');
@@ -89,7 +89,7 @@ test('main conversation uses Pi tools and MCP with native extension lifecycle', 
     refreshOnCreate: false,
   });
   modelRuntime.streamSimple = () => { throw Error('No provider call is allowed in this fixture'); };
-  const runtime = await CompanionRuntime.open(root, config, {
+  const runtime = await HobkinRuntime.open(root, config, {
     createMain: options => openPiSession(options, {
       agentDir,
       createSession: options => createAgentSession({ ...options, agentDir, modelRuntime, model }),
@@ -102,7 +102,7 @@ test('main conversation uses Pi tools and MCP with native extension lifecycle', 
   const session = await runtime.connect();
 
   const activeTools = session.getActiveToolNames();
-  for (const name of ['read', 'bash', 'edit', 'write', 'ordinary_capability', 'codemode', 'tool_search', 'companion_memory']) {
+  for (const name of ['read', 'bash', 'edit', 'write', 'ordinary_capability', 'codemode', 'tool_search', 'hobkin_memory']) {
     assert.ok(activeTools.includes(name), `${name} should be available like normal Pi`);
   }
   assert.equal(readFileSync(started, 'utf8'), 'start\n');

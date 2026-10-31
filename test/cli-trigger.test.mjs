@@ -4,15 +4,15 @@ import { mkdtempSync, realpathSync, writeFileSync, readFileSync, rmSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
-import { CompanionApplication } from '../src/cli/application.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
-import { CompanionRuntime } from '../src/cli/runtime.mjs';
-import { CompanionRunner } from '../src/cli/runner.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
+import { HobkinRunner } from '../src/cli/runner.mjs';
 import { createAgentSession, ModelRuntime, SettingsManager } from '@earendil-works/pi-coding-agent';
 
 async function fixture(t, runHarness) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'companion-trigger-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-trigger-')));
   isolatePiHome(t, join(root, 'agent'));
   initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
   const file = join(root, 'schedules/daily/email.md');
@@ -52,7 +52,7 @@ async function fixture(t, runHarness) {
   });
   models.getModel = () => model;
   models.streamSimple = () => { throw Error('No provider allowed'); };
-  const app = await CompanionApplication.open(root, {
+  const app = await HobkinApplication.open(root, {
     now: () => new Date('2026-04-27T23:00:00Z'),
     runHarness,
     createMain: options => openPiSession(options, {
@@ -135,8 +135,8 @@ test('one-offs do not consume calendar occurrences and reopened Durable receipts
   assert.equal(calls, 2);
   assert.equal((await h.app.runtime.state()).runs['email:2026-04-27'].status, 'completed');
   await h.app.close();
-  const runtime = await CompanionRuntime.open(h.root, h.config);
-  const runner = new CompanionRunner({
+  const runtime = await HobkinRuntime.open(h.root, h.config);
+  const runner = new HobkinRunner({
     runtime,
     root: h.root,
     config: h.config,

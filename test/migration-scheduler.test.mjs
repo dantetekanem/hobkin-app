@@ -10,8 +10,8 @@ import { installLegacyFence, collectShutdownReceipt, LegacyOwner } from '../src/
 import { fenceSchedules, verifyScheduleFence } from '../src/cli/migration/scheduler.mjs';
 
 async function fixture(t, { active = false } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), 'companion-cas-')), home = join(directory, 'old'), root = join(directory, 'new');
-  const file = join(home, '.pi/agent/state/scheduler/tasks.json'), legacy = join(home, '.pi/agent/companion'), controlRoot = join(directory, 'control');
+  const directory = mkdtempSync(join(tmpdir(), 'hobkin-cas-')), home = join(directory, 'old'), root = join(directory, 'new');
+  const file = join(home, '.pi/agent/state/scheduler/tasks.json'), legacy = join(home, '.pi/agent/hobkin'), controlRoot = join(directory, 'control');
   mkdirSync(legacy, { recursive: true });
   mkdirSync(join(file, '..'), { recursive: true });
   const identity = { sessionId: 'selected', sessionFile: join(home, 'selected.jsonl') };

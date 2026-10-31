@@ -127,7 +127,7 @@ export function requestAllowance(root, request, now = Date.now()) {
   return writeMode(root, { allowanceRequest: asked });
 }
 
-/** `answer` is true for what Companion proposed, a number for the user's own figure, or false to stay paused today. */
+/** `answer` is true for what Hobkin proposed, a number for the user's own figure, or false to stay paused today. */
 export function answerAllowance(root, answer, now = Date.now()) {
   if (answer === false) return writeMode(root, { allowanceRequest: null, declinedOn: localDay(now) });
 

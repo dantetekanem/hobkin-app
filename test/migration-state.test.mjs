@@ -46,10 +46,10 @@ const experience = () => ({
   extra: 'preserved',
 });
 async function fixture(t, values) {
-  const root = mkdtempSync(join(tmpdir(), 'companion-state-test-'));
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-state-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'home');
-  const directory = join(home, '.pi/agent/companion');
+  const directory = join(home, '.pi/agent/hobkin');
   mkdirSync(directory, { recursive: true });
   for (const [name, value] of Object.entries(values)) writeFileSync(join(directory, name), typeof value === 'string' ? value : JSON.stringify(value));
   const manifest = inventoryLegacy({ home });
