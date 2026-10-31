@@ -11,6 +11,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { FaceImages } from '../src/cli/face-images.mjs';
 import { createDashboard, startDashboard } from '../src/cli/ui.mjs';
+import { savePresentationState } from '../src/cli/view.mjs';
 
 const snapshot = {
   config: { background: { harness: 'pi', model: null, effort: 'medium' } },
@@ -352,35 +353,34 @@ test('Tab outside a slash command does what it did before', () => {
   assert.equal(ui.state().draft.trim(), '/nothing');
 });
 
-test('the shortcut row narrows to the commands that still fit, and shows Tab', () => {
-  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+test('the shortcut row narrows to the commands that still fit', () => {
+  const betweenTips = 60000;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { now: () => betweenTips });
 
   ui.input('/w');
 
   const text = screen(ui, 120, 30);
   assert.match(text, /\/work/);
-  assert.match(text, /tab\s+complete/);
   assert.doesNotMatch(text, /\/reset/);
 });
 
-test('/help opens a page of its own, and Esc returns to Chat', () => {
-  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
-
+const askForHelp = ui => {
   ui.input('/help');
   ui.input('\r');
+};
 
-  assert.equal(ui.state().view, 'help');
-  assert.equal(ui.state().draft, '');
-  const page = screen(ui, 100, 30);
-  assert.match(page, /What Hobkin can do/);
-  assert.match(page, /Help/, 'a tab says where you are');
-  assert.doesNotMatch(page, /Message Hobkin/, 'the input makes way for the page');
+test('/help adds one message from Hobkin at the end of Chat and leaves you in the composer', () => {
+  const earlier = { id: 'one', role: 'user', content: 'hello', at: new Date(Date.now() - 60000).toISOString() };
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [earlier] }, { send: async () => {} });
 
-  ui.input('\x1b');
+  askForHelp(ui);
 
   assert.equal(ui.state().view, 'conversation');
   assert.equal(ui.state().focus, 'composer');
-  assert.doesNotMatch(screen(ui, 100, 30), /Help\b.*·/);
+  assert.equal(ui.state().draft, '');
+  const text = screen(ui, 120, 40);
+  assert.match(text, /◆ You[\s\S]*◆ Hobkin/);
+  assert.equal(text.match(/◆ Hobkin/g).length, 1);
 });
 
 test('/help sends nothing to the agent', async () => {
@@ -394,35 +394,57 @@ test('/help sends nothing to the agent', async () => {
   assert.deepEqual(sent, []);
 });
 
-test('the help page scrolls, and scrolling back up reaches its top', () => {
-  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
-  ui.input('/help');
-  ui.input('\r');
-  screen(ui, 80, 24);
+test('what arrives after /help lands below the guide', () => {
+  const live = { ...snapshot, connection: 'connected', messages: [] };
+  const ui = createDashboard(live, { send: async () => {} });
+  askForHelp(ui);
 
-  ui.input('\x1b[6~');
-  ui.input('\x1b[6~');
-  const further = screen(ui, 80, 24);
+  ui.update({ ...live, messages: [{ id: 'later', role: 'user', content: 'a later question', at: soon() }] });
 
-  assert.doesNotMatch(further, /What Hobkin can do/);
-  ui.input('\x1b[5~');
-  ui.input('\x1b[5~');
-  assert.match(screen(ui, 80, 24), /What Hobkin can do/);
+  assert.match(screen(ui, 120, 40), /◆ Hobkin[\s\S]*a later question/);
 });
 
-test('leaving help with the arrows lands on a real view and the Help tab goes', () => {
-  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
-  ui.input('/help');
+test('/help lands below a message still waiting for the agent', async () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', busy: true, messages: [] }, { send: async () => {} });
+  ui.input('still waiting');
   ui.input('\r');
+  await ui.pending();
 
-  ui.input('\x1b[C');
+  askForHelp(ui);
 
-  assert.equal(ui.state().view, 'conversation');
-  ui.input('\x1b[C');
-  assert.equal(ui.state().view, 'reports');
-  ui.input('\x1b[D');
-  ui.input('\x1b[D');
-  assert.equal(ui.state().view, 'schedules', 'help is not a stop on the way round');
+  assert.match(screen(ui, 120, 40), /still waiting[\s\S]*◆ Hobkin/);
+});
+
+test('/help shows the guide even when Chat was scrolled back', () => {
+  const messages = Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Message ${i}` }));
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages }, { send: async () => {} });
+  ui.input('\x1b[5~');
+  ui.input('\x1b[5~');
+
+  askForHelp(ui);
+
+  assert.match(screen(ui, 120, 40), /◆ Hobkin/);
+});
+
+test('/clear hides the guide, and /help can still show a new one', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-ui-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, {
+    send: async () => {},
+    clear: ids => savePresentationState(root, ids),
+  });
+  askForHelp(ui);
+
+  ui.input('/clear');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.match(ui.state().notice, /cleared/);
+  assert.doesNotMatch(screen(ui, 120, 40), /◆ Hobkin/);
+
+  askForHelp(ui);
+
+  assert.match(screen(ui, 120, 40), /◆ Hobkin/);
 });
 
 test('an unknown command points at /help and keeps the draft', () => {

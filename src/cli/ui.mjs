@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
@@ -148,9 +149,9 @@ const localCommands = [
   ['/work', 'work mode'],
   ['/jev', 'moods'],
 ];
-const helpPage = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
+const helpGuide = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
 const tips = [
-  'Type /help to see everything Hobkin can do.',
+  'Type /help to see what Hobkin can do.',
   'Try another model or thinking effort? Just ask Hobkin.',
   'Each schedule can have its own model and thinking effort.',
   'Ask Hobkin to run any check now, even a paused one.',
@@ -518,6 +519,11 @@ const chatEntries = messages => {
   }
   return entries;
 };
+// A local message goes before the first thing newer than it, and everything else keeps its order.
+const placeByTime = (messages, message) => {
+  const firstNewer = messages.findIndex(other => timeOf(other.at) > timeOf(message.at));
+  return firstNewer < 0 ? [...messages, message] : messages.toSpliced(firstNewer, 0, message);
+};
 const authorLabel = message => {
   if (message.waiting) return muted(bold('◆ You'));
   if (message.role === 'user') return accent(bold('◆ You'));
@@ -765,9 +771,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return !copy && !(entry.accepted && !snapshot.busy);
     });
   };
-  const visibleMessageIds = () => (snapshot.messages ?? [])
-    .filter(message => !hiddenMessages.has(messageKey(message)) && clean(message.content).trim())
-    .map(messageKey);
+  // What Hobkin says in Chat by itself. It never reaches the agent and goes when Hobkin closes.
+  const localMessages = [];
+  const isVisible = message => !hiddenMessages.has(messageKey(message)) && clean(message.content).trim();
+  const visibleMessageIds = () => [...(snapshot.messages ?? []), ...localMessages].filter(isVisible).map(messageKey);
   let pending = Promise.resolve();
   let clearing = false;
   let stopped = false;
@@ -795,8 +802,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const workRuns = () => (snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run => run.state === 'running' && run.work) : []);
   const workVisible = () => Boolean(snapshot.work);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
-  const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`),
-    ...(view === 'help' ? ['help'] : [])];
+  const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
   const images = options.images ?? null;
   const faceColumns = () => (images ? IMAGE_FACE_COLUMNS : FACE_COLUMNS);
@@ -931,8 +937,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       if (submitted === '/help') {
         editor.setText('');
         say('');
-        view = 'help';
-        focus = 'help';
+        localMessages.push({
+          id: `help:${randomUUID()}`,
+          role: 'assistant',
+          content: helpGuide,
+          at: new Date(now()).toISOString(),
+        });
         scroll = 0;
         changed();
         return;
@@ -1060,7 +1070,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         prefix: `${workCircle(snapshot.work)} `,
       }] : []),
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
-      ...(view === 'help' ? [{ name: 'help', label: 'Help' }] : []),
     ].map(tab => tabText(tab, tab.name === view));
     images?.useTheme(palette.face.theme);
     const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
@@ -1075,7 +1084,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'detail') return [['m', 'message'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
-    if (focus === 'schedules' || focus === 'help') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
+    if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') {
       const rowKeys = {
         proposal: [['y', 'take'], ['1 2 3', 'level'], ['n', 'skip']],
@@ -1088,7 +1097,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['h', 'harness'], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
-    if (commands.length) return [['tab', 'complete'], ...commands];
+    if (commands.length) return commands;
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+c', 'quit']];
@@ -1207,7 +1216,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const renderContent = (inner, available, clock, frame) => {
     const live = snapshot.connection === 'connected';
     const activeRuns = liveJobs();
-    if (view === 'help') return { content: markdown(helpPage, inner) };
     if (view === 'schedules') {
       return {
         content: scheduleLines({
@@ -1240,9 +1248,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       };
     }
     if (view === 'conversation') {
-      const messages = (snapshot.messages ?? []).filter(message =>
-        !hiddenMessages.has(messageKey(message)) && clean(message.content).trim());
-      const { content, days } = chatLines({ messages: [...messages, ...outbox], inner, clock, markdown });
+      const conversation = [...(snapshot.messages ?? []).filter(isVisible), ...outbox];
+      const messages = localMessages.filter(isVisible).reduce(placeByTime, conversation);
+      const { content, days } = chatLines({ messages, inner, clock, markdown });
       return content.length ? { content, days } : { content: welcomeLines(inner, available) };
     }
     if (showsReportList()) {
