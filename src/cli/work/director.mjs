@@ -74,12 +74,16 @@ export class WorkDirector {
 
   running() { return [...this.active.values()]; }
 
-  // Turning work mode off starts nothing new, and whatever is running finishes.
+  // Turning work mode off starts nothing new. Project agents finish, but a look stops: it only reads, it carries on from its notes, and nothing shows what it spends once the tab is gone.
   async tick() {
     this.recoverDiscovery();
     this.tellNewProposals();
     const mode = readMode(this.root);
-    if (!mode.enabled) return;
+    if (!mode.enabled) {
+      const look = this.active.get('discover');
+      if (look) await this.runner.kill(look.id);
+      return;
+    }
 
     const tokens = { today: tokensToday(this.root, this.now()), limit: dailyLimit(mode, this.now()) };
     const atLimit = tokens.today >= tokens.limit;

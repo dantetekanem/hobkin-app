@@ -269,22 +269,25 @@ test('once there are projects, repeat looks keep to the daily clock', async t =>
   assert.deepEqual(h.calls, [], 'turning it off and on again does not pay for another look');
 });
 
-test('turning work mode off and on while a discovery runs does not send a second one after it', async t => {
-  const finish = Promise.withResolvers();
-  const h = fixture(t, () => finish.promise);
+test('turning work mode off stops a discovery, and turning it on again carries on from its notes', async t => {
+  const h = fixture(t, waitForAbort);
   writeMode(h.root, { enabled: true, folder: '/repos' });
   await h.director.tick();
   while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
 
   writeMode(h.root, { enabled: false });
-  await h.director.tick();
+  await h.tick();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(h.director.running(), []);
+  assert.equal(readDiscovery(h.root).status, 'cancelled');
+
+  h.agent = async () => {};
   startWork(h.root);
-  await h.director.tick();
-  finish.resolve();
-  await h.settled();
   await h.tick();
 
-  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls.length, 2);
+  assert.match(h.calls[1].prompt, /carry on from where it stopped/);
 });
 
 test('a new folder named during a discovery still gets its own look', async t => {
