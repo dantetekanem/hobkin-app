@@ -282,7 +282,7 @@ const tabText = ({ label, count = '', prefix = '' }, active) => {
 };
 // Tabs share the brand row when everything fits, shortening the status before giving up the row, because a
 // second row would push the whole screen down each time a job starts. Otherwise they get a row windowed around the active tab.
-const headerLines = ({ tabs, statuses, inner, wordmark, padding }) => {
+const headerLines = ({ tabs, statuses, inner, wordmark }) => {
   const span = (from, to) => tabs.slice(from, to + 1).reduce((sum, tab) => sum + tab.width, 0) + 3 * (to - from);
   const activeTab = Math.max(0, tabs.findIndex(tab => tab.active));
   const brandText = brand(wordmark);
@@ -315,7 +315,7 @@ const headerLines = ({ tabs, statuses, inner, wordmark, padding }) => {
   const underline = faint('─'.repeat(underlineStart)) + highlight('━'.repeat(underlineWidth))
     + faint('─'.repeat(Math.max(0, inner - underlineStart - underlineWidth)));
   const titleRows = inline ? [row(`${brandText}    ${tabRow}`, inlineStatus, inner)] : [row(brandText, statuses[0], inner), tabRow];
-  return [...padding, ...titleRows, ...padding, underline];
+  return [...titleRows, underline];
 };
 const modelLabel = (effort, model, withProvider) => {
   const provider = model.lastIndexOf('/');
@@ -1067,9 +1067,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
     ].map(tab => tabText(tab, tab.name === view));
     images?.useTheme(palette.face.theme);
-    // A terminal has no spacing smaller than a row, so a short one keeps them for content.
-    const padding = rows >= MIN_ROWS_FOR_TIP_LINE ? [''] : [];
-    const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark(), padding });
+    const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
     const invalid = invalidSchedules().length;
     if (invalid) header.push(warning(`▲ ${invalid} invalid schedule${invalid === 1 ? '' : 's'} · see Schedules`));
     return [...header, ''];

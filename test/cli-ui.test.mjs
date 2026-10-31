@@ -260,8 +260,8 @@ test('with image support the design\'s own face and wordmark show, and nothing e
   const rows = screen(ui, 120, 30).split('\n');
   const placeholder = '\u{10EEEE}';
 
-  assert.ok(rows[1].includes(placeholder), 'the wordmark is a picture');
-  assert.doesNotMatch(rows[1], /hobkin/);
+  assert.ok(rows[0].includes(placeholder), 'the wordmark is a picture');
+  assert.doesNotMatch(rows[0], /hobkin/);
   const input = rows.findIndex(value => value.includes('Message Hobkin'));
   assert.ok(rows[input].startsWith(placeholder) === false && rows[input].includes(placeholder), 'the face sits on the input row');
   assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message Hobkin'), 'left of the input');
@@ -847,10 +847,10 @@ test('only visible chat entries have author blocks and the header times the busy
 
   const rendered = screen(ui, 80, 24).split('\n');
   assert.equal(rendered.filter(value => /^\s*◆ Hobkin\b/.test(value)).length, 1);
-  assert.match(rendered[1], /working 15s/);
+  assert.match(rendered[0], /working 15s/);
 
   ui.update({ ...snapshot, messages, busy: false, connection: 'connected' });
-  assert.match(screen(ui, 80, 24).split('\n')[1], /● connected/);
+  assert.match(screen(ui, 80, 24).split('\n')[0], /● connected/);
 });
 
 test('busy or live-job activity animates only while work runs and never after stop', async () => {
@@ -912,7 +912,7 @@ test('fullscreen dashboard follows the saved Pi theme and switches live when the
   const saveTheme = (name, accent) => writeFileSync(join(agentDir, 'themes', `${name}.json`),
     JSON.stringify({ ...base, name, colors: { ...base.colors, accent } }));
   const chooseTheme = name => writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ theme: name }));
-  const brandRow = () => ui.render(120, 40)[1];
+  const brandRow = () => ui.render(120, 40)[0];
   mkdirSync(join(agentDir, 'themes'));
   saveTheme('ocean', '#0a84ff');
   saveTheme('ember', '#ff6a00');
@@ -928,7 +928,7 @@ test('fullscreen dashboard follows the saved Pi theme and switches live when the
   assert.match(brandRow(), /\x1b\[38;2;255;106;0m◆/);
 
   ui.stop();
-  assert.match(createDashboard(snapshot).render(120, 40)[1], /\x1b\[38;2;255;121;198m◆/);
+  assert.match(createDashboard(snapshot).render(120, 40)[0], /\x1b\[38;2;255;121;198m◆/);
 });
 
 test('selectable questions preserve drafts, require confirmation, and cancel on Escape or shutdown', async t => {
@@ -1641,7 +1641,7 @@ test('the day stays pinned above a chat that overflows, and follows scrolling', 
   }));
   const clock = Date.parse('2026-10-30T18:00:00');
   const ui = createDashboard({ ...snapshot, messages: [...day('2026-10-29'), ...day('2026-10-30')] }, {}, { now: () => clock });
-  const headingRow = () => screen(ui, 80, 30).split('\n')[5];
+  const headingRow = () => screen(ui, 80, 30).split('\n')[3];
 
   assert.match(headingRow(), /TODAY\s+60 messages/);
   for (let page = 0; page < 4; page++) ui.input('\x1b[5~');
