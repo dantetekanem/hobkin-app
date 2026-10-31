@@ -10,6 +10,7 @@ import { createQuestionTool } from './questions.mjs';
 import { grantChrome } from './chrome.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
+import { extensionPaths } from './pi-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 
 /** Caller holds the conversation reservation until the SDK and its compaction/retries settle. */
@@ -248,16 +249,21 @@ async function openConversation(
   const effectiveAgentDir = agentDir ?? getAgentDir();
   const settingsManager = SettingsManager.create(config.main.cwd, effectiveAgentDir);
   const appendSystemPrompt = mainPrompts(root, config);
+  const builtIns = [
+    { name: 'codemode', factory: createCodemodeExtension(), builtin: true, replaceable: true },
+    { name: 'tool-search', factory: createToolSearchExtension(), builtin: true, replaceable: true },
+    { name: 'mcp', factory: createMcpExtension(), builtin: true, replaceable: true },
+  ];
   const resourceLoader = new DefaultResourceLoader({
     cwd: config.main.cwd,
     agentDir: effectiveAgentDir,
     settingsManager,
-    extensionFactories: [
-      { name: 'codemode', factory: createCodemodeExtension(), builtin: true, replaceable: true },
-      { name: 'tool-search', factory: createToolSearchExtension(), builtin: true, replaceable: true },
-      { name: 'mcp', factory: createMcpExtension(), builtin: true, replaceable: true },
-      createMemoryExtension(root),
-    ],
+    noExtensions: true,
+    additionalExtensionPaths: await extensionPaths(config.main.cwd, {
+      agentDir: effectiveAgentDir,
+      builtIns: builtIns.map(({ name }) => name),
+    }),
+    extensionFactories: [...builtIns, createMemoryExtension(root)],
     appendSystemPrompt,
   });
   await resourceLoader.reload();

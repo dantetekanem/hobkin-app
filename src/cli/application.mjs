@@ -6,7 +6,8 @@ import { HobkinRuntime, MAIN_BUSY } from './runtime.mjs';
 import { HobkinRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
-import { runHarness as defaultRunHarness } from './harnesses.mjs';
+import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
+import { extensionPaths } from './pi-extensions.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
@@ -71,12 +72,13 @@ export class HobkinApplication {
     app.onChange = onChange;
     app.now = () => new Date(now?.() ?? Date.now()).getTime();
     app.config = loadConfig(root);
-    // Every job starts its Pi through the configured launcher; without one the request is untouched.
+    // Every job starts its Pi through the configured launcher, which owns Pi's extensions; without one Hobkin names them.
     const { launcher } = app.config;
     if (launcher) {
       const run = runHarness ?? defaultRunHarness;
       runHarness = (request, options) => run({ ...request, launcher }, options);
     }
+    runHarness ??= namingExtensions(defaultRunHarness);
     app.snapshot = readLocalView(root);
     app.moods = new Moods({
       enabled: () => watched && jevEnabled(root),
@@ -123,7 +125,7 @@ export class HobkinApplication {
         runtime: app.runtime,
         runner: app.runner,
         ...(runHarness ? { runHarness } : {}),
-        panes: insideHerdr() ? new WorkPanes() : null,
+        panes: insideHerdr() ? new WorkPanes({ extensionsFor: extensionPaths }) : null,
         now: app.now,
         onChange: () => app.requestRefresh(),
       });

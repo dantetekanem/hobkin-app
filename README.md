@@ -21,7 +21,7 @@ First launch creates `~/.hobkin` and connects Pi without sending a model request
 
 Coming from pi-companion? Close it, then run `hobkin import`. That copies `~/.companion` into `~/.hobkin`, with your schedules, memory, reports and conversation, and points them at the new folder. The old folder is not changed. Run only one of the two: each would run every schedule.
 
-Hobkin uses your ordinary Pi tools, extensions, MCP servers and project context. Models configured in Pi, including Anthropic/Claude models, work here. Pi's own screens and custom extension widgets are not reproduced.
+Hobkin uses your ordinary Pi tools, extensions, MCP servers and project context. It leaves out `pi-emote`, because it has a face of its own: nothing Hobkin starts loads it, and Pi keeps it. With a launcher, the launcher decides which extensions load. Models configured in Pi, including Anthropic/Claude models, work here. Pi's own screens and custom extension widgets are not reproduced.
 
 Updating Hobkin? Read the [CLI update steps](docs/upgrade.md#already-using-the-cli). Moving from the older Pi extension? Read the [legacy migration steps](docs/upgrade.md#legacy-pi-extension-before-planning). Opening a new workspace never imports old data or disables that extension.
 
@@ -37,11 +37,11 @@ Chat opens ready to type. Reports holds completed checks; Schedules shows their 
 - **k** cancels the selected running check. Jobs have no automatic execution deadline.
 - **Ctrl+C** quits.
 
-Type `/` to see local commands. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
+Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` opens a page of everything Hobkin can do; Escape returns to Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
 
 Colors follow Pi's saved theme. The header shows connection state; the status bar shows the next check, the total size of Hobkin's memory files, model, context usage and estimated cost. Critical and useful report summaries appear in Chat; no-news reports stay in Reports. Occasional tips appear above the shortcuts.
 
-Hobkin's face sits left of the input bar in Chat and follows what is happening. On its own it uses four moods: idle when nothing is running, thinking while the agent replies, working while a check or work agent runs, and happy for 30 seconds after a useful report. In Ghostty and Kitty it plays the design's own animation, including inside Herdr. Each frame is sent once, so animating it only changes text. Other terminals, tmux and `HOBKIN_FACE=blocks` use block characters instead. It hides on a narrow or short terminal.
+Hobkin's face sits left of the input bar in Chat and follows what is happening. On its own it uses four moods: idle when nothing is running, thinking while the agent replies, working while a check or work agent runs, and happy for 30 seconds after a useful report. In Ghostty and Kitty it plays the design's own animation, including inside Herdr. Each frame is sent once, so animating it only changes text, and only the mood on screen stays in the terminal. Other terminals, tmux and `HOBKIN_FACE=blocks` use block characters instead. It hides on a terminal under 76 columns or 20 rows.
 
 Jev, a model from TypeSafe, can pick from all 18 moods instead. Set it with `/jev` in the dashboard or `hobkin jev [on | off]`. It needs `TYPESAFE_API_KEY` in the environment, and the status bar shows `jev` while it is on. Jev then picks a mood when a session starts, a report arrives, a schedule or work agent starts or finishes, work mode pauses, the agent finishes a reply or you send a message, and after 15 quiet minutes. Each request goes to `https://api.typesafe.ai/v1/systemone` and carries the event, a report's outcome and its line in Chat, your latest message and the agent's latest reply, each cut to its last 400 characters, and the names of what is running. Nothing is sent with Jev off.
 

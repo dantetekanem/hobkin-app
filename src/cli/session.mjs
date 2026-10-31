@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
+import { extensionPaths } from './pi-extensions.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 
 const TAB_LABEL = 'Hobkin';
@@ -21,7 +22,7 @@ export async function readBrief(input) {
 }
 
 /** Hands massive work to a full Pi session the user can watch and carry on in. Nothing waits for it. */
-export async function startSession({ title = 'session', cwd = process.cwd(), brief, env = process.env, panes = new WorkPanes({ tab: TAB_LABEL }) }) {
+export async function startSession({ title = 'session', cwd = process.cwd(), brief, env = process.env, panes = new WorkPanes({ tab: TAB_LABEL, extensionsFor: extensionPaths }) }) {
   requireHerdr(env);
   if (!brief.trim()) throw Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.');
   return panes.startSession({ name: sessionName(title), cwd: resolve(cwd), brief });

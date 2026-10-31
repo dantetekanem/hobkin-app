@@ -141,6 +141,24 @@ test('Pi gets its binding, and other harnesses start on the user\'s own settings
   assert.deepEqual(starts.codex, []);
 });
 
+test('a Pi pane loads the extensions it was given, and other harnesses are left alone', async t => {
+  const base = folder(t);
+  const starts = {};
+  for (const kind of ['pi', 'claude']) {
+    const options = run(base, { kind, report: join(base, `${kind}.md`) });
+    const herdr = fakeHerdr({ onPrompt: () => writeFileSync(options.report, 'Useful: Done.') });
+    const panes = new WorkPanes({
+      workspace: 'w1', exec: herdr.exec, pollMs: 1, idleGraceMs: 0, extensionsFor: async () => ['/chrome/index.ts'],
+    });
+    await panes.run(options);
+    const [start] = called(herdr, 'agent', 'start');
+    starts[kind] = start.slice(start.indexOf('--') + 1);
+  }
+
+  assert.deepEqual(starts.pi.slice(-3), ['--no-extensions', '--extension', '/chrome/index.ts']);
+  assert.deepEqual(starts.claude, []);
+});
+
 test('an agent that stops without a report is asked once, then the run fails and its pane stays to read', async t => {
   const base = folder(t);
   const herdr = fakeHerdr({ statuses: () => 'idle' });

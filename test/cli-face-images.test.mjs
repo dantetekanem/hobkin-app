@@ -49,6 +49,42 @@ test('a mood is sent to the terminal once, one image per frame, and never again'
   assert.ok(transmissions(first).every(control => /U=1/.test(control) && /q=2/.test(control)), 'virtual placement, no replies on stdin');
 });
 
+test('only the mood on screen stays in the terminal', () => {
+  const { faces, written } = images();
+  const deletions = () => written.join('').match(/a=d,d=I,i=\d+/g) ?? [];
+
+  faces.lines('idle', 0);
+  const idleImages = transmissions(written.join('')).length;
+  faces.lines('thinking', 0);
+  assert.deepEqual(deletions(), [], 'the old mood stays until the new one has been drawn');
+
+  faces.lines('thinking', 125);
+
+  assert.equal(deletions().length, idleImages);
+  faces.lines('thinking', 250);
+  assert.equal(deletions().length, idleImages, 'each image is freed once');
+});
+
+test('coming back to a mood sends it again', () => {
+  const { faces, written } = images();
+  faces.lines('idle', 0);
+  faces.lines('thinking', 0);
+  faces.lines('thinking', 125);
+  const before = transmissions(written.join('')).length;
+
+  faces.lines('idle', 0);
+
+  assert.ok(transmissions(written.join('')).length > before);
+});
+
+test('the speed of a mood not yet sent costs no upload', () => {
+  const { faces, written } = images();
+
+  assert.ok(faces.frameMs('thinking') > 0);
+
+  assert.deepEqual(written, []);
+});
+
 test('moving to the next frame changes only which image the cells point at', () => {
   const { faces } = images();
   const strip = rows => rows.join('').replace(/\x1b\[[0-9;]*m/g, '');

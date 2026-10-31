@@ -136,14 +136,21 @@ const IDLE_REDRAW_MS = 5000;
 const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
 const MIN_WIDTH_FOR_FACE = 72;
-// The picture's last row sits left of the centred divider, so the divider's margin has to be wider than the picture.
-const MIN_WIDTH_FOR_IMAGE_FACE = 92;
 const FACE_GAP = 2;
 const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
 const RESTING_FACE_MS = 250;
 const MIN_ROWS_FOR_PINNED_DAY = 8;
+const localCommands = [
+  ['/help', 'what Hobkin can do'],
+  ['/clear', 'hide visible chat'],
+  ['/reset', 'start a fresh main context'],
+  ['/work', 'work mode'],
+  ['/jev', 'moods'],
+];
+const helpPage = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
 const tips = [
+  'Type /help to see everything Hobkin can do.',
   'Try another model or thinking effort? Just ask Hobkin.',
   'Each schedule can have its own model and thinking effort.',
   'Ask Hobkin to run any check now, even a paused one.',
@@ -159,6 +166,13 @@ const tipAt = (choices, clock) => {
   if (clock % TIP_EVERY_MS >= TIP_SHOW_MS) return '';
   const turn = Math.floor(clock / TIP_EVERY_MS);
   return choices[(Math.imul(turn + 1, 2654435761) >>> 16) % choices.length];
+};
+// A face taller than the input reaches the divider's row. The divider keeps its right end and gives up only what the face needs.
+const ruleBesideFace = (inner, faceWidth) => {
+  const width = Math.round(inner * FOOTER_RULE_SHARE);
+  const margin = Math.floor((inner - width) / 2);
+  const cut = Math.max(0, faceWidth - margin);
+  return ' '.repeat(Math.max(0, margin - faceWidth)) + faint('─'.repeat(width - cut));
 };
 const toned = (text, tone, frame) => {
   const [glyph, paint] = tone === 'progress' ? [frame, highlight] : noticeStyles[tone] ?? ['', dim];
@@ -550,7 +564,7 @@ const welcomeLines = (inner, available) => {
     '',
     ...wrapped('Message your agent below. Reports from scheduled checks appear in Reports.', Math.min(inner, 64)).map(dim),
     '',
-    keys([['←→', 'switch views'], ['/clear', 'hide visible chat'], ['/reset', 'fresh context']]),
+    keys([['←→', 'switch views'], ['/help', 'what Hobkin can do']]),
   ];
   const topPadding = Math.max(0, Math.floor((available - welcome.length) / 2));
   return [...Array(topPadding).fill(''), ...welcome.map(value => centered(value, inner))];
@@ -781,7 +795,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const workRuns = () => (snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run => run.state === 'running' && run.work) : []);
   const workVisible = () => Boolean(snapshot.work);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
-  const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
+  const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`),
+    ...(view === 'help' ? ['help'] : [])];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
   const images = options.images ?? null;
   const faceColumns = () => (images ? IMAGE_FACE_COLUMNS : FACE_COLUMNS);
@@ -908,8 +923,17 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return;
     }
     if (submitted.startsWith('/')) {
-      if (!['/clear', '/reset', '/work', '/jev'].includes(submitted)) {
-        say('Unknown command. Use /clear, /reset, /work or /jev.', 'warning');
+      if (!localCommands.some(([name]) => name === submitted)) {
+        say('Unknown command. Type /help to see them all.', 'warning');
+        changed();
+        return;
+      }
+      if (submitted === '/help') {
+        editor.setText('');
+        say('');
+        view = 'help';
+        focus = 'help';
+        scroll = 0;
         changed();
         return;
       }
@@ -985,6 +1009,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     sendMessage(submitted);
   };
 
+  let completing = null;
+  // The next Tab has to walk the commands that fit what was typed, not the one it just filled in.
+  const completeCommand = () => {
+    const draft = editor.getExpandedText();
+    const typed = completing?.shown === draft ? completing.typed : draft;
+    const names = localCommands.map(([name]) => name).filter(name => name.startsWith(typed));
+    if (!typed.startsWith('/') || !names.length) return false;
+    const shown = names[(names.indexOf(draft) + 1) % names.length];
+    completing = { typed, shown };
+    editor.setText(shown);
+    return true;
+  };
+
   const documents = new Map();
   const markdown = (value, width) => {
     const text = String(value ?? '').split('\n').map(clean).join('\n');
@@ -1023,6 +1060,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         prefix: `${workCircle(snapshot.work)} `,
       }] : []),
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
+      ...(view === 'help' ? [{ name: 'help', label: 'Help' }] : []),
     ].map(tab => tabText(tab, tab.name === view));
     images?.useTheme(palette.face.theme);
     const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
@@ -1037,7 +1075,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'detail') return [['m', 'message'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
-    if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
+    if (focus === 'schedules' || focus === 'help') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') {
       const rowKeys = {
         proposal: [['y', 'take'], ['1 2 3', 'level'], ['n', 'skip']],
@@ -1049,7 +1087,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const start = snapshot.work?.enabled ? [] : [['enter', 'start']];
       return [...start, ...rowKeys[selectedWorkRow()?.type] ?? [], ['h', 'harness'], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
-    if (draft.startsWith('/')) return [['/clear', 'hide visible chat'], ['/reset', 'start a fresh main context'], ['/work', 'work mode'], ['/jev', 'moods']];
+    const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
+    if (commands.length) return [['tab', 'complete'], ...commands];
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
     return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+c', 'quit']];
@@ -1133,7 +1172,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
     const hasComposer = !question && (view === 'conversation' || askingWorkFolder);
-    const faceFits = hasComposer && inner >= (images ? MIN_WIDTH_FOR_IMAGE_FACE : MIN_WIDTH_FOR_FACE) && height >= MIN_ROWS_FOR_TIP_LINE;
+    const faceFits = hasComposer && inner >= MIN_WIDTH_FOR_FACE && height >= MIN_ROWS_FOR_TIP_LINE;
     if (faceFits !== faceShown) {
       faceShown = faceFits;
       animate();
@@ -1156,10 +1195,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (faceShown) {
       const [activityRow, ruleRow, ...rest] = statusLines;
       const face = drawnFace(clock);
+      // A mood's speed is known once its frames have loaded.
+      animate();
       const beside = [...composerLines(room), ...tipRows, activityRow];
       if (face.length <= beside.length) return [...besideFace(face, beside, room), ruleRow, ...rest];
-      // The divider is centred, so a taller face fits in the blank space to its left without moving anything.
-      return [...besideFace(face, [...beside, ruleRow.slice(faceWidth)], room), ...rest];
+      return [...besideFace(face, [...beside, ruleBesideFace(inner, faceWidth)], room), ...rest];
     }
     if (hasComposer) return [...composerLines(inner), ...tipRows, ...statusLines];
     return [tipRows[0] ?? '', ...statusLines];
@@ -1167,6 +1207,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const renderContent = (inner, available, clock, frame) => {
     const live = snapshot.connection === 'connected';
     const activeRuns = liveJobs();
+    if (view === 'help') return { content: markdown(helpPage, inner) };
     if (view === 'schedules') {
       return {
         content: scheduleLines({
@@ -1403,6 +1444,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           say('');
           referencedReport = null;
           stopAskingForWorkFolder();
+        } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
+          // Tab finished the command.
         } else {
           editor.disableSubmit = clearing;
           editor.handleInput(data);

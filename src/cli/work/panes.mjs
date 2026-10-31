@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import { extensionArguments } from '../pi-extensions.mjs';
 
 const TAB_LABEL = 'Work Mode';
 const START_TIMEOUT_MS = 60000;
@@ -15,11 +16,12 @@ const runCommand = promisify(execFile);
 const defaultExec = async (command, args) => (await runCommand(command, args, { maxBuffer: 16 * 1024 * 1024 })).stdout;
 
 // Other harnesses start with the user's own settings, including how they handle approvals.
-const piArguments = ({ model, effort, sessionFile }) => [
+const piArguments = ({ model, effort, sessionFile, extensions }) => [
   '--session', sessionFile,
   '--thinking', effort,
   '--approve',
   ...(model ? ['--model', model] : []),
+  ...extensionArguments(extensions),
 ];
 
 export const insideHerdr = (env = process.env) => env.HERDR_ENV === '1' && Boolean(env.HERDR_WORKSPACE_ID);
@@ -28,8 +30,8 @@ export const agentName = (lane, slug) => `work-${lane}-${slug}`.toLowerCase().re
 
 /** Runs project work where the user can watch it: one agent per pane, in a Herdr tab of their own. */
 export class WorkPanes {
-  constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS, tab = TAB_LABEL } = {}) {
-    Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab });
+  constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS, tab = TAB_LABEL, extensionsFor = async () => undefined } = {}) {
+    Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab, extensionsFor });
   }
 
   async herdr(...args) {
@@ -100,7 +102,8 @@ export class WorkPanes {
   async startSession({ name, cwd, brief }) {
     const pane = await this.openPane(cwd);
     try {
-      await this.herdr('agent', 'start', name, '--kind', 'pi', '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', '--approve');
+      const extensions = extensionArguments(await this.extensionsFor(cwd));
+      await this.herdr('agent', 'start', name, '--kind', 'pi', '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', '--approve', ...extensions);
     } catch (error) {
       await this.closePane(pane);
       throw error;
@@ -118,7 +121,7 @@ export class WorkPanes {
     try {
       signal?.throwIfAborted();
       pane = await this.openPane(cwd);
-      const args = kind === 'pi' ? piArguments({ model, effort, sessionFile }) : [];
+      const args = kind === 'pi' ? piArguments({ model, effort, sessionFile, extensions: await this.extensionsFor(cwd) }) : [];
       await this.herdr('agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', ...args);
       await this.prompt(name, `Read ${brief} and follow it.`);
       await this.waitForReport({ name, report, signal });

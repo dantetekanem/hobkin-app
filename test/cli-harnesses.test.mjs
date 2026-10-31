@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { buildInvocation, runHarness } from '../src/cli/harnesses.mjs';
+import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 function request(t, harness = 'pi') {
@@ -455,4 +455,43 @@ test('a Pi job slower than an inherited saved timeout finishes naturally', async
   `)) });
   assert.equal(result.status, 'completed');
   assert.equal(result.text, 'Slow report');
+});
+
+test('a job with tools loads exactly the extensions it was given', t => {
+  const { args } = buildInvocation({ ...request(t), extensions: ['/chrome/index.ts', 'builtin:mcp'] });
+
+  assert.ok(args.includes('--no-extensions'));
+  assert.deepEqual(args.filter((_arg, index) => args[index - 1] === '--extension'), ['/chrome/index.ts', 'builtin:mcp']);
+  assert.ok(args.includes('--approve'), 'it keeps its permissions');
+});
+
+test('a job given no list leaves extensions to Pi', t => {
+  assert.ok(!buildInvocation(request(t)).args.includes('--no-extensions'));
+});
+
+test('every job that loads tools leaves pi-emote behind, and the user\'s Pi settings are only read', async t => {
+  const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-agent-'));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(agentDir, { recursive: true, force: true });
+  });
+  mkdirSync(join(agentDir, 'extensions/pi-emote'), { recursive: true });
+  writeFileSync(join(agentDir, 'extensions/pi-emote/index.ts'), 'export default function () {}\n');
+  writeFileSync(join(agentDir, 'extensions/own.ts'), 'export default function () {}\n');
+  const started = [];
+  const run = namingExtensions(async job => { started.push(job); });
+
+  await run(request(t));
+  await run({ ...request(t), purpose: 'work-do' });
+  await run({ ...request(t), purpose: 'reflection' });
+
+  const [check, work, toolFree] = started;
+  for (const job of [check, work]) {
+    assert.ok(job.extensions.includes(join(agentDir, 'extensions/own.ts')));
+    assert.deepEqual(job.extensions.filter(path => path.includes('pi-emote')), []);
+  }
+  assert.equal(toolFree.extensions, undefined, 'a tool-free job already loads no extensions');
 });

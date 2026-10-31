@@ -275,13 +275,164 @@ test('with image support the design\'s own face and wordmark show, and nothing e
   assert.ok(written.join('').includes('a=T'), 'the frames went to the terminal');
 });
 
-test('a terminal too narrow for the picture and the divider drops the picture', () => {
+test('a 90-column pane still gets the face, with the divider making room', () => {
   const images = new FaceImages({ write: () => {} });
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { images });
 
-  const rows = screen(ui, 85, 30).split('\n');
+  const rows = screen(ui, 90, 30).split('\n');
+
+  assert.equal(rows.filter(value => value.includes('\u{10EEEE}')).length, 7, 'six rows of face and the wordmark');
+  const nextCheck = rows.findIndex(value => /next check/.test(value));
+  assert.ok(rows[nextCheck - 1].includes('─'), 'the divider is still there');
+  assert.ok(rows.every(value => visibleWidth(value) <= 90));
+});
+
+test('a terminal too narrow for the face keeps the whole input', () => {
+  const images = new FaceImages({ write: () => {} });
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { images });
+
+  const rows = screen(ui, 60, 30).split('\n');
 
   assert.equal(rows.filter(value => value.includes('\u{10EEEE}')).length, 1, 'only the wordmark');
+});
+
+test('Tab finishes a slash command, and cycles when several fit', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+  const typed = text => {
+    ui.input(text);
+    return ui.state().draft;
+  };
+
+  typed('/w');
+  assert.equal(typed('\t'), '/work');
+  assert.equal(typed(' ~/Projects'), '/work ~/Projects', 'the cursor ends up after the command');
+});
+
+test('Tab on a bare slash walks every command and comes back round', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+  const tab = () => {
+    ui.input('\t');
+    return ui.state().draft;
+  };
+
+  ui.input('/');
+
+  assert.deepEqual(Array.from({ length: 6 }, tab), ['/help', '/clear', '/reset', '/work', '/jev', '/help']);
+});
+
+test('Tab leaves a path alone while Hobkin is asking for a folder', () => {
+  const ui = createDashboard(
+    { ...snapshot, connection: 'connected', messages: [], work: { enabled: false } },
+    { send: async () => {}, workAction: async () => ({}) },
+  );
+  ui.input('/work');
+  ui.input('\r');
+
+  ui.input('/w');
+  ui.input('\t');
+
+  assert.notEqual(ui.state().draft, '/work');
+});
+
+test('Tab on a command you typed yourself narrows from what you typed', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  ui.input('/r');
+  ui.input('\t');
+  ui.input('\t');
+
+  assert.equal(ui.state().draft, '/reset');
+});
+
+test('Tab outside a slash command does what it did before', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  ui.input('/nothing');
+  ui.input('\t');
+  assert.equal(ui.state().draft.trim(), '/nothing');
+});
+
+test('the shortcut row narrows to the commands that still fit, and shows Tab', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  ui.input('/w');
+
+  const text = screen(ui, 120, 30);
+  assert.match(text, /\/work/);
+  assert.match(text, /tab\s+complete/);
+  assert.doesNotMatch(text, /\/reset/);
+});
+
+test('/help opens a page of its own, and Esc returns to Chat', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  ui.input('/help');
+  ui.input('\r');
+
+  assert.equal(ui.state().view, 'help');
+  assert.equal(ui.state().draft, '');
+  const page = screen(ui, 100, 30);
+  assert.match(page, /What Hobkin can do/);
+  assert.match(page, /Help/, 'a tab says where you are');
+  assert.doesNotMatch(page, /Message Hobkin/, 'the input makes way for the page');
+
+  ui.input('\x1b');
+
+  assert.equal(ui.state().view, 'conversation');
+  assert.equal(ui.state().focus, 'composer');
+  assert.doesNotMatch(screen(ui, 100, 30), /Help\b.*·/);
+});
+
+test('/help sends nothing to the agent', async () => {
+  const sent = [];
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async text => { sent.push(text); } });
+
+  ui.input('/help');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(sent, []);
+});
+
+test('the help page scrolls, and scrolling back up reaches its top', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+  ui.input('/help');
+  ui.input('\r');
+  screen(ui, 80, 24);
+
+  ui.input('\x1b[6~');
+  ui.input('\x1b[6~');
+  const further = screen(ui, 80, 24);
+
+  assert.doesNotMatch(further, /What Hobkin can do/);
+  ui.input('\x1b[5~');
+  ui.input('\x1b[5~');
+  assert.match(screen(ui, 80, 24), /What Hobkin can do/);
+});
+
+test('leaving help with the arrows lands on a real view and the Help tab goes', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+  ui.input('/help');
+  ui.input('\r');
+
+  ui.input('\x1b[C');
+
+  assert.equal(ui.state().view, 'conversation');
+  ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'reports');
+  ui.input('\x1b[D');
+  ui.input('\x1b[D');
+  assert.equal(ui.state().view, 'schedules', 'help is not a stop on the way round');
+});
+
+test('an unknown command points at /help and keeps the draft', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  ui.input('/nope');
+  ui.input('\r');
+
+  assert.match(ui.state().notice, /\/help/);
+  assert.equal(ui.state().draft, '/nope');
 });
 
 test('the face moves at the design\'s own speed', () => {
@@ -291,7 +442,7 @@ test('the face moves at the design\'s own speed', () => {
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { images, now: () => clock });
   const frameAt = time => {
     clock = time;
-    return ui.render(120, 30).filter(value => value.includes('\u{10EEEE}̅̅')).at(-1);
+    return ui.render(120, 30).filter(value => value.includes('\u{10EEEE}\u0305')).at(-1);
   };
 
   const first = frameAt(1000);

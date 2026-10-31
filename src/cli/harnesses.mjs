@@ -5,6 +5,7 @@ import { validateBinding } from './schedules.mjs';
 import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { keptEffort } from './model-settings.mjs';
+import { extensionArguments, extensionPaths } from './pi-extensions.mjs';
 import { clean, startRpcProcess } from './rpc-process.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
@@ -53,12 +54,18 @@ export function buildInvocation(request) {
       '--no-context-files', '--no-approve',
       '--system-prompt', system,
       // Nothing here can stop to ask, and a worktree is a new folder a saved trust decision would not reach.
-    ] : ['--append-system-prompt', system, '--approve']),
+    ] : [...extensionArguments(request.extensions), '--append-system-prompt', system, '--approve']),
     ...(isWork ? ['--append-system-prompt', prompt(request.purpose)] : []),
   ];
   if (request.model) args.push('--model', request.model);
   return piCommand(request.launcher, args);
 }
+
+/** A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. */
+export const namingExtensions = run => async (request, options) => {
+  if (!usesTools(request.purpose)) return run(request, options);
+  return run({ ...request, extensions: await extensionPaths(request.cwd) }, options);
+};
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
 export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes = 1048576, onEvent = () => {}, onReady = () => {} } = {}) {

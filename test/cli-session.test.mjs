@@ -17,6 +17,27 @@ const fakeHerdr = (tabs = []) => {
   return { calls, panes: new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' }) };
 };
 
+test('a session\'s Pi loads the extensions it was given', async () => {
+  const calls = [];
+  const exec = async (_command, args) => {
+    calls.push(args);
+    if (args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
+    return JSON.stringify({ result: { root_pane: { pane_id: 'w1:p9' } } });
+  };
+  const asked = [];
+  const extensionsFor = async cwd => {
+    asked.push(cwd);
+    return ['/chrome/index.ts'];
+  };
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin', extensionsFor });
+
+  await startSession({ cwd: '/repos/api', brief: 'Go.', env: herdr, panes });
+
+  const start = calls.find(args => args[1] === 'start');
+  assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve', '--no-extensions', '--extension', '/chrome/index.ts']);
+  assert.deepEqual(asked, ['/repos/api']);
+});
+
 test('a session is a full Pi with every permission, in its own tab, and starts on the brief', async () => {
   const { calls, panes } = fakeHerdr();
 

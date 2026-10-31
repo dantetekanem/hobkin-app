@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `/help`, a page of everything Hobkin can do.
+- Let Tab finish a `/` command, and walk through them when several fit.
+- Leave `pi-emote` out of everything Hobkin starts: the main chat, checks, work panes and `hobkin session`. Pi keeps it.
 - Rename the project from Pi Companion to Hobkin: a new repository, the `hobkin` command, `~/.hobkin` as the data folder and `HOBKIN_HOME` to move it. `pi-companion` stays as it was, and older entries keep its name.
 - Add Hobkin's face beside the input in Chat. It shows idle, thinking, working and happy from what the app is doing.
 - Add Jev, which picks from all 18 moods as things happen. `/jev` or `hobkin jev [on | off]` sets it, and the README says what it sends.

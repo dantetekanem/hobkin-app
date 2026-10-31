@@ -47,6 +47,12 @@ test('main conversation uses Pi tools and MCP with native extension lifecycle', 
       pi.registerCommand('fixture-command', { handler: async () => {} });
     }
   `);
+  const emoteLoaded = join(root, 'emote-loaded');
+  mkdirSync(join(extensions, 'pi-emote'));
+  writeFileSync(join(extensions, 'pi-emote/index.js'), `
+    import { writeFileSync } from 'node:fs';
+    export default function () { writeFileSync(${JSON.stringify(emoteLoaded)}, 'loaded'); }
+  `);
   const server = join(root, 'mcp-fixture.mjs');
   writeFileSync(server, String.raw`
     import { createInterface } from 'node:readline';
@@ -106,6 +112,7 @@ test('main conversation uses Pi tools and MCP with native extension lifecycle', 
     assert.ok(activeTools.includes(name), `${name} should be available like normal Pi`);
   }
   assert.equal(readFileSync(started, 'utf8'), 'start\n');
+  assert.equal(existsSync(emoteLoaded), false, 'Hobkin never loads pi-emote');
   modelRuntime.checkAuth = async () => ({ available: true });
   modelRuntime.hasConfiguredAuth = () => false;
   writeFileSync(join(root, 'memory.md'), '- Rent is due November 1\n');
