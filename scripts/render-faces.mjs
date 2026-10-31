@@ -8,8 +8,9 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const SIZE = 280;
-const VIEW_BOX = '-10 -24 220 220';
+const SIZE = 240;
+// Square and centred on the hood's own box, 40,22 to 160,188. Its size comes from the moods: celebrating's confetti reaches y = -31.5.
+const VIEW_BOX = '-38 -33 276 276';
 const AT_ONCE = 4;
 const WORDMARK_HEIGHT = 96;
 

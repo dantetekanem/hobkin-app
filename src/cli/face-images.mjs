@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { moods } from './face.mjs';
 
-export const IMAGE_FACE_COLUMNS = 14;
-export const IMAGE_FACE_ROWS = 6;
+// Herdr stretches the picture onto these cells, so the box has to be square on screen. A cell is about 2.2 times as tall as it is wide.
+export const IMAGE_FACE_COLUMNS = 11;
+export const IMAGE_FACE_ROWS = 5;
 export const WORDMARK_COLUMNS = 10;
 
 const ASSETS = fileURLToPath(new URL('../../assets/faces', import.meta.url));
@@ -13,7 +14,7 @@ const CHUNK_LENGTH = 4096;
 const FIRST_FRAME_MS = 125;
 const PLACEHOLDER = '\u{10EEEE}';
 // Kitty's table of combining marks: the mark at index n means row n. Cells after the first take their place from the one before.
-const ROWS = ['̅', '̍', '̎', '̐', '̒', '̽'];
+const ROWS = ['̅', '̍', '̎', '̐', '̒'];
 const FIRST_ID = 0x100000;
 const LAST_ID = 0xE00000;
 
@@ -37,7 +38,7 @@ const deletion = ids => ids.map(id => `\x1b_Ga=d,d=I,i=${id},q=2\x1b\\`).join(''
 /**
  * Shows the design's frames through text cells that stand for an image. Every frame is its own image, sent once,
  * so moving to the next one only changes a text colour; replacing an image in place is what flickers inside Herdr.
- * Only the mood on screen stays in the terminal, because Herdr turns each image into raw pixels, about 300 KB a frame.
+ * Only the mood on screen stays in the terminal, because Herdr turns each image into raw pixels, about 230 KB a frame.
  */
 export class FaceImages {
   constructor({ write, theme = 'dark', directory = ASSETS }) {

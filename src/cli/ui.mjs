@@ -168,13 +168,6 @@ const tipAt = (choices, clock) => {
   const turn = Math.floor(clock / TIP_EVERY_MS);
   return choices[(Math.imul(turn + 1, 2654435761) >>> 16) % choices.length];
 };
-// A face taller than the input reaches the divider's row. The divider keeps its right end and gives up only what the face needs.
-const ruleBesideFace = (inner, faceWidth) => {
-  const width = Math.round(inner * FOOTER_RULE_SHARE);
-  const margin = Math.floor((inner - width) / 2);
-  const cut = Math.max(0, faceWidth - margin);
-  return ' '.repeat(Math.max(0, margin - faceWidth)) + faint('─'.repeat(width - cut));
-};
 const toned = (text, tone, frame) => {
   const [glyph, paint] = tone === 'progress' ? [frame, highlight] : noticeStyles[tone] ?? ['', dim];
   return paint(`${glyph ? `${glyph} ` : ''}${clean(text)}`);
@@ -1202,13 +1195,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
     if (faceShown) {
-      const [activityRow, ruleRow, ...rest] = statusLines;
+      const [activityRow, ...rest] = statusLines;
       const face = drawnFace(clock);
       // A mood's speed is known once its frames have loaded.
       animate();
       const beside = [...composerLines(room), ...tipRows, activityRow];
-      if (face.length <= beside.length) return [...besideFace(face, beside, room), ruleRow, ...rest];
-      return [...besideFace(face, [...beside, ruleBesideFace(inner, faceWidth)], room), ...rest];
+      return [...besideFace(face, beside, room), ...rest];
     }
     if (hasComposer) return [...composerLines(inner), ...tipRows, ...statusLines];
     return [tipRows[0] ?? '', ...statusLines];

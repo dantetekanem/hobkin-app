@@ -265,26 +265,35 @@ test('with image support the design\'s own face and wordmark show, and nothing e
   const input = rows.findIndex(value => value.includes('Message Hobkin'));
   assert.ok(rows[input].startsWith(placeholder) === false && rows[input].includes(placeholder), 'the face sits on the input row');
   assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message Hobkin'), 'left of the input');
-  const beside = rows.filter(value => value.includes(placeholder));
-  assert.equal(beside.length, 7, 'six rows of face and one of wordmark');
+  const [, ...faceOffsets] = rows.flatMap((value, index) => (value.includes(placeholder) ? [index - input] : []));
+  assert.deepEqual(faceOffsets, [-1, 0, 1, 2, 3], 'after the wordmark, five rows of face exactly beside the input block');
   assert.deepEqual(
     [rows.findIndex(value => /next check/.test(value)), rows.length],
     (plainRows => [plainRows.findIndex(value => /next check/.test(value)), plainRows.length])(screen(plain, 120, 30).split('\n')),
     'the footer is the same height with the picture',
   );
-  assert.ok(rows[input + 4].includes('─'), 'the divider stays, beside the last row of the face');
+  assert.ok(rows[input + 4].includes('─') && !rows[input + 4].includes(placeholder), 'the divider has its row to itself, below the face');
   assert.ok(written.join('').includes('a=T'), 'the frames went to the terminal');
 });
 
-test('a 90-column pane still gets the face, with the divider making room', () => {
+test('a 90-column pane still gets the face, left of the input and clear of the divider', () => {
+  const live = { ...snapshot, connection: 'connected', messages: [] };
   const images = new FaceImages({ write: () => {} });
-  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} }, { images });
+  const plain = createDashboard(live, { send: async () => {} });
+  const ui = createDashboard(live, { send: async () => {} }, { images });
+  const placeholder = '\u{10EEEE}';
 
   const rows = screen(ui, 90, 30).split('\n');
+  const plainRows = screen(plain, 90, 30).split('\n');
 
-  assert.equal(rows.filter(value => value.includes('\u{10EEEE}')).length, 7, 'six rows of face and the wordmark');
+  assert.equal(rows.filter(value => value.includes(placeholder)).length, 6, 'five rows of face and the wordmark');
+  const input = rows.findIndex(value => value.includes('Message Hobkin'));
+  assert.ok(rows[input].includes(placeholder), 'the face sits on the input row');
+  assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message Hobkin'), 'left of the input');
   const nextCheck = rows.findIndex(value => /next check/.test(value));
+  assert.equal(nextCheck, plainRows.findIndex(value => /next check/.test(value)), 'the footer is the same height with the picture');
   assert.ok(rows[nextCheck - 1].includes('─'), 'the divider is still there');
+  assert.equal(rows[nextCheck - 1], plainRows[nextCheck - 1], 'and whole, because the face stops above it');
   assert.ok(rows.every(value => visibleWidth(value) <= 90));
 });
 

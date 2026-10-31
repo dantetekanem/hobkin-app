@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { moods } from '../src/cli/face.mjs';
-import { FaceImages, IMAGE_FACE_COLUMNS, IMAGE_FACE_ROWS, WORDMARK_COLUMNS, supportsFaceImages } from '../src/cli/face-images.mjs';
+import { FaceImages, IMAGE_FACE_ROWS, WORDMARK_COLUMNS, supportsFaceImages } from '../src/cli/face-images.mjs';
 
 const transmissions = text => text.match(/\x1b_G[^;]*a=T[^;]*;/g) ?? [];
 const imageIdOf = value => {
@@ -29,10 +29,23 @@ test('every mood has real frames in both themes, and so does the wordmark', () =
   }
 });
 
-test('the face is a fixed box of text cells', () => {
-  const { faces } = images();
+test('the face is a fixed box of 11 by 5 text cells, and the terminal is told the same box', () => {
+  const { faces, written } = images();
 
-  for (const value of faces.lines('thinking', 1234)) assert.equal(visibleWidth(value), IMAGE_FACE_COLUMNS);
+  const rows = faces.lines('thinking', 1234);
+
+  assert.equal(rows.length, 5);
+  for (const value of rows) assert.equal(visibleWidth(value), 11);
+  assert.ok(transmissions(written.join('')).every(control => control.includes('c=11,r=5,')));
+});
+
+test('each row of cells names its own row of the picture', () => {
+  const { faces } = images();
+  const markOf = value => [...value.replace(/\x1b\[[0-9;]*m/g, '')][1];
+
+  const marks = faces.lines('thinking', 0).map(markOf);
+
+  assert.deepEqual(marks, ['\u0305', '\u030D', '\u030E', '\u0310', '\u0312']);
 });
 
 test('a mood is sent to the terminal once, one image per frame, and never again', () => {
