@@ -9,6 +9,10 @@ const rgbOf = ansi => {
   return match ? match.slice(1).map(Number) : null;
 };
 const rgbTone = rgb => text => `\x1b[38;2;${rgb.join(';')}m${text}\x1b[39m`;
+// The design's two faces. Dark body text means a light background, where the cream hood would disappear.
+const faceFor = text => (text && text.reduce((sum, channel) => sum + channel, 0) < 384
+  ? { hood: [22, 24, 31], eye: [255, 201, 64] }
+  : { hood: [240, 234, 214], eye: [232, 163, 23] });
 
 // An automatic `light/dark` setting uses Pi's terminal-background detection to choose its half.
 const savedThemeName = cwd => {
@@ -28,6 +32,7 @@ const paletteFrom = theme => {
     ? rgbTone(text.map((channel, index) => Math.round((channel + muted[index]) / 2)))
     : tone('muted');
   return {
+    face: faceFor(text),
     dim: secondary,
     muted: tone('muted'),
     faint: tone('borderMuted'),

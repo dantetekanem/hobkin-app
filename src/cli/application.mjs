@@ -15,7 +15,8 @@ import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
 import { answerAllowance, chooseProject, dropProject, readMode, setHarness, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
-import { atomicJson, loadConfig } from './config.mjs';
+import { atomicJson, jevEnabled, loadConfig, setJev } from './config.mjs';
+import { Moods } from './mood.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
@@ -77,6 +78,11 @@ export class HobkinApplication {
       runHarness = (request, options) => run({ ...request, launcher }, options);
     }
     app.snapshot = readLocalView(root);
+    app.moods = new Moods({
+      enabled: () => jevEnabled(root),
+      now: () => new Date(app.now()).getTime(),
+      onChange: () => app.requestRefresh(),
+    });
     app.runtime = await HobkinRuntime.open(root, app.config, {
       createMain,
       askQuestion,
@@ -309,12 +315,15 @@ export class HobkinApplication {
       work,
       connection: 'connected',
       busy: this.runtime.mainBusy,
+      jev: jevEnabled(this.runtime.directory),
       main: {
         harness: 'pi',
         model: `${this.runtime.main.model.provider}/${this.runtime.main.model.id}`,
         effort: this.runtime.main.thinkingLevel,
       },
     };
+    this.moods.observe(this.snapshot);
+    this.snapshot.mood = this.moods.reaction;
     this.onChange?.(this.snapshot);
     this.activeJobIds = this.onChange
       ? active
@@ -357,11 +366,19 @@ export class HobkinApplication {
 
   // Agents file work from their own processes, and nothing else tells the dashboard it changed.
   async tickWork() {
+    this.moods.notice();
     await this.director.tick();
     const signature = JSON.stringify(workStatus(this.runtime.directory));
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();
+  }
+
+  async toggleJev() {
+    const root = this.runtime.directory;
+    const result = setJev(root, !jevEnabled(root));
+    await this.refresh();
+    return result;
   }
 
   async workAction(action, slug, value) {
@@ -405,6 +422,7 @@ export class HobkinApplication {
     if (!this.closing) {
       this.closing = (async () => {
         clearTimeout(this.refreshTimer);
+        this.moods?.stop();
         this.deletionWatcher?.close();
         try {
           await this.runner?.stop();

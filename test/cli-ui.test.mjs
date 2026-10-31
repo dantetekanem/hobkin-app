@@ -226,6 +226,67 @@ test('a failed message never overwrites what was typed since', async () => {
   assert.match(screen(ui, 80, 24), /no route/);
 });
 
+test('Hobkin sits left of the input bar in Chat, and typing still works', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  const rows = screen(ui, 100, 30).split('\n');
+  const input = rows.findIndex(value => value.includes('Message Hobkin'));
+  assert.ok(rows[input].indexOf('Message Hobkin') > 14, 'the input moves right to make room');
+  assert.ok(rows.slice(input - 1, input + 4).some(value => /[^\s]/.test(value.slice(0, 14))), 'the face fills the left side');
+
+  ui.input('hello');
+
+  assert.equal(ui.state().draft, 'hello');
+  assert.match(screen(ui, 100, 30), /❯ hello/);
+});
+
+test('the footer is no taller with the face, so nothing jumps when it comes and goes', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+
+  const beside = screen(ui, 100, 30).split('\n').findIndex(value => value.includes('Message Hobkin'));
+  const without = screen(ui, 60, 30).split('\n').findIndex(value => value.includes('Message Hobkin'));
+
+  assert.equal(beside, without);
+});
+
+test('a narrow or short terminal keeps the whole input instead of the face', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
+  const leftOf = (width, height) => {
+    const rows = screen(ui, width, height).split('\n');
+    return rows[rows.findIndex(value => value.includes('Message Hobkin'))].indexOf('Message Hobkin');
+  };
+
+  assert.ok(leftOf(100, 30) > 14);
+  assert.ok(leftOf(60, 30) < 14);
+  assert.ok(leftOf(100, 14) < 14);
+});
+
+test('the face follows the work: thinking on a turn, working while a check or work mode runs', () => {
+  const live = { ...snapshot, connection: 'connected', messages: [] };
+  const running = { id: 'one', kind: 'background', state: 'running', scheduleId: 'check', title: 'Check', startedAt: new Date().toISOString() };
+  const ui = createDashboard(live);
+  assert.equal(ui.state().mood, 'idle');
+
+  ui.update({ ...live, busy: true });
+  assert.equal(ui.state().mood, 'thinking');
+
+  ui.update({ ...live, runs: [running] });
+  assert.equal(ui.state().mood, 'working');
+
+  ui.update({ ...live, work: { enabled: true, discovering: true, projects: [], attention: [] } });
+  assert.equal(ui.state().mood, 'working');
+
+  ui.update(live);
+  assert.equal(ui.state().mood, 'idle');
+});
+
+test('a reaction the application chose shows on the face', () => {
+  const live = { ...snapshot, connection: 'connected', messages: [] };
+  const ui = createDashboard({ ...live, mood: { mood: 'celebrating', until: Date.now() + 60000 } });
+
+  assert.equal(ui.state().mood, 'celebrating');
+});
+
 test('chat opens at the latest message and pages through history while input remains active', () => {
   const messages = Array.from({ length: 20 }, (_, i) => ({ role: 'assistant', content: `Message ${i} ` + 'hello '.repeat(20) }));
   const ui = createDashboard({ ...snapshot, messages });
@@ -1240,7 +1301,7 @@ test('the day stays pinned above a chat that overflows, and follows scrolling', 
 test('tips come and go on the clock, and mention checks that go unread', () => {
   const attention = [{ scheduleId: 'recap', title: 'Morning recap', reports: 7, read: 0, ignored: true }];
   const period = 180000;
-  const rowAboveShortcuts = ui => screen(ui, 120, 40).split('\n').at(-5);
+  const rowAboveShortcuts = ui => [...screen(ui, 120, 40).split('\n').at(-5)].slice(14).join('');
   let clock = period * 5;
   const ui = createDashboard({ ...snapshot, reportAttention: attention, memoryBytes: 2436 }, {}, { now: () => clock });
   const seen = new Set();

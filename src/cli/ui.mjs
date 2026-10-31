@@ -5,6 +5,8 @@ import {
   Editor, Markdown, ProcessTerminal, SelectList, TuiAltScreen, getKeybindings, matchesKey,
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
+import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
+import { currentMood } from './mood.mjs';
 import { followPiTheme } from './theme.mjs';
 import { tokenLabel, workHarnesses } from './work/store.mjs';
 
@@ -35,6 +37,7 @@ const comment = color(98, 114, 164);
 const shadow = color(68, 71, 90);
 // Dracula until the fullscreen dashboard loads the user's Pi theme (see theme.mjs for the same roles).
 const builtInPalette = {
+  face: { hood: [240, 234, 214], eye: [232, 163, 23] },
   dim: slate,
   muted: comment,
   faint: shadow,
@@ -130,6 +133,11 @@ const TIP_SHOW_MS = 30000;
 const IDLE_REDRAW_MS = 5000;
 const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
+const MIN_WIDTH_FOR_FACE = 72;
+const FACE_GAP = 2;
+const ACTIVE_FRAME_MS = 100;
+const MOVING_FACE_MS = 125;
+const RESTING_FACE_MS = 250;
 const MIN_ROWS_FOR_PINNED_DAY = 8;
 const tips = [
   'Try another model or thinking effort? Just ask Hobkin.',
@@ -716,6 +724,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let noticeTimer = null;
   let busySince = null;
   let ticker = null;
+  let tickerMs = 0;
+  let faceShown = false;
   let reading = null;
   let referencedReport = null;
   let workKey = null;
@@ -768,6 +778,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
   const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
+  const moodNow = clock => currentMood({
+    reaction: snapshot.mood,
+    busy: snapshot.connection === 'connected' && snapshot.busy,
+    running: jobViews().length || snapshot.work?.discovering,
+    now: clock,
+  });
   const currentWorkSections = (inner, clock, frame) => workSections({ work: snapshot.work ?? {}, runs: workRuns(), inner, clock, frame });
   const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
     const rows = sections.flatMap(([, entries]) => entries);
@@ -790,6 +806,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const changed = () => {
     if (stopped) return;
     trackReading(reportOnScreen());
+    animate();
     onChange();
   };
   const connected = () => snapshot.connection === 'connected' && typeof callbacks.send === 'function';
@@ -798,13 +815,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const live = snapshot.connection === 'connected';
     busySince = live && snapshot.busy ? busySince ?? now() : null;
     const active = !stopped && live && Boolean(snapshot.busy || snapshot.context?.compacting || jobViews().length || snapshot.work?.discovering);
-    if (active && !ticker) {
-      ticker = setInterval(changed, 100);
-      ticker.unref?.();
-    } else if (!active && ticker) {
-      clearInterval(ticker);
-      ticker = null;
-    }
+    const resting = ['idle', 'sleepy'].includes(moodNow(now()));
+    const faceFrames = faceShown && !stopped ? (resting ? RESTING_FACE_MS : MOVING_FACE_MS) : 0;
+    const wanted = active ? ACTIVE_FRAME_MS : faceFrames;
+    if (wanted === tickerMs) return;
+    clearInterval(ticker);
+    ticker = wanted ? setInterval(changed, wanted) : null;
+    ticker?.unref?.();
+    tickerMs = wanted;
   };
 
   // Tips and the next-check countdown change with no event to redraw them.
@@ -1052,6 +1070,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const tip = tipAt([...tips, ...ignoredTips(snapshot.reportAttention ?? [])], clock);
     return tip ? `  ${muted('tip')}  ${dim(tip)}` : '';
   };
+  const besideFace = (rows, width, clock) => {
+    const face = faceLines(moodNow(clock), clock, { ...palette.face, octants: supportsOctants() });
+    const blank = ' '.repeat(FACE_COLUMNS);
+    return rows.map((value, index) => `${face[index] ?? blank}${' '.repeat(FACE_GAP)}${line(value, width)}`);
+  };
   const composerLines = inner => {
     const [above, ...lines] = editor.render(inner - 4);
     const below = lines.pop();
@@ -1083,10 +1106,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
+    const hasComposer = !question && (view === 'conversation' || askingWorkFolder);
+    faceShown = hasComposer && inner >= MIN_WIDTH_FOR_FACE && height >= MIN_ROWS_FOR_TIP_LINE;
+    const room = faceShown ? inner - FACE_COLUMNS - FACE_GAP : inner;
     const hints = hintsFor(editor.getExpandedText());
     // Drop whole hints from the end rather than cutting one mid-word.
     let shown = hints.length;
-    while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) + 2 > inner) shown--;
+    while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) + 2 > room) shown--;
     const activity = activityText(keys(hints.slice(0, shown)), frame);
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
@@ -1096,7 +1122,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     // The row stays reserved so a tip coming or going never moves anything.
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
-    if (view === 'conversation' || askingWorkFolder) return [...composerLines(inner), ...tipRows, ...statusLines];
+    if (faceShown) {
+      const [activityRow, ...rest] = statusLines;
+      return [...besideFace([...composerLines(room), ...tipRows, activityRow], room, clock), ...rest];
+    }
+    if (hasComposer) return [...composerLines(inner), ...tipRows, ...statusLines];
     return [tipRows[0] ?? '', ...statusLines];
   };
   const renderContent = (inner, available, clock, frame) => {
@@ -1201,7 +1231,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
 
   const controller = {
-    state: () => ({ selectedId, focus, view, scroll, draft: editor.getExpandedText(), notice }),
+    state: () => ({ selectedId, focus, view, scroll, draft: editor.getExpandedText(), notice, mood: moodNow(now()) }),
     get focused() { return hasFocus; },
     set focused(value) { hasFocus = value; },
     pending: () => pending,
