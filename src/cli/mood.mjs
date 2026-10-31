@@ -40,6 +40,7 @@ export function currentMood({ reaction, busy, running, now }) {
 }
 
 export async function askJev(state, { key = process.env.TYPESAFE_API_KEY, request = fetch } = {}) {
+  if (!key) throw Error('Jev needs TYPESAFE_API_KEY.');
   const response = await request(JEV_URL, {
     method: 'POST',
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },

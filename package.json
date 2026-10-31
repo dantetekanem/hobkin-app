@@ -7,7 +7,7 @@
   "bin": { "hobkin": "./src/cli/main.mjs" },
   "keywords": ["pi-package"],
   "repository": "https://github.com/dantetekanem/hobkin",
-  "files": ["src", "README.md", "docs/upgrade.md", "docs/legacy.md"],
+  "files": ["src", "assets", "README.md", "docs/upgrade.md", "docs/legacy.md"],
   "pi": { "extensions": ["./src/index.ts"] },
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.1.0",

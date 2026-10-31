@@ -1001,6 +1001,29 @@ test('with Jev off a useful scheduled report makes Hobkin happy through a real r
   }
 });
 
+test('with no dashboard open nothing goes to Jev, since no face would show the answer', async t => {
+  const h = fixture(t);
+  setJevKey(t, 'test-key');
+  const asked = [];
+  t.mock.method(globalThis, 'fetch', async () => {
+    asked.push(true);
+    return { ok: true, json: async () => ({ answers: { mood: { choice: 'surprised' } } }) };
+  });
+  const runHarness = async () => { throw Error('Unexpected provider call in synthetic mood test.'); };
+  const app = await h.openApp({ runHarness, watched: false });
+  try {
+    await app.toggleJev();
+    await app.runtime.change(state => { state.runs.useful = usefulReport(); });
+
+    await app.refresh();
+    await new Promise(resolve => { setImmediate(resolve); });
+
+    assert.deepEqual(asked, []);
+  } finally {
+    await app.close();
+  }
+});
+
 test('with Jev on a useful scheduled report goes to Jev, and the mood it picks reaches the dashboard', async t => {
   const h = fixture(t);
   setJevKey(t, 'test-key');

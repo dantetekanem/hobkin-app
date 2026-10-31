@@ -1,6 +1,8 @@
 # Update or migrate Hobkin
 
-Already using `hobkin`? Update it in place. Moving from `/hobkin` inside Pi? Use the one-time migration below. To resume an interrupted migration, keep its workspace and journal and return to [Apply or resume](#3-apply-or-resume).
+Already using `hobkin`? Update it in place. Coming from pi-companion? Close it and run `hobkin import`, as the [README](../README.md#run-it) explains; the rest of this guide does not apply. Moving from the [Pi extension](legacy.md) in this package? Use the one-time migration below. To resume an interrupted migration, keep its workspace and journal and return to [Apply or resume](#3-apply-or-resume).
+
+The migration reads `~/.pi/agent/hobkin` and the `~/.hobkin-*` files, not pi-companion's `companion` names. Data still in pi-companion's own `/companion` extension must first go through its upgrade guide, https://github.com/dantetekanem/pi-companion/blob/main/docs/upgrade.md. That leaves the data in a nested folder, so name it: `hobkin import ~/.companion/migration/<id>/data`.
 
 Use the same workspace throughout:
 
@@ -140,8 +142,9 @@ Historical `timeoutMs` fields are preserved but do not impose execution deadline
 
 ## Agent checklist
 
-- Identify update, migration or resume; use one workspace root throughout.
+- Identify update, import, migration or resume; use one workspace root throughout.
 - For CLI updates, preserve the workspace and skip migration commands.
+- Coming from pi-companion, close it, run `hobkin import` and skip migration commands.
 - For migration, identify all origins, task ownership and original model/provider bindings. Preserve stops and pauses.
 - Stop the old owner before hashing. Review and save the complete plan, then prepare with its hash.
 - Apply with the returned migration ID and actual shutdown evidence. Resume the same journal after interruption.

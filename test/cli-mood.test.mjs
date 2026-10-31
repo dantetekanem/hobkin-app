@@ -216,6 +216,18 @@ test('a request to Jev is one Choice over every mood', async () => {
   assert.deepEqual(Object.keys(body.questions.mood.criteria).toSorted(), allMoods.toSorted());
 });
 
+test('without a key nothing is sent at all', async () => {
+  let sent = false;
+  const request = async () => {
+    sent = true;
+    return { ok: true, json: async () => ({}) };
+  };
+
+  await assert.rejects(askJev({ userSaid: 'private' }, { key: '', request }), /key/i);
+
+  assert.equal(sent, false);
+});
+
 test('a refused request is an error, not a mood', async () => {
   const request = async () => ({ ok: false, status: 401, json: async () => ({}) });
 

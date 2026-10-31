@@ -7,8 +7,8 @@ Work mode is a proactive agent mode to get work done. When the user turns it on,
 The Work Mode tab sits beside Schedules, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
 
 ```
-◆ Hobkin    Chat   Reports 12   Schedules 4   Work              ● connected · 1 running
-─────────────────────────────────────────────────────━━━━━━──────────────────────────────────
+◆ Hobkin    Chat   Reports 12   Schedules 4   Work                    ● connected · 1 running
+───────────────────────────────────────────────━━━━━━────────────────────────────────────────
 
   FINDING PROJECTS
 
@@ -79,22 +79,22 @@ A look is an agent reading a project, a lens is a look at one subject, a do run 
 At 16:10 the Work tab looks like this:
 
 ```
-◆ Hobkin    Chat   Reports 12   Schedules 4   Work 6            ● connected · 3 running
-─────────────────────────────────────────────────────━━━━━━──────────────────────────────────
+◆ Hobkin    Chat   Reports 12   Schedules 4   Work 6                  ● connected · 3 running
+───────────────────────────────────────────────━━━━━━────────────────────────────────────────
 
   NEEDS ATTENTION                                                                           6
 
   ▲ finboard-ios       Rotate the API token found in git history. Draft PR #77 removes it.
   ✕ northwind-billing  Do runs held: tests need a Postgres role the tree cannot create.
   ● finboard-api       Draft PR #421 finishes the CSV import from the old branch.
-  ● hobkin       PR #57 updated after the review.
+  ● hobkin             PR #57 updated after the review.
   ● northwind-billing  Draft PR #212 fixes the puma advisory.
   ● pi-package         PR #31 moves to Pi 1.5.
 
   RUNNING                                                                                   3
 
   ⠹ finboard-api       update: sidekiq 8.0.4                                      xhigh · 6m
-  ⠹ hobkin       chore: remove an unused flag                                high · 3m
+  ⠹ hobkin             chore: remove an unused flag                                high · 3m
   ⠹ website            look: changes                                                low · 1m
 
   DONE TODAY                                                                                3
@@ -108,7 +108,7 @@ At 16:10 the Work tab looks like this:
   ● finboard-api       critical    running · 1 PR · next lens 5h
   ● northwind-billing  critical    running · 2 PRs · do runs held
   ● pi-package         important   running · 1 PR · next lens 18h
-  ● hobkin       important   running · 1 PR · checkout in use
+  ● hobkin             important   running · 1 PR · checkout in use
   ◌ finboard-ios       important   unknown · no CI · 1 draft PR
   ● website            casual      running · 1 merged today
 
@@ -331,8 +331,8 @@ Before a run, inside the dispatched effect, Hobkin prepares the tree:
 git -C <repo> -c gc.auto=0 fetch origin
 git -C <repo> worktree add --detach <tree> origin/<default>      # first time only
 git -C <tree> reset --hard && git -C <tree> clean -fd
-git -C <tree> switch -C hobkin/<id>-<name> origin/<default>   # new item
-git -C <tree> switch hobkin/<id>-<name>                       # follow-up on its own branch
+git -C <tree> switch -C hobkin/<id>-<name> origin/<default>      # new item
+git -C <tree> switch hobkin/<id>-<name>                          # follow-up on its own branch
 git -C <tree> switch --detach origin/<default>                   # look tree
 ```
 

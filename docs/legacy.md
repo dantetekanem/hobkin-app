@@ -1,6 +1,8 @@
-# Hobkin inside Pi
+# The Pi extension
 
-For the standalone CLI, see [README](../README.md). To migrate from this extension, follow the [upgrade guide](upgrade.md) with the old owner stopped.
+This project started as pi-companion, a Pi extension run with `/companion`. The standalone CLI came later, and the extension still ships in this package under Hobkin's name: `/hobkin`, `hobkin_record` and the `~/.hobkin-*` files below. It does not read what pi-companion saved under its own names.
+
+For the standalone CLI, see [README](../README.md). To migrate from this extension, or to come from pi-companion, follow the [upgrade guide](upgrade.md) with the old owner stopped.
 
 ## Install
 

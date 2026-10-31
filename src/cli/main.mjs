@@ -73,6 +73,7 @@ async function connected(options, snapshot, output, dependencies) {
     const open = dependencies.openApplication ?? (await import('./application.mjs')).HobkinApplication.open;
     const opening = open(options.root, {
       signal: cancellation.signal,
+      watched: options.command !== 'run',
       onChange: view => dashboard?.update(view),
       askQuestion: (request, signal) => dashboard?.askQuestion(request, signal),
     }).then(opened => {

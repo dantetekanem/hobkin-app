@@ -48,10 +48,9 @@ A file in `once/` runs on one date and never again. Add `"date": "2026-05-04"` (
 "timezone": "America/Sao_Paulo"
 ```
 
-If Hobkin was not running at that time, the check runs once at the next tick, however late, provided the time is after Hobkin's initialization. With several times, the latest passed time runs and earlier missed ones are skipped. Once a time has started, in any outcome, it never runs again; to repeat it, create a new file or change the date. Disabled files never run. The dashboard shows `scheduled`, then `done`; `expired` means the time passed before initialization and nothing ran. `run_schedule` can still run the file manually without using up the date.
+If Hobkin was not running at that time, the check runs once at the next tick, however late, provided the time is after Hobkin's initialization. With several times, the latest passed time runs and earlier missed ones are skipped. Once a time has started, in any outcome, it never runs again; to repeat it, create a new file or change the date. Disabled files never run. The dashboard shows `scheduled`. Once it has run, its file moves to `checks/<id>/once-<date>.md` and it leaves Schedules; `expired` means the time passed before initialization and nothing ran. `run_schedule` can still run the file manually without using up the date.
 
-For "remind me at 3pm", use today's date in the user's timezone. For "in 2 hours", compute the date and `HH:mm` from the current time. Set `enabled` to `true` when the user asked for the reminder, bind the background model and effort shown in the runtime block, and write the reminder or check in the instructions. Leave finished files in place; they are the record.
-
+For "remind me at 3pm", use today's date in the user's timezone. For "in 2 hours", compute the date and `HH:mm` from the current time. Set `enabled` to `true` when the user asked for the reminder, bind the background model and effort shown in the runtime block, and write the reminder or check in the instructions.
 ## Validate and run
 
 `hobkin schedules` lists files and validation errors without calling a model. Initialization also needs no model. Editing files requires neither code changes nor a restart. One file counts as one schedule, regardless of its times.

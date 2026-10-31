@@ -65,7 +65,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null } = {}) {
+  static async open(root, { createMain, askQuestion, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, watched = true } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -79,7 +79,7 @@ export class HobkinApplication {
     }
     app.snapshot = readLocalView(root);
     app.moods = new Moods({
-      enabled: () => jevEnabled(root),
+      enabled: () => watched && jevEnabled(root),
       now: () => new Date(app.now()).getTime(),
       onChange: () => app.requestRefresh(),
     });

@@ -23,7 +23,7 @@ Coming from pi-companion? Close it, then run `hobkin import`. That copies `~/.co
 
 Hobkin uses your ordinary Pi tools, extensions, MCP servers and project context. Models configured in Pi, including Anthropic/Claude models, work here. Pi's own screens and custom extension widgets are not reproduced.
 
-Already using Hobkin? Read the [CLI update steps](docs/upgrade.md#already-using-the-cli) or the [legacy migration steps](docs/upgrade.md#legacy-pi-extension-before-planning). Opening a new workspace never imports old data or disables the old extension.
+Updating Hobkin? Read the [CLI update steps](docs/upgrade.md#already-using-the-cli). Moving from the older Pi extension? Read the [legacy migration steps](docs/upgrade.md#legacy-pi-extension-before-planning). Opening a new workspace never imports old data or disables that extension.
 
 ## Use it
 
@@ -37,9 +37,13 @@ Chat opens ready to type. Reports holds completed checks; Schedules shows their 
 - **k** cancels the selected running check. Jobs have no automatic execution deadline.
 - **Ctrl+C** quits.
 
-Type `/` to see local commands. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. Pi's editor shortcuts and configured editor keybindings work in the composer.
+Type `/` to see local commands. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
 
 Colors follow Pi's saved theme. The header shows connection state; the status bar shows the next check, the total size of Hobkin's memory files, model, context usage and estimated cost. Critical and useful report summaries appear in Chat; no-news reports stay in Reports. Occasional tips appear above the shortcuts.
+
+Hobkin's face sits left of the input bar in Chat and follows what is happening. On its own it uses four moods: idle when nothing is running, thinking while the agent replies, working while a check or work agent runs, and happy for 30 seconds after a useful report. In Ghostty and Kitty it plays the design's own animation, including inside Herdr. Each frame is sent once, so animating it only changes text. Other terminals, tmux and `HOBKIN_FACE=blocks` use block characters instead. It hides on a narrow or short terminal.
+
+Jev, a model from TypeSafe, can pick from all 18 moods instead. Set it with `/jev` in the dashboard or `hobkin jev [on | off]`. It needs `TYPESAFE_API_KEY` in the environment, and the status bar shows `jev` while it is on. Jev then picks a mood when a session starts, a report arrives, a schedule or work agent starts or finishes, work mode pauses, the agent finishes a reply or you send a message, and after 15 quiet minutes. Each request goes to `https://api.typesafe.ai/v1/systemone` and carries the event, a report's outcome and its line in Chat, your latest message and the agent's latest reply, each cut to its last 400 characters, and the names of what is running. Nothing is sent with Jev off.
 
 Ask the agent to run a configured check now, even if its recurring schedule is paused. This runs it once without changing its schedule. While a check runs, tell the agent anything that bears on it and the agent passes it on: the check reads the message at its next step and carries on, and its report holds the result.
 
@@ -89,7 +93,7 @@ If Pi must start through a wrapper, for example one that sets up credentials or 
 "launcher": { "command": ["my-pi-launcher", "pi"], "env": { "EXAMPLE_MODE": "1" }, "managedExtensions": true }
 ```
 
-Hobkin then starts every Pi process with that command. The main chat runs as an RPC child (`my-pi-launcher pi --mode rpc`), and checks, reflection, pattern review and repair use the same command. `env` adds variables and rejects credential-like names. Hobkin passes its own environment through and never reads credentials. Set `managedExtensions` when the launcher loads required extensions and refuses `--no-extensions`. Tool-free jobs then keep their other isolation flags. If the main chat's child exits, Hobkin says so and keeps running scheduled checks; restart it to reconnect the chat. Without `launcher`, Hobkin runs `pi` directly, as before.
+Hobkin then starts every Pi process with that command. The main chat runs as an RPC child (`my-pi-launcher pi --mode rpc`), and checks, reflection, pattern review and repair use the same command. `env` adds variables and rejects credential-like names. Hobkin passes its own environment through and never reads credentials. Set `managedExtensions` when the launcher loads required extensions and refuses `--no-extensions`. Tool-free jobs then keep their other isolation flags. If the main chat's child exits, Hobkin says so and keeps running scheduled checks; restart it to reconnect the chat. Without `launcher`, Hobkin runs `pi` directly.
 
 ## Work mode
 
@@ -132,4 +136,4 @@ hobkin history
 
 After a crash, unfinished work is marked interrupted rather than retried. A stale owner lock can take up to five minutes to expire; do not delete a live owner's lock. Costs are estimates, not invoices. See [architecture and recovery details](docs/v2-design.md).
 
-To find recurring work in selected past sessions, use the optional [session review](src/prompts/session-patterns-setup.md). For `/hobkin` inside Pi, see the [legacy guide](docs/legacy.md). Migration instructions include an [agent checklist](docs/upgrade.md#agent-checklist).
+To find recurring work in selected past sessions, use the optional [session review](src/prompts/session-patterns-setup.md). For the older Pi extension, see the [legacy guide](docs/legacy.md). Migration instructions include an [agent checklist](docs/upgrade.md#agent-checklist).
