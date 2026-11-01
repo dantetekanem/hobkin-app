@@ -13,9 +13,9 @@ import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { agentName } from './panes.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
 import {
-  currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, proposedProjects,
-  readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, sessionError, sessionUsage, slugOf,
-  tokenLabel, updateItem, writeMode, writeState,
+  answerCancel, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
+  proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, sessionError, sessionUsage,
+  slugOf, tokenLabel, updateItem, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
 import { currentBranch, enterFolder, folderRefusal, FolderRefused, leaveFolder, prepareTree } from './tree.mjs';
 import { readUnmerged, surveyUnmerged, unmergedNow } from './unmerged.mjs';
@@ -89,13 +89,32 @@ export class WorkDirector {
     };
   }
 
+  /** Commands run in other processes, so what is in `active` reaches them through a file. A write only when something changed keeps an idle owner quiet. */
+  publish() {
+    const view = { ...this.outlook(), running: this.running().map(({ meter, ...run }) => run) };
+    const text = JSON.stringify(view);
+    if (text === this.published) return;
+    this.published = text;
+    writeOwnerView(this.root, view);
+  }
+
+  // A request is answered before the kill, so one that fails cannot stop every tick after it. This is `k` from another process, and a run that already ended has nothing to do.
+  async answerCancels() {
+    for (const run of pendingCancels(this.root)) {
+      answerCancel(this.root, run, this.now());
+      await this.runner.kill(run);
+    }
+  }
+
   // Turning work mode off starts nothing new. Project agents finish, but a look stops: it only reads, it carries on from its notes, and nothing shows what it spends once the tab is gone.
   async tick() {
     this.recoverDiscovery();
     this.tellNewProposals();
     // Agents keep working after the mode goes off, so these do too.
     this.meterRuns();
+    await this.answerCancels();
     await this.guardFolders();
+    this.publish();
     const mode = readMode(this.root);
     if (!mode.enabled) {
       const look = this.active.get('discover');
@@ -537,6 +556,7 @@ export class WorkDirector {
         const waiting = status === 'blocked';
         if (Boolean(entry.waitingForApproval) === waiting) return;
         entry.waitingForApproval = waiting;
+        this.publish();
         this.onChange();
       },
     });
@@ -549,6 +569,7 @@ export class WorkDirector {
     const id = `work:${slug ?? 'discover'}:${lane}:${harnessId}`;
     const scheduleId = slug ? `work.${slug}.${lane}` : 'work.discover';
     const inPane = Boolean(slug && this.panes);
+    const pane = inPane ? agentName(lane, slug) : null;
     const bound = Boolean(levels[level]?.harness);
     const paneKind = !inPane ? 'pi' : bound ? levels[level].harness : readMode(this.root).harness;
     const request = {
@@ -561,10 +582,11 @@ export class WorkDirector {
       effort,
       cwd,
       harnessId,
-      work: { slug, lane, item, ...(inPane ? { pane: agentName(lane, slug) } : {}) },
+      work: { slug, lane, item, ...(pane ? { pane } : {}) },
     };
     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
-    const entry = { id, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0 };
+    const startedAt = new Date(this.now()).toISOString();
+    const entry = { id, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: paneKind, pane, startedAt };
     const runIn = async (place, signal) => {
       const here = place.cwd;
       const schedule = { id: scheduleId, title, prompt: instructions, cwd: here, harness: 'pi', model, context: [] };
@@ -616,8 +638,10 @@ export class WorkDirector {
       else if (unseen) recordTokens(this.root, { ...facts, tokens: estimate.fresh ?? 0, cached: estimate.cached ?? 0, estimated: true }, this.now());
       if (run?.status === 'completed') this.clearUsagePause();
       settle?.(run, entry);
+      this.publish();
       this.onChange();
     });
+    this.publish();
     this.onChange();
   }
 }

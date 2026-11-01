@@ -142,7 +142,22 @@ Once a day, while work mode is on, a watcher looks through your folder and the f
 
 Inside Herdr, work on the projects you took runs where you can watch it: a Herdr tab called Work Mode opens without taking focus, with up to four panes in an even grid. A fifth agent opens Work Mode 2, the lowest tab with room is always used first, and an empty tab closes. Every pane closes when its agent finishes, and a failed run keeps its last lines in its report, so nothing is left open. A pane you close yourself ends that run, and its item goes back in the queue. Panes from `hobkin session` stay open, because those are yours. The tab shows which harness runs them: `pi`, `claude` or `codex`. To change it, ask the agent in Chat. Each starts with your own settings for that harness, so one that asks for approvals will wait in its pane. Outside Herdr, the same work runs in the background through Pi.
 
-Work mode runs only while the dashboard or `hobkin run` is open. Drive it from scripts with `hobkin work`.
+Work mode runs only while the dashboard or `hobkin run` is open. The main agent drives it through `hobkin work`, and so can you or a script. `hobkin work help` lists every command:
+
+| Command | What it does |
+| --- | --- |
+| `hobkin work status` | On or off, any pause and why, tokens, limits and what is next |
+| `hobkin work projects`, `items [project]` | What there is, and `--state` narrows it |
+| `hobkin work running`, `queue`, `attention` | Each agent, the plan in order, and what waits on you |
+| `hobkin work search <text>` | Finds projects and items by name, title, path or stuck reason |
+| `hobkin work start [folder]`, `stop` | The same as `on` and `off`, and `/work` in the dashboard |
+| `hobkin work pause [project]`, `resume [project]` | Stops new work, everywhere or on one project. Work mode stays on and running agents finish |
+| `hobkin work add project <path> [level]`, `add item <project> <title>` | Adds by hand |
+| `hobkin work trigger <project> [look\|study\|item]` | Runs it next, inside the worker ceiling and the budget |
+| `hobkin work cancel <project\|run id\|item>` | Asks for what `k` does, and the owner does it on its next tick |
+| `hobkin work skip`, `retry`, `level`, `drop`, `done` | Steers a project or an item |
+
+Reads print short JSON and need nothing running. Changes print `ok` and a `message` that says what happens next, and a failure exits non-zero. Name a project by its name, slug or path and an item by the start of its id. An ambiguous name fails and lists the matches. Older names such as `on`, `run`, `later` and `choose` still work. None of this gets past the worker ceiling, the budget, the unmerged stop or your yes on a PR.
 
 ## Learning
 

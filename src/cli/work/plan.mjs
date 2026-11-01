@@ -89,11 +89,11 @@ function studyEntry(project, unlocked) {
 }
 
 /** The lens that is due next on a project. New commits bring it forward and move it up, and start nothing by themselves. */
-function lensEntry(project, state, now) {
+function lensEntry(project, state, now, triggered) {
   const { slug, level } = project;
   const every = levels[level].lookEveryHours * HOUR_MS / (state.newCommits ? 2 : 1);
   const elapsed = elapsedSince(state.lastLensAt, now);
-  if (elapsed < every) return null;
+  if (elapsed < every && !triggered) return null;
 
   const focus = lenses[(state.lensIndex ?? 0) % lenses.length];
   const overdue = 1 + Math.min(1, (elapsed - every) / every);
@@ -127,9 +127,11 @@ function ideasEntry(project, state, { root, now, budget }) {
   };
 }
 
-/** A project has one look due at most: its study until that is done, then a lens, then ideas. */
+/** A project has one look due at most: its study until that is done, then a lens, then ideas. A trigger makes a look due, and nothing else about it changes. */
 function lookEntry(context, project, state, studied, items) {
-  if (studied) return lensEntry(project, state, context.now) ?? ideasEntry(project, state, context);
+  const triggered = kind => context.mode.queueNext.includes(`${kind}:${project.slug}`);
+  if (triggered('study')) return studyEntry(project, items);
+  if (studied) return lensEntry(project, state, context.now, triggered('look')) ?? ideasEntry(project, state, context);
   return elapsedSince(state.lastLookAt, context.now) >= STUDY_RETRY_MS ? studyEntry(project, items) : null;
 }
 
@@ -137,7 +139,8 @@ function projectEntries(context, project) {
   const { root, now, running } = context;
   const { slug } = project;
   const state = readState(root, slug);
-  const held = state.heldUntil && Date.parse(state.heldUntil) > now ? state.heldReason : null;
+  const hold = state.heldUntil && Date.parse(state.heldUntil) > now ? state.heldReason : null;
+  const held = project.paused ? 'paused' : hold;
   const studied = existsSync(paths(root, slug).project);
   const items = readItems(root, slug)
     .filter(item => ['open', 'doing'].includes(item.state) && doableKinds.includes(item.kind))
@@ -202,6 +205,9 @@ const inQueueOrder = ({ queueNext }) => entries => [
   ...entries.filter(entry => entry.skipped && !entry.picked),
 ];
 
+/** What a row waits on, with what stops the whole plan left to the pause. */
+export const rowWait = ({ waiting }, free) => waiting ?? (free > 0 ? null : 'a free worker');
+
 const skipsTheHour = entry => Boolean(entry.urgent && entry.level === 'critical');
 
 function budgetWait(entry, budget) {
@@ -211,6 +217,7 @@ function budgetWait(entry, budget) {
 
 /** A limit the plan cannot work around stops everything, and nothing but its own end or the user clears it. */
 function hardStop({ mode, now, reading }) {
+  if (mode.pausedAt) return { kind: 'hand', line: 'Paused by hand. What is running finishes, and nothing new starts until hobkin work resume.' };
   const paused = mode.usagePause;
   if (paused && Date.parse(paused.until) > now) {
     const line = `Paused by a usage limit: ${paused.reason} It tries again at ${lookTime(paused.until, now)}.`;

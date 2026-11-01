@@ -11,7 +11,7 @@ import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
-import { fileItem, chooseProject, proposeProject, readItems, readMode, readProjects, readState, recordTokens, writeMode } from '../src/cli/work/store.mjs';
+import { fileItem, chooseProject, paths, proposeProject, readItems, readMode, readProjects, readState, recordTokens, writeMode, writeState } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const HOUR = 3600000;
@@ -508,6 +508,50 @@ test('when nothing merges the main agent is told once, the user never sees the b
 
   await shell(`${quoted(process.execPath)} ${quoted(join(process.cwd(), 'src/cli/main.mjs'))} work resume --home ${quoted(h.root)}`);
   await hobkin.until(/WORK MODE\s+● active/);
+});
+
+test('another process sees a real run and cancels it through the owner, and knows when the owner has gone', async t => {
+  const h = fixture(t);
+  const now = new Date().toISOString();
+  chooseProject(h.root, repository(h.folder, 'billing'), 'critical');
+  mkdirSync(paths(h.root, 'billing').directory, { recursive: true });
+  writeFileSync(paths(h.root, 'billing').project, '# What it is\n');
+  writeState(h.root, 'billing', { lastLookAt: now, lastLensAt: now, lastIdeasAt: now });
+  const filed = fileItem(h.root, 'billing', billing.first[0]);
+  writeMode(h.root, { enabled: true, folder: h.folder, lastDiscoveryAt: now });
+  const started = Promise.withResolvers();
+  const hobkin = await openHobkin(h, {
+    agent: async run => {
+      started.resolve();
+      await new Promise(resolve => { run.signal.addEventListener('abort', resolve, { once: true }); });
+      return { status: 'interrupted', cost: null, error: 'Harness cancelled.' };
+    },
+  });
+  t.after(() => hobkin.close());
+  const hobkinWork = async (...args) => {
+    const script = join(process.cwd(), 'src/cli/main.mjs');
+    const { stdout } = await shell(`${quoted(process.execPath)} ${quoted(script)} work ${args.join(' ')} --home ${quoted(h.root)}`);
+    return JSON.parse(stdout);
+  };
+  await started.promise;
+  await hobkin.settled(() => readItems(h.root, 'billing')[0].state === 'doing');
+
+  let running = [];
+  while (!running.length) running = await hobkinWork('running');
+
+  assert.deepEqual(running.map(run => [run.project, run.item, run.lane, run.level, run.harness, run.pane]), [['billing', filed.id, 'do', 'critical', 'pi', null]]);
+  assert.equal((await hobkinWork('status')).owner, true);
+
+  const { ok, message } = await hobkinWork('cancel', 'billing');
+
+  assert.equal(ok, true);
+  assert.match(message, /requested/i);
+  await hobkin.settled(() => readItems(h.root, 'billing')[0].state === 'stuck');
+  assert.equal(readItems(h.root, 'billing')[0].stuckReason, 'Cancelled by hand.');
+
+  await hobkin.close();
+
+  assert.equal((await hobkinWork('status')).owner, false);
 });
 
 test('the main agent changes the harness when asked, and the tab shows it', async t => {

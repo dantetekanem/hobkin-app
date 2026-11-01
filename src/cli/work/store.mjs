@@ -13,6 +13,7 @@ export const levels = {
 };
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];
+export const itemStates = ['open', 'doing', 'waiting', 'pr', 'merged', 'done', 'declined', 'dropped', 'stuck', 'noted'];
 export const impacts = ['high', 'medium', 'low'];
 export const efforts = ['small', 'medium', 'large'];
 export const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
@@ -26,6 +27,8 @@ const DEFAULT_DAILY_TOKENS = 100000000;
 const DEFAULT_AGENTS = 2;
 const DEFAULT_UNMERGED_LIMIT = 30;
 const HOUR_MS = 3600000;
+// An open owner refreshes its lock every 10 seconds, so a minute without one means it is gone.
+const OWNER_FRESH_MS = 60000;
 const HOURS_IN_DAY = 24;
 // Long enough for a run's first replies to show what it costs before the next one starts.
 const START_GAP_MS = HOUR_MS / 12;
@@ -36,6 +39,8 @@ const modePath = root => join(workRoot(root), 'mode.json');
 const projectsPath = root => join(workRoot(root), 'projects.jsonl');
 const tokensPath = root => join(workRoot(root), 'tokens.jsonl');
 const discoveryPath = root => join(workRoot(root), 'discovery.jsonl');
+const ownerPath = root => join(workRoot(root), 'owner.json');
+const cancelsPath = root => join(workRoot(root), 'cancels.jsonl');
 
 export const paths = (root, slug) => {
   const directory = join(workRoot(root), slug);
@@ -106,7 +111,7 @@ export function writeMode(root, change) {
   return mode;
 }
 
-function realFolder(path) {
+export function realFolder(path) {
   try {
     const folder = realpathSync(path.replace(/^~(?=$|\/)/, homedir()));
     if (statSync(folder).isDirectory()) return folder;
@@ -125,7 +130,7 @@ export function startWork(root, requested) {
   const folder = requested ? realFolder(requested) : saved;
   if (!folder) throw Error('Say which folder to start from.');
   const looksNow = requested || !hasWorkToShow(root);
-  return writeMode(root, { enabled: true, folder, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
+  return writeMode(root, { enabled: true, folder, pausedAt: null, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
 }
 
 export function setHarness(root, harness) {
@@ -155,6 +160,25 @@ export function skipInQueue(root, key) {
 }
 
 export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });
+
+/** What only the owner knows, left where a command in another process can read it. */
+export const writeOwnerView = (root, view) => atomicJson(ownerPath(root), view);
+
+/** With no owner open nothing can be running, whatever the last one left behind. */
+export function ownerView(root, now = Date.now()) {
+  const lock = lstatSync(join(root, 'runtime.lock'), { throwIfNoEntry: false });
+  const owner = Boolean(lock) && now - lock.mtimeMs < OWNER_FRESH_MS;
+  return { running: [], ...(owner ? readJson(ownerPath(root), {}) : {}), owner };
+}
+
+/** Commands take no lock and cannot reach a run, so they leave a request here and the owner answers it on its next tick. */
+export const requestCancel = (root, run, now = Date.now()) => appendEvent(cancelsPath(root), { run, at: new Date(now).toISOString() });
+export const answerCancel = (root, run, now = Date.now()) => appendEvent(cancelsPath(root), { run, answeredAt: new Date(now).toISOString() });
+
+export function pendingCancels(root) {
+  const requests = fold(parseEvents(cancelsPath(root)), event => event.run);
+  return requests.filter(request => !request.answeredAt).map(request => request.run);
+}
 
 const localDay = now => new Date(now).toDateString();
 const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
@@ -285,11 +309,24 @@ export function readProject(root, slug) {
   return readProjects(root).find(project => project.slug === slug) ?? null;
 }
 
+/** Events like any other on a project, so neither can be lost to the owner writing at the same moment, and `at` keeps meaning when it was answered. */
+export const setProjectPaused = (root, slug, paused) => appendEvent(projectsPath(root), { slug, paused });
+
+export function setProjectLevel(root, slug, level) {
+  assertLevel(level);
+  appendEvent(projectsPath(root), { slug, level });
+  return readProject(root, slug);
+}
+
 export const hasWorkToShow = root => readProjects(root).some(project => ['proposed', 'chosen'].includes(project.state));
 
 export const byRank = (left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity);
 
 export const proposedProjects = root => readProjects(root).filter(project => project.state === 'proposed').toSorted(byRank);
+
+function assertLevel(level) {
+  if (!levels[level]) throw Error(`level must be one of: ${Object.keys(levels).join(', ')}`);
+}
 
 function assertSize({ impact, effort }) {
   if (impact !== undefined && !impacts.includes(impact)) throw Error(`impact must be one of: ${impacts.join(', ')}`);
@@ -309,7 +346,7 @@ export function proposeProject(root, proposal, now = Date.now(), { reoffer = fal
   const slug = slugOf(proposal.slug ?? proposal.name);
   if (!slug) throw Error('A proposal needs a name.');
   if (!proposal.path && !proposal.remote) throw Error('A proposal needs a path or a remote.');
-  if (!levels[proposal.level]) throw Error(`level must be one of: ${Object.keys(levels).join(', ')}`);
+  assertLevel(proposal.level);
   (proposal.first ?? []).forEach(assertItem);
 
   const known = readProject(root, slug);
@@ -328,7 +365,7 @@ function projectFor(root, reference) {
 export function chooseProject(root, reference, level, now = Date.now()) {
   const project = projectFor(root, reference);
   if (!project) throw Error(`Unknown project: ${reference}`);
-  if (level !== undefined && !levels[level]) throw Error(`level must be one of: ${Object.keys(levels).join(', ')}`);
+  if (level !== undefined) assertLevel(level);
 
   const chosenLevel = level ?? project.level;
   appendEvent(projectsPath(root), { ...project, level: chosenLevel, state: 'chosen', at: new Date(now).toISOString() });

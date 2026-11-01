@@ -28,7 +28,13 @@ async function work(root, args, input) {
   return { code, result: JSON.parse(text) };
 }
 
-const proposal = { name: 'api', path: '/repos/api', level: 'casual', summary: 'An API.', found: 'CI green.', first: [] };
+async function refused(root, args, reason) {
+  const { code, result } = await work(root, args);
+  assert.deepEqual([code, result.ok], [1, false]);
+  assert.match(result.message, reason);
+}
+
+const proposal ={ name: 'api', path: '/repos/api', level: 'casual', summary: 'An API.', found: 'CI green.', first: [] };
 const item = { key: 'update:rack', kind: 'update', title: 'Update rack', brief: 'Rack has an advisory.' };
 
 test('work arguments keep their order and the home option still applies', () => {
@@ -41,7 +47,7 @@ test('work arguments keep their order and the home option still applies', () => 
 test('work on needs a folder the first time, and off sets the mode a running owner picks up', async t => {
   const root = dataRoot(t);
 
-  await assert.rejects(work(root, ['on']), /Say which folder/);
+  await refused(root, ['on'], /Say which folder/);
   assert.equal((await work(root, ['on', root])).result.enabled, true);
   assert.equal(readMode(root).enabled, true);
   assert.equal(readMode(root).folder, root);
@@ -77,7 +83,7 @@ test('the number of agents, the unmerged limit and auto-pick change from the com
 
   const mode = readMode(root);
   assert.deepEqual([mode.agents, mode.unmergedLimit, mode.autoPick], [3, 12, false]);
-  await assert.rejects(work(root, ['agents', '9']), /between 1 and 8/);
+  await refused(root, ['agents', '9'], /between 1 and 8/);
   assert.deepEqual((await work(root, ['auto'])).result, { autoPick: false });
 });
 
@@ -172,8 +178,7 @@ test('bare work prints status as JSON', async t => {
 test('a bad request fails without changing anything', async t => {
   const root = dataRoot(t);
 
-  await assert.rejects(work(root, ['choose', 'missing']), /Unknown project/);
-  await assert.rejects(work(root, ['dance']), /Usage/);
+  await refused(root, ['choose', 'missing'], /Unknown project/);
   assert.deepEqual(readProjects(root), []);
 });
 

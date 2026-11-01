@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Give work mode one small command surface, for the main agent and for people. `hobkin work status`, `projects`, `running`, `queue`, `items`, `search` and `attention` print short JSON with nothing running. `add`, `start`, `stop`, `pause`, `resume`, `trigger`, `cancel`, `skip`, `retry`, `level`, `drop` and `done` take a name, slug or path and the start of an item id instead of queue keys, never guess at an ambiguous name, and print `ok` and a `message` saying what comes next. `hobkin work help` lists them all, and a wrong command prints it. Older names still work.
+- Let `pause` stop new work everywhere or on one project, with work mode left on and running agents finishing. `trigger` makes a look due at once, still inside the worker ceiling and the budget, and `cancel` reaches a running agent from another process through a request the owner reads on its next tick.
+- Print a failed work command as `ok: false` on stdout with a non-zero exit, where it used to be an error on stderr, and stop an idle `resume` restarting the unmerged count. It does that only when there is an unmerged stop to clear.
 - Plan work mode across all projects. One ranked queue of studies, looks and items replaces walking project by project, and it ranks by level, urgency, impact and how soon a change brings a benefit, in code, with no tokens. Looks file `impact` and `effort`, and items stay small.
 - Run few agents, one step at a time: 2 by default where it used to be half the machine's cores, with 8 as the ceiling, 5 minutes between starts, and checks taking a place. `hobkin work agents` changes it.
 - Make the queue something to steer: Enter on a row runs it now, `s` skips it and puts it back, and `hobkin work auto off` stops auto-pick and leaves work mode on. Stuck items say why, and Enter tries one again.

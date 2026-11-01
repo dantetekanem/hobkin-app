@@ -17,7 +17,10 @@ export function parseArguments(args) {
       options.explicitRoot = true;
     } else if (['--selection', '--preview', '--confirm', '--title', '--cwd'].includes(flag) && values[0] && !values[0].startsWith('-')) {
       options[flag.slice(2)] = values.shift();
+    } else if (options.command === 'work' && ['--state', '--brief'].includes(flag) && values.length) {
+      options[flag.slice(2)] = values.shift();
     } else if (flag === '--plain') options.plain = true;
+    else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else if (['reports', 'work', 'import', 'jev', 'learning'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
@@ -100,7 +103,7 @@ async function connected(options, snapshot, output, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [on | off | reset | auto | run | retry | choose | skip | drop | item | ...]  drive work mode\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  session [--title name] [--cwd directory]  hand the brief on stdin to a full Pi session in a Herdr pane\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  session [--title name] [--cwd directory]  hand the brief on stdin to a full Pi session in a Herdr pane\n');
     return 0;
   }
   if (options.command === 'skill') {
@@ -134,10 +137,8 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     return 0;
   }
   if (options.command === 'work') {
-    const { runWorkCommand } = await import('./work/commands.mjs');
-    const result = await runWorkCommand(options.root, options.args, dependencies.input ?? process.stdin);
-    output.write(`${JSON.stringify(result, null, 2)}\n`);
-    return 0;
+    const { printWorkCommand } = await import('./work/commands.mjs');
+    return printWorkCommand(options, output, dependencies.input ?? process.stdin);
   }
   if (options.command.startsWith('upgrade-')) {
     const { planUpgrade, prepareUpgrade, applyUpgrade, upgradeStatus, readUpgradeJson } = await import('./migration/commands.mjs');
