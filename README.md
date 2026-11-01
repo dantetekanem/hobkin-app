@@ -99,6 +99,8 @@ Hobkin then starts every Pi process with that command. The main chat runs as an 
 
 ## Work mode
 
+![The Work Mode tab with agents running, projects and proposals. Some rows are redacted.](docs/images/work-mode.png)
+
 Work mode is a proactive agent mode to get work done on your projects. Type `/work` in Chat to turn it on or off. The first time, Hobkin asks which folder to start from, and `/work ~/Projects` names it directly. While it is on, a Work Mode tab sits beside Schedules, with a green circle while it is active and an orange one while it is paused. `/work` leaves you in Chat and says when the tab appears or goes. The agent looks only in that folder. It lists the top level first and goes through the folders one by one, reading each repository's git history to see what is published and still moving. The tab always says what is happening now and when the next look is, and while the agent looks it shows the folder it is in, what it is doing and the repositories it has found.
 
 A look is finished only when every root folder is done. A run that stops sooner is picked up from where it stopped, up to two more times, and then Hobkin tells you it stopped early and why. It looks again once a day, but with nothing proposed or taken, turning it on looks straight away.

@@ -16,6 +16,7 @@
 !/docs/*.md
 !/docs/images/
 /docs/images/*
+!/docs/images/work-mode.png
 /src/prompts/*
 !/src/prompts/*.md
 /test/*
