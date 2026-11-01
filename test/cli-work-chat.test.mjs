@@ -107,10 +107,18 @@ test('a message about a report keeps its reference alongside the block', async t
 });
 
 test('a request for more tokens reaches the main agent too', () => {
-  const note = noteOf(workNote({ allowanceRequest: { proposed: 200, reason: 'Paused.' } }, commands));
+  const note = noteOf(workNote({ allowanceRequest: { proposed: 200, used: 100, limit: 100, hourShare: 16, reason: 'Paused.' } }, commands));
 
-  assert.deepEqual(note.allowance, { proposed: 200, reason: 'Paused.' });
+  assert.deepEqual(note.allowance, { proposed: 200, used: 100, limit: 100, hourlyShareIfRaised: 16, lasts: 'until midnight', reason: 'Paused.' });
   assert.equal(note.proposals, undefined);
+});
+
+test('a pause reaches the main agent with the limit that was hit and its real numbers', () => {
+  const pause = { kind: 'hour', line: 'Paused for the hour: 8.4m of the 8.3m hourly share used. Today 9.8m of 100m. Resumes around 13:05 today.' };
+
+  const note = noteOf(workNote({ pause }, commands));
+
+  assert.deepEqual(note.pause, { limitHit: 'hour', facts: pause.line });
 });
 
 test('proposals keep the order Chat listed them, so "the first two" means the same to both', () => {

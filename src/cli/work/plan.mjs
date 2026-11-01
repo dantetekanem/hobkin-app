@@ -16,8 +16,11 @@ const PLENTY_OPEN_ITEMS = 5;
 // A look that ended one of these ways has had its say, so an empty tab is not a reason to look again today.
 const lookOutcomes = ['finished', 'failed', 'unfinished', 'cancelled'];
 
+// Opus at max effort is the dearest run there is and shares a subscription with the user's own Claude work, so these stay few.
+export const MAX_RUNS_AT_ONCE = 1;
+export const MAX_RUNS_A_DAY = 6;
 // Criticality times impact over effort: a quick high-value fix beats a slow low-value one, and small work is favoured.
-const levelWorth = { critical: 3, important: 2, casual: 1 };
+const levelWorth = { max: 5, critical: 3, important: 2, casual: 1 };
 const impactWorth = { high: 3, medium: 2, low: 1 };
 const effortCost = { small: 1, medium: 2, large: 4 };
 const URGENT_FACTOR = 3;
@@ -43,13 +46,16 @@ export function ideasWanted(root, slug, { used, limit }) {
   return used >= limit / 2 ? Math.min(wanted, 1) : wanted;
 }
 
+const levelWord = level => (['max', 'critical'].includes(level) ? level : '');
+
 function itemEntry(project, item) {
-  const { slug, name = slug, level } = project;
+  const { slug, name = slug } = project;
+  const level = item.max ? 'max' : project.level;
   const impact = item.impact ?? impactOfKind[item.kind];
   const effort = item.effort ?? effortOfKind[item.kind];
   const started = item.state === 'doing';
   const score = levelWorth[level] * impactWorth[impact] / effortCost[effort] * (item.urgent ? URGENT_FACTOR : 1) * (started ? STARTED_FACTOR : 1);
-  const why = plainList([started && 'started', item.urgent && 'urgent', level === 'critical' && 'critical', `${impact} impact`, effort]);
+  const why = plainList([started && 'started', item.urgent && 'urgent', levelWord(level), `${impact} impact`, effort]);
   return { key: `item:${slug}:${item.id}`, kind: 'item', lane: 'do', slug, project: name, level, title: item.title, effort, urgent: item.urgent, item, score, why };
 }
 
@@ -58,7 +64,7 @@ function studyEntry(project, unlocked) {
   const { slug, name = slug, level } = project;
   const worth = levelWorth[level] * impactWorth.high / effortCost.medium;
   const score = Math.max(worth, ...unlocked.map(entry => entry.score));
-  const why = plainList(['first study', level === 'critical' && 'critical', unlocked.length && `unlocks ${unlocked.length}`]);
+  const why = plainList(['first study', levelWord(level), unlocked.length && `unlocks ${unlocked.length}`]);
   return { key: `study:${slug}`, kind: 'study', lane: 'look', focus: 'study', slug, project: name, level, title: 'first study', effort: 'medium', score, why };
 }
 
@@ -73,7 +79,7 @@ function lensEntry(project, state, now) {
   const overdue = 1 + Math.min(1, (elapsed - every) / every);
   const moved = state.newCommits ? NEW_COMMITS_FACTOR : 1;
   const score = levelWorth[level] * lensWorth[focus] / effortCost.medium * overdue * moved;
-  const why = plainList([level === 'critical' && 'critical', state.newCommits ? 'new commits' : 'due']);
+  const why = plainList([levelWord(level), state.newCommits ? 'new commits' : 'due']);
   return { key: `look:${slug}`, kind: 'look', lane: 'look', focus, slug, project: name, level, title: `${focus} look`, effort: 'small', score, why };
 }
 
@@ -112,23 +118,41 @@ function discoveryEntry({ root, mode, now, running }) {
   }];
 }
 
+// The sort is stable, so work of equal worth keeps the order it was filed in.
 const byWorth = (left, right) => right.score - left.score
   || entryOrder.indexOf(left.kind) - entryOrder.indexOf(right.kind)
-  || (left.item?.at ?? '').localeCompare(right.item?.at ?? '')
-  || left.key.localeCompare(right.key);
+  || (left.item?.at ?? '').localeCompare(right.item?.at ?? '');
+
+/** Claude panes share no limits with anything else here, so `max` work has its own, and it needs a pane to run in. */
+function maxWait({ mode, now, running, budget, panes }) {
+  if (!panes) return 'needs Herdr';
+  if (mode.claudePause && Date.parse(mode.claudePause.until) > now) return 'Claude usage limit';
+  const runningNow = running.filter(run => run.level === 'max').length;
+  if (runningNow >= MAX_RUNS_AT_ONCE) return 'one max run at a time';
+  return budget.maxRuns + runningNow >= MAX_RUNS_A_DAY ? `${MAX_RUNS_A_DAY} max runs a day` : null;
+}
 
 /** Why this entry cannot start now, leaving out what stops the whole plan and the budget. */
-function ownWait(entry, entries, { running, unmerged }) {
+function ownWait(entry, entries, context) {
+  const { running, unmerged } = context;
   const here = running.filter(run => run.slug === entry.slug);
+  if (entry.skipped) return 'skipped';
   if (entry.held) return entry.held;
   if (entry.unstudied) return 'needs its study';
   if (here.some(run => run.lane === entry.lane)) return entry.lane === 'do' ? 'one item at a time here' : 'a look is running here';
   // Waiting keeps a run in the project's own folder. Small work is soon done, so it waits, and the rest takes a worktree.
-  if (here.length && entry.effort === 'small' && !entry.urgent) return 'waits for the run here';
+  if (here.length && entry.effort === 'small' && !entry.urgent && !entry.picked) return 'another run here';
   if (entry.kind === 'item' && entry.item.state !== 'doing' && entries.some(other => other.slug === entry.slug && other.item?.state === 'doing')) return 'after its started item';
   if (unmerged.full.includes(entry.slug) && entry.kind !== 'study') return `${unmerged.perProject[entry.slug]} unmerged here`;
-  return null;
+  return entry.level === 'max' ? maxWait(context) : null;
 }
+
+/** The user's picks go first in the order they were made, and what they skipped stays in sight at the end. */
+const inQueueOrder = ({ queueNext }) => entries => [
+  ...queueNext.flatMap(key => entries.filter(entry => entry.key === key)),
+  ...entries.filter(entry => !entry.picked && !entry.skipped),
+  ...entries.filter(entry => entry.skipped && !entry.picked),
+];
 
 const skipsTheHour = entry => Boolean(entry.urgent && entry.level === 'critical');
 
@@ -159,27 +183,34 @@ function budgetPause(entries, budget, now) {
   const dayLeft = budget.limit - budget.used;
   if (dayLeft <= 0 || (ready.length && ready.every(entry => entry.estimate.fresh > dayLeft))) return { kind: 'day', line: dayLine(budget) };
 
-  const smallest = Math.min(...ready.map(entry => entry.estimate.fresh), 0);
-  const blocked = ready.length && ready.every(entry => entry.waiting);
-  if (budget.hourUsed < budget.hourShare && !blocked) return null;
-  if (ready.some(skipsTheHour)) return null;
+  // Only tokens really spent make a pause. What is held for running agents is not gone, and a row waiting on it says so itself.
+  const hourLeft = budget.hourShare - budget.hourUsed;
+  const fitsWhatIsLeft = entry => entry.estimate.fresh <= hourLeft || budget.hourUsed === 0;
+  const hourGone = hourLeft <= 0 || (ready.length > 0 && !ready.some(fitsWhatIsLeft));
+  if (!hourGone || ready.some(skipsTheHour)) return null;
+  const smallest = ready.length ? Math.min(...ready.map(entry => entry.estimate.fresh)) : 0;
   return { kind: 'hour', line: hourLine(budget, smallest, now) };
 }
 
 /**
  * One ranked list of everything that could run next. Pure code over what is on disk, so it spends no tokens and anyone can ask.
- * `running`, `chatBusy` and `checks` come from the owner. Without them the list is what would run on an idle machine.
+ * `running`, `chatBusy`, `checks` and `panes` come from the owner. Without them the list is what would run on an idle machine.
  */
-export function planWork(root, { mode = readMode(root), now = Date.now(), running = [], chatBusy = false, checks = 0, lastStartAt = null } = {}) {
+export function planWork(root, { mode = readMode(root), now = Date.now(), running = [], chatBusy = false, checks = 0, lastStartAt = null, panes = true } = {}) {
   const budget = budgetFor(root, mode, now, running);
   const unmerged = unmergedNow(root, mode);
   const reading = readSubscription(root);
-  const context = { root, mode, now, running, budget, unmerged, reading };
+  const context = { root, mode, now, running, budget, unmerged, reading, panes };
   const history = costHistory(root);
   const projects = readProjects(root).filter(project => project.state === 'chosen');
-  const ranked = [...discoveryEntry(context), ...projects.flatMap(project => projectEntries(context, project))]
-    .map(entry => ({ ...entry, estimate: estimateRun(history, { kind: entry.lane === 'do' ? 'do' : entry.kind, level: entry.level }) }))
-    .toSorted(byWorth);
+  const ranked = inQueueOrder(mode)([...discoveryEntry(context), ...projects.flatMap(project => projectEntries(context, project))]
+    .map(entry => ({
+      ...entry,
+      skipped: mode.queueSkipped.includes(entry.key),
+      picked: mode.queueNext.includes(entry.key),
+      estimate: estimateRun(history, { kind: entry.lane === 'do' ? 'do' : entry.kind, level: entry.level }),
+    }))
+    .toSorted(byWorth));
   const entries = ranked.map(entry => {
     const own = ownWait(entry, ranked, context);
     return { ...entry, ownWait: own, waiting: own ?? budgetWait(entry, budget) };
@@ -190,13 +221,15 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const free = agents - running.length - checks;
   const startsAt = lastStartAt === null ? null : lastStartAt + mode.startGapMs;
   const stop = hardStop(context);
-  const pause = stop ?? budgetPause(entries, budget, now);
+  const pause = stop ?? budgetPause(entries.filter(entry => !entry.skipped), budget, now);
   const spaced = startsAt !== null && startsAt > now;
   const waitingOn = chatBusy ? 'Chat is busy, so nothing new starts until it is free.'
     : checks && free <= 0 ? 'Scheduled checks are running, so nothing new starts until they finish.' : null;
-  const next = stop || chatBusy || free <= 0 || spaced ? null : entries.find(entry => !entry.waiting) ?? null;
+  const first = entries.find(entry => !entry.waiting && (mode.autoPick || entry.picked));
+  // A pick is the user's own word, so it does not wait out the gap between starts.
+  const next = stop || chatBusy || free <= 0 || (spaced && !first?.picked) ? null : first ?? null;
   return {
-    mode, entries, next, pause, budget, subscription, unmerged, agents, waitingOn,
+    mode, entries, next, pause, budget, subscription, unmerged, agents, free, waitingOn,
     nextStartAt: spaced ? new Date(startsAt).toISOString() : null,
   };
 }

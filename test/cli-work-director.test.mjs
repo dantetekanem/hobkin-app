@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize, setLearning } from '../src/cli/config.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
+import { planWork } from '../src/cli/work/plan.mjs';
 import {
   answerAllowance, chooseProject, fileItem, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery, recordTokens,
   skipProject, startWork, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
+import { writeJson } from './helpers/work-fixture.mjs';
 
 const HOUR = 3600000;
 const config = {
@@ -70,6 +72,9 @@ function fixture(t, agent = async () => {}) {
   const runner = new HobkinRunner({ runtime, root, config, now: () => new Date(h.clock) });
   h.runtime = runtime;
   h.runner = runner;
+  // Most of these are about what starts, not when, so the gap between starts is off here, and a reading of the subscription allows two agents.
+  writeMode(root, { startGapMs: 0 });
+  writeJson(join(root, 'work', 'subscription.json'), { secondary: { usedPercent: 1, windowMinutes: 10080, resetAt: h.clock + 6 * 24 * HOUR } });
   h.director = new WorkDirector({
     root,
     config,
@@ -77,20 +82,30 @@ function fixture(t, agent = async () => {}) {
     runtime,
     now: () => h.clock,
     onChange: () => { h.changes++; },
+    gh: async (...args) => h.gh(...args),
+    claudeProjects: join(base, 'claude-projects'),
     runHarness: async (request, options) => {
       h.calls.push(request);
       await h.agent(request, options);
       // A discovery that does its job reports every root folder finished.
       if (request.purpose === 'work-discover' && !h.stopsEarly) noteDiscovery(root, { rootFolders: ['everything'], finishedFolders: ['everything'] });
+      if (h.result) return h.result;
       return { status: request.signal.aborted ? 'interrupted' : 'completed', text: h.report ?? 'Useful: Done.' };
     },
   });
+  h.gh = async () => { throw Error('This repository has no remote.'); };
   h.settled = async () => {
     await Promise.all([...runner.jobs.values()]);
+    await h.director.watching;
+    await h.director.surveying;
   };
   h.tick = async () => {
     await h.director.tick();
     await h.settled();
+  };
+  // One run starts on each tick.
+  h.ticks = async count => {
+    for (let index = 0; index < count; index++) await h.tick();
   };
   h.purposes = () => h.calls.map(call => call.purpose);
   h.work = call => JSON.parse(call.prompt).work;
@@ -633,23 +648,28 @@ test('a taken project is studied in its own tree, and changes wait until that is
   assert.equal(readItems(h.root, 'api')[0].state, 'open');
 });
 
-test('after the study the agent looks for work and starts on what is open', async t => {
+test('after the study the agent looks for work and starts on what is open, on a branch in the project\'s own folder', async t => {
   const h = fixture(t);
-  h.agent = study(h.root);
+  const checkout = repository(h.base, 'api');
+  let branchDuringTheRun;
+  h.agent = request => {
+    study(h.root)(request);
+    if (request.purpose === 'work-do') branchDuringTheRun = git(request.cwd, 'branch', '--show-current');
+  };
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
-  chooseProject(h.root, repository(h.base, 'api'));
+  chooseProject(h.root, checkout);
   fileItem(h.root, 'api', item);
 
-  await h.tick();
-  await h.tick();
+  await h.ticks(4);
 
   const looks = h.calls.filter(call => call.purpose === 'work-look').map(call => h.work(call).focus);
   assert.deepEqual(looks.slice(0, 2), ['study', 'security']);
   const run = h.calls.find(call => call.purpose === 'work-do');
   assert.ok(run, 'a do run started');
-  assert.equal(run.cwd, paths(h.root, 'api').doTree);
-  assert.match(git(run.cwd, 'branch', '--show-current'), /^hobkin\/[0-9a-f]{6}-update-rack$/);
-  assert.deepEqual([h.work(run).item.key, h.work(run).landing], ['update:rack', 'pr']);
+  assert.equal(run.cwd, checkout);
+  assert.match(branchDuringTheRun, /^hobkin\/[0-9a-f]{6}-update-rack$/);
+  assert.equal(git(checkout, 'branch', '--show-current'), 'main', 'the folder is back where it was');
+  assert.deepEqual([h.work(run).item.key, h.work(run).landing, h.work(run).place], ['update:rack', 'pr', 'folder']);
   assert.match(h.work(run).projectNotes, /An API/);
   assert.match(h.work(run).commands.item, /work item api --home/);
 });
@@ -687,45 +707,19 @@ const onProject = (h, level = 'important') => {
 const fileOpen = (h, count) => {
   for (let index = 0; index < count; index++) fileItem(h.root, 'api', { ...item, key: `open-${index}` });
 };
-const keepItemsBusy = h => {
-  h.director.startDo = () => {};
-};
-
-test('ideas come once a day, and more of them when a project has little to do', async t => {
+test('ideas come once a day when a project has nothing else to do', async t => {
   const h = fixture(t);
   onProject(h);
-  keepItemsBusy(h);
 
-  await h.tick();
-  await h.tick();
+  await h.ticks(2);
 
   assert.equal(ideaRuns(h).length, 1);
   assert.equal(ideaRuns(h)[0].ideas, 3);
-
-  h.clock += 25 * HOUR;
-  writeState(h.root, 'api', { lastLensAt: new Date(h.clock).toISOString() });
-  fileOpen(h, 2);
-  await h.tick();
-
-  assert.equal(ideaRuns(h).length, 2);
-  assert.equal(ideaRuns(h)[1].ideas, 1);
-});
-
-test('a project with plenty of open work gets no new ideas', async t => {
-  const h = fixture(t);
-  onProject(h);
-  keepItemsBusy(h);
-  fileOpen(h, 5);
-
-  await h.tick();
-
-  assert.equal(ideaRuns(h).length, 0);
 });
 
 test('past half the day\'s tokens, a project gets one idea at most', async t => {
   const h = fixture(t);
   onProject(h);
-  keepItemsBusy(h);
   recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 600000 }, h.clock - 2 * HOUR);
 
   await h.tick();
@@ -734,7 +728,7 @@ test('past half the day\'s tokens, a project gets one idea at most', async t => 
   assert.deepEqual(ideaRuns(h)[0].tokens, { today: 600000, limit: 1000000 });
 });
 
-test('at the daily token limit nothing new starts until tomorrow, except urgent work', async t => {
+test('at the daily token limit nothing new starts until tomorrow, urgent or not', async t => {
   const h = fixture(t);
   h.agent = () => {};
   onProject(h, 'critical');
@@ -748,31 +742,31 @@ test('at the daily token limit nothing new starts until tomorrow, except urgent 
 
   fileItem(h.root, 'api', { ...item, key: 'ci:main', kind: 'fix', urgent: true });
   await h.tick();
-  assert.deepEqual(h.calls.map(call => h.work(call).item?.key), ['ci:main']);
+  assert.deepEqual(h.calls, [], 'urgent work stays inside the daily limit');
 
   h.clock += 24 * HOUR;
   await h.tick();
-  assert.ok(h.calls.length > 1, 'a new day starts again');
+  assert.ok(h.calls.length > 0, 'a new day starts again');
 });
 
-test('tokens spread across the day: past an hour\'s share, new work waits for the window to move', async t => {
+test('past an hour\'s share new work waits, and urgent work on a critical project does not', async t => {
   const h = fixture(t);
   h.agent = () => {};
-  onProject(h);
-  writeMode(h.root, { dailyTokens: 2400000 });
+  onProject(h, 'critical');
+  writeMode(h.root, { dailyTokens: 12000000 });
   fileItem(h.root, 'api', item);
   writeState(h.root, 'api', { lastLensAt: null });
-  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 100000 }, h.clock);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock);
 
   await h.tick();
-  assert.deepEqual(h.calls, [], 'an hour\'s share of a 2.4M day is 100k');
+  assert.deepEqual(h.calls, [], 'an hour\'s share of a 12m day is 1m');
 
   fileItem(h.root, 'api', { ...item, key: 'ci:main', kind: 'fix', urgent: true });
   await h.tick();
-  assert.deepEqual(h.calls.map(call => h.work(call).item?.key), ['ci:main'], 'urgent work does not wait');
+  assert.deepEqual(h.calls.map(call => h.work(call).item?.key), ['ci:main'], 'urgent work does not wait for the hour');
 
   h.clock += 61 * 60000;
-  await h.tick();
+  await h.ticks(2);
   assert.ok(h.calls.length > 1, 'the rest starts once the window moves on');
 });
 
@@ -787,7 +781,7 @@ const pausedForTheHour = h => {
   onProject(h);
   writeMode(h.root, { dailyTokens: 2400000 });
   fileItem(h.root, 'api', item);
-  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 100000 }, h.clock);
+  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 200000 }, h.clock);
 };
 
 test('at the limit work pauses and Hobkin asks for more, saying why and what is waiting', async t => {
@@ -801,11 +795,11 @@ test('at the limit work pauses and Hobkin asks for more, saying why and what is 
   assert.equal(readItems(h.root, 'api')[0].state, 'open', 'the work is still there');
   const { proposed, reason } = readMode(h.root).allowanceRequest;
   assert.equal(proposed, 2000000);
-  assert.match(reason, /Work mode paused/);
-  assert.match(reason, /1m of today's 1m tokens/);
+  assert.match(reason, /^Paused for today: 1m of the 1m daily limit used\./);
   assert.match(reason, /1 item is waiting/);
   assert.match(reason, /Update rack/);
-  assert.match(reason, /tomorrow/);
+  assert.match(reason, /hourly share 166\.7k until midnight/, 'it says what raising it changes');
+  assert.match(reason, /Tomorrow it is back to 1m/);
 });
 
 test('it asks once for each allowance, not on every tick', async t => {
@@ -867,32 +861,23 @@ test('with nothing waiting, there is nothing to ask', async t => {
   assert.equal(readMode(h.root).allowanceRequest ?? null, null);
 });
 
-test('pacing asks too, and says the work picks up on its own', async t => {
+test('an hourly pause tells real numbers once and offers no raise, because it clears by itself', async t => {
   const h = fixture(t);
   pausedForTheHour(h);
 
   await h.tick();
 
-  const { reason, proposed } = readMode(h.root).allowanceRequest;
-  assert.equal(proposed, 4800000);
-  assert.match(reason, /this hour's share/);
-  assert.match(reason, /as the hour moves on/);
+  const { allowanceRequest, pauseNotice } = readMode(h.root);
+  assert.equal(allowanceRequest ?? null, null);
+  assert.match(pauseNotice.line, /^Paused for the hour: 200k of the 200k hourly share used\. Today 200k of 2\.4m\. Resumes around/);
+  const { id } = pauseNotice;
+
+  h.clock += 60000;
+  await h.tick();
+  assert.equal(readMode(h.root).pauseNotice.id, id, 'once is enough');
 });
 
-test('a request made for the hour gives way when the day runs out', async t => {
-  const h = fixture(t);
-  pausedForTheHour(h);
-  await h.tick();
-
-  recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 2300000 }, h.clock - 2 * HOUR);
-  await h.tick();
-
-  const { reason, atLimit } = readMode(h.root).allowanceRequest;
-  assert.equal(atLimit, true);
-  assert.match(reason, /tomorrow/);
-});
-
-test('the tokens a run used are recorded when it finishes', async t => {
+test('a run records its fresh and cached tokens apart, and only fresh ones count against the limit', async t => {
   const h = fixture(t);
   h.agent = request => {
     writeFileSync(request.sessionFile, [
@@ -906,6 +891,35 @@ test('the tokens a run used are recorded when it finishes', async t => {
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(tokensToday(h.root, h.clock), 1000);
+  const { budget: { used, cached } } = planWork(h.root, { now: h.clock });
+  assert.deepEqual([used, cached], [1000, 9000]);
+});
+
+test('a long run counts while it runs, and adds nothing more when it ends', async t => {
+  const release = Promise.withResolvers();
+  const turn = input => `${JSON.stringify({ type: 'message', message: { role: 'assistant', usage: { input, output: 0, cacheRead: 100 } } })}\n`;
+  const h = fixture(t);
+  let session;
+  h.agent = async request => {
+    session = request.sessionFile;
+    writeFileSync(session, turn(500));
+    await release.promise;
+    appendFileSync(session, turn(300));
+  };
+  writeMode(h.root, { enabled: true, folder: '/repos' });
+  await h.director.tick();
+  while (!session) await new Promise(resolve => setTimeout(resolve, 10));
+
+  await h.director.tick();
+
+  const during = planWork(h.root, { now: h.clock, running: h.director.running() }).budget;
+  assert.deepEqual([during.used, during.cached], [500, 100]);
+
+  release.resolve();
+  await h.settled();
+  await new Promise(resolve => setImmediate(resolve));
+  const after = planWork(h.root, { now: h.clock, running: h.director.running() }).budget;
+  assert.deepEqual([after.used, after.cached], [800, 200]);
 });
 
 test('a pane run is costed from its session like any other', async t => {
@@ -930,7 +944,7 @@ test('a pane run is costed from its session like any other', async t => {
   assert.equal(tokensToday(h.root, h.clock), 150);
 });
 
-test('a project gets one look and one do at a time', async t => {
+test('a project gets one do at a time, and small work waits for what is running there', async t => {
   const release = Promise.withResolvers();
   const h = fixture(t);
   h.agent = async request => {
@@ -941,14 +955,18 @@ test('a project gets one look and one do at a time', async t => {
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
   fileItem(h.root, 'api', { ...item, key: 'second' });
-  await h.tick();
+  await h.ticks(2);
 
-  await h.director.tick();
-  await new Promise(resolve => setTimeout(resolve, 300));
+  while (!h.calls.some(call => call.purpose === 'work-do')) {
+    await h.director.tick();
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  const before = h.calls.length;
   await h.director.tick();
   await new Promise(resolve => setTimeout(resolve, 100));
 
   assert.equal(h.calls.filter(call => call.purpose === 'work-do').length, 1);
+  assert.equal(h.calls.length, before, 'small work waits, so the folder stays simple');
   release.resolve();
   await h.settled();
 });
@@ -964,8 +982,7 @@ test('level sets model and effort', async t => {
   chooseProject(h.root, repository(h.base, 'site'), 'casual');
   fileItem(h.root, 'billing', item);
   fileItem(h.root, 'site', item);
-  await h.tick();
-  await h.tick();
+  await h.ticks(8);
 
   const run = (slug, purpose) => h.calls.find(call => call.purpose === purpose && h.work(call).project.slug === slug);
   assert.deepEqual([run('billing', 'work-do').model, run('billing', 'work-do').effort], ['fixture/main', 'xhigh']);
@@ -974,9 +991,9 @@ test('level sets model and effort', async t => {
   assert.equal(h.work(run('billing', 'work-do')).landing, 'draft');
 });
 
-test('the pool limits runs, and the more critical project goes first', async t => {
+test('the limit on agents holds, and the more critical project goes first', async t => {
   const h = fixture(t);
-  writeMode(h.root, { enabled: true, pool: 1, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  writeMode(h.root, { enabled: true, agents: 1, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'site'), 'casual');
   chooseProject(h.root, repository(h.base, 'billing'), 'critical');
 
@@ -991,13 +1008,15 @@ test('a do run that leaves its item unfinished gets one more try, then the item 
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
   const { id } = fileItem(h.root, 'api', item);
-  await h.tick();
+  await h.ticks(2);
+  writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
 
   await h.tick();
   assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['open', 1]]);
 
   await h.tick();
   assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['stuck', 2]]);
+  assert.match(readItems(h.root, 'api')[0].stuckReason, /without recording an outcome/, 'a stuck item says why');
   assert.equal(h.calls.filter(call => call.purpose === 'work-do' && h.work(call).item.id === id).length, 2);
 });
 
@@ -1011,8 +1030,7 @@ test('a do run that records its PR leaves the item alone', async t => {
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
 
-  await h.tick();
-  await h.tick();
+  await h.ticks(3);
 
   assert.equal(readItems(h.root, 'api')[0].state, 'pr');
 });
@@ -1030,7 +1048,7 @@ test('turning work mode off lets a running agent finish, starts nothing new and 
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
   fileItem(h.root, 'api', { ...item, key: 'second' });
-  await h.tick();
+  await h.ticks(2);
   await h.director.tick();
   while (!h.calls.some(call => call.purpose === 'work-do')) await new Promise(resolve => setTimeout(resolve, 20));
 
@@ -1073,7 +1091,7 @@ test('closing Hobkin keeps an item to resume, and cancelling one leaves it for t
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
   fileItem(h.root, 'api', { ...item, key: 'second' });
-  await h.tick();
+  await h.ticks(2);
   await h.director.tick();
   while (!h.calls.some(call => call.purpose === 'work-do')) await new Promise(resolve => setTimeout(resolve, 20));
 
@@ -1082,9 +1100,12 @@ test('closing Hobkin keeps an item to resume, and cancelling one leaves it for t
   await new Promise(resolve => setImmediate(resolve));
 
   assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['stuck', 'open'], 'a cancelled item does not start again by itself');
+  assert.equal(readItems(h.root, 'api')[0].stuckReason, 'Cancelled by hand.');
 
-  await h.director.tick();
-  while (h.calls.filter(call => call.purpose === 'work-do').length < 2) await new Promise(resolve => setTimeout(resolve, 20));
+  while (h.calls.filter(call => call.purpose === 'work-do').length < 2) {
+    await h.director.tick();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   await h.runner.stop();
   await new Promise(resolve => setImmediate(resolve));
 
@@ -1140,8 +1161,10 @@ test('work runs do not take a place from ordinary checks', async t => {
   chooseProject(h.root, repository(h.base, 'one'));
   chooseProject(h.root, repository(h.base, 'two'));
   chooseProject(h.root, repository(h.base, 'three'));
-  await h.director.tick();
-  while (h.calls.length < 2) await new Promise(resolve => setTimeout(resolve, 20));
+  while (h.calls.length < 2) {
+    await h.director.tick();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
 
   assert.equal(h.runner.scheduledJobCount(await h.runtime.state()), 0);
 
@@ -1184,7 +1207,7 @@ test('in Herdr, project work runs in panes on the chosen harness while discovery
   writeMode(h.root, { enabled: true, folder: h.base, harness: 'claude' });
   chooseProject(h.root, repository(h.base, 'api'));
 
-  await h.tick();
+  await h.ticks(2);
 
   assert.deepEqual(h.purposes(), ['work-discover']);
   assert.equal(runs.length, 1);
@@ -1202,8 +1225,8 @@ test('a failed pane run counts against its item like any other', async t => {
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
-  mkdirSync(paths(h.root, 'api').directory, { recursive: true });
-  writeFileSync(paths(h.root, 'api').project, '# What it is\n');
+  studied(h, 'api');
+  writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
   h.director.panes = { run: async () => ({ status: 'failed', cost: null, error: 'The agent exited.' }) };
 
   await h.tick();

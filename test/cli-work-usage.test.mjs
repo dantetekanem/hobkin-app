@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import watchUsage from '../src/cli/work/usage-extension.mjs';
-import { nextPause, openWindows, overReserve, readSubscription, usageLimitIn, usageWindows } from '../src/cli/work/usage.mjs';
+import { nextPause, openWindows, overReserve, readingUsage, readSubscription, usageExtension, usageLimitIn, usageWindows } from '../src/cli/work/usage.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
 const MINUTE = 60000;
@@ -101,6 +101,17 @@ test('a second agent failing during a pause is the same pause, so Chat hears it 
   assert.equal(again.at, first.at);
   assert.equal(again.strikes, 1);
   assert.equal(Date.parse(again.until), now + 2 * HOUR);
+});
+
+test('jobs that name their extensions read usage too, and one a launcher owns is left alone', async () => {
+  const calls = [];
+  const run = readingUsage(async request => calls.push(request));
+
+  await run({ id: 'named', extensions: ['/chrome/index.ts'] });
+  await run({ id: 'launcher' });
+
+  assert.deepEqual(calls[0].extensions, ['/chrome/index.ts', usageExtension]);
+  assert.equal(calls[1].extensions, undefined);
 });
 
 const piWith = sessionFile => {

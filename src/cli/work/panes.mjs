@@ -11,6 +11,12 @@ const POLL_MS = 3000;
 // An agent goes idle between turns while its own sub-agents finish, so idle alone does not mean done.
 const IDLE_GRACE_MS = 30000;
 const MAX_NAME_LENGTH = 32;
+// Four panes make a true grid, each a quarter of the tab, and that is as small as a pane stays readable.
+const MAX_PANES_PER_TAB = 4;
+const EVEN_SPLIT = '0.5';
+const MOSTLY_WIDE = 0.75;
+const LAST_LINES = 20;
+const MAX_REASON_LENGTH = 1000;
 
 const runCommand = promisify(execFile);
 const defaultExec = async (command, args) => (await runCommand(command, args, { maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -24,11 +30,34 @@ const piArguments = ({ model, effort, sessionFile, extensions }) => [
   ...extensionArguments(extensions),
 ];
 
+// A session of a known name is what lets its usage be read afterwards. Model and effort go on only when the run is bound to them, and no permission flag ever does.
+const claudeArguments = ({ claudeSession, bound, model, effort }) => [
+  ...(claudeSession ? ['--session-id', claudeSession] : []),
+  ...(bound ? ['--model', model, '--effort', effort] : []),
+];
+
 export const insideHerdr = (env = process.env) => env.HERDR_ENV === '1' && Boolean(env.HERDR_WORKSPACE_ID);
 
 export const agentName = (lane, slug) => `work-${lane}-${slug}`.toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, MAX_NAME_LENGTH);
 
-/** Runs project work where the user can watch it: one agent per pane, in a Herdr tab of their own. */
+/** Which of this family a tab is: `Work Mode` is 1, `Work Mode 2` is 2, and anything else the user named is not ours. */
+const tabNumber = (label, family) => {
+  if (label === family) return 1;
+  const number = String(label).startsWith(`${family} `) ? String(label).slice(family.length + 1) : '';
+  return /^[1-9]\d*$/.test(number) && Number(number) > 1 ? Number(number) : null;
+};
+
+/**
+ * The biggest pane gives up half of itself: one across the whole tab splits sideways and any other splits down. Four panes end as
+ * a true grid. A closed pane's neighbour takes its space, so that pane is the biggest and the next agent fills the gap.
+ */
+function nextSplit({ area, panes }) {
+  const size = ({ rect }) => rect.width * rect.height;
+  const biggest = panes.reduce((best, pane) => (size(pane) > size(best) ? pane : best));
+  return { pane: biggest.pane_id, direction: biggest.rect.width > area.width * MOSTLY_WIDE ? 'right' : 'down' };
+}
+
+/** Runs project work where the user can watch it: one agent per pane, up to four to a Herdr tab, and each pane closes with its run. */
 export class WorkPanes {
   constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS, tab = TAB_LABEL, extensionsFor = async () => undefined, startTimeoutMs = START_TIMEOUT_MS } = {}) {
     Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab, extensionsFor, startTimeoutMs });
@@ -44,24 +73,39 @@ export class WorkPanes {
     }
   }
 
-  // One at a time, so runs starting together share a tab instead of each making one.
-  openPane(cwd) {
-    const opened = (this.opening ?? Promise.resolve()).catch(() => {}).then(() => this.createPane(cwd));
-    this.opening = opened;
-    return opened;
+  // One at a time, so runs starting together share a tab instead of each making one, and a pane closing cannot take a tab from under a split.
+  inTurn(action) {
+    const turn = (this.opening ?? Promise.resolve()).catch(() => {}).then(action);
+    this.opening = turn;
+    return turn;
   }
 
+  openPane(cwd) {
+    return this.inTurn(() => this.createPane(cwd));
+  }
+
+  async newTab(numbers, cwd) {
+    const number = Array.from({ length: numbers.length + 1 }, (_, index) => index + 1).find(free => !numbers.includes(free));
+    const label = number === 1 ? this.tab : `${this.tab} ${number}`;
+    const created = await this.herdr('tab', 'create', '--workspace', this.workspace, '--label', label, '--cwd', cwd, '--no-focus');
+    return created.root_pane.pane_id;
+  }
+
+  // The lowest tab with room comes first, so a gap fills before another tab opens. Herdr closes an empty tab by itself.
   async createPane(cwd) {
     const { tabs } = await this.herdr('tab', 'list', '--workspace', this.workspace);
-    const tab = tabs.find(entry => entry.label === this.tab);
-    if (!tab) {
-      const created = await this.herdr('tab', 'create', '--workspace', this.workspace, '--label', this.tab, '--cwd', cwd, '--no-focus');
-      return created.root_pane.pane_id;
-    }
+    const family = tabs.flatMap(tab => {
+      const number = tabNumber(tab.label, this.tab);
+      return number ? [{ ...tab, number }] : [];
+    }).toSorted((left, right) => left.number - right.number);
+    const room = family.find(tab => (tab.pane_count ?? 0) < MAX_PANES_PER_TAB);
+    if (!room) return this.newTab(family.map(tab => tab.number), cwd);
+
     const { panes } = await this.herdr('pane', 'list', '--workspace', this.workspace);
-    const inTab = panes.filter(pane => pane.tab_id === tab.tab_id);
-    const direction = inTab.length % 2 ? 'right' : 'down';
-    const { pane } = await this.herdr('pane', 'split', inTab.at(-1).pane_id, '--direction', direction, '--cwd', cwd, '--no-focus');
+    const member = panes.find(pane => pane.tab_id === room.tab_id);
+    const { layout } = await this.herdr('pane', 'layout', '--pane', member.pane_id);
+    const { pane: target, direction } = nextSplit(layout);
+    const { pane } = await this.herdr('pane', 'split', target, '--direction', direction, '--ratio', EVEN_SPLIT, '--cwd', cwd, '--no-focus');
     return pane.pane_id;
   }
 
@@ -80,7 +124,26 @@ export class WorkPanes {
   }
 
   closePane(pane) {
-    return this.herdr('pane', 'close', pane).catch(() => {});
+    return this.inTurn(() => this.herdr('pane', 'close', pane)).catch(() => {});
+  }
+
+  /** Whether the pane itself is gone, which is the user closing it rather than the agent inside it exiting. */
+  async paneIsGone(pane) {
+    try {
+      await this.herdr('pane', 'get', pane);
+      return false;
+    } catch (error) {
+      return String(error.stderr ?? error.message).includes('pane_not_found');
+    }
+  }
+
+  // A pane does not stay open to be read, so a failure keeps the end of what it showed. This goes in the run's report and nowhere else.
+  async lastLines(pane) {
+    try {
+      return (await this.exec('herdr', ['pane', 'read', pane, '--source', 'recent', '--lines', String(LAST_LINES)])).trim();
+    } catch {
+      return '';
+    }
   }
 
   async agentStatus(name) {
@@ -96,12 +159,13 @@ export class WorkPanes {
   }
 
   // The report file is the one finish line every harness can reach, so it decides when a run is over.
-  async waitForReport({ name, report, signal }) {
+  async waitForReport({ name, report, signal, onStatus }) {
     let idleSince = null;
     let asked = false;
     while (!existsSync(report)) {
       signal?.throwIfAborted();
       const status = await this.agentStatus(name);
+      onStatus?.(status);
       if (existsSync(report)) return;
       if (status === 'idle' || status === 'done') {
         idleSince ??= Date.now();
@@ -135,17 +199,18 @@ export class WorkPanes {
     return { name, pane };
   }
 
-  async run({ name, kind, cwd, model, effort, sessionFile, brief, report, signal }) {
+  async run({ name, kind, cwd, model, effort, sessionFile, brief, report, signal, claudeSession, bound, onStatus }) {
     let pane = null;
     let started = false;
     try {
       signal?.throwIfAborted();
       pane = await this.openPane(cwd);
-      const args = kind === 'pi' ? piArguments({ model, effort, sessionFile, extensions: await this.extensionsFor(cwd) }) : [];
+      const claude = kind === 'claude' ? claudeArguments({ claudeSession, bound, model, effort }) : [];
+      const args = kind === 'pi' ? piArguments({ model, effort, sessionFile, extensions: await this.extensionsFor(cwd) }) : claude;
       await this.startAgent(name, kind, pane, args);
       started = true;
       await this.prompt(name, `Read ${brief} and follow it.`);
-      await this.waitForReport({ name, report, signal });
+      await this.waitForReport({ name, report, signal, onStatus });
       await this.closePane(pane);
       return { status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null };
     } catch (error) {
@@ -153,9 +218,11 @@ export class WorkPanes {
         if (pane) await this.closePane(pane);
         return { status: 'interrupted', cost: null, error: 'Harness cancelled.' };
       }
-      // A pane with an agent in it stays open so the user can read what went wrong. An empty one has nothing to show.
-      if (pane && !started) await this.closePane(pane);
-      return { status: 'failed', cost: null, error: String(error.message ?? error).slice(0, 2000) };
+      if (started && await this.paneIsGone(pane)) return { status: 'interrupted', cost: null, paneClosed: true, error: 'The pane was closed by hand.' };
+      const lines = started ? await this.lastLines(pane) : '';
+      if (pane) await this.closePane(pane);
+      const reason = String(error.message ?? error).slice(0, MAX_REASON_LENGTH);
+      return { status: 'failed', cost: null, error: lines ? `${reason}\n\nLast lines in the pane:\n${lines.slice(-MAX_REASON_LENGTH)}` : reason };
     }
   }
 }

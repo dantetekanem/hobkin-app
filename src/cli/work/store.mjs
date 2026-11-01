@@ -1,10 +1,12 @@
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
 export const levels = {
+  // Super critical work runs on Claude whatever harness is set. Each run is the dearest there is, so it looks less often than `critical`.
+  max: { rank: -1, lookEveryHours: 12, lookEffort: 'max', doEffort: 'max', model: 'claude-opus-5-5', harness: 'claude' },
   critical: { rank: 0, lookEveryHours: 8, lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
   important: { rank: 1, lookEveryHours: 24, lookEffort: 'medium', doEffort: 'high', model: 'main' },
   casual: { rank: 2, lookEveryHours: 72, lookEffort: 'low', doEffort: 'medium', model: 'background' },
@@ -59,16 +61,18 @@ export function readJson(file, fallback) {
   }
 }
 
+const parseLines = text => text.split('\n').flatMap(entry => {
+  try {
+    const event = JSON.parse(entry);
+    return event && typeof event === 'object' ? [event] : [];
+  } catch {
+    return [];
+  }
+});
+
 function parseEvents(file) {
   if (!lstatSync(file, { throwIfNoEntry: false })?.isFile()) return [];
-  return readFileSync(file, 'utf8').split('\n').flatMap(entry => {
-    try {
-      const event = JSON.parse(entry);
-      return event && typeof event === 'object' ? [event] : [];
-    } catch {
-      return [];
-    }
-  });
+  return parseLines(readFileSync(file, 'utf8'));
 }
 
 // The owner and a run's CLI call can write at once, so these files only ever grow; the last event for an ID wins.
@@ -89,7 +93,7 @@ function fold(events, identify) {
 export function readMode(root) {
   const defaults = {
     version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS,
-    unmergedLimit: DEFAULT_UNMERGED_LIMIT, startGapMs: START_GAP_MS, lastDiscoveryAt: null,
+    unmergedLimit: DEFAULT_UNMERGED_LIMIT, startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [],
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
   const { pool, ...saved } = readJson(modePath(root), {});
@@ -138,6 +142,19 @@ export function setUnmergedLimit(root, unmergedLimit) {
   if (!Number.isInteger(unmergedLimit) || unmergedLimit <= 0) throw Error('The unmerged limit must be a positive number.');
   return writeMode(root, { unmergedLimit });
 }
+
+/** Queue keys are the plan's own, such as `item:api:abc123` or `look:api`. Picking one puts it first, and takes it back out of skipped. */
+export function pickNext(root, key) {
+  const { queueNext, queueSkipped } = readMode(root);
+  return writeMode(root, { queueNext: [...new Set([...queueNext, key])], queueSkipped: queueSkipped.filter(entry => entry !== key) });
+}
+
+export function skipInQueue(root, key) {
+  const { queueNext, queueSkipped } = readMode(root);
+  return writeMode(root, { queueNext: queueNext.filter(entry => entry !== key), queueSkipped: [...new Set([...queueSkipped, key])] });
+}
+
+export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });
 
 const localDay = now => new Date(now).toDateString();
 const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
@@ -202,15 +219,39 @@ export function noteDiscovery(root, { folder, doing, repositories, rootFolders, 
 export const foldersLeft = ({ rootFolders, finishedFolders = [] }) => (rootFolders
   ? rootFolders.filter(folder => !finishedFolders.includes(folder)) : null);
 
-/** Fresh tokens only: cache reads repeat earlier context, so counting them would swamp what a run really used. */
+const usagesIn = entries => entries.flatMap(({ message }) => (message?.role === 'assistant' && message.usage ? [message.usage] : []));
+const freshTokens = usages => usages.reduce((sum, usage) => sum + (usage.input ?? 0) + (usage.cacheWrite ?? 0) + (usage.output ?? 0), 0);
+const cachedTokens = usages => usages.reduce((sum, usage) => sum + (usage.cacheRead ?? 0), 0);
+
+/** `tokens` is fresh tokens, the only ones that count against a limit. `cached` is the rest: reads of context a run already sent. */
 export function sessionUsage(file) {
   const entries = parseEvents(file);
-  const usages = entries.flatMap(({ message }) => (message?.role === 'assistant' && message.usage ? [message.usage] : []));
+  const usages = usagesIn(entries);
   return {
-    tokens: usages.reduce((sum, usage) => sum + (usage.input ?? 0) + (usage.cacheWrite ?? 0) + (usage.output ?? 0), 0),
+    tokens: freshTokens(usages),
+    cached: cachedTokens(usages),
     usd: usages.reduce((sum, usage) => sum + (usage.cost?.total ?? 0), 0),
     sessionId: entries[0]?.id ?? null,
   };
+}
+
+/** What a running session has spent. Only what was added since `seen` is read, so this is cheap enough for every tick. */
+export function followUsage(file, seen = { offset: 0, tokens: 0, cached: 0 }) {
+  const size = lstatSync(file, { throwIfNoEntry: false })?.size ?? 0;
+  if (size <= seen.offset) return seen;
+
+  const added = Buffer.alloc(size - seen.offset);
+  const descriptor = openSync(file, 'r');
+  try {
+    readSync(descriptor, added, 0, added.length, seen.offset);
+  } finally {
+    closeSync(descriptor);
+  }
+  const end = added.lastIndexOf(10);
+  if (end < 0) return seen;
+
+  const usages = usagesIn(parseLines(added.subarray(0, end).toString('utf8')));
+  return { offset: seen.offset + end + 1, tokens: seen.tokens + freshTokens(usages), cached: seen.cached + cachedTokens(usages) };
 }
 
 /** What stopped a run, in the provider's own words. A run that recovered and carried on has nothing to say here. */
@@ -237,9 +278,6 @@ export function tokensLastHour(root, now = Date.now()) {
     .filter(event => now - Date.parse(event.at) < HOUR_MS)
     .reduce((sum, event) => sum + event.tokens, 0);
 }
-
-/** A rolling hour spreads work wherever it starts, so turning the mode on late cannot release the whole day at once. */
-export const isPacing = (root, dailyTokens, now = Date.now()) => tokensLastHour(root, now) >= dailyTokens / HOURS_IN_DAY;
 
 export const readProjects = root => fold(parseEvents(projectsPath(root)), event => event.slug);
 
@@ -330,8 +368,14 @@ export function updateItem(root, slug, id, change, now = Date.now()) {
   return readItems(root, slug).find(existing => existing.id === id);
 }
 
+/** A stuck item goes back in the queue at the front, with its count of tries back at zero. */
+export function retryItem(root, slug, id, now = Date.now()) {
+  updateItem(root, slug, id, { state: 'open', attempts: 0, stuckReason: null }, now);
+  return pickNext(root, `item:${slug}:${id}`);
+}
+
 export const landing = (level, kind) => {
-  if (level === 'critical') return 'draft';
+  if (['max', 'critical'].includes(level)) return 'draft';
   return level === 'important' && kind === 'feature' ? 'draft' : 'pr';
 };
 

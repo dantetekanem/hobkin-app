@@ -54,6 +54,7 @@ export function budgetFor(root, mode, now, running = []) {
     limit,
     used: totalOf(today, 'tokens') + spending,
     cached: totalOf(today, 'cached') + totalOf(running, 'cached'),
+    maxRuns: today.filter(event => event.level === 'max').length,
     hourShare: limit / HOURS_OF_WORK,
     hourUsed: totalOf(hour, 'tokens') + spending,
     hourEvents: hour,

@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJson } from './store.mjs';
@@ -14,6 +16,9 @@ const LONGEST_PAUSE_MS = 6 * HOUR_MS;
 const limitWords = /usage.?limit|rate.?limit|too many requests|quota|out of budget|\b429\b|retry delay/i;
 
 export const usageExtension = fileURLToPath(new URL('./usage-extension.mjs', import.meta.url));
+
+/** Adds the reader to a job's extensions, so checks refresh the numbers too. A launcher decides for itself, so a job with no list is left alone. */
+export const readingUsage = run => (request, options) => run(request.extensions ? { ...request, extensions: [...request.extensions, usageExtension] } : request, options);
 
 /** The last reading a job saw, or `null` before any job has seen one. */
 export const readSubscription = root => readJson(join(root, 'work', 'subscription.json'), null);
@@ -54,6 +59,38 @@ export function overReserve(reading, now) {
   const over = openWindows(reading, now).find(entry => entry.usedPercent >= allowedPercent(entry, now));
   if (!over) return null;
   return { label: labelFor(over), usedPercent: over.usedPercent, allowedPercent: allowedPercent(over, now), until: clearsAt(over) };
+}
+
+/**
+ * What a Claude pane spent, from Claude Code's own transcript of that session, or nothing if there is none to read. Only the numbers
+ * are read. One reply can take several lines that repeat its usage, so each request counts once.
+ */
+export function claudeSessionUsage(sessionId, projects = join(homedir(), '.claude', 'projects')) {
+  const usages = new Map();
+  let folders = [];
+  try {
+    folders = readdirSync(projects);
+  } catch {
+    return { tokens: 0, cached: 0 };
+  }
+  for (const folder of folders) {
+    let text;
+    try {
+      text = readFileSync(join(projects, folder, `${sessionId}.jsonl`), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      try {
+        const { type, requestId, uuid, message } = JSON.parse(line);
+        if (type === 'assistant' && message?.usage) usages.set(requestId ?? uuid, message.usage);
+      } catch {
+        // A crash can cut the last line short.
+      }
+    }
+  }
+  const total = field => [...usages.values()].reduce((sum, usage) => sum + (usage[field] ?? 0), 0);
+  return { tokens: total('input_tokens') + total('cache_creation_input_tokens') + total('output_tokens'), cached: total('cache_read_input_tokens') };
 }
 
 /** A failure that was the provider saying stop, with when it lifts if it said. Anything else is the project's own. */

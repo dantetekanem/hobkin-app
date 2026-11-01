@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Plan work mode across all projects. One ranked queue of studies, looks and items replaces walking project by project, and it ranks by level, urgency, impact and how soon a change brings a benefit, in code, with no tokens. Looks file `impact` and `effort`, and items stay small.
+- Run few agents, one step at a time: 2 by default where it used to be half the machine's cores, with 8 as the ceiling, 5 minutes between starts, and checks taking a place. `hobkin work agents` changes it.
+- Make the queue something to steer: Enter on a row runs it now, `s` skips it and puts it back, and `hobkin work auto off` stops auto-pick and leaves work mode on. Stuck items say why, and Enter tries one again.
+- Estimate each run from what similar runs really cost, and start it only if it fits what is left of the hour and the day. Urgent items on critical projects skip the hourly share and never the daily limit.
+- Make every pause say which limit it hit, with its real numbers. An hourly pause offers no raise, because it clears by itself, and a daily one says what raising it changes, including the hourly share. The hourly share is now a 12th of the day, from what runs really cost.
+- Show cached tokens beside fresh ones, count running agents as they go, and keep a day's allowance from becoming a permanent limit.
+- Protect the subscription: read the real usage windows from each job, keep a reserve of every window for chat and checks, stop at once on a usage limit with nothing counted against the project, and give way to a busy chat.
+- Work in a project's own folder on a plain branch when it is clean, idle and on its default branch, with a fast-forward-only default branch as the source of truth, and fall back to a worktree when it is not. Nothing resets or cleans that folder.
+- Stop new work when 30 pieces are unmerged, or 6 on one project. The main agent then says what it thinks is blocking and asks, once for each stop, and a merge starts work again.
+- Add a daily watcher, in code with no tokens, that proposes new and revived repositories and moves a project's next look up when it has new commits.
+- Add the `max` level: Claude Opus at max effort, whatever harness is set, one at a time and six a day.
+- Lay panes out in an even grid of four, open Work Mode 2 when a tab is full, reuse the lowest tab with room, and close every pane when its run ends. A failed run keeps its last lines in its report, and a pane closed by hand ends only that run.
+- Keep a run going when one record from Pi is too big to read. A long run's last record repeats all its messages, and that used to fail the run when its work was done.
+
 - Add learning, off by default: `/learning` or `hobkin learning [on | off]`. It judges how checks and work mode runs ended from what Hobkin already records, with no model call, and keeps very short lessons that reach every agent, 160 tokens at most as sent. Conclusions about schedules reach Chat as short proposals, nothing changes without a plan and a yes, an answered proposal is never raised again, and a held check is left to its own plan. `hobkin learning` shows what was learned, and `hobkin learning clear` removes it.
 - Bring a plan when a check becomes held. Once per hold, as soon as it is free, the main agent looks into why, says in Chat what failed, the real cause with its evidence and what it proposes, and asks yes or no. It changes nothing before a yes, then runs the check once to prove the fix. A hold not yet explained is explained on the next start.
 - Make `Blocked:` mean a check could do none of its work. With one source down, a check does the rest and reports that source as unverified, and it no longer tests a known-broken dependency first and stops there.

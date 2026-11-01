@@ -11,10 +11,31 @@ function folder(t) {
   return path;
 }
 
+const AREA = { x: 0, y: 0, width: 200, height: 60 };
+
+// A tab's layout as Herdr keeps it: a tree of splits, where a closed pane's sibling takes its space.
+const rectsOf = (node, rect) => {
+  if (node.pane) return [{ pane_id: node.pane, rect }];
+  const [first, second] = node.direction === 'right'
+    ? [{ ...rect, width: Math.ceil(rect.width * node.ratio) }, { ...rect, x: rect.x + Math.ceil(rect.width * node.ratio), width: rect.width - Math.ceil(rect.width * node.ratio) }]
+    : [{ ...rect, height: Math.ceil(rect.height * node.ratio) }, { ...rect, y: rect.y + Math.ceil(rect.height * node.ratio), height: rect.height - Math.ceil(rect.height * node.ratio) }];
+  return [...rectsOf(node.first, first), ...rectsOf(node.second, second)];
+};
+const splitNode = (node, target, split) => {
+  if (node.pane) return node.pane === target ? { ...split, first: node } : node;
+  return { ...node, first: splitNode(node.first, target, split), second: splitNode(node.second, target, split) };
+};
+const closeNode = (node, target) => {
+  if (node.pane) return node.pane === target ? null : node;
+  const [first, second] = [closeNode(node.first, target), closeNode(node.second, target)];
+  if (!first || !second) return first ?? second;
+  return { ...node, first, second };
+};
+
 // Answers like the real herdr CLI, with shapes taken from a live session.
 function fakeHerdr({ onPrompt = () => {}, statuses = () => 'working' } = {}) {
   const calls = [];
-  const state = { tabs: [], panes: [], agents: new Map(), nextPane: 1 };
+  const state = { tabs: [], panes: [], agents: new Map(), nextPane: 1, nextTab: 2, layouts: new Map(), lines: 'last line from the agent' };
   const exec = async (command, args) => {
     assert.equal(command, 'herdr');
     calls.push(args);
@@ -26,19 +47,46 @@ function fakeHerdr({ onPrompt = () => {}, statuses = () => 'working' } = {}) {
       return pane;
     };
     const respond = result => JSON.stringify({ id: `cli:${group}:${action}`, result });
-    if (group === 'tab' && action === 'list') return respond({ tabs: state.tabs });
+    const notFound = code => Object.assign(Error(code), { stderr: `{"error":{"code":"${code}","message":"${code}"}}` });
+    const tabOf = id => state.panes.find(pane => pane.pane_id === id)?.tab_id;
+    if (group === 'tab' && action === 'list') {
+      return respond({ tabs: state.tabs.map(tab => ({ ...tab, pane_count: state.panes.filter(pane => pane.tab_id === tab.tab_id).length })) });
+    }
     if (group === 'tab' && action === 'create') {
-      const tab = { tab_id: `w1:t${state.tabs.length + 2}`, label: flag('--label') };
+      const tab = { tab_id: `w1:t${state.nextTab++}`, label: flag('--label') };
       state.tabs.push(tab);
-      return respond({ tab, root_pane: addPane(tab.tab_id) });
+      const pane = addPane(tab.tab_id);
+      state.layouts.set(tab.tab_id, { pane: pane.pane_id });
+      return respond({ tab, root_pane: pane });
     }
     if (group === 'pane' && action === 'list') return respond({ panes: state.panes });
+    if (group === 'pane' && action === 'get') {
+      if (!tabOf(target)) throw notFound('pane_not_found');
+      return respond({ pane: state.panes.find(pane => pane.pane_id === target) });
+    }
+    if (group === 'pane' && action === 'read') {
+      if (!tabOf(target)) throw notFound('pane_not_found');
+      return `${state.lines}\n`;
+    }
+    if (group === 'pane' && action === 'layout') {
+      const tabId = tabOf(flag('--pane'));
+      return respond({ layout: { area: AREA, panes: rectsOf(state.layouts.get(tabId), AREA), tab_id: tabId } });
+    }
     if (group === 'pane' && action === 'split') {
-      const source = state.panes.find(pane => pane.pane_id === target);
-      return respond({ pane: addPane(source.tab_id) });
+      const tabId = tabOf(target);
+      const pane = addPane(tabId);
+      const split = { direction: flag('--direction'), ratio: Number(flag('--ratio')), second: { pane: pane.pane_id } };
+      state.layouts.set(tabId, splitNode(state.layouts.get(tabId), target, split));
+      return respond({ pane });
     }
     if (group === 'pane' && action === 'close') {
+      const tabId = tabOf(target);
+      if (!tabId) throw notFound('pane_not_found');
       state.panes = state.panes.filter(pane => pane.pane_id !== target);
+      const layout = closeNode(state.layouts.get(tabId), target);
+      state.layouts.set(tabId, layout);
+      // A tab goes when its last pane does.
+      if (!layout) state.tabs = state.tabs.filter(tab => tab.tab_id !== tabId);
       return respond({ type: 'ok' });
     }
     if (group === 'agent' && action === 'start') {
@@ -141,6 +189,44 @@ test('Pi gets its binding, and other harnesses start on the user\'s own settings
   assert.deepEqual(starts.codex, []);
 });
 
+test('a Claude pane gets a session Hobkin can read, and a bound run its model and effort, and never a permission flag', async t => {
+  const base = folder(t);
+  const options = run(base, { kind: 'claude', model: 'claude-opus-5-5', effort: 'max', claudeSession: 'session-1', bound: true });
+  const herdr = fakeHerdr({ onPrompt: () => writeFileSync(options.report, 'Useful: Done.') });
+
+  await panesWith(herdr).run(options);
+
+  const [start] = called(herdr, 'agent', 'start');
+  assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--session-id', 'session-1', '--model', 'claude-opus-5-5', '--effort', 'max']);
+});
+
+test('a Claude pane the user chose keeps their own model and effort', async t => {
+  const base = folder(t);
+  const options = run(base, { kind: 'claude', claudeSession: 'session-1' });
+  const herdr = fakeHerdr({ onPrompt: () => writeFileSync(options.report, 'Useful: Done.') });
+
+  await panesWith(herdr).run(options);
+
+  const [start] = called(herdr, 'agent', 'start');
+  assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--session-id', 'session-1']);
+});
+
+test('what an agent is doing is passed along, so a pane waiting on an approval can be shown', async t => {
+  const base = folder(t);
+  const options = run(base);
+  const seen = [];
+  const herdr = fakeHerdr({
+    statuses: count => {
+      if (count === 2) writeFileSync(options.report, 'Useful: Done.');
+      return 'blocked';
+    },
+  });
+
+  await panesWith(herdr).run({ ...options, onStatus: status => seen.push(status) });
+
+  assert.ok(seen.includes('blocked'));
+});
+
 test('a Pi pane loads the extensions it was given, and other harnesses are left alone', async t => {
   const base = folder(t);
   const starts = {};
@@ -179,15 +265,173 @@ test('an agent that never starts leaves no empty pane, and the failure reads as 
   assert.equal(called(herdr, 'pane', 'close').length, 1);
 });
 
-test('an agent that stops without a report is asked once, then the run fails and its pane stays to read', async t => {
+test('an agent that stops without a report is asked once, then the run fails, keeps its last lines and leaves no pane', async t => {
   const base = folder(t);
   const herdr = fakeHerdr({ statuses: () => 'idle' });
+  herdr.state.lines = 'The last thing the agent said.';
 
   const result = await panesWith(herdr).run(run(base));
 
   assert.equal(result.status, 'failed');
   assert.match(result.error, /without writing its report/);
+  assert.match(result.error, /The last thing the agent said\./);
   assert.equal(called(herdr, 'agent', 'prompt').length, 2);
+  assert.deepEqual(herdr.state.panes, [], 'a failed run leaves nothing behind');
+  assert.deepEqual(herdr.state.tabs, []);
+});
+
+test('a pane closed by hand ends the run, and is not a failure', async t => {
+  const base = folder(t);
+  const herdr = fakeHerdr({
+    statuses: (seen, name) => {
+      if (seen === 2) {
+        herdr.state.panes = [];
+        herdr.state.agents.delete(name);
+      }
+      return 'working';
+    },
+  });
+
+  const result = await panesWith(herdr).run(run(base));
+
+  assert.equal(result.status, 'interrupted');
+  assert.equal(result.paneClosed, true);
+  assert.deepEqual(called(herdr, 'pane', 'close'), [], 'there is nothing left to close');
+});
+
+test('an agent that exits with its pane still open is a failed run, and the pane still closes', async t => {
+  const base = folder(t);
+  const herdr = fakeHerdr({ onPrompt: (_text, state) => { state.agents.clear(); } });
+
+  const result = await panesWith(herdr).run(run(base));
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.paneClosed, undefined);
+  assert.deepEqual(herdr.state.panes, []);
+});
+
+const opened = async (herdr, panes, count) => {
+  const made = [];
+  for (let index = 0; index < count; index++) made.push(await panes.openPane('/tmp'));
+  return made;
+};
+const shares = (herdr, tabId) => {
+  const panes = rectsOf(herdr.state.layouts.get(tabId), AREA);
+  return panes.map(({ rect }) => Math.round(100 * rect.width * rect.height / (AREA.width * AREA.height)));
+};
+const labels = herdr => herdr.state.tabs.map(tab => tab.label);
+
+test('four panes make a true grid, each a quarter of the tab', async () => {
+  const herdr = fakeHerdr();
+  const panes = panesWith(herdr);
+
+  await opened(herdr, panes, 4);
+
+  assert.deepEqual(labels(herdr), ['Work Mode']);
+  assert.deepEqual(shares(herdr, 'w1:t2'), [25, 25, 25, 25]);
+  for (const split of called(herdr, 'pane', 'split')) assert.equal(split[split.indexOf('--ratio') + 1], '0.5');
+});
+
+test('a pane closed in the middle leaves a gap the next agent fills, so the grid stays even', async () => {
+  for (const position of [0, 1, 2, 3]) {
+    const herdr = fakeHerdr();
+    const panes = panesWith(herdr);
+    const made = await opened(herdr, panes, 4);
+
+    await panes.closePane(made[position]);
+    assert.equal(shares(herdr, 'w1:t2').length, 3);
+
+    await panes.openPane('/tmp');
+    assert.deepEqual(shares(herdr, 'w1:t2'), [25, 25, 25, 25], `after closing pane ${position}`);
+  }
+});
+
+test('two panes closed from a grid still rebuild into one', async () => {
+  for (const [first, second] of [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]) {
+    const herdr = fakeHerdr();
+    const panes = panesWith(herdr);
+    const made = await opened(herdr, panes, 4);
+    await panes.closePane(made[first]);
+    await panes.closePane(made[second]);
+
+    await opened(herdr, panes, 2);
+
+    assert.deepEqual(shares(herdr, 'w1:t2'), [25, 25, 25, 25], `after closing ${first} and ${second}`);
+  }
+});
+
+test('a full tab opens the next one, and the fifth agent gets a tab of its own', async () => {
+  const herdr = fakeHerdr();
+  const panes = panesWith(herdr);
+
+  await opened(herdr, panes, 9);
+
+  assert.deepEqual(labels(herdr), ['Work Mode', 'Work Mode 2', 'Work Mode 3']);
+  assert.deepEqual(herdr.state.tabs.map(({ tab_id }) => herdr.state.panes.filter(pane => pane.tab_id === tab_id).length), [4, 4, 1]);
+});
+
+test('the lowest tab with room is always used first', async () => {
+  const herdr = fakeHerdr();
+  const panes = panesWith(herdr);
+  const made = await opened(herdr, panes, 8);
+
+  await panes.closePane(made[1]);
+  await panes.openPane('/tmp');
+
+  assert.deepEqual(labels(herdr), ['Work Mode', 'Work Mode 2']);
+  assert.equal(herdr.state.panes.filter(pane => pane.tab_id === 'w1:t2').length, 4);
+});
+
+test('an empty tab closes, and the next agent brings back the lowest number instead of a third tab', async () => {
+  const herdr = fakeHerdr();
+  const panes = panesWith(herdr);
+  const made = await opened(herdr, panes, 8);
+
+  for (const pane of made.slice(0, 4)) await panes.closePane(pane);
+  assert.deepEqual(labels(herdr), ['Work Mode 2']);
+
+  await panes.openPane('/tmp');
+
+  assert.deepEqual(labels(herdr).toSorted(), ['Work Mode', 'Work Mode 2']);
+});
+
+test('agents starting together never overfill a tab or make a tab too many', async () => {
+  const herdr = fakeHerdr();
+  const panes = panesWith(herdr);
+
+  await Promise.all(Array.from({ length: 8 }, () => panes.openPane('/tmp')));
+
+  assert.deepEqual(labels(herdr), ['Work Mode', 'Work Mode 2']);
+  assert.deepEqual(herdr.state.tabs.map(({ tab_id }) => shares(herdr, tab_id)), [[25, 25, 25, 25], [25, 25, 25, 25]]);
+});
+
+test('a pane closing while another opens cannot pull the tab out from under it', async () => {
+  const herdr = fakeHerdr();
+  const panes = panesWith(herdr);
+  const [only] = await opened(herdr, panes, 1);
+
+  const [opening] = await Promise.all([panes.openPane('/tmp'), panes.closePane(only)]);
+
+  assert.ok(herdr.state.panes.some(pane => pane.pane_id === opening));
+  assert.deepEqual(labels(herdr), ['Work Mode']);
+});
+
+test('a tab the user named something else is left alone', async () => {
+  const herdr = fakeHerdr();
+  herdr.state.tabs.push({ tab_id: 'w1:t9', label: 'Work Mode notes' });
+
+  await panesWith(herdr).openPane('/tmp');
+
+  assert.deepEqual(labels(herdr), ['Work Mode notes', 'Work Mode']);
+});
+
+test('a hobkin session stays open for the user, however its agent ends', async t => {
+  const base = folder(t);
+  const herdr = fakeHerdr();
+
+  const { pane } = await panesWith(herdr).startSession({ name: 'hobkin-big-job', cwd: base, brief: join(base, 'brief.md') });
+
+  assert.ok(herdr.state.panes.some(entry => entry.pane_id === pane));
   assert.deepEqual(called(herdr, 'pane', 'close'), []);
 });
 

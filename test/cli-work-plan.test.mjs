@@ -186,7 +186,7 @@ test('a run on a project makes small work there wait, and medium work may share 
 
   const { entries, next } = plan(root, { running });
 
-  assert.equal(entries.find(entry => entry.title === 'small').waiting, 'waits for the run here');
+  assert.equal(entries.find(entry => entry.title === 'small').waiting, 'another run here');
   assert.equal(next.title, 'medium');
 });
 
@@ -342,6 +342,33 @@ test('an hourly pause gives the real numbers and says which limit was hit, and n
   assert.match(pause.line, /Today 9\.8m of 100m\./);
   assert.match(pause.line, /Resumes around 12:30 today\./);
   assert.equal(entries[0].waiting, 'over this hour\'s share');
+});
+
+test('tokens only held for running agents make a row wait, and never a pause', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('fix', { effort: 'small' }), now);
+  writeMode(root, { dailyTokens: 12000000 });
+  const running = [{ slug: 'other', lane: 'do', estimate: { fresh: 900000 }, tokens: 0 }];
+
+  const { entries, pause } = plan(root, { running });
+
+  assert.equal(entries[0].waiting, 'over this hour\'s share');
+  assert.equal(pause, null);
+});
+
+test('an hourly pause says when the next run will really fit', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('fix', { effort: 'small' }), now);
+  writeMode(root, { dailyTokens: 12000000 });
+  recordTokens(root, { slug: 'api', lane: 'do', tokens: 500000 }, now - HOUR / 2);
+  recordTokens(root, { slug: 'api', lane: 'do', tokens: 400000 }, now - HOUR / 4);
+
+  const { pause } = plan(root);
+
+  assert.equal(pause.kind, 'hour');
+  assert.match(pause.line, /Resumes around 12:45 today\./);
 });
 
 test('a daily pause says so, with the day\'s real numbers', t => {

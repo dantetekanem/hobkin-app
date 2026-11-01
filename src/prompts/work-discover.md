@@ -83,14 +83,16 @@ Offer each project through `work.commands.propose` as soon as you have assessed 
   "reason": "Why that level, and why it ranks here.",
   "found": "One or two lines: what is published, how active it is, whether it is running, CI, PRs, what is stale.",
   "first": [
-    { "key": "ci:main", "kind": "fix", "title": "Fix the failing job spec", "brief": "Evidence, who benefits, the first change, how to prove it worked." }
+    { "key": "ci:main", "kind": "fix", "title": "Fix the failing job spec", "brief": "Evidence, who benefits, the first change, how to prove it worked.", "impact": "high", "effort": "small" }
   ]
 }
 ```
 
-Give up to three `first` items, written as real work you found. `kind` is one of `security`, `fix`, `update`, `chore`, `improvement` or `feature`. The command refuses a proposal with an item it could not file, and says why, so fix it and send it again.
+Give up to three `first` items, written as real work you found, each one small enough for a single reviewable PR. `kind` is one of `security`, `fix`, `update`, `chore`, `improvement` or `feature`. `impact` is `high`, `medium` or `low`, and `effort` is `small`, `medium` or `large`. The command refuses a proposal with an item it could not file, and says why, so fix it and send it again.
 
 Suggest `critical` for something deployed with real users or money, a client's repository, or data that cannot be lost. Suggest `important` for what the user depends on, such as a published package or a repository with commits most weeks. Anything else that is alive is `casual`. Do not offer dead projects: list them in the report.
+
+`max` sits above `critical`, and every run at that level uses Claude Opus at its highest effort, which is the most expensive thing work mode can do. Suggest it only for genuinely super critical work, such as a live incident or money or data at immediate risk. Almost no project qualifies, and most looks suggest it for none.
 
 ## Report
 

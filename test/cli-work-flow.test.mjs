@@ -11,7 +11,7 @@ import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
-import { fileItem, chooseProject, proposeProject, readItems, readMode, readProjects, recordTokens, writeMode } from '../src/cli/work/store.mjs';
+import { fileItem, chooseProject, proposeProject, readItems, readMode, readProjects, readState, recordTokens, writeMode } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const HOUR = 3600000;
@@ -74,6 +74,7 @@ function fixture(t) {
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
   atomicJson(join(root, 'config.json'), config);
+  writeMode(root, { startGapMs: 0 });
   const folder = join(base, 'projects');
   mkdirSync(folder);
   return { base, root, folder };
@@ -117,7 +118,10 @@ async function openHobkin(h, { agent = async () => 'Useful: Done.', chat = async
         };
         return session;
       },
-      runHarness: async (run, options) => ({ status: 'completed', text: await agent(run, options) }),
+      runHarness: async (run, options) => {
+        const said = await agent(run, options);
+        return said?.status ? said : { status: 'completed', text: said };
+      },
     }),
   });
   // Wide enough that a temporary folder's long path does not wrap what these tests read.
@@ -217,7 +221,7 @@ test('from /work to a PR: told what it looks at, asked in Chat, answered in Chat
     const note = text.match(/^<hobkin-work>\n(.*)\n<\/hobkin-work>\n\n/);
     if (!note) return 'Nothing is waiting.';
     const { proposals, commands } = JSON.parse(note[1]);
-    await shell(commands.choose.replace('<slug> [critical|important|casual]', `${proposals[0].slug} important`));
+    await shell(commands.choose.replace('<slug> [max|critical|important|casual]', `${proposals[0].slug} important`));
     await shell(commands.skip.replace('<slug>', proposals[1].slug));
     return `Took ${proposals[0].name} and skipped ${proposals[1].name}.`;
   };
@@ -251,7 +255,7 @@ test('from /work to a PR: told what it looks at, asked in Chat, answered in Chat
   // Told: Chat names each one, and the tab lists the same ones with their keys.
   finish.resolve();
   await hobkin.until(/site\s+casual/);
-  assert.match(hobkin.screen(), /y take\s+·\s+1 critical\s+·\s+2 important\s+·\s+3 casual\s+·\s+n skip/);
+  assert.match(hobkin.screen(), /y take\s+·\s+1 critical\s+·\s+2 important\s+·\s+3 casual\s+·\s+4 max\s+·\s+n skip/);
   assert.match(hobkin.screen(), /Work Mode 2/, 'the tab counts what is waiting');
   hobkin.press(ESCAPE);
   await hobkin.until(/proposes 2 projects/);
@@ -369,10 +373,10 @@ test('a run that stops early is carried on, and giving up reaches Chat with its 
 test('a pause is answered in Chat too, and work carries on', async t => {
   const h = fixture(t);
   const path = repository(h.folder, 'billing');
-  writeMode(h.root, { enabled: true, folder: h.folder, dailyTokens: 1000, lastDiscoveryAt: new Date().toISOString() });
+  writeMode(h.root, { enabled: true, folder: h.folder, dailyTokens: 12000000, lastDiscoveryAt: new Date().toISOString() });
   chooseProject(h.root, path);
   fileItem(h.root, 'billing', { key: 'ci:main', kind: 'fix', title: 'Fix the job spec', brief: 'Evidence.' });
-  recordTokens(h.root, { slug: 'billing', lane: 'do', tokens: 1000 }, Date.now() - 2 * HOUR);
+  recordTokens(h.root, { slug: 'billing', lane: 'do', tokens: 12000000 }, new Date(new Date().setHours(0, 0, 1)).getTime());
   const hobkin = await openHobkin(h, {
     agent: async run => {
       if (run.purpose === 'work-look') writeFileSync(request(run).work.projectFile, '# What it is\n');
@@ -386,17 +390,43 @@ test('a pause is answered in Chat too, and work carries on', async t => {
   });
   t.after(() => hobkin.close());
 
-  await hobkin.until(/Work mode paused/);
+  await hobkin.until(/Paused for today: 12m of the 12m daily limit used/);
   hobkin.press(LEFT);
   await hobkin.until(/WORK MODE\s+● paused/);
   hobkin.press(ESCAPE);
 
   hobkin.send('yes, raise it');
-  await hobkin.until(/Raised it to 2000/);
+  await hobkin.until(/Raised it to 24000000/);
 
-  await hobkin.settled(() => readMode(h.root).raisedTo === 2000);
+  await hobkin.settled(() => readMode(h.root).raisedTo === 24000000);
   hobkin.press(LEFT);
   await hobkin.until(/WORK MODE\s+● active/);
+});
+
+test('a usage limit stops work at once and says so in Chat once, with nothing counted against the project', async t => {
+  const h = fixture(t);
+  const path = repository(h.folder, 'billing');
+  writeMode(h.root, { enabled: true, folder: h.folder, lastDiscoveryAt: new Date().toISOString() });
+  chooseProject(h.root, path);
+  fileItem(h.root, 'billing', { key: 'ci:main', kind: 'fix', title: 'Fix the job spec', brief: 'Evidence.' });
+  let runs = 0;
+  const hobkin = await openHobkin(h, {
+    agent: async run => {
+      runs++;
+      writeFileSync(run.sessionFile, `${JSON.stringify({ type: 'message', message: { role: 'assistant', stopReason: 'error', errorMessage: 'You have hit your ChatGPT usage limit (pro plan). Try again in ~40 min.' } })}\n`);
+      return { status: 'failed', cost: null, error: 'Pi did not finish a response (error).' };
+    },
+  });
+  t.after(() => hobkin.close());
+
+  await hobkin.until(/Paused by a usage limit: You have hit your ChatGPT usage limit/);
+  await new Promise(resolve => setTimeout(resolve, 400));
+
+  assert.equal(runs, 1, 'nothing retried and nothing else started');
+  assert.equal(hobkin.screen().match(/Paused by a usage limit/g).length, 1, 'Chat hears it once');
+  assert.equal(readState(h.root, 'billing').lookError ?? null, null, 'nothing is counted against the project');
+  hobkin.press(LEFT);
+  await hobkin.until(/WORK MODE\s+● paused/);
 });
 
 test('reopening Hobkin keeps what was asked, what was picked and the mode, and asks nothing twice', async t => {
@@ -438,6 +468,46 @@ test('a proposal left from before this version is told when Hobkin opens', async
 
   await hobkin.until(/Work mode proposes 1 project/);
   assert.match(hobkin.screen(), /CI is red on main/);
+});
+
+test('when nothing merges the main agent is told once, the user never sees the block, and saying keep going starts work again', async t => {
+  const h = fixture(t);
+  const path = repository(h.folder, 'billing');
+  const git = (...args) => execFileSync('git', ['-C', path, ...args]);
+  for (const name of ['one', 'two']) {
+    git('switch', '-qc', `hobkin/${name}`);
+    writeFileSync(join(path, `${name}.txt`), `${name}\n`);
+    git('add', '.');
+    git('commit', '-qm', name);
+    git('switch', '-q', 'main');
+  }
+  writeMode(h.root, { enabled: true, folder: h.folder, unmergedLimit: 2, lastDiscoveryAt: new Date().toISOString() });
+  chooseProject(h.root, path);
+  const turns = [];
+  const hobkin = await openHobkin(h, {
+    chat: async text => {
+      turns.push(text);
+      return text.startsWith('<hobkin-work-stop>') ? 'Two small branches are waiting for review.' : 'OK.';
+    },
+  });
+  t.after(() => hobkin.close());
+
+  await hobkin.until(/Two small branches are waiting for review/);
+  await new Promise(resolve => setTimeout(resolve, 400));
+
+  assert.equal(turns.filter(text => text.startsWith('<hobkin-work-stop>')).length, 1, 'once for this stop');
+  assert.doesNotMatch(hobkin.screen(), /hobkin-work-stop/);
+  const facts = JSON.parse(turns[0].split('\n')[1]);
+  assert.deepEqual(facts.open.map(unit => [unit.project, unit.kind, unit.branch]), [['billing', 'branch', 'hobkin/one'], ['billing', 'branch', 'hobkin/two']]);
+  assert.equal(facts.open[0].size.files, 1);
+  assert.equal(facts.limit, 2);
+
+  hobkin.press(LEFT);
+  await hobkin.until(/WORK MODE\s+● paused/);
+  assert.match(hobkin.screen(), /Stopped: 2 unmerged and none merged yet/);
+
+  await shell(`${quoted(process.execPath)} ${quoted(join(process.cwd(), 'src/cli/main.mjs'))} work resume --home ${quoted(h.root)}`);
+  await hobkin.until(/WORK MODE\s+● active/);
 });
 
 test('the main agent changes the harness when asked, and the tab shows it', async t => {

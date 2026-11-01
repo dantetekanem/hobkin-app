@@ -626,9 +626,10 @@ const reportListLines = ({ reports, total, selectedId, inner, clock }) => {
   if (!reports.length) content.push(dim('No reports yet.'));
   return { content, ranges };
 };
-const projectStatus = ({ open, prs, stuck, nextLookAt }, clock) => [
+const projectStatus = ({ open, prs, stuck, unmerged, nextLookAt }, clock) => [
   open ? count(open, 'item') : '',
   prs ? count(prs, 'PR') : '',
+  unmerged ? `${unmerged} unmerged` : '',
   stuck ? `${stuck} stuck` : '',
   nextLookAt ? `next look ${until(nextLookAt, clock)}` : '',
 ].filter(Boolean).join(' · ') || 'not looked at yet';
@@ -677,9 +678,9 @@ const workSituation = ({ work, runs, clock }) => {
     };
   }
   const running = runs.length ? `${count(runs.length, 'agent')} running.` : 'Nothing is running.';
-  const dueNow = paused ? 'It looks again when the token limit allows.' : `It looks${where ? ` in ${where}` : ''} now.`;
+  const dueNow = paused ? 'It looks again once the pause ends.' : `It looks${where ? ` in ${where}` : ''} now.`;
   return {
-    now: [paused ? 'Paused by the token limit.' : running, lastLookLine(discovery)].filter(Boolean).join(' ') + answers,
+    now: [paused ? `Paused. ${running}` : running, lastLookLine(discovery)].filter(Boolean).join(' ') + answers,
     next: scheduled ? '' : dueNow,
     scheduled,
   };
@@ -721,6 +722,28 @@ const discoveryLines = ({ work, step, inner, clock, frame }) => {
     '',
   ];
 };
+const MOST_QUEUE_ROWS = 8;
+// Each row says what it is and, in a few words, why it is here or what it waits for. Skipped rows stay in sight so they can be put back.
+const queueRows = ({ plan = [], queued = 0 }, inner) => {
+  const waitingRows = plan.filter(entry => !entry.skipped);
+  const shown = waitingRows.slice(0, MOST_QUEUE_ROWS);
+  const rows = [...shown, ...plan.filter(entry => entry.skipped)].map((entry, index) => {
+    const cost = entry.estimate?.fresh ? ` · ~${tokenLabel(entry.estimate.fresh)}` : '';
+    const said = entry.skipped ? 'skipped' : entry.waiting ? `waiting: ${entry.waiting}` : entry.why;
+    const words = line(clean(said), Math.max(8, Math.floor(inner / 2) - cost.length));
+    const place = entry.skipped ? '  ' : String(index + 1).padStart(2);
+    const name = `${muted(place)}  ${clean(entry.project)}: ${clean(entry.title)}${entry.level ? ` ${muted(clean(entry.level))}` : ''}`;
+    return {
+      key: `queue:${entry.key}`,
+      type: 'queue',
+      queueKey: entry.key,
+      skipped: entry.skipped,
+      lines: [row(name, (entry.waiting ? caution : dim)(`${words}${cost}`), inner)],
+    };
+  });
+  const more = queued - shown.length;
+  return more > 0 ? [...rows, { lines: [muted(`    and ${more} more`)] }] : rows;
+};
 // The rows the user can act on, grouped as they appear. A row's key keeps it selected across refreshes.
 const workSections = ({ work, runs, inner, clock, frame }) => {
   const named = project => clean(project.name ?? project.slug);
@@ -743,14 +766,22 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
       type: 'attention',
       slug: item.slug,
       id: item.id,
-      lines: [`${item.state === 'stuck' ? negative('✕') : caution('▲')} ${cell(clean(item.slug), nameWidth)}  ${clean(item.title)}`],
+      stuck: item.state === 'stuck',
+      lines: [
+        `${item.state === 'stuck' ? negative('✕') : caution('▲')} ${cell(clean(item.slug), nameWidth)}  ${clean(item.title)}`,
+        ...(item.reason ? wrapped(item.reason, inner - 2).map(value => `  ${dim(value)}`) : []),
+      ],
     }))]],
     ['RUNNING', runs.map(run => ({
       key: `run:${run.id}`,
       type: 'run',
       id: run.id,
-      lines: [`${positive(frame)} ${row(clean(run.title), dim(`${clean(run.effort)} · ${elapsed(Date.parse(run.startedAt), clock)}`), inner - 2)}`],
+      lines: [
+        `${positive(frame)} ${row(clean(run.title), dim(`${clean(run.effort)} · ${elapsed(Date.parse(run.startedAt), clock)}`), inner - 2)}`,
+        ...wrapped((work.running ?? []).find(({ id }) => id === run.id)?.note ?? '', inner - 2).filter(Boolean).map(value => `  ${muted(value)}`),
+      ],
     }))],
+    ['QUEUE', queueRows(work, inner), null, `${work.queued ?? 0} queued`],
     ['PROJECTS', projects.map(project => ({
       key: `project:${project.slug}`,
       type: 'project',
@@ -759,6 +790,7 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
       lines: [
         `${positive('●')} ${cell(bold(named(project)), nameWidth)}  ${cell(dim(project.level), 9)}  ${muted(projectStatus(project, clock))}`,
         ...(project.lookError ? wrapped(`Last look failed: ${project.lookError}`, inner - 2).map(value => `  ${negative(value)}`) : []),
+        ...(project.folderNote ? wrapped(`Its folder: ${project.folderNote}`, inner - 2).map(value => `  ${caution(value)}`) : []),
       ],
     }))],
     ['PROPOSED', proposed.map(project => ({
@@ -770,36 +802,71 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
         ...[project.summary, project.found, project.reason].filter(Boolean).flatMap(text => wrapped(text, inner - 2)).map(value => `  ${dim(value)}`),
         ...(project.first?.[0] ? [`  ${muted(`First: ${clean(project.first[0].title)}`)}`] : []),
       ],
-    })), keys([['y', 'take'], ['1', 'critical'], ['2', 'important'], ['3', 'casual'], ['n', 'skip']])],
+    })), keys([['y', 'take'], ['1', 'critical'], ['2', 'important'], ['3', 'casual'], ['4', 'max'], ['n', 'skip']])],
   ];
   return sections.filter(([, rows]) => rows.length);
 };
 const workCircle = work => (work.paused ? caution('●') : positive('●'));
+const budgetLine = ({ dailyTokens, tokensToday = 0, hourShare, tokensThisHour = 0 }) => {
+  if (!dailyTokens) return '';
+  const left = Math.max(0, dailyTokens - tokensToday);
+  const hour = hourShare ? ` This hour: ${tokenLabel(tokensThisHour)} of ${tokenLabel(hourShare)}.` : '';
+  return `Today: ${tokenLabel(tokensToday)} used, ${tokenLabel(left)} left.${hour}`;
+};
+const subscriptionLine = ({ subscription, harness }) => {
+  if (harness === 'claude') return 'claude panes count when each run ends, from Claude\'s own files, and run one at a time.';
+  if (harness && harness !== 'pi') return `${clean(harness)} panes cannot be measured: each counts as its estimate, one at a time.`;
+  if (!subscription) return '';
+  if (!subscription.known) return 'Subscription: not known yet, so one agent runs at a time.';
+  const windows = subscription.windows.map(({ label, usedPercent }) => `${clean(label)} ${Math.round(usedPercent)}% used`).join(', ');
+  return windows ? `Subscription: ${windows}.` : '';
+};
+const watchLine = ({ watch }, clock) => {
+  if (!watch?.at) return '';
+  const when = new Date(watch.at);
+  const time = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
+  const day = when.toDateString() === new Date(clock).toDateString() ? 'today' : 'yesterday';
+  const news = [watch.proposed && `${watch.proposed} new`, watch.changed && `${watch.changed} changed`, watch.removed && `${watch.removed} gone`].filter(Boolean).join(', ');
+  return `Last watch: ${time} ${day}${news ? `, ${news}` : ''}.`;
+};
+const startLine = ({ waitingOn, nextStartAt, autoPick }, clock) => {
+  if (waitingOn) return waitingOn;
+  if (autoPick === false) return 'Auto-pick is off: only what is picked in the queue runs.';
+  return nextStartAt ? `Next start ${until(nextStartAt, clock)}.` : '';
+};
+const maxLine = ({ maxRuns, projects = [] }) => {
+  const inUse = maxRuns && (maxRuns.running || maxRuns.today || projects.some(project => project.state === 'chosen' && project.level === 'max'));
+  return inUse ? `Max: ${maxRuns.running} of ${maxRuns.atOnce} running, ${maxRuns.today} of ${maxRuns.perDay} today. Claude's tokens count when each run ends.` : '';
+};
 const workLines = ({ work, runs, sections, selected, step, inner, clock, frame }) => {
   const state = `${workCircle(work)} ${dim(work.paused ? 'paused' : 'active')}`;
   const atLimit = work.dailyTokens && work.tokensToday >= work.dailyTokens;
   const tokens = work.dailyTokens ? `${tokenLabel(work.tokensToday ?? 0)}/${tokenLabel(work.dailyTokens)} tokens` : '';
-  const status = [state, work.harness ? dim(clean(work.harness)) : '', tokens ? (atLimit ? caution : dim)(tokens) : '']
-    .filter(Boolean).join(muted(' · '));
+  const agents = work.agents ? `${runs.length}/${work.agents} agents` : '';
+  const queued = work.queued ? `${work.queued} queued` : '';
+  const cached = work.tokensCached ? `${tokenLabel(work.tokensCached)} cached` : '';
+  const status = [state, work.harness ? dim(clean(work.harness)) : '', dim(agents), dim(queued), tokens ? (atLimit ? caution : dim)(tokens) : '', dim(cached)]
+    .filter(text => stripTerminalSequences(text)).join(muted(' · '));
   const { now, next, scheduled } = workSituation({ work, runs, clock });
   const where = work.folder ? `, starting from ${shortPath(work.folder)}` : '';
+  const facts = [budgetLine(work), subscriptionLine(work), maxLine(work), watchLine(work, clock), startLine(work, clock)].filter(Boolean);
   const content = [
     row(muted(bold('WORK MODE')), status, inner),
     '',
     ...wrapped(`Work mode is on${where}. Type /work in Chat to stop.`, inner).map(bold),
     ...wrapped(`Now: ${now}`, inner).map(dim),
     ...wrapped(`Next: ${[next, scheduled].filter(Boolean).join(' ')}`, inner).map(dim),
+    ...facts.flatMap(fact => wrapped(fact, inner)).map(dim),
     '',
   ];
   let selectedRange;
-  if (atLimit) content.push(caution('Token limit reached for today. Only urgent work runs until tomorrow.'), '');
-  else if (work.pacing) content.push(dim('Spreading tokens across the day. New work starts as the hour moves on.'), '');
+  if (work.pause) content.push(...wrapped(work.pause.line, inner).map(caution), '');
   if (work.discovering) content.push(...discoveryLines({ work, step, inner, clock, frame }));
-  for (const [heading, rows, note] of sections) {
-    content.push(row(muted(bold(heading)), muted(String(rows.length)), inner), '');
+  for (const [heading, rows, note, tally] of sections) {
+    content.push(row(muted(bold(heading)), muted(tally ?? String(rows.length)), inner), '');
     if (note) content.push(note, '');
     rows.forEach((item, index) => {
-      const isSelected = item.key === selected?.key;
+      const isSelected = Boolean(item.key) && item.key === selected?.key;
       if (isSelected) selectedRange = [content.length, content.length + item.lines.length];
       content.push(...item.lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
       // Rows of several lines would otherwise run together.
@@ -871,6 +938,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let referencedReport = null;
   let workKey = null;
   let armedDrop = null;
+  let armedMax = null;
   let askingWorkFolder = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
@@ -934,7 +1002,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   });
   const currentWorkSections = (inner, clock, frame) => workSections({ work: snapshot.work ?? {}, runs: workRuns(), inner, clock, frame });
   const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
-    const rows = sections.flatMap(([, entries]) => entries);
+    const rows = sections.flatMap(([, entries]) => entries).filter(entry => entry.key);
     const answerable = rows.find(entry => answerableRows.includes(entry.type));
     return rows.find(entry => entry.key === workKey) ?? answerable ?? rows[0] ?? null;
   };
@@ -1246,14 +1314,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (focus === 'detail') return [['m', 'message'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') {
+      const selected = selectedWorkRow();
       const rowKeys = {
-        proposal: [['y', 'take'], ['1 2 3', 'level'], ['n', 'skip']],
-        project: [['1 2 3', 'level'], ['d d', 'drop']],
-        attention: [['x', 'done']],
+        proposal: [['y', 'take'], ['1 2 3 4', 'level'], ['n', 'skip']],
+        project: [['1 2 3 4', 'level'], ['d d', 'drop']],
+        attention: [...(selected?.stuck ? [['enter', 'run now']] : []), ['x', 'done']],
         allowance: [['y', 'raise'], ['n', 'keep paused']],
         run: [['enter', 'watch']],
+        queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ['s', 'skip']],
       };
-      return [...rowKeys[selectedWorkRow()?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
+      return [...rowKeys[selected?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     }
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
@@ -1428,7 +1498,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       .catch(error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
       .finally(changed);
   };
-  const workRows = () => currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries);
+  const workRows = () => currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries).filter(entry => entry.key);
   const moveWorkSelection = delta => {
     const rows = workRows();
     const index = Math.max(0, rows.findIndex(entry => entry.key === selectedWorkRow()?.key));
@@ -1444,6 +1514,17 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     armedDrop = selected.slug;
     say(`Press d again to drop ${clean(selected.name ?? selected.slug)}.`, 'warning', { timeout: 3000 });
   };
+  // `max` is the dearest thing a key can do, so like a drop it takes a second press.
+  const maxTwice = (selected, act) => {
+    if (armedMax === selected.slug) {
+      armedMax = null;
+      say('');
+      act();
+      return;
+    }
+    armedMax = selected.slug;
+    say(`Press 4 again for max: Claude Opus at max effort on ${clean(selected.name ?? selected.slug)}.`, 'warning', { timeout: 3000 });
+  };
   // A row that was answered leaves the list, so the next proposal is ready for the next key.
   const answerProposal = (selected, ...request) => {
     const proposals = workRows().filter(entry => entry.type === 'proposal');
@@ -1458,14 +1539,20 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     const selected = selectedWorkRow();
     const level = { 1: 'critical', 2: 'important', 3: 'casual' }[data];
+    const enter = key(data, 'enter');
     if (selected?.type === 'proposal' && data === 'y') answerProposal(selected, 'choose', selected.slug);
+    else if (selected?.type === 'proposal' && data === '4') maxTwice(selected, () => answerProposal(selected, 'choose', selected.slug, 'max'));
     else if (selected?.type === 'proposal' && level) answerProposal(selected, 'choose', selected.slug, level);
     else if (selected?.type === 'proposal' && data === 'n') answerProposal(selected, 'skip', selected.slug);
+    else if (selected?.type === 'project' && data === '4') maxTwice(selected, () => runWorkAction('level', selected.slug, 'max'));
     else if (selected?.type === 'project' && level) runWorkAction('level', selected.slug, level);
     else if (selected?.type === 'project' && data === 'd') dropProjectTwice(selected);
     else if (selected?.type === 'attention' && data === 'x') runWorkAction('done', selected.slug, selected.id);
+    else if (selected?.type === 'attention' && selected.stuck && enter) runWorkAction('retry', selected.slug, selected.id);
     else if (selected?.type === 'allowance' && data === 'y') runWorkAction('allow');
     else if (selected?.type === 'allowance' && data === 'n') runWorkAction('keep');
+    else if (selected?.type === 'queue' && enter && !selected.skipped) runWorkAction('run', selected.queueKey);
+    else if (selected?.type === 'queue' && data === 's') runWorkAction(selected.skipped ? 'back' : 'later', selected.queueKey);
     else if (selected?.type === 'run' && key(data, 'enter')) {
       view = `job:${selected.id}`;
       focus = 'job';

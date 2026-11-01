@@ -4,6 +4,9 @@ import { checkHold } from './checks.mjs';
 import { runOutcomeText } from './reports.mjs';
 
 const OPENING = '<hobkin-hold>';
+const WORK_STOP_OPENING = '<hobkin-work-stop>';
+// Enough to see the shape of what is waiting, and well inside what one message can carry.
+const MAX_UNMERGED_SENT = 60;
 // A run from before the hold shows what the check could still do.
 const RUNS_SHOWN = 3;
 const TOOL_ERRORS_SHOWN = 6;
@@ -13,7 +16,7 @@ const MAX_ERROR_LENGTH = 512;
 const MAX_TURNS = 3;
 const TURN_ID = /^hold:(.+):\d+$/;
 
-export const isHoldBrief = text => text.startsWith(`${OPENING}\n`);
+export const isHoldBrief = text => [OPENING, WORK_STOP_OPENING].some(opening => text.startsWith(`${opening}\n`));
 
 /** Receipts survive a restart, so a turn that finished is never repeated and one that was cut off is picked up. */
 export function nextHoldTurn(holdId, runs) {
@@ -105,4 +108,21 @@ export function holdBrief(root, schedule, runs, { resumed = false } = {}) {
     ...(resumed ? { resumed } : {}),
   };
   return `${OPENING}\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-hold>`;
+}
+
+/** The same kind of turn when work mode stops because nothing is merging: the facts, so the main agent can work out why and ask. */
+export function workStopBrief({ stop, unmerged, projects, commands }, { resumed = false } = {}) {
+  const open = projects.flatMap(({ name, slug, level, lastMergeAt, open: units }) => units.map(unit => ({ project: name ?? slug, level, lastMergeAt, ...unit })));
+  const details = {
+    stoppedAt: stop.at,
+    openSinceLastMerge: stop.stretch,
+    lastMergeAt: unmerged.since,
+    limit: unmerged.limit,
+    limitPerProject: unmerged.each,
+    openInTotal: open.length,
+    open: open.toSorted((left, right) => left.openedAt.localeCompare(right.openedAt)).slice(0, MAX_UNMERGED_SENT),
+    commands,
+    ...(resumed ? { resumed } : {}),
+  };
+  return `${WORK_STOP_OPENING}\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-work-stop>`;
 }

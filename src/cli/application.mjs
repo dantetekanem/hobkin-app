@@ -12,12 +12,16 @@ import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
-import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
+import { holdBrief, isHoldBrief, nextHoldTurn, workStopBrief } from './holds.mjs';
 import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { answerAllowance, chooseProject, dropProject, readMode, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
+import {
+  answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, readProjects, retryItem, skipInQueue, skipProject, startWork, updateItem, writeMode,
+} from './work/store.mjs';
+import { readUnmerged, unmergedNow } from './work/unmerged.mjs';
+import { readingUsage, usageExtension } from './work/usage.mjs';
 import { atomicJson, jevEnabled, learningEnabled, loadConfig, setJev, setLearning } from './config.mjs';
 import { Learner } from './learning/learner.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
@@ -88,7 +92,7 @@ export class HobkinApplication {
       const run = runHarness ?? defaultRunHarness;
       runHarness = (request, options) => run({ ...request, launcher }, options);
     }
-    runHarness ??= namingExtensions(defaultRunHarness);
+    runHarness ??= namingExtensions(readingUsage(defaultRunHarness));
     app.snapshot = readLocalView(root);
     app.moods = new Moods({
       enabled: () => watched && jevEnabled(root),
@@ -131,6 +135,7 @@ export class HobkinApplication {
         onTick: async () => {
           await app.tickWork();
           await app.tickHolds();
+          await app.tickWorkStop();
         },
       });
       app.director = new WorkDirector({
@@ -139,7 +144,7 @@ export class HobkinApplication {
         runtime: app.runtime,
         runner: app.runner,
         ...(runHarness ? { runHarness } : {}),
-        panes: insideHerdr() ? new WorkPanes({ extensionsFor: extensionPaths }) : null,
+        panes: insideHerdr() ? new WorkPanes({ extensionsFor: async cwd => [...await extensionPaths(cwd), usageExtension] }) : null,
         now: app.now,
         onChange: () => app.requestRefresh(),
       });
@@ -215,6 +220,12 @@ export class HobkinApplication {
     if (asked && !noticeIds.has(askedId)) {
       notices.push({ id: askedId, role: 'notice', content: asked.reason, tone: asked.atLimit ? 'critical' : 'useful', at: asked.at });
       noticeIds.add(askedId);
+    }
+    const told = work.pauseNotice;
+    const toldId = told && `notice:work-pause:${told.id}`;
+    if (told && !noticeIds.has(toldId)) {
+      notices.push({ id: toldId, role: 'notice', content: told.line, tone: told.tone, at: told.at });
+      noticeIds.add(toldId);
     }
     // It reads as Hobkin speaking, because the user is meant to answer it.
     const { message: looked, finishedAt } = work.discovery;
@@ -374,7 +385,7 @@ export class HobkinApplication {
 
   async deliver(text, report) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
-    const note = workNote(workStatus(this.runtime.directory), this.director.answerCommands());
+    const note = workNote(workStatus(this.runtime.directory, this.director.outlook()), this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // A message with no room for the note still goes, and the note goes with the next one.
@@ -404,7 +415,7 @@ export class HobkinApplication {
 
   workView() {
     const discovering = this.director.running().some(run => run.lane === 'discover');
-    return { ...workStatus(this.runtime.directory), discovering };
+    return { ...workStatus(this.runtime.directory, this.director.outlook()), discovering };
   }
 
   // Agents file work from their own processes, and nothing else tells the dashboard it changed.
@@ -413,7 +424,7 @@ export class HobkinApplication {
     await this.director.tick();
     await this.learn();
     const root = this.runtime.directory;
-    const signature = JSON.stringify({ work: workStatus(root), jev: jevEnabled(root), learning: learningEnabled(root) });
+    const signature = JSON.stringify({ work: workStatus(root, this.director.outlook()), jev: jevEnabled(root), learning: learningEnabled(root) });
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();
@@ -467,6 +478,26 @@ export class HobkinApplication {
     }
   }
 
+  /** Stopping is not enough when nothing is merging: once per stop, the main agent gets the facts, says what it thinks is blocking and asks. */
+  async tickWorkStop() {
+    const root = this.runtime.directory;
+    const mode = readMode(root);
+    const holdId = mode.enabled && mode.mergeStop && `work-stop:${mode.mergeStop.at}`;
+    if (!this.watched || !holdId || this.handledHolds.has(holdId) || !this.canStartHoldTurn()) return;
+
+    const { runs } = await this.runner.snapshot();
+    const turn = nextHoldTurn(holdId, runs);
+    if (turn && !this.canStartHoldTurn()) return;
+
+    this.handledHolds.add(holdId);
+    if (!turn) return;
+
+    const survey = readUnmerged(root).projects;
+    const projects = readProjects(root).filter(({ slug }) => survey[slug]).map(project => ({ ...project, ...survey[project.slug] }));
+    const facts = { stop: mode.mergeStop, unmerged: unmergedNow(root, mode), projects, commands: this.director.answerCommands() };
+    void this.runtime.send(workStopBrief(facts, turn), turn.id).catch(() => {});
+  }
+
   async toggleJev() {
     const root = this.runtime.directory;
     const result = setJev(root, !jevEnabled(root));
@@ -487,6 +518,10 @@ export class HobkinApplication {
       skip: () => skipProject(root, slug),
       drop: () => dropProject(root, slug),
       done: () => updateItem(root, slug, value, { state: 'done' }),
+      run: () => pickNext(root, slug),
+      later: () => skipInQueue(root, slug),
+      back: () => putBackInQueue(root, slug),
+      retry: () => retryItem(root, slug, value),
     };
     const result = actions[action]();
     await this.director.tick();

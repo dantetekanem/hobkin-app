@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
+  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
   paths, proposeProject, readDiscovery, readItems, readMode, readProjects, recordDiscovery, recordTokens, sessionError, sessionUsage, setAgents, setDailyTokens, setHarness, setUnmergedLimit,
   skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
@@ -192,8 +192,29 @@ test('a session\'s fresh tokens are counted without the cache reads that repeat 
     { type: 'message', message: { role: 'assistant', usage: { input: 300, output: 100, cacheRead: 60000, cacheWrite: 4000, cost: { total: 0.25 } } } },
   ].map(entry => JSON.stringify(entry)).join('\n'));
 
-  assert.deepEqual(sessionUsage(file), { tokens: 5600, usd: 0.75, sessionId: 'session-1' });
-  assert.deepEqual(sessionUsage(join(root, 'missing.jsonl')), { tokens: 0, usd: 0, sessionId: null });
+  assert.deepEqual(sessionUsage(file), { tokens: 5600, cached: 110000, usd: 0.75, sessionId: 'session-1' });
+  assert.deepEqual(sessionUsage(join(root, 'missing.jsonl')), { tokens: 0, cached: 0, usd: 0, sessionId: null });
+});
+
+test('a running session is followed from where it was, and a line still being written waits for the next look', t => {
+  const root = dataRoot(t);
+  const file = join(root, 'job.jsonl');
+  const turn = (input, cacheRead) => `${JSON.stringify({ type: 'message', message: { role: 'assistant', usage: { input, output: 10, cacheRead } } })}\n`;
+  assert.deepEqual(followUsage(file), { offset: 0, tokens: 0, cached: 0 }, 'a run that has not written anything yet has spent nothing');
+
+  writeFileSync(file, `${JSON.stringify({ type: 'session', id: 'one' })}\n${turn(100, 1000)}`);
+  const first = followUsage(file);
+  assert.deepEqual([first.tokens, first.cached], [110, 1000]);
+
+  const next = turn(200, 2000);
+  appendFileSync(file, next.slice(0, 20));
+  assert.deepEqual(followUsage(file, first), first, 'half a line counts for nothing');
+
+  appendFileSync(file, next.slice(20));
+  const second = followUsage(file, first);
+  assert.deepEqual([second.tokens, second.cached], [320, 3000]);
+  assert.deepEqual(followUsage(file, second), second);
+  assert.equal(second.tokens, sessionUsage(file).tokens, 'it adds up to what the finished run reports');
 });
 
 test('a run that ended on a provider error leaves the words Pi was given, and one that recovered leaves nothing', t => {

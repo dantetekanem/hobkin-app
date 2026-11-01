@@ -68,6 +68,31 @@ test('the daily token limit can be set, and status reports the day so far', asyn
   assert.deepEqual([result.dailyTokens, result.tokensToday], [250000, 0]);
 });
 
+test('the number of agents, the unmerged limit and auto-pick change from the command line, and no key is needed', async t => {
+  const root = dataRoot(t);
+
+  await work(root, ['agents', '3']);
+  await work(root, ['unmerged', '12']);
+  await work(root, ['auto', 'off']);
+
+  const mode = readMode(root);
+  assert.deepEqual([mode.agents, mode.unmergedLimit, mode.autoPick], [3, 12, false]);
+  await assert.rejects(work(root, ['agents', '9']), /between 1 and 8/);
+  assert.deepEqual((await work(root, ['auto'])).result, { autoPick: false });
+});
+
+test('status gives the plan to whoever asks, with fresh and cached tokens apart', async t => {
+  const root = dataRoot(t);
+  await work(root, ['choose', '/repos/api', 'critical']);
+
+  const { result } = await work(root, []);
+
+  assert.deepEqual(result.plan.map(({ key, kind, why, waiting }) => [key, kind, why, waiting]), [['study:api', 'study', 'first study, critical', null]]);
+  assert.deepEqual([result.tokensToday, result.tokensCached, result.queued], [0, 0, 1]);
+  assert.equal(result.subscription.known, false);
+  assert.equal(result.agents, 1, 'with nothing known about the subscription, one at a time');
+});
+
 test('the allowance can be answered from the command line, so the main agent can act on a yes', async t => {
   const root = dataRoot(t);
 
