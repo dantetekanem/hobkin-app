@@ -999,6 +999,43 @@ test('footer questions retain the main view and scroll while paging long text in
   }
 });
 
+test('page keys read the conversation behind a question that fits, and answering puts it back', async () => {
+  const plan = Array.from({ length: 30 }, (_, index) => `Plan line ${index}`).join('\n\n');
+  const ui = createDashboard({ ...snapshot, messages: [{ id: 'plan', role: 'assistant', content: plan }] });
+  const answer = ui.askQuestion({ question: 'Go ahead?', choices: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }] });
+
+  const rendered = screen(ui, 80, 24);
+  assert.match(rendered, /Plan line 29/);
+  assert.doesNotMatch(rendered, /Plan line 0\b/);
+
+  for (let i = 0; i < 20; i++) { ui.input('\x1b[5~'); screen(ui, 80, 24); }
+  assert.match(screen(ui, 80, 24), /Plan line 0\b/);
+  assert.match(screen(ui, 80, 24), /Go ahead\?/);
+
+  ui.input('\x1b[6~');
+  assert.doesNotMatch(screen(ui, 80, 24), /Plan line 0\b/, 'it comes back as soon as the keys turn around');
+  ui.input('\r');
+  assert.equal(await answer, 'no');
+  assert.equal(ui.state().scroll, 0);
+  assert.match(screen(ui, 80, 24), /Plan line 29/);
+});
+
+test('page keys still read a question too long for its box, in Chat too', async () => {
+  const ui = createDashboard({ ...snapshot, messages: [{ id: 'main', role: 'assistant', content: 'Main conversation' }] });
+  const abort = new AbortController();
+  const answer = ui.askQuestion({
+    question: `Footer question ${'long question '.repeat(30)}QUESTIONEND`,
+    choices: [{ value: 'yes', label: 'Yes' }],
+  }, abort.signal);
+  assert.doesNotMatch(screen(ui, 60, 18), /QUESTIONEND/);
+
+  for (let i = 0; i < 20; i++) { ui.input('\x1b[6~'); screen(ui, 60, 18); }
+
+  assert.match(screen(ui, 60, 18), /QUESTIONEND/);
+  abort.abort();
+  await answer;
+});
+
 test('/reset waits for backend acceptance and retains draft and chat on failure or unavailable callback', async () => {
   for (const reset of [undefined, () => { throw Error('busy'); }]) {
     const ui = createDashboard(snapshot, { reset });

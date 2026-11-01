@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, realpath } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HobkinRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
+import { scheduleDefinition } from '../src/cli/checks.mjs';
 import { LegacySchedules } from '../src/cli/legacy-schedules.mjs';
 import { sha256 } from '../src/cli/migration/inventory.mjs';
 
@@ -153,6 +154,7 @@ test('a check blocked twice stops being scheduled, shows when it resumes, and st
     state: 'held',
     at: '2026-01-03T10:01:00.000Z',
     reason: 'Gmail tools are unavailable.',
+    holdId: 'check:2026-01-02:10:00',
   });
 
   await runner.trigger('check', 'requested-by-user');
@@ -166,6 +168,42 @@ test('a check blocked twice stops being scheduled, shows when it resumes, and st
   await h.runtime.idle();
   assert.equal(calls, 2);
   assert.equal(h.runtime.data.runs['check:2026-01-03:10:00'].status, 'completed');
+});
+
+test('a hold keeps its name through a failed retry, and only a working run or a schedule edit ends it', async t => {
+  const h = await fixture(t, { at: '23:00' });
+  const run = (id, hour, overrides = {}) => {
+    h.runtime.data.runs[id] = {
+      id, scheduleId: 'check', kind: 'background', status: 'completed', finishedAt: `2026-01-02T${hour}:00:00.000Z`,
+      result: { status: 'completed', text: 'Blocked: Gmail tools are unavailable.' },
+      ...overrides,
+    };
+  };
+  const runner = new HobkinRunner({ ...h, config, now: () => new Date('2026-01-02T20:00:00Z') });
+  const held = async () => (await runner.snapshot()).schedules[0].nextRun;
+  await runner.tick();
+
+  run('one', '09');
+  assert.equal((await held()).state, 'scheduled', 'one bad run is no hold');
+
+  run('two', '10');
+  assert.equal((await held()).holdId, 'two');
+
+  run('cancelled', '11', { status: 'interrupted', result: { status: 'interrupted' } });
+  run('skipped', '12', { status: 'incomplete', result: { status: 'incomplete', noModel: true } });
+  run('retry', '13');
+  assert.equal((await held()).holdId, 'two', 'a retry that fails is the same hold');
+
+  run('worked', '14', { result: { status: 'completed', text: 'Nothing new.' } });
+  assert.equal((await held()).state, 'scheduled');
+
+  run('three', '15');
+  run('four', '16', { definition: scheduleDefinition(runner.loaded.schedules[0]) });
+  assert.equal((await held()).holdId, 'four', 'after a working run it is a new hold');
+
+  await h.save({ ...h.schedule, prompt: 'Check the sources differently.' });
+  await runner.tick();
+  assert.equal((await held()).state, 'scheduled', 'an edit ends the streak the runs were part of');
 });
 
 test('a hold that ends after hours resumes at the next allowed time', async t => {

@@ -57,7 +57,9 @@ The agent keeps a short list of what matters right now in `memory.md` in the dat
 
 Each check also keeps its own folder at `~/.hobkin/checks/<id>/`, and every run starts with both files in it. `memory.md` is the check's working memory: checkpoints, open items and what it has already reported. Its agent maintains the file, and you can edit it too. `log.md` has one line per run, written by Hobkin, with the time, trigger, outcome, duration, cost and first report line.
 
-A check that cannot do its work says `Blocked:` in Chat. After two blocked or failed runs in a row, Hobkin stops scheduling it instead of retrying: Schedules shows it as held, and it tries again after 1 day, then 2, 4 and 7. A working run or a schedule edit clears the hold, and you can still run it on request.
+A check that could do none of its work says `Blocked:` in Chat. If one source is down, it does the rest and reports that source as unverified. After two blocked or failed runs in a row, Hobkin stops scheduling it instead of retrying: Schedules shows it as held, and it tries again after 1 day, then 2, 4 and 7. A working run or a schedule edit clears the hold, and you can still run it on request.
+
+When a check becomes held, the agent brings you a plan without being asked. As soon as it is free, it reads the check's log, memory and schedule file and the failing run's tool errors, then tells you in Chat what failed, the real cause with its evidence and what it proposes, and asks yes or no. It changes nothing before a yes. On a yes it carries out the plan and runs the check once to prove it, and a working run clears the hold. On a no the check stays held. You are asked once per hold, and a retry that fails is still the same hold. If the fix is yours to make, such as reloading a browser extension, the plan says exactly what to do and the agent offers to run the check afterwards. A turn that gets cut off is picked up the next time Hobkin starts, up to three tries. `hobkin run` has nobody to ask, so a hold waits for the dashboard. Each plan costs one main agent turn.
 
 ## Add a schedule
 

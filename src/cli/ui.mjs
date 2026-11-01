@@ -1298,6 +1298,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const capacity = Math.max(1, Math.min(Math.floor((height - headerLength) / 2),
       height - headerLength - choices.length - 11));
     question.scroll = Math.min(question.scroll, Math.max(0, text.length - capacity));
+    question.overflows = text.length > capacity;
     const visibleText = text.slice(question.scroll, question.scroll + capacity);
     return boxed({ paint: highlight, top: highlight(bold('Hobkin asks')), lines: [...visibleText, '', ...choices], inner });
   };
@@ -1530,8 +1531,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       }
       if (question) {
         const tooSmall = (options.tui?.terminal.columns ?? columns) < 60 || (options.tui?.terminal.rows ?? rows) < 18;
+        const paging = !tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'));
         if (key(data, 'escape')) question.finish(null);
-        else if (!tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'))) {
+        else if (paging && followsTail() && !question.overflows) {
+          // What a question is about is in the conversation above it, and on a small terminal it does not all fit.
+          scroll = Math.max(0, scroll + (key(data, 'pageUp') ? 8 : -8));
+        } else if (paging) {
           question.scroll = Math.max(0, question.scroll + (key(data, 'pageDown') ? 2 : -2));
         } else if (!tooSmall) question.selection.handleInput(data);
         changed();
@@ -1631,7 +1636,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
       const { content, ranges = [], days = [], selectedRange } = renderContent(inner, available, clock, frame);
       const maximum = Math.max(0, content.length - available);
-      if (!question) scroll = Math.min(scroll, maximum);
+      if (!question || followsTail()) scroll = Math.min(scroll, maximum);
       const displayScroll = Math.min(scroll, maximum);
       const listMode = showsReportList() || view === 'work';
       if (listMode) {
