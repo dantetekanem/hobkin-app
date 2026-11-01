@@ -77,7 +77,7 @@ const whatHappened = (before, now) => {
   if (now.notice && now.notice.id !== before.notice?.id) {
     return { event: 'A report just arrived', outcome: now.notice.tone ?? 'ordinary', report: quoted(now.notice) };
   }
-  if (now.paused && !before.paused) return { event: 'Work mode paused at its token limit' };
+  if (now.paused && !before.paused) return { event: 'Work mode paused' };
   if (before.busy && !now.busy) return { event: 'The main agent just finished replying' };
   if (now.user && now.user.id !== before.user?.id) return { event: 'The user just sent a message' };
   const started = now.running.filter(title => !before.running.includes(title));
