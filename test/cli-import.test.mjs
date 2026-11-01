@@ -187,3 +187,15 @@ test('a folder with no data is refused', async t => {
 
   await assert.rejects(importHome(to, from), /Nothing to import/);
 });
+
+test('a work folder with real work in it still blocks the import', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  prepared(to);
+  mkdirSync(join(to, 'work'), { recursive: true });
+  writeFileSync(join(to, 'work', 'owner.json'), '{}');
+  writeFileSync(join(to, 'work', 'projects.jsonl'), '{}\n');
+
+  await assert.rejects(importHome(to, from), /not a Hobkin folder/);
+});
+

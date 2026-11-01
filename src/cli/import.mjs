@@ -75,9 +75,12 @@ const copied = (path, from) => {
   return inside !== 'runtime.lock' && !/^work\/[^/]+\/trees$/.test(inside);
 };
 
+// A started Hobkin publishes this file before anyone has used work mode.
+const isUnusedWork = to => entries(join(to, 'work')).every(name => name === 'owner.json');
+
 function assertReplaceable(to) {
   if (hasOwnHistory(to)) throw Error(`${to} already has its own history.`);
-  const others = entries(to).filter(name => !FRESH_ENTRIES.has(name));
+  const others = entries(to).filter(name => !FRESH_ENTRIES.has(name) && !(name === 'work' && isUnusedWork(to)));
   if (others.length) throw Error(`${to} is not a Hobkin folder, so nothing was changed. It holds ${others.slice(0, 3).join(', ')}.`);
 }
 
