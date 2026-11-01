@@ -109,6 +109,15 @@ export class Telemetry {
     this.record({ type: 'report_discussed', at: new Date(now).toISOString(), id });
   }
 
+  /** Which reports were used and since when anyone was watching. Learning reads this, and it holds no report text. */
+  signals() {
+    return {
+      since: Date.parse(this.events.find(isStart).at),
+      read: new Set(this.events.filter(isRealRead).map(event => event.id)),
+      asked: new Set(this.events.filter(event => event.type === 'report_discussed').map(event => event.id)),
+    };
+  }
+
   /** Per-check rollup of its latest reports. `ignored` is a prompt to revisit a check, never a reason to change it. */
   attention(runs, now = Date.now()) {
     const since = Date.parse(this.events.find(isStart).at);

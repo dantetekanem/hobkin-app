@@ -82,5 +82,6 @@ export function readLocalView(requestedRoot) {
     memoryBytes: memoryBytes(root),
     work: workStatus(root),
     jev: config.jev?.enabled === true,
+    learning: config.learning?.enabled === true,
   };
 }

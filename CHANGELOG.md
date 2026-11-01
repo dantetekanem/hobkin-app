@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add learning, off by default: `/learning` or `hobkin learning [on | off]`. It judges how checks and work mode runs ended from what Hobkin already records, with no model call, and keeps very short lessons that reach every agent, 160 tokens at most. Conclusions about schedules reach Chat as short proposals, nothing changes without a plan and a yes, and an answered proposal is never raised again. `hobkin learning` shows what was learned, and `hobkin learning clear` removes it.
 - Turn work mode on and off with `/work` alone. The Work Mode tab shows only while it is on, and the harness changes by asking the agent.
 - Let running agents finish when work mode stops, and stop a cancelled agent from starting again by itself.
 - Look straight away when work mode starts with nothing to show, and always say in the tab what is happening now and when the next look is.

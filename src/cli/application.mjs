@@ -17,7 +17,9 @@ import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
 import { answerAllowance, chooseProject, dropProject, readMode, skipProject, startWork, updateItem, writeMode } from './work/store.mjs';
-import { atomicJson, jevEnabled, loadConfig, setJev } from './config.mjs';
+import { atomicJson, jevEnabled, learningEnabled, loadConfig, setJev, setLearning } from './config.mjs';
+import { Learner } from './learning/learner.mjs';
+import { withoutLearningNote } from './learning/note.mjs';
 import { Moods } from './mood.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
@@ -26,7 +28,7 @@ export { readLocalView } from './view.mjs';
 const textOf = message => (typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n'));
 const chatMessage = message => {
-  const { text, about } = splitReportReference(withoutWorkNote(textOf(message)));
+  const { text, about } = splitReportReference(withoutLearningNote(withoutWorkNote(textOf(message))));
   return {
     id: createHash('sha256').update(JSON.stringify(message)).digest('hex'),
     role: message.role,
@@ -48,7 +50,7 @@ const messageTime = message => {
   return Number.isFinite(time) ? time : null;
 };
 const DISCOVERY_POST = 'notice:work-discovery:';
-const isOwnPost = message => message.role === 'notice' || message.id?.startsWith(DISCOVERY_POST);
+const isOwnPost = message => message.role === 'notice' || message.id?.startsWith('notice:');
 
 const BUSY_RETRY_MS = 100;
 
@@ -112,6 +114,7 @@ export class HobkinApplication {
       });
       app.ledger = UsageLedger.open(app.runtime.directory, app.config.initializedAt);
       app.telemetry = Telemetry.open(app.runtime.directory, app.now());
+      app.learner = new Learner({ root: app.runtime.directory, telemetry: app.telemetry, now: app.now });
       app.runner = new HobkinRunner({
         runtime: app.runtime,
         root: app.runtime.directory,
@@ -211,6 +214,12 @@ export class HobkinApplication {
     if (looked && !noticeIds.has(lookedId)) {
       notices.push({ id: lookedId, role: 'assistant', content: looked, at: finishedAt });
       noticeIds.add(lookedId);
+    }
+    // It reads as Hobkin speaking too, for the same reason.
+    const proposed = this.learner.takePost();
+    if (proposed && !noticeIds.has(proposed.id)) {
+      notices.push(proposed);
+      noticeIds.add(proposed.id);
     }
     const scheduledReports = runs.filter(isVisibleScheduledReport)
       .sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? ''));
@@ -330,6 +339,7 @@ export class HobkinApplication {
       connection: 'connected',
       busy: this.runtime.mainBusy,
       jev: jevEnabled(this.runtime.directory),
+      learning: learningEnabled(this.runtime.directory),
       main: {
         harness: 'pi',
         model: `${this.runtime.main.model.provider}/${this.runtime.main.model.id}`,
@@ -355,9 +365,13 @@ export class HobkinApplication {
   async deliver(text, report) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const note = workNote(workStatus(this.runtime.directory), this.director.answerCommands());
-    const accepted = await this.sendWhenFree(note === this.workNoteSeen ? message : `${note}${message}`);
+    const learned = this.learner.note(this.runtime.messages());
+    const accepted = await this.sendWhenFree(`${note === this.workNoteSeen ? '' : note}${learned}${message}`);
     this.workNoteSeen = note;
-    if (report) this.telemetry.recordReportDiscussed(report.id, this.now());
+    if (report) {
+      this.telemetry.recordReportDiscussed(report.id, this.now());
+      void this.learner.noteReply(report.id, text);
+    }
     this.requestRefresh();
     return accepted;
   }
@@ -384,10 +398,32 @@ export class HobkinApplication {
   async tickWork() {
     this.moods.notice();
     await this.director.tick();
-    const signature = JSON.stringify({ work: workStatus(this.runtime.directory), jev: jevEnabled(this.runtime.directory) });
+    await this.learn();
+    const root = this.runtime.directory;
+    const signature = JSON.stringify({ work: workStatus(root), jev: jevEnabled(root), learning: learningEnabled(root) });
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();
+  }
+
+  // Learning watches the product, so a problem in it can never stop a tick.
+  async learn() {
+    try {
+      if (!this.learner.enabled()) return;
+      const { runs } = await this.runtime.state();
+      const { schedules } = this.runner.loaded;
+      if (this.learner.settle({ runs: Object.values(runs), schedules, attention: this.snapshot.reportAttention })) this.requestRefresh();
+    } catch {
+      /* Nothing it holds is lost: the next pass works it out again. */
+    }
+  }
+
+  async toggleLearning() {
+    const root = this.runtime.directory;
+    const result = setLearning(root, !learningEnabled(root));
+    this.workSignature = null;
+    await this.refresh();
+    return result;
   }
 
   async toggleJev() {

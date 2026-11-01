@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readDirections } from './directions.mjs';
+import { injectedLessons } from './learning/store.mjs';
 import { reportText, reportTriage, runOutcomeText, writePrivate } from './reports.mjs';
 
 const MAX_MEMORY_BYTES = 8192;
@@ -75,6 +76,7 @@ export function openCheck(root, id) {
     directions: readDirections(root),
     memory: readCheckMemory(memoryPath(root, id)),
     log: readCheckLog(logPath(root, id)),
+    learning: injectedLessons(root, id),
   };
 }
 
@@ -93,9 +95,9 @@ export function logRun(root, run) {
 
 export const scheduleDefinition = schedule => createHash('sha256').update(JSON.stringify(schedule)).digest('hex');
 
-const stalled = run => ['failed', 'incomplete'].includes(run.status) || reportTriage(run)?.level === 'blocked';
+export const stalled = run => ['failed', 'incomplete'].includes(run.status) || reportTriage(run)?.level === 'blocked';
 // A cancelled, skipped or unfinished attempt says nothing about whether the check works.
-const inconclusive = run => !run.finishedAt || run.status === 'interrupted' || run.result?.noModel;
+export const inconclusive = run => !run.finishedAt || run.status === 'interrupted' || run.result?.noModel;
 
 function stalledStreak(attempts, definition) {
   const cleared = attempts.findIndex(run => !stalled(run) || (run.definition && run.definition !== definition));

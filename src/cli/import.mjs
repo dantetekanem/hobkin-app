@@ -109,8 +109,8 @@ export async function importHome(root, requested) {
     cpSync(from, staged, { recursive: true, verbatimSymlinks: true, filter: path => copied(path, from) });
     movePathsInDatabase(staged, from, to);
     movePathsInText(staged, from, to);
-    const { jev } = readConfig(to);
-    if (jev) atomicJson(join(staged, 'config.json'), { ...readConfig(staged), jev });
+    const { jev, learning } = readConfig(to);
+    if (jev || learning) atomicJson(join(staged, 'config.json'), { ...readConfig(staged), ...(jev ? { jev } : {}), ...(learning ? { learning } : {}) });
     if (existsSync(join(to, 'AGENTS.md'))) copyFileSync(join(to, 'AGENTS.md'), join(staged, 'AGENTS.md'));
     if (await isRunning(to)) throw Error('Hobkin started during the copy. Close it and run this again.');
     swapIn(staged, to);

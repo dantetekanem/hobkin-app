@@ -1,0 +1,197 @@
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { promisify } from 'node:util';
+import { jevEnabled, learningEnabled } from '../config.mjs';
+import { askJudgement } from '../mood.mjs';
+import { hobkinCommand } from '../work/chat.mjs';
+import { readItems, readProjects } from '../work/store.mjs';
+import { gatherEvidence, rejectsReport } from './judge.mjs';
+import { conclude, evidenceText, proposing, renderLessons } from './lessons.mjs';
+import { learningNote, NO_LEARNING, noteInContext } from './note.mjs';
+import { appendAction, learningState, readActions, readState, saveState } from './store.mjs';
+
+const HOUR_MS = 3600000;
+const SETTLE_EVERY_MS = HOUR_MS / 6;
+const PULL_REQUEST_EVERY_MS = 6 * HOUR_MS;
+const MAX_PULL_REQUESTS_A_PASS = 5;
+const GH_TIMEOUT_MS = 15000;
+const MAX_WAITING_PROPOSALS = 3;
+const MAX_JEV_A_DAY = 20;
+const MAX_QUOTE_LENGTH = 400;
+const REJECTED_AT = 0.7;
+const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
+const FINISHED_STATES = ['MERGED', 'CLOSED'];
+
+const asks = {
+  rethink: 'Rethink it?',
+  refactor: 'Refactor it?',
+  ideas: 'Want new ideas built on it?',
+};
+const REPLY_QUESTION = readFileSync(new URL('../../prompts/learning-reply.md', import.meta.url), 'utf8').trim();
+
+const shell = promisify(execFile);
+const askGitHubFor = async url => JSON.parse((await shell('gh', ['pr', 'view', url, '--json', 'state'], { timeout: GH_TIMEOUT_MS })).stdout).state;
+const askJevAbout = async reply => (await askJudgement(
+  { reply: reply.slice(-MAX_QUOTE_LENGTH) },
+  { rejected: { type: 'noul', instructions: REPLY_QUESTION } },
+))?.rejected?.noul >= REJECTED_AT;
+
+const iso = time => new Date(time).toISOString();
+const sameDay = (at, now) => new Date(at).toDateString() === new Date(now).toDateString();
+const proposalId = ({ scope, conclusion, definition }) => createHash('sha256').update(`${scope}:${conclusion}:${definition ?? ''}`).digest('hex').slice(0, 6);
+
+export const proposalMessage = proposal => `**Learning:** ${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]} Say yes for a plan, or no and this will not come up again.`;
+
+const proposalOrder = (left, right) => proposing.indexOf(left.kind) - proposing.indexOf(right.kind) || right.seen - left.seen || left.scope.localeCompare(right.scope);
+
+/**
+ * Judges what finished and keeps what it teaches. It has no way to start a model run: every verdict comes from what
+ * Hobkin already recorded, and the only calls out are `gh`, and Jev when Jev is on, each with a limit.
+ */
+export class Learner {
+  post = null;
+
+  constructor({ root, telemetry, now = Date.now, pullRequestState = askGitHubFor, askJev = askJevAbout }) {
+    Object.assign(this, { root, telemetry, now, pullRequestState, askJev });
+    this.settledAt = -Infinity;
+  }
+
+  enabled() { return learningEnabled(this.root); }
+
+  /** Cheap enough for every tick. A real pass waits for something to have moved, or for evidence to have aged. */
+  settle({ runs, schedules, attention = [] }) {
+    if (!this.enabled()) return false;
+    const now = this.now();
+    const moved = `${runs.filter(item => item.finishedAt).length}:${this.telemetry.events.length}`;
+    if (moved === this.moved && now - this.settledAt < SETTLE_EVERY_MS) return false;
+    Object.assign(this, { moved, settledAt: now });
+
+    const actions = readActions(this.root);
+    const saved = readState(this.root);
+    const projects = readProjects(this.root);
+    const concluded = gatherEvidence({
+      runs,
+      schedules,
+      projects,
+      attention,
+      now,
+      itemsOf: slug => readItems(this.root, slug),
+      signals: { ...this.telemetry.signals(), rejected: actions.rejected },
+      pullRequests: saved.pullRequests,
+      clears: actions.clears,
+    }).map(conclude);
+    const learned = concluded.filter(item => item.code);
+    const proposals = this.proposalsFrom(learned, saved, actions);
+    this.asking ??= this.askGitHub(projects).finally(() => { this.asking = null; });
+    this.post ??= this.nextPost(proposals, actions);
+    const next = {
+      judged: { runs: concluded.reduce((sum, item) => sum + item.runs, 0), scopes: concluded.filter(item => item.runs).length },
+      lessons: learned.map(({ id, scope, title, code, seen, runs: total, days, usd, latest, conclusion }) => ({ id, scope, title, code, seen, runs: total, days, usd, latest, conclusion })),
+      proposals,
+      pullRequests: saved.pullRequests,
+    };
+    const changed = JSON.stringify(next) !== JSON.stringify(saved);
+    if (changed) saveState(this.root, next);
+    return changed || Boolean(this.post);
+  }
+
+  // A no holds for good. A yes holds until the schedule changes, because then a new failure is a new question.
+  proposalsFrom(learned, saved, { answers }) {
+    const answered = ({ scope, conclusion, definition }) => answers.some(answer => answer.scope === scope && answer.kind === conclusion
+      && (answer.answer === 'no' || answer.definition === definition));
+    return learned
+      .filter(item => proposing.includes(item.conclusion) && !answered(item))
+      .map(item => {
+        const id = proposalId(item);
+        const { scope, title, definition, code, seen, runs, days, usd, latest, conclusion: kind } = item;
+        return { id, scope, title, definition, kind, code, seen, runs, days, usd, latest, at: saved.proposals.find(known => known.id === id)?.at ?? iso(this.now()) };
+      })
+      .toSorted(proposalOrder);
+  }
+
+  // One a day and a few at a time, because a backlog of history must not arrive as a wall of questions.
+  nextPost(proposals, { posted }) {
+    const now = this.now();
+    const told = new Set(posted.map(({ id }) => id));
+    const next = proposals.find(({ id }) => !told.has(id));
+    const waiting = proposals.filter(({ id }) => told.has(id)).length;
+    if (!next || waiting >= MAX_WAITING_PROPOSALS || posted.some(({ at }) => sameDay(at, now))) return null;
+    return { proposal: next.id, id: `notice:learning:${next.id}`, role: 'assistant', content: proposalMessage(next), at: iso(now) };
+  }
+
+  /** A proposal counts as told only once Chat has it, so a close in between cannot lose it. */
+  takePost() {
+    if (!this.post) return null;
+    const { proposal, ...post } = this.post;
+    this.post = null;
+    appendAction(this.root, { type: 'posted', id: proposal, at: post.at });
+    return post;
+  }
+
+  /** Asks only about PRs still open, a few at a time. Without `gh` it simply never hears, and judges nothing from that. */
+  async askGitHub(projects) {
+    try {
+      const now = this.now();
+      const known = { ...readState(this.root).pullRequests };
+      const urls = projects.filter(({ state }) => state === 'chosen')
+        .flatMap(({ slug }) => readItems(this.root, slug))
+        .filter(({ state, pr }) => state === 'pr' && PULL_REQUEST.test(pr ?? ''))
+        .map(({ pr }) => pr)
+        .filter(url => !FINISHED_STATES.includes(known[url]?.state) && now - (known[url]?.checkedAt ?? -Infinity) >= PULL_REQUEST_EVERY_MS)
+        .slice(0, MAX_PULL_REQUESTS_A_PASS);
+      for (const url of urls) {
+        if (!this.enabled()) break;
+        known[url] = { ...known[url], checkedAt: now };
+        known[url].state = await this.pullRequestState(url).catch(() => known[url].state);
+      }
+      if (!urls.length) return;
+      saveState(this.root, { ...readState(this.root), pullRequests: known });
+      this.moved = null;
+    } catch {
+      // A question GitHub cannot answer judges nothing.
+    }
+  }
+
+  /** Only the outcome is kept. The reply itself goes nowhere, unless Jev is on and already reads each message. */
+  async noteReply(id, text) {
+    try {
+      if (!this.enabled()) return;
+      if (rejectsReport(text) || await this.jevRejects(text)) appendAction(this.root, { type: 'reply', id, at: iso(this.now()) });
+    } catch {
+      // An unread reply counts for nothing, so a problem here cannot reach the conversation.
+    }
+  }
+
+  async jevRejects(text) {
+    const now = this.now();
+    if (!jevEnabled(this.root) || !process.env.TYPESAFE_API_KEY) return false;
+    if (readActions(this.root).asked.filter(({ at }) => sameDay(at, now)).length >= MAX_JEV_A_DAY) return false;
+    appendAction(this.root, { type: 'asked', at: iso(now) });
+    return this.askJev(text);
+  }
+
+  currentNote() {
+    if (!this.enabled()) return '';
+    const { lessons, proposals } = learningState(this.root);
+    const told = new Set(readActions(this.root).posted.map(({ id }) => id));
+    const waiting = proposals.filter(({ id }) => told.has(id))
+      .map(proposal => ({ id: proposal.id, scope: proposal.scope, kind: proposal.kind, why: evidenceText(proposal) }));
+    const lines = renderLessons(lessons);
+    if (!lines.length && !waiting.length) return '';
+    return learningNote({ lines, proposals: waiting, answer: hobkinCommand(this.root, 'learning answer <id> yes|no') });
+  }
+
+  /** What the next message should carry. Nothing, as long as the agent can still see what is current, and never a reason not to send it. */
+  note(messages) {
+    try {
+      const current = this.currentNote();
+      const last = noteInContext(messages);
+      if (current === last) return '';
+      if (current) return current;
+      return !last || last === NO_LEARNING ? '' : NO_LEARNING;
+    } catch {
+      return '';
+    }
+  }
+}

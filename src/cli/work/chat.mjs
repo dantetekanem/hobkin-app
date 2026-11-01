@@ -1,9 +1,12 @@
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { byRank } from './store.mjs';
 
 const MAX_TEXT_LENGTH = 280;
 const MAX_NOTE_PROPOSALS = 40;
 
+const mainScript = fileURLToPath(new URL('../main.mjs', import.meta.url));
+const shellWord = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const pad = value => String(value).padStart(2, '0');
 const brief = text => {
   const plain = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -16,6 +19,9 @@ export const shortPath = path => {
   const home = homedir();
   return text === home || text.startsWith(`${home}/`) ? `~${text.slice(home.length)}` : text;
 };
+
+/** An exact command, so an agent's answer lands in this home whatever is on its path. */
+export const hobkinCommand = (root, subcommand) => `${shellWord(process.execPath)} ${shellWord(mainScript)} ${subcommand} --home ${shellWord(root)}`;
 
 /** A next look is never more than a day away, so today or tomorrow says enough. */
 export const lookTime = (at, now) => {

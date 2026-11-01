@@ -463,6 +463,44 @@ test('hobkin jev on needs a key and changes nothing without one, while off never
   assert.deepEqual(readConfig(h.root), { ...before, jev: { enabled: false } });
 });
 
+test('hobkin learning says where it stands in words, and on and off change only that in the chosen home', async t => {
+  const h = fixture(t);
+  const before = readConfig(h.root);
+  const learning = async (...args) => {
+    h.output.text = '';
+    assert.equal(await main(['learning', ...args, '--home', h.root], h.output), 0);
+    return h.output.text;
+  };
+
+  assert.match(await learning(), /^Learning is off\./);
+  assert.deepEqual(JSON.parse(await learning('on')), { enabled: true });
+  assert.match(await learning(), /^Learning is on\./);
+  assert.deepEqual(readConfig(h.root), { ...before, learning: { enabled: true } });
+
+  assert.deepEqual(JSON.parse(await learning('off')), { enabled: false });
+  assert.match(await learning(), /^Learning is off\./);
+  assert.deepEqual(readConfig(h.root), { ...before, learning: { enabled: false } });
+});
+
+test('hobkin learning refuses what it does not know and changes nothing', async t => {
+  const h = fixture(t);
+  const before = readConfig(h.root);
+
+  for (const args of [['maybe'], ['ON'], ['on', 'off'], ['clear'], ['answer', 'abc123']]) {
+    await assert.rejects(main(['learning', ...args, '--home', h.root], h.output), /^Error: Usage: hobkin learning/);
+  }
+
+  assert.deepEqual(readConfig(h.root), before);
+});
+
+test('the usage names hobkin learning', async t => {
+  const h = fixture(t);
+
+  await main(['--help'], h.output);
+
+  assert.match(h.output.text, /learning \[on \| off \| clear <id> \| clear all \| answer <id> yes\|no\]/);
+});
+
 test('hobkin jev refuses anything but on or off and changes nothing', async t => {
   const h = fixture(t);
   setJevKey(t, 'test-key');

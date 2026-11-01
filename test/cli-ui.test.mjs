@@ -327,7 +327,7 @@ test('Tab on a bare slash walks every command and comes back round', () => {
 
   ui.input('/');
 
-  assert.deepEqual(Array.from({ length: 6 }, tab), ['/help', '/clear', '/reset', '/work', '/jev', '/help']);
+  assert.deepEqual(Array.from({ length: 7 }, tab), ['/help', '/clear', '/reset', '/work', '/jev', '/learning', '/help']);
 });
 
 test('a slash command comes back with the up arrow', () => {
@@ -1159,6 +1159,57 @@ test('/jev turns Jev on and off from the composer and never becomes a prompt', a
   ui.stop();
 });
 
+test('/learning turns learning on and off from the composer and never becomes a prompt', async () => {
+  const answers = [{ enabled: true }, { enabled: false }];
+  const sent = [];
+  const ui = createDashboard({ ...snapshot, connection: 'connected' }, {
+    send: text => { sent.push(text); },
+    toggleLearning: async () => answers.shift(),
+  });
+  const submit = async () => {
+    ui.input('/lea');
+    ui.input('\t');
+    assert.equal(ui.state().draft, '/learning');
+    ui.input('\r');
+    await ui.pending();
+  };
+
+  await submit();
+  assert.equal(ui.state().draft, '');
+  assert.match(ui.state().notice, /^Learning on\./);
+
+  await submit();
+  assert.equal(ui.state().draft, '');
+  assert.match(ui.state().notice, /^Learning off\./);
+
+  assert.deepEqual(answers, []);
+  assert.deepEqual(sent, []);
+  ui.stop();
+});
+
+test('a failed /learning keeps the draft and shows why', async () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected' }, {
+    toggleLearning: async () => { throw Error('The configuration is read-only.'); },
+  });
+  ui.input('/learning');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.equal(ui.state().draft, '/learning');
+  assert.match(ui.state().notice, /Learning failed: The configuration is read-only\./);
+  ui.stop();
+});
+
+test('/help says what /learning is for', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] });
+
+  ui.input('/help');
+  ui.input('\r');
+
+  assert.match(screen(ui, 120, 40), /\/learning/);
+  ui.stop();
+});
+
 test('a failed /jev keeps the draft and shows why', async () => {
   for (const [toggleJev, why] of [
     [undefined, 'Jev failed: Jev unavailable'],
@@ -1683,6 +1734,34 @@ test('the footer names Jev beside the memory size only while it is on', () => {
   ui.update({ ...snapshot, memoryBytes: 2436, jev: false });
   assert.doesNotMatch(nextCheckRow(ui), /jev/);
   ui.stop();
+});
+
+test('the footer names learning beside Jev only while it is on', () => {
+  const nextCheckRow = ui => screen(ui, 120, 40).split('\n').find(row => row.includes('next check'));
+  const ui = createDashboard({ ...snapshot, memoryBytes: 2436, jev: true, learning: true });
+
+  assert.match(nextCheckRow(ui), /jev · learning · memory 2\.4kb/);
+
+  ui.update({ ...snapshot, memoryBytes: 2436, jev: false, learning: false });
+  assert.doesNotMatch(nextCheckRow(ui), /learning/);
+  ui.stop();
+});
+
+test('the /learning tip comes up only while learning is off', () => {
+  const tipShows = view => {
+    const period = 180000;
+    let clock = 0;
+    const ui = createDashboard(view, {}, { now: () => clock });
+    const shown = Array.from({ length: 60 }, (_, turn) => {
+      clock = period * turn;
+      return screen(ui, 120, 40).includes('Type /learning');
+    });
+    ui.stop();
+    return shown.some(Boolean);
+  };
+
+  assert.equal(tipShows({ ...snapshot, learning: false }), true);
+  assert.equal(tipShows({ ...snapshot, learning: true }), false);
 });
 
 test('the /jev tip comes up only while Jev is off', () => {
