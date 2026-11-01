@@ -15,6 +15,9 @@ const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta
 export const workDirections = purpose => `${prompt('background')}\n${prompt(purpose)}`;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const validCost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+// Pi's `agent_end` repeats a whole run, so a long run's biggest record comes when its work is done. Hobkin reads none of it.
+const MAX_KEPT_RECORD_BYTES = 1048576;
+const MAX_LEFT_OUT_BYTES = 268435456;
 const completionGroup = Symbol('completion group');
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
 // A grouped swarm suppresses member reports and answers once, through a wake.
@@ -68,7 +71,7 @@ export const namingExtensions = run => async (request, options) => {
 };
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes = 1048576, onEvent = () => {}, onReady = () => {} } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {} } = {}) {
   const invocation = buildInvocation(request);
   if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw Error('Invalid harness bounds.');
   const result = {
@@ -131,6 +134,7 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
       env: piEnvironment(request.launcher),
       spawnProcess,
       maxRecordBytes: maxOutputBytes,
+      maxKeptBytes: Math.min(maxOutputBytes, MAX_KEPT_RECORD_BYTES),
       onRecord: accept,
       onFail: error => settled.reject(error),
     });

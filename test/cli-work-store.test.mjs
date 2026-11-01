@@ -4,9 +4,9 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, nextItem, noteDiscovery,
-  paths, proposeProject, readDiscovery, readItems, readMode, readProjects, recordDiscovery, recordTokens, sessionUsage, setDailyTokens, setHarness, skipProject,
-  startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
+  paths, proposeProject, readDiscovery, readItems, readMode, readProjects, recordDiscovery, recordTokens, sessionError, sessionUsage, setAgents, setDailyTokens, setHarness, setUnmergedLimit,
+  skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -33,7 +33,34 @@ test('work mode starts off, and a change survives a reread', t => {
   writeMode(root, { enabled: true });
 
   assert.equal(readMode(root).enabled, true);
-  assert.ok(readMode(root).pool >= 2);
+});
+
+test('few agents run by default, and eight is the ceiling whatever is asked for', t => {
+  const root = dataRoot(t);
+  assert.equal(readMode(root).agents, 2);
+
+  assert.equal(setAgents(root, 8).agents, 8);
+
+  assert.equal(readMode(root).agents, 8);
+  for (const wrong of [0, 9, 2.5, Number('lots')]) assert.throws(() => setAgents(root, wrong), /between 1 and 8/);
+});
+
+test('a pool saved by an older version never comes back, because the machine chose it and the user did not', t => {
+  const root = dataRoot(t);
+  mkdirSync(join(root, 'work'), { recursive: true });
+  writeFileSync(join(root, 'work', 'mode.json'), JSON.stringify({ version: 1, enabled: true, pool: 9, folder: '/repos', harness: 'pi', dailyTokens: 100000000 }));
+
+  assert.equal(readMode(root).agents, 2);
+  assert.equal(writeMode(root, { enabled: false }).pool, undefined);
+  assert.equal(readMode(root).pool, undefined);
+});
+
+test('work waits on the merges once 30 are open, and that number can be changed', t => {
+  const root = dataRoot(t);
+  assert.equal(readMode(root).unmergedLimit, 30);
+
+  assert.equal(setUnmergedLimit(root, 12).unmergedLimit, 12);
+  assert.throws(() => setUnmergedLimit(root, 0), /positive number/);
 });
 
 test('work mode starts from a real folder the user named, and remembers it', t => {
@@ -169,6 +196,20 @@ test('a session\'s fresh tokens are counted without the cache reads that repeat 
   assert.deepEqual(sessionUsage(join(root, 'missing.jsonl')), { tokens: 0, usd: 0, sessionId: null });
 });
 
+test('a run that ended on a provider error leaves the words Pi was given, and one that recovered leaves nothing', t => {
+  const root = dataRoot(t);
+  const file = join(root, 'job.jsonl');
+  const entries = (...messages) => writeFileSync(file, messages.map(message => JSON.stringify({ type: 'message', message })).join('\n'));
+
+  entries({ role: 'assistant', stopReason: 'error', errorMessage: 'You have hit your ChatGPT usage limit (pro plan). Try again in ~40 min.' });
+  assert.match(sessionError(file), /usage limit/);
+
+  entries({ role: 'assistant', stopReason: 'error', errorMessage: 'Too many requests.' }, { role: 'assistant', stopReason: 'stop' });
+  assert.equal(sessionError(file), null);
+
+  assert.equal(sessionError(join(root, 'missing.jsonl')), null);
+});
+
 test('tokens count toward the day they were used, and a new day starts clean', t => {
   const root = dataRoot(t);
   const noon = new Date(2026, 5, 1, 12).getTime();
@@ -281,6 +322,20 @@ test('a project the user already answered is not proposed again', t => {
   assert.equal(readProjects(root)[0].state, 'skipped');
 });
 
+test('only the watcher brings a skipped project back, and never a chosen or dropped one', t => {
+  const root = dataRoot(t);
+  proposeProject(root, proposal);
+  skipProject(root, 'finboard-api');
+
+  assert.equal(proposeProject(root, proposal, Date.now(), { reoffer: true }).state, 'proposed');
+
+  chooseProject(root, 'finboard-api');
+  assert.equal(proposeProject(root, proposal, Date.now(), { reoffer: true }).state, 'chosen');
+
+  dropProject(root, 'finboard-api');
+  assert.equal(proposeProject(root, proposal, Date.now(), { reoffer: true }).state, 'dropped');
+});
+
 test('taking a project keeps the suggested level unless the user picks one, and files its first items', t => {
   const root = dataRoot(t);
   proposeProject(root, proposal);
@@ -333,21 +388,16 @@ test('an item needs a title and a brief', t => {
   assert.throws(() => fileItem(root, 'api', { ...item, kind: 'wish' }), /kind/);
 });
 
-test('the next item follows urgency, then kind, then age, and skips what only the user can do', t => {
+test('an item keeps the impact and effort it was filed with, and a word it does not know is refused', t => {
   const root = dataRoot(t);
-  fileItem(root, 'api', { ...item, key: 'a', kind: 'attention' });
-  fileItem(root, 'api', { ...item, key: 'b', kind: 'feature' });
-  const chore = fileItem(root, 'api', { ...item, key: 'c', kind: 'chore' });
-  const security = fileItem(root, 'api', { ...item, key: 'd', kind: 'security' });
 
-  assert.equal(nextItem(root, 'api').id, security.id);
+  const filed = fileItem(root, 'api', { ...item, impact: 'high', effort: 'small' });
 
-  updateItem(root, 'api', security.id, { state: 'pr' });
-  const urgent = fileItem(root, 'api', { ...item, key: 'e', kind: 'feature', urgent: true });
-  assert.equal(nextItem(root, 'api').id, urgent.id);
-
-  updateItem(root, 'api', urgent.id, { state: 'stuck' });
-  assert.equal(nextItem(root, 'api').id, chore.id);
+  assert.deepEqual([filed.impact, filed.effort], ['high', 'small']);
+  assert.throws(() => fileItem(root, 'api', { ...item, key: 'b', impact: 'huge' }), /impact must be/);
+  assert.throws(() => fileItem(root, 'api', { ...item, key: 'c', effort: 'tiny' }), /effort must be/);
+  assert.throws(() => updateItem(root, 'api', filed.id, { effort: 'tiny' }), /effort must be/);
+  assert.equal(updateItem(root, 'api', filed.id, { effort: 'medium' }).effort, 'medium');
 });
 
 test('a broken line loses one event, not the file', t => {

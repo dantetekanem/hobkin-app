@@ -19,11 +19,12 @@ const reapAtExit = () => {
 };
 
 /**
- * One Pi RPC child in its own process group. Records are LF-delimited JSON, each bounded by maxRecordBytes.
+ * One Pi RPC child in its own process group. Records are LF-delimited JSON, and one over maxKeptBytes is left out.
+ * What is left out adds up, and passing maxRecordBytes stops the child. A reply is never left out, because something waits for it.
  * It never retries; failure, cancellation and exit end every waiter, and only this handle stops the child.
  */
 export function startRpcProcess({
-  command, args, cwd, env, spawnProcess = spawn, maxRecordBytes = 1048576, name = 'Harness', onRecord = () => {}, onFail = () => {},
+  command, args, cwd, env, spawnProcess = spawn, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
 }) {
   const child = spawnProcess(command, args, {
     cwd,
@@ -43,6 +44,8 @@ export function startRpcProcess({
   let serial = 0;
   let parts = [];
   let size = 0;
+  let leftOut = 0;
+  let leavingOut = false;
   let stderr = '';
   let failure;
   let exited = false;
@@ -101,6 +104,13 @@ export function startRpcProcess({
     const line = bytes.toString('utf8').replace(/\r$/, '');
     if (line.trim()) accept(JSON.parse(line));
   };
+  const exceeded = () => Error(`${name} output record exceeded its byte limit.`);
+  const startLeavingOut = () => {
+    if (Buffer.concat(parts).subarray(0, 64).includes('"type":"response"')) throw exceeded();
+    leavingOut = true;
+    leftOut += size;
+    parts = [];
+  };
   // Bound each record, not the stream; a long healthy run emits many records.
   const read = chunk => {
     let start = 0;
@@ -108,13 +118,16 @@ export function startRpcProcess({
       const newline = chunk.indexOf(10, start);
       const end = newline === -1 ? chunk.length : newline;
       size += end - start;
-      if (size > maxRecordBytes) throw Error(`${name} output record exceeded its byte limit.`);
-      if (end > start) parts.push(chunk.subarray(start, end));
+      if (leavingOut) leftOut += end - start;
+      else if (end > start) parts.push(chunk.subarray(start, end));
+      if (size > maxKeptBytes && !leavingOut) startLeavingOut();
+      if (leftOut > maxRecordBytes) throw exceeded();
       if (newline === -1) return;
-      const record = Buffer.concat(parts, size);
+      const record = leavingOut ? null : Buffer.concat(parts, size);
       parts = [];
       size = 0;
-      flush(record);
+      leavingOut = false;
+      if (record) flush(record);
       start = newline + 1;
     }
   };
@@ -129,7 +142,7 @@ export function startRpcProcess({
   child.stdout.on('end', () => {
     if (failure) return;
     try {
-      if (size) flush(Buffer.concat(parts, size));
+      if (size && !leavingOut) flush(Buffer.concat(parts, size));
       parts = [];
       size = 0;
     } catch (error) {

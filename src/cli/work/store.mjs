@@ -1,6 +1,6 @@
 import { appendFileSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { availableParallelism, homedir } from 'node:os';
+import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
@@ -11,14 +11,22 @@ export const levels = {
 };
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];
+export const impacts = ['high', 'medium', 'low'];
+export const efforts = ['small', 'medium', 'large'];
+export const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
+// The most agents work mode will ever run, whatever is asked for. The default sits well below it, and the reason is in the README.
+export const MAX_AGENTS = 8;
 
-const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
 const itemKinds = [...doableKinds, 'attention'];
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;
 const DEFAULT_DAILY_TOKENS = 100000000;
+const DEFAULT_AGENTS = 2;
+const DEFAULT_UNMERGED_LIMIT = 30;
 const HOUR_MS = 3600000;
 const HOURS_IN_DAY = 24;
+// Long enough for a run's first replies to show what it costs before the next one starts.
+const START_GAP_MS = HOUR_MS / 12;
 export const DISCOVERY_EVERY_MS = HOURS_IN_DAY * HOUR_MS;
 
 const workRoot = root => join(root, 'work');
@@ -43,7 +51,7 @@ export const paths = (root, slug) => {
 
 export const slugOf = name => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_NAME_LENGTH);
 
-function readJson(file, fallback) {
+export function readJson(file, fallback) {
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
   } catch {
@@ -79,9 +87,13 @@ function fold(events, identify) {
 }
 
 export function readMode(root) {
-  const pool = Math.max(2, Math.floor(availableParallelism() / 2));
-  const defaults = { version: 1, enabled: false, pool, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS, lastDiscoveryAt: null };
-  return { ...defaults, ...readJson(modePath(root), {}) };
+  const defaults = {
+    version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS,
+    unmergedLimit: DEFAULT_UNMERGED_LIMIT, startGapMs: START_GAP_MS, lastDiscoveryAt: null,
+  };
+  // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
+  const { pool, ...saved } = readJson(modePath(root), {});
+  return { ...defaults, ...saved };
 }
 
 export function writeMode(root, change) {
@@ -115,6 +127,16 @@ export function startWork(root, requested) {
 export function setHarness(root, harness) {
   if (!workHarnesses.includes(harness)) throw Error(`harness must be one of: ${workHarnesses.join(', ')}`);
   return writeMode(root, { harness });
+}
+
+export function setAgents(root, agents) {
+  if (!Number.isInteger(agents) || agents < 1 || agents > MAX_AGENTS) throw Error(`The number of agents must be between 1 and ${MAX_AGENTS}.`);
+  return writeMode(root, { agents });
+}
+
+export function setUnmergedLimit(root, unmergedLimit) {
+  if (!Number.isInteger(unmergedLimit) || unmergedLimit <= 0) throw Error('The unmerged limit must be a positive number.');
+  return writeMode(root, { unmergedLimit });
 }
 
 const localDay = now => new Date(now).toDateString();
@@ -191,18 +213,27 @@ export function sessionUsage(file) {
   };
 }
 
-export function recordTokens(root, { slug, lane, tokens }, now = Date.now()) {
-  appendEvent(tokensPath(root), { at: new Date(now).toISOString(), slug, lane, tokens });
+/** What stopped a run, in the provider's own words. A run that recovered and carried on has nothing to say here. */
+export function sessionError(file) {
+  const last = parseEvents(file).findLast(({ message }) => message?.role === 'assistant')?.message;
+  return last?.stopReason === 'error' ? last.errorMessage ?? null : null;
 }
 
+/** `kind` and `level` tell what kind of run this was, so the next one like it can be costed from it. */
+export function recordTokens(root, { slug, lane, tokens, ...details }, now = Date.now()) {
+  appendEvent(tokensPath(root), { at: new Date(now).toISOString(), slug, lane, tokens, ...details });
+}
+
+export const tokenEvents = root => parseEvents(tokensPath(root));
+
 export function tokensToday(root, now = Date.now()) {
-  return parseEvents(tokensPath(root))
+  return tokenEvents(root)
     .filter(event => localDay(event.at) === localDay(now))
     .reduce((sum, event) => sum + event.tokens, 0);
 }
 
 export function tokensLastHour(root, now = Date.now()) {
-  return parseEvents(tokensPath(root))
+  return tokenEvents(root)
     .filter(event => now - Date.parse(event.at) < HOUR_MS)
     .reduce((sum, event) => sum + event.tokens, 0);
 }
@@ -222,13 +253,21 @@ export const byRank = (left, right) => (left.rank ?? Infinity) - (right.rank ?? 
 
 export const proposedProjects = root => readProjects(root).filter(project => project.state === 'proposed').toSorted(byRank);
 
-function assertItem({ key, kind, title, brief }) {
+function assertSize({ impact, effort }) {
+  if (impact !== undefined && !impacts.includes(impact)) throw Error(`impact must be one of: ${impacts.join(', ')}`);
+  if (effort !== undefined && !efforts.includes(effort)) throw Error(`effort must be one of: ${efforts.join(', ')}`);
+}
+
+function assertItem(item) {
+  const { key, kind, title, brief } = item;
   if (!key) throw Error('An item needs a stable key.');
   if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
   if (!title || !brief) throw Error('An item needs a title and a brief.');
+  assertSize(item);
 }
 
-export function proposeProject(root, proposal, now = Date.now()) {
+/** `reoffer` is the watcher's alone: a skipped project that came back to life can be offered once more. */
+export function proposeProject(root, proposal, now = Date.now(), { reoffer = false } = {}) {
   const slug = slugOf(proposal.slug ?? proposal.name);
   if (!slug) throw Error('A proposal needs a name.');
   if (!proposal.path && !proposal.remote) throw Error('A proposal needs a path or a remote.');
@@ -236,7 +275,8 @@ export function proposeProject(root, proposal, now = Date.now()) {
   (proposal.first ?? []).forEach(assertItem);
 
   const known = readProject(root, slug);
-  if (known && known.state !== 'proposed') return known;
+  const offered = known?.state === 'proposed' || (reoffer && known?.state === 'skipped');
+  if (known && !offered) return known;
   appendEvent(projectsPath(root), { ...proposal, slug, state: 'proposed', at: new Date(now).toISOString() });
   return readProject(root, slug);
 }
@@ -270,7 +310,7 @@ export const dropProject = (root, slug, now = Date.now()) => answerProject(root,
 export const readItems = (root, slug) => fold(parseEvents(paths(root, slug).items), event => event.id);
 
 export function fileItem(root, slug, item, now = Date.now()) {
-  const { key, kind, title, brief, urgent = false, reopen } = item;
+  const { key, kind, title, brief, urgent = false, impact, effort, reopen } = item;
   assertItem(item);
 
   const known = readItems(root, slug).find(existing => existing.key === key);
@@ -278,30 +318,16 @@ export function fileItem(root, slug, item, now = Date.now()) {
 
   const id = known?.id ?? createHash('sha256').update(key).digest('hex').slice(0, 6);
   const filed = { id, key, kind, title, brief, urgent, state: 'open', attempts: 0, at: new Date(now).toISOString() };
-  appendEvent(paths(root, slug).items, reopen ? { ...filed, reopen } : filed);
+  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}) };
+  appendEvent(paths(root, slug).items, reopen ? { ...sized, reopen } : sized);
   return readItems(root, slug).find(existing => existing.id === id);
 }
 
 export function updateItem(root, slug, id, change, now = Date.now()) {
   if (!readItems(root, slug).some(existing => existing.id === id)) throw Error(`Unknown item: ${id}`);
+  assertSize(change);
   appendEvent(paths(root, slug).items, { ...change, id, updatedAt: new Date(now).toISOString() });
   return readItems(root, slug).find(existing => existing.id === id);
-}
-
-/** An interrupted item comes first, because its work is already in the tree. */
-export function nextItem(root, slug) {
-  const candidates = readItems(root, slug)
-    .filter(item => ['open', 'doing'].includes(item.state) && doableKinds.includes(item.kind));
-  const rank = item => [
-    item.state === 'doing' ? 0 : 1,
-    item.urgent ? 0 : 1,
-    doableKinds.indexOf(item.kind),
-  ];
-  const compare = (left, right) => {
-    const [a, b] = [rank(left), rank(right)];
-    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || left.at.localeCompare(right.at);
-  };
-  return candidates.toSorted(compare)[0] ?? null;
 }
 
 export const landing = (level, kind) => {
