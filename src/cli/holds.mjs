@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { checkHold } from './checks.mjs';
 import { runOutcomeText } from './reports.mjs';
 
 const OPENING = '<hobkin-hold>';
@@ -10,6 +11,7 @@ const MAX_REPORT_LENGTH = 2048;
 const MAX_ERROR_LENGTH = 512;
 // A turn that never finishes explained nothing, but it is not worth paying for without end.
 const MAX_TURNS = 3;
+const TURN_ID = /^hold:(.+):\d+$/;
 
 export const isHoldBrief = text => text.startsWith(`${OPENING}\n`);
 
@@ -19,6 +21,19 @@ export function nextHoldTurn(holdId, runs) {
   const turns = runs.filter(run => ids.includes(run.id));
   if (turns.length === MAX_TURNS || turns.some(run => run.status === 'completed')) return null;
   return { id: ids[turns.length], resumed: turns.length > 0 };
+}
+
+/**
+ * How far a check's plan speaks for it: up to the last turn about it, and for as long as its streak stands, even once a
+ * wait runs out. A hold asks once, so a second question about the same runs would go behind that answer.
+ */
+export function answeredUntil(schedule, runs) {
+  // No wait has run out at time zero, so this asks only whether the streak stands.
+  if (checkHold(schedule, runs, 0)) return Infinity;
+
+  const own = new Set(runs.filter(run => run.scheduleId === schedule.id).map(run => run.id));
+  const turns = runs.filter(run => own.has(run.id.match(TURN_ID)?.[1]));
+  return Math.max(0, ...turns.map(run => Date.parse(run.finishedAt ?? run.startedAt)));
 }
 
 /** Code mode reports a failed call in its details, and its own result can still read as a success. */

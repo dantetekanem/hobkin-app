@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { injectedLessons } from './learning/store.mjs';
 import { extensionPaths } from './pi-extensions.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 
@@ -27,7 +28,8 @@ function saveBrief(root, name, brief) {
   const folder = join(root, 'runtime', 'handoffs');
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   const file = join(folder, `${name}.md`);
-  writeFileSync(file, brief, { mode: 0o600 });
+  const lessons = injectedLessons(root);
+  writeFileSync(file, lessons.length ? `${brief}\n\n## Learned\n\n${lessons.join('\n')}\n` : brief, { mode: 0o600 });
   return file;
 }
 

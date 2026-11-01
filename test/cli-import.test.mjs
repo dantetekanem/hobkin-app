@@ -174,11 +174,12 @@ test('a setting made before the import survives it', async t => {
   const { from, to } = folders(t);
   await companionHome(from);
   prepared(to);
-  atomicJson(join(to, 'config.json'), { ...JSON.parse(readFileSync(join(to, 'config.json'), 'utf8')), jev: { enabled: true } });
+  atomicJson(join(to, 'config.json'), { ...JSON.parse(readFileSync(join(to, 'config.json'), 'utf8')), jev: { enabled: true }, learning: { enabled: true } });
 
   await importHome(to, from);
 
-  assert.deepEqual(JSON.parse(readFileSync(join(to, 'config.json'), 'utf8')).jev, { enabled: true });
+  const saved = JSON.parse(readFileSync(join(to, 'config.json'), 'utf8'));
+  assert.deepEqual([saved.jev, saved.learning], [{ enabled: true }, { enabled: true }]);
 });
 
 test('a folder with no data is refused', async t => {

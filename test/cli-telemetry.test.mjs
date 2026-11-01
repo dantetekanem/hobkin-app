@@ -82,6 +82,15 @@ test('the judgment follows recent reports, so a check can become ignored and rec
   assert.equal(digest(telemetry.attention(runs, later(22))).ignored, false);
 });
 
+test('learning hears which reports were used and since when, and never a word of them', t => {
+  const telemetry = Telemetry.open(dataRoot(t), started);
+  telemetry.recordReportRead({ id: 'glanced', dwellMs: 900 }, later(1));
+  telemetry.recordReportRead({ id: 'read', dwellMs: 20000 }, later(1));
+  telemetry.recordReportDiscussed('asked', later(1));
+
+  assert.deepEqual(telemetry.signals(), { since: started, read: new Set(['read', 'asked']), asked: new Set(['asked']) });
+});
+
 test('critical findings and requested runs show a check still matters', t => {
   const telemetry = Telemetry.open(dataRoot(t), started);
   const critical = { status: 'completed', text: 'Critical: The bank flagged a transfer.' };

@@ -125,6 +125,7 @@ Each run is a fresh Pi process in `cwd` with the user's normal tools. The instru
 - `checkMemory`: this check's memory, with its `path`. The run updates that file itself.
 - `log`: its recent runs.
 - `latestOutcome`: its last report.
+- `learning`: short lessons from past outcomes, when the user has turned learning on. Advice only.
 
 Hobkin already tells each run to keep its memory, skip repeats and start with a triage line, so write only what the check should do. State the sources, what counts as worth reporting, and what the report should contain.
 
@@ -143,7 +144,7 @@ A one-time file never runs twice. Once it has run, Hobkin moves it to `checks/<i
 ## Stay out of
 
 - `runtime/hobkin.sqlite` and `runtime.lock`. Never edit or delete them. Removing a live owner's lock can start two owners.
-- `runtime/view.json`, `runtime/presentation.json`, `sessions/` and `jobs/`. Hobkin owns these, and their formats can change.
+- `runtime/view.json`, `runtime/presentation.json`, `runtime/learning.json`, `runtime/learning-actions.jsonl`, `sessions/` and `jobs/`. Hobkin owns these, and their formats can change. `hobkin learning` shows what was learned and removes it.
 - `reports/`. Read reports with `hobkin reports` and delete them with its `delete` command.
 - `work/*/trees/`. These are worktrees that work mode's agents are using. To hand a project work, pipe JSON to `hobkin work item <slug>`.
 

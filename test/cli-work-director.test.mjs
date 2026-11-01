@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { initialize, setLearning } from '../src/cli/config.mjs';
+import { saveState } from '../src/cli/learning/store.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import {
@@ -1145,6 +1147,29 @@ test('work runs do not take a place from ordinary checks', async t => {
 
   release.resolve();
   await h.settled();
+});
+
+test('lessons reach a work agent in its request, and in the brief of a pane on any harness', async t => {
+  const h = fixture(t);
+  initialize(h.root, { cwd: h.base });
+  setLearning(h.root, true);
+  saveState(h.root, { lessons: [{ id: 'a', scope: 'site-audit', code: 'blocked', seen: 5, latest: new Date(h.clock).toISOString() }], proposals: [], pullRequests: {} });
+  const briefs = [];
+  h.director.panes = {
+    run: async options => {
+      briefs.push(readFileSync(options.brief, 'utf8'));
+      return { status: 'completed', text: 'Nothing new.', cost: null };
+    },
+  };
+  writeMode(h.root, { enabled: true, folder: h.base, harness: 'claude', lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'billing'));
+
+  await h.director.tick();
+  await h.settled?.();
+  await Promise.all([...h.runner.jobs.values()]);
+
+  assert.equal(briefs.length, 1);
+  assert.match(briefs[0], /"learning":\["learned: advice only[^"]*","-site-audit blocked x5: do the rest, name what stopped it"\]/);
 });
 
 test('in Herdr, project work runs in panes on the chosen harness while discovery stays hidden', async t => {

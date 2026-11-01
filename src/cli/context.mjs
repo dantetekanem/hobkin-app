@@ -62,5 +62,8 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
   if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) {
     throw Error('context envelope exceeded its byte limit: shorten the sources, AGENTS.md or this check\'s memory');
   }
-  return prompt;
+  if (!check.learning?.length) return prompt;
+  // Lessons go in the request, never the system prompt, so a new lesson leaves what every run shares cached. A run with no room for advice still runs.
+  const advised = JSON.stringify({ ...envelope, learning: check.learning });
+  return Buffer.byteLength(advised) > MAX_PROMPT_BYTES ? prompt : advised;
 }

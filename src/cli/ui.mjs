@@ -153,7 +153,22 @@ const localCommands = [
   ['/reset', 'start a fresh main context'],
   ['/work', 'work mode'],
   ['/jev', 'moods'],
+  ['/learning', 'learn from outcomes'],
 ];
+const settingCommands = {
+  '/jev': {
+    name: 'Jev',
+    toggle: 'toggleJev',
+    on: 'Jev on. Hobkin can show all 18 moods.',
+    off: 'Jev off. Hobkin keeps its four moods.',
+  },
+  '/learning': {
+    name: 'Learning',
+    toggle: 'toggleLearning',
+    on: 'Learning on. Every agent now gets what past outcomes taught. Run hobkin learning to see it.',
+    off: 'Learning off. Nothing is judged, and agents get nothing.',
+  },
+};
 const helpGuide = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
 const tips = [
   'Type /help to see what Hobkin can do.',
@@ -166,6 +181,7 @@ const tips = [
   'Install Hex and talk to me when you need: https://anoma.ly/hex/',
 ];
 const jevTip = 'Type /jev so Hobkin can show all 18 moods.';
+const learningTip = 'Type /learning so Hobkin learns from how its work turns out.';
 const ignoredTips = attention => attention.filter(item => item.ignored).map(({ title, read, reports }) =>
   `${clean(title)}: ${read} of ${reports} reports opened. Revisit it?`);
 // Tips follow the clock rather than a timer, so each one holds still for its whole turn on screen.
@@ -1090,15 +1106,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         toggleWorkFromChat(submitted);
         return;
       }
-      if (submitted === '/jev') {
+      const setting = settingCommands[submitted];
+      if (setting) {
         clearing = true;
         pending = Promise.resolve().then(() => {
-          if (typeof callbacks.toggleJev !== 'function') throw Error('Jev unavailable');
-          return callbacks.toggleJev();
-        }).then(jev => {
+          if (typeof callbacks[setting.toggle] !== 'function') throw Error(`${setting.name} unavailable`);
+          return callbacks[setting.toggle]();
+        }).then(result => {
           if (editor.getExpandedText() === submitted) editor.setText('');
-          say(jev?.enabled ? 'Jev on. Hobkin can show all 18 moods.' : 'Jev off. Hobkin keeps its four moods.', 'success', { timeout: 3000 });
-        }, error => { say(`Jev failed: ${clean(error?.message ?? error)}`, 'error'); })
+          say(result?.enabled ? setting.on : setting.off, 'success', { timeout: 3000 });
+        }, error => { say(`${setting.name} failed: ${clean(error?.message ?? error)}`, 'error'); })
           .finally(() => { clearing = false; changed(); });
         return;
       }
@@ -1280,7 +1297,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const memorySize = () => (Number.isFinite(snapshot.memoryBytes)
     ? `${muted('memory')} ${dim(kilobytes(snapshot.memoryBytes))}` : '');
   const tipLine = clock => {
-    const tip = tipAt([...tips, ...(snapshot.jev ? [] : [jevTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
+    const tip = tipAt([...tips, ...(snapshot.jev ? [] : [jevTip]), ...(snapshot.learning ? [] : [learningTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
     return tip ? `${muted('tip')}  ${dim(tip)}` : '';
   };
   const drawnFace = clock => {
@@ -1338,7 +1355,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const activity = activityText(keys(hints.slice(0, shown)), frame);
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
-    const memory = [workNote, snapshot.jev ? muted('jev') : '', memorySize()].filter(Boolean).join(muted(' · '));
+    const memory = [workNote, snapshot.jev ? muted('jev') : '', snapshot.learning ? muted('learning') : '', memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
     // The row stays reserved so a tip coming or going never moves anything.

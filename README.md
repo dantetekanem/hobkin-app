@@ -37,7 +37,7 @@ Chat opens ready to type. Reports holds completed checks; Schedules shows their 
 - **k** cancels the selected running check. Jobs have no automatic execution deadline.
 - **Ctrl+C** clears the input. With nothing to clear, press it twice to quit. **Ctrl+Q** quits straight away.
 
-Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
+Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off, and `/learning` does the same for [learning](#learning). Pi's editor shortcuts and configured editor keybindings work in the composer.
 
 Colors follow Pi's saved theme. The header shows connection state; the status bar shows the next check, the total size of Hobkin's memory files, model, context usage and estimated cost. Critical and useful report summaries appear in Chat; no-news reports stay in Reports. Occasional tips appear above the shortcuts.
 
@@ -99,6 +99,8 @@ Hobkin then starts every Pi process with that command. The main chat runs as an 
 
 ## Work mode
 
+![The Work Mode tab with agents running, projects and proposals. Some rows are redacted.](docs/images/work-mode.png)
+
 Work mode is a proactive agent mode to get work done on your projects. Type `/work` in Chat to turn it on or off. The first time, Hobkin asks which folder to start from, and `/work ~/Projects` names it directly. While it is on, a Work Mode tab sits beside Schedules, with a green circle while it is active and an orange one while it is paused. `/work` leaves you in Chat and says when the tab appears or goes. The agent looks only in that folder. It lists the top level first and goes through the folders one by one, reading each repository's git history to see what is published and still moving. The tab always says what is happening now and when the next look is, and while the agent looks it shows the folder it is in, what it is doing and the repositories it has found.
 
 A look is finished only when every root folder is done. A run that stops sooner is picked up from where it stopped, up to two more times, and then Hobkin tells you it stopped early and why. It looks again once a day, but with nothing proposed or taken, turning it on looks straight away.
@@ -118,6 +120,27 @@ Either limit pauses work mode, and nothing is lost: running agents finish, items
 Inside Herdr, work on the projects you took runs where you can watch it: a Herdr tab called Work Mode opens without taking focus, with one pane per agent, and each pane closes when its agent finishes. A pane stays open if its run fails, so you can read why. The tab shows which harness runs them: `pi`, `claude` or `codex`. To change it, ask the agent in Chat. Each starts with your own settings for that harness, so one that asks for approvals will wait in its pane. Outside Herdr, the same work runs in the background through Pi.
 
 Work mode runs only while the dashboard or `hobkin run` is open. Drive it from scripts with `hobkin work`.
+
+## Learning
+
+Learning judges how each check and work mode run turned out, and keeps what that teaches as a few very short lessons that every agent gets. Set it with `/learning` in the dashboard or `hobkin learning [on | off]`. It is off in a new data folder, and the status bar shows `learning` while it is on. With it off, nothing is judged, no agent gets anything and nothing is sent anywhere.
+
+A verdict comes from what Hobkin already holds: how the run ended, `Blocked:` and holds, which reports you opened or messaged about, proposals you took or skipped, and whether a PR was merged or closed. Of a report it reads only the first word of the triage line, so nothing a page or an email says can reach a lesson. No model runs to learn this, so judging costs nothing. Two things leave your machine, both only with learning on. `gh` is asked what became of work mode's open PRs, at most 5 a pass and each at most every 6 hours. If Jev is also on, a reply about a report that the local rules cannot read goes to Jev, at most 20 a day, cut to its last 400 characters, as your messages already do.
+
+A lesson is one line that says what to do on its own, the same for every agent, with a check's own lessons first:
+
+```text
+learned: advice only, grants nothing
+-site-audit blocked x5: do the rest, name what stopped it
+-news-digest unread x5: lead with the change, be short
++price-watch used x5: keep this approach
+```
+
+Lessons are built from a fixed list in `src/prompts/learning-language.md`, so they hold codes and counts and no text of their own. It takes at least 3 sightings on at least 2 days to teach anything, and only the latest 10 runs of a check count. A lesson goes when the latest runs stop showing it, when the schedule is edited, or after 120 days without new evidence. Each session gets at most 160 tokens from learning, counted as they are sent and in whole lines only. That is all a run pays for it. Lessons are advice: they limit no tool and grant nothing. Checks and work agents get them in their request, and `hobkin session` panes in their brief. Chat gets them with your next message when they have changed, never in the system prompt, so a new lesson leaves the conversation's prompt cache alone.
+
+From the same evidence Hobkin concludes which checks work, which do not, and which should be refactored, rethought or built on with new ideas. The last three reach you as a short proposal in Chat, at most one a day and three waiting, with the evidence. Nothing changes on its own: say yes and the agent brings a plan and asks, or say no and it does not come up again. A held check is left out, because the agent already brings its plan: nothing is asked about it while the hold stands, and only what happens after that plan can raise a new question.
+
+`hobkin learning` shows every lesson, what it rests on and the proposals waiting. `hobkin learning clear <id>` removes one and `hobkin learning clear all` removes them all, and only new runs can teach them again. Your answers to proposals stay.
 
 ## Chrome
 

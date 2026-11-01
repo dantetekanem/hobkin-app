@@ -40,21 +40,22 @@ export function currentMood({ reaction, busy, running, now }) {
   return running ? 'working' : 'idle';
 }
 
-export async function askJev(state, { key = process.env.TYPESAFE_API_KEY, request = fetch } = {}) {
+/** One typed judgement from Jev. Without a key nothing is sent. */
+export async function askJudgement(state, questions, { key = process.env.TYPESAFE_API_KEY, request = fetch } = {}) {
   if (!key) throw Error('Jev needs TYPESAFE_API_KEY.');
   const response = await request(JEV_URL, {
     method: 'POST',
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: JEV_MODEL,
-      state,
-      questions: { mood: { type: 'choice', instructions: MOOD_QUESTION, criteria: MOOD_MEANINGS } },
-    }),
+    body: JSON.stringify({ model: JEV_MODEL, state, questions }),
     signal: AbortSignal.timeout(JEV_TIMEOUT_MS),
   });
   if (!response.ok) throw Error(`Jev answered ${response.status}.`);
-  return (await response.json()).answers?.mood?.choice;
+  return (await response.json()).answers;
 }
+
+export const askJev = async (state, options) => (await askJudgement(state, {
+  mood: { type: 'choice', instructions: MOOD_QUESTION, criteria: MOOD_MEANINGS },
+}, options))?.mood?.choice;
 
 const quoted = message => (message ? String(message.content).slice(-MAX_QUOTE_LENGTH) : undefined);
 

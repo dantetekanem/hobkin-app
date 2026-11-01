@@ -12,6 +12,7 @@ import { saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 
 export const MAIN_BUSY = 'Main conversation is busy.';
+export const MAX_MESSAGE_BYTES = 65536;
 const context = BACKGROUND_CONTEXT;
 const RuntimeDoc = defineDoc({
   kind: 'companion.v2.runtime',
@@ -414,7 +415,7 @@ export class HobkinRuntime {
     if (!this.main) throw Error('Main conversation is not connected.');
     if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart Hobkin to reconnect.`);
     if (this.resetting) throw Error('Main conversation is resetting.');
-    if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 65536) throw Error('Message must contain 1–65536 bytes.');
+    if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) throw Error(`Message must contain 1–${MAX_MESSAGE_BYTES} bytes.`);
 
     const activeTurn = this.mainTurn;
     if (activeTurn?.session === this.main) {

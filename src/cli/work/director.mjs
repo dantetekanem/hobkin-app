@@ -2,14 +2,13 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
 import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
-import { discoveryMessage } from './chat.mjs';
+import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { agentName } from './panes.mjs';
 import {
   currentRequest, dailyLimit, declinedToday, DISCOVERY_EVERY_MS, foldersLeft, hasWorkToShow, isPacing, landing, lenses, levels, nextDiscoveryAt, nextItem, paths,
@@ -34,8 +33,6 @@ const MAX_REASON_LENGTH = 500;
 // A look that ended one of these ways has had its say, so an empty tab is not a reason to look again today.
 const lookOutcomes = ['finished', 'failed', 'unfinished', 'cancelled'];
 
-const mainScript = fileURLToPath(new URL('../main.mjs', import.meta.url));
-const shellWord = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const clone = promisify(execFile);
 
 // Pi loads the user's global rules into every run, and those ask for explicit permission for these actions.
@@ -187,7 +184,7 @@ export class WorkDirector {
   }
 
   command(subcommand) {
-    return `${shellWord(process.execPath)} ${shellWord(mainScript)} work ${subcommand} --home ${shellWord(this.root)}`;
+    return hobkinCommand(this.root, `work ${subcommand}`);
   }
 
   /** Exact commands, so the main agent's answer lands in this home whatever is on its path. */
