@@ -94,6 +94,8 @@ Either limit pauses work mode: running agents finish and items stay. The hourly 
 
 Put the user's standing instructions for a project in `work/<slug>/directions.md`, in their own words. Every run on that project receives them. What agents learned about a project is in `work/<slug>/project.md`.
 
+If the user wants to start work mode over, turn it off, then run `hobkin work reset` with `--home` set to the supplied root. It forgets projects, proposals and discovery notes and removes its trees, and keeps the folder, harness, limits and directions.
+
 ## Report attention
 
 Hobkin rolls up how reports get used in `runtime/report-attention.json`: for each check's latest 10 reports, how many were opened or messaged about, plus critical and nothing-new counts, cost and `ignored`. `ignored` means at least 5 reports over at least a week, at most 1 in 5 opened, no critical finding and no requested run. The user sees this in Schedules and in occasional tips.

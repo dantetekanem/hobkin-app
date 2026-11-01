@@ -43,3 +43,9 @@ export async function prepareTree({ repo, tree, branch, resume = false }) {
   else await git(tree, 'switch', '--quiet', '--detach', base);
   return { base };
 }
+
+/** Takes a tree back out of the user's repository, so it keeps no entry for a folder that is gone. */
+export async function removeTree({ repo, tree }) {
+  await gitOrNothing(repo, 'worktree', 'remove', '--force', tree);
+  await gitOrNothing(repo, 'worktree', 'prune');
+}

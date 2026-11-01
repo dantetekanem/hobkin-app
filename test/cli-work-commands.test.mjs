@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { main, parseArguments } from '../src/cli/main.mjs';
-import { readItems, readMode, readProjects, writeMode, writeState } from '../src/cli/work/store.mjs';
+import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import {
+  chooseProject, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readProjects, writeMode, writeState,
+} from '../src/cli/work/store.mjs';
+import { prepareTree } from '../src/cli/work/tree.mjs';
 
 function dataRoot(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-work-cli-')));
@@ -146,3 +151,46 @@ test('a bad request fails without changing anything', async t => {
   await assert.rejects(work(root, ['dance']), /Usage/);
   assert.deepEqual(readProjects(root), []);
 });
+
+test('a reset forgets what work mode found, removes its trees cleanly and keeps how it was set up', async t => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-reset-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const root = join(base, 'home');
+  const repo = join(base, 'api');
+  mkdirSync(root);
+  mkdirSync(repo);
+  const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+  git('init', '--quiet', '--initial-branch=main');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'first');
+  writeMode(root, { enabled: false, folder: base, harness: 'claude', dailyTokens: 5000000, lastDiscoveryAt: '2026-01-01T00:00:00.000Z' });
+  writeFileSync(join(root, 'work', 'AGENTS.md'), 'Ignore the old folders.');
+  proposeProject(root, { name: 'api', path: repo, level: 'important', why: 'It ships.', found: 'Recent commits.' });
+  chooseProject(root, 'api');
+  noteDiscovery(root, { rootFolders: ['api'], finishedFolders: [] });
+  await prepareTree({ repo, tree: paths(root, 'api').lookTree });
+  mkdirSync(join(root, 'checks', 'work.discover'), { recursive: true });
+  writeFileSync(join(root, 'checks', 'work.discover', 'memory.md'), 'Halfway through.');
+  mkdirSync(join(root, 'runtime'));
+
+  await runWorkCommand(root, ['reset']);
+
+  assert.deepEqual(readProjects(root), []);
+  assert.equal(existsSync(paths(root, 'api').directory), false);
+  assert.equal(git('worktree', 'list', '--porcelain').match(/^worktree /gm).length, 1, 'the repository keeps no stale tree');
+  assert.equal(existsSync(join(root, 'checks', 'work.discover')), false, 'the next look starts from nothing');
+  assert.equal(readDiscovery(root).status, undefined);
+  const mode = readMode(root);
+  assert.deepEqual([mode.folder, mode.harness, mode.dailyTokens, mode.lastDiscoveryAt], [base, 'claude', 5000000, null]);
+  assert.equal(readFileSync(join(root, 'work', 'AGENTS.md'), 'utf8'), 'Ignore the old folders.');
+  const [aside] = readdirSync(join(root, 'runtime')).filter(name => name.startsWith('work-reset-'));
+  assert.ok(existsSync(join(root, 'runtime', aside, 'projects.jsonl')), 'the old picks can still be read');
+});
+
+test('a reset refuses while work mode is on, so nothing runs in a tree it removes', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-reset-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeMode(root, { enabled: true, folder: root });
+
+  await assert.rejects(runWorkCommand(root, ['reset']), /work mode off/);
+});
+

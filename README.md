@@ -105,6 +105,8 @@ When the look ends, Hobkin says in Chat which projects it proposes, main project
 
 From then on, agents work on those projects without being asked. One studies each project and then looks through it for security issues, bugs, updates, chores, improvements, features and trends, filing what it finds. Another takes those items one at a time and opens a PR, in its own worktree, so your checkout is never touched. The level sets how often it looks, how hard it thinks, and whether PRs start as drafts. Once a day each project also gets new ideas designed for it: up to 3 when it has little open work, 1 when it has some, and none when it has plenty.
 
+To start over, turn work mode off and run `hobkin work reset`, or ask the agent. It forgets the projects, proposals and notes and removes its trees, and the next `/work` looks from nothing. Your folder, harness, limits and work mode directions stay.
+
 Run `/work` again to stop. The tab goes away, a look in progress stops and carries on from its notes next time, project agents finish, nothing new starts, and projects, items and branches stay. In the tab, Enter on a running agent's row opens that agent, and `k` there cancels it. A cancelled item waits under Needs attention instead of starting again.
 
 Work mode watches its tokens. The Work Mode tab shows fresh tokens used today against a daily limit, 100 million by default. Set it with `hobkin work tokens <number>`. Cache reads are not counted, and `claude` and `codex` panes are not counted at all, because only Pi's session files can be read. Work spreads across the day: any rolling hour can use at most a 24th of the limit, then new work waits for the hour to move on. Past half the limit a project gets one idea at most. Urgent items always start.

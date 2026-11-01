@@ -1,10 +1,14 @@
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  answerAllowance, chooseProject, currentRequest, dailyLimit, dropProject, fileItem, isPacing, nextDiscoveryAt, nextLookAt, noteDiscovery, proposeProject,
-  readDiscovery, readItems, readMode, readProjects, readState, setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
+  answerAllowance, chooseProject, currentRequest, dailyLimit, dropProject, fileItem, isPacing, nextDiscoveryAt,
+  nextLookAt, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readProjects, readState,
+  setDailyTokens, setHarness, skipProject, startWork, tokensToday, updateItem, writeMode,
 } from './store.mjs';
+import { removeTree } from './tree.mjs';
 
-const USAGE = 'Usage: hobkin work [on [folder] | off | harness <kind> | tokens <daily limit> | allow [tokens | no] | progress | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
+const USAGE = 'Usage: hobkin work [on [folder] | off | reset | harness <kind> | tokens <daily limit> | allow [tokens | no] | progress | propose | choose <slug or path> [level] | skip <slug> | drop <slug> | item <slug>]';
 
 async function readJson(input) {
   let text = '';
@@ -49,6 +53,29 @@ export function workStatus(root) {
   };
 }
 
+/** Forgets what work mode found, so the next start looks from nothing. Its folder, harness, limits and directions stay. */
+async function resetWork(root) {
+  const mode = readMode(root);
+  if (mode.enabled) throw Error('Turn work mode off first, so nothing is running in the trees this removes.');
+  const projects = readProjects(root);
+  for (const { slug, path } of projects) {
+    const { directory, lookTree, doTree } = paths(root, slug);
+    for (const tree of [lookTree, doTree]) await removeTree({ repo: path, tree });
+    rmSync(directory, { recursive: true, force: true });
+  }
+  const aside = join(root, 'runtime', `work-reset-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  mkdirSync(aside, { recursive: true, mode: 0o700 });
+  for (const name of ['projects.jsonl', 'discovery.jsonl']) {
+    const file = join(root, 'work', name);
+    if (existsSync(file)) renameSync(file, join(aside, name));
+  }
+  for (const check of readdirSync(join(root, 'checks'), { withFileTypes: true })) {
+    if (check.isDirectory() && check.name.startsWith('work.')) rmSync(join(root, 'checks', check.name), { recursive: true, force: true });
+  }
+  writeMode(root, { lastDiscoveryAt: null });
+  return { forgot: projects.length, kept: aside };
+}
+
 /** These take no lock. They only append or rewrite `mode.json`, and the owner picks that up on its next tick. */
 export async function runWorkCommand(requestedRoot, [action, ...args], input) {
   const root = resolveDataRoot(requestedRoot);
@@ -56,6 +83,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input) {
     case undefined: return workStatus(root);
     case 'on': return startWork(root, args[0]);
     case 'off': return writeMode(root, { enabled: false });
+    case 'reset': return resetWork(root);
     case 'harness': return setHarness(root, args[0]);
     case 'tokens': return setDailyTokens(root, Number(args[0]));
     case 'allow': {
