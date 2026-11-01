@@ -17,7 +17,9 @@ const WIDTH = Math.round((HEIGHT * VIEW_WIDTH * STRETCH) / VIEW_HEIGHT);
 // The hood's own box is 40,22 to 160,188, and the moods set the size: listening and hello reach x = 1 and 199, celebrating's confetti y = -31.5.
 // It sits a little left of centre, away from the input. Only listening needs the frame's left edge, so it stays put.
 const LEFT_SHIFT = 13;
-const viewBox = mood => `${mood === 'listening' ? 0 : LEFT_SHIFT} -33 ${VIEW_WIDTH} ${VIEW_HEIGHT}`;
+// Low enough to sit level with the input and the shortcuts rather than the rule above them.
+const VIEW_TOP = -64;
+const viewBox = mood => `${mood === 'listening' ? 0 : LEFT_SHIFT} ${VIEW_TOP} ${VIEW_WIDTH} ${VIEW_HEIGHT}`;
 const AT_ONCE = 4;
 const WORDMARK_HEIGHT = 96;
 
