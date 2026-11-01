@@ -330,6 +330,76 @@ test('Tab on a bare slash walks every command and comes back round', () => {
   assert.deepEqual(Array.from({ length: 7 }, tab), ['/help', '/clear', '/reset', '/work', '/jev', '/learning', '/help']);
 });
 
+test('Ctrl+C clears what is typed and does not quit', () => {
+  let quits = 0;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { onQuit: () => { quits++; } });
+
+  ui.input('half a thought');
+  ui.input('\x03');
+
+  assert.equal(ui.state().draft, '');
+  assert.equal(quits, 0);
+});
+
+test('Ctrl+C with nothing to clear warns first, and quits on the second press', () => {
+  let quits = 0;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { onQuit: () => { quits++; } });
+
+  ui.input('\x03');
+
+  assert.equal(quits, 0);
+  assert.match(ui.state().notice, /again to quit/i);
+  ui.input('\x03');
+  assert.equal(quits, 1);
+});
+
+test('a second Ctrl+C long after the first only warns again', () => {
+  let quits = 0;
+  let clock = 1000;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { onQuit: () => { quits++; } }, { now: () => clock });
+
+  ui.input('\x03');
+  clock += 10000;
+  ui.input('\x03');
+
+  assert.equal(quits, 0);
+  ui.input('\x03');
+  assert.equal(quits, 1);
+});
+
+test('clearing a draft does not count towards quitting', () => {
+  let quits = 0;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { onQuit: () => { quits++; } });
+
+  ui.input('x');
+  ui.input('\x03');
+  ui.input('\x03');
+
+  assert.equal(quits, 0);
+});
+
+test('Ctrl+C on a tab with no input takes two presses too', () => {
+  let quits = 0;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { onQuit: () => { quits++; } });
+  ui.input('\x1b[C');
+
+  ui.input('\x03');
+  assert.equal(quits, 0);
+  ui.input('\x03');
+
+  assert.equal(quits, 1);
+});
+
+test('Ctrl+Q quits at once, even with a draft', () => {
+  let quits = 0;
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { onQuit: () => { quits++; } });
+
+  ui.input('half a thought');
+  ui.input('\x11');
+
+  assert.equal(quits, 1);
+});
+
 test('a slash command comes back with the up arrow', () => {
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
 
@@ -612,12 +682,10 @@ test('arrow keys cycle views with an empty composer and keep editing nonempty dr
   assert.equal(ui.state().view, 'conversation');
 });
 
-test('accepted sends clear draft and reveal conversation; Ctrl+C quits even while editing', async () => {
+test('accepted sends clear draft and reveal conversation', async () => {
   const sent = [];
-  let quits = 0;
   const ui = createDashboard({ ...snapshot, connection: 'connected' }, {
     send: async text => { sent.push(text); },
-    onQuit: () => { quits++; },
   });
   ui.input('こんにちは');
   ui.input('\r');
@@ -626,10 +694,6 @@ test('accepted sends clear draft and reveal conversation; Ctrl+C quits even whil
   assert.equal(ui.state().draft, '');
   assert.equal(ui.state().view, 'conversation');
   assert.equal(ui.state().focus, 'composer');
-  ui.input('unsent');
-  ui.input('\x03');
-  assert.equal(quits, 1);
-  assert.equal(ui.state().draft, 'unsent');
 });
 
 test('Unicode, paste and terminal controls are bounded across wide, narrow and resize layouts', () => {
@@ -778,7 +842,7 @@ test('fullscreen lifecycle preserves the draft and restores the parent terminal'
   assert.equal(ui.state().draft, 'hello');
   terminal.input('\x1b[D');
   assert.equal(ui.state().view, 'conversation');
-  terminal.input('\x03');
+  terminal.input('\x11');
   assert.equal(quits, 1);
   assert.ok(terminal.writes[0].startsWith('\x1b[?1049h'));
   assert.ok(terminal.writes.every(data => !data.includes('\x1b[?1049l')));
@@ -883,12 +947,12 @@ test('busy or live-job activity animates only while work runs and never after st
 test('fullscreen editor loads namespaced Pi typing bindings without changing the file', t => {
   const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-keybindings-'));
   t.after(() => rmSync(agentDir, { recursive: true, force: true }));
-  writeFileSync(join(agentDir, 'keybindings.json'), JSON.stringify({ 'tui.editor.cursorLineStart': 'ctrl+q' }));
+  writeFileSync(join(agentDir, 'keybindings.json'), JSON.stringify({ 'tui.editor.cursorLineStart': 'ctrl+g' }));
   const terminal = new FakeTerminal();
   const ui = startDashboard(snapshot, {}, { terminal, agentDir });
   t.after(() => ui.stop());
   terminal.input('end');
-  terminal.input('\x11');
+  terminal.input('\x07');
   terminal.input('start ');
   assert.equal(ui.state().draft, 'start end');
 });
@@ -997,6 +1061,43 @@ test('footer questions retain the main view and scroll while paging long text in
     assert.equal(await answer, null);
     assert.deepEqual(ui.state(), before);
   }
+});
+
+test('page keys read the conversation behind a question that fits, and answering puts it back', async () => {
+  const plan = Array.from({ length: 30 }, (_, index) => `Plan line ${index}`).join('\n\n');
+  const ui = createDashboard({ ...snapshot, messages: [{ id: 'plan', role: 'assistant', content: plan }] });
+  const answer = ui.askQuestion({ question: 'Go ahead?', choices: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }] });
+
+  const rendered = screen(ui, 80, 24);
+  assert.match(rendered, /Plan line 29/);
+  assert.doesNotMatch(rendered, /Plan line 0\b/);
+
+  for (let i = 0; i < 20; i++) { ui.input('\x1b[5~'); screen(ui, 80, 24); }
+  assert.match(screen(ui, 80, 24), /Plan line 0\b/);
+  assert.match(screen(ui, 80, 24), /Go ahead\?/);
+
+  ui.input('\x1b[6~');
+  assert.doesNotMatch(screen(ui, 80, 24), /Plan line 0\b/, 'it comes back as soon as the keys turn around');
+  ui.input('\r');
+  assert.equal(await answer, 'no');
+  assert.equal(ui.state().scroll, 0);
+  assert.match(screen(ui, 80, 24), /Plan line 29/);
+});
+
+test('page keys still read a question too long for its box, in Chat too', async () => {
+  const ui = createDashboard({ ...snapshot, messages: [{ id: 'main', role: 'assistant', content: 'Main conversation' }] });
+  const abort = new AbortController();
+  const answer = ui.askQuestion({
+    question: `Footer question ${'long question '.repeat(30)}QUESTIONEND`,
+    choices: [{ value: 'yes', label: 'Yes' }],
+  }, abort.signal);
+  assert.doesNotMatch(screen(ui, 60, 18), /QUESTIONEND/);
+
+  for (let i = 0; i < 20; i++) { ui.input('\x1b[6~'); screen(ui, 60, 18); }
+
+  assert.match(screen(ui, 60, 18), /QUESTIONEND/);
+  abort.abort();
+  await answer;
 });
 
 test('/reset waits for backend acceptance and retains draft and chat on failure or unavailable callback', async () => {

@@ -224,6 +224,11 @@ export class HobkinRuntime {
   messages() { return this.main?.messages ?? []; }
   get mainBusy() { return Boolean(this.main && this.busySessions.has(this.main.sessionId)); }
   sessionReady(sessionId) { return !this.closing && !this.fault && !this.busySessions.has(sessionId); }
+  /** Whether a new turn would start at once. `send` steers a live turn instead, and Pi refuses a prompt during compaction. */
+  get mainFree() {
+    return Boolean(this.main) && this.sessionReady(this.main.sessionId) && !this.mainFault && !this.resetting
+      && !this.main.isStreaming && !this.main.isCompacting;
+  }
   reserveSession(sessionId) {
     this.check();
     if (!sessionId || !this.sessionReady(sessionId)) throw Error('Conversation is busy.');

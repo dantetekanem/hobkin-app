@@ -12,6 +12,7 @@ import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
+import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
@@ -58,6 +59,9 @@ export class HobkinApplication {
   jobActivity = new Map();
   activeJobIds = new Set();
   outgoing = Promise.resolve();
+  sending = 0;
+  // Holds this process has nothing more to do for: one try each, and the next start picks up a turn that was cut off.
+  handledHolds = new Set();
 
   observeActivity(id, event) {
     try {
@@ -75,6 +79,7 @@ export class HobkinApplication {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
+    app.watched = watched;
     app.now = () => new Date(now?.() ?? Date.now()).getTime();
     app.config = loadConfig(root);
     // Every job starts its Pi through the configured launcher, which owns Pi's extensions; without one Hobkin names them.
@@ -123,7 +128,10 @@ export class HobkinApplication {
         now,
         compatibility: app.delivery.adapter,
         onActivity: (id, event) => app.observeActivity(id, event),
-        onTick: () => app.tickWork(),
+        onTick: async () => {
+          await app.tickWork();
+          await app.tickHolds();
+        },
       });
       app.director = new WorkDirector({
         root: app.runtime.directory,
@@ -253,6 +261,7 @@ export class HobkinApplication {
     const messages = [
       ...this.runtime.messages()
         .filter(message => ['user', 'assistant', 'custom'].includes(message.role) && message.customType !== CHROME_NOTE)
+        .filter(message => !isHoldBrief(textOf(message)))
         .slice(-100)
         .map(chatMessage),
       ...notices,
@@ -357,7 +366,8 @@ export class HobkinApplication {
 
   // Messages go out in the order they were typed, and one the conversation cannot take yet waits here.
   send(text, report) {
-    const sent = this.outgoing.then(() => this.deliver(text, report));
+    this.sending++;
+    const sent = this.outgoing.then(() => this.deliver(text, report)).finally(() => { this.sending--; });
     this.outgoing = sent.catch(() => {});
     return sent;
   }
@@ -426,6 +436,34 @@ export class HobkinApplication {
     return result;
   }
 
+  // Nobody asked for this turn, so it never steers one under way or overtakes what the user sent.
+  canStartHoldTurn() {
+    return !this.closing && !this.sending && this.runtime.mainFree;
+  }
+
+  /**
+   * A held check owes the user a plan, and without a dashboard nobody could answer, so it waits for one.
+   * This never waits for the turn itself, because the turn's `run_schedule` needs this tick to end.
+   */
+  async tickHolds() {
+    const owed = schedules => schedules.filter(({ nextRun }) => nextRun?.state === 'held' && !this.handledHolds.has(nextRun.holdId));
+    if (!this.watched || !owed(this.snapshot.schedules ?? []).length || !this.canStartHoldTurn()) return;
+
+    const { schedules, runs } = await this.runner.snapshot();
+    for (const schedule of owed(schedules)) {
+      const { holdId } = schedule.nextRun;
+      const turn = nextHoldTurn(holdId, runs);
+      if (turn && !this.canStartHoldTurn()) return;
+
+      this.handledHolds.add(holdId);
+      if (!turn) continue;
+
+      // Its receipt records a failure, for the next start to pick up.
+      void this.runtime.send(holdBrief(this.runtime.directory, schedule, runs, turn), turn.id).catch(() => {});
+      return;
+    }
+  }
+
   async toggleJev() {
     const root = this.runtime.directory;
     const result = setJev(root, !jevEnabled(root));
@@ -480,9 +518,9 @@ export class HobkinApplication {
         this.moods?.stop();
         this.deletionWatcher?.close();
         try {
-          await this.runner?.stop();
+          // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
+          await Promise.all([this.runtime.main?.abort(), this.runner?.stop()]);
           await this.delivery?.close();
-          await this.runtime.main?.abort();
           await this.runtime.idle();
           await this.refreshing;
           if (this.runner) await this.refresh();

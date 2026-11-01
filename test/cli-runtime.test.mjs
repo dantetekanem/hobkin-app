@@ -144,6 +144,39 @@ test('acceptance returns before the model; cancellation records uncertainty and 
   }
 });
 
+test('the agent counts as free only while a new turn would start at once', async t => {
+  const { root, config } = home(t);
+  const control = { gate: Promise.withResolvers() };
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(control) });
+  assert.equal(runtime.mainFree, false, 'nothing is connected yet');
+  await runtime.connect();
+  assert.equal(runtime.mainFree, true);
+
+  await runtime.send('slow');
+  assert.equal(runtime.mainFree, false, 'a turn is under way');
+  control.gate.resolve();
+  await runtime.idle();
+  assert.equal(runtime.mainFree, true);
+
+  // Pi refuses a prompt during compaction, and a live turn would take it as steering.
+  for (const busy of ['isCompacting', 'isStreaming']) {
+    runtime.main[busy] = true;
+    assert.equal(runtime.mainFree, false, busy);
+    runtime.main[busy] = false;
+  }
+
+  const release = runtime.reserveSession(runtime.main.sessionId);
+  assert.equal(runtime.mainFree, false, 'a migrated delivery holds the conversation');
+  release();
+
+  runtime.mainFault = Error('Pi exited.');
+  assert.equal(runtime.mainFree, false, 'a stopped chat cannot take a turn');
+  runtime.mainFault = null;
+
+  await runtime.close();
+  assert.equal(runtime.mainFree, false);
+});
+
 test('rejected main input retains a failed receipt and the caller receives a send error', async t => {
   const { root, config } = home(t);
   const control = { reject: true };

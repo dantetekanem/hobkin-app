@@ -25,7 +25,8 @@ const model = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 const lessons = names => names.map(scope => ({ id: scope, scope, code: 'blocked', seen: 5, latest: new Date(Date.now() + 86400000).toISOString() }));
-const blocks = text => (text.match(/<hobkin-learning>/g) ?? []).length;
+// The system prompt names the block to explain it, and that text never changes. A note is what can bust the cache.
+const blocks = text => (text.match(/<hobkin-learning>\\n\{/g) ?? []).length;
 
 /** Real Pi and real extensions in this process, with a scripted model that keeps exactly what each call would send. */
 async function openRealChat(t) {

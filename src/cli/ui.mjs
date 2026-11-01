@@ -139,6 +139,7 @@ const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
 const MIN_WIDTH_FOR_FACE = 72;
 const FACE_GAP = 1;
+const QUIT_WINDOW_MS = 3000;
 const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
 const RESTING_FACE_MS = 250;
@@ -177,6 +178,7 @@ const tips = [
   'Ask why a check stopped. Every check keeps a run log.',
   'Tell Hobkin what matters. It remembers across chats.',
   '/clear hides the chat. /reset starts a fresh conversation.',
+  'Install Hex and talk to me when you need: https://anoma.ly/hex/',
 ];
 const jevTip = 'Type /jev so Hobkin can show all 18 moods.';
 const learningTip = 'Type /learning so Hobkin learns from how its work turns out.';
@@ -1158,6 +1160,24 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     sendMessage(submitted);
   };
 
+  let quitArmedUntil = 0;
+  // Ctrl+C clears first, so a stray press never closes Hobkin on something half typed.
+  const interrupt = () => {
+    if (focus === 'composer' && (editor.getExpandedText() || referencedReport)) {
+      editor.setText('');
+      referencedReport = null;
+      quitArmedUntil = 0;
+      say('');
+      return;
+    }
+    if (now() < quitArmedUntil) {
+      callbacks.onQuit?.();
+      return;
+    }
+    quitArmedUntil = now() + QUIT_WINDOW_MS;
+    say('Press Ctrl+C again to quit.', 'warning', { timeout: QUIT_WINDOW_MS });
+  };
+
   let completing = null;
   // The next Tab has to walk the commands that fit what was typed, not the one it just filled in.
   const completeCommand = () => {
@@ -1237,9 +1257,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
-    if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
-    if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
-    return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+c', 'quit']];
+    if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
+    if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
+    return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+q', 'quit']];
   };
   const nextCheck = (inner, clock) => {
     const schedules = snapshot.schedules ?? [];
@@ -1314,6 +1334,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const capacity = Math.max(1, Math.min(Math.floor((height - headerLength) / 2),
       height - headerLength - choices.length - 11));
     question.scroll = Math.min(question.scroll, Math.max(0, text.length - capacity));
+    question.overflows = text.length > capacity;
     const visibleText = text.slice(question.scroll, question.scroll + capacity);
     return boxed({ paint: highlight, top: highlight(bold('Hobkin asks')), lines: [...visibleText, '', ...choices], inner });
   };
@@ -1540,14 +1561,23 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return { handled: true };
     },
     input(data) {
-      if (key(data, 'ctrl+c')) {
+      if (key(data, 'ctrl+q')) {
         callbacks.onQuit?.();
+        return;
+      }
+      if (key(data, 'ctrl+c')) {
+        interrupt();
+        changed();
         return;
       }
       if (question) {
         const tooSmall = (options.tui?.terminal.columns ?? columns) < 60 || (options.tui?.terminal.rows ?? rows) < 18;
+        const paging = !tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'));
         if (key(data, 'escape')) question.finish(null);
-        else if (!tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'))) {
+        else if (paging && followsTail() && !question.overflows) {
+          // What a question is about is in the conversation above it, and on a small terminal it does not all fit.
+          scroll = Math.max(0, scroll + (key(data, 'pageUp') ? 8 : -8));
+        } else if (paging) {
           question.scroll = Math.max(0, question.scroll + (key(data, 'pageDown') ? 2 : -2));
         } else if (!tooSmall) question.selection.handleInput(data);
         changed();
@@ -1647,7 +1677,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
       const { content, ranges = [], days = [], selectedRange } = renderContent(inner, available, clock, frame);
       const maximum = Math.max(0, content.length - available);
-      if (!question) scroll = Math.min(scroll, maximum);
+      if (!question || followsTail()) scroll = Math.min(scroll, maximum);
       const displayScroll = Math.min(scroll, maximum);
       const listMode = showsReportList() || view === 'work';
       if (listMode) {

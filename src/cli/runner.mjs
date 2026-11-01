@@ -109,6 +109,15 @@ const isFinishedOnce = (schedule, runs, now, notBefore) => {
   return Boolean(latest) && runs.some(run => run.scheduledAt === latest.scheduledAt);
 };
 
+/** The run that started a hold names it: a retry that fails leaves it standing, and only a working run or a schedule edit ends it. */
+const holdStart = (schedule, runs) => {
+  const finished = runs.filter(run => run.finishedAt).toSorted((a, b) => a.finishedAt.localeCompare(b.finishedAt));
+  let start = finished.length - 1;
+  // No wait has run out at time zero, so this asks only whether the streak stands.
+  while (checkHold(schedule, finished.slice(0, start), 0)) start--;
+  return finished[start];
+};
+
 export class HobkinRunner {
   constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {} }) {
     if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) throw Error('concurrency must be 1–4');
@@ -415,7 +424,7 @@ export class HobkinRunner {
           const next = nextOccurrence(schedule, hold?.until ?? now, { runs: related, notBefore: this.config.initializedAt });
           if (hold) {
             const resumesAt = next && Date.parse(next.scheduledAt) > Date.parse(hold.until) ? next.scheduledAt : hold.until;
-            nextRun = { state: 'held', at: resumesAt, reason: hold.reason };
+            nextRun = { state: 'held', at: resumesAt, reason: hold.reason, holdId: holdStart(schedule, related).id };
           } else if (next) {
             nextRun = { state: 'scheduled', at: next.scheduledAt };
           } else if (schedule.cadence !== 'once') {

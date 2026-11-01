@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Add learning, off by default: `/learning` or `hobkin learning [on | off]`. It judges how checks and work mode runs ended from what Hobkin already records, with no model call, and keeps very short lessons that reach every agent, 160 tokens at most. Conclusions about schedules reach Chat as short proposals, nothing changes without a plan and a yes, and an answered proposal is never raised again. `hobkin learning` shows what was learned, and `hobkin learning clear` removes it.
+- Bring a plan when a check becomes held. Once per hold, as soon as it is free, the main agent looks into why, says in Chat what failed, the real cause with its evidence and what it proposes, and asks yes or no. It changes nothing before a yes, then runs the check once to prove the fix. A hold not yet explained is explained on the next start.
+- Make `Blocked:` mean a check could do none of its work. With one source down, a check does the rest and reports that source as unverified, and it no longer tests a known-broken dependency first and stops there.
+- Let Page Up and Page Down read the conversation behind a question that fits its box, so a long plan can be read before answering on a small terminal.
 - Turn work mode on and off with `/work` alone. The Work Mode tab shows only while it is on, and the harness changes by asking the agent.
 - Let running agents finish when work mode stops, and stop a cancelled agent from starting again by itself.
 - Look straight away when work mode starts with nothing to show, and always say in the tab what is happening now and when the next look is.
@@ -10,6 +13,7 @@
 - Count a look as finished only when every root folder is done. A run that stops sooner is picked up from where it stopped, up to two more times, and the user is told if it stops early.
 - Add `/help`, a short guide in Chat.
 - Let Tab finish a `/` command, and walk through them when several fit.
+- Make Ctrl+C clear the input, and quit on a second press when there is nothing to clear. Ctrl+Q quits straight away.
 - Leave `pi-emote` out of everything Hobkin starts: the main chat, checks, work panes and `hobkin session`. Pi keeps it.
 - Rename the project from Pi Companion to Hobkin: a new repository, the `hobkin` command, `~/.hobkin` as the data folder and `HOBKIN_HOME` to move it. `pi-companion` stays as it was, and older entries keep its name.
 - Add Hobkin's face beside the input in Chat. It shows idle, thinking, working and happy from what the app is doing.
