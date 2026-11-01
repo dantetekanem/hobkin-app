@@ -162,6 +162,7 @@ const tips = [
   'Ask why a check stopped. Every check keeps a run log.',
   'Tell Hobkin what matters. It remembers across chats.',
   '/clear hides the chat. /reset starts a fresh conversation.',
+  'Install Hex and talk to me when you need: https://anoma.ly/hex/',
 ];
 const jevTip = 'Type /jev so Hobkin can show all 18 moods.';
 const ignoredTips = attention => attention.filter(item => item.ignored).map(({ title, read, reports }) =>
