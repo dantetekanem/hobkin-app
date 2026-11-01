@@ -12,6 +12,7 @@ import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { extensionPaths } from './pi-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
+import { hobkinCommand } from './work/chat.mjs';
 
 /** Caller holds the conversation reservation until the SDK and its compaction/retries settle. */
 export async function withPiCancellation(session, signal, operation) {
@@ -110,6 +111,7 @@ function mainPrompts(root, config) {
       schedules: join(root, 'schedules'),
       main: config.main,
       background: config.background,
+      learningAnswer: hobkinCommand(root, 'learning answer <id> yes|no'),
     }, null, 2)));
 }
 

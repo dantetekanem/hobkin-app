@@ -1,4 +1,5 @@
 import { inconclusive, scheduleDefinition, stalled } from '../checks.mjs';
+import { answeredUntil } from '../holds.mjs';
 import { reportTriage } from '../reports.mjs';
 import { clearedAt } from './store.mjs';
 
@@ -100,6 +101,15 @@ function discoveryEvidence({ runs, projects }) {
     return judged(project.slug, project.at, is && { is });
   });
   return { scope: 'work.discover', title: 'Finding projects', verdicts: [...looks, ...answers] };
+}
+
+/** What a subject can still be asked about. Only a check can be held, and its plan speaks for everything up to it. */
+export function stillOpen(subject, schedules, runs) {
+  const schedule = schedules.find(({ id }) => id === subject.scope);
+  if (!schedule) return subject;
+
+  const answered = answeredUntil(schedule, runs);
+  return { ...subject, verdicts: subject.verdicts.filter(({ at }) => Date.parse(at) > answered) };
 }
 
 /** Every verdict the evidence supports, by what it is about. All of it already exists, so gathering it spends nothing. */

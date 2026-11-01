@@ -2,7 +2,7 @@ import { watch } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
-import { HobkinRuntime, MAIN_BUSY } from './runtime.mjs';
+import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES } from './runtime.mjs';
 import { HobkinRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
@@ -375,8 +375,11 @@ export class HobkinApplication {
   async deliver(text, report) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const note = workNote(workStatus(this.runtime.directory), this.director.answerCommands());
+    const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
-    const accepted = await this.sendWhenFree(`${note === this.workNoteSeen ? '' : note}${learned}${message}`);
+    // A message with no room for the note still goes, and the note goes with the next one.
+    const fits = Buffer.byteLength(`${opening}${learned}${message}`) <= MAX_MESSAGE_BYTES;
+    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${message}`);
     this.workNoteSeen = note;
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());

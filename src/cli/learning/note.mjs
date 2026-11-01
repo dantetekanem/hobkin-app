@@ -8,8 +8,8 @@ const textOf = ({ content }) => (typeof content === 'string' ? content
  * The tail of the conversation is the one place new text costs no cache: everything before it stays byte for byte
  * what the provider already holds. As with `<hobkin-work>`, JSON keeps it on one line and escaping `</` keeps it closed.
  */
-export function learningNote({ lines, proposals = [], answer }) {
-  const details = { learning: lines, ...(proposals.length ? { proposals, answer } : {}) };
+export function learningNote({ lines, proposals = [] }) {
+  const details = { learning: lines, ...(proposals.length ? { proposals } : {}) };
   return `<hobkin-learning>\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-learning>\n\n`;
 }
 

@@ -1,6 +1,6 @@
 import { learningEnabled, setLearning } from '../config.mjs';
 import { resolveDataRoot } from '../migration/admission.mjs';
-import { evidenceText, lessonLine, MAX_TOKENS, renderLessons, tokensIn } from './lessons.mjs';
+import { evidenceText, lessonLine, MAX_TOKENS, renderLessons, requestTokens } from './lessons.mjs';
 import { appendAction, learningState, readActions, readState } from './store.mjs';
 
 const USAGE = 'Usage: hobkin learning [on | off | clear <id> | clear all | answer <id> yes|no]';
@@ -23,12 +23,12 @@ export function learningView(root) {
   const injected = renderLessons(lessons);
   const lines = [];
   if (!learningEnabled(root)) lines.push('Learning is off. Nothing is judged, and sessions get nothing. Turn it on with /learning or hobkin learning on.');
-  else if (lessons.length) lines.push(`Learning is on. Every session gets ${plural(injected.length - 1, 'lesson')}, about ${tokensIn(injected.join('\n'))} of ${MAX_TOKENS} tokens.`);
+  else if (lessons.length) lines.push(`Learning is on. Every session gets ${plural(injected.length - 1, 'lesson')}, about ${requestTokens(injected)} of ${MAX_TOKENS} tokens.`);
   else if (judged?.runs) lines.push(`Learning is on. ${plural(judged.runs, 'run')} judged, and no pattern has held long enough to teach anything.`);
   else lines.push('Learning is on. Nothing judged yet: it starts the next time Hobkin runs.');
   if (lessons.length) lines.push('', ...lessonRows(lessons, injected));
   if (proposals.length) {
-    lines.push('', 'Proposals waiting for an answer:', '');
+    lines.push('', 'Proposals, told in Chat one a day:', '');
     for (const proposal of proposals) lines.push(`  ${proposal.id}  ${proposal.kind} ${plain(proposal.title)}: ${evidenceText(proposal)}`);
   }
   if (lessons.length) lines.push('', 'Remove one with hobkin learning clear <id>, or all of them with hobkin learning clear all.');

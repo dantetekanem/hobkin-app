@@ -1169,7 +1169,7 @@ test('lessons reach a work agent in its request, and in the brief of a pane on a
   await Promise.all([...h.runner.jobs.values()]);
 
   assert.equal(briefs.length, 1);
-  assert.match(briefs[0], /"learning":\["learned: advice only[^"]*","-site-audit blocked x5: fix cause before rerun"\]/);
+  assert.match(briefs[0], /"learning":\["learned: advice only[^"]*","-site-audit blocked x5: do the rest, name what stopped it"\]/);
 });
 
 test('in Herdr, project work runs in panes on the chosen harness while discovery stays hidden', async t => {

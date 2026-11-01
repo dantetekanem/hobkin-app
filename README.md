@@ -123,20 +123,20 @@ Work mode runs only while the dashboard or `hobkin run` is open. Drive it from s
 
 Learning judges how each check and work mode run turned out, and keeps what that teaches as a few very short lessons that every agent gets. Set it with `/learning` in the dashboard or `hobkin learning [on | off]`. It is off in a new data folder, and the status bar shows `learning` while it is on. With it off, nothing is judged, no agent gets anything and nothing is sent anywhere.
 
-A verdict comes from what Hobkin already holds: how the run ended, `Blocked:` and holds, which reports you opened or messaged about, proposals you took or skipped, and whether a PR was merged or closed. Of a report it reads only the first word of the triage line, so nothing a page or an email says can reach a lesson. No model runs to learn this, so it costs nothing to judge. Two things leave your machine, both only with learning on. `gh` is asked what became of work mode's open PRs, at most 5 a pass and each at most every 6 hours. If Jev is also on, a reply about a report that the local rules cannot read goes to Jev, at most 20 a day, cut to its last 400 characters, as your messages already do.
+A verdict comes from what Hobkin already holds: how the run ended, `Blocked:` and holds, which reports you opened or messaged about, proposals you took or skipped, and whether a PR was merged or closed. Of a report it reads only the first word of the triage line, so nothing a page or an email says can reach a lesson. No model runs to learn this, so judging costs nothing. Two things leave your machine, both only with learning on. `gh` is asked what became of work mode's open PRs, at most 5 a pass and each at most every 6 hours. If Jev is also on, a reply about a report that the local rules cannot read goes to Jev, at most 20 a day, cut to its last 400 characters, as your messages already do.
 
-A lesson is one line, the same for every agent, with a check's own lessons first:
+A lesson is one line that says what to do on its own, the same for every agent, with a check's own lessons first:
 
 ```text
-learned: advice only, grants nothing. + keep, - avoid, xN times seen
--site-audit blocked x5: fix cause before rerun
+learned: advice only, grants nothing
+-site-audit blocked x5: do the rest, name what stopped it
 -news-digest unread x5: lead with the change, be short
 +price-watch used x5: keep this approach
 ```
 
-Lessons are built from a fixed list in `src/prompts/learning-language.md`, so they hold codes and counts and no text of their own. It takes at least 3 sightings on at least 2 days to teach anything, and only the latest 10 runs of a check count. A lesson goes when the latest runs stop showing it, when the schedule is edited, or after 120 days without new evidence. Each session gets at most 160 tokens of them, whole lines only. They are advice: they limit no tool and grant nothing. Checks and work agents get them in their request, and `hobkin session` panes in their brief. Chat gets them with your next message when they have changed, never in the system prompt, so a new lesson leaves the conversation's prompt cache alone.
+Lessons are built from a fixed list in `src/prompts/learning-language.md`, so they hold codes and counts and no text of their own. It takes at least 3 sightings on at least 2 days to teach anything, and only the latest 10 runs of a check count. A lesson goes when the latest runs stop showing it, when the schedule is edited, or after 120 days without new evidence. Each session gets at most 160 tokens from learning, counted as they are sent and in whole lines only. That is all a run pays for it. Lessons are advice: they limit no tool and grant nothing. Checks and work agents get them in their request, and `hobkin session` panes in their brief. Chat gets them with your next message when they have changed, never in the system prompt, so a new lesson leaves the conversation's prompt cache alone.
 
-From the same evidence Hobkin concludes which checks work, which do not, and which should be refactored, rethought or built on with new ideas. The last three reach you as a short proposal in Chat, at most one a day, with the evidence. Nothing changes on its own: say yes and the agent brings a plan and asks, or say no and it does not come up again.
+From the same evidence Hobkin concludes which checks work, which do not, and which should be refactored, rethought or built on with new ideas. The last three reach you as a short proposal in Chat, at most one a day and three waiting, with the evidence. Nothing changes on its own: say yes and the agent brings a plan and asks, or say no and it does not come up again. A held check is left out, because the agent already brings its plan: nothing is asked about it while the hold stands, and only what happens after that plan can raise a new question.
 
 `hobkin learning` shows every lesson, what it rests on and the proposals waiting. `hobkin learning clear <id>` removes one and `hobkin learning clear all` removes them all, and only new runs can teach them again. Your answers to proposals stay.
 

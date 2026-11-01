@@ -4,10 +4,9 @@ import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { jevEnabled, learningEnabled } from '../config.mjs';
 import { askJudgement } from '../mood.mjs';
-import { hobkinCommand } from '../work/chat.mjs';
 import { readItems, readProjects } from '../work/store.mjs';
-import { gatherEvidence, rejectsReport } from './judge.mjs';
-import { conclude, evidenceText, proposing, renderLessons } from './lessons.mjs';
+import { gatherEvidence, rejectsReport, stillOpen } from './judge.mjs';
+import { conclude, evidenceText, proposalLine, proposing, renderLessons } from './lessons.mjs';
 import { learningNote, NO_LEARNING, noteInContext } from './note.mjs';
 import { appendAction, learningState, readActions, readState, saveState } from './store.mjs';
 
@@ -70,7 +69,7 @@ export class Learner {
     const actions = readActions(this.root);
     const saved = readState(this.root);
     const projects = readProjects(this.root);
-    const concluded = gatherEvidence({
+    const subjects = gatherEvidence({
       runs,
       schedules,
       projects,
@@ -80,9 +79,11 @@ export class Learner {
       signals: { ...this.telemetry.signals(), rejected: actions.rejected },
       pullRequests: saved.pullRequests,
       clears: actions.clears,
-    }).map(conclude);
+    });
+    const concluded = subjects.map(conclude);
     const learned = concluded.filter(item => item.code);
-    const proposals = this.proposalsFrom(learned, saved, actions);
+    const open = subjects.map(subject => conclude(stillOpen(subject, schedules, runs))).filter(item => item.code);
+    const proposals = this.proposalsFrom(open, saved, actions);
     this.asking ??= this.askGitHub(projects).finally(() => { this.asking = null; });
     this.post ??= this.nextPost(proposals, actions);
     const next = {
@@ -120,12 +121,16 @@ export class Learner {
     return { proposal: next.id, id: `notice:learning:${next.id}`, role: 'assistant', content: proposalMessage(next), at: iso(now) };
   }
 
-  /** A proposal counts as told only once Chat has it, so a close in between cannot lose it. */
+  /** A proposal counts as told only once Chat has it, so a close in between cannot lose it. One that cannot be marked waits. */
   takePost() {
     if (!this.post) return null;
     const { proposal, ...post } = this.post;
+    try {
+      appendAction(this.root, { type: 'posted', id: proposal, at: post.at });
+    } catch {
+      return null;
+    }
     this.post = null;
-    appendAction(this.root, { type: 'posted', id: proposal, at: post.at });
     return post;
   }
 
@@ -171,15 +176,15 @@ export class Learner {
     return this.askJev(text);
   }
 
+  // Chat holds the evidence, so the agent gets only what lets it record an answer. Those few lines always fit, and lessons share what is left.
   currentNote() {
     if (!this.enabled()) return '';
     const { lessons, proposals } = learningState(this.root);
     const told = new Set(readActions(this.root).posted.map(({ id }) => id));
-    const waiting = proposals.filter(({ id }) => told.has(id))
-      .map(proposal => ({ id: proposal.id, scope: proposal.scope, kind: proposal.kind, why: evidenceText(proposal) }));
-    const lines = renderLessons(lessons);
+    const waiting = proposals.filter(({ id }) => told.has(id)).slice(0, MAX_WAITING_PROPOSALS).map(proposalLine);
+    const lines = renderLessons(lessons, '', kept => learningNote({ lines: kept, proposals: waiting }));
     if (!lines.length && !waiting.length) return '';
-    return learningNote({ lines, proposals: waiting, answer: hobkinCommand(this.root, 'learning answer <id> yes|no') });
+    return learningNote({ lines, proposals: waiting });
   }
 
   /** What the next message should carry. Nothing, as long as the agent can still see what is current, and never a reason not to send it. */

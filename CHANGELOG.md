@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add learning, off by default: `/learning` or `hobkin learning [on | off]`. It judges how checks and work mode runs ended from what Hobkin already records, with no model call, and keeps very short lessons that reach every agent, 160 tokens at most. Conclusions about schedules reach Chat as short proposals, nothing changes without a plan and a yes, and an answered proposal is never raised again. `hobkin learning` shows what was learned, and `hobkin learning clear` removes it.
+- Add learning, off by default: `/learning` or `hobkin learning [on | off]`. It judges how checks and work mode runs ended from what Hobkin already records, with no model call, and keeps very short lessons that reach every agent, 160 tokens at most as sent. Conclusions about schedules reach Chat as short proposals, nothing changes without a plan and a yes, an answered proposal is never raised again, and a held check is left to its own plan. `hobkin learning` shows what was learned, and `hobkin learning clear` removes it.
 - Bring a plan when a check becomes held. Once per hold, as soon as it is free, the main agent looks into why, says in Chat what failed, the real cause with its evidence and what it proposes, and asks yes or no. It changes nothing before a yes, then runs the check once to prove the fix. A hold not yet explained is explained on the next start.
 - Make `Blocked:` mean a check could do none of its work. With one source down, a check does the rest and reports that source as unverified, and it no longer tests a known-broken dependency first and stops there.
 - Let Page Up and Page Down read the conversation behind a question that fits its box, so a long plan can be read before answering on a small terminal.

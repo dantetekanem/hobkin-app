@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { holdBrief, isHoldBrief, nextHoldTurn } from '../src/cli/holds.mjs';
+import { answeredUntil, holdBrief, isHoldBrief, nextHoldTurn } from '../src/cli/holds.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { fakePiRpc } from './helpers/fake-rpc-pi.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
@@ -158,6 +158,22 @@ test('a run\'s text cannot end the block early, and a noisy run stays bounded', 
   assert.equal(details.runs.at(-1).toolErrors.length, 6);
   assert.match(details.runs.at(-1).toolErrors.at(-1).error, /^failure 49 /);
   assert.ok(Buffer.byteLength(text) < 65536, 'a turn can take it');
+});
+
+test('a plan speaks for its check up to its last turn, and for all of it while the streak stands', () => {
+  const mail = { id: 'mail' };
+  // A scheduled run's ID has colons of its own.
+  const started = 'mail:2026-01-02:08:00';
+  const first = finished(started, '08');
+  const second = finished('second', '09');
+  const worked = finished('third', '11', 'Useful: Fine again.');
+  const turn = { id: `hold:${started}:2`, kind: 'main', status: 'completed', startedAt: '2026-01-02T10:00:00.000Z', finishedAt: '2026-01-02T10:05:00.000Z' };
+  const elsewhere = { ...turn, id: 'hold:a-run-of-another-check:1', finishedAt: '2026-01-02T23:00:00.000Z' };
+
+  assert.equal(answeredUntil(mail, [first]), 0, 'no streak and no plan');
+  assert.equal(answeredUntil(mail, [first, second, turn]), Infinity);
+  assert.equal(answeredUntil(mail, [first, second, turn, elsewhere, worked]), Date.parse(turn.finishedAt));
+  assert.equal(answeredUntil(mail, [first, second, { ...turn, finishedAt: undefined }, worked]), Date.parse(turn.startedAt), 'a turn under way counts from when it began');
 });
 
 test('what comes next for a hold depends only on its own receipts', () => {

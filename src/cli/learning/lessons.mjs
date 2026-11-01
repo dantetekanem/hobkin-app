@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 
 const language = readFileSync(new URL('../../prompts/learning-language.md', import.meta.url), 'utf8');
 const OPENING = language.match(/^Opening line: (.+)$/m)[1];
+const PROPOSAL = language.match(/^Proposal line: (.+)$/m)[1];
 const templates = Object.fromEntries([...language.matchAll(/^\| ([a-z]+) \| ([+-]\{scope\} .+) \|$/gm)].map(([, code, line]) => [code, line]));
 
-/** Hard ceiling on what any session is given. Spending it on one more whole lesson is the only way to reach it. */
+/** Hard ceiling on what any session is given, counted as it is sent. Spending it on one more whole lesson is the only way to reach it. */
 export const MAX_TOKENS = 160;
 const MAX_NAME_WORDS = 6;
 const NAME = /^[a-z0-9][a-z0-9._-]{0,47}$/;
@@ -55,6 +56,10 @@ export const proposing = ['refactor', 'rethink', 'ideas'];
 // No tokenizer ships with Hobkin, so this errs high: prose runs near 4 bytes a token, and these names and marks nearer 3.
 export const tokensIn = text => Math.ceil(Buffer.byteLength(text) / 3);
 
+// A request carries lessons as one JSON field, which costs more than the heading a brief puts them under, so it stands for both.
+const inRequest = lines => JSON.stringify({ learning: lines });
+export const requestTokens = lines => tokensIn(inRequest(lines));
+
 const isName = scope => typeof scope === 'string' && NAME.test(scope) && !INSTRUCTION_WORDS.test(scope)
   && scope.split(/[._-]/).length <= MAX_NAME_WORDS;
 
@@ -83,17 +88,15 @@ const rank = (lessons, scope) => lessons
  * What a session is given: the opening line and whole lessons up to the cap, its own first and then what to avoid.
  * With nothing to say it says nothing, so a session with no lessons costs nothing.
  */
-export function renderLessons(lessons, scope = '') {
-  const kept = [];
-  let tokens = tokensIn(OPENING);
+export function renderLessons(lessons, scope = '', sentAs = inRequest) {
+  const kept = [OPENING];
   for (const line of new Set(rank(lessons, scope).map(lesson => lesson.line))) {
-    const cost = tokensIn(`\n${line}`);
-    if (tokens + cost > MAX_TOKENS) continue;
-    kept.push(line);
-    tokens += cost;
+    if (tokensIn(sentAs([...kept, line])) <= MAX_TOKENS) kept.push(line);
   }
-  return kept.length ? [OPENING, ...kept] : [];
+  return kept.length > 1 ? kept : [];
 }
+
+export const proposalLine = ({ id, kind, scope }) => PROPOSAL.replace('{id}', id).replace('{kind}', kind).replace('{scope}', scope);
 
 const factOf = code => templates[code].match(/\{scope\} (.+) x\{seen\}/)[1];
 

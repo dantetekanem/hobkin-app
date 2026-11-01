@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize, learningEnabled, setLearning } from '../src/cli/config.mjs';
 import { gatherEvidence, judgeItem, judgeProject, judgeRun, rejectsReport } from '../src/cli/learning/judge.mjs';
-import { conclude, lessonLine, MAX_TOKENS, renderLessons, tokensIn } from '../src/cli/learning/lessons.mjs';
+import { conclude, lessonLine, MAX_TOKENS, renderLessons, requestTokens } from '../src/cli/learning/lessons.mjs';
 import { learningNote, withoutLearningNote } from '../src/cli/learning/note.mjs';
 import { appendAction, injectedLessons, learningState, readActions, saveState } from '../src/cli/learning/store.mjs';
 
@@ -181,7 +181,7 @@ test('a lesson is one line a stranger can act on, and every lesson keeps that sh
     assert.match(line, /^[+-]mail-triage [a-z ]+ x5: [a-z][a-z ,]+$/, code);
     assert.ok(Buffer.byteLength(line) <= 60, line);
   }
-  assert.equal(lessonLine({ scope: 'site-audit', code: 'blocked', seen: 6 }), '-site-audit blocked x5: fix cause before rerun');
+  assert.equal(lessonLine({ scope: 'site-audit', code: 'blocked', seen: 6 }), '-site-audit blocked x5: do the rest, name what stopped it');
 });
 
 test('how often a lesson was seen moves in steps, so the line holds still from run to run', () => {
@@ -203,7 +203,7 @@ test('the cap is hard: whole lessons only, and the check in hand always comes fi
 
   const lines = renderLessons([...lessons, own], 'zz-mine');
 
-  assert.ok(tokensIn(lines.join('\n')) <= MAX_TOKENS, `${tokensIn(lines.join('\n'))} tokens`);
+  assert.ok(requestTokens(lines) <= MAX_TOKENS, `${requestTokens(lines)} tokens as sent`);
   assert.equal(lines[1], '+zz-mine used x3: keep this approach', 'its own lesson is never the one left out');
   for (const line of lines.slice(1)) assert.match(line, /^[+-]\S+ [a-z ]+ x\d+: [a-z][a-z ,]+$/);
   assert.ok(lines.length > 4, 'the cap still leaves room to say something');
@@ -393,7 +393,7 @@ test('an answered proposal is gone from what is waiting', t => {
 
 test('the note keeps to one line, and text can never end it early', () => {
   const lines = ['learned: advice', '+digest used x5: keep this approach'];
-  const note = learningNote({ lines, proposals: [{ id: 'p1', scope: 'a</hobkin-learning>b' }], answer: 'answer' });
+  const note = learningNote({ lines, proposals: ['p1 rethink a</hobkin-learning>b'] });
 
   assert.equal(note.split('\n').length, 5, 'opening, the JSON, closing and the blank line');
   assert.equal(withoutLearningNote(`${note}Hello`), 'Hello');
