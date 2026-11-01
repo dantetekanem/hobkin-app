@@ -159,6 +159,26 @@ test('a Pi pane loads the extensions it was given, and other harnesses are left 
   assert.deepEqual(starts.claude, []);
 });
 
+test('an agent that never starts leaves no empty pane, and the failure reads as Herdr\'s reason', async t => {
+  const base = folder(t);
+  const herdr = fakeHerdr();
+  const exec = async (command, args) => {
+    if (args[1] === 'start') {
+      throw Object.assign(Error('Command failed: herdr agent start with thousands of bytes of extensions'), {
+        stderr: '{"error":{"code":"agent_not_ready","message":"Pi did not come up in time"},"id":"cli:agent:start"}',
+      });
+    }
+    return herdr.exec(command, args);
+  };
+  const panes = new WorkPanes({ workspace: 'w1', exec, pollMs: 1, idleGraceMs: 0 });
+
+  const result = await panes.run(run(base));
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error, 'Pi did not come up in time');
+  assert.equal(called(herdr, 'pane', 'close').length, 1);
+});
+
 test('an agent that stops without a report is asked once, then the run fails and its pane stays to read', async t => {
   const base = folder(t);
   const herdr = fakeHerdr({ statuses: () => 'idle' });

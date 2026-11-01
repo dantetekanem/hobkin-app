@@ -34,8 +34,14 @@ export class WorkPanes {
     Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab, extensionsFor, startTimeoutMs });
   }
 
+  // Herdr says what went wrong in JSON on stderr. The failed command itself can run to thousands of bytes of extensions.
   async herdr(...args) {
-    return JSON.parse(await this.exec('herdr', args)).result;
+    try {
+      return JSON.parse(await this.exec('herdr', args)).result;
+    } catch (error) {
+      const reason = /"message":"((?:[^"\\]|\\.)*)"/.exec(error.stderr ?? '')?.[1];
+      throw reason ? Object.assign(Error(reason), { stderr: error.stderr }) : error;
+    }
   }
 
   // One at a time, so runs starting together share a tab instead of each making one.
@@ -131,11 +137,13 @@ export class WorkPanes {
 
   async run({ name, kind, cwd, model, effort, sessionFile, brief, report, signal }) {
     let pane = null;
+    let started = false;
     try {
       signal?.throwIfAborted();
       pane = await this.openPane(cwd);
       const args = kind === 'pi' ? piArguments({ model, effort, sessionFile, extensions: await this.extensionsFor(cwd) }) : [];
       await this.startAgent(name, kind, pane, args);
+      started = true;
       await this.prompt(name, `Read ${brief} and follow it.`);
       await this.waitForReport({ name, report, signal });
       await this.closePane(pane);
@@ -145,7 +153,8 @@ export class WorkPanes {
         if (pane) await this.closePane(pane);
         return { status: 'interrupted', cost: null, error: 'Harness cancelled.' };
       }
-      // The pane stays open so the user can read what went wrong.
+      // A pane with an agent in it stays open so the user can read what went wrong. An empty one has nothing to show.
+      if (pane && !started) await this.closePane(pane);
       return { status: 'failed', cost: null, error: String(error.message ?? error).slice(0, 2000) };
     }
   }
