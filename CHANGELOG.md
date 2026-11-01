@@ -12,6 +12,7 @@
 - Count a look as finished only when every root folder is done. A run that stops sooner is picked up from where it stopped, up to two more times, and the user is told if it stops early.
 - Add `/help`, a short guide in Chat.
 - Let Tab finish a `/` command, and walk through them when several fit.
+- Make Ctrl+C clear the input, and quit on a second press when there is nothing to clear. Ctrl+Q quits straight away.
 - Leave `pi-emote` out of everything Hobkin starts: the main chat, checks, work panes and `hobkin session`. Pi keeps it.
 - Rename the project from Pi Companion to Hobkin: a new repository, the `hobkin` command, `~/.hobkin` as the data folder and `HOBKIN_HOME` to move it. `pi-companion` stays as it was, and older entries keep its name.
 - Add Hobkin's face beside the input in Chat. It shows idle, thinking, working and happy from what the app is doing.

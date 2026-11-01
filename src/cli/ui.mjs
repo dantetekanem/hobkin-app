@@ -139,6 +139,7 @@ const FOOTER_RULE_SHARE = 0.65;
 const MIN_ROWS_FOR_TIP_LINE = 20;
 const MIN_WIDTH_FOR_FACE = 72;
 const FACE_GAP = 1;
+const QUIT_WINDOW_MS = 3000;
 const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
 const RESTING_FACE_MS = 250;
@@ -1142,6 +1143,24 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     sendMessage(submitted);
   };
 
+  let quitArmedUntil = 0;
+  // Ctrl+C clears first, so a stray press never closes Hobkin on something half typed.
+  const interrupt = () => {
+    if (focus === 'composer' && (editor.getExpandedText() || referencedReport)) {
+      editor.setText('');
+      referencedReport = null;
+      quitArmedUntil = 0;
+      say('');
+      return;
+    }
+    if (now() < quitArmedUntil) {
+      callbacks.onQuit?.();
+      return;
+    }
+    quitArmedUntil = now() + QUIT_WINDOW_MS;
+    say('Press Ctrl+C again to quit.', 'warning', { timeout: QUIT_WINDOW_MS });
+  };
+
   let completing = null;
   // The next Tab has to walk the commands that fit what was typed, not the one it just filled in.
   const completeCommand = () => {
@@ -1221,9 +1240,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
-    if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
-    if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'quit']];
-    return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+c', 'quit']];
+    if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
+    if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
+    return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+q', 'quit']];
   };
   const nextCheck = (inner, clock) => {
     const schedules = snapshot.schedules ?? [];
@@ -1525,8 +1544,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return { handled: true };
     },
     input(data) {
-      if (key(data, 'ctrl+c')) {
+      if (key(data, 'ctrl+q')) {
         callbacks.onQuit?.();
+        return;
+      }
+      if (key(data, 'ctrl+c')) {
+        interrupt();
+        changed();
         return;
       }
       if (question) {

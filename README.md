@@ -35,7 +35,7 @@ Chat opens ready to type. Reports holds completed checks; Schedules shows their 
 - **m** inside a report moves to the composer with that report attached, so you can ask about it and carry on in Chat. **Escape** in the composer drops the report and keeps your draft.
 - **Escape** leaves a report or returns to Chat without losing the draft.
 - **k** cancels the selected running check. Jobs have no automatic execution deadline.
-- **Ctrl+C** quits.
+- **Ctrl+C** clears the input. With nothing to clear, press it twice to quit. **Ctrl+Q** quits straight away.
 
 Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
 
