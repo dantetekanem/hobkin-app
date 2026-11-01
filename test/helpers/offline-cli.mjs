@@ -59,6 +59,7 @@ try {
     openApplication: async (home, options) => {
       const app = await HobkinApplication.open(home, {
         ...options,
+        memoryIndex: null,
         sessionDependencies: fake.dependencies,
         now: () => new Date('2026-01-02T10:00:00Z'),
         createMain: async parameters => {

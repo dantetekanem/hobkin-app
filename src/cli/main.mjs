@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defaultRoot, initialize, jevEnabled, legacySources, setJev } from './config.mjs';
 import { loadImportedHistory } from './history.mjs';
+import { indexStatus } from './memory-index.mjs';
+import { resolveDataRoot } from './migration/admission.mjs';
 import { readLocalView, savePresentationState } from './view.mjs';
 import { deleteReports } from './reports.mjs';
 
@@ -81,6 +83,7 @@ async function connected(options, snapshot, output, dependencies) {
     const opening = open(options.root, {
       signal: cancellation.signal,
       watched: options.command !== 'run',
+      memoryIndex: {},
       onChange: view => dashboard?.update(view),
       askQuestion: (request, signal) => dashboard?.askQuestion(request, signal),
     }).then(opened => {
@@ -236,6 +239,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   output.write(`Background ${config.background.harness} · ${config.background.effort} · ${config.background.model ?? 'configured default'}\n`);
   if (config.launcher) output.write(`Launcher ${config.launcher.command.join(' ')}${config.launcher.managedExtensions ? ' · managed extensions' : ''}\n`);
   output.write(`Initialized ${config.initializedAt} · Main not connected · $${usage.usd.toFixed(4)} estimated (${usage.coverage})\n`);
+  output.write(`${indexStatus(resolveDataRoot(options.root))}\n`);
   if (snapshot.savedAt) output.write(`Saved view ${snapshot.savedAt}; not a liveness check\n`);
   for (const item of schedules) {
     output.write(`${item.enabled ? 'enabled' : 'paused'}  ${item.cadence}/${item.id}  ${item.title}\n`);

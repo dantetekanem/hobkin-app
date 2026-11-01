@@ -1,8 +1,8 @@
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { atomicJson, learningEnabled } from '../config.mjs';
 import { writePrivate } from '../reports.mjs';
-import { isLesson, isProposal, renderLessons } from './lessons.mjs';
+import { isLesson, isProposal, lessonsMarkdown, renderLessons } from './lessons.mjs';
 
 const MAX_STATE_BYTES = 1048576;
 const MAX_ACTIONS_BYTES = 1048576;
@@ -10,6 +10,7 @@ const EMPTY = { judged: null, lessons: [], proposals: [], pullRequests: {} };
 
 const statePath = root => join(root, 'runtime', 'learning.json');
 const actionsPath = root => join(root, 'runtime', 'learning-actions.jsonl');
+const viewPath = root => join(root, 'runtime', 'lessons.md');
 
 // Whatever can write this file can speak to every agent, so a link or a shared file counts as no file at all.
 function readPrivate(file, limit) {
@@ -94,3 +95,11 @@ export function learningState(root) {
 
 /** What a session started now is given. Read each time, so turning learning off reaches the next session. */
 export const injectedLessons = (root, scope) => (learningEnabled(root) ? renderLessons(learningState(root).lessons, scope) : []);
+
+/** With learning off, search finds as little as a session gets. qmd keeps the last text of an empty file, so nothing to show removes the file. */
+export function writeLessonsView(root) {
+  const file = viewPath(root);
+  const text = learningEnabled(root) ? lessonsMarkdown(learningState(root).lessons) : '';
+  if (!text) rmSync(file, { force: true });
+  else if (readPrivate(file, MAX_STATE_BYTES) !== text) writePrivate(file, text);
+}

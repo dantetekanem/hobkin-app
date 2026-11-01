@@ -97,6 +97,12 @@ export function renderLessons(lessons, scope = '', sentAs = inRequest) {
   return kept.length > 1 ? kept : [];
 }
 
+/** What search can find. No session is sent this, so the cap has nothing to count, and it holds the same filtered lines and nothing else of a lesson. */
+export function lessonsMarkdown(lessons) {
+  const [opening, ...lines] = renderLessons(lessons, '', () => '');
+  return opening ? `# Lessons\n\n${opening}\n\n${lines.map(line => `- ${line}`).join('\n')}\n` : '';
+}
+
 export const proposalLine = ({ id, kind, scope }) => PROPOSAL.replace('{id}', id).replace('{kind}', kind).replace('{scope}', scope);
 
 const factOf = code => templates[code].match(/\{scope\} (.+) x\{seen\}/)[1];

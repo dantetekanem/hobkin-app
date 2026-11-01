@@ -107,6 +107,7 @@ async function openHobkin(h, { agent = async () => 'Useful: Done.', chat = async
     },
     openApplication: (home, options) => HobkinApplication.open(home, {
       ...options,
+      memoryIndex: null,
       intervalMs: 100,
       sessionDependencies: fake.dependencies,
       createMain: async parameters => {

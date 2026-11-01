@@ -182,6 +182,7 @@ async function openHobkin(h, { play, check }) {
     openApplication: async (home, options) => {
       app = await HobkinApplication.open(home, {
         ...options,
+        memoryIndex: null,
         intervalMs: 100,
         createMain,
         runHarness: async (run, settings) => ({ status: 'completed', text: await check(run, settings) }),

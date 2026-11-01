@@ -180,6 +180,24 @@ From the same evidence Hobkin concludes which checks work, which do not, and whi
 
 `hobkin learning` shows every lesson, what it rests on and the proposals waiting. `hobkin learning clear <id>` removes one and `hobkin learning clear all` removes them all, and only new runs can teach them again. Your answers to proposals stay.
 
+## Memory search
+
+Agents can search what Hobkin keeps, so they look before they redo research. It runs on [qmd](https://github.com/tobi/qmd) and needs no setting. With `qmd` on your `PATH` it starts by itself. Without it, Hobkin says so once in Chat and carries on. Nothing is added to a session: an agent gets a result only when it searches.
+
+The index covers `memory.md`, each check's `checks/<id>/memory.md`, `AGENTS.md`, the Markdown in `notes/` and `runtime/lessons.md`. That last file holds every lesson as agents get them, and it goes away while learning is off. Reports and check logs stay out.
+
+It is a local qmd index of its own, in `runtime/.qmd/` in the data folder, so each `--home` has its own and your other qmd indexes are left alone. The folder is private to you, it holds the same text as the files it covers, and nothing in it leaves your machine. To search it yourself, run `qmd` from that `runtime/` folder:
+
+```sh
+cd ~/.hobkin/runtime
+qmd search "invoice"
+qmd query "what was decided about the invoice"
+```
+
+Hobkin keeps it fresh while the dashboard or `hobkin run` is open, and stops when they do. It compares file times every 10 seconds. When something has changed and stayed put for 20 seconds, it runs `qmd update`, `qmd embed` and `qmd status`, one at a time and at the lowest priority. Update and status take about a tenth of a second on a small index. Embed does nothing unless text changed, and then loads a 330 MB model on your machine, at no token cost. qmd downloads that model the first time if it is not there yet. `qmd search` uses no model, so it works while embedding catches up.
+
+`hobkin status` shows the last pass, such as `Index 14 files · embeddings up to date · checked 2026-11-01T12:33:00.000Z`.
+
 ## Chrome
 
 Hobkin uses `pi-chrome` when it is installed, in chat, checks and work mode alike, with no time limit and no `/chrome authorize`. Agents read public pages and your own projects freely. Opening banking, financial, health, government, mail or other private accounts, or changing anything through the browser, needs an approved plan first: your yes in Chat, or a check's own instructions.

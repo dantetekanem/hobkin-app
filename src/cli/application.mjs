@@ -11,6 +11,7 @@ import { extensionPaths } from './pi-extensions.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
+import { MemoryIndex } from './memory-index.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn, workStopBrief } from './holds.mjs';
 import { withoutWorkNote, workNote } from './work/chat.mjs';
@@ -79,7 +80,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, watched = true } = {}) {
+  static async open(root, { createMain, askQuestion, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, watched = true, memoryIndex = null } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -155,6 +156,11 @@ export class HobkinApplication {
         if (name?.startsWith('deleted-reports.json')) app.requestRefresh();
       });
       app.deletionWatcher.unref();
+      // Only `main` asks for this, so nothing else that opens an application can start a real qmd.
+      if (memoryIndex) {
+        app.memoryIndex = new MemoryIndex({ ...memoryIndex, root: app.runtime.directory, onNote: () => app.requestRefresh() });
+        app.memoryIndex.start();
+      }
       await app.refresh();
       return app;
     } catch (error) {
@@ -240,6 +246,8 @@ export class HobkinApplication {
       notices.push(proposed);
       noticeIds.add(proposed.id);
     }
+    const indexNote = this.memoryIndex?.takeNote();
+    if (indexNote) notices.push(indexNote);
     const scheduledReports = runs.filter(isVisibleScheduledReport)
       .sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? ''));
     for (const run of scheduledReports) {
@@ -557,7 +565,7 @@ export class HobkinApplication {
         this.deletionWatcher?.close();
         try {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
-          await Promise.all([this.runtime.main?.abort(), this.runner?.stop()]);
+          await Promise.all([this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
           await this.delivery?.close();
           await this.runtime.idle();
           await this.refreshing;
