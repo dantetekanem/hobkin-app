@@ -42,7 +42,23 @@ const proposalId = ({ scope, conclusion, definition }) => createHash('sha256').u
 
 export const proposalMessage = proposal => `**Learning:** ${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]} Say yes for a plan, or no and this will not come up again.`;
 
-const proposalOrder = (left, right) => proposing.indexOf(left.kind) - proposing.indexOf(right.kind) || right.seen - left.seen || left.scope.localeCompare(right.scope);
+const proposalOrder = (left, right) => proposing.indexOf(left.kind) - proposing.indexOf(right.kind)
+  || right.seen - left.seen
+  || left.scope.localeCompare(right.scope);
+
+// The store keeps a conclusion without its evidence, so nothing about a single run outlives this pass.
+const keptLesson = ({ id, scope, title, code, seen, runs, days, usd, latest, conclusion }) => ({
+  id,
+  scope,
+  title,
+  code,
+  seen,
+  runs,
+  days,
+  usd,
+  latest,
+  conclusion,
+});
 
 /**
  * Judges what finished and keeps what it teaches. It has no way to start a model run: every verdict comes from what
@@ -61,8 +77,9 @@ export class Learner {
   /** Cheap enough for every tick. A real pass waits for something to have moved, or for evidence to have aged. */
   settle({ runs, schedules, attention = [] }) {
     if (!this.enabled()) return false;
+
     const now = this.now();
-    const moved = `${runs.filter(item => item.finishedAt).length}:${this.telemetry.events.length}`;
+    const moved = `${runs.filter(run => run.finishedAt).length}:${this.telemetry.events.length}`;
     if (moved === this.moved && now - this.settledAt < SETTLE_EVERY_MS) return false;
     Object.assign(this, { moved, settledAt: now });
 
@@ -81,32 +98,39 @@ export class Learner {
       clears: actions.clears,
     });
     const concluded = subjects.map(conclude);
-    const learned = concluded.filter(item => item.code);
-    const open = subjects.map(subject => conclude(stillOpen(subject, schedules, runs))).filter(item => item.code);
-    const proposals = this.proposalsFrom(open, saved, actions);
+    const unanswered = subjects.map(subject => conclude(stillOpen(subject, schedules, runs)));
+    const proposals = this.proposalsFrom(unanswered.filter(item => item.code), saved, actions);
+
     this.asking ??= this.askGitHub(projects).finally(() => { this.asking = null; });
     this.post ??= this.nextPost(proposals, actions);
+
     const next = {
-      judged: { runs: concluded.reduce((sum, item) => sum + item.runs, 0), scopes: concluded.filter(item => item.runs).length },
-      lessons: learned.map(({ id, scope, title, code, seen, runs: total, days, usd, latest, conclusion }) => ({ id, scope, title, code, seen, runs: total, days, usd, latest, conclusion })),
+      judged: {
+        runs: concluded.reduce((sum, item) => sum + item.runs, 0),
+        scopes: concluded.filter(item => item.runs).length,
+      },
+      lessons: concluded.filter(item => item.code).map(keptLesson),
       proposals,
       pullRequests: saved.pullRequests,
     };
     const changed = JSON.stringify(next) !== JSON.stringify(saved);
     if (changed) saveState(this.root, next);
+
     return changed || Boolean(this.post);
   }
 
   // A no holds for good. A yes holds until the schedule changes, because then a new failure is a new question.
   proposalsFrom(learned, saved, { answers }) {
-    const answered = ({ scope, conclusion, definition }) => answers.some(answer => answer.scope === scope && answer.kind === conclusion
+    const answered = ({ scope, conclusion, definition }) => answers.some(answer => answer.scope === scope
+      && answer.kind === conclusion
       && (answer.answer === 'no' || answer.definition === definition));
+    const firstRaisedAt = id => saved.proposals.find(known => known.id === id)?.at ?? iso(this.now());
+
     return learned
       .filter(item => proposing.includes(item.conclusion) && !answered(item))
       .map(item => {
         const id = proposalId(item);
-        const { scope, title, definition, code, seen, runs, days, usd, latest, conclusion: kind } = item;
-        return { id, scope, title, definition, kind, code, seen, runs, days, usd, latest, at: saved.proposals.find(known => known.id === id)?.at ?? iso(this.now()) };
+        return { ...keptLesson(item), id, kind: item.conclusion, definition: item.definition, at: firstRaisedAt(id) };
       })
       .toSorted(proposalOrder);
   }

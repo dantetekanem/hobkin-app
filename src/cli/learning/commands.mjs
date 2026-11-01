@@ -16,16 +16,18 @@ function lessonRows(lessons, injected) {
   });
 }
 
+function standing(root, injected, judged) {
+  if (!learningEnabled(root)) return 'Learning is off. Nothing is judged, and sessions get nothing. Turn it on with /learning or hobkin learning on.';
+  if (injected.length) return `Learning is on. Every session gets ${plural(injected.length - 1, 'lesson')}, about ${requestTokens(injected)} of ${MAX_TOKENS} tokens.`;
+  if (judged?.runs) return `Learning is on. ${plural(judged.runs, 'run')} judged, and no pattern has held long enough to teach anything.`;
+  return 'Learning is on. Nothing judged yet: it starts the next time Hobkin runs.';
+}
+
 /** For a person. Every lesson shows the line agents get, what it rests on and the ID that removes it. */
 export function learningView(root) {
   const { lessons, proposals } = learningState(root);
-  const { judged } = readState(root);
   const injected = renderLessons(lessons);
-  const lines = [];
-  if (!learningEnabled(root)) lines.push('Learning is off. Nothing is judged, and sessions get nothing. Turn it on with /learning or hobkin learning on.');
-  else if (lessons.length) lines.push(`Learning is on. Every session gets ${plural(injected.length - 1, 'lesson')}, about ${requestTokens(injected)} of ${MAX_TOKENS} tokens.`);
-  else if (judged?.runs) lines.push(`Learning is on. ${plural(judged.runs, 'run')} judged, and no pattern has held long enough to teach anything.`);
-  else lines.push('Learning is on. Nothing judged yet: it starts the next time Hobkin runs.');
+  const lines = [standing(root, injected, readState(root).judged)];
   if (lessons.length) lines.push('', ...lessonRows(lessons, injected));
   if (proposals.length) {
     lines.push('', 'Proposals, told in Chat one a day:', '');

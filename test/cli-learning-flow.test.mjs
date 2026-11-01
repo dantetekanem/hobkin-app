@@ -221,7 +221,7 @@ test('from /learning to lessons in every session: a proposal in Chat, an answer 
   assert.equal(asked.length, 0, 'it ran no model to learn this');
   const lines = injectedLessons(h.root);
   assert.deepEqual(lines.slice(1), [
-    '-news-digest nothing new x5: stop early if unchanged',
+    '-news-digest nothing new x5: read only what changed',
     '-site-audit blocked x5: do the rest, name what stopped it',
     '+price-watch used x5: keep this approach',
   ]);

@@ -16,6 +16,7 @@ const INSTRUCTION_WORDS = /ignore|disregard|forget|override|bypass|instruction|p
 const SEEN_STEPS = [10, 5, 3, 2];
 const WINDOW = 10;
 const LATEST = 3;
+const MIN_DAYS = 2;
 
 // In order: the first that holds is the one lesson for that scope, so an agent is never told two things about it.
 // `lasting` lessons outlive a few runs of something else. The rest must still be going on in the latest ones.
@@ -109,38 +110,50 @@ export function evidenceText({ code, seen, runs, days, usd }) {
 export const isLesson = lesson => Boolean(lesson) && typeof lesson.latest === 'string' && lessonLine(lesson) !== null;
 
 // Everything an agent could be shown from a proposal has to pass here. Its title goes only to the user.
-export const isProposal = proposal => isLesson(proposal) && proposing.includes(proposal.kind) && /^[0-9a-f]{6}$/.test(proposal.id ?? '')
-  && Number.isInteger(proposal.runs) && Number.isInteger(proposal.days) && (proposal.usd === undefined || Number.isFinite(proposal.usd));
+export const isProposal = proposal => isLesson(proposal)
+  && proposing.includes(proposal.kind)
+  && /^[0-9a-f]{6}$/.test(proposal.id ?? '')
+  && Number.isInteger(proposal.runs)
+  && Number.isInteger(proposal.days)
+  && (proposal.usd === undefined || Number.isFinite(proposal.usd));
+
+const daysIn = verdicts => new Set(verdicts.map(({ at }) => at.slice(0, 10))).size;
+
+// A report nobody came for and one with nothing in it both went unused, so a check that is ignored counts both.
+const supports = code => ({ is }) => is === code || (code === 'unread' && is === 'quiet');
+
+function patternHolds({ code, minimum, share, lasting, needsIgnored }, recent, ignored) {
+  const seen = recent.filter(supports(code));
+  const latest = recent.slice(-LATEST).filter(supports(code)).length;
+  const often = seen.length / recent.length >= share && (lasting || latest > 0);
+  // A long good record must not hide a check that has just broken.
+  const started = !lasting && latest === LATEST;
+
+  return seen.length >= minimum
+    && (often || started)
+    && (!needsIgnored || ignored)
+    && daysIn(seen) >= MIN_DAYS;
+}
 
 /** What a scope's latest runs add up to. Mixed evidence teaches nothing, and a pattern that has stopped is no longer true. */
 export function conclude({ verdicts, ignored = false, ...subject }) {
   const recent = verdicts.toSorted((left, right) => left.at.localeCompare(right.at)).slice(-WINDOW);
-  const counted = code => (code === 'unread' ? ['unread', 'quiet'] : [code]);
-  const matching = code => recent.filter(({ is }) => counted(code).includes(is));
-  const holds = ({ code, minimum, share, lasting, needsIgnored }) => {
-    const seen = matching(code);
-    const latest = recent.slice(-LATEST).filter(({ is }) => counted(code).includes(is)).length;
-    const often = seen.length / recent.length >= share && (lasting || latest > 0);
-    // A long good record must not hide a check that has just broken.
-    const started = !lasting && latest === LATEST;
-    return seen.length >= minimum && (often || started) && (!needsIgnored || ignored)
-      && new Set(seen.map(({ at }) => at.slice(0, 10))).size >= 2;
-  };
-  const code = patterns.find(holds)?.code;
+  const code = patterns.find(pattern => patternHolds(pattern, recent, ignored))?.code;
   if (!code) return { ...subject, runs: recent.length };
 
-  const supporting = matching(code);
+  const supporting = recent.filter(supports(code));
   const seen = supporting.length;
   const asked = recent.filter(({ by }) => by === 'asked').length;
   const requested = recent.filter(({ by }) => by === 'requested').length;
   const spent = recent.reduce((sum, { usd = 0 }) => sum + usd, 0);
+
   return {
     ...subject,
     runs: recent.length,
     id: lessonId({ scope: subject.scope, code }),
     code,
     seen,
-    days: new Set(supporting.map(({ at }) => at.slice(0, 10))).size,
+    days: daysIn(supporting),
     latest: supporting.at(-1).at,
     conclusion: conclusions[code]({ seen, asked, requested }),
     ...(spent > 0 ? { usd: spent / recent.length } : {}),

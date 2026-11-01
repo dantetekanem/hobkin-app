@@ -13,7 +13,7 @@ Proposal line: {id} {kind} {scope}
 | failed | -{scope} failed x{seen}: save progress, do less per run |
 | rejected | -{scope} rejected x{seen}: verify before reporting |
 | unread | -{scope} unread x{seen}: lead with the change, be short |
-| quiet | -{scope} nothing new x{seen}: stop early if unchanged |
+| quiet | -{scope} nothing new x{seen}: read only what changed |
 | merged | +{scope} merged x{seen}: keep this size and style |
 | closed | -{scope} closed x{seen}: read why before filing more |
 | stuck | -{scope} stuck x{seen}: commit early, say what stopped it |

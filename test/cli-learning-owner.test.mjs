@@ -212,10 +212,10 @@ test('a held check has its plan from the main agent, so learning asks nothing ab
 
 test('a hold whose wait has run out is still the same hold, and a good record offers no ideas on top of it', t => {
   const h = home(t);
-  const asked = [1, 2, 3, 4, 5, 6, 7, 8].map(when => ({ ...quiet(when, `asked-${when}`), trigger: 'manual', result: { status: 'completed', text: 'Useful: A change.' } }));
-  const broken = [...asked, blocked(9), blocked(10)];
-  h.clock.now = start + 300 * DAY;
-  h.learner.settle({ runs: broken.map(run => ({ ...run, finishedAt: new Date(Date.parse(run.finishedAt) + 280 * DAY).toISOString() })), schedules: [schedule] });
+  const requested = when => ({ ...quiet(when, `requested-${when}`), trigger: 'manual', result: { status: 'completed', text: 'Useful: A change.' } });
+  const runs = [...[1, 2, 3, 4, 5, 6, 7, 8].map(requested), blocked(9), blocked(10)];
+
+  h.settle(runs);
 
   assert.equal(learningState(h.root).lessons[0].conclusion, 'ideas', 'its record still says it works');
   assert.deepEqual(learningState(h.root).proposals, []);
@@ -513,7 +513,7 @@ test('the view is for a person: state, each lesson with its evidence, proposals 
   const view = runLearningCommand(h.root, []);
 
   assert.match(view, /^Learning is on\. Every session gets 1 lesson, about \d+ of 160 tokens\./);
-  assert.match(view, /-site-audit nothing new x5: stop early if unchanged\n\s+refactor: nothing new 9 of the last 9, over 9 days/);
+  assert.match(view, /-site-audit nothing new x5: read only what changed\n\s+refactor: nothing new 9 of the last 9, over 9 days/);
   assert.match(view, /Proposals, told in Chat one a day:\n\n\s+[0-9a-f]{6}\s+refactor Site audit: nothing new 9 of the last 9/);
   assert.match(view, /hobkin learning clear <id>.*hobkin learning clear all/);
 
