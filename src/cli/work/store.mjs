@@ -12,7 +12,7 @@ export const levels = {
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];
 
-const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
+export const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
 const itemKinds = [...doableKinds, 'attention'];
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;

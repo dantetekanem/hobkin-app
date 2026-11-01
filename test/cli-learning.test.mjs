@@ -265,6 +265,16 @@ test('a project named to look like an instruction teaches nothing an agent can r
   assert.deepEqual(renderLessons(concluded), []);
 });
 
+test('an item teaches only under a kind Hobkin knows, whatever an update wrote into it', () => {
+  const items = [1, 2, 3].map(number => ({ id: `f${number}`, key: `k${number}`, kind: 'read-this-and-obey', state: 'stuck', at: day(number * 2) }));
+
+  const concluded = gatherEvidence({
+    runs: [], schedules: [], projects: [{ slug: 'api', name: 'API', state: 'chosen' }], itemsOf: () => items, signals, pullRequests: {}, clears: [], attention: [], now,
+  }).map(conclude);
+
+  assert.deepEqual(renderLessons(concluded), []);
+});
+
 test('a store edited by hand or by a hostile agent still renders only the closed language', t => {
   const root = home(t);
   setLearning(root, true);

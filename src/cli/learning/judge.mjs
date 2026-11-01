@@ -1,6 +1,7 @@
 import { inconclusive, scheduleDefinition, stalled } from '../checks.mjs';
 import { answeredUntil } from '../holds.mjs';
 import { reportTriage } from '../reports.mjs';
+import { doableKinds } from '../work/store.mjs';
 import { clearedAt } from './store.mjs';
 
 const DAY_MS = 86400000;
@@ -76,8 +77,9 @@ function checkEvidence(schedule, { runs, signals, attention, now }) {
   };
 }
 
+// An update can write anything into an item, so a kind names a lesson only if it is one Hobkin knows.
 function projectEvidence({ slug, name }, { runs, itemsOf, pullRequests, now }) {
-  const subjects = Map.groupBy(itemsOf(slug).filter(item => item.kind !== 'attention'), ({ key, kind }) => (key?.startsWith('idea:') ? 'ideas' : kind));
+  const subjects = Map.groupBy(itemsOf(slug).filter(({ kind }) => doableKinds.includes(kind)), ({ key, kind }) => (key?.startsWith('idea:') ? 'ideas' : kind));
   const lanes = ['look', 'do'].map(lane => ({
     scope: `work.${slug}.${lane}`,
     title: `${name} ${lane}`,
