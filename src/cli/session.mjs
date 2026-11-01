@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { extensionPaths } from './pi-extensions.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 
@@ -21,9 +22,19 @@ export async function readBrief(input) {
   return Buffer.concat(pieces).toString('utf8');
 }
 
-/** Hands massive work to a full Pi session the user can watch and carry on in. Nothing waits for it. */
-export async function startSession({ title = 'session', cwd = process.cwd(), brief, env = process.env, panes = new WorkPanes({ tab: TAB_LABEL, extensionsFor: extensionPaths }) }) {
+// A brief can hold a whole conversation, and only a short line fits through a terminal.
+function saveBrief(root, name, brief) {
+  const folder = join(root, 'runtime', 'handoffs');
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  const file = join(folder, `${name}.md`);
+  writeFileSync(file, brief, { mode: 0o600 });
+  return file;
+}
+
+/** Hands massive work or a whole conversation to a full Pi session the user can watch and carry on in. Nothing waits for it. */
+export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, env = process.env, panes = new WorkPanes({ tab: TAB_LABEL, extensionsFor: extensionPaths }) }) {
   requireHerdr(env);
   if (!brief.trim()) throw Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.');
-  return panes.startSession({ name: sessionName(title), cwd: resolve(cwd), brief });
+  const name = sessionName(title);
+  return panes.startSession({ name, cwd: resolve(cwd), brief: saveBrief(root, name, brief) });
 }

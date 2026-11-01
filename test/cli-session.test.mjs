@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { readBrief, startSession } from '../src/cli/session.mjs';
 import { WorkPanes } from '../src/cli/work/panes.mjs';
 
 const herdr = { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' };
+
+const dataFolder = t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-session-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
+};
 
 const fakeHerdr = (tabs = []) => {
   const calls = [];
@@ -17,7 +26,7 @@ const fakeHerdr = (tabs = []) => {
   return { calls, panes: new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' }) };
 };
 
-test('a session\'s Pi loads the extensions it was given', async () => {
+test('a session\'s Pi loads the extensions it was given', async t => {
   const calls = [];
   const exec = async (_command, args) => {
     calls.push(args);
@@ -31,17 +40,18 @@ test('a session\'s Pi loads the extensions it was given', async () => {
   };
   const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin', extensionsFor });
 
-  await startSession({ cwd: '/repos/api', brief: 'Go.', env: herdr, panes });
+  await startSession({ root: dataFolder(t), cwd: '/repos/api', brief: 'Go.', env: herdr, panes });
 
   const start = calls.find(args => args[1] === 'start');
   assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve', '--no-extensions', '--extension', '/chrome/index.ts']);
   assert.deepEqual(asked, ['/repos/api']);
 });
 
-test('a session is a full Pi with every permission, in its own tab, and starts on the brief', async () => {
+test('a session is a full Pi with every permission, in its own tab, and starts on the brief', async t => {
   const { calls, panes } = fakeHerdr();
 
-  const { name, pane } = await startSession({ title: 'Rebuild the importer!', cwd: '/repos/api', brief: 'Rebuild it all.', env: herdr, panes });
+  const root = dataFolder(t);
+  const { name, pane } = await startSession({ root, title: 'Rebuild the importer!', cwd: '/repos/api', brief: 'Rebuild it all.', env: herdr, panes });
 
   assert.equal(pane, 'w1:p9');
   assert.match(name, /^hobkin-rebuild-the-importer-[0-9a-f]{4}$/);
@@ -54,10 +64,64 @@ test('a session is a full Pi with every permission, in its own tab, and starts o
   assert.deepEqual([start[0], start[1], start[2]], ['agent', 'start', name]);
   assert.equal(start[start.indexOf('--kind') + 1], 'pi');
   assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve']);
-  assert.deepEqual(prompt.slice(0, 4), ['agent', 'prompt', name, 'Rebuild it all.']);
+  assert.deepEqual(prompt.slice(0, 3), ['agent', 'prompt', name]);
+  assert.equal(readFileSync(/^Read (.+) and follow it\.$/.exec(prompt[3])[1], 'utf8'), 'Rebuild it all.');
 });
 
-test('a Pi that cannot start does not leave an empty pane behind', async () => {
+test('a brief of any length reaches the agent as a private file', async t => {
+  const root = dataFolder(t);
+  const { calls, panes } = fakeHerdr();
+  const brief = 'Everything the conversation established. '.repeat(2000);
+
+  await startSession({ root, cwd: '/repos/api', brief, env: herdr, panes });
+
+  const prompt = calls.find(args => args[1] === 'prompt')[3];
+  assert.ok(prompt.length < 200, 'only the path travels through the terminal');
+  const file = /^Read (.+) and follow it\.$/.exec(prompt)[1];
+  assert.ok(file.startsWith(root));
+  assert.equal(readFileSync(file, 'utf8'), brief);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+});
+
+test('a pane whose shell is still starting gets another try, and the agent starts', async t => {
+  const closed = [];
+  const starts = [];
+  const exec = async (_command, args) => {
+    if (args[0] === 'tab' && args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
+    if (args[0] === 'tab') return JSON.stringify({ result: { root_pane: { pane_id: 'w1:p9' } } });
+    if (args[0] === 'pane' && args[1] === 'close') closed.push(args[2]);
+    if (args[1] === 'start') {
+      starts.push(args);
+      if (starts.length < 3) throw Object.assign(Error('Command failed'), { stderr: '{"error":{"code":"agent_start_input_failed"}}' });
+    }
+    return JSON.stringify({ result: {} });
+  };
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin', pollMs: 1 });
+
+  const { pane } = await startSession({ root: dataFolder(t), cwd: '/repos/api', brief: 'Go.', env: herdr, panes });
+
+  assert.equal(pane, 'w1:p9');
+  assert.equal(starts.length, 3);
+  assert.deepEqual(closed, []);
+});
+
+test('a shell that never gets ready ends the attempt and closes the pane', async t => {
+  const closed = [];
+  const exec = async (_command, args) => {
+    if (args[0] === 'tab' && args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
+    if (args[0] === 'tab') return JSON.stringify({ result: { root_pane: { pane_id: 'w1:p9' } } });
+    if (args[0] === 'pane' && args[1] === 'close') closed.push(args[2]);
+    if (args[1] === 'start') throw Object.assign(Error('Command failed'), { stderr: '{"error":{"code":"agent_start_input_failed"}}' });
+    return JSON.stringify({ result: {} });
+  };
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin', pollMs: 1, startTimeoutMs: 10 });
+
+  await assert.rejects(startSession({ root: dataFolder(t), cwd: '/repos/api', brief: 'Go.', env: herdr, panes }), /Command failed/);
+
+  assert.deepEqual(closed, ['w1:p9']);
+});
+
+test('a Pi that cannot start does not leave an empty pane behind', async t => {
   const closed = [];
   const exec = async (_command, args) => {
     if (args[0] === 'tab' && args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
@@ -68,12 +132,12 @@ test('a Pi that cannot start does not leave an empty pane behind', async () => {
   };
   const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
 
-  await assert.rejects(startSession({ brief: 'Rebuild it all.', env: herdr, panes }), /agent_not_ready/);
+  await assert.rejects(startSession({ root: dataFolder(t), brief: 'Rebuild it all.', env: herdr, panes }), /agent_not_ready/);
 
   assert.deepEqual(closed, ['w1:p9']);
 });
 
-test('a brief that may not have arrived says where the session is, so nobody starts a second one', async () => {
+test('a brief that may not have arrived says where the session is, so nobody starts a second one', async t => {
   const closed = [];
   const exec = async (_command, args) => {
     if (args[0] === 'tab' && args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
@@ -84,7 +148,7 @@ test('a brief that may not have arrived says where the session is, so nobody sta
   };
   const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
 
-  await assert.rejects(startSession({ title: 'big job', brief: 'Rebuild it all.', env: herdr, panes }), /w1:p9.*hobkin-big-job/);
+  await assert.rejects(startSession({ root: dataFolder(t), title: 'big job', brief: 'Rebuild it all.', env: herdr, panes }), /w1:p9.*hobkin-big-job/);
 
   assert.deepEqual(closed, [], 'the session stays for the user to look at');
 });

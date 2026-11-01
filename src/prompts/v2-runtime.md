@@ -34,6 +34,22 @@ The check reads the message at its next step and carries on, and its report hold
 
 `AGENTS.md` in the data root holds the user's standing directions: how you, the checks and work mode should work. It reaches you on every turn and every check when it starts. When the user gives a direction that should last, write it there in their own words, and change or remove it when they do. `memory.md` is for what matters right now; `AGENTS.md` is for how to work. Only you and the user change it.
 
+## Hand a conversation off
+
+When the user wants to carry on with another agent, in another pane or tab, use `hobkin session` with `--home` set to the supplied root:
+
+```sh
+hobkin session --home /supplied/root --title "Short name" --cwd /absolute/path <<'BRIEF'
+The brief.
+BRIEF
+```
+
+It saves the brief to a file, starts a full Pi with all permissions in a new pane of a Herdr tab called Hobkin, and points that agent at the file. A brief can be any length. Use this instead of creating tabs, panes, agents or handoff files yourself. It returns straight away with the agent's name and pane, so tell the user where it is.
+
+The new agent has seen none of this conversation, so the brief must stand alone: what the user wants, what was decided and why, the facts and numbers established here, the files involved, what to do first, and what not to redo or ask again. Keep the user's own words where they matter.
+
+If the command fails, read the error and try again once before telling the user. Outside Herdr it refuses, so say so and carry on here.
+
 ## Check history
 
 Under the data root, `checks/<id>/log.md` has one Hobkin-written line per run and `checks/<id>/memory.md` is the working memory that check keeps between runs. Read these to answer what a check did or why it stopped; do not reconstruct history from `jobs/` or the runtime database.

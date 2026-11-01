@@ -30,8 +30,8 @@ export const agentName = (lane, slug) => `work-${lane}-${slug}`.toLowerCase().re
 
 /** Runs project work where the user can watch it: one agent per pane, in a Herdr tab of their own. */
 export class WorkPanes {
-  constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS, tab = TAB_LABEL, extensionsFor = async () => undefined } = {}) {
-    Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab, extensionsFor });
+  constructor({ workspace = process.env.HERDR_WORKSPACE_ID, exec = defaultExec, pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS, tab = TAB_LABEL, extensionsFor = async () => undefined, startTimeoutMs = START_TIMEOUT_MS } = {}) {
+    Object.assign(this, { workspace, exec, pollMs, idleGraceMs, tab, extensionsFor, startTimeoutMs });
   }
 
   async herdr(...args) {
@@ -57,6 +57,20 @@ export class WorkPanes {
     const direction = inTab.length % 2 ? 'right' : 'down';
     const { pane } = await this.herdr('pane', 'split', inTab.at(-1).pane_id, '--direction', direction, '--cwd', cwd, '--no-focus');
     return pane.pane_id;
+  }
+
+  // Until a new pane's shell shows its prompt, Herdr refuses any line over 1024 bytes, and naming every extension takes more.
+  async startAgent(name, kind, pane, args) {
+    const giveUpAt = Date.now() + this.startTimeoutMs;
+    for (;;) {
+      try {
+        return await this.herdr('agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', ...args);
+      } catch (error) {
+        const shellStarting = String(error.stderr ?? error.message).includes('agent_start_input_failed');
+        if (!shellStarting || Date.now() >= giveUpAt) throw error;
+        await delay(this.pollMs);
+      }
+    }
   }
 
   closePane(pane) {
@@ -102,14 +116,13 @@ export class WorkPanes {
   async startSession({ name, cwd, brief }) {
     const pane = await this.openPane(cwd);
     try {
-      const extensions = extensionArguments(await this.extensionsFor(cwd));
-      await this.herdr('agent', 'start', name, '--kind', 'pi', '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', '--approve', ...extensions);
+      await this.startAgent(name, 'pi', pane, ['--approve', ...extensionArguments(await this.extensionsFor(cwd))]);
     } catch (error) {
       await this.closePane(pane);
       throw error;
     }
     try {
-      await this.prompt(name, brief);
+      await this.prompt(name, `Read ${brief} and follow it.`);
     } catch (error) {
       throw Error(`Pi is running in pane ${pane} as ${name}, but the brief may not have arrived: ${error.message}. Look there before starting another session.`);
     }
@@ -122,7 +135,7 @@ export class WorkPanes {
       signal?.throwIfAborted();
       pane = await this.openPane(cwd);
       const args = kind === 'pi' ? piArguments({ model, effort, sessionFile, extensions: await this.extensionsFor(cwd) }) : [];
-      await this.herdr('agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', ...args);
+      await this.startAgent(name, kind, pane, args);
       await this.prompt(name, `Read ${brief} and follow it.`);
       await this.waitForReport({ name, report, signal });
       await this.closePane(pane);
