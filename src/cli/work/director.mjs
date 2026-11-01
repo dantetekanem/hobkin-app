@@ -179,7 +179,8 @@ export class WorkDirector {
     const day = new Date(this.now()).toDateString();
     const id = pause.kind === 'usage' ? `usage:${mode.usagePause.at}` : `${pause.kind}:${day}`;
     if (mode.pauseNotice?.id === id) return;
-    writeMode(this.root, { pauseNotice: { id, at: new Date(this.now()).toISOString(), line: pause.line, tone: pause.kind === 'hour' ? 'useful' : 'critical' } });
+    const tone = pause.kind === 'hour' ? 'useful' : 'critical';
+    writeMode(this.root, { pauseNotice: { id, at: new Date(this.now()).toISOString(), line: pause.line, tone } });
     this.onChange();
   }
 

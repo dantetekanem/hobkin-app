@@ -70,7 +70,12 @@ export function workStatus(root, outlook = {}) {
     autoPick,
     agents: plan.agents,
     agentsAllowed: mode.agents,
-    maxRuns: { running: (outlook.running ?? []).filter(run => run.level === 'max').length, today: budget.maxRuns, atOnce: MAX_RUNS_AT_ONCE, perDay: MAX_RUNS_A_DAY },
+    maxRuns: {
+      running: (outlook.running ?? []).filter(run => run.level === 'max').length,
+      today: budget.maxRuns,
+      atOnce: MAX_RUNS_AT_ONCE,
+      perDay: MAX_RUNS_A_DAY,
+    },
     dailyTokens: budget.limit,
     tokensToday: budget.used,
     tokensCached: budget.cached,

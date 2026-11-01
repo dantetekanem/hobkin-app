@@ -28,7 +28,8 @@ export function unmergedNow(root, mode) {
   const entries = Object.entries(projects);
   const since = latest([...entries.map(([, project]) => project.lastMergeAt), mode.keptGoingAt]);
   const stretch = openedSince(entries.flatMap(([, project]) => project.open), since).length;
-  const perProject = Object.fromEntries(entries.map(([slug, project]) => [slug, openedSince(project.open, latest([project.lastMergeAt, mode.keptGoingAt])).length]));
+  const stretchOf = ({ open, lastMergeAt }) => openedSince(open, latest([lastMergeAt, mode.keptGoingAt])).length;
+  const perProject = Object.fromEntries(entries.map(([slug, project]) => [slug, stretchOf(project)]));
   const each = projectLimit(mode.unmergedLimit);
   return {
     at,
@@ -86,29 +87,41 @@ async function localBranches(repo, base) {
   });
 }
 
+const branchUnit = async (repo, base, { name, at, sha }) => ({
+  kind: 'branch',
+  branch: name,
+  sha,
+  openedAt: new Date(at).toISOString(),
+  size: sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', `${base}...${name}`)),
+});
+
+/** Git keeps no date for a local merge, so a branch seen open last time and merged now is dated now. */
+async function mergedHere({ repo, base, units, previous, now }) {
+  const stillOpen = new Set(units.map(unit => unit.branch));
+  const gone = (previous.open ?? []).filter(unit => unit.kind === 'branch' && !stillOpen.has(unit.branch));
+  const landed = await Promise.all(gone.map(unit => isMerged(repo, unit.sha, base)));
+  return landed.some(Boolean) ? new Date(now).toISOString() : null;
+}
+
+async function treesHeld(repo, { look, do: doing }) {
+  const listed = (await gitOrNothing(repo, 'worktree', 'list', '--porcelain')).split('\n');
+  return listed.filter(line => line === `worktree ${look}` || line === `worktree ${doing}`).length;
+}
+
 /** Read-only `git` and `gh`, and no model. A PR and its branch are one piece of work, and so is a worktree holding that branch. */
 async function surveyProject({ repo, trees, previous = {}, now, gh }) {
   const base = await defaultBranch(repo);
   const branches = await localBranches(repo, base);
-  const pulls = await pullRequests(repo, gh);
-  const withPull = new Set((pulls ?? []).map(pr => pr.headRefName));
+  const pulls = await pullRequests(repo, gh) ?? [];
+  const withPull = new Set(pulls.map(pr => pr.headRefName));
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name));
-  const units = await Promise.all(bare.map(async ({ name, at, sha }) => ({
-    kind: 'branch',
-    branch: name,
-    sha,
-    openedAt: new Date(at).toISOString(),
-    size: sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', `${base}...${name}`)),
-  })));
-  const open = [...(pulls ?? []).filter(pr => pr.state === 'OPEN').map(pullUnit), ...units];
-
-  // Git keeps no date for a local merge, so one seen happening here is dated now.
-  const wasOpen = (previous.open ?? []).filter(unit => unit.kind === 'branch' && !units.some(({ branch }) => branch === unit.branch));
-  const landed = await Promise.all(wasOpen.map(unit => isMerged(repo, unit.sha, base)));
-  const mergedHere = landed.some(Boolean) ? new Date(now).toISOString() : null;
-  const worktrees = (await gitOrNothing(repo, 'worktree', 'list', '--porcelain')).split('\n').filter(line => line === `worktree ${trees.look}` || line === `worktree ${trees.do}`);
-  const pulledAt = (pulls ?? []).map(pr => pr.mergedAt);
-  return { open, lastMergeAt: latest([previous.lastMergeAt, mergedHere, ...pulledAt]), trees: worktrees.length };
+  const units = await Promise.all(bare.map(branch => branchUnit(repo, base, branch)));
+  const merges = [previous.lastMergeAt, await mergedHere({ repo, base, units, previous, now }), ...pulls.map(pr => pr.mergedAt)];
+  return {
+    open: [...pulls.filter(pr => pr.state === 'OPEN').map(pullUnit), ...units],
+    lastMergeAt: latest(merges),
+    trees: await treesHeld(repo, trees),
+  };
 }
 
 /** Only projects still being worked on count, so a dropped one's open PRs cannot stop the others. */

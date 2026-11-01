@@ -3,19 +3,20 @@ import { basename, dirname, join } from 'node:path';
 
 const SECOND_MS = 1000;
 
+const isNumber = value => value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
+
 // The provider states these in seconds and text, and a value it left out stays out.
 const windowFrom = (used, minutes, resetAt) => {
-  const usedPercent = Number(used);
-  if (used === undefined || used === null || used === '' || !Number.isFinite(usedPercent)) return {};
+  if (!isNumber(used)) return null;
   return {
-    usedPercent,
-    ...(Number.isFinite(Number(minutes)) && minutes !== undefined && minutes !== null ? { windowMinutes: Number(minutes) } : {}),
+    usedPercent: Number(used),
+    ...(isNumber(minutes) ? { windowMinutes: Number(minutes) } : {}),
     ...(Number(resetAt) > 0 ? { resetAt: Number(resetAt) * SECOND_MS } : {}),
   };
 };
 const named = (primary, secondary) => ({
-  ...(primary.usedPercent === undefined ? {} : { primary }),
-  ...(secondary.usedPercent === undefined ? {} : { secondary }),
+  ...(primary ? { primary } : {}),
+  ...(secondary ? { secondary } : {}),
 });
 const fromHeaders = headers => {
   const [primary, secondary] = ['primary', 'secondary'].map(name => windowFrom(

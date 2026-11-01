@@ -47,30 +47,50 @@ export function ideasWanted(root, slug, { used, limit }) {
 }
 
 const levelWord = level => (['max', 'critical'].includes(level) ? level : '');
+const ofProject = ({ slug, name = slug, level }) => ({ slug, project: name, level });
 
 function itemEntry(project, item) {
-  const { slug, name = slug } = project;
+  const { slug } = project;
   const level = item.max ? 'max' : project.level;
   const impact = item.impact ?? impactOfKind[item.kind];
   const effort = item.effort ?? effortOfKind[item.kind];
   const started = item.state === 'doing';
-  const score = levelWorth[level] * impactWorth[impact] / effortCost[effort] * (item.urgent ? URGENT_FACTOR : 1) * (started ? STARTED_FACTOR : 1);
-  const why = plainList([started && 'started', item.urgent && 'urgent', levelWord(level), `${impact} impact`, effort]);
-  return { key: `item:${slug}:${item.id}`, kind: 'item', lane: 'do', slug, project: name, level, title: item.title, effort, urgent: item.urgent, item, score, why };
+  const worth = levelWorth[level] * impactWorth[impact] / effortCost[effort];
+  return {
+    ...ofProject(project),
+    key: `item:${slug}:${item.id}`,
+    kind: 'item',
+    lane: 'do',
+    level,
+    title: item.title,
+    effort,
+    urgent: item.urgent,
+    item,
+    score: worth * (item.urgent ? URGENT_FACTOR : 1) * (started ? STARTED_FACTOR : 1),
+    why: plainList([started && 'started', item.urgent && 'urgent', levelWord(level), `${impact} impact`, effort]),
+  };
 }
 
 /** A study takes the rank of the best thing it unlocks, because nothing on the project can run before it. */
 function studyEntry(project, unlocked) {
-  const { slug, name = slug, level } = project;
+  const { slug, level } = project;
   const worth = levelWorth[level] * impactWorth.high / effortCost.medium;
-  const score = Math.max(worth, ...unlocked.map(entry => entry.score));
-  const why = plainList(['first study', levelWord(level), unlocked.length && `unlocks ${unlocked.length}`]);
-  return { key: `study:${slug}`, kind: 'study', lane: 'look', focus: 'study', slug, project: name, level, title: 'first study', effort: 'medium', score, why };
+  return {
+    ...ofProject(project),
+    key: `study:${slug}`,
+    kind: 'study',
+    lane: 'look',
+    focus: 'study',
+    title: 'first study',
+    effort: 'medium',
+    score: Math.max(worth, ...unlocked.map(entry => entry.score)),
+    why: plainList(['first study', levelWord(level), unlocked.length && `unlocks ${unlocked.length}`]),
+  };
 }
 
 /** The lens that is due next on a project. New commits bring it forward and move it up, and start nothing by themselves. */
 function lensEntry(project, state, now) {
-  const { slug, name = slug, level } = project;
+  const { slug, level } = project;
   const every = levels[level].lookEveryHours * HOUR_MS / (state.newCommits ? 2 : 1);
   const elapsed = elapsedSince(state.lastLensAt, now);
   if (elapsed < every) return null;
@@ -78,31 +98,53 @@ function lensEntry(project, state, now) {
   const focus = lenses[(state.lensIndex ?? 0) % lenses.length];
   const overdue = 1 + Math.min(1, (elapsed - every) / every);
   const moved = state.newCommits ? NEW_COMMITS_FACTOR : 1;
-  const score = levelWorth[level] * lensWorth[focus] / effortCost.medium * overdue * moved;
-  const why = plainList([levelWord(level), state.newCommits ? 'new commits' : 'due']);
-  return { key: `look:${slug}`, kind: 'look', lane: 'look', focus, slug, project: name, level, title: `${focus} look`, effort: 'small', score, why };
+  return {
+    ...ofProject(project),
+    key: `look:${slug}`,
+    kind: 'look',
+    lane: 'look',
+    focus,
+    title: `${focus} look`,
+    effort: 'small',
+    score: levelWorth[level] * lensWorth[focus] / effortCost.medium * overdue * moved,
+    why: plainList([levelWord(level), state.newCommits ? 'new commits' : 'due']),
+  };
 }
 
 function ideasEntry(project, state, { root, now, budget }) {
-  const { slug, name = slug, level } = project;
+  const { slug, level } = project;
   if (elapsedSince(state.lastIdeasAt, now) < IDEAS_EVERY_MS || !ideasWanted(root, slug, budget)) return null;
-  const score = levelWorth[level] * impactWorth.low / effortCost.medium;
-  return { key: `ideas:${slug}`, kind: 'ideas', lane: 'look', focus: 'ideas', slug, project: name, level, title: 'new ideas', effort: 'small', score, why: 'daily ideas' };
+  return {
+    ...ofProject(project),
+    key: `ideas:${slug}`,
+    kind: 'ideas',
+    lane: 'look',
+    focus: 'ideas',
+    title: 'new ideas',
+    effort: 'small',
+    score: levelWorth[level] * impactWorth.low / effortCost.medium,
+    why: 'daily ideas',
+  };
+}
+
+/** A project has one look due at most: its study until that is done, then a lens, then ideas. */
+function lookEntry(context, project, state, studied, items) {
+  if (studied) return lensEntry(project, state, context.now) ?? ideasEntry(project, state, context);
+  return elapsedSince(state.lastLookAt, context.now) >= STUDY_RETRY_MS ? studyEntry(project, items) : null;
 }
 
 function projectEntries(context, project) {
   const { root, now, running } = context;
   const { slug } = project;
   const state = readState(root, slug);
-  const held = (state.heldUntil && Date.parse(state.heldUntil) > now) ? state.heldReason : null;
+  const held = state.heldUntil && Date.parse(state.heldUntil) > now ? state.heldReason : null;
+  const studied = existsSync(paths(root, slug).project);
   const items = readItems(root, slug)
     .filter(item => ['open', 'doing'].includes(item.state) && doableKinds.includes(item.kind))
     .filter(item => !running.some(run => run.slug === slug && run.item === item.id))
     .map(item => itemEntry(project, item));
-  const studied = existsSync(paths(root, slug).project);
-  const canStudy = elapsedSince(state.lastLookAt, now) >= STUDY_RETRY_MS;
-  const look = studied ? lensEntry(project, state, now) ?? ideasEntry(project, state, context) : canStudy ? studyEntry(project, items) : null;
-  const entries = [...items, ...(look ? [look] : [])];
+  const look = lookEntry(context, project, state, studied, items);
+  const entries = look ? [...items, look] : items;
   return entries.map(entry => ({ ...entry, held, unstudied: !studied && entry.kind === 'item' }));
 }
 
@@ -113,8 +155,14 @@ function discoveryEntry({ root, mode, now, running }) {
   const first = !looked && !hasWorkToShow(root);
   if (!first && elapsedSince(mode.lastDiscoveryAt, now) < DISCOVERY_EVERY_MS) return [];
   return [{
-    key: 'discover', kind: 'discover', lane: 'discover', project: 'Projects', title: 'find projects', effort: 'small',
-    score: first ? FIRST_DISCOVERY_WORTH : REPEAT_DISCOVERY_WORTH, why: first ? 'nothing to work on yet' : 'daily look',
+    key: 'discover',
+    kind: 'discover',
+    lane: 'discover',
+    project: 'Projects',
+    title: 'find projects',
+    effort: 'small',
+    score: first ? FIRST_DISCOVERY_WORTH : REPEAT_DISCOVERY_WORTH,
+    why: first ? 'nothing to work on yet' : 'daily look',
   }];
 }
 
