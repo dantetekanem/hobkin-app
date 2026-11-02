@@ -78,7 +78,7 @@ Each project has a priority, which sets how often agents look at it, from every 
 In the Work Mode tab:
 
 - `p` changes a project's priority or an item's grade.
-- `r` changes a project's PR setting.
+- `r` changes a project's PR setting, and on a finished branch asks for a review.
 - `d` opens a finished branch's diff, if you have the pi-coder extension.
 - `x` marks an item done.
 - `s` skips a queue row or puts it back.

@@ -850,6 +850,34 @@ test('a message about a report gives the model the report and shows the chat onl
   }
 });
 
+test('a finished draft asks the user with no model turn, and a yes queues its review', async t => {
+  const h = fixture(t);
+  const asked = [];
+  const app = await h.openApp({
+    askQuestion: async request => {
+      asked.push(request);
+      return request.choices[1].value;
+    },
+  });
+  try {
+    chooseProject(h.root, '/repos/api', 'important');
+    const { id } = fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'Evidence, who benefits, the first change, the proof.', impact: 'high', effort: 'small' });
+    updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/login' });
+
+    app.runtime.mainTurn = { id: 'busy' };
+    await app.director.onDraftDone({ slug: 'api', id, project: 'api', title: 'Fix login' });
+    assert.deepEqual(asked, [], 'it waits for the chat to be free');
+
+    app.runtime.mainTurn = null;
+    await app.reviewOffers.next();
+
+    assert.match(asked[0].question, /Draft is done/);
+    assert.equal(readItems(h.root, 'api')[0].reviewAsked, true);
+  } finally {
+    await app.close();
+  }
+});
+
 test('the note Chrome leaves when authorized stays out of Chat', async t => {
   const h = fixture(t);
   const app = await h.openApp();

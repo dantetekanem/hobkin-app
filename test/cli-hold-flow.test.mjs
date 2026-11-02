@@ -185,7 +185,10 @@ async function openHobkin(h, { play, check }) {
         memoryIndex: null,
         intervalMs: 100,
         createMain,
-        runHarness: async (run, settings) => ({ status: 'completed', text: await check(run, settings) }),
+        // Only the check is scripted here. An editor that cannot run leaves its report as written.
+        runHarness: async (run, settings) => (run.purpose === 'humanizer'
+          ? { status: 'failed', text: '' }
+          : { status: 'completed', text: await check(run, settings) }),
       });
       return app;
     },

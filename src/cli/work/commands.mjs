@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  addItem, addProject, answerAllow, cancelRuns, dropWork, markDone, markMax, openDiff, pauseWork, putBackRow, reply, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  addItem, addProject, answerAllow, cancelRuns, dropWork, markDone, markMax, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow,
 } from './controls.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
@@ -24,7 +24,7 @@ Read, as JSON, with nothing running:
   queue                                the plan, each row's grade and its wait
   items [project] [--state state]      state, grade, branch, PR, what is left
   pr, diff <project> <item>            a local PR; diff opens it in pi-coder
-  review                               the last week: progress and what is stale
+  review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
   attention                            what is left for the user, and the answer
 Change, printing ok and message. Project: name, slug or path. Item: id start.
@@ -198,7 +198,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'items': return itemsView(root, args[0], state);
     case 'pr': return prView(root, ...args);
     case 'diff': return openDiff(root, ...args);
-    case 'review': return reviewView(root);
+    case 'review': return args.length ? requestReview(root, ...args) : reviewView(root);
     case 'search': return searchView(root, args.join(' '));
     case 'attention': return attentionView(root);
     case 'start':
@@ -249,8 +249,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return proposeProject(root, proposal);
     }
     case 'item': {
-      // Agents file work through this, and `max` and `grade` are only ever the user's word, so neither can arrive here.
-      const { max, grade, ...item } = await readJson(input);
+      // Agents file work through this, and `max`, `grade` and `reviewAsked` are only ever the user's word, so none can arrive here.
+      const { max, grade, reviewAsked, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       return updateItem(root, args[0], item.id, item);

@@ -273,6 +273,19 @@ export async function openDiff(root, reference, id, { panes = diffPanes(), follo
   return reply(`"${title}" is open in pi-coder, in pane ${pane}. It closes by itself a few minutes after you leave it.`, { range, cwd, pane });
 }
 
+/** The only way a review starts. `reviewAsked` is the user's word, so the item's next run is that review and no agent can set it. */
+export function requestReview(root, reference, id) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  assertNotRunning(root, project, item);
+  if (![...statesThatRun, 'pr'].includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to review.`);
+  if (!item.branch) throw Error(`"${item.title}" has no branch yet, so there is nothing to review.`);
+
+  updateItem(root, project.slug, item.id, { reviewAsked: true });
+  retryItem(root, project.slug, item.id);
+  return reply(`"${item.title}" on ${nameOf(project)} goes to the front of the queue for a review.`);
+}
+
 /** Asks `git` and `gh` now instead of at the next survey. They only read the repositories: all this changes is Hobkin's own record of its items. */
 export async function syncWork(root) {
   const { settled, filed } = await surveyUnmerged(root);

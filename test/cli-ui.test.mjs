@@ -1104,6 +1104,46 @@ test('a question that did not ask for Other stays a closed list', async () => {
   ui.stop();
 });
 
+test('a question nobody needs right now waits for the user to stop typing', async () => {
+  const ui = createDashboard(snapshot);
+  typing(ui, 'half a thought');
+
+  assert.equal(await ui.askQuestion({ ...abc, whenQuiet: true }), undefined);
+  assert.equal(ui.state().focus, 'composer');
+  assert.equal(ui.state().draft, 'half a thought');
+
+  for (const _letter of 'half a thought') ui.input('\x7f');
+  const answer = ui.askQuestion({ ...abc, whenQuiet: true });
+  assert.equal(ui.state().focus, 'question');
+
+  ui.input(ESCAPE);
+  assert.equal(await answer, null);
+  ui.stop();
+});
+
+test('typing past a question nobody needs dismisses it, and the letter lands in the composer', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askQuestion({ ...abc, other: false, whenQuiet: true });
+
+  ui.input('/');
+
+  assert.equal(await answer, null);
+  assert.equal(ui.state().focus, 'composer');
+  assert.equal(ui.state().draft, '/');
+  ui.stop();
+});
+
+test('arrows and Enter still answer a question nobody needs', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askQuestion({ ...abc, other: false, whenQuiet: true });
+
+  ui.input(DOWN);
+  ui.input('\r');
+
+  assert.equal(await answer, 'b');
+  ui.stop();
+});
+
 test('every choice shows at once when the terminal has room, and a small one still fits', async () => {
   const ui = createDashboard(snapshot);
   const labels = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'];

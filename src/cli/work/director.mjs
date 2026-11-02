@@ -10,6 +10,7 @@ import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
+import { nameOf } from './names.mjs';
 import { agentName } from './panes.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
@@ -78,8 +79,8 @@ const notTheWork = run => Boolean(run?.result?.usageLimit);
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, gh, claudeProjects }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, gh, claudeProjects });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, claudeProjects }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, claudeProjects });
     this.active = new Map();
     this.lastStartAt = null;
   }
@@ -554,11 +555,27 @@ export class WorkDirector {
   // Cancelling one is the user's own stop, so it stays in sight at the end of the queue instead of starting again on the next tick.
   // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
   // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
+  // A review that has run is the answer, so only a draft nobody has reviewed asks for one.
+  itemFinished(slug, item) {
+    if (item.reviewAsked) {
+      updateItem(this.root, slug, item.id, { reviewAsked: false }, this.now());
+      return;
+    }
+    if (!['branch', 'pr'].includes(item.state) || item.kind === 'pr-fix') return;
+
+    const { id, title } = item;
+    this.onDraftDone({ slug, id, title, project: nameOf(readProject(this.root, slug)) });
+  }
+
   settleItem(slug, id, run, { moved = false, stalled = false } = {}) {
     const interrupted = run?.status === 'interrupted';
     if ((interrupted && this.runner.stopped) || notTheWork(run)) return;
     const item = readItems(this.root, slug).find(entry => entry.id === id);
-    if (item?.state !== 'doing') return;
+    if (!item) return;
+    if (item.state !== 'doing') {
+      this.itemFinished(slug, item);
+      return;
+    }
     if (moved) writeState(this.root, slug, { folderNote: 'The folder left the run\'s branch, so the run stopped. Nothing was forced.' });
     if (moved || run?.result?.paneClosed) {
       updateItem(this.root, slug, id, { state: 'open' }, this.now());

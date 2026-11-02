@@ -18,7 +18,8 @@ import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { openDiff } from './work/controls.mjs';
+import { openDiff, requestReview } from './work/controls.mjs';
+import { ReviewOffers } from './work/review-offer.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
@@ -136,7 +137,13 @@ export class HobkinApplication {
         onTick: async () => {
           await app.tickWork();
           await app.tickHolds();
+          // Not awaited: this can hold a question open for as long as the user takes to answer it.
+          app.reviewOffers.next();
         },
+      });
+      app.reviewOffers = new ReviewOffers({
+        ask: async request => (app.runtime.mainTurn ? undefined : askQuestion?.(request)),
+        review: ({ slug, id }) => app.workAction('review', slug, id),
       });
       app.director = new WorkDirector({
         root: app.runtime.directory,
@@ -147,6 +154,7 @@ export class HobkinApplication {
         panes: insideHerdr() ? new WorkPanes() : null,
         now: app.now,
         onChange: () => app.requestRefresh(),
+        onDraftDone: draft => app.reviewOffers.add(draft),
       });
       signal?.throwIfAborted();
       // A crash leaves what its runs had opened, and no run is left to take it away.
@@ -520,6 +528,7 @@ export class HobkinApplication {
       back: () => putBackInQueue(root, slug),
       retry: () => retryItem(root, slug, value),
       diff: () => openDiff(root, slug, value),
+      review: () => requestReview(root, slug, value),
     };
     const result = await actions[action]();
     await this.director.tick();

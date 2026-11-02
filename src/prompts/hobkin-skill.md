@@ -32,6 +32,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |
 | `hobkin work pr <project> <item>` | A local PR: a local `hobkin/*` branch and its saved description, for the user to review. |
 | `hobkin work diff <project> <item>` | Opens that branch's diff in pi-coder, in a Herdr pane in front of the user. Outside Herdr it says what to type in Pi. |
+| `hobkin work review <project> <item>` | Asks for a code review of that branch. Reviews run only when the user asks. |
 | `hobkin work review` | The weekly review: whether work mode is running and progressing, and which projects look stale. |
 | `hobkin work help` | Every work mode command. A project is its name, slug or path. |
 

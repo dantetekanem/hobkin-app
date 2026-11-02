@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Run a review only when the user asks for one. A finished draft asks `Draft is done... Want to review it?` with no model and no tokens, a yes puts it first in the queue for a run that reviews the branch, and `r` on a READY row or `hobkin work review <project> <item>` asks at any time. Items that told an agent to review a branch left the queue for READY.
 - Let a project's priority decide how often it runs: a look every hour at P0, every 3 hours at P1, 8 at P2 and 24 at P3, with new ideas every eighth look. That brings each of the seven lenses round in 7 hours at P0 and a week at P3, and a look now runs at its project's own priority so it keeps that pace. The level still sets the model and how hard it thinks, and a project with no priority of its own takes one from its level.
 - Have Hobkin edit every report itself before the user reads it, whichever agent wrote it. A no-tools job on the checks model rewrites the draft in plain sentences with a bundled copy of humanizer. An edit that changes the triage label, a number, a link or any code is thrown away, and a failure leaves the report as written.
 - Let the user answer a question in their own words. Every `ask_question` gets an Other row to type in, which reaches the agent as `typed`, and Esc chooses none. The list shows every choice when the terminal has room. A dialog from another extension stays a closed list.
@@ -28,7 +29,7 @@
 - Turn Needs attention into P0 rows at the top of the queue, which agents run like any other.
 - Keep per project settings in Hobkin's data, not in the repository. `hobkin work priority` or `p` on a project row sets its priority, and with none set max and critical are P0, important P1 and casual P2. `hobkin work prs` or `r` sets its PRs to `off`, `draft` or `published`. The level still sets how often it looks and how hard it thinks, and no longer decides drafts.
 - Deliver work as a local PR by default: a local `hobkin/*` branch and a saved PR description for the user to review, with nothing pushed. The Work tab lists these under READY, `hobkin work pr` prints one, and a PR opens only when a project's setting asks for one.
-- Start every item with a test or check that fails, and have each run review its own branch with the review tooling it has, such as `agentic_code_review` in Pi, before it finishes.
+- Start every item with a test or check that fails.
 - Record `summary`, `proof` and `left` on each finished item. `hobkin work items` shows them, with `grade`, `branch`, `attempts` and `lastError`.
 - Find merged work without being asked. The half hour survey, also while work mode is off, closes an item as `merged` when its PR merged or the default branch holds its branch, and `hobkin work sync` does it now. A PR closed without merging sends the item back to its local branch, in state `branch`, and the work stays there for review.
 - Remove the unmerged stop, with `hobkin work unmerged` and the turn the main agent got when it fired. The tab still shows unmerged counts.

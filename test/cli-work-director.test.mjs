@@ -8,6 +8,7 @@ import { initialize, setLearning } from '../src/cli/config.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { firstGuess } from '../src/cli/work/budget.mjs';
+import { requestReview } from '../src/cli/work/controls.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import {
@@ -1108,6 +1109,71 @@ const readyToDo = async h => {
   writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
 };
 const doRuns = h => h.calls.filter(call => call.purpose === 'work-do');
+
+/** A do run that ends the way an agent ends it, by recording its branch. */
+const endsOnABranch = h => request => {
+  if (request.purpose !== 'work-do') return;
+  updateItem(h.root, 'api', readItems(h.root, 'api')[0].id, { state: 'branch', branch: 'hobkin/rack' });
+};
+
+async function offeredDrafts(h) {
+  await readyToDo(h);
+  const offered = [];
+  h.director.onDraftDone = draft => offered.push(draft);
+  return offered;
+}
+
+test('a draft that finishes is offered for review once, and its run reviews nothing', async t => {
+  const h = fixture(t);
+  const offered = await offeredDrafts(h);
+  const [{ id }] = readItems(h.root, 'api');
+  h.agent = endsOnABranch(h);
+
+  await h.tick();
+
+  assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
+  assert.equal(h.work(doRuns(h).at(-1)).item.reviewAsked, undefined);
+});
+
+test('a run the user asked to review is told so, ends the mark and is not offered again', async t => {
+  const h = fixture(t);
+  const offered = await offeredDrafts(h);
+  const [{ id }] = readItems(h.root, 'api');
+  updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
+  requestReview(h.root, 'api', id);
+  h.agent = endsOnABranch(h);
+
+  await h.tick();
+
+  assert.equal(h.work(doRuns(h).at(-1)).item.reviewAsked, true);
+  assert.equal(readItems(h.root, 'api')[0].reviewAsked, false);
+  assert.deepEqual(offered, []);
+});
+
+test('a review that fails keeps its mark, so the next try is still that review', async t => {
+  const h = fixture(t);
+  await offeredDrafts(h);
+  const [{ id }] = readItems(h.root, 'api');
+  updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
+  requestReview(h.root, 'api', id);
+  h.result = { status: 'failed', cost: null, error: 'The tests would not start.' };
+
+  await h.tick();
+
+  const [tried] = readItems(h.root, 'api');
+  assert.deepEqual([tried.state, tried.reviewAsked, tried.attempts], ['open', true, 1]);
+});
+
+test('a rebase is no new draft, so it asks nothing', async t => {
+  const h = fixture(t);
+  const offered = await offeredDrafts(h);
+  updateItem(h.root, 'api', readItems(h.root, 'api')[0].id, { kind: 'pr-fix' });
+  h.agent = endsOnABranch(h);
+
+  await h.tick();
+
+  assert.deepEqual(offered, []);
+});
 
 test('a do run that ends without recording an outcome goes straight back in the queue, and the next run carries on from its branch knowing what it said', async t => {
   const h = fixture(t);

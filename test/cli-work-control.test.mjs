@@ -370,6 +370,36 @@ function localPr(t) {
   return { root, checkout, id };
 }
 
+test('a review starts only when asked: the item goes first in the queue, marked for its run', async t => {
+  const { root, id } = localPr(t);
+
+  const { message } = await success(root, 'review', 'api', id);
+
+  assert.match(message, /Fix login/);
+  const [reviewed] = readItems(root, 'api');
+  assert.deepEqual([reviewed.state, reviewed.reviewAsked, reviewed.attempts], ['open', true, 0]);
+  assert.deepEqual(readMode(root).queueNext, [`item:api:${id}`]);
+});
+
+test('review with nothing named is still the weekly review', async t => {
+  const { root } = localPr(t);
+
+  const { code, text } = await hobkin(root, 'review');
+
+  assert.equal(code, 0);
+  assert.match(text, /stale/);
+  assert.deepEqual(readMode(root).queueNext, []);
+});
+
+test('there is nothing to review on an item with no branch, or one that is over', async t => {
+  const { root, id } = localPr(t);
+  const { id: unstarted } = fileItem(root, 'api', item('Fix billing'));
+  assert.match((await failure(root, 'review', 'api', unstarted)).message, /no branch/);
+
+  updateItem(root, 'api', id, { state: 'merged' });
+  assert.match((await failure(root, 'review', 'api', id)).message, /merged/);
+});
+
 test('a local PR opens its diff against the default branch, in the project\'s own folder', async t => {
   const { root, checkout, id } = localPr(t);
   const opened = [];

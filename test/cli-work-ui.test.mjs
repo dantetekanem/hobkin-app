@@ -463,13 +463,33 @@ test('d on a local PR opens its diff', async () => {
     },
   });
   ui.input('\x1b[D');
-  assert.match(screen(ui), /d\s+diff\s+·\s+x\s+done/);
+  assert.match(screen(ui), /d\s+diff\s+·\s+r\s+review\s+·\s+x\s+done/);
 
   ui.input('d');
   await ui.pending();
 
   assert.deepEqual(actions, [['diff', 'site', 'abc123']]);
   assert.match(screen(ui), /Type \/diff main\.\.\.hobkin\/abc123 in Pi\./, 'outside Herdr this line is all the key can do');
+  ui.stop();
+});
+
+test('r on a local PR asks for a review, the one way to start one from the tab', async () => {
+  const actions = [];
+  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro', branch: 'hobkin/abc123' }];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, {
+    workAction: async (...args) => {
+      actions.push(args);
+      return { ok: true, message: '"Update Astro" goes to the front of the queue for a review.' };
+    },
+  });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /r\s+review/);
+
+  ui.input('r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['review', 'site', 'abc123']]);
+  assert.match(screen(ui), /for a review/);
   ui.stop();
 });
 

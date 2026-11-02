@@ -101,6 +101,7 @@ const selectTheme = {
 };
 const OTHER_ROW = { value: 'other', label: 'Other: type your own answer' };
 const FEWEST_CHOICES_SHOWN = 3;
+const PRINTABLE_KEY = /^[^\x00-\x1f\x7f]$/u;
 // The question's box, the footer and the few rows of conversation that always stay in sight.
 const ROWS_AROUND_CHOICES = 12;
 const gradient = (value, from, to) => {
@@ -1413,7 +1414,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
         allowance: [['y', 'raise'], ['n', 'keep paused']],
         run: [['enter', 'watch']],
-        ready: [['d', 'diff'], ['x', 'done']],
+        ready: [['d', 'diff'], ['r', 'review'], ['x', 'done']],
         queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
       };
       return [...rowKeys[selected?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
@@ -1672,6 +1673,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else if (selected?.type === 'queue' && data === 's') runWorkAction(selected.skipped ? 'back' : 'later', selected.queueKey);
     else if (selected?.type === 'queue' && selected.id && data === 'p') runWorkAction('grade', selected.slug, selected.id, nextIn(grades, selected.grade));
     else if (selected?.type === 'ready' && data === 'd') runWorkAction('diff', selected.slug, selected.id);
+    else if (selected?.type === 'ready' && data === 'r') runWorkAction('review', selected.slug, selected.id);
     else if ((selected?.type === 'ready' || (selected?.type === 'queue' && selected.id)) && data === 'x') runWorkAction('done', selected.slug, selected.id);
     else if (selected?.type === 'run' && key(data, 'enter')) {
       view = `job:${selected.id}`;
@@ -1730,6 +1732,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     askQuestion(request, signal) {
       if (stopped || question) return Promise.resolve(undefined);
       if (signal?.aborted) return Promise.resolve(null);
+      // A question nobody is waiting on stays out of the way of what the user is typing.
+      if (request.whenQuiet && editor.getExpandedText()) return Promise.resolve(undefined);
       return new Promise(resolve => {
         const previous = { focus, view, scroll };
         const selection = new SelectList(request.other ? [...request.choices, OTHER_ROW] : request.choices, FEWEST_CHOICES_SHOWN, selectTheme);
@@ -1790,6 +1794,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return;
       }
+      // Nobody is waiting on this kind of question, so typing past it means "not now" and the key carries on to wherever the user was.
+      if (question?.whenQuiet && PRINTABLE_KEY.test(data)) question.finish(null);
       if (question) {
         const tooSmall = (options.tui?.terminal.columns ?? columns) < 60 || (options.tui?.terminal.rows ?? rows) < 18;
         const paging = !tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'));

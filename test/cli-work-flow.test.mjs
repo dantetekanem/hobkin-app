@@ -276,6 +276,13 @@ test('from /work to a PR: told what it looks at, asked in Chat, answered in Chat
 
   // Looking and doing: taking it is what lets work start, and the first item ends in a PR.
   await hobkin.settled(() => readItems(h.root, 'billing').some(item => item.state === 'pr'), { timeout: 15000 });
+
+  // Asked: a finished draft asks about a review, and without a yes no review starts.
+  await hobkin.until(/Draft is done/);
+  assert.match(hobkin.screen(), /Want to review it/);
+  hobkin.press(ESCAPE);
+  assert.ok(readItems(h.root, 'billing').every(item => !item.reviewAsked));
+
   hobkin.press(LEFT);
   await hobkin.until(/billing\s+P1\s+important\s+no PRs · 1 PR/);
   assert.doesNotMatch(hobkin.screen(), /PROPOSED/);

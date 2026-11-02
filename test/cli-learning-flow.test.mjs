@@ -117,7 +117,10 @@ async function openHobkin(h, { agent = async () => 'Useful: Done.', chat = async
           };
           return session;
         },
-        runHarness: async (run, settings) => ({ status: 'completed', text: await agent(run, settings) }),
+        // Only the agent is scripted here. An editor that cannot run leaves its report as written.
+        runHarness: async (run, settings) => (run.purpose === 'humanizer'
+          ? { status: 'failed', text: '' }
+          : { status: 'completed', text: await agent(run, settings) }),
       });
       return app;
     },

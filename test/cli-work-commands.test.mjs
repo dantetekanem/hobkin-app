@@ -28,6 +28,16 @@ async function work(root, args, input) {
   return { code, result: JSON.parse(text) };
 }
 
+test('an agent cannot ask for a review of its own work: that is only ever the user\'s word', async t => {
+  const root = dataRoot(t);
+  await work(root, ['choose', '/repos/api', 'important']);
+  const { id } = fileItem(root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'Evidence, who benefits, the first change, the proof.', impact: 'high', effort: 'small' });
+
+  await work(root, ['item', 'api'], { id, state: 'open', reviewAsked: true });
+
+  assert.equal(readItems(root, 'api')[0].reviewAsked, undefined);
+});
+
 async function refused(root, args, reason) {
   const { code, result } = await work(root, args);
   assert.deepEqual([code, result.ok], [1, false]);
