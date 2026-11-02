@@ -851,10 +851,12 @@ test('a message about a report gives the model the report and shows the chat onl
   }
 });
 
-test('a finished draft asks the user with no model turn, and a yes queues its review', async t => {
+test('a finished branch asks the user with no model turn, and a yes opens Done', async t => {
   const h = fixture(t);
   const asked = [];
+  let walked = 0;
   const app = await h.openApp({
+    showDone: () => { walked += 1; },
     askQuestion: async request => {
       asked.push(request);
       return request.choices[1].value;
@@ -870,10 +872,10 @@ test('a finished draft asks the user with no model turn, and a yes queues its re
     assert.deepEqual(asked, [], 'it waits for the chat to be free');
 
     app.runtime.mainTurn = null;
-    await app.reviewOffers.next();
+    await app.landOffers.next();
 
-    assert.match(asked[0].question, /Draft is done/);
-    assert.equal(readItems(h.root, 'api')[0].reviewAsked, true);
+    assert.match(asked[0].question, /can land/);
+    assert.equal(walked, 1);
   } finally {
     await app.close();
   }

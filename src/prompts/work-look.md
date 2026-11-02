@@ -59,12 +59,12 @@ Pipe one JSON object to `work.commands.item` for each thing worth doing:
 ```
 
 - `key` is stable, such as `advisory:GHSA-xxxx`, `update:rack:3.1`, `ci:main:nightly`, `issue:142` or `idea:csv-import`. A known key changes nothing, so filing twice is safe.
-- `kind` is `security`, `fix`, `update`, `chore`, `improvement` or `feature`. Use `attention` for what must go first, such as a leaked secret: it sits at the top of the queue as P0, and an agent does it like any other item.
+- `kind` is `security`, `fix`, `update`, `chore`, `improvement` or `feature`. Use `attention` for what must go first, such as a leaked secret: it sits at the top of the queue as P0, and an agent does it like any other item. Use `yours` for a step only a person can take, such as a setting on a provider's own screen: no agent runs it and it waits in the user's list.
 - `impact` is who notices: `high` when people using the project feel it or something is at risk, `medium` for a real but quiet gain, `low` for tidying.
 - `effort` is how soon it brings a benefit: `small` is one reviewable PR an agent finishes in a sitting, `medium` takes longer but is still one PR, and `large` should be rare, because large work is split first.
 - `urgent: true` when the default branch is broken.
 
-File the work itself, never a request. Nothing you file asks for permission, a decision or access, because an agent takes every item and does what can be done on a branch.
+File the work itself, never a request. Nothing you file asks for permission, a decision or access, because an agent takes every item and does what can be done on a branch. A step only a person can take is the one exception: file it as `yours`, with the step as its title and where to do it as its brief, and never as a runbook on a branch.
 
 A level, a project's priority and an item's grade are the user's to set, so never ask for one. If you think this project is genuinely super critical, say so in your report and nowhere else.
 
@@ -75,7 +75,7 @@ The `brief` must hold four things:
 3. The first change, naming the files.
 4. How the agent will prove it worked.
 
-If you cannot give all four, do not file it. "Add caching" fails this bar. "`GET /accounts` runs 40 queries, here is the trace, preload in `accounts_controller.rb`, assert the query count in a test" passes it. Do not file what the `items` list already holds, and do not file anything overlapping an open PR from the user.
+A `yours` item needs only its step and where to do it. For anything else, if you cannot give all four, do not file it. "Add caching" fails this bar. "`GET /accounts` runs 40 queries, here is the trace, preload in `accounts_controller.rb`, assert the query count in a test" passes it. Do not file what the `items` list already holds, and do not file anything overlapping an open PR from the user.
 
 ## Report
 

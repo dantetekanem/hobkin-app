@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  addItem, addProject, answerAllow, cancelRuns, dropWork, markDone, markMax, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  addItem, addProject, answerAllow, askAgent, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow,
 } from './controls.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
-import { assertState, attentionView, itemCounts, itemsView, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
+import { assertState, attentionView, closingItems, itemCounts, itemsView, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
 import { reviewView } from './review.mjs';
 import {
   agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
@@ -38,15 +38,15 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   add item <project> <title> [--brief text]  add work by hand
   skip <project> [look|study|item]     skip a proposal or a row (was later)
   back <project> <look|study|item>     put a skipped row back
-  retry <project> <item>               first in line, with its tries at zero
-  done <project> <item>                mark an item done
+  retry, ask <project> <item> [note]    run it first; ask carries your note
+  done, merge, decline <project> <item>  close; merge locally; or say no
   drop <project> [item]                stop work on it; branches and PRs stay
   grade <project> <item> <P0..P3|auto> set an item's grade; auto clears it
   max <project> <item>                 make one item max: Claude Opus at max
   level <project> <low..max>           casual (low), important, critical, max
   priority <project> <P0..P3>          how often it runs, and its queue place
   prs <project> <off|draft|published>  local PR, draft PR or published PR
-  auto [on|off]                        pick by itself, or run triggers only
+  auto, reviews [on|off]               pick by itself; review what finishes
   harness <pi|claude|codex>            which agent works on projects
   agents <1-${MAX_AGENTS}>                         how many run at once
   tokens <number>                      the daily limit, from now on
@@ -65,6 +65,11 @@ class WrongCommand extends Error {}
 
 function autoPickFrom(word) {
   if (!['on', 'off'].includes(word)) throw Error('Say auto on or auto off.');
+  return word === 'on';
+}
+
+function reviewsFrom(word) {
+  if (!['on', 'off'].includes(word)) throw Error('Say reviews on or reviews off.');
   return word === 'on';
 }
 
@@ -144,6 +149,7 @@ export function workStatus(root, outlook = {}) {
     nextDiscoveryAt: folderSearched(root, folder) ? null : nextDiscoveryAt(mode),
     projects,
     ready: readyItems(root),
+    closing: closingItems(root),
   };
 }
 
@@ -223,6 +229,9 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'back': return putBackRow(root, ...args);
     case 'retry': return retryNow(root, ...args);
     case 'done': return markDone(root, ...args);
+    case 'merge': return mergeItem(root, ...args);
+    case 'decline': return declineItem(root, ...args);
+    case 'ask': return askAgent(root, args[0], args[1], args.slice(2).join(' '));
     case 'drop': return dropWork(root, ...args);
     case 'grade': return setGrade(root, ...args);
     case 'max': return markMax(root, ...args);
@@ -241,6 +250,11 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       const { autoPick } = writeMode(root, { autoPick: autoPickFrom(args[0]) });
       return reply(autoPick ? 'Auto-pick is on. The top of the queue starts by itself.' : 'Auto-pick is off. Work mode stays on, and only what is triggered runs.');
     }
+    case 'reviews': {
+      if (!args[0]) return { reviewOnFinish: readMode(root).reviewOnFinish !== false };
+      const { reviewOnFinish } = writeMode(root, { reviewOnFinish: reviewsFrom(args[0]) });
+      return reply(reviewOnFinish ? 'Each finished branch gets a review, for its safety grade.' : 'Reviews run only when asked for.');
+    }
     case 'allow': return answerAllow(root, args[0]);
     case 'progress': return noteDiscovery(root, await readJson(input));
     case 'propose': {
@@ -249,8 +263,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return proposeProject(root, proposal);
     }
     case 'item': {
-      // Agents file work through this, and `max`, `grade` and `reviewAsked` are only ever the user's word, so none can arrive here.
-      const { max, grade, reviewAsked, ...item } = await readJson(input);
+      // Agents file work through this, and `max`, `grade`, `reviewAsked` and `workNote` are only ever hobkin's or the user's word, so none can arrive here.
+      const { max, grade, reviewAsked, workNote, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       return updateItem(root, args[0], item.id, item);

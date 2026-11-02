@@ -33,7 +33,9 @@ The request's `work` field holds the item, the project, `projectNotes` (what ear
 
 ## Steps
 
-If `work.item.reviewAsked` is true, the work is already on your branch and the user asked for a review of it, so go straight to step 8.
+If `work.item.reviewAsked` is true, the work is already on your branch and this run is its review, so go straight to step 8.
+
+If `work.item.workNote` is set, the user read your branch and wrote that note. Do what it says on your branch, then carry on from step 6.
 
 1. Check the item is still true. If it is not, record `{ "id": "<id>", "state": "dropped", "reason": "..." }` and stop.
 2. If your branch already has work on it, or `work.item.attempts` is above 0, an earlier run got this far. Read the branch, any PR and `work.item.lastError`, carry on from there, and do something different from what failed. A branch named `<your branch>-kept-<time>` holds uncommitted work Hobkin saved from an earlier run, so bring over what is useful.
@@ -42,7 +44,7 @@ If `work.item.reviewAsked` is true, the work is already on your branch and the u
 5. Make the smallest change that finishes the item, with no changes on the side. A reviewer should take it in at a sitting. If the item turns out larger, finish its first step and put the rest of the plan in the description.
 6. Run your proof again, then the project's tests and linters. Follow the project's own `AGENTS.md`.
 7. Commit in the project's style.
-8. Run no code review by yourself: no `agentic_code_review`, no `/code-review` and no other review agent. A review runs only when the user asks for one, and `work.item.reviewAsked` is how you know they did. When it is true, review your branch with the review tooling you have. That review is part of the work, so the direction against spawning agents does not apply to it. Fix what it finds that is real, and commit that. If you have no review tooling, say so in `proof`: that is a gap, never a clean result.
+8. Run no code review unless `work.item.reviewAsked` is true: no `agentic_code_review`, no `/code-review` and no other review agent. hobkin asks for a review as a run of its own once work is finished, and that mark is how you know. When it is true, review your branch with the review tooling you have, `agentic_code_review` first, because its merge grade is what the user decides from. That review is part of the work, so the direction against spawning agents does not apply to it. Fix what it finds that is real, commit that, then review once more, so the grade belongs to your last commit. If you have no review tooling, say so in `proof`: that is a gap, never a clean result.
 9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. This is the description of your branch whatever `work.landing` says.
 10. Land it as `work.landing` says:
     - `off`: stop here. Your branch and that description are a local PR for the user to review. Push nothing and open no PR.
@@ -62,7 +64,8 @@ Always record an outcome. If part of the item will not come together, commit wha
 
 When `work.item.kind` is `pr-fix`, the job is to make that branch ready to merge, not to add anything. The brief says what stops it. These take the place of steps 4, 5, 9, 10 and 11:
 
-- Rebase `work.item.branch` onto the default branch, resolving conflicts so both sides' intent survives. If CI is failing, change only what it takes to pass. If a rebase will not come together, run `git rebase --abort` before you end, so the branch goes back as it was, and say why in your `summary`.
+- If the brief asks for a description or proof, run the branch's proof, write the description to `work.item.prFile`, pipe `{ "id": "<work.item.ships>", "proof": "..." }` to `work.commands.item`, and change no code.
+- Otherwise rebase `work.item.branch` onto the default branch, resolving conflicts so both sides' intent survives. If CI is failing, change only what it takes to pass. If a rebase will not come together, run `git rebase --abort` before you end, so the branch goes back as it was, and say why in your `summary`.
 - Run the branch's proof and the project's tests again.
 - Update the description at `work.item.prFile`, so it still tells the truth about the branch.
 - If the branch has an open PR and `work.landing` is not `off`, start from what the PR holds, and force-push it with `--force-with-lease` when you finish. That branch may be force-pushed, and only that branch. Anything else stays local.

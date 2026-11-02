@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { atomicJson } from '../config.mjs';
-import { BRANCH_PREFIX, defaultBranch, gitOrNothing, isMerged } from './tree.mjs';
+import { readReviewGrades, reviewsFolder } from './grades.mjs';
+import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
 const SHIP_KIND = 'pr-fix';
@@ -18,6 +20,10 @@ const PR_FIELDS = 'number,title,url,state,isDraft,createdAt,mergedAt,additions,d
 const finishedOnBranch = ['pr', 'branch'];
 const closableStates = [...finishedOnBranch, ...runnableStates];
 const conflictOf = { CONFLICTING: true, MERGEABLE: false };
+// A local-review branch only keeps an old PR, so holding work says nothing about that work having shipped.
+const notTheUsers = [BRANCH_PREFIX, 'local-review/'];
+const MOST_BRANCHES_CHECKED = 8;
+const MOST_COMMITS_BACK = 40;
 
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -103,7 +109,7 @@ async function localBranches(repo, base) {
  * The commit a branch has to land on, as last fetched, because a survey fetches nothing. A run starts from the remote's default branch, and
  * a checkout or Hobkin's own clone can lag far behind it, so the remote speaks first. A checkout holding what the remote lacks has merges not pushed yet.
  */
-async function landingTip(repo, base) {
+export async function landingTip(repo, base) {
   // With no default branch known, `base` is whatever is checked out, and a run's own branch says nothing about another one.
   if (!base || base.startsWith(BRANCH_PREFIX)) return null;
   const tipOf = ref => gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', ref);
@@ -137,16 +143,78 @@ async function conflictsWith(repo, tip, name) {
   }
 }
 
-const branchUnit = async (repo, base, tip, { name, at, sha }) => ({
-  kind: 'branch',
-  branch: name,
-  sha,
-  openedAt: new Date(at).toISOString(),
-  size: sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', `${base}...${name}`)),
-  behind: await commitsBehind(repo, tip, name),
-  // Not knowing is an answer, so nothing here can cost a project its survey.
-  conflict: await conflictsWith(repo, tip, name).catch(() => null),
-});
+const lines = text => text.split('\n').filter(Boolean);
+
+/** What the branch changes, whatever it sits on, so a rebase that changed nothing has the same answer. */
+async function changeOf(repo, base, name) {
+  const diff = await gitOrNothing(repo, 'diff', '-U0', '--no-color', `${base}...${name}`);
+  const changed = lines(diff).filter(line => !/^(@@|index )/.test(line)).join('\n');
+  return createHash('sha256').update(changed).digest('hex').slice(0, 16);
+}
+
+async function nearestGrade(repo, name, grades) {
+  const history = lines(await gitOrNothing(repo, 'rev-list', `--max-count=${MOST_COMMITS_BACK}`, name));
+  return history.map(sha => grades.get(sha)).find(Boolean);
+}
+
+/** A grade belongs to one commit. One from further back says so, and a rebase that changed nothing keeps what it had. */
+async function safetyOf({ repo, name, sha, change, grades, before }) {
+  const { modified, ...exact } = grades.get(sha) ?? {};
+  if (exact.grade) return exact;
+  if (before?.safety && before.change === change) return before.safety;
+
+  const older = await nearestGrade(repo, name, grades);
+  if (!older) return null;
+  const { modified: _older, ...grade } = older;
+  return { ...grade, stale: true };
+}
+
+async function holdersOf(repo, sha) {
+  return lines(await gitOrNothing(repo, 'for-each-ref', '--contains', sha, '--format=%(refname:short)%09%(objectname)', 'refs/heads'))
+    .map(line => line.split('\t'));
+}
+
+async function usersBranches(repo, base) {
+  const newestFirst = lines(await gitOrNothing(repo, 'for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads'));
+  const theirs = newestFirst.filter(name => name !== base && !notTheUsers.some(prefix => name.startsWith(prefix)));
+  return theirs.slice(0, MOST_BRANCHES_CHECKED);
+}
+
+async function holdsAllOf(repo, other, name) {
+  const commits = lines(await gitOrNothing(repo, 'cherry', other, name));
+  return commits.length > 0 && commits.every(line => line.startsWith('-'));
+}
+
+/** Where else this work sits. The newest branches of the user's are enough, because work lands on what is being worked on. */
+async function placesOf({ repo, name, sha, finished, others }) {
+  const holders = (await holdersOf(repo, sha)).filter(([holder]) => holder !== name);
+  const stackedUnder = holders.find(([holder, tip]) => finished.has(holder) && tip !== sha)?.[0] ?? null;
+  const merged = others.find(other => holders.some(([holder]) => holder === other));
+  if (merged) return { stackedUnder, landedOn: merged };
+
+  const copied = await Promise.all(others.map(other => holdsAllOf(repo, other, name)));
+  return { stackedUnder, landedOn: others[copied.indexOf(true)] ?? null };
+}
+
+async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
+  const range = `${base}...${name}`;
+  const change = await changeOf(repo, base, name);
+  const before = (previous.open ?? []).find(unit => unit.branch === name);
+  return {
+    kind: 'branch',
+    branch: name,
+    sha,
+    openedAt: new Date(at).toISOString(),
+    size: sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', range)),
+    behind: await commitsBehind(repo, tip, name),
+    // Not knowing is an answer, so nothing here can cost a project its survey.
+    conflict: await conflictsWith(repo, tip, name).catch(() => null),
+    onlyDocs: await changesOnlyDocs(repo, base, name),
+    change,
+    safety: await safetyOf({ repo, name, sha, change, grades, before }),
+    ...await placesOf({ repo, name, sha, finished, others }),
+  };
+}
 
 /** Branches open last time that the default branch holds now. Only the last survey knows them once a merged branch is deleted. */
 async function mergedHere({ repo, base, units, previous }) {
@@ -162,7 +230,7 @@ async function treesHeld(repo, { look, do: doing }) {
 }
 
 /** Read-only `git` and `gh`, and no model. A PR and its branch are one piece of work, and so is a worktree holding that branch. */
-async function surveyProject({ repo, trees, previous = {}, now, gh }) {
+async function surveyProject({ repo, trees, previous = {}, now, gh, grades, finished }) {
   // `gitOrNothing` hears a missing folder as an empty repository, which would pass for a project with nothing open.
   if (!await gitOrNothing(repo, 'rev-parse', '--git-dir')) throw Error(`Cannot read ${repo}.`);
   const base = await defaultBranch(repo);
@@ -174,7 +242,8 @@ async function surveyProject({ repo, trees, previous = {}, now, gh }) {
   // A closed PR leaves its branch as the record of the work, so only an open or merged one speaks for that branch.
   const withPull = new Set(ownPulls.filter(pr => pr.state !== 'CLOSED').map(pr => pr.headRefName));
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name));
-  const units = await Promise.all(bare.map(branch => branchUnit(repo, base, tip, branch)));
+  const others = await usersBranches(repo, base);
+  const units = await Promise.all(bare.map(branch => branchUnit({ repo, base, tip, branch, grades, finished, others, previous })));
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
@@ -273,15 +342,17 @@ function fileShipWork(root, slug, { survey, base, tip }, now) {
  * Only projects still being worked on count. Work that has landed closes its item here, and `settled` names them. Work that cannot merge gets an item, and `filed`
  * names those. This writes only Hobkin's own records, and it never writes to a repository.
  */
-export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh } = {}) {
+export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder() } = {}) {
   const previous = readUnmerged(root).projects;
+  const grades = readReviewGrades({ folder: reviews, now });
   const projects = {};
   const settled = [];
   const filed = [];
   for (const { slug, path } of chosenProjects(root)) {
     const { clone, lookTree, doTree } = paths(root, slug);
     try {
-      const found = await surveyProject({ repo: path ?? clone, trees: { look: lookTree, do: doTree }, previous: previous[slug], now, gh });
+      const finished = new Set(readItems(root, slug).filter(item => item.state === 'branch' && item.branch).map(item => item.branch));
+      const found = await surveyProject({ repo: path ?? clone, trees: { look: lookTree, do: doTree }, previous: previous[slug], now, gh, grades, finished });
       projects[slug] = found.survey;
       settled.push(...settleItems(root, slug, found, now));
       filed.push(...fileShipWork(root, slug, found, now));

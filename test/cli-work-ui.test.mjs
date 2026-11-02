@@ -433,78 +433,203 @@ test('projects sort by priority and show it with their PR setting, and keys chan
   ui.stop();
 });
 
-test('local PRs wait under READY with what they did and what is left, and x closes one', async () => {
-  const actions = [];
-  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro', branch: 'hobkin/abc123-update-astro', summary: 'Moves the site to Astro 5.14.', left: 'Publish the release.' }];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction: async (...args) => { actions.push(args); } });
+const toDone = ui => {
   ui.input('\x1b[D');
+  ui.input('\x1b[A');
+  ui.input('\x1b[C');
+  ui.input('\x1b[B');
+};
+const landing = (item, details = {}) => ({ slug: 'site', project: 'website', item, title: `Work ${item}`, branch: `hobkin/${item}`, gap: 'land', described: true, proved: true, ...details });
+const acting = () => {
+  const actions = [];
+  return { actions, workAction: async (...args) => { actions.push(args); return args[0] === 'pr' ? { description: 'Moves the site.\n\nProof: it passed.' } : { ok: true, message: `${args[0]} ok` }; } };
+};
 
-  const text = screen(ui);
-  assert.match(text, /READY\s+1/);
-  assert.match(text, /website: Update Astro\s+hobkin\/abc123-update-astro/);
-  assert.match(text, /Moves the site to Astro 5\.14\./);
-  assert.match(text, /Left for you: Publish the release\./);
-  assert.match(text, /x\s+done/);
+test('Now and Done are subtabs, the arrows move between them and Done counts what waits', () => {
+  const ready = [landing('one'), landing('two', { gap: 'stacked' }), landing('three', { gap: 'closing' })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [chosen], ready } });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /Now\s+Done 1/);
+  assert.match(screen(ui), /website/);
 
-  ui.input('x');
-  await ui.pending();
+  ui.input('\x1b[A');
+  assert.equal(ui.state().focus, 'workTabs');
+  assert.match(screen(ui), /subtabs/);
 
-  assert.deepEqual(actions, [['done', 'site', 'abc123']]);
+  ui.input('\x1b[C');
+  ui.input('\x1b[B');
+
+  assert.equal(ui.state().focus, 'work');
+  assert.match(screen(ui), /NEXT TO LAND\s+1/);
+  assert.match(screen(ui), /website: Work one/);
+  assert.doesNotMatch(screen(ui), /Work two|Work three/);
   ui.stop();
 });
 
-test('d on a local PR opens its diff', async () => {
-  const actions = [];
-  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro', branch: 'hobkin/abc123' }];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, {
-    workAction: async (...args) => {
-      actions.push(args);
-      return { ok: true, message: 'Type /diff main...hobkin/abc123 in Pi.' };
-    },
-  });
-  ui.input('\x1b[D');
-  assert.match(screen(ui), /d\s+diff\s+·\s+r\s+review\s+·\s+x\s+done/);
-
-  ui.input('d');
-  await ui.pending();
-
-  assert.deepEqual(actions, [['diff', 'site', 'abc123']]);
-  assert.match(screen(ui), /Type \/diff main\.\.\.hobkin\/abc123 in Pi\./, 'outside Herdr this line is all the key can do');
-  ui.stop();
-});
-
-test('r on a local PR asks for a review, the one way to start one from the tab', async () => {
-  const actions = [];
-  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro', branch: 'hobkin/abc123' }];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, {
-    workAction: async (...args) => {
-      actions.push(args);
-      return { ok: true, message: '"Update Astro" goes to the front of the queue for a review.' };
-    },
-  });
-  ui.input('\x1b[D');
-  assert.match(screen(ui), /r\s+review/);
-
-  ui.input('r');
-  await ui.pending();
-
-  assert.deepEqual(actions, [['review', 'site', 'abc123']]);
-  assert.match(screen(ui), /for a review/);
-  ui.stop();
-});
-
-test('READY says which local PRs merge as they stand, and which need a rebase first', () => {
-  const local = (item, details) => ({ slug: 'site', project: 'website', item, title: `Work ${item}`, branch: `hobkin/${item}`, ...details });
-  const ready = [local('one', { conflict: false, behind: 0 }), local('two', { conflict: false, behind: 3 }), local('three', { conflict: true, behind: 7 }), local('four', { conflict: null, behind: null })];
+test('Done shows five rows and how many more, each with its grade, size and what is missing', () => {
+  const ready = [
+    landing('a', { safety: { grade: 'safe', rating: 'A' }, size: { additions: 40, deletions: 5, files: 2 }, conflict: false, behind: 0 }),
+    landing('b', { safety: { grade: 'risky', rating: 'D' } }),
+    landing('c', { safety: { grade: 'safe', rating: 'B', stale: true } }),
+    landing('d', { described: false, proved: false }),
+    landing('e', { onlyDocs: true, holds: 2 }),
+    landing('f'),
+    landing('g'),
+  ];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } });
-  ui.input('\x1b[D');
+  toDone(ui);
 
   const text = screen(ui, 110, 60);
 
-  assert.match(text, /hobkin\/one[\s▌]+ready to merge/);
-  assert.match(text, /hobkin\/two\s+ready to merge · 3 behind/);
-  assert.match(text, /hobkin\/three\s+needs a rebase/);
-  assert.doesNotMatch(text, /hobkin\/four\s+(ready|needs)/);
+  assert.match(text, /safe A · ready to merge · 45 lines · 2 files/);
+  assert.match(text, /risky D/);
+  assert.match(text, /safe B on an older commit/);
+  assert.match(text, /not graded · no description · no proof/);
+  assert.match(text, /docs only · holds 2 earlier branches/);
+  assert.match(text, /and 2 more/);
+  assert.doesNotMatch(text, /Work f/);
+  ui.stop();
+});
+
+test('agents at work, steps only the user can take and work already elsewhere sit apart', async () => {
+  const { actions, workAction } = acting();
+  const ready = [
+    landing('turn', { gap: 'yours', title: 'Turn on HTTPS', summary: 'Settings, Pages.' }),
+    landing('kept', { gap: 'elsewhere', landedOn: 'release/now' }),
+  ];
+  const closing = [{ slug: 'site', project: 'website', item: 'fix', title: 'Rebase it', doing: 'getting it ready to merge' }];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready, closing } }, { workAction });
+  toDone(ui);
+
+  const text = screen(ui, 110, 40);
+  assert.match(text, /AGENT ON IT\s+1/);
+  assert.match(text, /website: Rebase it\s+getting it ready to merge/);
+  assert.match(text, /YOUR TURN\s+1/);
+  assert.match(text, /ALREADY ELSEWHERE\s+1/);
+  assert.match(text, /also on release\/now/);
+  assert.match(text, /x\s+done/);
+  assert.doesNotMatch(text, /m\s+merge/);
+
+  ui.input('m');
+  ui.input('x');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['done', 'site', 'turn']]);
+  ui.stop();
+});
+
+test('m merges and n says no, each on a key named on screen, and the walk moves to the next row', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one'), landing('two'), landing('three')];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+  assert.match(screen(ui), /m\s+merge\s+·\s+w\s+send agent\s+·\s+n\s+no\s+·\s+enter\s+read/);
+
+  ui.input('m');
+  await ui.pending();
+  ui.input('n');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['merge', 'site', 'one'], ['decline', 'site', 'two']]);
+  ui.stop();
+});
+
+test('a risky row takes a second m', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one', { safety: { grade: 'risky', rating: 'D' } })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  ui.input('m');
+  await ui.pending();
+  assert.deepEqual(actions, []);
+  assert.match(screen(ui), /Press m again/);
+
+  ui.input('m');
+  await ui.pending();
+  assert.deepEqual(actions, [['merge', 'site', 'one']]);
+  ui.stop();
+});
+
+test('w sends an agent with the user\'s words, and Esc leaves the row alone', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one'), landing('two')];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  ui.input('w');
+  assert.match(screen(ui), /What should it change/);
+  ui.input('\x1b');
+  assert.equal(ui.state().focus, 'work');
+  assert.deepEqual(actions, []);
+
+  ui.input('w');
+  for (const letter of 'Rebase') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['ask', 'site', 'one', 'Rebase']]);
+  assert.equal(ui.state().focus, 'work');
+  ui.stop();
+});
+
+test('Enter reads a row with its description, every key still works there, and the walk carries on to the next page', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one', { safety: { grade: 'safe', rating: 'A', reason: 'No accepted issue remains.' }, left: 'Deploy it.' }), landing('two')];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  ui.input('\r');
+  await ui.pending();
+
+  const text = screen(ui, 100, 40);
+  assert.match(text, /Why: No accepted issue remains\./);
+  assert.match(text, /Left for you: Deploy it\./);
+  assert.match(text, /Proof: it passed\./);
+  assert.match(text, /d\s+diff/);
+  assert.match(text, /r\s+review/);
+
+  ui.input('d');
+  ui.input('r');
+  await ui.pending();
+  ui.input('m');
+  await ui.pending();
+
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['diff', 'site', 'one'], ['review', 'site', 'one'], ['merge', 'site', 'one']]);
+  assert.match(screen(ui), /website: Work two/);
+  assert.equal(ui.state().focus, 'doneReading');
+
+  ui.input('\x1b');
+  assert.equal(ui.state().focus, 'work');
+  ui.stop();
+});
+
+test('Done fits every supported size, and so does the page Enter opens', async () => {
+  const { workAction } = acting();
+  const long = 'Update Astro to the latest release of the framework and everything that depends on it';
+  const ready = [landing('one', { title: long, safety: { grade: 'safe', rating: 'A', reason: long }, size: { additions: 4000, deletions: 900, files: 120 }, conflict: false, behind: 30, left: long, holds: 3 })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  for (const pressed of [null, '\r']) {
+    if (pressed) ui.input(pressed);
+    await ui.pending();
+    for (const [width, height] of [[120, 40], [80, 24], [60, 18]]) {
+      const lines = ui.render(width, height);
+      assert.ok(lines.length <= height);
+      assert.ok(lines.every(line => visibleWidth(line) <= width));
+    }
+  }
+  ui.stop();
+});
+
+test('hobkin can open Done by itself', () => {
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready: [landing('one')] } });
+
+  ui.showDone();
+
+  assert.equal(ui.state().view, 'work');
+  assert.match(screen(ui), /NEXT TO LAND/);
   ui.stop();
 });
 

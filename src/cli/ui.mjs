@@ -16,6 +16,7 @@ import { byPriority, byRank, foldersLeft, grades, prModes, tokenLabel } from './
 
 // The caller supplies already-loaded arrays; render never reads history or starts work.
 const clean = value => stripTerminalSequences(String(value ?? '')).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+const cleanLines = value => stripTerminalSequences(String(value ?? '')).replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, ' ');
 const line = (value, width) => truncateToWidth(value, Math.max(1, width));
 const cell = (value, width) => {
   const text = line(value, width);
@@ -153,6 +154,8 @@ const MIN_ROWS_FOR_PINNED_DAY = 8;
 const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
+const workTabs = [{ name: 'now', label: 'Now' }, { name: 'done', label: 'Done' }];
+const doneRowTypes = ['ready', 'yours', 'elsewhere'];
 const localCommands = [
   ['/help', 'what hobkin can do'],
   ['/setup', 'get hobkin ready'],
@@ -834,27 +837,79 @@ const mergeState = ({ conflict, behind }) => {
   if (conflict === false) return positive(behind ? `ready to merge · ${behind} behind` : 'ready to merge');
   return '';
 };
-// A local PR is a branch and its saved description, so the summary here is enough to decide whether to open one.
-const readyRow = (entry, inner) => {
-  const { slug, project, item, title, branch, summary, left } = entry;
-  const merging = mergeState(entry);
+const MOST_DONE_ROWS = 5;
+const safetyTone = { safe: positive, medium: caution, risky: negative };
+// A grade is only as good as the commit it read, so one from further back looks like what it is.
+const safetyWords = ({ safety }) => {
+  if (!safety) return muted('not graded');
+  const { grade, rating, stale } = safety;
+  if (stale) return dim(`${clean(grade)} ${clean(rating)} on an older commit`);
+  return (safetyTone[grade] ?? dim)(`${clean(grade)} ${clean(rating)}`);
+};
+const sizeWords = ({ size }) => {
+  if (!size) return '';
+  const changed = size.additions + size.deletions;
+  return `${changed} ${changed === 1 ? 'line' : 'lines'} · ${count(size.files, 'file')}`;
+};
+const landedFacts = entry => {
+  const { holds, onlyDocs, described, proved } = entry;
+  const facts = [
+    sizeWords(entry) && dim(sizeWords(entry)),
+    onlyDocs && dim('docs only'),
+    holds && dim(`holds ${holds} earlier ${holds === 1 ? 'branch' : 'branches'}`),
+    described === false && caution('no description'),
+    proved === false && caution('no proof'),
+  ];
+  return [safetyWords(entry), mergeState(entry), ...facts].filter(Boolean).join(muted(' · '));
+};
+const doneRow = (entry, type, facts) => {
+  const { slug, project, item, title } = entry;
   return {
-    key: `ready:${slug}:${item}`,
-    type: 'ready',
+    key: `${type}:${slug}:${item}`,
+    type,
     slug,
     id: item,
-    lines: [
-      `${positive('●')} ${row(`${clean(project)}: ${clean(title)}`, dim(clean(branch)), inner - 2)}`,
-      ...(merging ? [`  ${merging}`] : []),
-      ...wrapped(summary ?? '', inner - 2).filter(Boolean).map(value => `  ${dim(value)}`),
-      ...(left ? wrapped(`Left for you: ${left}`, inner - 2).map(value => `  ${caution(value)}`) : []),
-    ],
+    title,
+    risky: entry.safety?.grade === 'risky' && !entry.safety.stale,
+    lines: [`${positive('●')} ${clean(project)}: ${clean(title)}`, `  ${facts}`],
   };
 };
-const readyRows = ({ ready = [] }, inner) => {
-  const rows = ready.slice(0, MOST_QUEUE_ROWS).map(entry => readyRow(entry, inner));
-  const more = ready.length - rows.length;
-  return more > 0 ? [...rows, { lines: [muted(`  and ${more} more`)] }] : rows;
+const closingRow = ({ project, title, doing }, inner) => ({
+  lines: [row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(clean(doing)), inner)],
+});
+// Five at a time, so the list reads as a short job. Each row answered brings up the next.
+const landRows = rows => {
+  const shown = rows.slice(0, MOST_DONE_ROWS).map(entry => doneRow(entry, 'ready', landedFacts(entry)));
+  const more = rows.length - shown.length;
+  return more > 0 ? [...shown, { lines: [muted(`  and ${more} more`)] }] : shown;
+};
+const inGaps = (ready, ...gaps) => ready.filter(({ gap = 'land' }) => gaps.includes(gap));
+const doneCount = ({ ready = [] }) => inGaps(ready, 'land', 'rebase', 'yours', 'elsewhere').length;
+const doneSections = ({ work: { ready = [], closing = [] }, inner }) => {
+  const land = inGaps(ready, 'land', 'rebase');
+  const sections = [
+    ['NEXT TO LAND', landRows(land), null, String(land.length)],
+    ['AGENT ON IT', closing.map(entry => closingRow(entry, inner))],
+    ['YOUR TURN', inGaps(ready, 'yours').map(entry => doneRow(entry, 'yours', dim(clean(entry.summary ?? 'Only you can do this one.'))))],
+    ['ALREADY ELSEWHERE', inGaps(ready, 'elsewhere').map(entry => doneRow(entry, 'elsewhere', dim(`also on ${clean(entry.landedOn)}`)))],
+  ];
+  return sections.filter(([, rows]) => rows.length);
+};
+const doneReading = ({ entry, description, inner }) => {
+  const { project, title, safety, left, summary } = entry;
+  const reason = safety?.reason ? wrapped(`Why: ${safety.reason}`, inner).map(dim) : [];
+  const leftFor = left ? ['', ...wrapped(`Left for you: ${left}`, inner).map(caution)] : [];
+  const said = description ?? summary ?? 'This branch has no description yet.';
+  return {
+    content: [
+      ...wrapped(`${clean(project)}: ${clean(title)}`, inner).map(bold),
+      landedFacts(entry),
+      ...reason,
+      ...leftFor,
+      '',
+      ...cleanLines(said).split('\n').flatMap(value => wrapped(value, inner)),
+    ],
+  };
 };
 // The rows the user can act on, grouped as they appear. A row's key keeps it selected across refreshes.
 const workSections = ({ work, runs, inner, clock, frame }) => {
@@ -883,7 +938,6 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
       ],
     }))],
     ['QUEUE', [...allowance, ...queueRows(work, inner)], null, queueTally(work)],
-    ['READY', readyRows(work, inner), null, String(work.ready?.length ?? 0)],
     ['PROJECTS', projects.map(project => ({
       key: `project:${project.slug}`,
       type: 'project',
@@ -941,6 +995,23 @@ const maxLine = ({ maxRuns, projects = [] }) => {
   const inUse = maxRuns && (maxRuns.running || maxRuns.today || projects.some(project => project.state === 'chosen' && project.level === 'max'));
   return inUse ? `Max: ${maxRuns.running} of ${maxRuns.atOnce} running, ${maxRuns.today} of ${maxRuns.perDay} today. Claude's tokens count when each run ends.` : '';
 };
+/** Adds each section to `content`, and returns where the selected row landed. */
+const pushSections = (content, { sections, selected, inner }) => {
+  let selectedRange;
+  for (const [heading, rows, note, tally] of sections) {
+    content.push(row(muted(bold(heading)), muted(tally ?? String(rows.length)), inner), '');
+    if (note) content.push(note, '');
+    rows.forEach((item, index) => {
+      const isSelected = Boolean(item.key) && item.key === selected?.key;
+      if (isSelected) selectedRange = [content.length, content.length + item.lines.length];
+      content.push(...item.lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
+      // Rows of several lines would otherwise run together.
+      if (item.lines.length > 1 && index < rows.length - 1) content.push('');
+    });
+    content.push('');
+  }
+  return selectedRange;
+};
 const workLines = ({ work, runs, sections, selected, step, inner, clock, frame }) => {
   const state = `${workCircle(work)} ${dim(work.paused ? 'paused' : 'active')}`;
   const atLimit = work.dailyTokens && work.tokensToday >= work.dailyTokens;
@@ -962,22 +1033,14 @@ const workLines = ({ work, runs, sections, selected, step, inner, clock, frame }
     ...facts.flatMap(fact => wrapped(fact, inner)).map(dim),
     '',
   ];
-  let selectedRange;
   if (work.pause) content.push(...wrapped(work.pause.line, inner).map(caution), '');
   if (work.discovering) content.push(...discoveryLines({ work, step, inner, clock, frame }));
-  for (const [heading, rows, note, tally] of sections) {
-    content.push(row(muted(bold(heading)), muted(tally ?? String(rows.length)), inner), '');
-    if (note) content.push(note, '');
-    rows.forEach((item, index) => {
-      const isSelected = Boolean(item.key) && item.key === selected?.key;
-      if (isSelected) selectedRange = [content.length, content.length + item.lines.length];
-      content.push(...item.lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
-      // Rows of several lines would otherwise run together.
-      if (item.lines.length > 1 && index < rows.length - 1) content.push('');
-    });
-    content.push('');
-  }
-  return { content, selectedRange };
+  return { content, selectedRange: pushSections(content, { sections, selected, inner }) };
+};
+const doneLines = ({ sections, selected, inner }) => {
+  if (!sections.length) return { content: [dim('Nothing is waiting. Finished work lands here for you to walk through.')] };
+  const content = [];
+  return { content, selectedRange: pushSections(content, { sections, selected, inner }) };
 };
 const reportDetailLines = ({ report, inner, clock, markdown }) => {
   if (!report) return [dim('No report selected.')];
@@ -1048,6 +1111,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let armedDrop = null;
   let armedMax = null;
   let askingWorkFolder = false;
+  let workTab = 'now';
+  let donePage = null;
+  let notingOn = null;
+  let armedMerge = null;
   let setupWaiting = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
@@ -1117,7 +1184,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     typing: Boolean(editor.getExpandedText()),
     now: clock,
   });
-  const currentWorkSections = (inner, clock, frame) => workSections({ work: snapshot.work ?? {}, runs: workRuns(), inner, clock, frame });
+  const currentWorkSections = (inner, clock, frame) => {
+    const work = snapshot.work ?? {};
+    return workTab === 'done' ? doneSections({ work, inner }) : workSections({ work, runs: workRuns(), inner, clock, frame });
+  };
   const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
     const rows = sections.flatMap(([, entries]) => entries).filter(entry => entry.key);
     const answerable = rows.find(entry => answerableRows.includes(entry.type));
@@ -1285,6 +1355,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   editor.onSubmit = submitted => {
     // Editor clears before onSubmit; a command keeps the draft until it succeeds.
     editor.setText(submitted);
+    if (notingOn) {
+      sendNote(submitted.trim());
+      return;
+    }
     if (askingWorkFolder) {
       // A path starts with a slash, so this comes before command handling.
       if (submitted.trim() && !clearing) startWorkIn(submitted.trim());
@@ -1465,6 +1539,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const tabRow = tabs.map(tab => tab.text).join(TAB_GAP);
     return [focus === 'reportTabs' ? selectedRow(tabRow, inner) : tabRow, filterRow(inner)];
   };
+  const workTabRows = (inner, y) => {
+    const tabs = workTabs.map(tab => tabText({ ...tab, count: tab.name === 'done' ? String(doneCount(snapshot.work ?? {})) : '' }, tab.name === workTab));
+    clickableTabs.push(...tabZones(tabs.map(tab => ({ ...tab, name: `work-${tab.name}` })), y, 0));
+    const tabRow = tabs.map(tab => tab.text).join(TAB_GAP);
+    return [focus === 'workTabs' ? selectedRow(tabRow, inner) : tabRow, ''];
+  };
   const renderHeader = (inner, clock, frame) => {
     const live = snapshot.connection === 'connected';
     const activeRuns = liveJobs();
@@ -1497,12 +1577,20 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     clickableTabs = zones;
     const invalid = invalidSchedules().length;
     if (invalid) header.push(warning(`▲ ${invalid} invalid routine${invalid === 1 ? '' : 's'} · see Routines`));
-    return showsReportList() ? [...header, ...reportTabRows(inner, header.length)] : [...header, ''];
+    if (showsReportList()) return [...header, ...reportTabRows(inner, header.length)];
+    return view === 'work' && !donePage ? [...header, ...workTabRows(inner, header.length)] : [...header, ''];
   };
 
+  const doneKeys = row => {
+    const opensToLand = row?.type === 'ready' || ['land', 'rebase'].includes(row?.gap);
+    return opensToLand ? [['m', 'merge'], ['w', 'send agent'], ['n', 'no']] : [['x', 'done']];
+  };
   const hintsFor = draft => {
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
+    if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
+    if (donePage) return [...doneKeys(donePage.entry), ['d', 'diff'], ['r', 'review'], ['↑↓', 'scroll'], ['esc', 'back']];
+    if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
     const leaveList = ['esc', reportFilter.getValue() ? 'clear filter' : 'chat'];
@@ -1517,7 +1605,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
         allowance: [['y', 'raise'], ['n', 'keep paused']],
         run: [['enter', 'watch']],
-        ready: [['d', 'diff'], ['r', 'review'], ['x', 'done']],
+        ready: [...doneKeys(selected), ['enter', 'read']],
+        yours: [...doneKeys(selected), ['enter', 'read']],
+        elsewhere: [...doneKeys(selected), ['enter', 'read']],
         queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
       };
       return [...rowKeys[selected?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
@@ -1590,13 +1680,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const paint = editor.focused && connected() ? assistantColor : muted;
     const prompted = referencedReport ? 'Ask about this report…' : 'Message hobkin…';
     const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
+      : notingOn ? 'What should it change? Empty closes what stops it merging'
       : connected() ? prompted : 'Waiting for the main conversation…';
     const empty = !editor.getExpandedText();
     const content = lines.map((value, index) => {
       const prompt = index ? '    ' : `  ${connected() ? highlight('❯') : muted('❯')} `;
       return prompt + (empty && !index ? value.trimEnd() + muted(placeholder) : value);
     });
-    const subject = askingWorkFolder ? 'Which folder should work mode start from?' : referencedReport?.title;
+    const subject = askingWorkFolder ? 'Which folder should work mode start from?' : notingOn?.title ?? referencedReport?.title;
     const reference = subject ? `${accent('↳')} ${dim(line(clean(subject), inner - 16))}` : '';
     const top = [reference, above && muted(above)].filter(Boolean).join(muted(' · '));
     return ruled({ paint, top, bottom: below && muted(below), lines: content, inner });
@@ -1628,7 +1719,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
-    const hasComposer = !question && (view === 'conversation' || askingWorkFolder);
+    const hasComposer = !question && (view === 'conversation' || askingWorkFolder || Boolean(notingOn));
     const faceFits = hasComposer && inner >= MIN_WIDTH_FOR_FACE && height >= MIN_ROWS_FOR_TIP_LINE;
     if (faceFits !== faceShown) {
       faceShown = faceFits;
@@ -1678,12 +1769,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }),
       };
     }
+    if (view === 'work' && donePage) return doneReading({ ...donePage, inner });
+    if (view === 'work' && workTab === 'done') {
+      const sections = currentWorkSections(inner, clock, frame);
+      return doneLines({ sections, selected: focus === 'workTabs' ? null : selectedWorkRow(sections), inner });
+    }
     if (view === 'work') {
       const sections = currentWorkSections(inner, clock, frame);
       const runs = workRuns();
       const looking = runs.find(run => run.work?.lane === 'discover');
       const step = latestStep(snapshot.jobActivity?.[looking?.id]);
-      return workLines({ work: snapshot.work ?? {}, runs, sections, selected: selectedWorkRow(sections), step, inner, clock, frame });
+      const selected = focus === 'workTabs' ? null : selectedWorkRow(sections);
+      return workLines({ work: snapshot.work ?? {}, runs, sections, selected, step, inner, clock, frame });
     }
     if (isJob()) {
       return {
@@ -1739,7 +1836,91 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const moveWorkSelection = delta => {
     const rows = workRows();
     const index = Math.max(0, rows.findIndex(entry => entry.key === selectedWorkRow()?.key));
-    workKey = rows[Math.max(0, Math.min(rows.length - 1, index + delta))]?.key ?? null;
+    if (index + delta < 0) {
+      focus = 'workTabs';
+      return;
+    }
+    workKey = rows[Math.min(rows.length - 1, index + delta)]?.key ?? null;
+  };
+  const rowFor = ({ slug, id }) => (snapshot.work?.ready ?? []).find(entry => entry.slug === slug && entry.item === id);
+  const readRow = selected => {
+    const entry = rowFor(selected);
+    if (!entry) return;
+    donePage = { entry, description: null };
+    focus = 'doneReading';
+    scroll = 0;
+    const opened = donePage;
+    pending = Promise.resolve().then(() => callbacks.workAction('pr', selected.slug, selected.id))
+      .then(found => { opened.description = found?.description ?? null; })
+      .catch(() => {})
+      .finally(changed);
+  };
+  const leaveReading = () => {
+    donePage = null;
+    focus = 'work';
+    scroll = 0;
+  };
+  // Whatever was answered leaves the list, so the walk carries straight on to the next one.
+  const walkOn = selected => {
+    const rows = workRows();
+    const index = rows.findIndex(entry => entry.key === selected.key);
+    const next = rows[index + 1] ?? rows[index - 1];
+    const wasReading = Boolean(donePage);
+    workKey = next?.key ?? null;
+    leaveReading();
+    if (wasReading && next) readRow(next);
+  };
+  const selectedDone = () => {
+    if (!donePage) return selectedWorkRow();
+    const { entry } = donePage;
+    return workRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? { key: null, slug: entry.slug, id: entry.item, title: entry.title };
+  };
+  const mergeRow = selected => {
+    if (selected.risky && armedMerge !== selected.key) {
+      armedMerge = selected.key;
+      say(`Rated risky. Press m again to merge ${clean(selected.title)}.`, 'warning', { timeout: 3000 });
+      return;
+    }
+    armedMerge = null;
+    walkOn(selected);
+    runWorkAction('merge', selected.slug, selected.id);
+  };
+  const startNote = selected => {
+    notingOn = selected;
+    focus = 'composer';
+    say('');
+  };
+  const sendNote = text => {
+    const { slug, id } = notingOn;
+    const selected = notingOn;
+    notingOn = null;
+    editor.setText('');
+    focus = 'work';
+    walkOn(selected);
+    runWorkAction('ask', slug, id, text);
+  };
+  const handleDoneRowKey = (selected, data) => {
+    if (data === 'm') mergeRow(selected);
+    else if (data === 'w') startNote(selected);
+    else if (data === 'n') {
+      walkOn(selected);
+      runWorkAction('decline', selected.slug, selected.id);
+    } else return false;
+    return true;
+  };
+  const closeRow = selected => {
+    walkOn(selected);
+    runWorkAction('done', selected.slug, selected.id);
+  };
+  const handleReadingKey = data => {
+    const selected = selectedDone();
+    const canMerge = ['land', 'rebase'].includes(donePage.entry.gap ?? 'land');
+    if (key(data, 'escape')) leaveReading();
+    else if (data === 'd') runWorkAction('diff', selected.slug, selected.id);
+    else if (data === 'r') runWorkAction('review', selected.slug, selected.id);
+    else if (data === 'x' && !canMerge) closeRow(selected);
+    else if (!canMerge || !handleDoneRowKey(selected, data)) return false;
+    return true;
   };
   const dropProjectTwice = selected => {
     if (armedDrop === selected.slug) {
@@ -1791,9 +1972,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else if (selected?.type === 'queue' && enter && !selected.skipped) runWorkAction('run', selected.queueKey);
     else if (selected?.type === 'queue' && data === 's') runWorkAction(selected.skipped ? 'back' : 'later', selected.queueKey);
     else if (selected?.type === 'queue' && selected.id && data === 'p') runWorkAction('grade', selected.slug, selected.id, nextIn(grades, selected.grade));
-    else if (selected?.type === 'ready' && data === 'd') runWorkAction('diff', selected.slug, selected.id);
-    else if (selected?.type === 'ready' && data === 'r') runWorkAction('review', selected.slug, selected.id);
-    else if ((selected?.type === 'ready' || (selected?.type === 'queue' && selected.id)) && data === 'x') runWorkAction('done', selected.slug, selected.id);
+    else if (doneRowTypes.includes(selected?.type) && enter) readRow(selected);
+    else if (selected?.type === 'ready' && handleDoneRowKey(selected, data)) return true;
+    else if (['yours', 'elsewhere'].includes(selected?.type) && data === 'x') closeRow(selected);
+    else if (selected?.type === 'queue' && selected.id && data === 'x') runWorkAction('done', selected.slug, selected.id);
     else if (selected?.type === 'run' && key(data, 'enter')) {
       view = `job:${selected.id}`;
       focus = 'job';
@@ -1804,6 +1986,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
   const openView = name => {
     askingWorkFolder = false;
+    notingOn = null;
+    donePage = null;
     typingFilter = false;
     view = name;
     if (view === 'conversation') {
@@ -1816,6 +2000,22 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (view === 'reports') completedReport = null;
     keepSelectionListed();
     scroll = 0;
+  };
+  const showWorkTab = name => {
+    workTab = name;
+    workKey = null;
+    donePage = null;
+    scroll = 0;
+  };
+  const handleWorkTabsKey = data => {
+    if (key(data, 'left') || key(data, 'right')) {
+      showWorkTab(workTab === 'now' ? 'done' : 'now');
+    } else if (key(data, 'down') || key(data, 'enter')) {
+      focus = 'work';
+    } else {
+      return key(data, 'up');
+    }
+    return true;
   };
   const handleReportTabsKey = data => {
     if (key(data, 'left') || key(data, 'right')) {
@@ -1851,8 +2051,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   // Every row sits inside the frame's two columns of margin.
   const tabAt = ({ x, y }) => clickableTabs.find(zone => zone.y === y && x - 2 >= zone.from && x - 2 < zone.to)?.name;
   const openTab = name => {
-    if (reportKinds.some(kind => kind.name === name)) showReportKind(name);
-    else openView(name);
+    if (reportKinds.some(kind => kind.name === name)) {
+      showReportKind(name);
+    } else if (name.startsWith('work-')) {
+      showWorkTab(name.slice('work-'.length));
+      focus = 'work';
+    } else {
+      openView(name);
+    }
   };
 
   const controller = {
@@ -1909,6 +2115,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       editor.invalidate();
       documents.clear();
       chatRows.clear();
+    },
+    showDone() {
+      openView('work');
+      showWorkTab('done');
+      changed();
     },
     askQuestion(request, signal) {
       if (stopped || question) return Promise.resolve(undefined);
@@ -2019,6 +2230,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           .finally(changed);
       } else if (focus === 'work' && handleWorkKey(data)) {
         // The Work tab handled it.
+      } else if (focus === 'workTabs' && handleWorkTabsKey(data)) {
+        // The subtab row handled it.
+      } else if (focus === 'doneReading' && handleReadingKey(data)) {
+        // The page being read handled it.
       } else if (focus === 'reportTabs' && handleReportTabsKey(data)) {
         // The subtab row handled it.
       } else if ((key(data, 'm') || key(data, 'r')) && focus === 'detail') {
@@ -2040,6 +2255,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           say('');
           referencedReport = null;
           askingWorkFolder = false;
+          if (notingOn) {
+            notingOn = null;
+            editor.setText('');
+            focus = 'work';
+          }
         } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
           // Tab finished the command.
         } else {

@@ -8,7 +8,7 @@ import { initialize, setLearning } from '../src/cli/config.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { firstGuess } from '../src/cli/work/budget.mjs';
-import { requestReview } from '../src/cli/work/controls.mjs';
+import { askAgent, requestReview } from '../src/cli/work/controls.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import {
@@ -99,6 +99,7 @@ function fixture(t, agent = async () => {}) {
   h.gh = async () => { throw Error('This repository has no remote.'); };
   h.settled = async () => {
     await Promise.all([...runner.jobs.values()]);
+    await h.director.closing;
     await h.director.watching;
     await h.director.surveying;
   };
@@ -1137,31 +1138,54 @@ test('nothing new starts while the main chat compacts, and the queue carries on 
   assert.equal(doRuns(h).length, started + 1);
 });
 
-test('a draft that finishes is offered for review once, and its run reviews nothing', async t => {
+test('a finished branch gets its review next by itself, and only then can it land', async t => {
   const h = fixture(t);
   const offered = await offeredDrafts(h);
   const [{ id }] = readItems(h.root, 'api');
   h.agent = endsOnABranch(h);
 
   await h.tick();
+  await h.settled();
 
-  assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
   assert.equal(h.work(doRuns(h).at(-1)).item.reviewAsked, undefined);
-});
-
-test('a run the user asked to review is told so, ends the mark and is not offered again', async t => {
-  const h = fixture(t);
-  const offered = await offeredDrafts(h);
-  const [{ id }] = readItems(h.root, 'api');
-  updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
-  requestReview(h.root, 'api', id);
-  h.agent = endsOnABranch(h);
+  assert.deepEqual([readItems(h.root, 'api')[0].state, readItems(h.root, 'api')[0].reviewAsked], ['open', true]);
+  assert.deepEqual(offered, []);
 
   await h.tick();
+  await h.settled();
 
   assert.equal(h.work(doRuns(h).at(-1)).item.reviewAsked, true);
   assert.equal(readItems(h.root, 'api')[0].reviewAsked, false);
-  assert.deepEqual(offered, []);
+  assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
+});
+
+test('with reviews off, a finished branch goes straight to landing', async t => {
+  const h = fixture(t);
+  const offered = await offeredDrafts(h);
+  writeMode(h.root, { reviewOnFinish: false });
+  h.agent = endsOnABranch(h);
+
+  await h.tick();
+  await h.settled();
+
+  assert.equal(readItems(h.root, 'api')[0].state, 'branch');
+  assert.equal(offered.length, 1);
+});
+
+test('a note from the user is carried to its run, then cleared, and the new commits get their review', async t => {
+  const h = fixture(t);
+  await offeredDrafts(h);
+  const [{ id }] = readItems(h.root, 'api');
+  updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
+  askAgent(h.root, 'api', id, 'Keep the old flag.');
+  h.agent = endsOnABranch(h);
+
+  await h.tick();
+  await h.settled();
+
+  assert.equal(h.work(doRuns(h).at(-1)).item.workNote, 'Keep the old flag.');
+  assert.equal(readItems(h.root, 'api')[0].workNote, null);
+  assert.equal(readItems(h.root, 'api')[0].reviewAsked, true);
 });
 
 test('a review that fails keeps its mark, so the next try is still that review', async t => {

@@ -195,8 +195,42 @@ export async function enterFolder({ repo, branch }) {
   }
 }
 
+/** A branch of markdown alone changes no behaviour, so no review could grade it. */
+export async function changesOnlyDocs(repo, base, branch) {
+  const files = (await gitOrNothing(repo, 'diff', '--name-only', `${base}...${branch}`)).split('\n').filter(Boolean);
+  return files.length > 0 && files.every(file => /\.md$/i.test(file));
+}
+
 /** Whether the default branch already holds `sha`, for a branch that is gone. */
 export const isMerged = (repo, sha, base) => git(repo, 'merge-base', '--is-ancestor', sha, base).then(() => true, () => false);
+
+async function worktreeOn(repo, base) {
+  const records = (await git(repo, 'worktree', 'list', '--porcelain')).split('\n\n');
+  const holder = records.find(record => record.split('\n').includes(`branch refs/heads/${base}`));
+  return holder?.split('\n')[0].replace(/^worktree /, '') ?? null;
+}
+
+async function mergeCommit({ repo, tip, head, message }) {
+  const tree = await git(repo, 'merge-tree', '--write-tree', tip, head).catch(error => {
+    if (error.code === 1) throw Error('conflict');
+    throw error;
+  });
+  return git(repo, 'commit-tree', tree.split('\n')[0], '-p', tip, '-p', head, '-m', message);
+}
+
+/**
+ * Lands a branch on the default branch, on the user's word. It works the merge out away from any folder, because the folder may be busy, then
+ * moves the default branch forward only. A folder holding that branch moves with it by fast-forward, so git refuses rather than touch uncommitted work.
+ * `tip` is where the default branch really stands, and nothing here pushes.
+ */
+export async function landBranch({ repo, base, branch, tip, message }) {
+  const head = await git(repo, 'rev-parse', '--verify', `refs/heads/${branch}`);
+  const target = await isMerged(repo, tip, head) ? head : await mergeCommit({ repo, tip, head, message });
+  const holder = await worktreeOn(repo, base);
+  if (holder) await git(holder, 'merge', '--quiet', '--ff-only', '--no-overwrite-ignore', target);
+  else await git(repo, 'update-ref', `refs/heads/${base}`, target);
+  return target;
+}
 
 /** Puts the folder back on its default branch, unless someone has changed it since. Returns what the user should know, or nothing. */
 export async function leaveFolder({ repo, branch, base }) {

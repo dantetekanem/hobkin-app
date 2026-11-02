@@ -32,7 +32,10 @@ These read saved state. They start nothing and call no model:
 | `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |
 | `hobkin work pr <project> <item>` | A local PR: a local `hobkin/*` branch and its saved description, for the user to review. |
 | `hobkin work diff <project> <item>` | Opens that branch's diff in pi-coder, in a Herdr pane in front of the user. Outside Herdr it says what to type in Pi. |
-| `hobkin work review <project> <item>` | Asks for a code review of that branch. Reviews run only when the user asks. |
+| `hobkin work review <project> <item>` | Asks for a code review of that branch. A finished branch gets one by itself unless `hobkin work reviews off`. |
+| `hobkin work merge <project> <item>` | Merges a finished branch on this machine and pushes nothing, only on the user's word. |
+| `hobkin work decline <project> <item>` | Says no to it, on the user's word. Its branch stays. |
+| `hobkin work ask <project> <item> <note>` | Sends an agent back to that branch with the user's note. |
 | `hobkin work review` | The weekly review: whether work mode is running and progressing, and which projects look stale. |
 | `hobkin work help` | Every work mode command. A project is its name, slug or path. |
 

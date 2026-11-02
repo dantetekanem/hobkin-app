@@ -21,8 +21,9 @@ import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { openDiff, requestReview } from './work/controls.mjs';
-import { ReviewOffers } from './work/review-offer.mjs';
+import { askAgent, declineItem, mergeItem, openDiff, requestReview } from './work/controls.mjs';
+import { prView } from './work/reads.mjs';
+import { LandOffers } from './work/land-offer.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
@@ -94,7 +95,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null } = {}) {
+  static async open(root, { createMain, askQuestion, showDone, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -153,12 +154,13 @@ export class HobkinApplication {
           await app.tickHolds();
           app.tickCompaction();
           // Not awaited: this can hold a question open for as long as the user takes to answer it.
-          app.reviewOffers.next();
+          app.landOffers.next();
         },
       });
-      app.reviewOffers = new ReviewOffers({
+      app.landOffers = new LandOffers({
         ask: async request => (app.runtime.mainTurn ? undefined : askQuestion?.(request)),
-        review: ({ slug, id }) => app.workAction('review', slug, id),
+        walk: () => showDone?.(),
+        now: app.now,
       });
       app.director = new WorkDirector({
         root: app.runtime.directory,
@@ -169,7 +171,7 @@ export class HobkinApplication {
         panes: insideHerdr() ? new WorkPanes() : null,
         now: app.now,
         onChange: () => app.requestRefresh(),
-        onDraftDone: draft => app.reviewOffers.add(draft),
+        onDraftDone: draft => app.landOffers.add(draft),
       });
       signal?.throwIfAborted();
       // A crash leaves what its runs had opened, and no run is left to take it away.
@@ -563,6 +565,10 @@ export class HobkinApplication {
       retry: () => retryItem(root, slug, value),
       diff: () => openDiff(root, slug, value),
       review: () => requestReview(root, slug, value),
+      merge: () => mergeItem(root, slug, value),
+      decline: () => declineItem(root, slug, value),
+      ask: () => askAgent(root, slug, value, extra),
+      pr: () => prView(root, slug, value),
     };
     const result = await actions[action]();
     await this.director.tick();

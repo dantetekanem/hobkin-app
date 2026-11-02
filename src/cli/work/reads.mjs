@@ -143,12 +143,42 @@ export function itemsView(root, reference, state) {
   return projects.flatMap(project => readItems(root, project.slug).filter(item => !state || item.state === state).map(item => itemRow(root, project, item)));
 }
 
+// A branch with no grade yet says nothing either way, so it sits between what a review passed and what it questioned.
+const safetyOrder = { safe: 0, medium: 2, risky: 3 };
+const NOT_GRADED = 1;
+const safetyRank = ({ safety }) => (safety && !safety.stale ? safetyOrder[safety.grade] : NOT_GRADED);
+const linesChanged = ({ size }) => (size?.additions ?? 0) + (size?.deletions ?? 0);
+
+/** What is easiest to say yes to comes first: nothing in its way, the safest, the smallest, then the oldest. */
 const nextToMerge = (first, second) => Number(Boolean(first.conflict)) - Number(Boolean(second.conflict))
+  || safetyRank(first) - safetyRank(second)
+  || linesChanged(first) - linesChanged(second)
   || (first.at ?? '').localeCompare(second.at ?? '');
 
-function readyRow(project, item, openUnits = []) {
-  const { id, title, branch = null, summary = null, left = null, updatedAt = null } = item;
-  const { behind = null, conflict = null } = openUnits.find(unit => unit.branch === branch) ?? {};
+// A title is all that older items have, and agents now file these as `yours`. This only decides where a row sits.
+const onlyAPersonCan = ({ kind, title }) => kind === 'yours' || /^Prepare\b/.test(title);
+
+const closingNow = item => runnableStates.includes(item.state) && (item.kind === 'pr-fix' || item.reviewAsked || item.workNote);
+
+function gapOf(item, unit, items) {
+  if (item.kind === 'yours') return 'yours';
+  if (unit.landedOn) return 'elsewhere';
+  if (unit.stackedUnder) return 'stacked';
+  if (items.some(other => closingNow(other) && other.branch === item.branch)) return 'closing';
+  if (onlyAPersonCan(item)) return 'yours';
+  return unit.conflict ? 'rebase' : 'land';
+}
+
+function holdsCount(unit, units) {
+  const under = name => units.filter(other => other.stackedUnder === name);
+  const count = name => under(name).reduce((sum, other) => sum + 1 + count(other.branch), 0);
+  return count(unit.branch);
+}
+
+function readyRow(root, project, item, items, openUnits = []) {
+  const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null } = item;
+  const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
+  const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null } = unit;
   return {
     slug: project.slug,
     project: nameOf(project),
@@ -160,18 +190,41 @@ function readyRow(project, item, openUnits = []) {
     at: updatedAt,
     behind,
     conflict,
+    size,
+    safety,
+    onlyDocs,
+    landedOn,
+    gap: gapOf(item, unit, items),
+    holds: holdsCount(unit, openUnits),
+    described: existsSync(prFile(root, project.slug, id)),
+    proved: Boolean(proof),
   };
 }
 
-/** Local PRs waiting for review: work finished on a branch with no PR. The top is what to merge next: nothing in its way, then the oldest. */
+/** Work finished on a branch with no PR. `gap` says what stands between each one and landing, and the top is what to merge next. */
 export function readyItems(root) {
   const { projects: surveyed } = readUnmerged(root);
   return chosenProjects(root)
-    .flatMap(project => readItems(root, project.slug)
-      .filter(item => item.state === 'branch')
-      .map(item => readyRow(project, item, surveyed[project.slug]?.open)))
+    .flatMap(project => {
+      const items = readItems(root, project.slug);
+      return items
+        .filter(item => item.state === 'branch' || (item.kind === 'yours' && runnableStates.includes(item.state)))
+        .map(item => readyRow(root, project, item, items, surveyed[project.slug]?.open));
+    })
     .toSorted(nextToMerge)
     .slice(0, MAX_READY_SENT);
+}
+
+const closingWords = item => {
+  if (item.kind === 'pr-fix') return 'getting it ready to merge';
+  return item.reviewAsked ? 'reviewing it' : 'working on your note';
+};
+
+/** Finished work an agent has gone back to, so the user can see it is not forgotten. */
+export function closingItems(root) {
+  return chosenProjects(root).flatMap(project => readItems(root, project.slug)
+    .filter(closingNow)
+    .map(item => ({ slug: project.slug, project: nameOf(project), item: item.id, title: item.title, branch: item.branch ?? null, doing: closingWords(item) })));
 }
 
 /** One item as a review reads it. `description` is what its run wrote for its branch, if it wrote anything. */

@@ -428,7 +428,7 @@ test('a project never surveyed has nothing pending', t => {
   assert.deepEqual(pendingMerges(h.root, 'api'), []);
 });
 
-test('READY rows say how far behind they are and whether they conflict, and what can merge comes first, oldest first', async t => {
+test('READY rows say how far behind they are and whether they conflict, and what can merge comes first, smallest then oldest', async t => {
   const h = workspace(t);
   const finishedAt = (name, hoursAgo) => itemOn(h, `hobkin/${name}`, 'branch', NOW - hoursAgo * HOUR);
   branched(h.checkout, 'hobkin/conflict', 'app.txt');
@@ -442,8 +442,8 @@ test('READY rows say how far behind they are and whether they conflict, and what
   await survey(h);
 
   assert.deepEqual(readyItems(h.root).map(({ branch, behind, conflict }) => [branch, behind, conflict]), [
-    ['hobkin/older', 1, false],
     ['hobkin/not-surveyed', null, null],
+    ['hobkin/older', 1, false],
     ['hobkin/newer', 1, false],
     ['hobkin/conflict', 1, true],
   ]);

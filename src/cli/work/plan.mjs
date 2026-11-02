@@ -52,6 +52,9 @@ const gradeRank = grade => grades.indexOf(grade);
 const gradeBelow = (grade, steps) => grades[Math.min(gradeRank(grade) + steps, grades.length - 1)];
 const bestGrade = candidates => grades.find(grade => candidates.includes(grade));
 const impactOf = item => item.impact ?? impactOfKind[item.kind];
+// What brings finished work closer to landing goes ahead of making more, because it is the shortest way to something shipped.
+const CLOSING_GRADE = 'P1';
+const closesAGap = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
 
 /** A project as the plan grades it, with how much of its finished work is waiting on a merge. */
 export const withPending = (root, project) => ({ ...project, pending: pendingMerges(root, project.slug).length });
@@ -70,7 +73,8 @@ export function itemGrade(project, item) {
   if (item.grade) return item.grade;
   const first = item.urgent || item.kind === 'attention';
   const steps = impactSteps[impactOf(item)] + (shippingFirst(project, item) ? 1 : 0);
-  const graded = first ? 'P0' : gradeBelow(item.max ? 'P0' : priorityOf(project), steps);
+  const ranked = first ? 'P0' : gradeBelow(item.max ? 'P0' : priorityOf(project), steps);
+  const graded = closesAGap(item) ? bestGrade([ranked, CLOSING_GRADE]) : ranked;
   return gradeBelow(graded, item.attempts ?? 0);
 }
 

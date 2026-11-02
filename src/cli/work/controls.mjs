@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
+import { surveyAndClose } from './closing.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
 import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
@@ -11,8 +12,8 @@ import {
   answerAllowance, chooseProject, dropProject, fileItem, lookEveryHours, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
   retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
-import { defaultBranch } from './tree.mjs';
-import { surveyUnmerged } from './unmerged.mjs';
+import { defaultBranch, isMerged, landBranch } from './tree.mjs';
+import { landingTip } from './unmerged.mjs';
 
 const QUEUE_KEY = /^(item|look|study|ideas):([^:]+)(?::(.+))?$/;
 const LOOKS = ['look', 'study', 'ideas'];
@@ -286,9 +287,67 @@ export function requestReview(root, reference, id) {
   return reply(`"${item.title}" on ${nameOf(project)} goes to the front of the queue for a review.`);
 }
 
+const firstLine = text => String(text).split('\n', 1)[0];
+const whyNoMerge = (error, base, title) => {
+  if (error.message === 'conflict') return `"${title}" conflicts with ${base}, so nothing changed. Send an agent back to rebase it.`;
+  if (/overwritten|uncommitted|local changes/i.test(`${error.stderr} ${error.message}`)) return `The folder has uncommitted changes in files this merge touches, so nothing changed.`;
+  return `"${title}" did not merge: ${firstLine(error.stderr || error.message)}`;
+};
+
+/** Finished branches the default branch now holds, because a branch brings along whatever it was built on. */
+async function closeWhatLanded(root, repo, slug, target, now) {
+  const finished = readItems(root, slug).filter(item => item.state === 'branch' && item.branch);
+  const held = await Promise.all(finished.map(item => isMerged(repo, item.branch, target)));
+  const closing = finished.filter((_item, index) => held[index]);
+  for (const { id } of closing) updateItem(root, slug, id, { state: 'merged', mergedAt: new Date(now).toISOString() }, now);
+  return closing.length;
+}
+
+/** The only merge in work mode, and only ever the user's word. It stays on this machine: pushing is a separate step they take. */
+export async function mergeItem(root, reference, id, now = Date.now()) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  const { title, branch, state } = item;
+  assertNotRunning(root, project, item);
+  if (state !== 'branch' || !branch) throw Error(`"${title}" is ${state}, so there is no local branch to merge.`);
+
+  const repo = project.path ?? paths(root, project.slug).clone;
+  const base = await defaultBranch(repo);
+  const tip = await landingTip(repo, base);
+  if (!tip) throw Error(`${nameOf(project)} has no ${base} to merge into.`);
+
+  const target = await landBranch({ repo, base, branch, tip, message: `Merge: ${title}` })
+    .catch(error => { throw Error(whyNoMerge(error, base, title)); });
+  const closed = await closeWhatLanded(root, repo, project.slug, target, now);
+  const others = closed - 1;
+  const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
+  return reply(`Merged "${title}" into ${base}.${alongside} Nothing was pushed.`, { target });
+}
+
+/** A no is the user's answer, and it is what learning reads. The branch stays, so changing their mind costs nothing. */
+export function declineItem(root, reference, id) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  assertNotRunning(root, project, item);
+  updateItem(root, project.slug, item.id, { state: 'declined' });
+  return reply(`Said no to "${item.title}". Its branch stays, and hobkin learns from this.`);
+}
+
+/** Sends an agent back to a finished branch with the user's words, which go first in the queue like a review does. */
+export function askAgent(root, reference, id, note) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  assertNotRunning(root, project, item);
+  if (!statesThatRun.includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to work on.`);
+
+  updateItem(root, project.slug, item.id, { workNote: note?.trim() || 'Close whatever stops this merging.' });
+  retryItem(root, project.slug, item.id);
+  return reply(`An agent goes back to "${item.title}" next.`);
+}
+
 /** Asks `git` and `gh` now instead of at the next survey. They only read the repositories: all this changes is Hobkin's own record of its items. */
 export async function syncWork(root) {
-  const { settled, filed } = await surveyUnmerged(root);
+  const { settled, filed } = await surveyAndClose(root);
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
   const found = [

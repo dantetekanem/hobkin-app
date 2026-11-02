@@ -25,6 +25,8 @@ export const agentStates = ['open', 'branch', 'pr', 'done', 'dropped'];
 export const impacts = ['high', 'medium', 'low'];
 export const efforts = ['small', 'medium', 'large'];
 export const doableKinds = ['attention', 'pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
+// `yours` is a step only a person can take, so it is filed like work and no agent ever takes it.
+const itemKinds = [...doableKinds, 'yours'];
 // The most agents work mode will ever run, whatever is asked for. The default sits well below it, and the reason is in docs/guide.md.
 export const MAX_AGENTS = 8;
 
@@ -367,7 +369,7 @@ function assertSize({ impact, effort }) {
 function assertItem(item) {
   const { key, kind, title, brief } = item;
   if (!key) throw Error('An item needs a stable key.');
-  if (!doableKinds.includes(kind)) throw Error(`kind must be one of: ${doableKinds.join(', ')}`);
+  if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
   if (!title || !brief) throw Error('An item needs a title and a brief.');
   assertSize(item);
 }

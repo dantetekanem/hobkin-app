@@ -77,11 +77,17 @@ Each project has a priority, which sets how often agents look at it, from every 
 In the Work Mode tab:
 
 - `p` changes a project's priority or an item's grade.
-- `r` changes a project's PR setting, and on a finished branch asks for a review.
-- `d` opens a finished branch's diff, if you have the pi-coder extension.
+- `r` changes a project's PR setting.
 - `x` marks an item done.
 - `s` skips a queue row or puts it back.
 - `Enter` on a queue row runs it next.
+
+The Done subtab walks through finished work, the safest and smallest first, each with its safety grade. Every key is named at the bottom of the screen:
+
+- `m` merges the branch on this machine and pushes nothing.
+- `w` sends an agent back with your note.
+- `n` says no, and hobkin learns from it.
+- `Enter` reads it, and from there `d` opens the diff and `r` asks for a review.
 
 Once a week, Chat gets a review that says what is progressing and which projects look stale. It drops nothing itself, and `hobkin work review` prints it at any time.
 

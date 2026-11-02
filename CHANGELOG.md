@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add a Done subtab to Work Mode, to walk through finished work and land it. Five rows at a time, safest and smallest first, each with its safety grade, size and what is missing. `m` merges locally and pushes nothing, `w` sends an agent back with a note, `n` says no and Enter reads it. This replaces READY.
+- Review each finished branch by itself, because the merge grade is how to tell what can ship. This replaces asking before each review, and `hobkin work reviews off` turns it off. A markdown-only branch is skipped, and a rebase that changes nothing keeps its grade.
+- Close gaps before making more work: reviews, rebases and missing descriptions or proof go ahead of new items, and the last two only for the next five rows.
+- See what is really waiting: a branch stacked under a newer one folds into it, and work already on one of the user's own branches says so.
+- Add a `yours` item for a step only a person can take, so looks stop writing runbooks onto branches.
 - Add All, Scheduled and Work Done subtabs to Reports, opening on All. Up from the first report reaches them, Left/Right changes subtab there, and Down goes back to the reports. Typing `/` in the list filters report titles as you type, ignoring case, across every saved report rather than the 25 the list shows. The filter stays until Esc or Ctrl+C clears it.
 - Open a main tab or a Reports subtab with a mouse click.
 - Make the first run seamless. With no model, `hobkin` asks the user to sign in before it opens, through Pi's own sign-in screens, and then starts setup by itself on a home with no routines, chat or profile. `hobkin login` signs in again at any time.

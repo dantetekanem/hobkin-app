@@ -10,17 +10,18 @@ import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
+import { surveyAndClose } from './closing.mjs';
 import { nameOf } from './names.mjs';
 import { agentName } from './panes.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import {
   answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
-  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, runnableStates,
+  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates,
   sessionError, sessionUsage, skipInQueue, slugOf, tokenLabel, updateItem, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
-import { currentBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
-import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
+import { changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
+import { readUnmerged } from './unmerged.mjs';
 import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 
@@ -225,7 +226,7 @@ export class WorkDirector {
   surveyWork() {
     if (this.surveying || elapsedSince(readUnmerged(this.root).at, this.now()) < SURVEY_EVERY_MS) return;
     if (!chosenProjects(this.root).length) return;
-    this.surveying = surveyUnmerged(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
+    this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
       .catch(() => {})
       .finally(() => { this.surveying = null; });
   }
@@ -556,16 +557,27 @@ export class WorkDirector {
   // Cancelling one is the user's own stop, so it stays in sight at the end of the queue instead of starting again on the next tick.
   // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
   // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
-  // A review that has run is the answer, so only a draft nobody has reviewed asks for one.
-  itemFinished(slug, item) {
-    if (item.reviewAsked) {
-      updateItem(this.root, slug, item.id, { reviewAsked: false }, this.now());
+  // A grade is how the user tells what can ship, so a finished branch earns one by itself: the review is its next run, ahead of new work.
+  async itemFinished(slug, item) {
+    const { id, title, kind, state, branch, reviewAsked, workNote } = item;
+    if (reviewAsked || workNote) updateItem(this.root, slug, id, { reviewAsked: false, workNote: null }, this.now());
+    if (!['branch', 'pr'].includes(state) || kind === 'pr-fix') return;
+
+    const project = readProject(this.root, slug);
+    if (!reviewAsked && state === 'branch' && await this.earnsAReview(project, branch)) {
+      updateItem(this.root, slug, id, { reviewAsked: true }, this.now());
+      retryItem(this.root, slug, id, this.now());
       return;
     }
-    if (!['branch', 'pr'].includes(item.state) || item.kind === 'pr-fix') return;
+    this.onDraftDone({ slug, id, title, project: nameOf(project) });
+  }
 
-    const { id, title } = item;
-    this.onDraftDone({ slug, id, title, project: nameOf(readProject(this.root, slug)) });
+  // With the mode off nothing new starts, and that holds for a review too.
+  async earnsAReview(project, branch) {
+    const { enabled, reviewOnFinish } = readMode(this.root);
+    if (!enabled || reviewOnFinish === false) return false;
+    const repo = project.path ?? paths(this.root, project.slug).clone;
+    return !await changesOnlyDocs(repo, await defaultBranch(repo), branch);
   }
 
   settleItem(slug, id, run, { moved = false, stalled = false } = {}) {
@@ -573,10 +585,7 @@ export class WorkDirector {
     if ((interrupted && this.runner.stopped) || notTheWork(run)) return;
     const item = readItems(this.root, slug).find(entry => entry.id === id);
     if (!item) return;
-    if (item.state !== 'doing') {
-      this.itemFinished(slug, item);
-      return;
-    }
+    if (item.state !== 'doing') return this.itemFinished(slug, item);
     if (moved) writeState(this.root, slug, { folderNote: 'The folder left the run\'s branch, so the run stopped. Nothing was forced.' });
     if (moved || run?.result?.paneClosed) {
       updateItem(this.root, slug, id, { state: 'open' }, this.now());
@@ -687,7 +696,7 @@ export class WorkDirector {
     };
     this.active.set(key, entry);
     const { work: finished } = this.runner.startTracked(request, effect);
-    finished.then(run => {
+    const closed = finished.then(run => {
       this.active.delete(key);
       const { tokens, cached } = paneKind === 'claude' ? claudeSessionUsage(harnessId, this.claudeProjects) : sessionUsage(sessionFile);
       const facts = { slug, lane, kind, ...(level ? { level } : {}) };
@@ -699,10 +708,13 @@ export class WorkDirector {
       else if (unseen) recordTokens(this.root, { ...facts, tokens: estimate.fresh ?? 0, cached: estimate.cached ?? 0, estimated: true }, this.now());
       else recordTokens(this.root, { slug, lane, kind, tokens: 0, cached: 0, estimated: true }, this.now());
       if (run?.status === 'completed') this.clearUsagePause();
-      settle?.(run, entry);
-      this.publish();
-      this.onChange();
+      // Deciding on a finished branch reads git, and a failure there costs its review, never the run's outcome.
+      return Promise.resolve(settle?.(run, entry)).catch(() => {}).finally(() => {
+        this.publish();
+        this.onChange();
+      });
     });
+    this.closing = Promise.all([this.closing, closed]);
     this.publish();
     this.onChange();
   }
