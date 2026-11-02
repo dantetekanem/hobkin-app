@@ -27,6 +27,7 @@ const LifecycleDoc = defineDoc<Lifecycle>({
   scope: 'conversation',
   history: 'latest',
   fork: 'initial',
+  checkpointWhen: () => false,
   initial: () => ({ owner: null, active: false, setup: 'needed', taskId: null, action: null }),
 });
 

@@ -21,6 +21,7 @@ const RuntimeDoc = defineDoc({
   scope: 'conversation',
   history: 'latest',
   fork: 'initial',
+  checkpointWhen: () => false,
   initial: () => ({ main: null, sessionBaselines: {}, runs: {}, lastTick: null }),
 });
 const copy = value => JSON.parse(JSON.stringify(value));
