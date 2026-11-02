@@ -145,7 +145,8 @@ export class WorkDirector {
     if (['day', 'hour'].includes(pause?.kind)) this.holdDiscovery();
     this.tellPause(pause, current);
     if (pause?.kind === 'day') this.askForAllowance(current, budget);
-    if (next) this.begin(next, budget, current);
+    // Schedules are not held. Only new work waits, and the next tick picks it up.
+    if (next && !this.runtime.workWaitsForChat) this.begin(next, budget, current);
   }
 
   // The next tick can find the look still stopping, and it only needs telling once.

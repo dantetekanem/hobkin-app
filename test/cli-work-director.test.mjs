@@ -1123,6 +1123,20 @@ async function offeredDrafts(h) {
   return offered;
 }
 
+test('nothing new starts while the main chat compacts, and the queue carries on by itself after', async t => {
+  const h = fixture(t);
+  await readyToDo(h);
+  const started = doRuns(h).length;
+
+  h.runtime.workWaitsForChat = true;
+  await h.tick();
+  assert.equal(doRuns(h).length, started);
+
+  h.runtime.workWaitsForChat = false;
+  await h.tick();
+  assert.equal(doRuns(h).length, started + 1);
+});
+
 test('a draft that finishes is offered for review once, and its run reviews nothing', async t => {
   const h = fixture(t);
   const offered = await offeredDrafts(h);

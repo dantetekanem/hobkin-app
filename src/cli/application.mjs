@@ -12,6 +12,7 @@ import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
 import { MemoryIndex } from './memory-index.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
+import { compactionDue, nextRunIn } from './compaction.mjs';
 import { editReport } from './report-editor.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { withoutWorkNote, workNote } from './work/chat.mjs';
@@ -137,6 +138,7 @@ export class HobkinApplication {
         onTick: async () => {
           await app.tickWork();
           await app.tickHolds();
+          app.tickCompaction();
           // Not awaited: this can hold a question open for as long as the user takes to answer it.
           app.reviewOffers.next();
         },
@@ -473,6 +475,23 @@ export class HobkinApplication {
     this.workSignature = null;
     await this.refresh();
     return result;
+  }
+
+  // Compacting takes the chat away for about a minute, so it goes where nobody is waiting on it. A busy session that reaches the force
+  // level is Pi's to compact between model calls. This is never awaited, because schedules keep their time.
+  tickCompaction() {
+    const now = this.now();
+    const lastMessageAt = this.runtime.messages().at(-1)?.timestamp ?? 0;
+    const due = compactionDue({
+      ...this.runtime.contextInfo(),
+      free: this.canStartHoldTurn(),
+      quietMs: now - lastMessageAt,
+      agentsRunning: this.runner.jobs.size > 0,
+      nextRunInMs: nextRunIn(this.snapshot.schedules, now),
+      now,
+    });
+    if (due && this.canStartHoldTurn()) return this.runtime.compactMain();
+    return false;
   }
 
   // Nobody asked for this turn, so it never steers one under way or overtakes what the user sent.

@@ -10,6 +10,7 @@ import { createQuestionTool } from './questions.mjs';
 import { grantChrome } from './chrome.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
+import { compactAtForceLevel } from './compaction.mjs';
 import { extensionPaths } from './pi-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 import { hobkinCommand } from './work/chat.mjs';
@@ -304,6 +305,7 @@ async function openConversation(
     session.dispose();
     throw Error(modelFallbackMessage ?? 'Pi model or thinking binding changed.');
   }
+  compactAtForceLevel(settingsManager, [...(session.modelRuntime?.getAvailableSnapshot?.() ?? []), session.model].filter(Boolean));
   try {
     await session.bindExtensions({});
     await grantChrome(session);

@@ -14,6 +14,79 @@ function home(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { root, config };
 }
+const withCompaction = async (runtime, compact) => {
+  await runtime.connect();
+  runtime.main.compact = compact;
+  return runtime.main;
+};
+
+test('compacting holds the session so no turn can start under it, and the turn goes after', async t => {
+  const { root, config } = home(t);
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });
+  t.after(() => runtime.close());
+  let finish;
+  const main = await withCompaction(runtime, () => new Promise(resolve => { finish = resolve; }));
+
+  const compacting = runtime.compactMain();
+
+  assert.equal(runtime.mainFree, false);
+  await assert.rejects(runtime.send('hello'), /busy/i);
+
+  finish();
+  assert.equal(await compacting, true);
+  assert.equal(runtime.mainFree, true);
+  assert.ok(main);
+});
+
+test('a session in use is never compacted, because compact aborts what is running', async t => {
+  const { root, config } = home(t);
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });
+  t.after(() => runtime.close());
+  let calls = 0;
+  await withCompaction(runtime, async () => { calls += 1; });
+  const release = runtime.reserveSession(runtime.main.sessionId);
+
+  assert.equal(await runtime.compactMain(), false);
+
+  release();
+  assert.equal(calls, 0);
+});
+
+test('a compaction that fails is recorded and frees the session', async t => {
+  const { root, config } = home(t);
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });
+  t.after(() => runtime.close());
+  await withCompaction(runtime, async () => { throw Error('Nothing to compact (session too small)'); });
+
+  assert.equal(await runtime.compactMain(), false);
+
+  assert.equal(runtime.mainFree, true);
+  const { last } = runtime.contextInfo();
+  assert.equal(last.status, 'failed');
+  assert.match(last.error, /Nothing to compact/);
+});
+
+test('work waits only while the chat is at the force level or compacting, never on a stopped chat', async t => {
+  const { root, config } = home(t);
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });
+  t.after(() => runtime.close());
+  await runtime.connect();
+  const usage = percent => { runtime.main.getContextUsage = () => ({ percent, tokens: 1, contextWindow: 100 }); };
+
+  usage(90);
+  assert.equal(runtime.workWaitsForChat, false);
+
+  usage(96);
+  assert.equal(runtime.workWaitsForChat, true);
+
+  runtime.mainFault = Error('Pi exited.');
+  assert.equal(runtime.workWaitsForChat, false);
+  runtime.mainFault = null;
+
+  runtime.lastCompaction = { status: 'failed', at: new Date().toISOString() };
+  assert.equal(runtime.workWaitsForChat, false, 'a compaction that cannot run must not stop the queue');
+});
+
 test('a background report is edited before it is saved, and a main turn never is', async t => {
   const { root, config } = home(t);
   const seen = [];

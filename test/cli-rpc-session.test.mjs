@@ -200,6 +200,15 @@ test('a second message steers the running turn; clearing and aborting reach Pi',
   assert.ok(h.fake.children[0].stdin.writableEnded, 'the old child was asked to exit');
 });
 
+test('a chat behind a launcher compacts through its Pi child', async t => {
+  const h = fixture(t, { script: { compact: reply => reply({ summary: 'short' }) } });
+  const runtime = await h.connected();
+
+  assert.equal(await runtime.compactMain(), true);
+
+  assert.ok(h.fake.received.some(record => record.type === 'compact'));
+});
+
 test('Pi-side compaction refreshes the transcript and is reported to observers', async t => {
   const h = fixture(t);
   const runtime = await h.connected();

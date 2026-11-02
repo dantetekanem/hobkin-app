@@ -878,6 +878,26 @@ test('a finished draft asks the user with no model turn, and a yes queues its re
   }
 });
 
+test('a full chat compacts itself when nothing needs it, and leaves it alone when it is not full', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    let compactions = 0;
+    app.runtime.main.compact = async () => { compactions += 1; };
+    const usage = percent => { app.runtime.main.getContextUsage = () => ({ percent, tokens: 1, contextWindow: 100 }); };
+
+    usage(70);
+    await app.tickCompaction();
+    assert.equal(compactions, 0);
+
+    usage(85);
+    await app.tickCompaction();
+    assert.equal(compactions, 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test('the note Chrome leaves when authorized stays out of Chat', async t => {
   const h = fixture(t);
   const app = await h.openApp();

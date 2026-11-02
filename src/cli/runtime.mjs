@@ -6,6 +6,7 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createModels } from '@earendil-works/pi-ai';
 import { createRegistry, defineDoc, Harness } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
+import { compactionDue } from './compaction.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { saveReport } from './reports.mjs';
@@ -231,6 +232,28 @@ export class HobkinRuntime {
     return Boolean(this.main) && this.sessionReady(this.main.sessionId) && !this.mainFault && !this.resetting
       && !this.main.isStreaming && !this.main.isCompacting;
   }
+  /** At the force level new work waits for the chat, and carries on by itself once there is room. A chat that has stopped holds nothing up. */
+  get workWaitsForChat() {
+    if (!this.main || this.mainFault || this.closing) return false;
+    return this.main.isCompacting || compactionDue(this.contextInfo()) === 'force';
+  }
+
+  /** Hobkin's own compaction. Pi's aborts whatever is running, so this takes only a free session and holds it, so no turn can start under it. */
+  async compactMain() {
+    if (!this.mainFree || typeof this.main.compact !== 'function') return false;
+
+    const release = this.reserveSession(this.main.sessionId);
+    try {
+      await this.main.compact();
+      return true;
+    } catch (error) {
+      this.lastCompaction = { status: 'failed', reason: 'hobkin', at: new Date().toISOString(), error: String(error.message ?? error) };
+      return false;
+    } finally {
+      release();
+    }
+  }
+
   reserveSession(sessionId) {
     this.check();
     if (!sessionId || !this.sessionReady(sessionId)) throw Error('Conversation is busy.');

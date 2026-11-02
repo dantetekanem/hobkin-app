@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Compact the main chat ahead of time. From 80% it compacts when the chat is quiet and either agents are working or the next check is 2 hours away or more. At 95% it is forced: a running turn compacts between model calls and carries on by itself, and new work and messages wait for it. A failed compaction holds nothing up.
 - Run a review only when the user asks for one. A finished draft asks `Draft is done... Want to review it?` with no model and no tokens, a yes puts it first in the queue for a run that reviews the branch, and `r` on a READY row or `hobkin work review <project> <item>` asks at any time. Items that told an agent to review a branch left the queue for READY.
 - Let a project's priority decide how often it runs: a look every hour at P0, every 3 hours at P1, 8 at P2 and 24 at P3, with new ideas every eighth look. That brings each of the seven lenses round in 7 hours at P0 and a week at P3, and a look now runs at its project's own priority so it keeps that pace. The level still sets the model and how hard it thinks, and a project with no priority of its own takes one from its level.
 - Have Hobkin edit every report itself before the user reads it, whichever agent wrote it. A no-tools job on the checks model rewrites the draft in plain sentences with a bundled copy of humanizer. An edit that changes the triage label, a number, a link or any code is thrown away, and a failure leaves the report as written.

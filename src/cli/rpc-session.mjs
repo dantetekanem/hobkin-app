@@ -197,6 +197,10 @@ class PiRpcSession {
     return this.child.request('clear_queue').catch(() => ({ steering: [], followUp: [] }));
   }
 
+  compact() {
+    return this.child.request('compact');
+  }
+
   async abort() {
     for (const controller of this.calls) controller.abort();
     await this.child.request('abort').catch(() => {});
