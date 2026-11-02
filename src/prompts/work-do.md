@@ -33,6 +33,8 @@ The request's `work` field holds the item, the project, `projectNotes` (what ear
 
 ## Steps
 
+If `work.item.reviewAsked` is true, the work is already on your branch and the user asked for a review of it, so go straight to step 8.
+
 1. Check the item is still true. If it is not, record `{ "id": "<id>", "state": "dropped", "reason": "..." }` and stop.
 2. If your branch already has work on it, or `work.item.attempts` is above 0, an earlier run got this far. Read the branch, any PR and `work.item.lastError`, carry on from there, and do something different from what failed. A branch named `<your branch>-kept-<time>` holds uncommitted work Hobkin saved from an earlier run, so bring over what is useful.
 3. Set up as `projectNotes` says. If it does not say, work it out, and add what worked to `work.projectFile`.
@@ -40,7 +42,7 @@ The request's `work` field holds the item, the project, `projectNotes` (what ear
 5. Make the smallest change that finishes the item, with no changes on the side. A reviewer should take it in at a sitting. If the item turns out larger, finish its first step and put the rest of the plan in the description.
 6. Run your proof again, then the project's tests and linters. Follow the project's own `AGENTS.md`.
 7. Commit in the project's style.
-8. Review your own branch with the review tooling you have, such as `agentic_code_review` in Pi or `/code-review` in Claude Code. This is part of the work, so the direction against spawning agents does not apply to it. Fix what it finds that is real, and commit that. If you have no review tooling, say so in `proof`: that is a gap, never a clean result.
+8. Run no code review by yourself: no `agentic_code_review`, no `/code-review` and no other review agent. A review runs only when the user asks for one, and `work.item.reviewAsked` is how you know they did. When it is true, review your branch with the review tooling you have. That review is part of the work, so the direction against spawning agents does not apply to it. Fix what it finds that is real, and commit that. If you have no review tooling, say so in `proof`: that is a gap, never a clean result.
 9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. This is the description of your branch whatever `work.landing` says.
 10. Land it as `work.landing` says:
     - `off`: stop here. Your branch and that description are a local PR for the user to review. Push nothing and open no PR.
