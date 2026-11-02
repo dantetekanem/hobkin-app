@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fillGaps } from '../src/cli/work/closing.mjs';
 import { askAgent, declineItem, mergeItem } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
-import { closingItems, readyItems } from '../src/cli/work/reads.mjs';
+import { closingItems, landingList, readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, repository, withOrigin } from './helpers/work-fixture.mjs';
@@ -143,6 +143,77 @@ test('work already on another branch of the user says where, whether copied or m
   assert.equal(row(h, copied).gap, 'elsewhere');
   assert.equal(row(h, copied).landedOn, 'release/now');
   assert.equal(row(h, merged).landedOn, 'release/now');
+});
+
+test('a bulk landing holds only what a review rated safe A at its current commit, and says why the rest stays out', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/good', 'good.txt', 'good\n');
+  branched(h.checkout, 'hobkin/medium', 'medium.txt', 'medium\n');
+  branched(h.checkout, 'hobkin/changed', 'changed.txt', 'changed\n');
+  branched(h.checkout, 'hobkin/never', 'never.txt', 'never\n');
+  branched(h.checkout, 'hobkin/prep', 'prep.txt', 'prep\n');
+  const good = finished(h, 'hobkin/good');
+  finished(h, 'hobkin/medium');
+  finished(h, 'hobkin/changed');
+  finished(h, 'hobkin/never', { summary: 'Rated safe A by the author.' });
+  finished(h, 'hobkin/prep', { title: 'Prepare HTTPS enforcement for the blog' });
+  reviewed(h, tipOf(h, 'hobkin/good'));
+  reviewed(h, tipOf(h, 'hobkin/medium'), 'medium', 'B');
+  reviewed(h, tipOf(h, 'hobkin/changed'));
+  reviewed(h, tipOf(h, 'hobkin/prep'));
+  git(h.checkout, 'switch', '-q', 'hobkin/changed');
+  commit(h.checkout, 'more.txt', 'more\n');
+  git(h.checkout, 'switch', '-q', 'main');
+
+  await survey(h);
+  const { landable, leftOut } = landingList(h.root);
+
+  assert.deepEqual(landable.map(({ item, head }) => [item, head]), [[good.id, tipOf(h, 'hobkin/good')]]);
+  const why = Object.fromEntries(leftOut.map(({ title, why: reason }) => [title, reason]));
+  assert.match(why['work 1'], /rated medium B/);
+  assert.match(why['work 2'], /older commit/);
+  assert.match(why['work 3'], /no grade/);
+  assert.match(why['Prepare HTTPS enforcement for the blog'], /only a person/);
+});
+
+test('a branch rated A stays out when it brings along earlier work that is not', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
+  git(h.checkout, 'switch', '-q', 'hobkin/under');
+  git(h.checkout, 'switch', '-q', '-c', 'hobkin/over');
+  commit(h.checkout, 'over.txt', 'over\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  finished(h, 'hobkin/under');
+  const over = finished(h, 'hobkin/over');
+  reviewed(h, tipOf(h, 'hobkin/under'), 'medium', 'C');
+  reviewed(h, tipOf(h, 'hobkin/over'));
+
+  await survey(h);
+  const { landable, leftOut } = landingList(h.root);
+
+  assert.deepEqual(landable, []);
+  assert.match(leftOut.find(({ item }) => item === over.id).why, /brings .*medium C/);
+});
+
+test('every branch on top of unrated work stays out, however many share it', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
+  git(h.checkout, 'switch', '-q', 'hobkin/under');
+  git(h.checkout, 'switch', '-q', '-c', 'hobkin/left');
+  commit(h.checkout, 'left.txt', 'left\n');
+  git(h.checkout, 'switch', '-q', 'hobkin/under');
+  git(h.checkout, 'switch', '-q', '-c', 'hobkin/right');
+  commit(h.checkout, 'right.txt', 'right\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  finished(h, 'hobkin/under');
+  finished(h, 'hobkin/left');
+  finished(h, 'hobkin/right');
+  reviewed(h, tipOf(h, 'hobkin/left'));
+  reviewed(h, tipOf(h, 'hobkin/right'));
+
+  await survey(h);
+
+  assert.deepEqual(landingList(h.root).landable, []);
 });
 
 test('what only a person can do sits apart from what can merge', async t => {

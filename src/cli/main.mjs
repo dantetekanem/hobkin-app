@@ -25,6 +25,7 @@ export function parseArguments(args) {
       options[flag.slice(2)] = values.shift();
     } else if (flag === '--plain') options.plain = true;
     else if (flag === '--keep' && options.command === 'session') options.keep = true;
+    else if (flag === '--approved' && options.command === 'session') options.approved = true;
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else if (['reports', 'work', 'import', 'jev', 'learning', 'profile', 'decide'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
@@ -142,7 +143,7 @@ async function connected(options, snapshot, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -191,7 +192,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     const { followInBackground, readBrief, requireHerdr, startSession } = await import('./session.mjs');
     requireHerdr();
     const brief = await readBrief(dependencies.input ?? process.stdin);
-    const started = await startSession({ root: options.root, title: options.title, cwd: options.cwd, brief, keep: options.keep, follow: followInBackground });
+    const started = await startSession({ root: options.root, title: options.title, cwd: options.cwd, brief, keep: options.keep, approved: options.approved, follow: followInBackground });
     output.write(`${JSON.stringify(started, null, 2)}\n`);
     return 0;
   }

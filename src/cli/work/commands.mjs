@@ -6,7 +6,7 @@ import {
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow,
 } from './controls.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
-import { assertState, attentionView, closingItems, itemCounts, itemsView, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
+import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
 import { reviewView } from './review.mjs';
 import {
   agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
@@ -23,6 +23,7 @@ Read, as JSON, with nothing running:
   running                              each agent, its pane and how long
   queue                                the plan, each row's grade and its wait
   items [project] [--state state]      state, grade, branch, PR, what is left
+  ready                                what can land by real grades; why the rest cannot
   pr, diff <project> <item>            a local PR; diff opens it in pi-coder
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
@@ -202,6 +203,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'running': return runningView(root);
     case 'queue': return queueView(root);
     case 'items': return itemsView(root, args[0], state);
+    case 'ready': return landingList(root);
     case 'pr': return prView(root, ...args);
     case 'diff': return openDiff(root, ...args);
     case 'review': return args.length ? requestReview(root, ...args) : reviewView(root);

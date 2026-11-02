@@ -184,13 +184,14 @@ function holdsCount(unit, units) {
 function readyRow(root, project, item, items, openUnits = []) {
   const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null } = item;
   const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
-  const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null } = unit;
+  const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null, sha = null } = unit;
   return {
     slug: project.slug,
     project: nameOf(project),
     item: id,
     title,
     branch,
+    head: sha,
     summary,
     left,
     at: updatedAt,
@@ -221,6 +222,48 @@ export function readyItems(root) {
     })
     .toSorted(nextToMerge)
     .slice(0, MAX_READY_SENT);
+}
+
+const ratedA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;
+const gapWords = {
+  yours: 'only a person can do it',
+  elsewhere: 'it is already on another branch',
+  stacked: 'it lands with the branch above it',
+  closing: 'an agent is still working on it',
+  rebase: 'it conflicts with the default branch',
+};
+
+function ratingWords({ safety }) {
+  if (!safety) return 'it has no grade';
+  return safety.stale ? 'its grade is for an older commit' : `it is rated ${safety.grade} ${safety.rating}`;
+}
+
+/** Everything a branch would bring with it, because merging it merges them too. A grade on the top one says nothing about these. */
+const earlierWork = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
+
+function whyLeftOut(row, units) {
+  if (row.gap !== 'land') return gapWords[row.gap];
+  if (!ratedA(row)) return ratingWords(row);
+  const weak = earlierWork(row, units).find(unit => !ratedA(unit));
+  return weak ? `it brings ${weak.branch}, and ${ratingWords(weak)}` : null;
+}
+
+const landingRow = ({ project, slug, item, title, head, safety, size }, why) => ({
+  project, slug, item, title, head, grade: safety && `${safety.grade} ${safety.rating}`, lines: (size?.additions ?? 0) + (size?.deletions ?? 0), files: size?.files ?? 0, ...(why ? { why } : {}),
+});
+
+/**
+ * The only evidence for landing work in bulk: a grade comes from the review of that exact commit, as the survey read it, and never from what an item
+ * says about itself. What cannot go says why, so a plan can show what it left out. `surveyedAt` says how old this is, and `hobkin work sync` brings it up to date.
+ */
+export function landingList(root) {
+  const { at, projects } = readUnmerged(root);
+  const rows = readyItems(root).map(row => [row, whyLeftOut(row, projects[row.slug]?.open ?? [])]);
+  return {
+    surveyedAt: at,
+    landable: rows.filter(([, why]) => !why).map(([row]) => landingRow(row)),
+    leftOut: rows.filter(([, why]) => why).map(([row, why]) => landingRow(row, why)),
+  };
 }
 
 const closingWords = item => {

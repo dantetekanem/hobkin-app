@@ -189,14 +189,16 @@ async function holdsAllOf(repo, other, name) {
 async function placesOf({ repo, name, sha, finished, others }) {
   const holders = (await holdersOf(repo, sha)).filter(([holder]) => holder !== name);
   const stackedUnder = holders.find(([holder, tip]) => finished.has(holder) && tip !== sha)?.[0] ?? null;
+  // `stackedUnder` folds a row into one branch. Landing either of two branches on top brings this along, and this list says so.
+  const heldBy = holders.filter(([, tip]) => tip !== sha).map(([holder]) => holder);
   const merged = others.find(other => holders.some(([holder]) => holder === other));
-  if (merged) return { stackedUnder, landedOn: merged };
+  if (merged) return { stackedUnder, heldBy, landedOn: merged };
 
   // One at a time, because a survey already runs one of these for every branch of a project together.
   for (const other of others) {
-    if (await holdsAllOf(repo, other, name)) return { stackedUnder, landedOn: other };
+    if (await holdsAllOf(repo, other, name)) return { stackedUnder, heldBy, landedOn: other };
   }
-  return { stackedUnder, landedOn: null };
+  return { stackedUnder, heldBy, landedOn: null };
 }
 
 async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {

@@ -30,6 +30,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin work projects`, `items [project]` | Each project with its level, state and counts, or each item with its `grade`, `state`, `branch`, `attempts`, `lastError`, `summary`, `proof` and `left`. `--state` narrows them. |
 | `hobkin work running`, `queue`, `attention` | Each agent, the plan in order, and what is waiting on the user. |
 | `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |
+| `hobkin work ready` | What can land now by real grades, each pinned to its commit, and why the rest cannot. Grades come from reviews of that exact commit, so never take one from an item's summary. |
 | `hobkin work pr <project> <item>` | A local PR: a local `hobkin/*` branch and its saved description, for the user to review. |
 | `hobkin work diff <project> <item>` | Opens that branch's diff in pi-coder, in a Herdr pane in front of the user. Outside Herdr it says what to type in Pi. |
 | `hobkin work review <project> <item>` | Asks for a code review of that branch. A finished branch gets one by itself unless `hobkin work reviews off`. |

@@ -124,6 +124,10 @@ One qualifying item in five, picked from a hash of its id, gets no offer and no 
 
 Offers go at most one every two hours, as the `can land` question does, and an offer checks the branch tip at answer time: if it moved, the merge refuses and says so.
 
+### Landing in bulk
+
+On 2026-11-02 the user asked to merge and deploy what was rated A. The main agent started 26 sessions in two waves, built from item summaries, and answered yes when asked if it was sure. The user's own count was 4 projects, and they were right: 11 items in 4 projects. They stopped it, and nothing landed from those sessions. What came next is what the user called the right prompt, and it is now the rule in `v2-runtime.md`: `hobkin work sync` and `ready` as the only evidence, a table of exact items, what was left out and why, numbered steps, then a question. A yes covers those items at those commits. `hobkin session` refuses a fourth session in 30 minutes until the user has approved the list.
+
 ### 4. Launch: undo and flags
 
 The review run records `launch` beside `quality`: how to undo it, the one risk, where to look first and any flag. The Done page and offers show these.

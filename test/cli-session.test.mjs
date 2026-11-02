@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -258,6 +258,36 @@ test('outside Herdr there is no pane to open, so the agent is told to do the wor
   await assert.rejects(startSession({ brief: 'Rebuild it all.', env: {}, panes }), /do this work here/);
 
   assert.deepEqual(calls, []);
+});
+
+test('a burst of sessions stops at three until the user has said yes to the list', async t => {
+  const root = dataFolder(t);
+  const { calls, panes } = fakeHerdr();
+  const start = options => startSession({ root, brief: 'Go.', env: herdr, panes, ...options });
+  for (let count = 0; count < 3; count++) await start({ title: `one ${count}` });
+
+  await assert.rejects(start({ title: 'one more' }), /Show the user the exact list/);
+  assert.equal(calls.filter(args => args[1] === 'start').length, 3);
+
+  await start({ title: 'one more', approved: true });
+  assert.equal(calls.filter(args => args[1] === 'start').length, 4);
+});
+
+test('sessions from long ago do not count against a new one', async t => {
+  const root = dataFolder(t);
+  const { panes } = fakeHerdr();
+  const start = now => startSession({ root, brief: 'Go.', env: herdr, panes, now });
+  const earlier = Date.now() - 3600000;
+  for (let count = 0; count < 3; count++) await start(earlier);
+  const folder = join(root, 'runtime', 'handoffs');
+  for (const name of readdirSync(folder)) utimesSync(join(folder, name), new Date(earlier), new Date(earlier));
+
+  await start(Date.now());
+});
+
+test('--approved reaches a session', () => {
+  assert.equal(parseArguments(['session', '--approved']).approved, true);
+  assert.throws(() => parseArguments(['status', '--approved']), /Unknown or incomplete option/);
 });
 
 test('a session needs a brief, since nobody is there to give it one', async () => {

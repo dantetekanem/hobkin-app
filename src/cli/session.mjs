@@ -1,12 +1,15 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { injectedLessons } from './learning/store.mjs';
 import { insideHerdr, SESSION_TAB, WorkPanes } from './work/panes.mjs';
 
 const MAX_TITLE_LENGTH = 20;
+// Two or three is a job. More than that is a batch the user should see as a list first, and 26 sessions once started from a guess.
+const MOST_SESSIONS_UNASKED = 3;
+const SESSION_WINDOW_MS = 30 * 60000;
 const followScript = fileURLToPath(new URL('./session-follow.mjs', import.meta.url));
 
 const sessionName = title => {
@@ -44,13 +47,28 @@ export function followInBackground({ name, pane, report, kind }) {
   follower.unref();
 }
 
+/** Every session leaves its brief, so the folder already says how many started lately. */
+function sessionsSince(root, time) {
+  const folder = handoffs(root);
+  if (!existsSync(folder)) return 0;
+  const briefs = readdirSync(folder).filter(file => file.endsWith('.md') && !file.endsWith('.report.md'));
+  return briefs.filter(file => statSync(join(folder, file)).mtimeMs >= time).length;
+}
+
+function assertNotABurst(root, now) {
+  const started = sessionsSince(root, now - SESSION_WINDOW_MS);
+  if (started < MOST_SESSIONS_UNASKED) return;
+  throw Error(`${started} sessions started in the last 30 minutes. Show the user the exact list of what the next ones will do, ask with ask_question, and pass --approved only once they say yes to that list.`);
+}
+
 /**
  * Hands massive work to a full Pi session the user can watch. Nothing waits for it, and `follow` closes its pane when it ends.
  * `keep` is for a whole conversation the user means to carry on in, which stays open until they close it.
  */
-export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, keep = false, follow = () => {}, env = process.env, panes = new WorkPanes({ tab: SESSION_TAB }) }) {
+export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, keep = false, approved = false, follow = () => {}, env = process.env, panes = new WorkPanes({ tab: SESSION_TAB }), now = Date.now() }) {
   requireHerdr(env);
   if (!brief.trim()) throw Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.');
+  if (!approved) assertNotABurst(root, now);
   const name = sessionName(title);
   const report = keep ? null : join(handoffs(root), `${name}.report.md`);
   const started = await panes.startSession({ name, cwd: resolve(cwd), brief: saveBrief(root, name, brief, report) });

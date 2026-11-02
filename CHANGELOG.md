@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Land and deploy in bulk only from a list the user said yes to. `hobkin work ready` prints what can land by real grades, each pinned to its commit, and why the rest cannot, including a branch rated A that brings earlier work rated lower. The main agent brings that list, what it left out and its numbered steps before anything starts, and answers from what it checked rather than from what it told an agent to do. `hobkin session` refuses a fourth session in 30 minutes unless the user approved the list.
+- Keep test runs away from the user's Herdr. A test run inherits `HERDR_ENV`, so a test that opened hobkin could open real panes and close real ones.
 - Move `working` and its timer from the tab row down beside `memory`, so a running turn no longer takes room from the tabs.
 - Ask before quitting with agents at work: stop them, or let them finish. Agents left going keep working in their Herdr panes, and the next hobkin picks up each one and records it as usual, so a restart stops nothing. A signal lets them finish, because it cannot be asked.
 - Add a quality grade beside the safety grade. The review run goes through a branch with `security-expert`, `test-expert` and `database-engineer`, whichever fit, because each found real problems on branches graded safe when tried. It also says who would notice the change.
