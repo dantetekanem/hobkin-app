@@ -793,6 +793,7 @@ test('an item that keeps failing says why, and a retry starts it from nothing', 
   h.result = { status: 'failed', cost: null, error: 'The clone is gone.\nAnd more.' };
   await h.tick();
   h.clock += HOUR;
+  writeState(h.root, 'api', { lastLensAt: new Date(h.clock).toISOString() });
   await h.tick();
 
   const [tried] = readItems(h.root, 'api');

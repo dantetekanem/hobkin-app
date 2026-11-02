@@ -75,7 +75,7 @@ test('urgent work and attention rows are P0, and the user\'s own grade beats bot
   assert.equal(itemGrade(casual, { kind: 'fix', impact: 'high', grade: null }), 'P2', 'a cleared grade goes back to working it out');
 });
 
-test('a look sits one grade below its project for security and bugs and two for the rest, and ideas sit two below', t => {
+test('a look runs at its project\'s own priority whatever its lens, so the pace holds, and ideas sit two below', t => {
   const root = dataRoot(t);
   project(root, 'api', 'critical');
   const lens = lensIndex => {
@@ -84,20 +84,24 @@ test('a look sits one grade below its project for security and bugs and two for 
     return [focus, grade];
   };
 
-  assert.deepEqual(lenses.map((_focus, index) => lens(index)), [
-    ['security', 'P1'], ['bugs', 'P1'], ['updates', 'P2'], ['chores', 'P2'], ['improvements', 'P2'], ['features', 'P2'], ['trends', 'P2'],
-  ]);
+  assert.deepEqual(lenses.map((_focus, index) => lens(index)), lenses.map(focus => [focus, 'P0']));
 
   writeState(root, 'api', { lastLensAt: new Date(now).toISOString(), lastIdeasAt: null });
   assert.deepEqual(plan(root).entries.map(({ kind, grade }) => [kind, grade]), [['ideas', 'P2']]);
 });
 
-test('a look goes no lower than P3 on a project that is already low', t => {
+test('a due P0 look goes ahead of lower work, even a chores look behind a P1 fix', t => {
   const root = dataRoot(t);
-  project(root, 'site', 'casual');
-  writeState(root, 'site', { lastLensAt: null, lensIndex: 2 });
+  project(root, 'first', 'important');
+  setProjectPriority(root, 'first', 'P0');
+  project(root, 'other', 'important');
+  fileItem(root, 'other', item('Fix login', { impact: 'high', effort: 'small' }), now);
+  writeState(root, 'first', { lastLensAt: new Date(now - 2 * HOUR).toISOString(), lensIndex: lenses.indexOf('chores') });
 
-  assert.equal(plan(root).entries[0].grade, 'P3');
+  const [top, next] = plan(root).entries;
+
+  assert.deepEqual([top.slug, top.focus], ['first', 'chores']);
+  assert.equal(next.title, 'Fix login');
 });
 
 test('a first look for projects is P0, and the daily one comes after everything else', t => {
@@ -443,7 +447,7 @@ const lastLookedAt = (root, slug, hoursAgo) => writeState(root, slug, { lastLens
 
 test('priority decides how often a project is looked at, so P0 runs far more than P3', t => {
   const root = dataRoot(t);
-  const hoursBetweenLooks = { P0: 3, P1: 8, P2: 24, P3: 48 };
+  const hoursBetweenLooks = { P0: 1, P1: 3, P2: 8, P3: 24 };
 
   for (const [priority, hours] of Object.entries(hoursBetweenLooks)) {
     const slug = `at-${priority.toLowerCase()}`;
@@ -476,7 +480,7 @@ test('with no priority set, a project takes its pace from its level', t => {
   project(root, 'critical', 'critical');
   project(root, 'important', 'important');
   project(root, 'casual', 'casual');
-  for (const slug of ['critical', 'important', 'casual']) lastLookedAt(root, slug, 4);
+  for (const slug of ['critical', 'important', 'casual']) lastLookedAt(root, slug, 2);
 
   assert.deepEqual(dueSlugs(root), ['critical']);
 });
@@ -492,7 +496,7 @@ test('a max project still waits 12 hours between looks, because each is the dear
   assert.deepEqual(dueSlugs(root), ['dear']);
 });
 
-test('new ideas come every third look, so they follow the priority too', t => {
+test('new ideas come every eighth look, so they follow the priority too', t => {
   const root = dataRoot(t);
   project(root, 'first', 'important');
   setProjectPriority(root, 'first', 'P0');
@@ -504,7 +508,7 @@ test('new ideas come every third look, so they follow the priority too', t => {
 
   assert.deepEqual(plan(root).entries.map(entry => [entry.slug, entry.kind]), [['first', 'ideas']]);
 
-  writeState(root, 'last', { lastIdeasAt: new Date(now - 144 * HOUR).toISOString() });
+  writeState(root, 'last', { lastIdeasAt: new Date(now - 192 * HOUR).toISOString() });
   assert.deepEqual(dueSlugs(root).toSorted(), ['first', 'last']);
 });
 
@@ -513,7 +517,7 @@ test('the next look a project shows follows its priority', t => {
   project(root, 'api');
   setProjectPriority(root, 'api', 'P3');
 
-  assert.equal(nextLookAt(root, readProject(root, 'api')), new Date(now + 48 * HOUR).toISOString());
+  assert.equal(nextLookAt(root, readProject(root, 'api')), new Date(now + 24 * HOUR).toISOString());
 });
 
 test('the longer a look is overdue, the higher it ranks', t => {
@@ -532,8 +536,8 @@ test('new commits bring a look forward and up the plan, and start nothing by the
   const root = dataRoot(t);
   project(root, 'moved');
   project(root, 'still');
-  writeState(root, 'moved', { lastLensAt: new Date(now - 5 * HOUR).toISOString(), newCommits: 4 });
-  writeState(root, 'still', { lastLensAt: new Date(now - 5 * HOUR).toISOString() });
+  writeState(root, 'moved', { lastLensAt: new Date(now - 2 * HOUR).toISOString(), newCommits: 4 });
+  writeState(root, 'still', { lastLensAt: new Date(now - 2 * HOUR).toISOString() });
 
   const { entries } = plan(root);
 
@@ -612,7 +616,7 @@ test('a feature already at P3 has no lower to go, and still starts', t => {
   assert.equal(plan(root).next.title, 'feature');
 });
 
-test('a project with 50 waiting to merge still starts its top item, and nothing on it waits for a merge', t => {
+test('a project with 50 waiting to merge still starts its top row, and nothing on it waits for a merge', t => {
   const root = dataRoot(t);
   project(root, 'api');
   ranRecently(root, 'api');
@@ -622,10 +626,10 @@ test('a project with 50 waiting to merge still starts its top item, and nothing 
 
   const { entries, next, pause, waitingOn } = plan(root);
 
-  assert.equal(next.title, 'feature');
+  assert.equal(next.title, 'security look');
   assert.equal(pause, null);
   assert.equal(waitingOn, null);
-  assert.deepEqual(entries.map(entry => entry.waiting), [null, null]);
+  assert.deepEqual(entries.map(entry => [entry.title, entry.waiting]), [['security look', null], ['feature', null]]);
 });
 
 test('a ship item goes ahead of the same grade of anything else, and new work behind it on a project shipping first', t => {
@@ -676,7 +680,7 @@ test('hobkin work items and search show the grade the queue uses', t => {
 
   const [row] = itemsView(root);
 
-  assert.equal(queueView(root)[0].grade, 'P2');
+  assert.equal(queueView(root).find(entry => entry.item).grade, 'P2');
   assert.equal(row.grade, 'P2');
   assert.equal(itemsView(root, 'api')[0].grade, 'P2');
   assert.equal(searchView(root, 'feature').find(({ type }) => type === 'item').grade, 'P2');

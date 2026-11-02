@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Let a project's priority decide how often it runs: a look every 3 hours at P0, 8 at P1, 24 at P2 and 48 at P3, with new ideas at a third of that pace. That brings each of the seven lenses round within a day at P0 and two weeks at P3. The level still sets the model and how hard it thinks, and a project with no priority of its own takes one from its level.
+- Let a project's priority decide how often it runs: a look every hour at P0, every 3 hours at P1, 8 at P2 and 24 at P3, with new ideas every eighth look. That brings each of the seven lenses round in 7 hours at P0 and a week at P3, and a look now runs at its project's own priority so it keeps that pace. The level still sets the model and how hard it thinks, and a project with no priority of its own takes one from its level.
 - Have Hobkin edit every report itself before the user reads it, whichever agent wrote it. A no-tools job on the checks model rewrites the draft in plain sentences with a bundled copy of humanizer. An edit that changes the triage label, a number, a link or any code is thrown away, and a failure leaves the report as written.
 - Let the user answer a question in their own words. Every `ask_question` gets an Other row to type in, which reaches the agent as `typed`, and Esc chooses none. The list shows every choice when the terminal has room. A dialog from another extension stays a closed list.
 - Open a local PR's diff in pi-coder: `d` on a READY row or `hobkin work diff` starts a Pi in a pane of its own on the branch's range, and the pane closes itself a few minutes after the user leaves it. Without pi-coder nothing opens, outside Herdr the key says what to type, and `hobkin setup` says how to install it.

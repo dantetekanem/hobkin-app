@@ -12,8 +12,8 @@ export const levels = {
   casual: { rank: 2, priority: 'P2', lookEffort: 'low', doEffort: 'medium', model: 'background' },
 };
 export const grades = ['P0', 'P1', 'P2', 'P3'];
-// Each look takes one of seven lenses in turn, so these bring every lens round within a day at P0, about two days at P1, a week at P2 and two weeks at P3.
-const hoursBetweenLooks = { P0: 3, P1: 8, P2: 24, P3: 48 };
+// Each look takes one of seven lenses in turn, so these bring every lens round in 7 hours at P0, within a day at P1, in about two days at P2 and in a week at P3.
+const hoursBetweenLooks = { P0: 1, P1: 3, P2: 8, P3: 24 };
 export const prModes = ['off', 'draft', 'published'];
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];

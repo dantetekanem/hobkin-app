@@ -734,11 +734,11 @@ test('each lens comes up in turn, as often as the priority says', async t => {
   await h.tick();
   await h.tick();
 
-  h.clock += 2 * HOUR;
+  h.clock += HOUR / 2;
   await h.tick();
   assert.equal(h.calls.length, 3);
 
-  h.clock += 2 * HOUR;
+  h.clock += HOUR;
   await h.tick();
   assert.deepEqual(h.calls.map(call => h.work(call).focus), ['study', 'security', 'ideas', 'bugs']);
 });
@@ -1244,6 +1244,7 @@ test('an item keeps coming round however many runs fail, each one knowing why th
   h.result = { status: 'failed', cost: null, error: 'The tests would not start.\nAnd a second line.' };
 
   for (let run = 0; run < 6; run++) {
+    writeState(h.root, 'api', { lastLensAt: new Date(h.clock).toISOString() });
     await h.tick();
     h.clock += HOUR;
   }

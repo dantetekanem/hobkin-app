@@ -9,7 +9,7 @@ import { pendingMerges } from './unmerged.mjs';
 
 const HOUR_MS = 3600000;
 const STUDY_RETRY_MS = HOUR_MS / 4;
-const LOOKS_PER_IDEAS = 3;
+const LOOKS_PER_IDEAS = 8;
 const LEFT_ALONE_MS = 24 * HOUR_MS;
 const SHORTEST_START_GAP_MS = 30000;
 const ROWS_PER_GAP_STEP = 10;
@@ -43,7 +43,6 @@ const effortOfKind = { attention: 'small', 'pr-fix': 'small', security: 'medium'
 const lensWorth = { security: 3, bugs: 3, updates: 2, improvements: 2, features: 2, chores: 1, trends: 1 };
 // How many grades below its project a row sits.
 const impactSteps = { high: 0, medium: 1, low: 2 };
-const lensSteps = { security: 1, bugs: 1, updates: 2, improvements: 2, features: 2, chores: 2, trends: 2 };
 const IDEAS_STEPS = 2;
 const entryOrder = ['discover', 'study', 'item', 'look', 'ideas'];
 
@@ -156,7 +155,8 @@ function lensEntry(project, state, now, triggered) {
     kind: 'look',
     lane: 'look',
     focus,
-    grade: gradeBelow(priorityOf(project), lensSteps[focus]),
+    // Its pace is what limits a look, and a lower grade would leave it behind that pace.
+    grade: priorityOf(project),
     title: `${focus} look`,
     effort: 'small',
     score: levelWorth[level] * lensWorth[focus] / effortCost.medium * overdue * moved,
@@ -310,7 +310,8 @@ function inQueueOrder(mode, entries, isLeftAlone) {
 /** What a row waits on, with what stops the whole plan left to the pause. */
 export const rowWait = ({ waiting }, free) => waiting ?? (free > 0 ? null : 'a free worker');
 
-const skipsTheHour = entry => entry.grade === 'P0';
+// Urgent work may pass the hour's share. A look is routine, however high it ranks.
+const skipsTheHour = entry => entry.grade === 'P0' && entry.kind !== 'look';
 
 function budgetWait(entry, budget) {
   if (!fitsDay(budget, entry.estimate.fresh)) return 'over today\'s budget';
