@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Offer a menu of routine ideas in `/setup` when the user is not sure what to check. Its 14 ideas cover the day, the code, the week and the machine, from a morning brief and meeting follow-ups to an unblocker for stuck pull requests and a weekly wins list. Each says what it needs, and every one reads and reports, and sends, posts or pushes nothing unless the user names that action for it.
 - Add All, Scheduled and Work Done subtabs to Reports, opening on All. Up from the first report reaches them, Left/Right changes subtab there, and Down goes back to the reports. Typing `/` in the list filters report titles as you type, ignoring case, across every saved report rather than the 25 the list shows. The filter stays until Esc or Ctrl+C clears it.
 - Open a main tab or a Reports subtab with a mouse click.
 - Get to know the user in `/setup`: their name, what to call them, their email and which services to connect through MCP. `hobkin profile` shows or changes the details, and the chat and every check get them. Opening hobkin greets the user by name in the tip row for 30 seconds, in one of seven ways.

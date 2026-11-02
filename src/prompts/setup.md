@@ -54,7 +54,7 @@ Checks get a new server on their next run. This chat gets it when hobkin reopens
 
 ## First routines
 
-Ask what they want to hear about without having to ask for it, and offer the ideas below if they are not sure. Two or three checks are enough to start. For each one, settle:
+Ask what they want to hear about without having to ask for it. If they are not sure, offer the menu in `routine-ideas.md` beside this guide. Two or three checks are enough to start. For each one, settle:
 
 - What it looks at, and what counts as worth telling.
 - When they want it, and how often.
@@ -64,7 +64,7 @@ Ask what they want to hear about without having to ask for it, and offer the ide
 Then write the files:
 
 1. Read `README.md` in the supplied routines path for the format. If it is missing, `routine-setup.md` beside this guide has the same format.
-2. Run `hobkin routines --home /supplied/root`, then place each check as "Spread what you routine" says: a morning briefing stays in the morning, weekly and monthly checks go where there are fewest, and hours stay at least 15 minutes apart.
+2. Run `hobkin routines --home /supplied/root`, then place each check as "Spread them" says: a morning briefing stays in the morning, weekly and monthly checks go where there are fewest, and hours stay at least 15 minutes apart.
 3. Use the user's timezone as a name such as `America/Sao_Paulo`. `node -p "Intl.DateTimeFormat().resolvedOptions().timeZone"` prints it.
 4. Bind the background model and effort from the runtime block, and set `enabled` to `true` once the user has agreed to the check.
 5. Write the instructions for an agent that has seen none of this conversation: what to read, what to report and what to leave alone.
@@ -76,10 +76,4 @@ Tell them plainly that checks run only while Hobkin is open. After downtime, onl
 
 ## Ideas
 
-Finish with a few of these that they have not picked, one line each:
-
-- A morning briefing: what changed overnight in their projects, notes or inbox, on one screen.
-- Email follow-ups: threads waiting on their reply, or on someone else's.
-- A dependency watch: a weekly look for outdated or vulnerable packages in a project.
-- A calendar check: tomorrow's meetings, what each one needs, and any clashes.
-- `/work` on a folder of projects: Hobkin proposes the repositories worth taking, and agents work on the ones they pick, on `hobkin/*` branches.
+Finish with two or three ideas from `routine-ideas.md` that they have not picked, one line each, and with `/work` on a folder of projects: hobkin proposes the repositories worth taking, and agents work on the ones they pick, on `hobkin/*` branches.
