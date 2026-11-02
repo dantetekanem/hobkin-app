@@ -154,8 +154,8 @@ const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
 const localCommands = [
-  ['/help', 'what Hobkin can do'],
-  ['/setup', 'get Hobkin ready'],
+  ['/help', 'what hobkin can do'],
+  ['/setup', 'get hobkin ready'],
   ['/clear', 'hide visible chat'],
   ['/reset', 'start a fresh main context'],
   ['/work', 'work mode'],
@@ -166,8 +166,8 @@ const settingCommands = {
   '/jev': {
     name: 'Jev',
     toggle: 'toggleJev',
-    on: 'Jev on. Hobkin can show all 18 moods.',
-    off: 'Jev off. Hobkin keeps its four moods.',
+    on: 'Jev on. hobkin can show all 18 moods.',
+    off: 'Jev off. hobkin keeps its four moods.',
   },
   '/learning': {
     name: 'Learning',
@@ -178,17 +178,17 @@ const settingCommands = {
 };
 const helpGuide = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
 const tips = [
-  'Type /help to see what Hobkin can do.',
-  'Try another model or thinking effort? Just ask Hobkin.',
+  'Type /help to see what hobkin can do.',
+  'Try another model or thinking effort? Just ask hobkin.',
   'Each routine can have its own model and thinking effort.',
-  'Ask Hobkin to run any check now, even a paused one.',
+  'Ask hobkin to run any check now, even a paused one.',
   'Ask why a check stopped. Every check keeps a run log.',
-  'Tell Hobkin what matters. It remembers across chats.',
+  'Tell hobkin what matters. It remembers across chats.',
   '/clear hides the chat. /reset starts a fresh conversation.',
   'Install Hex and talk to me when you need: https://anoma.ly/hex/',
 ];
-const jevTip = 'Type /jev so Hobkin can show all 18 moods.';
-const learningTip = 'Type /learning so Hobkin learns from how its work turns out.';
+const jevTip = 'Type /jev so hobkin can show all 18 moods.';
+const learningTip = 'Type /learning so hobkin learns from how its work turns out.';
 const ignoredTips = attention => attention.filter(item => item.ignored).map(({ title, read, reports }) =>
   `${clean(title)}: ${read} of ${reports} reports opened. Revisit it?`);
 // Tips follow the clock rather than a timer, so each one holds still for its whole turn on screen.
@@ -533,7 +533,7 @@ const jobActivityLines = ({ run, blocks, inner, clock, frame, markdown }) => {
   }
   for (const block of blocks) {
     if (block.kind === 'assistant' && clean(block.text).trim()) {
-      content.push(assistantColor(bold('◆ Hobkin')), ...markdown(block.text, inner - 2).map(value => `  ${value}`), '');
+      content.push(assistantColor(bold('◆ hobkin')), ...markdown(block.text, inner - 2).map(value => `  ${value}`), '');
     } else if (block.kind === 'tool') {
       const [glyph, tone] = toolState(block.state, frame);
       content.push(`${tone(glyph)} ${bold(clean(block.name))} ${muted(clean(block.state))}`);
@@ -579,7 +579,7 @@ const placeByTime = (messages, message) => {
 const authorLabel = message => {
   if (message.waiting) return muted(bold('◆ You'));
   if (message.role === 'user') return accent(bold('◆ You'));
-  if (message.role === 'assistant') return assistantColor(bold('◆ Hobkin'));
+  if (message.role === 'assistant') return assistantColor(bold('◆ hobkin'));
   return muted(bold(`◇ ${clean(message.role)}`));
 };
 const messageLines = ({ message, at, latest, repeats }, inner, markdown) => {
@@ -631,9 +631,9 @@ const welcomeLines = (inner, available, isNew) => {
     `${highlight('◆')}  ${bold('What would you like to work on?')}`,
     '',
     ...wrapped('Message your agent below. Reports from scheduled checks appear in Reports.', Math.min(inner, 64)).map(dim),
-    ...(isNew ? wrapped('New here? Type /setup and Hobkin walks you through it.', Math.min(inner, 64)).map(dim) : []),
+    ...(isNew ? wrapped('New here? Type /setup and hobkin walks you through it.', Math.min(inner, 64)).map(dim) : []),
     '',
-    keys([['←→', 'switch views'], ['/help', 'what Hobkin can do'], ['/setup', 'get ready']]),
+    keys([['←→', 'switch views'], ['/help', 'what hobkin can do'], ['/setup', 'get ready']]),
   ];
   const topPadding = Math.max(0, Math.floor((available - welcome.length) / 2));
   return [...Array(topPadding).fill(''), ...welcome.map(value => centered(value, inner))];
@@ -1053,7 +1053,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return !copy && !(entry.accepted && !snapshot.busy);
     });
   };
-  // What Hobkin says in Chat by itself. It never reaches the agent and goes when Hobkin closes.
+  // What hobkin says in Chat by itself. It never reaches the agent and goes when hobkin closes.
   const localMessages = [];
   const isVisible = message => !hiddenMessages.has(messageKey(message)) && clean(message.content).trim();
   const visibleMessageIds = () => [...(snapshot.messages ?? []), ...localMessages].filter(isVisible).map(messageKey);
@@ -1285,7 +1285,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         return;
       }
       if (submitted === '/setup' && connected()) {
-        sendMessage('Help me set up Hobkin.');
+        sendMessage('Help me set up hobkin.');
         return;
       }
       editor.addToHistory(submitted);
@@ -1373,7 +1373,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
 
   let quitArmedUntil = 0;
-  // Ctrl+C clears first, so a stray press never closes Hobkin on something half typed.
+  // Ctrl+C clears first, so a stray press never closes hobkin on something half typed.
   const interrupt = () => {
     const filtering = isReportListFocus(focus) && (typingFilter || reportFilter.getValue());
     if (filtering || (focus === 'composer' && (editor.getExpandedText() || referencedReport))) {
@@ -1560,7 +1560,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const [above, ...lines] = editor.render(inner - 4);
     const below = lines.pop();
     const paint = editor.focused && connected() ? assistantColor : muted;
-    const prompted = referencedReport ? 'Ask about this report…' : 'Message Hobkin…';
+    const prompted = referencedReport ? 'Ask about this report…' : 'Message hobkin…';
     const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
       : connected() ? prompted : 'Waiting for the main conversation…';
     const empty = !editor.getExpandedText();
@@ -1596,7 +1596,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     question.scroll = Math.min(question.scroll, Math.max(0, text.length - capacity));
     question.overflows = text.length > capacity;
     const visibleText = text.slice(question.scroll, question.scroll + capacity);
-    return boxed({ paint: highlight, top: highlight(bold('Hobkin asks')), lines: [...visibleText, '', ...choices, ...typing], inner });
+    return boxed({ paint: highlight, top: highlight(bold('hobkin asks')), lines: [...visibleText, '', ...choices, ...typing], inner });
   };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
@@ -2054,7 +2054,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         return [line(text, width)];
       };
       if (question && (width < 60 || height < 18)) return tooSmall('Enlarge to 60x18 to answer; Esc cancels.');
-      if (width < 35 || height < 14) return tooSmall('Hobkin · enlarge terminal (35x14)');
+      if (width < 35 || height < 14) return tooSmall('hobkin · enlarge terminal (35x14)');
       const inner = width - 4;
       const clock = now();
       const frame = spinner(clock);

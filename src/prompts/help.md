@@ -1,6 +1,6 @@
-Hobkin runs your checks on a schedule and saves what they find in Reports. For anything else, just ask here.
+hobkin runs your checks on a schedule and saves what they find in Reports. For anything else, just ask here.
 
-- `/setup` goes through what Hobkin needs and your first checks, and `hobkin setup` lists what is missing
+- `/setup` goes through what hobkin needs and your first checks, and `hobkin setup` lists what is missing
 - `/clear` hides this chat
 - `/reset` starts a fresh conversation
 - `/work` turns work mode on or off

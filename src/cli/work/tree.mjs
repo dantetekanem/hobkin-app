@@ -201,7 +201,7 @@ export const isMerged = (repo, sha, base) => git(repo, 'merge-base', '--is-ances
 /** Puts the folder back on its default branch, unless someone has changed it since. Returns what the user should know, or nothing. */
 export async function leaveFolder({ repo, branch, base }) {
   const current = await currentBranch(repo);
-  if (current !== branch) return `It is on ${current || 'no branch'} now, so Hobkin left it there.`;
+  if (current !== branch) return `It is on ${current || 'no branch'} now, so hobkin left it there.`;
   if (await git(repo, 'status', '--porcelain')) return `It stays on ${branch}, because it has uncommitted changes.`;
   try {
     await git(repo, 'switch', '--quiet', '--no-overwrite-ignore', base);

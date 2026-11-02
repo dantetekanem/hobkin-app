@@ -361,7 +361,7 @@ test('interactive dashboard reaches Jev through the connected application and sa
   });
 
   await started.promise;
-  assert.throws(() => handlers.toggleJev(), /Hobkin is still connecting\./);
+  assert.throws(() => handlers.toggleJev(), /hobkin is still connecting\./);
 
   connecting.resolve({ toggleJev: async () => ({ enabled: true }), async close() {} });
   await new Promise(resolve => setImmediate(resolve));

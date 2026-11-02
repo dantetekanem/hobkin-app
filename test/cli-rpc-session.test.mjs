@@ -293,7 +293,7 @@ test('a child that exits unasked stops the chat but not scheduled work; a reques
   assert.match(run.result.error, /exited before completion \(3\).*credentials expired/);
   await until(() => runtime.mainFault, 'the chat fault');
   assert.equal(runtime.fault, null);
-  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*Restart Hobkin/);
+  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*Restart hobkin/);
   const check = await runtime.dispatch({ id: 'check-after-exit', kind: 'background', title: 'Check' },
     async () => ({ status: 'completed', text: 'Nothing new.', cost: null }));
   assert.equal(check.status, 'completed');

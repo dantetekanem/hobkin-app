@@ -338,7 +338,7 @@ export class HobkinApplication {
       ],
       lastTick: loaded.lastTick,
       error: this.runtime.mainFault
-        ? `Main chat stopped: ${this.runtime.mainFault.message} Restart Hobkin to reconnect; scheduled checks keep running.`
+        ? `Main chat stopped: ${this.runtime.mainFault.message} Restart hobkin to reconnect; scheduled checks keep running.`
         : loaded.error,
     };
     const saved = {

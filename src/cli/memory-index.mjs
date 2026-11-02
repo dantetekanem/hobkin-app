@@ -272,7 +272,7 @@ export class MemoryIndex {
     this.note = {
       id: `notice:memory-index:${at}`,
       role: 'notice',
-      content: `Memory search paused: ${problem}. Everything else carries on, and Hobkin tries again later.`,
+      content: `Memory search paused: ${problem}. Everything else carries on, and hobkin tries again later.`,
       at,
     };
     this.onNote();

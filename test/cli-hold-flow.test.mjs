@@ -241,7 +241,7 @@ test('a check held over one broken tool brings a plan, and a yes fixes it and pr
   hobkin.send('run mail again');
 
   // Nobody asked for this part: the second block is enough.
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
   await hobkin.until(/stopped at a Chrome test/);
   const asked = hobkin.screen();
   for (const text of ['Paused until', 'stopped at a Chrome test', 'then run it once', QUESTION.question, 'Leave it held', 'Yes, fix it and run it once']) {
@@ -272,7 +272,7 @@ test('a no leaves the check held, and nothing asks again, even after a restart',
   let hobkin = await openHobkin(h, { play: planning(seen, runsAgain), check });
   await hobkin.until(/Mail: Chrome is not polling\./);
   hobkin.send('run mail again');
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
 
   // The do-nothing choice comes first, so Enter on its own never approves anything.
   hobkin.press(ENTER);
@@ -287,7 +287,7 @@ test('a no leaves the check held, and nothing asks again, even after a restart',
   await hobkin.until(/Mail stays held/);
   await rest(400);
 
-  assert.doesNotMatch(hobkin.screen(), /Hobkin asks/);
+  assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
   assert.equal(briefs(seen).length, 1);
   assert.equal(logLines(h).length, 2);
 });
@@ -318,10 +318,10 @@ test('a hold that lands during the user\'s turn waits for that turn, and never s
   await rest(400);
 
   assert.equal(briefs(seen).length, 0, 'the agent is busy, so the plan waits');
-  assert.doesNotMatch(hobkin.screen(), /Hobkin asks/);
+  assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
 
   thinking.resolve();
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
   await hobkin.until(/Your answer\./);
 
   assert.deepEqual(seen.filter(message => message.role === 'user').map(message => isHoldBrief(textOf(message))), [false, true], 'one turn, then the other');
@@ -336,7 +336,7 @@ test('an Enter meant for a draft cannot approve anything, and the draft survives
 
   hobkin.type('half a thought');
   await hobkin.app.runner.trigger('mail', 'second-try');
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
   assert.equal(hobkin.state().draft, 'half a thought');
 
   hobkin.press(ENTER);
@@ -357,7 +357,7 @@ test('the question reaches the user on another tab and leaves them there', async
   await hobkin.until(/UPCOMING/);
 
   await hobkin.app.runner.trigger('mail', 'second-try');
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
 
   assert.equal(hobkin.state().view, 'schedules');
   assert.match(hobkin.screen(), /held, retries/);
@@ -365,7 +365,7 @@ test('the question reaches the user on another tab and leaves them there', async
 
   hobkin.press(ENTER);
   await rest(100);
-  assert.doesNotMatch(hobkin.screen(), /Hobkin asks/);
+  assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
   assert.equal(hobkin.state().view, 'schedules');
 });
 
@@ -383,7 +383,7 @@ test('quitting with the question open is not a no, however long the quit takes: 
   let hobkin = await openHobkin(h, { play: planning(seen), check });
   await hobkin.until(/Mail: Chrome is not polling\./);
   await hobkin.app.runner.trigger('mail', 'second-try');
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
   await hobkin.app.runner.trigger('slow', 'slow-check');
   await hobkin.close();
 
@@ -391,7 +391,7 @@ test('quitting with the question open is not a no, however long the quit takes: 
 
   hobkin = await openHobkin(h, { play: planning(seen), check });
   t.after(() => hobkin.close());
-  await hobkin.until(/Hobkin asks/);
+  await hobkin.until(/hobkin asks/);
 
   assert.equal(briefs(seen).length, 2);
   assert.equal(details(briefs(seen)[1]).resumed, true);

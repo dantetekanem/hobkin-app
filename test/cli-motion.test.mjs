@@ -208,7 +208,7 @@ test('a row added above a waiting message is not tail growth, so that message ne
 });
 
 test('a faded row keeps its width, its text and its balance', () => {
-  const row = `  \x1b[38;2;189;147;249m\x1b[1m◆ Hobkin\x1b[22m\x1b[39m plain 你好 \x1b[38;2;80;250;123mgreen\x1b[39m tail\x1b[0m end`;
+  const row = `  \x1b[38;2;189;147;249m\x1b[1m◆ hobkin\x1b[22m\x1b[39m plain 你好 \x1b[38;2;80;250;123mgreen\x1b[39m tail\x1b[0m end`;
   for (const amount of [0.1, 0.5, 0.9, 1]) {
     const faded = fadeRow(row, amount, colors);
     assert.equal(visibleWidth(faded), visibleWidth(row));

@@ -50,6 +50,8 @@ class FakeTerminal {
 }
 
 const screen = (controller, width, height) => stripTerminalSequences(controller.render(width, height).join('\n'));
+// The logo reads the same as the chat's author label, so anything about the label has to skip the logo's row.
+const belowLogo = text => text.split('\n').slice(1).join('\n');
 
 test('report selection, detail scroll and refresh preserve identity; separate conversation is reachable', () => {
   const ui = createDashboard(snapshot);
@@ -232,8 +234,8 @@ test('Hobkin sits left of the input bar in Chat, and typing still works', () => 
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
 
   const rows = screen(ui, 100, 30).split('\n');
-  const input = rows.findIndex(value => value.includes('Message Hobkin'));
-  assert.ok(rows[input].indexOf('Message Hobkin') > 14, 'the input moves right to make room');
+  const input = rows.findIndex(value => value.includes('Message hobkin'));
+  assert.ok(rows[input].indexOf('Message hobkin') > 14, 'the input moves right to make room');
   assert.ok(rows.slice(input - 1, input + 4).some(value => /[^\s]/.test(value.slice(0, 14))), 'the face fills the left side');
 
   ui.input('hello');
@@ -245,8 +247,8 @@ test('Hobkin sits left of the input bar in Chat, and typing still works', () => 
 test('the footer is no taller with the face, so nothing jumps when it comes and goes', () => {
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
 
-  const beside = screen(ui, 100, 30).split('\n').findIndex(value => value.includes('Message Hobkin'));
-  const without = screen(ui, 60, 30).split('\n').findIndex(value => value.includes('Message Hobkin'));
+  const beside = screen(ui, 100, 30).split('\n').findIndex(value => value.includes('Message hobkin'));
+  const without = screen(ui, 60, 30).split('\n').findIndex(value => value.includes('Message hobkin'));
 
   assert.equal(beside, without);
 });
@@ -262,9 +264,9 @@ test('with image support the design\'s own face and wordmark show, and nothing e
 
   assert.ok(rows[0].includes(placeholder), 'the wordmark is a picture');
   assert.doesNotMatch(rows[0], /hobkin/);
-  const input = rows.findIndex(value => value.includes('Message Hobkin'));
+  const input = rows.findIndex(value => value.includes('Message hobkin'));
   assert.ok(rows[input].startsWith(placeholder) === false && rows[input].includes(placeholder), 'the face sits on the input row');
-  assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message Hobkin'), 'left of the input');
+  assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message hobkin'), 'left of the input');
   const [, ...faceOffsets] = rows.flatMap((value, index) => (value.includes(placeholder) ? [index - input] : []));
   assert.deepEqual(faceOffsets, [-1, 0, 1, 2, 3], 'after the wordmark, five rows of face exactly beside the input block');
   assert.deepEqual(
@@ -287,9 +289,9 @@ test('a 90-column pane still gets the face, left of the input and clear of the d
   const plainRows = screen(plain, 90, 30).split('\n');
 
   assert.equal(rows.filter(value => value.includes(placeholder)).length, 6, 'five rows of face and the wordmark');
-  const input = rows.findIndex(value => value.includes('Message Hobkin'));
+  const input = rows.findIndex(value => value.includes('Message hobkin'));
   assert.ok(rows[input].includes(placeholder), 'the face sits on the input row');
-  assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message Hobkin'), 'left of the input');
+  assert.ok(rows[input].indexOf(placeholder) < rows[input].indexOf('Message hobkin'), 'left of the input');
   const nextCheck = rows.findIndex(value => /next check/.test(value));
   assert.equal(nextCheck, plainRows.findIndex(value => /next check/.test(value)), 'the footer is the same height with the picture');
   assert.ok(rows[nextCheck - 1].includes('─'), 'the divider is still there');
@@ -482,8 +484,8 @@ test('/help adds one message from Hobkin at the end of Chat and leaves you in th
   assert.equal(ui.state().focus, 'composer');
   assert.equal(ui.state().draft, '');
   const text = screen(ui, 120, 40);
-  assert.match(text, /◆ You[\s\S]*◆ Hobkin/);
-  assert.equal(text.match(/◆ Hobkin/g).length, 1);
+  assert.match(text, /◆ You[\s\S]*◆ hobkin/);
+  assert.equal(belowLogo(text).match(/◆ hobkin/g).length, 1);
 });
 
 test('/help sends nothing to the agent', async () => {
@@ -504,7 +506,7 @@ test('what arrives after /help lands below the guide', () => {
 
   ui.update({ ...live, messages: [{ id: 'later', role: 'user', content: 'a later question', at: soon() }] });
 
-  assert.match(screen(ui, 120, 40), /◆ Hobkin[\s\S]*a later question/);
+  assert.match(belowLogo(screen(ui, 120, 40)), /◆ hobkin[\s\S]*a later question/);
 });
 
 test('/help lands below a message still waiting for the agent', async () => {
@@ -515,7 +517,7 @@ test('/help lands below a message still waiting for the agent', async () => {
 
   askForHelp(ui);
 
-  assert.match(screen(ui, 120, 40), /still waiting[\s\S]*◆ Hobkin/);
+  assert.match(screen(ui, 120, 40), /still waiting[\s\S]*◆ hobkin/);
 });
 
 test('/help shows the guide even when Chat was scrolled back', () => {
@@ -526,7 +528,7 @@ test('/help shows the guide even when Chat was scrolled back', () => {
 
   askForHelp(ui);
 
-  assert.match(screen(ui, 120, 40), /◆ Hobkin/);
+  assert.match(belowLogo(screen(ui, 120, 40)), /◆ hobkin/);
 });
 
 test('/clear hides the guide, and /help can still show a new one', async t => {
@@ -543,11 +545,11 @@ test('/clear hides the guide, and /help can still show a new one', async t => {
   await ui.pending();
 
   assert.match(ui.state().notice, /cleared/);
-  assert.doesNotMatch(screen(ui, 120, 40), /◆ Hobkin/);
+  assert.doesNotMatch(belowLogo(screen(ui, 120, 40)), /◆ hobkin/);
 
   askForHelp(ui);
 
-  assert.match(screen(ui, 120, 40), /◆ Hobkin/);
+  assert.match(belowLogo(screen(ui, 120, 40)), /◆ hobkin/);
 });
 
 test('an unknown command points at /help and keeps the draft', () => {
@@ -617,7 +619,7 @@ test('a narrow or short terminal keeps the whole input instead of the face', () 
   const ui = createDashboard({ ...snapshot, connection: 'connected', messages: [] }, { send: async () => {} });
   const leftOf = (width, height) => {
     const rows = screen(ui, width, height).split('\n');
-    return rows[rows.findIndex(value => value.includes('Message Hobkin'))].indexOf('Message Hobkin');
+    return rows[rows.findIndex(value => value.includes('Message hobkin'))].indexOf('Message hobkin');
   };
 
   assert.ok(leftOf(100, 30) > 14);
@@ -910,7 +912,7 @@ test('only visible chat entries have author blocks and the header times the busy
   now += 15000;
 
   const rendered = screen(ui, 80, 24).split('\n');
-  assert.equal(rendered.filter(value => /^\s*◆ Hobkin\b/.test(value)).length, 1);
+  assert.equal(rendered.slice(1).filter(value => /^\s*◆ hobkin\b/.test(value)).length, 1);
   assert.match(rendered[0], /working 15s/);
 
   ui.update({ ...snapshot, messages, busy: false, connection: 'connected' });
@@ -977,7 +979,7 @@ test('fullscreen dashboard follows the saved Pi theme and switches live when the
     JSON.stringify({ ...base, name, colors: { ...base.colors, accent, mdHeading: accent } }));
   const chooseTheme = name => writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ theme: name }));
   const brandRow = () => ui.render(120, 40)[0];
-  const authorRow = () => ui.render(120, 40).find(value => value.includes('◆ Hobkin'));
+  const authorRow = () => ui.render(120, 40).slice(1).find(value => value.includes('◆ hobkin'));
   mkdirSync(join(agentDir, 'themes'));
   saveTheme('ocean', '#0a84ff');
   saveTheme('ember', '#ff6a00');
@@ -1846,7 +1848,7 @@ test('m in a report moves to the composer with that report attached, and sending
   ui.input('\r');
   await ui.pending();
   assert.deepEqual(sent, [['why', 'one']]);
-  assert.match(screen(ui, 120, 40), /Message Hobkin/);
+  assert.match(screen(ui, 120, 40), /Message hobkin/);
 
   ui.input('next');
   ui.input('\r');
@@ -1989,7 +1991,7 @@ test('/setup asks the agent to walk through setting up, the same way a typed mes
   ui.input('\r');
   await ui.pending();
 
-  assert.deepEqual(sent, ['Help me set up Hobkin.']);
+  assert.deepEqual(sent, ['Help me set up hobkin.']);
   assert.equal(ui.state().draft, '');
   ui.stop();
 });

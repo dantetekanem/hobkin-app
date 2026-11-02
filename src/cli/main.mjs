@@ -60,20 +60,20 @@ async function connected(options, snapshot, dependencies) {
         return app.reset();
       },
       kill: runId => {
-        if (!app) throw Error('Hobkin is still connecting.');
+        if (!app) throw Error('hobkin is still connecting.');
         return app.kill(runId);
       },
       reportRead: read => app?.recordReportRead(read),
       workAction: (...request) => {
-        if (!app) throw Error('Hobkin is still connecting.');
+        if (!app) throw Error('hobkin is still connecting.');
         return app.workAction(...request);
       },
       toggleJev: () => {
-        if (!app) throw Error('Hobkin is still connecting.');
+        if (!app) throw Error('hobkin is still connecting.');
         return app.toggleJev();
       },
       toggleLearning: () => {
-        if (!app) throw Error('Hobkin is still connecting.');
+        if (!app) throw Error('hobkin is still connecting.');
         return app.toggleLearning();
       },
     }, { theme: { cwd: snapshot.config.main.cwd } });

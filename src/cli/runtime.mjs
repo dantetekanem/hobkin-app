@@ -101,7 +101,7 @@ export class HobkinRuntime {
 
   check() {
     if (this.fault) throw this.fault;
-    if (this.closing) throw Error('Hobkin is closing.');
+    if (this.closing) throw Error('hobkin is closing.');
   }
 
   notify() {
@@ -443,7 +443,7 @@ export class HobkinRuntime {
   async send(text, id = randomUUID()) {
     this.check();
     if (!this.main) throw Error('Main conversation is not connected.');
-    if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart Hobkin to reconnect.`);
+    if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart hobkin to reconnect.`);
     if (this.resetting) throw Error('Main conversation is resetting.');
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) throw Error(`Message must contain 1–${MAX_MESSAGE_BYTES} bytes.`);
 
