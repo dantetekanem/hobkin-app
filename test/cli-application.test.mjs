@@ -9,6 +9,8 @@ import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
+import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
+import { openCheck } from '../src/cli/checks.mjs';
 import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
@@ -851,7 +853,9 @@ test('a message about a report gives the model the report and shows the chat onl
   }
 });
 
-test('a finished branch asks the user with no model turn, and a yes opens Done', async t => {
+const yesNo = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
+
+test('a finished branch files a decision with no model turn, and a yes opens Done', async t => {
   const h = fixture(t);
   const asked = [];
   let walked = 0;
@@ -864,18 +868,95 @@ test('a finished branch asks the user with no model turn, and a yes opens Done',
   });
   try {
     chooseProject(h.root, '/repos/api', 'important');
-    const { id } = fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'Evidence, who benefits, the first change, the proof.', impact: 'high', effort: 'small' });
-    updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/login' });
-
     app.runtime.mainTurn = { id: 'busy' };
-    await app.director.onDraftDone({ slug: 'api', id, project: 'api', title: 'Fix login' });
+    await app.director.onDraftDone({ slug: 'api', id: 'abc', project: 'api', title: 'Fix login' });
+    await app.presentDecision();
     assert.deepEqual(asked, [], 'it waits for the chat to be free');
 
     app.runtime.mainTurn = null;
-    await app.landOffers.next();
+    await app.presentDecision();
 
     assert.match(asked[0].question, /can land/);
+    assert.equal(asked[0].waitMs, 30000);
     assert.equal(walked, 1);
+    assert.deepEqual(openDecisions(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a question left for 30 seconds stays in Decisions and is not shown again', async t => {
+  const h = fixture(t);
+  const asked = [];
+  const app = await h.openApp({ askQuestion: async request => { asked.push(request); return null; } });
+  try {
+    const { id } = fileDecision(h.root, { from: 'Routine mail', question: 'Reply to the bank?', choices: yesNo });
+
+    await app.presentDecision();
+    await app.presentDecision();
+
+    assert.equal(asked.length, 1);
+    assert.deepEqual(openDecisions(h.root).map(decision => [decision.id, decision.shown]), [[id, true]]);
+    assert.equal(app.snapshot.decisions.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a question that cannot open is tried again, and goes to the tab once its 30 seconds are up', async t => {
+  const h = fixture(t);
+  let tried = 0;
+  const clock = { at: Date.parse('2026-06-01T12:00:00Z') };
+  const app = await h.openApp({ now: () => clock.at, askQuestion: async () => { tried += 1; return undefined; } });
+  try {
+    fileDecision(h.root, { from: 'Routine mail', question: 'Reply to the bank?', choices: yesNo }, clock.at);
+
+    await app.presentDecision();
+    assert.equal(openDecisions(h.root)[0].shown, false);
+
+    clock.at += 30000;
+    await app.presentDecision();
+
+    assert.equal(tried, 2);
+    assert.equal(openDecisions(h.root)[0].shown, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('an answer reaches a routine in its memory, and a work item as its next run', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    chooseProject(h.root, '/repos/api', 'important');
+    const { id: item } = fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'Evidence, who benefits, the first change, the proof.' });
+    updateItem(h.root, 'api', item, { state: 'branch', branch: 'hobkin/login' });
+    const forRoutine = fileDecision(h.root, { from: 'Routine mail', question: 'Reply to the bank?', choices: yesNo, answerTo: { kind: 'routine', id: 'mail' } });
+    const forWork = fileDecision(h.root, { from: 'Work mode', question: 'Delete the old table?', choices: yesNo, answerTo: { kind: 'work', slug: 'api', item } });
+
+    await app.workAction('decide', forRoutine.id, 'yes');
+    await app.workAction('decide', forWork.id, 'no');
+
+    assert.match(JSON.stringify(openCheck(h.root, 'mail').memory), /Reply to the bank\? They answered: Yes/);
+    const [worked] = readItems(h.root, 'api');
+    assert.equal(worked.state, 'open');
+    assert.match(worked.workNote, /Delete the old table\? They answered: No/);
+    assert.deepEqual(openDecisions(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('an answer that cannot reach its item stays open, and a stale one is refused', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    const { id } = fileDecision(h.root, { from: 'Work mode', question: 'Delete it?', choices: yesNo, answerTo: { kind: 'work', slug: 'gone', item: 'abc' } });
+
+    await assert.rejects(app.workAction('decide', id, 'yes'));
+    assert.equal(openDecisions(h.root).length, 1);
+    await assert.rejects(app.workAction('decide', id, 'maybe'), /not one of its choices/);
+    await assert.rejects(app.workAction('decide', 'nothing', 'yes'), /already answered/);
   } finally {
     await app.close();
   }

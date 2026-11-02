@@ -69,6 +69,12 @@ export function keepOnceFile(root, schedule) {
   renameSync(schedule.path, join(directory, `once-${schedule.date}.md`));
 }
 
+/** Something the next run has to know, such as the user's answer. Every run reads this file first. */
+export function noteForCheck(root, id, note) {
+  mkdirSync(checkDirectory(root, id), { recursive: true, mode: 0o700 });
+  appendFileSync(memoryPath(root, id), `\n${note}\n`, { mode: 0o600 });
+}
+
 /** What earlier runs left for this one. Every run is a fresh process, so this is all it inherits. */
 export function openCheck(root, id) {
   mkdirSync(checkDirectory(root, id), { recursive: true, mode: 0o700 });

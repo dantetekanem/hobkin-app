@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a Decisions tab. A question from a routine or work mode stays on screen for 30 seconds, then waits there with a one-line summary and numbered choices. `hobkin decide` lets a run file one and carry on, and the answer reaches it later.
 - Add a Done subtab to Work Mode, to walk through finished work and land it. Five rows at a time, safest and smallest first, each with its safety grade, size and what is missing. `m` merges locally and pushes nothing, `w` sends an agent back with a note, `n` says no and Enter reads it. This replaces READY.
 - Review each finished branch by itself, because the merge grade is how to tell what can ship. This replaces asking before each review, and `hobkin work reviews off` turns it off. A markdown-only branch is skipped, and a rebase that changes nothing keeps its grade.
 - Close gaps before making more work: reviews, rebases and missing descriptions or proof go ahead of new items, and the last two only for the next five rows.

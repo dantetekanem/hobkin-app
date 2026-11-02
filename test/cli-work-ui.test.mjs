@@ -623,6 +623,62 @@ test('Done fits every supported size, and so does the page Enter opens', async (
   ui.stop();
 });
 
+const asked = (id, details = {}) => ({ id, from: 'Routine mail', tldr: `Decide ${id}`, question: `Should ${id} go ahead, given what the bank said?`, choices: [{ value: 'yes', label: 'Go ahead' }, { value: 'no', label: 'Hold it' }], at: new Date().toISOString(), ...details });
+
+test('Decisions appears with what waits, one summary a line, and a number answers the selected one', async () => {
+  const { actions, workAction } = acting();
+  const ui = createDashboard({ ...base, decisions: [asked('one'), asked('two')] }, { workAction });
+  assert.match(screen(ui), /Decisions 2/);
+
+  for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'decisions');
+
+  const text = screen(ui, 110, 30);
+  assert.match(text, /Decide one\s+Routine mail/);
+  assert.match(text, /Should one go ahead/);
+  assert.match(text, /1 Go ahead/);
+  assert.match(text, /2 Hold it/);
+  assert.match(text, /Decide two/);
+  assert.doesNotMatch(text, /Should two go ahead/, 'only the selected one opens');
+  assert.match(text, /1-2\s+answer/);
+
+  ui.input('\x1b[B');
+  assert.match(screen(ui, 110, 30), /Should two go ahead/);
+
+  ui.input('2');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['decide', 'two', 'no']]);
+  ui.stop();
+});
+
+test('with nothing to decide the tab goes away, and an empty one never opens', () => {
+  const ui = createDashboard({ ...base, decisions: [asked('one')] });
+  for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
+
+  ui.update({ ...base, decisions: [] });
+
+  assert.equal(ui.state().view, 'conversation');
+  assert.doesNotMatch(screen(ui), /Decisions/);
+  ui.stop();
+});
+
+test('a background question leaves the screen by itself, and a question someone is waiting on takes its place', async () => {
+  const ui = createDashboard(base);
+  const choices = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
+
+  assert.equal(await ui.askQuestion({ question: 'Left alone?', choices, whenQuiet: true, waitMs: 5 }), null);
+
+  const background = ui.askQuestion({ question: 'Quiet one?', choices, whenQuiet: true, waitMs: 60000 });
+  const waited = ui.askQuestion({ question: 'Urgent one?', choices });
+
+  assert.equal(await background, null);
+  assert.match(screen(ui), /Urgent one/);
+  ui.input('\r');
+  assert.equal(await waited, 'yes');
+  ui.stop();
+});
+
 test('hobkin can open Done by itself', () => {
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready: [landing('one')] } });
 

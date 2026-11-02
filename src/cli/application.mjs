@@ -24,6 +24,8 @@ import { workStatus } from './work/commands.mjs';
 import { askAgent, declineItem, mergeItem, openDiff, requestReview } from './work/controls.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers } from './work/land-offer.mjs';
+import { noteForCheck } from './checks.mjs';
+import { answerDecision, fileDecision, findDecision, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
@@ -153,13 +155,14 @@ export class HobkinApplication {
           await app.tickWork();
           await app.tickHolds();
           app.tickCompaction();
-          // Not awaited: this can hold a question open for as long as the user takes to answer it.
           app.landOffers.next();
+          // Not awaited: this holds a question on screen for as long as it stays there.
+          app.presentDecision();
         },
       });
+      Object.assign(app, { askQuestion, showDone });
       app.landOffers = new LandOffers({
-        ask: async request => (app.runtime.mainTurn ? undefined : askQuestion?.(request)),
-        walk: () => showDone?.(),
+        file: decision => fileDecision(app.runtime.directory, decision, app.now()),
         now: app.now,
       });
       app.director = new WorkDirector({
@@ -399,6 +402,7 @@ export class HobkinApplication {
       memoryBytes: memoryBytes(this.runtime.directory),
       reportAttention: this.telemetry.attention(runs, this.now()),
       work,
+      decisions: openDecisions(this.runtime.directory),
       connection: 'connected',
       busy: this.runtime.mainBusy,
       jev: jevEnabled(this.runtime.directory),
@@ -468,7 +472,7 @@ export class HobkinApplication {
     await this.director.tick();
     await this.learn();
     const root = this.runtime.directory;
-    const signature = JSON.stringify({ work: workStatus(root, this.director.outlook()), jev: jevEnabled(root), learning: learningEnabled(root) });
+    const signature = JSON.stringify({ work: workStatus(root, this.director.outlook()), decisions: openDecisions(root), jev: jevEnabled(root), learning: learningEnabled(root) });
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();
@@ -569,6 +573,7 @@ export class HobkinApplication {
       decline: () => declineItem(root, slug, value),
       ask: () => askAgent(root, slug, value, extra),
       pr: () => prView(root, slug, value),
+      decide: () => this.decide(slug, value),
     };
     const result = await actions[action]();
     await this.director.tick();
@@ -576,6 +581,41 @@ export class HobkinApplication {
     await this.refreshing?.catch(() => {});
     await this.refresh();
     return result;
+  }
+
+  /** The asker hears first, so an answer that cannot reach it stays open for another try. */
+  decide(id, value) {
+    const root = this.runtime.directory;
+    const { decision: { question, answerTo }, choice } = findDecision(root, id, value);
+    const said = `The user was asked: ${question} They answered: ${choice.label}`;
+    if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said);
+    if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
+    if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
+    answerDecision(root, id, value, this.now());
+    return { ok: true, message: `Answered: ${choice.label}.` };
+  }
+
+  /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */
+  async presentDecision() {
+    const root = this.runtime.directory;
+    const next = openDecisions(root).find(({ shown }) => !shown);
+    if (this.presenting || !next) return;
+
+    const overdue = this.now() - Date.parse(next.at) >= QUESTION_WAIT_MS;
+    this.presenting = true;
+    try {
+      const { question, choices, id } = next;
+      const answer = this.runtime.mainTurn ? undefined : await this.askQuestion?.({ question, choices, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
+      if (answer) await this.workAction('decide', id, answer);
+      else if (answer === null || overdue) {
+        markShown(root, id);
+        await this.refresh();
+      }
+    } catch {
+      // It stays in Decisions, and the tab says what went wrong if the user tries again.
+    } finally {
+      this.presenting = false;
+    }
   }
 
   recordReportRead(read) {

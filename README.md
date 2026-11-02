@@ -89,6 +89,8 @@ The Done subtab walks through finished work, the safest and smallest first, each
 - `n` says no, and hobkin learns from it.
 - `Enter` reads it, and from there `d` opens the diff and `r` asks for a review.
 
+A question from a routine or work mode waits 30 seconds on screen, then moves to the Decisions tab, so nothing stops for you. Each one has a one-line summary and numbered choices: press the number to answer.
+
 Once a week, Chat gets a review that says what is progressing and which projects look stale. It drops nothing itself, and `hobkin work review` prints it at any time.
 
 ## Where to go next

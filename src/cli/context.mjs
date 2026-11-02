@@ -56,7 +56,7 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
       status: latestOutcome.status,
       text: String(runOutcomeText(latestOutcome)).slice(0, 4096),
     } : null,
-    ...(work ? { work } : {}),
+    ...(work ? { work } : { decide: check.decide }),
   };
   const prompt = JSON.stringify(envelope);
   if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) {

@@ -192,8 +192,11 @@ async function placesOf({ repo, name, sha, finished, others }) {
   const merged = others.find(other => holders.some(([holder]) => holder === other));
   if (merged) return { stackedUnder, landedOn: merged };
 
-  const copied = await Promise.all(others.map(other => holdsAllOf(repo, other, name)));
-  return { stackedUnder, landedOn: others[copied.indexOf(true)] ?? null };
+  // One at a time, because a survey already runs one of these for every branch of a project together.
+  for (const other of others) {
+    if (await holdsAllOf(repo, other, name)) return { stackedUnder, landedOn: other };
+  }
+  return { stackedUnder, landedOn: null };
 }
 
 async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {

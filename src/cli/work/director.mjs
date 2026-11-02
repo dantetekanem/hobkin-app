@@ -517,6 +517,12 @@ export class WorkDirector {
     writeState(this.root, slug, { lookError });
   }
 
+  describeFor(project, { id }) {
+    const described = this.describe(project);
+    const decide = hobkinCommand(this.root, `decide work ${project.slug} ${id}`);
+    return { ...described, commands: { ...described.commands, decide } };
+  }
+
   startDo(project, item, cost = {}) {
     const { slug } = project;
     const level = item.max ? 'max' : project.level;
@@ -546,7 +552,7 @@ export class WorkDirector {
         place,
         item: { ...item, branch, prFile: description },
         landing: landing(project),
-        ...this.describe(project),
+        ...this.describeFor(project, item),
       }),
       settle: (run, entry) => this.settleItem(slug, item.id, run, entry),
     });

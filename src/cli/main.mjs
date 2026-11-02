@@ -27,7 +27,7 @@ export function parseArguments(args) {
     else if (flag === '--keep' && options.command === 'session') options.keep = true;
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
     else if (flag === '--help' || flag === '-h') options.command = 'help';
-    else if (['reports', 'work', 'import', 'jev', 'learning', 'profile'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
+    else if (['reports', 'work', 'import', 'jev', 'learning', 'profile', 'decide'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
   }
   return options;
@@ -148,6 +148,11 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'profile') {
     const { runProfileCommand } = await import('./profile.mjs');
     output.write(`${JSON.stringify(runProfileCommand(options.root, options.args), null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'decide') {
+    const { runDecideCommand } = await import('./decisions.mjs');
+    output.write(`${JSON.stringify(await runDecideCommand(options.root, options.args, dependencies.input ?? process.stdin), null, 2)}\n`);
     return 0;
   }
   if (options.command === 'session') {

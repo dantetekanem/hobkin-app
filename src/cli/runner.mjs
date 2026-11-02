@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { hobkinCommand } from './work/chat.mjs';
 import { loadSchedules, scheduleDate, scheduleTimes } from './schedules.mjs';
 import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { buildContext } from './context.mjs';
@@ -259,7 +260,8 @@ export class HobkinRunner {
     const previous = Object.values(state.runs)
       .filter(run => run.scheduleId === schedule.id && run.status !== 'running')
       .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
-    const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, schedule.id));
+    const decide = hobkinCommand(this.root, `decide routine ${schedule.id}`);
+    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide });
     const id = randomUUID();
     const directory = join(this.root, 'jobs');
     await mkdir(directory, { recursive: true, mode: 0o700 });

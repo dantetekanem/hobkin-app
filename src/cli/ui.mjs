@@ -996,6 +996,16 @@ const maxLine = ({ maxRuns, projects = [] }) => {
   return inUse ? `Max: ${maxRuns.running} of ${maxRuns.atOnce} running, ${maxRuns.today} of ${maxRuns.perDay} today. Claude's tokens count when each run ends.` : '';
 };
 /** Adds each section to `content`, and returns where the selected row landed. */
+const decisionRow = ({ tldr, from, question, choices, at }, isSelected, inner, clock) => {
+  const when = timeOf(at) === null ? '' : ` · ${elapsed(timeOf(at), clock)}`;
+  const heading = row(`${highlight('●')} ${bold(clean(tldr))}`, dim(`${clean(from)}${when}`), inner);
+  if (!isSelected) return [heading];
+  const asked = clean(question) === clean(tldr) ? [] : wrapped(question, inner - 2).map(value => `  ${dim(value)}`);
+  return [selectedRow(heading, inner), ...asked, ...choices.map(({ label }, index) => `  ${accent(String(index + 1))} ${clean(label)}`)];
+};
+const decisionLines = ({ decisions, selected, inner, clock }) => ({
+  content: decisions.flatMap(decision => [...decisionRow(decision, decision === selected, inner, clock), '']),
+});
 const pushSections = (content, { sections, selected, inner }) => {
   let selectedRange;
   for (const [heading, rows, note, tally] of sections) {
@@ -1115,6 +1125,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let donePage = null;
   let notingOn = null;
   let armedMerge = null;
+  let decisionId = null;
   let setupWaiting = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
@@ -1169,7 +1180,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const workRuns = () => (snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run => run.state === 'running' && run.work) : []);
   const workVisible = () => Boolean(snapshot.work?.enabled);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
-  const views = () => ['conversation', 'reports', 'schedules', ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
+  const decisions = () => snapshot.decisions ?? [];
+  const views = () => ['conversation', 'reports', 'schedules', ...(decisions().length ? ['decisions'] : []), ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
   const images = options.images ?? null;
   const faceColumns = () => (images ? IMAGE_FACE_COLUMNS : FACE_COLUMNS);
@@ -1193,6 +1205,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const answerable = rows.find(entry => answerableRows.includes(entry.type));
     return rows.find(entry => entry.key === workKey) ?? answerable ?? rows[0] ?? null;
   };
+  const selectedDecision = () => decisions().find(({ id }) => id === decisionId) ?? decisions()[0] ?? null;
   const isJob = () => view.startsWith('job:');
   const followsTail = () => view === 'conversation' || isJob();
   const isReportListFocus = value => value === 'reports' || value === 'reportTabs';
@@ -1564,6 +1577,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
       { name: 'schedules', label: 'Routines', count: String(scheduleCount) },
+      ...(decisions().length ? [{ name: 'decisions', label: 'Decisions', count: String(decisions().length) }] : []),
       ...(workVisible() ? [{
         name: 'work',
         label: 'Work Mode',
@@ -1591,6 +1605,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
     if (donePage) return [...doneKeys(donePage.entry), ['d', 'diff'], ['r', 'review'], ['↑↓', 'scroll'], ['esc', 'back']];
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
+    if (focus === 'decisions') return [[`1-${selectedDecision()?.choices.length ?? 2}`, 'answer'], ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
     const leaveList = ['esc', reportFilter.getValue() ? 'clear filter' : 'chat'];
@@ -1769,6 +1784,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }),
       };
     }
+    if (view === 'decisions') return decisionLines({ decisions: decisions(), selected: selectedDecision(), inner, clock });
     if (view === 'work' && donePage) return doneReading({ ...donePage, inner });
     if (view === 'work' && workTab === 'done') {
       const sections = currentWorkSections(inner, clock, frame);
@@ -2001,6 +2017,21 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     keepSelectionListed();
     scroll = 0;
   };
+  const handleDecisionKey = data => {
+    const list = decisions();
+    const selected = selectedDecision();
+    const choice = selected?.choices[Number(data) - 1];
+    if (key(data, 'up') || key(data, 'down')) {
+      const index = list.indexOf(selected) + (key(data, 'down') ? 1 : -1);
+      decisionId = list[Math.max(0, Math.min(list.length - 1, index))]?.id ?? null;
+    } else if (choice) {
+      decisionId = (list[list.indexOf(selected) + 1] ?? list[list.indexOf(selected) - 1])?.id ?? null;
+      runWorkAction('decide', selected.id, choice.value);
+    } else {
+      return false;
+    }
+    return true;
+  };
   const showWorkTab = name => {
     workTab = name;
     workKey = null;
@@ -2082,7 +2113,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       settleOutbox();
       for (const id of next.presentation?.hiddenMessageIds ?? []) hiddenMessages.add(id);
       const target = question?.previous ?? { view, focus, scroll };
-      if (target.view === 'work' && !workVisible()) {
+      if ((target.view === 'work' && !workVisible()) || (target.view === 'decisions' && !decisions().length)) {
         target.view = 'conversation';
         target.focus = 'composer';
       }
@@ -2122,6 +2153,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
     },
     askQuestion(request, signal) {
+      // Someone is waiting on this one, and what it replaces can wait in Decisions.
+      if (question?.whenQuiet && !request.whenQuiet) question.finish(null);
       if (stopped || question) return Promise.resolve(undefined);
       if (signal?.aborted) return Promise.resolve(null);
       // A question nobody is waiting on stays out of the way of what the user is typing.
@@ -2133,6 +2166,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         const current = { ...request, other, selection, finish, previous, scroll: 0 };
         function finish(value) {
           if (question !== current) return;
+          clearTimeout(expiry);
           signal?.removeEventListener('abort', cancel);
           question = null;
           ({ focus, view, scroll } = previous);
@@ -2140,6 +2174,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           changed();
         }
         const cancel = () => finish(null);
+        const expiry = request.waitMs ? setTimeout(cancel, request.waitMs) : null;
         selection.onSelectionChange = () => { current.scroll = 0; };
         selection.onSelect = item => {
           if (item !== OTHER_ROW) {
@@ -2230,6 +2265,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           .finally(changed);
       } else if (focus === 'work' && handleWorkKey(data)) {
         // The Work tab handled it.
+      } else if (focus === 'decisions' && handleDecisionKey(data)) {
+        // The Decisions tab handled it.
       } else if (focus === 'workTabs' && handleWorkTabsKey(data)) {
         // The subtab row handled it.
       } else if (focus === 'doneReading' && handleReadingKey(data)) {
