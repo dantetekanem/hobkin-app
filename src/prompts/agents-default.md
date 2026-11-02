@@ -14,4 +14,4 @@ The whole job: what to do, what is already known, and what finished looks like.
 BRIEF
 ```
 
-It opens a pane in a Herdr tab called Hobkin and returns straight away, so say what you started and carry on. Outside Herdr the command refuses, so do the work here.
+It opens a pane in a Herdr tab called Hobkin and returns straight away, so say what you started and carry on. The pane closes by itself when the session finishes. Outside Herdr the command refuses, so do the work here.

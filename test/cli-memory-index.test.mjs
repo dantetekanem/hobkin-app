@@ -34,7 +34,7 @@ async function settled(check, what = 'that', timeout = 8000) {
 
 function fixture(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-index-')));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
   const home = name => {
     const root = join(base, name);
     mkdirSync(root);
@@ -51,7 +51,7 @@ function fixture(t) {
 /** A `qmd` on PATH that writes down what it was asked and how it was started, and does what files beside it say. */
 function fakeQmd(t) {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-fake-qmd-')));
-  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  t.after(() => rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
   writeFileSync(join(folder, 'status'), STATUS);
   writeFileSync(join(folder, 'qmd'), `#!/bin/sh
 folder='${folder}'
@@ -501,15 +501,15 @@ function outsideHerdr(t) {
   });
 }
 
-/** The real `main()`: on a fake terminal, or headless with `command` set to `run`. */
-function openHobkin(root, { command = null, timing = FAST } = {}) {
+/** The real `main()` on a fake terminal. */
+function openHobkin(root, { timing = FAST } = {}) {
   const signals = new EventEmitter();
   const terminal = new FakeTerminal();
   const fake = fakePi(root);
   let ui;
-  const finished = main([...(command ? [command] : []), '--home', root], { isTTY: !command, write() {} }, {
+  const finished = main(['--home', root], { isTTY: true, write() {} }, {
     signals,
-    input: { isTTY: !command },
+    input: { isTTY: true },
     startDashboard: (view, handlers, options) => {
       ui = startDashboard(view, handlers, { ...options, terminal, agentDir: root, theme: undefined });
       return ui;
@@ -580,11 +580,11 @@ test('a missing qmd reaches Chat as one quiet line and leaves the rest working',
   assert.equal(hobkin.screen().match(/qmd is not installed/g).length, 1);
 });
 
-test('hobkin run keeps the index too, and a signal stops it', async t => {
+test('the dashboard keeps the index current, and a signal stops it', async t => {
   outsideHerdr(t);
   const { root } = fixture(t);
   const qmd = fakeQmd(t);
-  const hobkin = openHobkin(root, { command: 'run' });
+  const hobkin = openHobkin(root);
   t.after(() => hobkin.close());
 
   await settled(() => qmd.ended('status') === 1, 'the first pass finish');

@@ -15,7 +15,7 @@ export function createQuestionTool(askQuestion) {
   return defineTool({
     name: 'ask_question',
     label: 'Ask a question',
-    description: 'Ask the user one question with selectable answers in the terminal.',
+    description: 'Ask the user one question with selectable answers in the terminal. They can type their own answer instead, returned as `typed`, or press Esc to choose none.',
     parameters,
     async execute(_id, request, signal) {
       if (!Check(parameters, request) || !request.question.trim()
@@ -23,10 +23,11 @@ export function createQuestionTool(askQuestion) {
         || new Set(request.choices.map(choice => choice.value)).size !== request.choices.length) {
         throw Error('Invalid question: provide 2–6 distinct choices and bounded plain text.');
       }
-      const selected = signal?.aborted ? null : await askQuestion?.(structuredClone(request), signal);
+      const selected = signal?.aborted ? null : await askQuestion?.({ ...structuredClone(request), other: true }, signal);
       let details;
       if (selected === undefined) details = { status: 'unavailable' };
       else if (selected === null || signal?.aborted) details = { status: 'cancelled' };
+      else if (selected.typed) details = { status: 'answered', typed: selected.typed };
       else {
         const answer = request.choices.find(choice => choice.value === selected);
         if (!answer) throw Error('Selected choice does not belong to this question.');

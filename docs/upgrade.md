@@ -14,7 +14,7 @@ For a custom workspace, set this variable to its absolute path. `--home` overrid
 
 ## Already using the CLI
 
-1. Close the dashboard with Ctrl+C or stop your headless runner through its supervisor.
+1. Close the dashboard with Ctrl+C.
 2. Update the package installation or checkout that supplies your command. Keep the workspace and its data. If the command already points to the updated checkout, just reopen it.
 3. Check saved state, then launch:
 
@@ -24,7 +24,7 @@ hobkin schedules --home "$hobkin_home"
 hobkin --home "$hobkin_home"
 ```
 
-The first two commands only read local state; the third starts the runner. Do not rerun migration or replace the workspace to resolve configuration errors.
+The first two commands only read local state; the third opens the dashboard. Do not rerun migration or replace the workspace to resolve configuration errors.
 
 ## Legacy Pi extension: before planning
 
@@ -63,7 +63,7 @@ Create a private `selection.json`, replacing the example paths and bindings:
 }
 ```
 
-The main working directory must match its saved session. Preserve the original session and review providers; choose missing bindings explicitly. If Pi starts through a wrapper, add `launcher` to `config` (see the README); repair attempts use it too. Staging replaces the example initialization date with the journal creation time.
+The main working directory must match its saved session. Preserve the original session and review providers; choose missing bindings explicitly. If Pi starts through a wrapper, add `launcher` to `config` (see the [guide](guide.md#start-pi-through-a-launcher)); repair attempts use it too. Staging replaces the example initialization date with the journal creation time.
 
 ```sh
 hobkin upgrade-plan --selection /absolute/selection.json --home "$hobkin_home"

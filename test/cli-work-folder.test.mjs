@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { enterFolder, FolderRefused, folderRefusal, leaveFolder, prepareTree } from '../src/cli/work/tree.mjs';
+import { enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from '../src/cli/work/tree.mjs';
 import { git, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 function folder(t) {
@@ -125,35 +125,80 @@ test('a default branch behind origin is fast-forwarded first, and the run starts
   assert.equal(git(repo, 'rev-parse', 'hobkin/one'), upstream);
 });
 
-test('a diverged default branch stops the run, says why and changes nothing', async t => {
+test('a diverged default branch sends the run to a worktree from origin, and the folder keeps its commit', async t => {
   const { base, repo } = folder(t);
   const origin = withOrigin(base, repo);
   originAhead(base, origin);
+  const upstream = git(join(base, 'pusher'), 'rev-parse', 'HEAD');
   writeFileSync(join(repo, 'mine.txt'), 'local commit\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'local commit');
   const before = git(repo, 'rev-parse', 'HEAD');
 
-  await assert.rejects(enterFolder({ repo, branch: 'hobkin/one' }), error => {
-    assert.ok(error instanceof FolderRefused);
-    assert.match(error.message, /main has diverged from origin/);
-    return true;
-  });
+  const entered = await enterFolder({ repo, branch: 'hobkin/one' });
 
+  assert.equal(entered.refused, 'main has diverged from origin');
   assert.equal(git(repo, 'rev-parse', 'main'), before);
   assert.equal(git(repo, 'branch', '--show-current'), 'main');
   assert.equal(git(repo, 'branch', '--list', 'hobkin/*'), '');
+
+  const tree = join(base, 'tree');
+  await prepareTree({ repo, tree, branch: 'hobkin/one' });
+
+  assert.equal(git(tree, 'rev-parse', 'HEAD'), upstream);
+  assert.equal(git(repo, 'rev-parse', 'main'), before);
 });
 
-test('a fetch that fails stops the run and changes nothing', async t => {
+test('a fetch that fails sends the run to a worktree and changes nothing', async t => {
   const { base, repo } = folder(t);
   const origin = withOrigin(base, repo);
   rmSync(origin, { recursive: true, force: true });
   const before = everything(repo);
 
-  await assert.rejects(enterFolder({ repo, branch: 'hobkin/one' }), FolderRefused);
+  const entered = await enterFolder({ repo, branch: 'hobkin/one' });
 
+  assert.equal(entered.refused, 'could not fetch main');
   assert.equal(everything(repo), before);
+});
+
+test('a fast-forward that fails sends the run to a worktree, and the ignored file in its way stays', async t => {
+  const { base, repo } = folder(t);
+  writeFileSync(join(repo, '.gitignore'), 'upstream.txt\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-qm', 'ignore it');
+  const origin = withOrigin(base, repo);
+  const pusher = join(base, 'pusher');
+  execFileSync('git', ['clone', '-q', origin, pusher]);
+  git(pusher, 'config', 'user.email', 'other@example.com');
+  git(pusher, 'config', 'user.name', 'Other');
+  writeFileSync(join(pusher, 'upstream.txt'), 'upstream\n');
+  git(pusher, 'add', '-f', '.');
+  git(pusher, 'commit', '-qm', 'upstream change');
+  git(pusher, 'push', '-q', 'origin', 'main');
+  writeFileSync(join(repo, 'upstream.txt'), 'mine\n');
+  const before = git(repo, 'rev-parse', 'HEAD');
+
+  const entered = await enterFolder({ repo, branch: 'hobkin/one' });
+
+  assert.equal(entered.refused, 'could not fast-forward main');
+  assert.equal(git(repo, 'rev-parse', 'main'), before);
+  assert.equal(readFileSync(join(repo, 'upstream.txt'), 'utf8'), 'mine\n');
+});
+
+test('a folder git cannot answer for comes back as a reason, never a throw', async t => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-folder-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const pushed = repository(base, 'pushed');
+  const origin = withOrigin(base, pushed);
+  // A default branch with no commit yet, while origin has one, cannot be compared with origin at all.
+  const repo = join(base, 'unborn');
+  execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+  git(repo, 'remote', 'add', 'origin', origin);
+
+  const entered = await enterFolder({ repo, branch: 'hobkin/one' });
+
+  assert.equal(typeof entered.refused, 'string');
+  assert.equal(git(repo, 'branch', '--list', 'hobkin/*'), '');
 });
 
 test('commits not yet pushed stay out of the run\'s PR, so that run takes a worktree', async t => {
@@ -225,6 +270,30 @@ test('a tree can never be the project\'s own folder', async t => {
   await assert.rejects(prepareTree({ repo, tree: repo, branch: 'hobkin/one' }), /never the project/);
 
   assert.equal(readFileSync(join(repo, 'notes.txt'), 'utf8'), 'mine\n');
+});
+
+test('the project\'s own folder on a Hobkin branch takes no commit and never moves', async t => {
+  const { base, repo } = folder(t);
+  git(repo, 'switch', '-qc', 'hobkin/one');
+  writeFileSync(join(repo, 'notes.txt'), 'mine\n');
+  const before = everything(repo);
+
+  await assert.rejects(prepareTree({ repo, tree: repo, branch: 'hobkin/two' }), /never the project/);
+
+  assert.equal(everything(repo), before);
+  assert.deepEqual(readdirSync(base), ['project']);
+});
+
+test('the project\'s own folder is never released, whatever branch it is on and however the run ended', async t => {
+  const { repo } = folder(t);
+  git(repo, 'switch', '-qc', 'hobkin/one');
+  writeFileSync(join(repo, 'notes.txt'), 'mine\n');
+  const before = everything(repo);
+
+  await releaseTree(repo);
+  await releaseTree(repo, { finished: true });
+
+  assert.equal(everything(repo), before);
 });
 
 test('nothing in the in-place path runs reset or clean in the user\'s folder', async t => {

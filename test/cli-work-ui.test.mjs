@@ -16,8 +16,8 @@ const base = {
 const proposed = { slug: 'api', name: 'finboard-api', state: 'proposed', level: 'critical', summary: 'Rails app with real money.', found: 'CI red on main.', first: [{ title: 'Fix the job spec' }] };
 const chosen = { slug: 'site', name: 'website', state: 'chosen', level: 'casual', open: 2, prs: 1 };
 const running = { id: 'work:site:do:1', title: 'website: Update Astro', state: 'running', kind: 'background', scheduleId: 'work.site.do', effort: 'medium', startedAt: new Date().toISOString(), work: { slug: 'site', lane: 'do' } };
-const attention = { slug: 'site', id: 'abc123', title: 'Rotate the leaked token' };
-const on = { enabled: true, projects: [proposed, chosen], attention: [attention] };
+const leak = { key: 'item:site:abc123', slug: 'site', project: 'website', item: 'abc123', title: 'Rotate the leaked token', grade: 'P0', why: 'high impact, medium' };
+const on = { enabled: true, projects: [proposed, chosen], plan: [leak], queued: 1 };
 
 const screen = (ui, width = 100, height = 40) => stripTerminalSequences(ui.render(width, height).join('\n'));
 
@@ -33,14 +33,14 @@ test('a dashboard with no work data has no Work tab', () => {
 });
 
 test('the Work tab shows only while the mode is on, and the arrows reach it then', () => {
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [chosen], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [chosen] } });
   assert.doesNotMatch(screen(ui).split('\n')[0], /Work Mode/);
   for (const view of ['reports', 'schedules', 'conversation']) {
     ui.input('\x1b[C');
     assert.equal(ui.state().view, view);
   }
 
-  ui.update({ ...base, work: { enabled: true, projects: [], attention: [] } });
+  ui.update({ ...base, work: { enabled: true, projects: [] } });
 
   assert.match(screen(ui).split('\n')[0], /Work Mode/);
   for (const view of ['reports', 'schedules', 'work', 'conversation']) {
@@ -52,37 +52,37 @@ test('the Work tab shows only while the mode is on, and the arrows reach it then
 });
 
 test('Work reads active, then paused, and turning it off from anywhere lands in Chat', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] } });
   ui.input('\x1b[D');
   assert.match(screen(ui), /WORK MODE\s+● active/);
 
-  ui.update({ ...base, work: { enabled: true, paused: true, projects: [], attention: [] } });
+  ui.update({ ...base, work: { enabled: true, paused: true, projects: [] } });
   assert.match(screen(ui), /WORK MODE\s+● paused/);
 
-  ui.update({ ...base, work: { enabled: false, projects: [], attention: [] } });
+  ui.update({ ...base, work: { enabled: false, projects: [] } });
 
   assert.deepEqual([ui.state().view, ui.state().focus], ['conversation', 'composer']);
   ui.stop();
 });
 
 test('going on or off says so, whoever did it, and says where to look', () => {
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [] } });
 
-  ui.update({ ...base, work: { enabled: true, projects: [], attention: [] } });
+  ui.update({ ...base, work: { enabled: true, projects: [] } });
   assert.match(ui.state().notice, /Work mode on.*Work Mode tab/);
 
-  ui.update({ ...base, work: { enabled: false, projects: [], attention: [] } });
+  ui.update({ ...base, work: { enabled: false, projects: [] } });
   assert.match(ui.state().notice, /Work mode off.*Work Mode tab/);
   ui.stop();
 });
 
 test('leaving an agent that outlived the mode goes to Chat, not to a tab that is gone', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], attention: [] }, runs: [running], jobActivity: {} });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] }, runs: [running], jobActivity: {} });
   ui.input('\x1b[D');
   ui.input('\r');
   assert.equal(ui.state().view, 'job:work:site:do:1');
 
-  ui.update({ ...base, work: { enabled: false, projects: [], attention: [] }, runs: [running], jobActivity: {} });
+  ui.update({ ...base, work: { enabled: false, projects: [] }, runs: [running], jobActivity: {} });
   ui.input('\x1b');
 
   assert.equal(ui.state().view, 'conversation');
@@ -91,7 +91,7 @@ test('leaving an agent that outlived the mode goes to Chat, not to a tab that is
 
 test('/work asks for a folder first, and the answer starts it without moving the user', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [] } }, {
     send() {},
     workAction: async (...args) => { actions.push(args); },
   });
@@ -115,7 +115,7 @@ test('/work asks for a folder first, and the answer starts it without moving the
 
 test('/work can name the folder directly', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [] } }, {
     send() {},
     workAction: async (...args) => { actions.push(args); },
   });
@@ -129,7 +129,7 @@ test('/work can name the folder directly', async () => {
 });
 
 test('a folder that fails keeps the question open and shows why', async () => {
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [] } }, {
     send() {},
     workAction: async () => { throw Error('Not a folder: /nope'); },
   });
@@ -148,7 +148,7 @@ test('a folder that fails keeps the question open and shows why', async () => {
 });
 
 test('Escape drops the folder question', async () => {
-  const ui = createDashboard({ ...base, work: { enabled: false, projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: false, projects: [] } }, {
     send() {},
     workAction: async () => {},
   });
@@ -164,7 +164,7 @@ test('Escape drops the folder question', async () => {
 
 test('/work turns the mode on and stays where the user is once a folder is known', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [] } }, {
     send() {},
     workAction: async (...args) => {
       actions.push(args);
@@ -195,7 +195,7 @@ test('/work turning it off stays in Chat and says so', async () => {
 });
 
 test('a failed /work keeps the draft and shows why', async () => {
-  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [], attention: [] } }, { send() {}, workAction: async () => { throw Error('still connecting'); } });
+  const ui = createDashboard({ ...base, work: { enabled: false, folder: '/repos', projects: [] } }, { send() {}, workAction: async () => { throw Error('still connecting'); } });
 
   ui.input('/work');
   ui.input('\r');
@@ -206,7 +206,7 @@ test('a failed /work keeps the draft and shows why', async () => {
   ui.stop();
 });
 
-test('Work shows what needs the user, what is running, projects and proposals', () => {
+test('Work shows what is running, the queue with P0 on top, projects and proposals', () => {
   const ui = createDashboard({ ...base, work: { ...on, discovering: true }, runs: [running] });
   ui.input('\x1b[D');
   assert.equal(ui.state().view, 'work');
@@ -214,8 +214,8 @@ test('Work shows what needs the user, what is running, projects and proposals', 
   const text = screen(ui);
 
   assert.match(text, /FINDING PROJECTS/);
-  assert.match(text, /NEEDS ATTENTION/);
-  assert.match(text, /Rotate the leaked token/);
+  assert.match(text, /QUEUE\s+1 P0 · 1 queued/);
+  assert.match(text, /P0 {2}website: Rotate the leaked token/);
   assert.match(text, /RUNNING/);
   assert.match(text, /website: Update Astro/);
   assert.match(text, /PROJECTS/);
@@ -240,7 +240,7 @@ test('work runs stay out of the tabs and stay in the running count', () => {
 
 test('a proposal is answered with a key', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [proposed], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [proposed] } }, {
     workAction: async (...args) => { actions.push(args); },
   });
   ui.input('\x1b[D');
@@ -257,7 +257,7 @@ test('a proposal is answered with a key', async () => {
 test('proposals are offered main projects first', () => {
   const ranked = (slug, rank) => ({ ...proposed, slug, name: slug, rank });
   const projects = [ranked('third', 3), ranked('first', 1), ranked('second', 2)];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects, attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects } });
   ui.input('\x1b[D');
 
   const text = screen(ui);
@@ -268,12 +268,12 @@ test('proposals are offered main projects first', () => {
 });
 
 test('the day\'s tokens show against the limit, and reaching it says what happens', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, harness: 'pi', tokensToday: 120000, dailyTokens: 1000000, projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, harness: 'pi', tokensToday: 120000, dailyTokens: 1000000, projects: [] } });
   ui.input('\x1b[D');
   assert.match(screen(ui), /120k\/1m tokens/);
 
   const pause = { kind: 'day', line: 'Paused for today: 1m of the 1m daily limit used. Resumes tomorrow.' };
-  ui.update({ ...base, work: { enabled: true, paused: true, pause, harness: 'pi', tokensToday: 1000000, dailyTokens: 1000000, projects: [], attention: [] } });
+  ui.update({ ...base, work: { enabled: true, paused: true, pause, harness: 'pi', tokensToday: 1000000, dailyTokens: 1000000, projects: [] } });
 
   assert.match(screen(ui), /Paused for today: 1m of the 1m daily limit used\. Resumes tomorrow\./);
   ui.stop();
@@ -282,14 +282,15 @@ test('the day\'s tokens show against the limit, and reaching it says what happen
 test('a paused mode reads paused, and the request is answered with a key', async () => {
   const actions = [];
   const allowanceRequest = { proposed: 200000000, reason: 'Work mode paused: it has used 100m of today\'s 100m tokens.' };
-  const ui = createDashboard({ ...base, work: { enabled: true, paused: true, allowanceRequest, projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: true, paused: true, allowanceRequest, projects: [] } }, {
     workAction: async (...args) => { actions.push(args); },
   });
   ui.input('\x1b[D');
 
   const text = screen(ui);
   assert.match(text, /WORK MODE\s+● paused/);
-  assert.match(text, /Raise today's tokens to 200m\?/);
+  assert.match(text, /QUEUE\s+1 P0 · 0 queued/);
+  assert.match(text, /P0 {2}Raise today's tokens to 200m\?/);
   assert.match(text, /it has used 100m of today's 100m tokens/);
   assert.match(text, /y\s+raise/);
 
@@ -303,15 +304,15 @@ test('a paused mode reads paused, and the request is answered with a key', async
 
 test('an hourly pause shows the limit it hit, with its numbers beside the day\'s', () => {
   const line = 'Paused for the hour: 8.4m of the 8.3m hourly share used. Today 9.8m of 100m. Resumes around 13:05 today.';
-  const ui = createDashboard({ ...base, work: { enabled: true, paused: true, pacing: true, pause: { kind: 'hour', line }, tokensToday: 9800000, dailyTokens: 100000000, projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, paused: true, pacing: true, pause: { kind: 'hour', line }, tokensToday: 9800000, dailyTokens: 100000000, projects: [] } });
   ui.input('\x1b[D');
 
   assert.match(screen(ui, 130), /Paused for the hour: 8\.4m of the 8\.3m hourly share used\. Today 9\.8m of 100m\. Resumes around 13:05 today\./);
   ui.stop();
 });
 
-const queueEntry = (key, details = {}) => ({ key, slug: 'api', project: 'finboard-api', title: 'Fix the job spec', level: 'critical', why: 'critical, high impact, small', estimate: { fresh: 220000 }, waiting: null, ...details });
-const queueWork = { enabled: true, harness: 'pi', agents: 2, autoPick: true, queued: 2, projects: [], attention: [] };
+const queueEntry = (key, details = {}) => ({ key, slug: 'api', item: key.split(':')[2] ?? null, project: 'finboard-api', title: 'Fix the job spec', level: 'critical', grade: 'P1', why: 'critical, high impact, small', estimate: { fresh: 220000 }, waiting: null, ...details });
+const queueWork = { enabled: true, harness: 'pi', agents: 2, autoPick: true, queued: 2, projects: [] };
 
 test('the tab shows fresh and cached tokens apart, what is left, and running and queued counts', () => {
   const ui = createDashboard({
@@ -351,11 +352,11 @@ test('the last watch shows in a few words', () => {
   ui.stop();
 });
 
-test('the queue shows what is next in order, why, its level and what it waits for, readably at 90 columns', () => {
+test('the queue shows what is next in order, its grade, why and what it waits for, readably at 90 columns', () => {
   const plan = [
     queueEntry('item:api:1'),
-    queueEntry('item:site:2', { project: 'website', title: 'Update Astro', level: 'casual', waiting: 'over this hour\'s share' }),
-    queueEntry('look:tool', { project: 'tool', title: 'security look', level: 'important', waiting: 'a free worker' }),
+    queueEntry('item:site:2', { project: 'website', title: 'Update Astro', grade: 'P2', waiting: 'over this hour\'s share' }),
+    queueEntry('look:tool', { project: 'tool', title: 'security look', grade: 'P3', waiting: 'a free worker' }),
   ];
   const ui = createDashboard({ ...base, work: { ...queueWork, queued: 12, plan } });
   ui.input('\x1b[D');
@@ -364,11 +365,126 @@ test('the queue shows what is next in order, why, its level and what it waits fo
   const text = lines.join('\n');
 
   assert.match(text, /QUEUE\s+12 queued/);
-  assert.match(text, /1 {2}finboard-api: Fix the job spec critical\s+critical, high impact, small · ~220k/);
-  assert.match(text, /2 {2}website: Update Astro casual\s+waiting: over this hour's share · ~220k/);
-  assert.match(text, /3 {2}tool: security look important\s+waiting: a free worker/);
+  assert.match(text, /P1 {2}finboard-api: Fix the job spec\s+critical, high impact, small · ~220k/);
+  assert.match(text, /P2 {2}website: Update Astro\s+waiting: over this hour's share · ~220k/);
+  assert.match(text, /P3 {2}tool: security look\s+waiting: a free worker/);
   assert.match(text, /and 9 more/);
   assert.ok(ui.render(90, 40).every(value => visibleWidth(value) <= 90));
+  ui.stop();
+});
+
+test('every P0 row stays in sight past the row cap, and the rest fill what is left', () => {
+  const urgent = Array.from({ length: 10 }, (_, index) => queueEntry(`item:api:p${index}`, { grade: 'P0', title: `Urgent ${index}` }));
+  const later = queueEntry('item:api:later', { grade: 'P2', title: 'Later work' });
+  const ui = createDashboard({ ...base, work: { ...queueWork, queued: 11, plan: [...urgent, later] } });
+  ui.input('\x1b[D');
+
+  const text = screen(ui, 90, 60);
+
+  assert.match(text, /QUEUE\s+10 P0 · 11 queued/);
+  assert.match(text, /Urgent 9/);
+  assert.doesNotMatch(text, /Later work/);
+  assert.match(text, /and 1 more/);
+  ui.stop();
+});
+
+test('a queue row with an item takes a grade and can be marked done, and a look row takes neither', async () => {
+  const actions = [];
+  const plan = [queueEntry('item:api:one', { grade: 'P3' }), queueEntry('look:api', { title: 'security look', grade: 'P2' })];
+  const ui = createDashboard({ ...base, work: { ...queueWork, plan } }, { workAction: async (...args) => { actions.push(args); } });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /enter\s+run now\s+·\s+p\s+grade\s+·\s+x\s+done\s+·\s+s\s+skip/);
+
+  ui.input('p');
+  ui.input('x');
+  ui.input('\x1b[B');
+  assert.match(screen(ui), /enter\s+run now\s+·\s+s\s+skip/);
+  ui.input('p');
+  ui.input('x');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['grade', 'api', 'one', 'P0'], ['done', 'api', 'one']]);
+  ui.stop();
+});
+
+test('projects sort by priority and show it with their PR setting, and keys change both', async () => {
+  const actions = [];
+  const projects = [
+    { ...chosen, slug: 'low', name: 'low-one', priority: 'P2', prMode: 'off' },
+    { ...chosen, slug: 'top', name: 'top-one', priority: 'P0', prMode: 'draft', branches: 3, left: 1 },
+  ];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects } }, { workAction: async (...args) => { actions.push(args); } });
+  ui.input('\x1b[D');
+
+  const text = screen(ui, 110);
+  assert.ok(text.indexOf('top-one') < text.indexOf('low-one'));
+  assert.match(text, /top-one\s+P0\s+casual\s+draft PRs · 2 items · 1 PR · 3 branches · 1 left for you/);
+  assert.match(text, /low-one\s+P2\s+casual\s+no PRs/);
+  assert.match(text, /p\s+priority\s+·\s+r\s+PRs\s+·\s+1 2 3 4\s+level/);
+
+  ui.input('p');
+  ui.input('r');
+  ui.input('\x1b[B');
+  ui.input('p');
+  ui.input('r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['priority', 'top', 'P1'], ['prs', 'top', 'published'], ['priority', 'low', 'P3'], ['prs', 'low', 'draft']]);
+  ui.stop();
+});
+
+test('local PRs wait under READY with what they did and what is left, and x closes one', async () => {
+  const actions = [];
+  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro', branch: 'hobkin/abc123-update-astro', summary: 'Moves the site to Astro 5.14.', left: 'Publish the release.' }];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction: async (...args) => { actions.push(args); } });
+  ui.input('\x1b[D');
+
+  const text = screen(ui);
+  assert.match(text, /READY\s+1/);
+  assert.match(text, /website: Update Astro\s+hobkin\/abc123-update-astro/);
+  assert.match(text, /Moves the site to Astro 5\.14\./);
+  assert.match(text, /Left for you: Publish the release\./);
+  assert.match(text, /x\s+done/);
+
+  ui.input('x');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['done', 'site', 'abc123']]);
+  ui.stop();
+});
+
+test('d on a local PR opens its diff', async () => {
+  const actions = [];
+  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro', branch: 'hobkin/abc123' }];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, {
+    workAction: async (...args) => {
+      actions.push(args);
+      return { ok: true, message: 'Type /diff main...hobkin/abc123 in Pi.' };
+    },
+  });
+  ui.input('\x1b[D');
+  assert.match(screen(ui), /d\s+diff\s+·\s+x\s+done/);
+
+  ui.input('d');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['diff', 'site', 'abc123']]);
+  assert.match(screen(ui), /Type \/diff main\.\.\.hobkin\/abc123 in Pi\./, 'outside Herdr this line is all the key can do');
+  ui.stop();
+});
+
+test('READY says which local PRs merge as they stand, and which need a rebase first', () => {
+  const local = (item, details) => ({ slug: 'site', project: 'website', item, title: `Work ${item}`, branch: `hobkin/${item}`, ...details });
+  const ready = [local('one', { conflict: false, behind: 0 }), local('two', { conflict: false, behind: 3 }), local('three', { conflict: true, behind: 7 }), local('four', { conflict: null, behind: null })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } });
+  ui.input('\x1b[D');
+
+  const text = screen(ui, 110, 60);
+
+  assert.match(text, /hobkin\/one[\s▌]+ready to merge/);
+  assert.match(text, /hobkin\/two\s+ready to merge · 3 behind/);
+  assert.match(text, /hobkin\/three\s+needs a rebase/);
+  assert.doesNotMatch(text, /hobkin\/four\s+(ready|needs)/);
   ui.stop();
 });
 
@@ -377,7 +493,7 @@ test('Enter on a queue row runs it now, s skips it, and s on a skipped row puts 
   const plan = [queueEntry('item:api:1'), queueEntry('item:api:2', { skipped: true, waiting: 'skipped', title: 'Not now' })];
   const ui = createDashboard({ ...base, work: { ...queueWork, plan } }, { workAction: async (...args) => { actions.push(args); } });
   ui.input('\x1b[D');
-  assert.match(screen(ui), /enter\s+run now\s+·\s+s\s+skip/);
+  assert.match(screen(ui), /enter\s+run now/);
 
   ui.input('\r');
   ui.input('s');
@@ -400,31 +516,9 @@ test('auto-pick off says so, and the tab offers no way to turn work mode off', (
   ui.stop();
 });
 
-test('a stuck row says why and can run again, and an attention row cannot', async () => {
-  const actions = [];
-  const attention = [
-    { slug: 'site', id: 'one', title: 'Fix the flaky spec', state: 'stuck', reason: 'The clone is gone.' },
-    { slug: 'site', id: 'two', title: 'Rotate the leaked token', state: 'open' },
-  ];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], attention } }, { workAction: async (...args) => { actions.push(args); } });
-  ui.input('\x1b[D');
-
-  assert.match(screen(ui), /The clone is gone\./);
-  assert.match(screen(ui), /enter\s+run now\s+·\s+x\s+done/);
-  ui.input('\r');
-
-  ui.input('\x1b[B');
-  assert.doesNotMatch(screen(ui), /run now/);
-  ui.input('\r');
-  await ui.pending();
-
-  assert.deepEqual(actions, [['retry', 'site', 'one']]);
-  ui.stop();
-});
-
 test('max takes a second press, because it is the dearest thing a key can do', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [chosen], attention: [] } }, { workAction: async (...args) => { actions.push(args); } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [chosen] } }, { workAction: async (...args) => { actions.push(args); } });
   ui.input('\x1b[D');
   assert.match(screen(ui), /1 2 3 4\s+level/);
 
@@ -438,24 +532,23 @@ test('max takes a second press, because it is the dearest thing a key can do', a
   ui.stop();
 });
 
-test('max work shows its count, and a run waiting on an approval says so', () => {
+test('max work shows its count', () => {
   const inPane = { ...running, title: 'website: Fix it' };
   const ui = createDashboard({
     ...base,
     runs: [inPane],
-    work: { enabled: true, attention: [], projects: [{ ...chosen, level: 'max' }], maxRuns: { running: 1, today: 2, atOnce: 1, perDay: 6 }, running: [{ id: inPane.id, note: 'Waiting for approval in its pane.' }] },
+    work: { enabled: true, projects: [{ ...chosen, level: 'max' }], maxRuns: { running: 1, today: 2, atOnce: 1, perDay: 6 }, running: [{ id: inPane.id }] },
   });
   ui.input('\x1b[D');
 
   const text = screen(ui, 110);
 
   assert.match(text, /Max: 1 of 1 running, 2 of 6 today\./);
-  assert.match(text, /Waiting for approval in its pane\./);
   ui.stop();
 });
 
 test('a folder left as it was says so on its project', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, attention: [], projects: [{ ...chosen, folderNote: 'It stays on hobkin/abc-fix, because it has uncommitted changes.' }] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [{ ...chosen, folderNote: 'It stays on hobkin/abc-fix, because it has uncommitted changes.' }] } });
   ui.input('\x1b[D');
 
   assert.match(screen(ui), /Its folder: It stays on hobkin\/abc-fix/);
@@ -463,7 +556,7 @@ test('a folder left as it was says so on its project', () => {
 });
 
 test('the Work Mode tab shows the harness', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, harness: 'claude', projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, harness: 'claude', projects: [] } });
   ui.input('\x1b[D');
 
   assert.match(screen(ui), /WORK MODE\s+● active · claude/);
@@ -474,22 +567,22 @@ test('the arrows move between rows, and each row has its own keys', async () => 
   const actions = [];
   const ui = createDashboard({ ...base, work: on }, { workAction: async (...args) => { actions.push(args); } });
   ui.input('\x1b[D');
-  assert.match(screen(ui), /x\s+done/);
+  assert.match(screen(ui), /y\s+take/);
 
-  ui.input('x');
-  ui.input('\x1b[B');
+  ui.input('\x1b[A');
   assert.match(screen(ui), /1 2 3 4\s+level/);
   ui.input('3');
-  ui.input('\x1b[B');
-  assert.match(screen(ui), /y\s+take/);
+  ui.input('\x1b[A');
+  assert.match(screen(ui), /x\s+done/);
+  ui.input('x');
   await ui.pending();
 
-  assert.deepEqual(actions, [['done', 'site', 'abc123'], ['level', 'site', 'casual']]);
+  assert.deepEqual(actions, [['level', 'site', 'casual'], ['done', 'site', 'abc123']]);
   ui.stop();
 });
 
 test('Enter on a running row opens its live view, and Escape comes back to Work', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], attention: [] }, runs: [running], jobActivity: {} });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] }, runs: [running], jobActivity: {} });
   ui.input('\x1b[D');
   assert.match(screen(ui), /enter\s+watch/);
 
@@ -503,7 +596,7 @@ test('Enter on a running row opens its live view, and Escape comes back to Work'
 
 test('/work off and /work on say what they mean, and only change what needs changing', async () => {
   const actions = [];
-  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', projects: [], attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', projects: [] } }, {
     send() {},
     workAction: async (...args) => {
       actions.push(args);
@@ -525,7 +618,7 @@ test('/work off and /work on say what they mean, and only change what needs chan
 });
 
 test('/work from Chat leaves what stopped and what stays in the conversation', async () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', projects: [chosen], attention: [] }, runs: [running] }, {
+  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', projects: [chosen] }, runs: [running] }, {
     send() {},
     workAction: async () => ({ enabled: false }),
   });
@@ -541,7 +634,7 @@ test('/work from Chat leaves what stopped and what stays in the conversation', a
 });
 
 const looking = { id: 'work:discover:discover:1', title: 'Finding projects', state: 'running', kind: 'background', scheduleId: 'work.discover', effort: 'medium', startedAt: new Date().toISOString(), work: { lane: 'discover' } };
-const discovering = { enabled: true, discovering: true, folder: '/repos', projects: [], attention: [] };
+const discovering = { enabled: true, discovering: true, folder: '/repos', projects: [] };
 
 test('while it looks, the tab says which folder it is in, what it is doing and what it has found', () => {
   const discovery = {
@@ -602,7 +695,7 @@ test('the tab always says what is happening now and when the next look is', () =
   const time = new Date(nextDiscoveryAt);
   const clock = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
   const finished = { status: 'finished', folder: '/repos', offered: 0, reason: 'All 12 repositories are forks.' };
-  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt, discovery: finished, projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt, discovery: finished, projects: [] } });
   ui.input('\x1b[D');
 
   const text = screen(ui);
@@ -616,7 +709,7 @@ test('a look that failed or stopped early shows its reason, and when it tries ag
   const nextDiscoveryAt = new Date(Date.now() + 15 * 60000).toISOString();
   for (const status of ['failed', 'unfinished']) {
     const discovery = { status, folder: '/repos', reason: 'Provider is down.' };
-    const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt, discovery, projects: [], attention: [] } });
+    const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt, discovery, projects: [] } });
     ui.input('\x1b[D');
 
     const text = screen(ui);
@@ -631,7 +724,7 @@ test('the next look is whichever comes first, a project or the folder', () => {
   const soon = new Date(Date.now() + 3600000).toISOString();
   const later = new Date(Date.now() + 5 * 3600000).toISOString();
   const project = { ...chosen, nextLookAt: soon };
-  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt: later, projects: [project], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt: later, projects: [project] } });
   ui.input('\x1b[D');
 
   assert.match(screen(ui), /Next: A look at website at/);
@@ -639,16 +732,44 @@ test('the next look is whichever comes first, a project or the folder', () => {
 });
 
 test('with a look due now the tab does not claim to be waiting for one', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt: null, projects: [], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', nextDiscoveryAt: null, projects: [] } });
   ui.input('\x1b[D');
 
   assert.match(screen(ui), /Next: It looks in \/repos now\./);
   ui.stop();
 });
 
+test('with work in the queue the tab says what starts next, never a look hours away', () => {
+  const later = new Date(Date.now() + 13 * 3600000).toISOString();
+  const ready = queueEntry('item:api:1');
+  const ui = createDashboard({ ...base, work: { ...queueWork, folder: '/repos', nextDiscoveryAt: later, plan: [ready] } });
+  ui.input('\x1b[D');
+
+  assert.match(screen(ui), /Next: finboard-api: Fix the job spec starts now\./);
+  assert.doesNotMatch(screen(ui), /in 13h/);
+
+  ui.update({ ...base, work: { ...queueWork, folder: '/repos', nextDiscoveryAt: later, plan: [ready], nextStartAt: new Date(Date.now() + 40000).toISOString() } });
+  assert.match(screen(ui), /Next: finboard-api: Fix the job spec starts in 1m\./);
+
+  ui.update({ ...base, work: { ...queueWork, folder: '/repos', nextDiscoveryAt: later, plan: [{ ...ready, waiting: 'a free worker' }] } });
+  assert.match(screen(ui), /Next: finboard-api: Fix the job spec starts when a worker is free\./);
+  ui.stop();
+});
+
+test('a folder already looked through is not looked through again, and the tab says what comes instead', () => {
+  const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', discovery: { status: 'finished', offered: 3 }, nextDiscoveryAt: null, projects: [] } });
+  ui.input('\x1b[D');
+
+  const text = screen(ui);
+
+  assert.match(text, /Next: New repositories are proposed as they appear\./);
+  assert.doesNotMatch(text, /It looks in/);
+  ui.stop();
+});
+
 test('a proposal shows all it has to say, however narrow the screen', () => {
   const found = Array.from({ length: 30 }, (_, index) => `word${index}`).join(' ');
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [{ ...proposed, found, reason: 'Real users rely on it.' }], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [{ ...proposed, found, reason: 'Real users rely on it.' }] } });
   ui.input('\x1b[D');
 
   const text = screen(ui, 60, 40);
@@ -673,7 +794,7 @@ test('answering a proposal moves on to the next one, so a list goes quickly', as
   const actions = [];
   const ranked = (slug, rank) => ({ ...proposed, slug, name: slug, rank });
   const projects = [ranked('first', 1), ranked('second', 2), ranked('third', 3)];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects, attention: [] } }, {
+  const ui = createDashboard({ ...base, work: { enabled: true, projects } }, {
     workAction: async (...args) => { actions.push(args); },
   });
   ui.input('\x1b[D');
@@ -688,7 +809,7 @@ test('answering a proposal moves on to the next one, so a list goes quickly', as
 });
 
 test('proposals count on the tab, so they are seen from any view', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [proposed], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [proposed] } });
 
   assert.match(screen(ui, 120).split('\n')[0], /Work Mode 1/);
   ui.stop();
@@ -696,7 +817,7 @@ test('proposals count on the tab, so they are seen from any view', () => {
 
 test('a project shows when it is next looked at, and why its last look failed', () => {
   const nextLookAt = new Date(Date.now() + 3 * 3600000).toISOString();
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [{ ...chosen, nextLookAt, lookError: 'The clone is gone.' }], attention: [] } });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [{ ...chosen, nextLookAt, lookError: 'The clone is gone.' }] } });
   ui.input('\x1b[D');
 
   const text = screen(ui);
@@ -708,7 +829,7 @@ test('a project shows when it is next looked at, and why its last look failed', 
 
 test('an agent running in a pane says where to watch it', () => {
   const inPane = { ...running, work: { ...running.work, pane: 'work-do-site' } };
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], attention: [] }, runs: [inPane], jobActivity: {} });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] }, runs: [inPane], jobActivity: {} });
   ui.input('\x1b[D');
   ui.input('\r');
 
@@ -724,7 +845,9 @@ test('the footer says work mode is on and how many are running', () => {
 });
 
 test('Work fits every supported size', () => {
-  const ui = createDashboard({ ...base, work: { ...on, discovering: true }, runs: [running] });
+  const ready = [{ slug: 'site', project: 'website', item: 'abc123', title: 'Update Astro to the latest release of the framework', branch: 'hobkin/abc123-update-astro-to-the-latest-release', summary: 'Moves the site to Astro 5.14.', left: 'Publish the release.' }];
+  const projects = [{ ...chosen, priority: 'P0', prMode: 'published', branches: 12, left: 3 }];
+  const ui = createDashboard({ ...base, work: { ...on, projects, ready, allowanceRequest: { proposed: 200000000, reason: 'Paused for today.' }, discovering: true }, runs: [running] });
   ui.input('\x1b[D');
 
   for (const [width, height] of [[120, 40], [80, 24], [60, 18]]) {

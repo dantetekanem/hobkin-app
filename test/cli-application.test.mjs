@@ -9,7 +9,7 @@ import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
-import { writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
@@ -865,6 +865,21 @@ test('the note Chrome leaves when authorized stays out of Chat', async t => {
   }
 });
 
+test('a message an extension marks display false is for the agent, so it stays out of Chat', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    await app.runtime.main.sendCustomMessage({ customType: 'tasks-reminder', content: '<system-reminder>For the agent.</system-reminder>', display: false }, { triggerTurn: false });
+    await app.runtime.main.sendCustomMessage({ customType: 'other-extension', content: 'Worth showing.', display: true }, { triggerTurn: false });
+
+    const view = await app.refresh();
+
+    assert.deepEqual(view.messages.map(message => message.content), ['Worth showing.']);
+  } finally {
+    await app.close();
+  }
+});
+
 test('messages go out in the order they were typed, waiting while the conversation cannot take one', async t => {
   const h = fixture(t);
   const app = await h.openApp();
@@ -933,6 +948,30 @@ test('a pause for the hour reads as news, and running out for the day posts agai
 
     const notices = view.messages.filter(message => message.role === 'notice');
     assert.deepEqual(notices.map(({ content, tone }) => [content, tone]), [['Paused for the hour.', 'useful'], ['Paused for the day.', 'critical']]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the Work tab sets a project\'s priority and PR mode and an item\'s grade, and done clears what was left', async t => {
+  const h = fixture(t);
+  chooseProject(h.root, '/repos/api', 'casual');
+  const { id } = fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'The first change.' });
+  updateItem(h.root, 'api', id, { left: 'Rotate the token.' });
+  const app = await h.openApp();
+  try {
+    await app.workAction('priority', 'api', 'P1');
+    await app.workAction('prs', 'api', 'draft');
+    await app.workAction('grade', 'api', id, 'P0');
+
+    const { priority, prMode } = readProject(h.root, 'api');
+    assert.deepEqual([priority, prMode], ['P1', 'draft']);
+    assert.equal(readItems(h.root, 'api')[0].grade, 'P0');
+
+    await app.workAction('done', 'api', id);
+
+    const [done] = readItems(h.root, 'api');
+    assert.deepEqual([done.state, done.left], ['done', null]);
   } finally {
     await app.close();
   }
@@ -1015,29 +1054,6 @@ test('Jev switched here and back from another terminal between ticks still reach
     await app.tickWork();
 
     assert.equal(refreshes.mock.callCount() > 0, true);
-  } finally {
-    await app.close();
-  }
-});
-
-test('with no dashboard open nothing goes to Jev, since no face would show the answer', async t => {
-  const h = fixture(t);
-  setJevKey(t, 'test-key');
-  const asked = [];
-  t.mock.method(globalThis, 'fetch', async () => {
-    asked.push(true);
-    return { ok: true, json: async () => ({ answers: { mood: { choice: 'surprised' } } }) };
-  });
-  const runHarness = async () => { throw Error('Unexpected provider call in synthetic mood test.'); };
-  const app = await h.openApp({ runHarness, watched: false });
-  try {
-    await app.toggleJev();
-    await app.runtime.change(state => { state.runs.useful = usefulReport(); });
-
-    await app.refresh();
-    await new Promise(resolve => { setImmediate(resolve); });
-
-    assert.deepEqual(asked, []);
   } finally {
     await app.close();
   }

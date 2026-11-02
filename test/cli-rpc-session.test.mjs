@@ -400,7 +400,7 @@ test('bridge requests run the real Hobkin tools in Hobkin with the child’s own
   const answered = await bridge(h.fake, { op: 'tool', name: 'ask_question', id: 'call-1', params: question });
   assert.equal(answered.answer.ok, true);
   assert.deepEqual(answered.answer.result.details, { status: 'answered', answer: { value: 'b', label: 'B' } });
-  assert.deepEqual(asked[0].request, question);
+  assert.deepEqual(asked[0].request, { ...question, other: true });
 
   const scheduled = await bridge(h.fake, { op: 'tool', name: 'run_schedule', id: 'call-2', params: { scheduleId: 'daily-check' } });
   assert.deepEqual(scheduled.answer.result.details, { status: 'admitted', scheduleId: 'daily-check' });

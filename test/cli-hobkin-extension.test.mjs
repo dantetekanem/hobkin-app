@@ -153,7 +153,7 @@ test('a tool the model calls runs in the host through the input dialog and its r
   assert.deepEqual(JSON.parse(results[3].content[0].text), { action: 'inspect', scope: 'main' });
   assert.deepEqual(JSON.parse(results[4].content[0].text), { scheduleId: 'daily-check', status: 'delivered' });
   assert.ok(results.every(result => result.isError !== true));
-  assert.deepEqual(asked.map(item => item.request), [question]);
+  assert.deepEqual(asked.map(item => item.request), [{ ...question, other: true }]);
   assert.deepEqual(scheduled, [{ scheduleId: 'daily-check', id: 'call-2' }]);
   assert.ok(dialogs.filter(dialog => dialog.title === BRIDGE).length >= 4);
   assert.equal(readMemory(root)[0], 'Rent is due November 1');

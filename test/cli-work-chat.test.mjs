@@ -121,6 +121,26 @@ test('a pause reaches the main agent with the limit that was hit and its real nu
   assert.deepEqual(note.pause, { limitHit: 'hour', facts: pause.line });
 });
 
+test('the weekly review reaches the main agent, so "drop those" means something', () => {
+  const review = { at: '2026-06-08T12:00:00.000Z', stale: ['billing'], message: 'Weekly review: work mode is running, but nothing finished.' };
+
+  const note = noteOf(workNote({ review }, commands));
+
+  assert.deepEqual(note.review, { stale: ['billing'], facts: review.message });
+});
+
+test('the weekly review shows in Chat as Hobkin speaking, once', async t => {
+  const h = fixture(t);
+  const { app } = await openApp(t, h);
+  writeMode(h.root, { review: { at: new Date().toISOString(), stale: [], message: 'Weekly review: work mode is progressing.' } });
+
+  await app.refresh();
+  const { messages } = await app.refresh();
+
+  const posts = messages.filter(({ content }) => content === 'Weekly review: work mode is progressing.');
+  assert.deepEqual(posts.map(({ role }) => role), ['assistant']);
+});
+
 test('proposals keep the order Chat listed them, so "the first two" means the same to both', () => {
   const projects = [asProject({ ...proposal, name: 'third' }, 3), asProject({ ...proposal, name: 'first' }, 1), asProject({ ...proposal, name: 'second' }, 2)];
 

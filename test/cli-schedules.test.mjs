@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { initialize, loadConfig, validateConfig } from '../src/cli/config.mjs';
-import { parseSchedule, loadSchedules, formatSchedule, validateBinding } from '../src/cli/schedules.mjs';
+import { parseSchedule, loadSchedules, formatSchedule, validateBinding, whenItRuns } from '../src/cli/schedules.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-cli-'));
@@ -188,7 +188,21 @@ test('CLI init/list uses only the explicit temporary root and fails on invalid s
   assert.equal(listed.status, 0);
   assert.match(listed.stdout, /daily.*0/i);
   assert.doesNotMatch(listed.stdout, /\u001b/);
+  const recap = { id: 'recap', title: 'Recap', at: '09:30', weekday: [1, 3], timezone: 'UTC', enabled: true, harness: 'pi', model: null, effort: 'medium', cwd: root, context: [] };
+  writeFileSync(join(root, 'schedules/weekly/recap.md'), `---\n${JSON.stringify(recap)}\n---\nDo it.\n`);
+  assert.match(run('schedules').stdout, /enabled {2}weekly\/recap {2}Recap {2}Mon, Wed 09:30/);
   writeFileSync(join(root, 'schedules/daily/broken.md'), 'broken');
   assert.equal(run('schedules').status, 1);
   assert.equal(run('unknown-command').status, 1);
+});
+
+test('a check says when it runs in a few words, so a list reads as the calendar', () => {
+  assert.equal(whenItRuns({ cadence: 'daily', at: '08:10' }), '08:10');
+  assert.equal(whenItRuns({ cadence: 'daily', at: ['09:00', '18:00'] }), '09:00, 18:00');
+  assert.equal(whenItRuns({ cadence: 'daily', window: { start: '09:00', end: '18:00', everyMinutes: 120 } }), '09:00-18:00 every 120m');
+  assert.equal(whenItRuns({ cadence: 'weekly', weekday: 5, at: '09:00' }), 'Fri 09:00');
+  assert.equal(whenItRuns({ cadence: 'weekly', weekday: [1, 2], at: '09:00' }), 'Mon, Tue 09:00');
+  assert.equal(whenItRuns({ cadence: 'monthly', day: 27, at: '09:00' }), 'day 27 09:00');
+  assert.equal(whenItRuns({ cadence: 'once', date: '2026-05-04', at: '15:00' }), '2026-05-04 15:00');
+  assert.equal(whenItRuns({ cadence: 'compatibility' }), '');
 });

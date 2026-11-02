@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, utimesSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { main } from '../src/cli/main.mjs';
+import { openDiff } from '../src/cli/work/controls.mjs';
 import {
-  chooseProject, fileItem, paths, proposeProject, readItems, readMode, readProject, readProjects, recordTokens, updateItem, writeMode, writeState,
+  chooseProject, dropProject, fileItem, paths, prFile, proposeProject, readItems, readMode, readProject, readProjects, recordTokens, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { director, studied } from './helpers/work-director.mjs';
-import { repository, writeJson } from './helpers/work-fixture.mjs';
+import { branched, git, repository } from './helpers/work-fixture.mjs';
 
 const brief = 'Evidence, who benefits, the first change, the proof.';
 const item = (title, details = {}) => ({ key: title, kind: 'fix', title, brief, impact: 'high', effort: 'small', ...details });
@@ -87,14 +88,14 @@ test('status gives the tokens, the limits and what comes next', async t => {
   const h = owned(t);
   studied(h, 'api', 'critical');
   fileItem(h.root, 'api', item('Fix login'), h.clock);
-  writeMode(h.root, { dailyTokens: 120000000, unmergedLimit: 10 });
+  writeMode(h.root, { dailyTokens: 120000000 });
   recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 5000, cached: 900 }, h.clock);
 
   const { json } = await hobkin(h.root, 'status');
 
   assert.deepEqual([json.on, json.owner, json.queued, json.running], [true, true, 1, 0]);
   assert.deepEqual(json.tokens, { today: 5000, cached: 900, thisHour: 5000 });
-  assert.deepEqual(json.limits, { agents: 2, agentsAllowed: 2, dailyTokens: 120000000, hourShare: 10000000, unmerged: 10, unmergedEach: 2 });
+  assert.deepEqual(json.limits, { agents: 2, agentsAllowed: 2, dailyTokens: 120000000, hourShare: 10000000 });
   assert.match(json.next, /api: Fix login/);
 });
 
@@ -107,7 +108,7 @@ test('status says when no owner is open, because nothing can start then', async 
   const { json } = await hobkin(h.root, 'status');
 
   assert.deepEqual([json.on, json.owner], [true, false]);
-  assert.match(json.next, /dashboard or hobkin run/);
+  assert.match(json.next, /until the dashboard is open/);
 });
 
 test('status says a limit paused it, and why, with its real numbers', async t => {
@@ -127,40 +128,49 @@ test('projects lists each one with its counts, and --state narrows it', async t 
   proposeProject(root, proposal('site', { slug: 'the-site' }));
   chooseProject(root, '/repos/api', 'critical');
   fileItem(root, 'api', item('Open one'));
+  fileItem(root, 'api', item('Goes first', { kind: 'attention' }));
   const shipped = fileItem(root, 'api', item('Shipped'));
   updateItem(root, 'api', shipped.id, { state: 'pr', pr: 'https://example.com/1' });
-  const broken = fileItem(root, 'api', item('Broken'));
-  updateItem(root, 'api', broken.id, { state: 'stuck', stuckReason: 'No clone.' });
+  const finished = fileItem(root, 'api', item('Finished'));
+  updateItem(root, 'api', finished.id, { state: 'branch', branch: 'hobkin/finished', left: 'Deploy it.' });
   writeState(root, 'api', { lastLensAt: '2026-01-01T00:00:00.000Z' });
 
   const { json } = await hobkin(root, 'projects');
 
-  assert.deepEqual(json.map(({ name, slug, state }) => [name, slug, state]), [['site', 'the-site', 'proposed'], ['api', 'api', 'chosen']]);
-  assert.deepEqual(json[1], {
-    name: 'api', slug: 'api', level: 'critical', state: 'chosen', path: '/repos/api', paused: false, open: 1, prs: 1, stuck: 1, nextLookAt: '2026-01-01T08:00:00.000Z',
+  assert.deepEqual(json.map(({ name, slug, state }) => [name, slug, state]), [['api', 'api', 'chosen'], ['site', 'the-site', 'proposed']]);
+  assert.deepEqual(json[0], {
+    name: 'api', slug: 'api', level: 'critical', priority: 'P0', prMode: 'off', state: 'chosen', path: '/repos/api', paused: false, open: 2, prs: 1, branches: 1, left: 1, nextLookAt: '2026-01-01T08:00:00.000Z',
   });
   assert.deepEqual((await hobkin(root, 'projects', '--state', 'proposed')).json.map(({ slug }) => slug), ['the-site']);
   assert.match((await failure(root, 'projects', '--state', 'lost')).message, /chosen, proposed, skipped/);
 });
 
-test('running names each agent from another process, and says when one waits on approval', async t => {
+test('projects go by priority, then by name', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/zeta', 'important');
+  chooseProject(root, '/repos/alpha', 'important');
+  chooseProject(root, '/repos/site', 'casual');
+  chooseProject(root, '/repos/billing', 'critical');
+
+  assert.deepEqual((await hobkin(root, 'projects')).json.map(({ slug, priority }) => [slug, priority]), [['billing', 'P0'], ['alpha', 'P1'], ['zeta', 'P1'], ['site', 'P2']]);
+});
+
+test('running names each agent from another process', async t => {
   const h = owned(t);
   studied(h, 'api', 'max');
   const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
   const release = Promise.withResolvers();
-  let tell;
+  let opened = false;
   h.director.panes = {
-    run: async ({ onStatus }) => {
-      tell = onStatus;
+    run: async () => {
+      opened = true;
       await release.promise;
       return { status: 'completed', text: 'Useful: Done.', cost: null };
     },
   };
 
   await h.director.tick();
-  while (!tell) await wait(10);
-  assert.equal((await hobkin(h.root, 'running')).json[0].waitingForApproval, false);
-  tell('blocked');
+  while (!opened) await wait(10);
 
   const { json } = await hobkin(h.root, 'running');
 
@@ -168,7 +178,6 @@ test('running names each agent from another process, and says when one waits on 
   const [run] = json;
   assert.match(run.id, /^work:api:do:/);
   assert.deepEqual([run.project, run.slug, run.item, run.lane, run.level, run.harness, run.pane], ['api', 'api', filed.id, 'do', 'max', 'claude', 'work-do-api']);
-  assert.equal(run.waitingForApproval, true);
   assert.ok(run.seconds >= 0 && run.seconds < 60);
   assert.equal((await hobkin(h.root, 'status')).json.running, 1);
 
@@ -212,7 +221,7 @@ test('nothing counts as running once the owner is gone, whatever it left behind'
   await h.tick();
 });
 
-test('queue gives the plan in order, with the key, the item, why and what each row waits on', async t => {
+test('queue gives the plan in order, with the key, the item, the grade, why and what each row waits on', async t => {
   const h = owned(t);
   studied(h, 'api', 'critical');
   studied(h, 'site', 'casual');
@@ -222,9 +231,9 @@ test('queue gives the plan in order, with the key, the item, why and what each r
 
   const { json } = await hobkin(h.root, 'queue');
 
-  assert.deepEqual(json.map(row => [row.key, row.project, row.item, row.level, row.why, row.waiting]), [
-    [`item:api:${first.id}`, 'api', first.id, 'critical', 'critical, high impact, small', null],
-    [`item:site:${second.id}`, 'site', second.id, 'casual', 'low impact, small', 'paused'],
+  assert.deepEqual(json.map(row => [row.key, row.project, row.item, row.level, row.grade, row.why, row.waiting]), [
+    [`item:api:${first.id}`, 'api', first.id, 'critical', 'P0', 'critical, high impact, small', null],
+    [`item:site:${second.id}`, 'site', second.id, 'casual', 'P3', 'low impact, small', 'paused'],
   ]);
 });
 
@@ -251,30 +260,181 @@ test('items lists every project or one, and --state narrows it', async t => {
   chooseProject(root, '/repos/api', 'important');
   chooseProject(root, '/repos/site', 'casual');
   const login = fileItem(root, 'api', item('Fix login'));
-  updateItem(root, 'api', login.id, { state: 'pr', pr: 'https://example.com/1', max: true });
+  updateItem(root, 'api', login.id, { state: 'pr', pr: 'https://example.com/1', max: true, branch: 'hobkin/login', summary: 'Login works.', proof: 'The test passes.' });
   const broken = fileItem(root, 'site', item('Broken'));
-  updateItem(root, 'site', broken.id, { state: 'stuck', stuckReason: 'No clone.' });
+  updateItem(root, 'site', broken.id, { state: 'branch', branch: 'hobkin/broken', left: 'Rotate the token.', attempts: 2, lastError: 'No clone.' });
 
   const { json } = await hobkin(root, 'items');
 
   assert.deepEqual(json, [
-    { project: 'api', slug: 'api', id: login.id, title: 'Fix login', kind: 'fix', state: 'pr', level: 'max', pr: 'https://example.com/1', stuckReason: null },
-    { project: 'site', slug: 'site', id: broken.id, title: 'Broken', kind: 'fix', state: 'stuck', level: 'casual', pr: null, stuckReason: 'No clone.' },
+    {
+      project: 'api', slug: 'api', id: login.id, title: 'Fix login', kind: 'fix', state: 'pr', grade: 'P0', level: 'max', pr: 'https://example.com/1',
+      branch: 'hobkin/login', summary: 'Login works.', proof: 'The test passes.', left: null, attempts: 0, lastError: null, reason: null,
+    },
+    {
+      project: 'site', slug: 'site', id: broken.id, title: 'Broken', kind: 'fix', state: 'branch', grade: 'P3', level: 'casual', pr: null,
+      branch: 'hobkin/broken', summary: null, proof: null, left: 'Rotate the token.', attempts: 2, lastError: 'No clone.', reason: null,
+    },
   ]);
   assert.deepEqual((await hobkin(root, 'items', 'site')).json.map(({ id }) => id), [broken.id]);
-  assert.deepEqual((await hobkin(root, 'items', '--state', 'stuck')).json.map(({ id }) => id), [broken.id]);
-  assert.deepEqual((await hobkin(root, 'items', 'api', '--state', 'stuck')).json, []);
+  assert.deepEqual((await hobkin(root, 'items', '--state', 'branch')).json.map(({ id }) => id), [broken.id]);
+  assert.deepEqual((await hobkin(root, 'items', 'api', '--state', 'branch')).json, []);
   assert.match((await failure(root, 'items', 'nowhere')).message, /Unknown project: nowhere/);
   assert.match((await failure(root, 'items', '--state', 'lost')).message, /open, doing/);
 });
 
-test('search finds projects and items by name, title, path or stuck reason, in plain text', async t => {
+test('items says why an agent dropped one', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const filed = fileItem(root, 'api', item('Gone already'));
+  updateItem(root, 'api', filed.id, { state: 'dropped', reason: 'The last release fixed it.' });
+
+  const { json: [row] } = await hobkin(root, 'items');
+
+  assert.deepEqual([row.state, row.reason], ['dropped', 'The last release fixed it.']);
+});
+
+test('pr reads a local PR with its description, and an item names that file once there is one', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const filed = fileItem(root, 'api', item('Fix login'));
+  updateItem(root, 'api', filed.id, { state: 'branch', branch: 'hobkin/login', summary: 'Login works.', proof: 'The test passes.', left: 'Deploy it.' });
+  const look = () => hobkin(root, 'pr', 'api', filed.id.slice(0, 4));
+  const row = async () => (await hobkin(root, 'items', 'api')).json[0];
+
+  assert.equal((await look()).json.description, null);
+  assert.equal((await row()).prFile, undefined);
+
+  const file = prFile(root, 'api', filed.id);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, '# Fix login\n\nWhat changed.\n');
+
+  assert.deepEqual((await look()).json, {
+    project: 'api',
+    item: filed.id,
+    title: 'Fix login',
+    state: 'branch',
+    branch: 'hobkin/login',
+    summary: 'Login works.',
+    proof: 'The test passes.',
+    left: 'Deploy it.',
+    description: '# Fix login\n\nWhat changed.\n',
+  });
+  assert.equal((await row()).prFile, file);
+  assert.match((await failure(root, 'pr', 'api')).message, /Say which item/);
+});
+
+test('status lists the local PRs waiting for review on chosen projects, oldest first', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  chooseProject(root, '/repos/site', 'casual');
+  chooseProject(root, '/repos/old', 'casual');
+  const first = fileItem(root, 'api', item('First'));
+  const second = fileItem(root, 'site', item('Second'));
+  const gone = fileItem(root, 'old', item('On a dropped project'));
+  fileItem(root, 'api', item('Still open'));
+  updateItem(root, 'api', first.id, { state: 'branch', branch: 'hobkin/first', summary: 'The first.', left: 'Deploy it.' }, Date.parse('2026-01-01T00:00:00Z'));
+  updateItem(root, 'site', second.id, { state: 'branch', branch: 'hobkin/second' }, Date.parse('2026-01-02T00:00:00Z'));
+  updateItem(root, 'old', gone.id, { state: 'branch', branch: 'hobkin/gone' }, Date.parse('2026-01-03T00:00:00Z'));
+  dropProject(root, 'old');
+
+  const { json } = await hobkin(root);
+
+  assert.deepEqual(json.ready, [
+    { slug: 'api', project: 'api', item: first.id, title: 'First', branch: 'hobkin/first', summary: 'The first.', left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null },
+    { slug: 'site', project: 'site', item: second.id, title: 'Second', branch: 'hobkin/second', summary: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null },
+  ]);
+});
+
+test('status keeps the fifty local PRs that have waited longest', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const day = 86400000;
+  for (let index = 0; index < 51; index++) {
+    const { id } = fileItem(root, 'api', item(`Item ${index}`));
+    updateItem(root, 'api', id, { state: 'branch' }, Date.parse('2026-01-01T00:00:00Z') + index * day);
+  }
+
+  const { json: { ready } } = await hobkin(root);
+
+  assert.equal(ready.length, 50);
+  assert.deepEqual([ready[0].title, ready.at(-1).title], ['Item 0', 'Item 49']);
+});
+
+function localPr(t) {
+  const root = home(t);
+  const checkout = repository(root, 'api');
+  chooseProject(root, checkout, 'important');
+  const { id } = fileItem(root, 'api', item('Fix login'));
+  updateItem(root, 'api', id, { state: 'branch', branch: 'hobkin/login' });
+  return { root, checkout, id };
+}
+
+test('a local PR opens its diff against the default branch, in the project\'s own folder', async t => {
+  const { root, checkout, id } = localPr(t);
+  const opened = [];
+  const followed = [];
+  const panes = { startDiff: async request => { opened.push(request); return { name: request.name, pane: 'w1:p9' }; } };
+
+  const { ok, range } = await openDiff(root, 'api', id, { panes, follow: session => followed.push(session) });
+
+  assert.equal(ok, true);
+  assert.equal(range, 'main...hobkin/login');
+  assert.equal(opened[0].cwd, checkout);
+  assert.equal(opened[0].range, 'main...hobkin/login');
+  assert.deepEqual(followed, [{ name: opened[0].name, pane: 'w1:p9' }], 'something has to close the pane, whatever the user does');
+});
+
+test('each diff gets its own agent, because Herdr refuses a name already taken', async t => {
+  const { root, id } = localPr(t);
+  const names = [];
+  const panes = { startDiff: async ({ name }) => { names.push(name); return { name, pane: 'w1:p9' }; } };
+
+  await openDiff(root, 'api', id, { panes, follow: () => {} });
+  await openDiff(root, 'api', id, { panes, follow: () => {} });
+
+  assert.notEqual(names[0], names[1]);
+  assert.ok(names.every(name => /^[a-z][a-z0-9_-]{0,31}$/.test(name)), names.join());
+});
+
+test('outside Herdr there is no pane to open, so a diff says how to get there by hand', async t => {
+  const { root, checkout, id } = localPr(t);
+
+  const { message } = await openDiff(root, 'api', id, { panes: null });
+
+  assert.match(message, /\/diff main\.\.\.hobkin\/login/);
+  assert.ok(message.includes(checkout.split('/').at(-1)), message);
+});
+
+test('an item with no branch has no diff, and says so', async t => {
+  const root = home(t);
+  chooseProject(root, repository(root, 'api'), 'important');
+  const { id } = fileItem(root, 'api', item('Fix login'));
+
+  await assert.rejects(openDiff(root, 'api', id, { panes: null }), /no branch/);
+});
+
+test('what a run left for the user stays listed on a done item, until the user marks it done', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const { id } = fileItem(root, 'api', item('Publish the release'));
+  updateItem(root, 'api', id, { state: 'done', summary: 'Nothing to change.', left: 'Publish 0.8.18.' });
+
+  assert.deepEqual((await hobkin(root, 'attention')).json.map(({ reason }) => reason), ['Publish 0.8.18.']);
+
+  await success(root, 'done', 'api', id);
+  assert.deepEqual((await hobkin(root, 'attention')).json, []);
+});
+
+test('search finds projects and items by name, path, title, summary, what is left or the last error, in plain text', async t => {
   const root = home(t);
   chooseProject(root, '/repos/billing-api', 'important');
   proposeProject(root, proposal('Website', { path: '/elsewhere/www' }));
   const login = fileItem(root, 'billing-api', item('Fix the Login page'));
   const broken = fileItem(root, 'billing-api', item('Update rack'));
-  updateItem(root, 'billing-api', broken.id, { state: 'stuck', stuckReason: 'The clone is gone.' });
+  updateItem(root, 'billing-api', broken.id, { lastError: 'The clone is gone.' });
+  const tidied = fileItem(root, 'billing-api', item('Tidy up'));
+  updateItem(root, 'billing-api', tidied.id, { summary: 'Removed the dead code.', left: 'Rotate the deploy key.' });
 
   const found = async (...words) => (await hobkin(root, 'search', ...words)).json.map(row => [row.type, row.id ?? row.slug]);
 
@@ -284,62 +444,56 @@ test('search finds projects and items by name, title, path or stuck reason, in p
   assert.deepEqual(await found('login'), [['item', login.id]]);
   assert.deepEqual(await found('page', 'LOGIN'), [['item', login.id]], 'every word, in any order and any case');
   assert.deepEqual(await found('clone'), [['item', broken.id]]);
+  assert.deepEqual(await found('dead', 'code'), [['item', tidied.id]]);
+  assert.deepEqual(await found('deploy', 'key'), [['item', tidied.id]]);
   assert.deepEqual(await found('nothing like this'), []);
   assert.match((await failure(root, 'search')).message, /what to search for/);
 });
 
-test('attention lists what is waiting on the user, and how to answer each', async t => {
+test('attention lists what is left for the user, and how to answer each', async t => {
   const h = owned(t);
   studied(h, 'api');
-  const asked = fileItem(h.root, 'api', item('Rotate the secret', { kind: 'attention' }), h.clock);
-  const broken = fileItem(h.root, 'api', item('Fix login'), h.clock);
-  updateItem(h.root, 'api', broken.id, { state: 'stuck', stuckReason: 'The clone is gone.' }, h.clock);
+  const finished = fileItem(h.root, 'api', item('Rotate the secret', { kind: 'attention' }), h.clock);
+  updateItem(h.root, 'api', finished.id, { state: 'branch', left: 'Paste the new secret in the vault.' }, h.clock);
+  fileItem(h.root, 'api', item('Fix login'), h.clock);
   proposeProject(h.root, proposal('site'));
-  writeMode(h.root, {
-    allowanceRequest: { day: new Date().toDateString(), limit: 100, proposed: 200, reason: 'Paused for today.' },
-    mergeStop: { line: 'Stopped: 30 unmerged and none merged yet.' },
-  });
+  writeMode(h.root, { allowanceRequest: { day: new Date().toDateString(), limit: 100, proposed: 200, reason: 'Paused for today.' } });
 
   const { json } = await hobkin(h.root, 'attention');
 
   assert.deepEqual(json.map(row => [row.kind, row.project, row.item]), [
     ['allowance', null, null],
-    ['unmerged', null, null],
     ['proposal', 'site', null],
-    ['item', 'api', asked.id],
-    ['stuck', 'api', broken.id],
+    ['item', 'api', finished.id],
   ]);
-  assert.equal(json[4].reason, 'The clone is gone.');
-  assert.match(json[2].answer, /choose site/);
-  assert.match(json[4].answer, new RegExp(`retry api ${broken.id}`));
+  assert.match(json[1].answer, /choose site/);
+  assert.equal(json[2].reason, 'Paste the new secret in the vault.');
+  assert.equal(json[2].answer, `hobkin work done api ${finished.id}, once it is sorted`);
 });
 
-test('attention includes what the user paused and agents waiting in their panes', async t => {
+test('attention includes what the user paused', async t => {
   const h = owned(t);
-  studied(h, 'api', 'max');
   studied(h, 'site');
-  fileItem(h.root, 'api', item('Fix login'), h.clock);
-  const release = Promise.withResolvers();
-  let tell;
-  h.director.panes = {
-    run: async ({ onStatus }) => {
-      tell = onStatus;
-      await release.promise;
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
-  };
-  await h.director.tick();
-  while (!tell) await wait(10);
-  tell('blocked');
   await hobkin(h.root, 'pause', 'site');
   await hobkin(h.root, 'pause');
 
   const { json } = await hobkin(h.root, 'attention');
 
-  assert.deepEqual(json.map(row => [row.kind, row.project]), [['pause', null], ['pause', 'site'], ['approval', 'api']]);
-  assert.match(json[2].answer, /work-do-api/);
-  release.resolve();
-  await h.settled();
+  assert.deepEqual(json.map(row => [row.kind, row.project]), [['pause', null], ['pause', 'site']]);
+});
+
+test('what was left stops asking for the user once its item is merged or dropped', async t => {
+  const h = owned(t);
+  studied(h, 'api');
+  for (const state of ['branch', 'pr', 'merged', 'done', 'dropped']) {
+    const filed = fileItem(h.root, 'api', item(state), h.clock);
+    updateItem(h.root, 'api', filed.id, { state, left: `Still ${state}.` }, h.clock);
+  }
+
+  const { json } = await hobkin(h.root, 'attention');
+
+  assert.deepEqual(json.map(({ reason }) => reason), ['Still branch.', 'Still pr.', 'Still done.']);
+  assert.equal((await hobkin(h.root, 'projects')).json[0].left, 3, 'the project counts the same ones');
 });
 
 // Controls.
@@ -422,52 +576,20 @@ test('pause for one project holds that project alone until it resumes', async t 
   assert.equal(readProject(h.root, 'api').paused, false);
 });
 
-test('resume keeps going after an unmerged stop, and only when one is there to clear', async t => {
+test('resume with nothing paused says so', async t => {
   const h = owned(t);
-  writeMode(h.root, { mergeStop: { at: 'then', line: 'Stopped: 30 unmerged.' } });
 
-  await success(h.root, 'resume');
-
-  const { mergeStop, keptGoingAt } = readMode(h.root);
-  assert.equal(mergeStop, null);
-  assert.ok(keptGoingAt);
-
-  await success(h.root, 'resume');
-  assert.equal(readMode(h.root).keptGoingAt, keptGoingAt, 'an idle resume does not restart the unmerged count');
+  assert.match((await success(h.root, 'resume')).message, /Nothing was paused/);
 });
 
-test('resume keeps going when one project is at its own unmerged limit, because that is a stop too', async t => {
-  const h = owned(t);
-  studied(h, 'api');
-  const open = Array.from({ length: 6 }, (_, index) => ({ kind: 'branch', branch: `hobkin/${index}`, openedAt: '2026-01-01T00:00:00.000Z' }));
-  writeJson(join(h.root, 'work', 'unmerged.json'), { at: new Date(h.clock).toISOString(), projects: { api: { open } } });
-
-  await success(h.root, 'resume');
-
-  assert.ok(readMode(h.root).keptGoingAt);
-});
-
-test('resume says which pause it cannot end, and leaves the unmerged count alone', async t => {
+test('resume says which pause it cannot end', async t => {
   const h = owned(t);
   writeMode(h.root, { dailyTokens: 1000 });
   recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 2000 }, h.clock);
 
   const { message } = await success(h.root, 'resume');
 
-  assert.match(message, /Paused for today/);
-  assert.equal(readMode(h.root).keptGoingAt, undefined);
-});
-
-test('resume ends a pause first, so ending one never clears an unmerged stop', async t => {
-  const h = owned(t);
-  writeMode(h.root, { pausedAt: 'then', mergeStop: { at: 'then', line: 'Stopped: 30 unmerged.' } });
-
-  const { message } = await success(h.root, 'resume');
-
-  assert.match(message, /Stopped: 30 unmerged/);
-  assert.equal(readMode(h.root).pausedAt, null);
-  assert.ok(readMode(h.root).mergeStop);
-  assert.equal(readMode(h.root).keptGoingAt, undefined);
+  assert.match(message, /resume does not end this pause. Paused for today/);
 });
 
 test('add project takes a real repository by hand, at the level given', async t => {
@@ -597,7 +719,7 @@ test('trigger with nothing named takes the project\'s own next thing', async t =
   assert.equal((await success(h.root, 'trigger', 'api')).key, `item:api:${filed.id}`);
   assert.equal((await success(h.root, 'trigger', 'site')).key, 'look:site', 'a look, when nothing else is there');
   assert.equal((await success(h.root, 'trigger', 'unread')).key, 'study:unread');
-  assert.equal((await success(h.root, 'trigger', 'unread', 'look')).key, 'study:unread', 'nothing runs before its study');
+  assert.equal((await success(h.root, 'trigger', 'unread', 'look')).key, 'study:unread', 'a look comes after its study');
 });
 
 test('trigger stays inside the worker ceiling, and says what it waits on', async t => {
@@ -619,7 +741,7 @@ test('trigger stays inside the worker ceiling, and says what it waits on', async
 
   h.agent = finishes(h);
   await hobkin(h.root, 'cancel', 'api');
-  await h.tick();
+  await h.ticks(2);
   assert.deepEqual(startedProjects(h), ['api', 'site'], 'it goes once a worker is free');
 });
 
@@ -636,8 +758,8 @@ test('trigger stays inside the budget and the stops', async t => {
   assert.match(message, /Paused for today/);
   assert.deepEqual(h.calls, []);
 
-  writeMode(h.root, { dailyTokens: 100000000, mergeStop: { at: 'then', line: 'Stopped: 30 unmerged.' } });
-  assert.match((await success(h.root, 'trigger', 'api', filed.id)).message, /Stopped: 30 unmerged/);
+  writeMode(h.root, { dailyTokens: 100000000, pausedAt: new Date(h.clock).toISOString() });
+  assert.match((await success(h.root, 'trigger', 'api', filed.id)).message, /Paused by hand/);
   await h.tick();
   assert.deepEqual(h.calls, []);
 });
@@ -648,29 +770,55 @@ test('trigger says when work mode is off or nothing is open to run it', async t 
   const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
 
   rmSync(join(h.root, 'runtime.lock'), { recursive: true });
-  assert.match((await success(h.root, 'trigger', 'api', filed.id)).message, /dashboard or hobkin run/);
+  assert.match((await success(h.root, 'trigger', 'api', filed.id)).message, /until the dashboard is open/);
 
   writeMode(h.root, { enabled: false });
   assert.match((await success(h.root, 'trigger', 'api', filed.id)).message, /work start/);
+});
+
+test('trigger runs an attention item, and one an older version left stuck', async t => {
+  const h = owned(t);
+  studied(h, 'api');
+  const asked = fileItem(h.root, 'api', item('Rotate the secret', { kind: 'attention' }), h.clock);
+  const stuck = fileItem(h.root, 'api', item('Stuck one'), h.clock);
+  updateItem(h.root, 'api', stuck.id, { state: 'stuck', stuckReason: 'The clone is gone.' }, h.clock);
+
+  await success(h.root, 'trigger', 'api', asked.id);
+  await success(h.root, 'trigger', 'api', stuck.id);
+
+  assert.deepEqual(readMode(h.root).queueNext, [`item:api:${asked.id}`, `item:api:${stuck.id}`]);
+});
+
+test('trigger sends a finished branch back to open and runs it next, on that branch', async t => {
+  const h = owned(t);
+  const checkout = studied(h, 'api');
+  git(checkout, 'branch', 'hobkin/finished');
+  const finished = fileItem(h.root, 'api', item('Finished'), h.clock);
+  updateItem(h.root, 'api', finished.id, { state: 'branch', branch: 'hobkin/finished', attempts: 2 }, h.clock);
+
+  const { key, message } = await success(h.root, 'trigger', 'api', finished.id);
+
+  assert.equal(key, `item:api:${finished.id}`);
+  assert.match(message, /starts on the next tick/);
+  assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['open', 2]]);
+
+  await h.tick();
+
+  assert.equal(h.work(h.calls[0]).item.branch, 'hobkin/finished');
 });
 
 test('trigger refuses what cannot run', async t => {
   const h = owned(t);
   studied(h, 'api');
   proposeProject(h.root, proposal('site'));
-  const stuck = fileItem(h.root, 'api', item('Stuck one'), h.clock);
-  updateItem(h.root, 'api', stuck.id, { state: 'stuck', stuckReason: 'The clone is gone.' }, h.clock);
   const shipped = fileItem(h.root, 'api', item('Shipped'), h.clock);
   updateItem(h.root, 'api', shipped.id, { state: 'pr', pr: 'https://example.com/1' }, h.clock);
-  const askedOfTheUser = fileItem(h.root, 'api', item('Rotate the secret', { kind: 'attention' }), h.clock);
   const running = fileItem(h.root, 'api', item('Running'), h.clock);
   h.agent = untilAborted;
   await h.startedRun();
 
   assert.match((await failure(h.root, 'trigger', 'site')).message, /site is proposed/);
-  assert.match((await failure(h.root, 'trigger', 'api', stuck.id)).message, /retry/);
   assert.match((await failure(h.root, 'trigger', 'api', shipped.id)).message, /is pr/);
-  assert.match((await failure(h.root, 'trigger', 'api', askedOfTheUser.id)).message, /waiting on the user/);
   assert.match((await failure(h.root, 'trigger', 'api', running.id)).message, /already running/);
   assert.match((await failure(h.root, 'trigger', 'api', 'nothing')).message, /Unknown item/);
   assert.match((await failure(h.root, 'trigger')).message, /Say which project/);
@@ -691,18 +839,25 @@ test('cancel leaves a request, and the owner stops the run on its next tick the 
   const { message, runs } = await success(h.root, 'cancel', 'api');
 
   assert.match(message, /requested/i);
+  assert.match(message, /end of the queue until hobkin work back/);
   assert.deepEqual(runs, [id]);
   assert.equal(h.director.running().length, 1, 'a command only asks, and the owner does it');
 
   await h.tick();
 
+  const key = `item:api:${filed.id}`;
   assert.equal(h.director.running().length, 0);
-  assert.deepEqual(readItems(h.root, 'api').map(({ state, stuckReason }) => [state, stuckReason]), [['stuck', 'Cancelled by hand.']]);
+  assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['open']);
+  assert.deepEqual(readMode(h.root).queueSkipped, [key]);
   assert.deepEqual((await hobkin(h.root, 'running')).json, []);
 
   await h.ticks(2);
-  assert.equal(h.calls.length, 1, 'a cancelled item waits, and the request is spent');
-  await success(h.root, 'retry', 'api', filed.id);
+  assert.equal(h.calls.length, 1, 'a cancelled item stays at the end of the queue, and the request is spent');
+
+  h.agent = finishes(h);
+  await success(h.root, 'back', 'api', filed.id);
+  await h.tick();
+  assert.equal(h.calls.length, 2);
 });
 
 test('cancel reaches a run by its id or its item, and leaves the others alone', async t => {
@@ -735,7 +890,7 @@ test('cancel reaches a run by its id or its item, and leaves the others alone', 
 test('cancel stops everything on a project, look and item alike', async t => {
   const h = owned(t);
   studied(h, 'api');
-  fileItem(h.root, 'api', item('Fix login', { effort: 'large' }), h.clock);
+  fileItem(h.root, 'api', item('Fix login', { impact: 'low', effort: 'large' }), h.clock);
   writeState(h.root, 'api', { lastLensAt: null });
   writeMode(h.root, { agents: 2 });
   h.agent = untilAborted;
@@ -777,7 +932,7 @@ test('cancel keeps working after work mode goes off, because agents keep running
   await h.tick();
 
   assert.deepEqual(h.director.running(), []);
-  assert.equal(readItems(h.root, 'api')[0].state, 'stuck');
+  assert.deepEqual(readMode(h.root).queueSkipped, [`item:api:${readItems(h.root, 'api')[0].id}`]);
 });
 
 test('cancel says so when there is nothing to stop', async t => {
@@ -789,7 +944,7 @@ test('cancel says so when there is nothing to stop', async t => {
   assert.match((await failure(h.root, 'cancel')).message, /Say what to cancel/);
 
   rmSync(join(h.root, 'runtime.lock'), { recursive: true });
-  assert.match((await failure(h.root, 'cancel', 'api')).message, /dashboard or hobkin run/);
+  assert.match((await failure(h.root, 'cancel', 'api')).message, /no dashboard is open/);
   assert.equal(existsSync(join(h.root, 'work', 'cancels.jsonl')), false);
 });
 
@@ -851,21 +1006,64 @@ test('the old queue names still work, keys and all', async t => {
   assert.deepEqual(readMode(h.root).queueNext, ['discover']);
 });
 
-test('retry puts a stuck item back at the front, by the start of its id, and refuses anything else', async t => {
+test('retry puts an open, started or old stuck item at the front with its tries at zero, by the start of its id', async t => {
   const h = owned(t);
   studied(h, 'api');
+  const tried = fileItem(h.root, 'api', item('Tried'), h.clock);
+  updateItem(h.root, 'api', tried.id, { attempts: 4, lastError: 'The tests would not start.' }, h.clock);
   const stuck = fileItem(h.root, 'api', item('Stuck one'), h.clock);
   updateItem(h.root, 'api', stuck.id, { state: 'stuck', stuckReason: 'The clone is gone.', attempts: 2 }, h.clock);
+  const started = fileItem(h.root, 'api', item('Started'), h.clock);
+  updateItem(h.root, 'api', started.id, { state: 'doing', branch: 'hobkin/started', attempts: 1 }, h.clock);
+
+  for (const { id } of [tried, stuck, started]) await success(h.root, 'retry', 'api', id.slice(0, 4));
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ title, state, attempts, lastError }) => [title, state, attempts, lastError]), [
+    ['Tried', 'open', 0, null],
+    ['Stuck one', 'open', 0, null],
+    ['Started', 'doing', 0, null],
+  ]);
+  assert.deepEqual(readMode(h.root).queueNext, [tried, stuck, started].map(({ id }) => `item:api:${id}`));
+});
+
+test('retry sends a finished branch back to open, with the branch kept', async t => {
+  const h = owned(t);
+  studied(h, 'api');
+  const finished = fileItem(h.root, 'api', item('Finished'), h.clock);
+  updateItem(h.root, 'api', finished.id, { state: 'branch', branch: 'hobkin/finished', attempts: 2 }, h.clock);
+
+  await success(h.root, 'retry', 'api', finished.id);
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ state, branch, attempts }) => [state, branch, attempts]), [['open', 'hobkin/finished', 0]]);
+  assert.deepEqual(readMode(h.root).queueNext, [`item:api:${finished.id}`]);
+});
+
+test('retry takes a cancelled item off the end of the queue', async t => {
+  const h = owned(t);
+  studied(h, 'api');
+  const filed = fileItem(h.root, 'api', item('Cancelled'), h.clock);
+  await success(h.root, 'skip', 'api', filed.id);
+
+  await success(h.root, 'retry', 'api', filed.id);
+
+  assert.deepEqual([readMode(h.root).queueNext, readMode(h.root).queueSkipped], [[`item:api:${filed.id}`], []]);
+});
+
+test('retry refuses what is finished, and what is running now', async t => {
+  const h = owned(t);
+  studied(h, 'api');
   const shipped = fileItem(h.root, 'api', item('Shipped'), h.clock);
   updateItem(h.root, 'api', shipped.id, { state: 'pr', pr: 'https://example.com/1' }, h.clock);
+  const running = fileItem(h.root, 'api', item('Running'), h.clock);
+  h.agent = untilAborted;
+  await h.startedRun();
 
-  await success(h.root, 'retry', 'api', stuck.id.slice(0, 4));
-
-  const [retried] = readItems(h.root, 'api');
-  assert.deepEqual([retried.state, retried.attempts, retried.stuckReason], ['open', 0, null]);
-  assert.deepEqual(readMode(h.root).queueNext, [`item:api:${stuck.id}`]);
   assert.match((await failure(h.root, 'retry', 'api', shipped.id)).message, /is pr/);
-  assert.equal(readItems(h.root, 'api')[1].state, 'pr', 'nothing reopens a PR behind the user\'s back');
+  assert.equal(readItems(h.root, 'api')[0].state, 'pr', 'nothing reopens a PR behind the user\'s back');
+  assert.match((await failure(h.root, 'retry', 'api', running.id)).message, /already running/);
+
+  await hobkin(h.root, 'cancel', 'api');
+  await h.tick();
 });
 
 test('level changes a level and nothing else, so it never takes a proposal or wakes a skipped project', async t => {
@@ -890,6 +1088,97 @@ test('level changes a level and nothing else, so it never takes a proposal or wa
   assert.match((await failure(root, 'level', 'api')).message, /level must be one of/);
 });
 
+test('priority sets a project\'s place in the queue, and prs how its finished work lands', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'casual');
+
+  assert.match((await success(root, 'priority', 'api', 'P0')).message, /api is now P0/);
+  assert.match((await success(root, 'prs', 'api', 'draft')).message, /draft PR/);
+
+  assert.deepEqual((await hobkin(root, 'projects')).json.map(({ priority, prMode, level }) => [priority, prMode, level]), [['P0', 'draft', 'casual']]);
+  assert.deepEqual((await hobkin(root)).json.projects.map(({ priority, prMode }) => [priority, prMode]), [['P0', 'draft']]);
+  assert.match((await success(root, 'prs', 'api', 'off')).message, /local branch/);
+  assert.match((await failure(root, 'priority', 'api', 'urgent')).message, /priority must be one of: P0, P1, P2, P3/);
+  assert.match((await failure(root, 'priority', 'api')).message, /priority must be one of/);
+  assert.match((await failure(root, 'prs', 'api', 'loud')).message, /PR mode must be one of: off, draft, published/);
+});
+
+test('status gives each project its priority, its PR mode and its counts, and every plan row its grade and item', async t => {
+  const root = home(t);
+  writeMode(root, { enabled: true });
+  chooseProject(root, '/repos/api', 'important');
+  const filed = fileItem(root, 'api', item('Fix login'));
+
+  const { json: { projects: [project], plan } } = await hobkin(root);
+
+  assert.deepEqual([project.priority, project.prMode, project.open, project.prs, project.branches, project.left], ['P1', 'off', 1, 0, 0, 0]);
+  assert.deepEqual(plan.map(({ key, grade, item: id }) => [key, grade, id]), [['study:api', 'P1', null], [`item:api:${filed.id}`, 'P1', filed.id]]);
+});
+
+test('grade sets an item\'s place by hand, and auto hands it back to the queue', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const filed = fileItem(root, 'api', item('Fix login'));
+  const gradeInTheQueue = async () => (await hobkin(root, 'queue')).json.find(row => row.item === filed.id).grade;
+  assert.equal(await gradeInTheQueue(), 'P1');
+
+  assert.match((await success(root, 'grade', 'api', filed.id.slice(0, 4), 'P3')).message, /is now P3/);
+  assert.equal(await gradeInTheQueue(), 'P3');
+  assert.equal((await hobkin(root, 'items', 'api')).json[0].grade, 'P3');
+
+  assert.match((await success(root, 'grade', 'api', filed.id, 'auto')).message, /P1, the grade the queue gives it/);
+  assert.equal(await gradeInTheQueue(), 'P1');
+  assert.match((await failure(root, 'grade', 'api', filed.id, 'P9')).message, /grade must be one of/);
+  assert.match((await failure(root, 'grade', 'api', filed.id)).message, /P0 to P3, or auto/);
+});
+
+/** A command runs with nothing to hand it a `gh`, so a stand-in goes first on the path. */
+function fakeGh(t, h, pulls) {
+  const bin = join(h.base, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(h.base, 'pulls.json'), JSON.stringify(pulls));
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh\ncat '${join(h.base, 'pulls.json')}'\n`, { mode: 0o755 });
+  const { PATH } = process.env;
+  process.env.PATH = `${bin}:${PATH}`;
+  t.after(() => { process.env.PATH = PATH; });
+}
+
+test('sync closes what was merged, says so and lists it, and changes nothing in the repository', async t => {
+  const h = owned(t);
+  fakeGh(t, h, []);
+  const checkout = studied(h, 'api');
+  const merged = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  branched(checkout, 'hobkin/login');
+  updateItem(h.root, 'api', merged.id, { state: 'branch', branch: 'hobkin/login' }, h.clock);
+  git(checkout, 'merge', '-q', '--no-ff', '--no-edit', 'hobkin/login');
+  const before = git(checkout, 'for-each-ref');
+
+  const { message, settled } = await success(h.root, 'sync');
+
+  assert.match(message, /1 merged\.$/);
+  assert.deepEqual(settled, [{ slug: 'api', id: merged.id, title: 'Fix login', state: 'merged' }]);
+  assert.equal(readItems(h.root, 'api')[0].state, 'merged');
+  assert.equal(git(checkout, 'for-each-ref'), before);
+
+  assert.match((await success(h.root, 'sync')).message, /Nothing was merged or closed/);
+});
+
+test('sync says when a closed PR sent an item back to its local branch', async t => {
+  const h = owned(t);
+  const pr = 'https://example.com/pull/1';
+  fakeGh(t, h, [{ number: 1, title: 'Fix login', url: pr, state: 'CLOSED', headRefName: 'hobkin/login', createdAt: '2026-05-20T00:00:00Z', mergedAt: null }]);
+  const checkout = studied(h, 'api');
+  const closed = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  branched(checkout, 'hobkin/login');
+  updateItem(h.root, 'api', closed.id, { state: 'pr', pr, branch: 'hobkin/login' }, h.clock);
+
+  const { message, settled } = await success(h.root, 'sync');
+
+  assert.match(message, /1 back to a local branch, because a PR was closed/);
+  assert.deepEqual(settled, [{ slug: 'api', id: closed.id, title: 'Fix login', state: 'branch' }]);
+  assert.equal(readItems(h.root, 'api')[0].state, 'branch');
+});
+
 test('drop stops work on a project and keeps its items', async t => {
   const h = owned(t);
   studied(h, 'api');
@@ -906,14 +1195,16 @@ test('drop stops work on a project and keeps its items', async t => {
 test('done closes an item by the start of its id, and refuses one still running', async t => {
   const h = owned(t);
   studied(h, 'api');
-  const asked = fileItem(h.root, 'api', item('Rotate the secret', { kind: 'attention' }), h.clock);
+  const finished = fileItem(h.root, 'api', item('Rotate the secret', { kind: 'attention' }), h.clock);
+  updateItem(h.root, 'api', finished.id, { state: 'branch', left: 'Paste the new secret in the vault.' }, h.clock);
   const running = fileItem(h.root, 'api', item('Fix login'), h.clock);
   h.agent = untilAborted;
   await h.startedRun();
 
-  await success(h.root, 'done', 'api', asked.id.slice(0, 4));
+  await success(h.root, 'done', 'api', finished.id.slice(0, 4));
 
-  assert.equal(readItems(h.root, 'api')[0].state, 'done');
+  assert.deepEqual([readItems(h.root, 'api')[0].state, readItems(h.root, 'api')[0].left], ['done', null]);
+  assert.deepEqual((await hobkin(h.root, 'attention')).json, [], 'nothing is left for the user once it is sorted');
   assert.match((await failure(h.root, 'done', 'api', running.id)).message, /running/);
   assert.match((await failure(h.root, 'drop', 'api', running.id)).message, /running/);
   assert.match((await failure(h.root, 'done', 'api')).message, /Say which item/);
@@ -930,13 +1221,12 @@ test('the settings print ok and a message too, and only auto with no word is a r
   await success(root, 'harness', 'claude');
   await success(root, 'agents', '3');
   await success(root, 'tokens', '250000');
-  await success(root, 'unmerged', '12');
   await success(root, 'auto', 'off');
   await success(root, 'allow', 'no');
   await success(root, 'allow', '5000000');
 
   const mode = readMode(root);
-  assert.deepEqual([mode.harness, mode.agents, mode.dailyTokens, mode.unmergedLimit, mode.autoPick, mode.raisedTo], ['claude', 3, 250000, 12, false, 5000000]);
+  assert.deepEqual([mode.harness, mode.agents, mode.dailyTokens, mode.autoPick, mode.raisedTo], ['claude', 3, 250000, false, 5000000]);
   assert.deepEqual((await hobkin(root, 'auto')).json, { autoPick: false });
   assert.match((await failure(root, 'allow')).message, /Nothing is waiting/);
   assert.match((await failure(root, 'harness', 'emacs')).message, /harness must be one of/);
@@ -1002,9 +1292,9 @@ test('a name two projects share fails, lists them and changes nothing, and the s
   const before = readProjects(root);
 
   for (const args of [
-    ['level', 'api', 'critical'], ['drop', 'api'], ['skip', 'api'], ['pause', 'api'], ['resume', 'api'], ['trigger', 'api'], ['retry', 'api', 'abc'],
-    ['done', 'api', 'abc'], ['max', 'api', 'abc'], ['add', 'project', 'api'], ['add', 'item', 'api', 'Fix'], ['choose', 'api'], ['items', 'api'],
-    ['cancel', 'api'],
+    ['level', 'api', 'critical'], ['priority', 'api', 'P1'], ['prs', 'api', 'draft'], ['drop', 'api'], ['skip', 'api'], ['pause', 'api'], ['resume', 'api'], ['trigger', 'api'],
+    ['retry', 'api', 'abc'], ['done', 'api', 'abc'], ['max', 'api', 'abc'], ['grade', 'api', 'abc', 'P1'], ['pr', 'api', 'abc'], ['add', 'project', 'api'],
+    ['add', 'item', 'api', 'Fix'], ['choose', 'api'], ['items', 'api'], ['cancel', 'api'],
   ]) {
     const { message, matches } = await failure(root, ...args);
     assert.match(message, /api-one/, args.join(' '));
@@ -1056,10 +1346,15 @@ test('an unknown name fails and changes nothing', async t => {
   const root = home(t);
   chooseProject(root, '/repos/api', 'casual');
 
-  for (const args of [['level', 'nowhere', 'critical'], ['drop', 'nowhere'], ['skip', 'nowhere'], ['pause', 'nowhere'], ['resume', 'nowhere'], ['trigger', 'nowhere'], ['add', 'item', 'nowhere', 'Fix'], ['choose', 'nowhere']]) {
+  for (const args of [
+    ['level', 'nowhere', 'critical'], ['priority', 'nowhere', 'P1'], ['prs', 'nowhere', 'draft'], ['grade', 'nowhere', 'abc', 'P1'], ['pr', 'nowhere', 'abc'], ['drop', 'nowhere'],
+    ['skip', 'nowhere'], ['pause', 'nowhere'], ['resume', 'nowhere'], ['trigger', 'nowhere'], ['add', 'item', 'nowhere', 'Fix'], ['choose', 'nowhere'],
+  ]) {
     assert.match((await failure(root, ...args)).message, /Unknown project: nowhere/, args.join(' '));
   }
-  for (const args of [['retry', 'api', 'zzz'], ['done', 'api', 'zzz'], ['drop', 'api', 'zzz'], ['max', 'api', 'zzz'], ['skip', 'api', 'zzz'], ['trigger', 'api', 'zzz']]) {
+  for (const args of [
+    ['retry', 'api', 'zzz'], ['done', 'api', 'zzz'], ['drop', 'api', 'zzz'], ['max', 'api', 'zzz'], ['grade', 'api', 'zzz', 'P1'], ['pr', 'api', 'zzz'], ['skip', 'api', 'zzz'], ['trigger', 'api', 'zzz'],
+  ]) {
     assert.match((await failure(root, ...args)).message, /Unknown item: zzz/, args.join(' '));
   }
   assert.deepEqual(readProjects(root).map(({ state }) => state), ['chosen']);

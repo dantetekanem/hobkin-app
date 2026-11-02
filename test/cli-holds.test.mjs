@@ -346,7 +346,8 @@ test('a message that lands while Hobkin reads the runs still wins, and the plan 
 
 test('a hold that came while Hobkin was closed is explained on the next start, and not again after that', async t => {
   const h = home(t);
-  let app = await h.open({ watched: false });
+  let app = await h.open();
+  app.canStartHoldTurn = () => false;
   await held(app);
   await app.close();
 
@@ -429,18 +430,6 @@ test('a retry that fails is the same hold, and only a new hold asks again', asyn
 
   assert.equal(control(h, app).calls, 2);
   assert.deepEqual((await holdTurns(app)).map(({ id }) => id).sort(), ['hold:second:1', 'hold:still:1']);
-});
-
-test('without a dashboard nobody can answer, so the hold waits for one', async t => {
-  const h = home(t);
-  const app = await h.open({ watched: false });
-  t.after(() => app.close());
-
-  await held(app);
-  await step(app);
-
-  assert.equal(control(h, app).calls, undefined);
-  assert.deepEqual(await holdTurns(app), []);
 });
 
 test('under a launcher the plan is an ordinary turn of the RPC child, and stays out of Chat the same way', async t => {

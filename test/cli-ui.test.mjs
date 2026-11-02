@@ -327,7 +327,7 @@ test('Tab on a bare slash walks every command and comes back round', () => {
 
   ui.input('/');
 
-  assert.deepEqual(Array.from({ length: 7 }, tab), ['/help', '/clear', '/reset', '/work', '/jev', '/learning', '/help']);
+  assert.deepEqual(Array.from({ length: 8 }, tab), ['/help', '/setup', '/clear', '/reset', '/work', '/jev', '/learning', '/help']);
 });
 
 test('Ctrl+C clears what is typed and does not quit', () => {
@@ -637,7 +637,7 @@ test('the face follows the work: thinking on a turn, working while a check or wo
   ui.update({ ...live, runs: [running] });
   assert.equal(ui.state().mood, 'working');
 
-  ui.update({ ...live, work: { enabled: true, discovering: true, projects: [], attention: [] } });
+  ui.update({ ...live, work: { enabled: true, discovering: true, projects: [] } });
   assert.equal(ui.state().mood, 'working');
 
   ui.update(live);
@@ -974,22 +974,28 @@ test('fullscreen dashboard follows the saved Pi theme and switches live when the
   const piDark = new URL('modes/interactive/theme/dark.json', import.meta.resolve('@earendil-works/pi-coding-agent'));
   const base = JSON.parse(readFileSync(piDark, 'utf8'));
   const saveTheme = (name, accent) => writeFileSync(join(agentDir, 'themes', `${name}.json`),
-    JSON.stringify({ ...base, name, colors: { ...base.colors, accent } }));
+    JSON.stringify({ ...base, name, colors: { ...base.colors, accent, mdHeading: accent } }));
   const chooseTheme = name => writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ theme: name }));
   const brandRow = () => ui.render(120, 40)[0];
+  const authorRow = () => ui.render(120, 40).find(value => value.includes('◆ Hobkin'));
   mkdirSync(join(agentDir, 'themes'));
   saveTheme('ocean', '#0a84ff');
   saveTheme('ember', '#ff6a00');
   chooseTheme('ocean');
 
-  ui = startDashboard(snapshot, {}, { terminal, theme: { cwd: agentDir } });
+  const messages = [{ id: 'one', role: 'assistant', content: 'Hello' }];
+  ui = startDashboard({ ...snapshot, messages }, {}, { terminal, theme: { cwd: agentDir } });
   assert.match(brandRow(), /\x1b\[38;2;10;132;255m◆/);
+  assert.match(authorRow(), /\x1b\[38;2;10;132;255m/);
 
+  // macOS can drop a write made in the same moment a file watch starts.
+  await new Promise(resolve => setTimeout(resolve, 50));
   chooseTheme('ember');
   for (const deadline = Date.now() + 3000; !brandRow().includes('\x1b[38;2;255;106;0m◆') && Date.now() < deadline;) {
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   assert.match(brandRow(), /\x1b\[38;2;255;106;0m◆/);
+  assert.match(authorRow(), /\x1b\[38;2;255;106;0m/, 'a message does not keep the rows of the old theme');
 
   ui.stop();
   assert.match(createDashboard(snapshot).render(120, 40)[0], /\x1b\[38;2;255;121;198m◆/);
@@ -1032,6 +1038,89 @@ test('selectable questions preserve drafts, require confirmation, and cancel on 
   const pending = ui.askQuestion(request);
   ui.stop();
   assert.equal(await pending, null);
+});
+
+const UP = '\x1b[A';
+const DOWN = '\x1b[B';
+const ESCAPE = '\x1b';
+const abc = { question: 'Which one?', other: true, choices: [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Bravo' }, { value: 'c', label: 'Charlie' }] };
+const typing = (ui, text) => { for (const letter of text) ui.input(letter); };
+
+test('Other takes a typed answer, Enter waits for one, and moving away keeps it', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askQuestion(abc);
+  assert.match(screen(ui, 80, 24), /Other/);
+
+  ui.input(UP);
+  ui.input('\r');
+  assert.equal(ui.state().focus, 'question', 'an empty Other is not an answer');
+
+  typing(ui, 'neither');
+  ui.input(DOWN);
+  ui.input(UP);
+  assert.match(screen(ui, 80, 24), /> neither/);
+
+  ui.input('\r');
+  assert.deepEqual(await answer, { typed: 'neither' });
+  assert.equal(ui.state().focus, 'composer');
+  ui.stop();
+});
+
+test('what the user was typing as a question opened never becomes an answer', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askQuestion(abc);
+
+  typing(ui, 'half a thought');
+  ui.input(UP);
+  assert.doesNotMatch(screen(ui, 80, 24), /half a thought/);
+
+  ui.input(DOWN);
+  ui.input('\r');
+  assert.equal(await answer, 'a');
+  ui.stop();
+});
+
+test('Esc chooses none, even with an answer half typed', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askQuestion(abc);
+  ui.input(UP);
+  typing(ui, 'nei');
+
+  ui.input(ESCAPE);
+
+  assert.equal(await answer, null);
+  ui.stop();
+});
+
+test('a question that did not ask for Other stays a closed list', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askQuestion({ ...abc, other: false });
+
+  assert.doesNotMatch(screen(ui, 80, 24), /Other/);
+
+  ui.input(UP);
+  ui.input('\r');
+  assert.equal(await answer, 'c');
+  ui.stop();
+});
+
+test('every choice shows at once when the terminal has room, and a small one still fits', async () => {
+  const ui = createDashboard(snapshot);
+  const labels = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'];
+  const answer = ui.askQuestion({ question: 'Which?', other: true, choices: labels.map(label => ({ value: label, label })) });
+
+  for (const [width, height] of [[120, 40], [80, 24]]) {
+    const shown = screen(ui, width, height);
+    for (const label of [...labels, 'Other']) assert.match(shown, new RegExp(`\\b${label}\\b`), `${label} at ${width}x${height}`);
+  }
+
+  const lines = ui.render(60, 18);
+  assert.ok(lines.length <= 18);
+  assert.ok(lines.every(line => visibleWidth(line) <= 60));
+
+  ui.input(ESCAPE);
+  await answer;
+  ui.stop();
 });
 
 test('footer questions retain the main view and scroll while paging long text independently', async () => {
@@ -1746,6 +1835,32 @@ test('a report reference survives a failed send and Escape drops it, keeping the
   ui.stop();
 });
 
+test('r in a report replies the way m does, and the footer says so', async () => {
+  const sent = [];
+  const ui = createDashboard({ ...snapshot, connection: 'connected' }, {
+    send: async (text, report) => { sent.push([text, report?.id]); },
+  });
+  ui.input('\x1b[C');
+  ui.input('\r');
+  assert.match(screen(ui, 120, 40), /r m\s+reply/);
+
+  ui.input('r');
+
+  assert.equal(ui.state().view, 'conversation');
+  assert.equal(ui.state().focus, 'composer');
+  assert.equal(ui.state().draft, '', 'the key opens the reply, it is not part of it');
+  ui.stop();
+});
+
+test('r is an ordinary letter outside a report', () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connected' });
+
+  ui.input('r');
+
+  assert.equal(ui.state().draft, 'r');
+  ui.stop();
+});
+
 test('m means message only inside a report', () => {
   const ui = createDashboard({ ...snapshot, connection: 'connected' });
 
@@ -1826,25 +1941,48 @@ test('tips come and go on the clock, and mention checks that go unread', () => {
   ui.stop();
 });
 
-test('the footer names Jev beside the memory size only while it is on', () => {
-  const nextCheckRow = ui => screen(ui, 120, 40).split('\n').find(row => row.includes('next check'));
-  const ui = createDashboard({ ...snapshot, memoryBytes: 2436, jev: true });
+test('/setup asks the agent to walk through setting up, the same way a typed message would', async () => {
+  const sent = [];
+  const ui = createDashboard({ ...snapshot, connection: 'connected' }, { send: async text => { sent.push(text); } });
 
-  assert.match(nextCheckRow(ui), /jev · memory 2\.4kb/);
+  ui.input('/setup');
+  ui.input('\r');
+  await ui.pending();
 
-  ui.update({ ...snapshot, memoryBytes: 2436, jev: false });
-  assert.doesNotMatch(nextCheckRow(ui), /jev/);
+  assert.deepEqual(sent, ['Help me set up Hobkin.']);
+  assert.equal(ui.state().draft, '');
   ui.stop();
 });
 
-test('the footer names learning beside Jev only while it is on', () => {
-  const nextCheckRow = ui => screen(ui, 120, 40).split('\n').find(row => row.includes('next check'));
-  const ui = createDashboard({ ...snapshot, memoryBytes: 2436, jev: true, learning: true });
+test('a new person is pointed at /setup until they have a schedule', () => {
+  const ui = createDashboard({ ...snapshot, reports: [], schedules: [] });
+  assert.match(stripTerminalSequences(ui.render(120, 40).join('\n')), /New here\? Type \/setup/);
 
-  assert.match(nextCheckRow(ui), /jev · learning · memory 2\.4kb/);
+  ui.update({ ...snapshot, reports: [] });
+  assert.doesNotMatch(stripTerminalSequences(ui.render(120, 40).join('\n')), /New here/);
+  ui.stop();
+});
 
-  ui.update({ ...snapshot, memoryBytes: 2436, jev: false, learning: false });
-  assert.doesNotMatch(nextCheckRow(ui), /learning/);
+test('a schedule\'s report wears the blue dot of the Schedules tab, and work mode\'s stays green', () => {
+  const at = new Date().toISOString();
+  const report = (id, title, scheduleId, outcome = 'completed') => ({ id, title, scheduleId, at, body: 'Useful: Done.', outcome });
+  const reports = [
+    report('top', 'Selected row', 'recap'),
+    report('mail', 'Email follow-ups', 'recap'),
+    report('work', 'pi-intro: Fix it', 'work.pi-intro.do'),
+    report('bad', 'Calendar deadlines', 'recap', 'failed'),
+  ];
+  const schedules = [{ ...snapshot.schedules[0], nextRun: { at: new Date(Date.now() + 3600000).toISOString() } }];
+  const ui = createDashboard({ ...snapshot, reports, schedules });
+  const mark = title => /\x1b\[[0-9;]*m[●✕]/.exec(ui.render(120, 40).find(value => value.includes(title)))[0];
+
+  ui.input('\x1b[C');
+  const [mail, work, failed] = ['Email follow-ups', 'pi-intro: Fix it', 'Calendar deadlines'].map(mark);
+  ui.input('\x1b[C');
+
+  assert.equal(mail, mark('Morning recap'));
+  assert.notEqual(mail, work);
+  assert.match(failed, /✕/);
   ui.stop();
 });
 
@@ -1905,4 +2043,31 @@ test('non-TTY status stays finite, local and ANSI-free', t => {
   assert.equal(status.status, 0);
   assert.match(status.stdout, /Main not connected/);
   assert.doesNotMatch(status.stdout, /\x1b/);
+});
+
+test('a slide rewrites the rows that moved and never the whole screen', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const terminal = new FakeTerminal();
+  let clock = Date.parse('2026-10-28T12:00:00.000Z');
+  const message = index => ({ id: `m${index}`, role: index % 2 ? 'assistant' : 'user', content: `Message ${index}\n\n- one\n- two`, at: '2026-10-28T10:00:00.000Z' });
+  const messages = Array.from({ length: 200 }, (_, index) => message(index));
+  const ui = startDashboard({ ...snapshot, connection: 'connected', messages }, {}, { terminal, now: () => clock });
+  t.after(() => ui.stop());
+  const wait = async ms => {
+    for (let elapsed = 0; elapsed < ms; elapsed += 16) {
+      clock += 16;
+      t.mock.timers.tick(16);
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  };
+  await wait(160);
+  terminal.writes.length = 0;
+  ui.update({ ...snapshot, connection: 'connected', messages: [...messages, message(200)] });
+  await wait(480);
+  const sizes = terminal.writes.map(frame => Buffer.byteLength(frame));
+  t.diagnostic(`${sizes.length} frames, ${sizes.toSorted((a, b) => a - b)[sizes.length >> 1]} bytes in the median frame, ${Math.max(...sizes)} at most`);
+  assert.ok(sizes.length >= 4, `${sizes.length} frames`);
+  assert.ok(Math.max(...sizes) < 8192, `${Math.max(...sizes)} bytes`);
+  assert.ok(!terminal.writes.some(frame => frame.includes('\x1b[2J')));
 });

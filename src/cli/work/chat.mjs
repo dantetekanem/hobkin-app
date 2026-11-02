@@ -67,10 +67,10 @@ export function discoveryMessage({ folder, proposals, status, reason, left, next
  * The main agent never sees what Hobkin posts in Chat, so what a post asks travels with the user's next message.
  * JSON keeps the block on one line, and escaping `</` means project text can never end it early.
  */
-export function workNote({ projects = [], allowanceRequest, pause }, commands) {
+export function workNote({ projects = [], allowanceRequest, pause, review }, commands) {
   const proposals = projects.filter(project => project.state === 'proposed').toSorted(byRank).slice(0, MAX_NOTE_PROPOSALS)
     .map(({ slug, name, level, summary, path }, index) => ({ position: index + 1, slug, name, level, summary: brief(summary), path }));
-  if (!proposals.length && !allowanceRequest && !pause) return '';
+  if (!proposals.length && !allowanceRequest && !pause && !review) return '';
 
   const allowance = allowanceRequest && {
     proposed: allowanceRequest.proposed,
@@ -84,6 +84,7 @@ export function workNote({ projects = [], allowanceRequest, pause }, commands) {
     ...(proposals.length ? { proposals } : {}),
     ...(allowance ? { allowance } : {}),
     ...(pause ? { pause: { limitHit: pause.kind, facts: pause.line } } : {}),
+    ...(review ? { review: { stale: review.stale, facts: review.message } } : {}),
     commands,
   };
   return `<hobkin-work>\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-work>\n\n`;

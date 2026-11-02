@@ -2,7 +2,7 @@ import { sep } from 'node:path';
 
 // Naming extensions turns off the ones Pi adds by itself, so its built-in ones are named too.
 const PI_BUILT_INS = ['llama.cpp', 'codemode', 'tool-search', 'mcp'];
-// Hobkin has its own face. This stays out of whatever Hobkin starts and stays installed in Pi.
+// Hobkin has its own face. This stays out of the chat and background runs, and stays installed in Pi. A pane is the user's own Pi, so it keeps it.
 const LEFT_OUT = 'pi-emote';
 
 const kept = ({ enabled, path }) => enabled && !path.split(sep).includes(LEFT_OUT);

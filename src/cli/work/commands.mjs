@@ -1,17 +1,19 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  addItem, addProject, answerAllow, cancelRuns, dropWork, markDone, markMax, pauseWork, putBackRow, reply, resumeWork, retryStuck, setLevel, skipRow, skipWork, startMode, stopMode,
-  takeProject, triggerRow,
+  addItem, addProject, answerAllow, cancelRuns, dropWork, markDone, markMax, openDiff, pauseWork, putBackRow, reply, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  skipWork, startMode, stopMode, syncWork, takeProject, triggerRow,
 } from './controls.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
-import { attentionView, itemCounts, itemsView, needsTheUser, projectsView, queueView, runningView, searchView, statusView } from './reads.mjs';
+import { assertState, attentionView, itemCounts, itemsView, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
+import { reviewView } from './review.mjs';
 import {
-  currentRequest, fileItem, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readProject, readProjects,
-  readState, setAgents, setDailyTokens, setHarness, setUnmergedLimit, tokenLabel, updateItem, writeMode,
+  agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
+  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
-import { prepareTree, removeTree } from './tree.mjs';
+import { gitOrNothing, prepareTree } from './tree.mjs';
+import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
@@ -19,40 +21,40 @@ Read, as JSON, with nothing running:
   status                               on or off, pauses, tokens, limits, next
   projects [--state state]             chosen, proposed, skipped or dropped
   running                              each agent, its pane and how long
-  queue                                the plan, and what each row waits on
-  items [project] [--state state]      state, level, PR and stuck reason
-  search <text>                        by name, title, path or stuck reason
-  attention                            what waits on the user, and the answer
-
+  queue                                the plan, each row's grade and its wait
+  items [project] [--state state]      state, grade, branch, PR, what is left
+  pr, diff <project> <item>            a local PR; diff opens it in pi-coder
+  review                               the last week: progress and what is stale
+  search <text>                        by name, path, title, summary or error
+  attention                            what is left for the user, and the answer
 Change, printing ok and message. Project: name, slug or path. Item: id start.
   start [folder]                       same as on, and ends any pause
   stop                                 same as off: agents finish, none start
-  pause [project]                      stays on, agents finish, none start
-  resume [project]                     end a pause, or go on after unmerged
+  pause, resume [project]              agents finish, none start; resume ends it
   trigger <project> [look|study|item]  run it next, inside limits (was run)
   cancel <project|run id|item>         ask the owner to cancel running work
+  sync                                 find what merged or closed, file rebases
   add project <path|name> [level]      take a project (was choose)
   add item <project> <title> [--brief text]  add work by hand
   skip <project> [look|study|item]     skip a proposal or a row (was later)
   back <project> <look|study|item>     put a skipped row back
-  retry <project> <item>               try a stuck item again, first in line
+  retry <project> <item>               first in line, with its tries at zero
   done <project> <item>                mark an item done
   drop <project> [item]                stop work on it; branches and PRs stay
-  level <project> <low..max>           casual (low), important, critical, max
+  grade <project> <item> <P0..P3|auto> set an item's grade; auto clears it
   max <project> <item>                 make one item max: Claude Opus at max
-
-Settings:
+  level <project> <low..max>           casual (low), important, critical, max
+  priority <project> <P0..P3>          the project's place in the queue
+  prs <project> <off|draft|published>  local PR, draft PR or published PR
   auto [on|off]                        pick by itself, or run triggers only
   harness <pi|claude|codex>            which agent works on projects
   agents <1-${MAX_AGENTS}>                         how many run at once
   tokens <number>                      the daily limit, from now on
   allow [number|no]                    answer a request, for today only
-  unmerged <number>                    how much unmerged work stops new work
   reset                                forget what it found; it must be off
 Used by agents inside a run:
   item <project>                       JSON on stdin: file or update an item
-  propose                              JSON on stdin: propose a project
-  progress                             JSON on stdin: where a look has got to
+  propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
@@ -72,12 +74,10 @@ async function readJson(input) {
   return JSON.parse(text);
 }
 
-const planRow = ({ key, kind, lane, slug, project, level, title, why, estimate, waiting, skipped, picked }, free) => ({
-  key, kind, lane, slug, project, level, title, why, estimate, skipped, picked, waiting: rowWait({ waiting }, free),
+const planRow = ({ key, kind, lane, slug, project, level, grade, item, title, why, estimate, waiting, skipped, picked }, free) => ({
+  key, kind, lane, slug, project, level, grade, item: item?.id ?? null, title, why, estimate, skipped, picked, waiting: rowWait({ waiting }, free),
 });
-const runningRow = ({ id, tokens = 0, cached = 0, note = null, estimate, waitingForApproval }) => ({
-  id, tokens, cached, estimate, note: waitingForApproval ? 'Waiting for approval in its pane.' : note,
-});
+const runningRow = ({ id, tokens = 0, cached = 0, note = null, estimate }) => ({ id, tokens, cached, estimate, note });
 
 function watchSummary(root) {
   const watch = readWatch(root);
@@ -86,16 +86,19 @@ function watchSummary(root) {
   return { at, added: added.length, changed: changed.length, removed: removed.length, proposed: proposed.length };
 }
 
-/** Status for agents and for the Work tab. `open` and `prs` count what each project has going. `outlook` is what only the owner knows. */
+/** Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows. */
 export function workStatus(root, outlook = {}) {
   const mode = readMode(root);
   const plan = planWork(root, { mode, ...outlook });
-  const { budget, entries, pause, subscription, unmerged } = plan;
+  const { budget, entries, pause, subscription } = plan;
+  const unmerged = unmergedNow(root);
   const projects = readProjects(root).map(project => {
     const items = readItems(root, project.slug);
     const { lookError = null, folderNote = null } = readState(root, project.slug);
     return {
       ...project,
+      priority: priorityOf(project),
+      prMode: landing(project),
       ...itemCounts(items),
       unmerged: unmerged.perProject[project.slug] ?? 0,
       nextLookAt: project.state === 'chosen' ? nextLookAt(root, project) : null,
@@ -127,6 +130,7 @@ export function workStatus(root, outlook = {}) {
     paused: enabled && Boolean(pause),
     pause: enabled ? pause : null,
     pauseNotice: enabled && pause ? mode.pauseNotice ?? null : null,
+    review: mode.review ?? null,
     waitingOn: plan.waitingOn,
     nextStartAt: plan.nextStartAt,
     allowanceRequest: enabled ? currentRequest(mode) : null,
@@ -137,34 +141,38 @@ export function workStatus(root, outlook = {}) {
     plan: [...visible, ...entries.filter(entry => entry.skipped)].map(entry => planRow(entry, plan.free)),
     watch: watchSummary(root),
     discovery: readDiscovery(root),
-    nextDiscoveryAt: nextDiscoveryAt(mode),
+    nextDiscoveryAt: folderSearched(root, folder) ? null : nextDiscoveryAt(mode),
     projects,
-    attention: needsTheUser(root),
+    ready: readyItems(root),
   };
 }
 
-/** Forgets what work mode found, so the next start looks from nothing. Its folder, harness, limits, directions and every branch stay. */
+/** Forgets what work mode found, so the next start looks from nothing. Everything it held moves aside and nothing is deleted. Its folder, harness, limits, directions and every branch stay. */
 async function resetWork(root) {
   const mode = readMode(root);
-  if (mode.enabled) throw Error('Turn work mode off first, so nothing is running in the trees this removes.');
+  if (mode.enabled) throw Error('Turn work mode off first, so nothing is running in the trees this moves.');
+  const { running } = ownerView(root);
+  if (running.length) throw Error(`Agents are still running, so nothing was reset: ${running.map(({ title }) => title).join(', ')}.`);
   const projects = readProjects(root);
   const aside = join(root, 'runtime', `work-reset-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   mkdirSync(aside, { recursive: true, mode: 0o700 });
   for (const { slug, path } of projects) {
-    const { directory, lookTree, doTree, clone } = paths(root, slug);
-    for (const tree of [lookTree, doTree]) await removeTree({ repo: path, tree });
-    // A clone of Hobkin's own can hold branches found nowhere else.
-    if (existsSync(clone)) renameSync(clone, join(aside, `${slug}-repo`));
-    rmSync(directory, { recursive: true, force: true });
+    const { directory } = paths(root, slug);
+    // A tree's uncommitted work, a clone's branches, a local PR's description and the user's directions may exist nowhere else.
+    if (existsSync(directory)) renameSync(directory, join(aside, slug));
+    // Git goes on holding a moved tree's branch until it is told.
+    if (path) await gitOrNothing(path, 'worktree', 'prune');
   }
   for (const name of ['projects.jsonl', 'discovery.jsonl', 'unmerged.json', 'watch.json']) {
     const file = join(root, 'work', name);
     if (existsSync(file)) renameSync(file, join(aside, name));
   }
-  for (const check of readdirSync(join(root, 'checks'), { withFileTypes: true })) {
-    if (check.isDirectory() && check.name.startsWith('work.')) rmSync(join(root, 'checks', check.name), { recursive: true, force: true });
+  const checks = join(root, 'checks');
+  // A check's name has a dot in it, and a project's slug cannot.
+  for (const check of existsSync(checks) ? readdirSync(checks, { withFileTypes: true }) : []) {
+    if (check.isDirectory() && check.name.startsWith('work.')) renameSync(join(checks, check.name), join(aside, check.name));
   }
-  writeMode(root, { lastDiscoveryAt: null, mergeStop: null });
+  writeMode(root, { lastDiscoveryAt: null });
   return { forgot: projects.length, kept: aside };
 }
 
@@ -188,6 +196,9 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'running': return runningView(root);
     case 'queue': return queueView(root);
     case 'items': return itemsView(root, args[0], state);
+    case 'pr': return prView(root, ...args);
+    case 'diff': return openDiff(root, ...args);
+    case 'review': return reviewView(root);
     case 'search': return searchView(root, args.join(' '));
     case 'attention': return attentionView(root);
     case 'start':
@@ -199,6 +210,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'trigger':
     case 'run': return triggerRow(root, ...args);
     case 'cancel': return cancelRuns(root, args[0]);
+    case 'sync': return syncWork(root);
     case 'add': {
       const [what, reference, ...rest] = args;
       if (what === 'project') return addProject(root, reference, ...rest);
@@ -209,19 +221,21 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'skip': return skipWork(root, ...args);
     case 'later': return skipRow(root, ...args);
     case 'back': return putBackRow(root, ...args);
-    case 'retry': return retryStuck(root, ...args);
+    case 'retry': return retryNow(root, ...args);
     case 'done': return markDone(root, ...args);
     case 'drop': return dropWork(root, ...args);
-    case 'level': return setLevel(root, ...args);
+    case 'grade': return setGrade(root, ...args);
     case 'max': return markMax(root, ...args);
+    case 'level': return setLevel(root, ...args);
+    case 'priority': return setPriority(root, ...args);
+    case 'prs': return setPrMode(root, ...args);
     case 'reset': {
       const { forgot, kept } = await resetWork(root);
-      return reply(`Forgot ${forgot} projects. The next start looks from nothing, and the old picks are in ${kept}.`, { forgot, kept });
+      return reply(`Forgot ${forgot} projects. The next start looks from nothing, and everything they held is in ${kept}.`, { forgot, kept });
     }
     case 'harness': return reply(`The next run uses ${setHarness(root, args[0]).harness}.`);
     case 'agents': return reply(`Up to ${setAgents(root, Number(args[0])).agents} agents may run at once, from the next start.`);
     case 'tokens': return reply(`The daily limit is ${tokenLabel(setDailyTokens(root, Number(args[0])).dailyTokens)} fresh tokens, from now on.`);
-    case 'unmerged': return reply(`New work stops at ${setUnmergedLimit(root, Number(args[0])).unmergedLimit} unmerged, from the next tick.`);
     case 'auto': {
       if (!args[0]) return { autoPick: readMode(root).autoPick };
       const { autoPick } = writeMode(root, { autoPick: autoPickFrom(args[0]) });
@@ -229,11 +243,17 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     }
     case 'allow': return answerAllow(root, args[0]);
     case 'progress': return noteDiscovery(root, await readJson(input));
-    case 'propose': return proposeProject(root, await readJson(input));
+    case 'propose': {
+      // A level is only a suggestion the user answers, but `priority` and `prMode` would pass unseen, and they are only ever the user's word.
+      const { priority, prMode, ...proposal } = await readJson(input);
+      return proposeProject(root, proposal);
+    }
     case 'item': {
-      // Agents file work through this, and `max` is only ever the user's word, so it cannot arrive here.
-      const { max, ...item } = await readJson(input);
-      return item.id ? updateItem(root, args[0], item.id, item) : fileItem(root, args[0], item);
+      // Agents file work through this, and `max` and `grade` are only ever the user's word, so neither can arrive here.
+      const { max, grade, ...item } = await readJson(input);
+      if (!item.id) return fileItem(root, args[0], item);
+      assertState(item.state, agentStates);
+      return updateItem(root, args[0], item.id, item);
     }
     case 'tree': return treeFor(root, args[0]);
     default: throw new WrongCommand(HELP);

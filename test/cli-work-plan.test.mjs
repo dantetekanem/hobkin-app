@@ -4,8 +4,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { budgetFor, estimateRun, costHistory, firstGuess } from '../src/cli/work/budget.mjs';
-import { ideasWanted, planWork } from '../src/cli/work/plan.mjs';
-import { chooseProject, fileItem, paths, recordTokens, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
+import { workStatus } from '../src/cli/work/commands.mjs';
+import { ideasWanted, itemGrade, planWork } from '../src/cli/work/plan.mjs';
+import { itemsView, queueView, searchView } from '../src/cli/work/reads.mjs';
+import {
+  chooseProject, fileItem, lenses, paths, pickNext, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
+} from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
 const HOUR = 3600000;
@@ -31,6 +35,324 @@ function project(root, slug, level = 'important') {
 
 const plan = (root, options = {}) => planWork(root, { now, ...options });
 const titles = entries => entries.map(entry => entry.title);
+const ranRecently = (root, ...slugs) => slugs.forEach(slug => recordTokens(root, { slug, lane: 'do', tokens: 1 }, now - HOUR));
+
+/** A branch the last survey found, with the finished item that makes it wait on a merge. */
+function finishedBranch(root, slug, index) {
+  const branch = `hobkin/${index}`;
+  const { id } = fileItem(root, slug, item(`finished on ${branch}`), now);
+  updateItem(root, slug, id, { state: 'branch', branch }, now);
+  return { kind: 'branch', branch, openedAt: new Date(now).toISOString() };
+}
+
+/** What the last survey found waiting to merge, as a count for each project. */
+const waitingToMerge = (root, counts) => writeJson(join(root, 'work', 'unmerged.json'), {
+  at: new Date(now).toISOString(),
+  projects: Object.fromEntries(Object.entries(counts).map(([slug, count]) => [slug, {
+    open: Array.from({ length: count }, (_unit, index) => finishedBranch(root, slug, index)),
+    lastMergeAt: null,
+    trees: 0,
+  }])),
+});
+const gradeOf = (root, title) => plan(root).entries.find(entry => entry.title === title).grade;
+
+test('an item starts from its project\'s priority and moves down with its impact, and nothing goes below P3', () => {
+  const important = { level: 'important' };
+
+  assert.deepEqual(['high', 'medium', 'low'].map(impact => itemGrade(important, { kind: 'fix', impact })), ['P1', 'P2', 'P3']);
+  assert.equal(itemGrade({ level: 'casual' }, { kind: 'fix', impact: 'low' }), 'P3');
+  assert.equal(itemGrade({ level: 'casual', priority: 'P0' }, { kind: 'fix', impact: 'medium' }), 'P1', 'a priority set by hand beats the level');
+  assert.equal(itemGrade({ level: 'casual' }, { kind: 'fix', impact: 'medium', max: true }), 'P1', 'max starts from the top');
+  assert.equal(itemGrade(important, { kind: 'chore' }), 'P3', 'an older item takes its impact from its kind');
+});
+
+test('urgent work and attention rows are P0, and the user\'s own grade beats both', () => {
+  const casual = { level: 'casual' };
+
+  assert.equal(itemGrade(casual, { kind: 'fix', impact: 'low', urgent: true }), 'P0');
+  assert.equal(itemGrade(casual, { kind: 'attention' }), 'P0');
+  assert.equal(itemGrade(casual, { kind: 'attention', urgent: true, grade: 'P3' }), 'P3');
+  assert.equal(itemGrade(casual, { kind: 'fix', impact: 'high', grade: null }), 'P2', 'a cleared grade goes back to working it out');
+});
+
+test('a look sits one grade below its project for security and bugs and two for the rest, and ideas sit two below', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'critical');
+  const lens = lensIndex => {
+    writeState(root, 'api', { lastLensAt: null, lensIndex });
+    const [{ focus, grade }] = plan(root).entries;
+    return [focus, grade];
+  };
+
+  assert.deepEqual(lenses.map((_focus, index) => lens(index)), [
+    ['security', 'P1'], ['bugs', 'P1'], ['updates', 'P2'], ['chores', 'P2'], ['improvements', 'P2'], ['features', 'P2'], ['trends', 'P2'],
+  ]);
+
+  writeState(root, 'api', { lastLensAt: new Date(now).toISOString(), lastIdeasAt: null });
+  assert.deepEqual(plan(root).entries.map(({ kind, grade }) => [kind, grade]), [['ideas', 'P2']]);
+});
+
+test('a look goes no lower than P3 on a project that is already low', t => {
+  const root = dataRoot(t);
+  project(root, 'site', 'casual');
+  writeState(root, 'site', { lastLensAt: null, lensIndex: 2 });
+
+  assert.equal(plan(root).entries[0].grade, 'P3');
+});
+
+test('a first look for projects is P0, and the daily one comes after everything else', t => {
+  const root = dataRoot(t);
+  writeMode(root, { folder: '/repos' });
+  assert.deepEqual(plan(root).entries.map(({ kind, grade }) => [kind, grade]), [['discover', 'P0']]);
+
+  project(root, 'site', 'casual');
+  ranRecently(root, 'site');
+  fileItem(root, 'site', item('tidy', { impact: 'low' }), now);
+  writeMode(root, { lastDiscoveryAt: new Date(now - 25 * HOUR).toISOString() });
+
+  assert.deepEqual(plan(root).entries.map(({ kind, grade }) => [kind, grade]), [['item', 'P3'], ['discover', 'P3']]);
+});
+
+test('a finished look ends the search of that folder, and a look that did not finish keeps coming round', t => {
+  const root = dataRoot(t);
+  writeMode(root, { folder: '/repos', lastDiscoveryAt: new Date(now - 25 * HOUR).toISOString() });
+  const kinds = () => plan(root).entries.map(({ kind }) => kind);
+
+  for (const status of ['failed', 'unfinished', 'cancelled', 'interrupted']) {
+    recordDiscovery(root, { status, folder: '/repos', startedAt: new Date(now - 25 * HOUR).toISOString() });
+    assert.deepEqual(kinds(), ['discover'], status);
+  }
+
+  recordDiscovery(root, { status: 'finished', folder: '/repos', startedAt: new Date(now - 25 * HOUR).toISOString() });
+  assert.deepEqual(kinds(), []);
+  assert.deepEqual(plan(root, { now: now + 30 * 24 * HOUR }).entries.filter(({ kind }) => kind === 'discover'), [], 'not the next day, and not a month on');
+  assert.equal(workStatus(root).nextDiscoveryAt, null, 'nothing says a look is coming');
+
+  writeMode(root, { folder: '/elsewhere' });
+  assert.deepEqual(kinds(), ['discover'], 'another folder has its own look');
+});
+
+test('a trigger still looks at a folder that is done, because that is the user\'s own word', t => {
+  const root = dataRoot(t);
+  writeMode(root, { folder: '/repos', lastDiscoveryAt: new Date(now - 25 * HOUR).toISOString() });
+  recordDiscovery(root, { status: 'finished', folder: '/repos', startedAt: new Date(now - 25 * HOUR).toISOString() });
+
+  pickNext(root, 'discover');
+
+  assert.equal(plan(root).next.kind, 'discover');
+});
+
+test('grade decides before how much the project matters', t => {
+  const root = dataRoot(t);
+  project(root, 'billing', 'critical');
+  project(root, 'site', 'casual');
+  ranRecently(root, 'billing', 'site');
+  fileItem(root, 'billing', item('billing chore', { impact: 'low' }), now);
+  fileItem(root, 'site', item('site fix', { impact: 'high' }), now);
+  setProjectPriority(root, 'billing', 'P2');
+
+  assert.deepEqual(plan(root).entries.map(({ title, grade }) => [title, grade]), [['site fix', 'P2'], ['billing chore', 'P3']]);
+});
+
+test('each failed try moves an item down a grade, stopping at P3, and the user\'s own grade does not move', () => {
+  const important = { level: 'important' };
+
+  assert.equal(itemGrade(important, { kind: 'fix', impact: 'high', attempts: 1 }), 'P2');
+  assert.equal(itemGrade(important, { kind: 'fix', impact: 'high', attempts: 9 }), 'P3');
+  assert.equal(itemGrade(important, { kind: 'attention', attempts: 1 }), 'P1');
+  assert.equal(itemGrade(important, { kind: 'fix', urgent: true, attempts: 2 }), 'P2');
+  assert.equal(itemGrade(important, { kind: 'fix', impact: 'high', attempts: 9, grade: 'P0' }), 'P0');
+});
+
+test('an item that keeps failing cannot hold the front of the queue, so a healthy row on another project goes first', t => {
+  const root = dataRoot(t);
+  project(root, 'failing');
+  project(root, 'healthy', 'casual');
+  ranRecently(root, 'failing', 'healthy');
+  const failing = fileItem(root, 'failing', item('always fails', { impact: 'high' }), now);
+  updateItem(root, 'failing', failing.id, { attempts: 2 }, now);
+  fileItem(root, 'healthy', item('healthy fix', { impact: 'high' }), now);
+
+  assert.deepEqual(plan(root).entries.map(({ title, grade }) => [title, grade]), [['healthy fix', 'P2'], ['always fails', 'P3']]);
+});
+
+test('a P0 item that failed leaves the P0 band: a project left alone goes ahead of it, and it no longer skips the hourly share', t => {
+  const root = dataRoot(t);
+  project(root, 'billing', 'critical');
+  project(root, 'site', 'casual');
+  const failing = fileItem(root, 'billing', item('main is broken', { urgent: true, effort: 'small' }), now);
+  updateItem(root, 'billing', failing.id, { attempts: 1 }, now - HOUR);
+  fileItem(root, 'site', item('tidy', { impact: 'low', effort: 'small' }), now);
+  writeMode(root, { dailyTokens: 10000000 });
+  recordTokens(root, { slug: 'billing', lane: 'do', tokens: 900000 }, now - HOUR / 2);
+
+  const { entries } = plan(root);
+
+  assert.deepEqual(entries.map(({ title, grade }) => [title, grade]), [['tidy', 'P3'], ['main is broken', 'P1']]);
+  assert.equal(entries[1].waiting, 'over this hour\'s share');
+});
+
+test('at P3 a failing item comes round behind the others, says so, and nothing holds it', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'casual');
+  ranRecently(root, 'api');
+  const failing = fileItem(root, 'api', item('tried', { impact: 'high', effort: 'small' }), now);
+  updateItem(root, 'api', failing.id, { attempts: 3 }, now - 2 * HOUR);
+  fileItem(root, 'api', item('fresh', { impact: 'low', effort: 'large' }), now);
+
+  const { entries } = plan(root);
+
+  assert.deepEqual(titles(entries), ['fresh', 'tried']);
+  assert.match(entries[1].why, /tried 3 times/);
+  assert.equal(entries[1].waiting, null);
+
+  updateItem(root, 'api', failing.id, { attempts: 1 }, now);
+  assert.match(plan(root).entries.find(entry => entry.title === 'tried').why, /tried 1 time$/);
+});
+
+test('within a grade and a number of tries the project\'s priority comes first, then worth', t => {
+  const root = dataRoot(t);
+  project(root, 'tool', 'important');
+  project(root, 'billing', 'critical');
+  ranRecently(root, 'tool', 'billing');
+  fileItem(root, 'tool', item('small win', { impact: 'high', effort: 'small' }), now);
+  fileItem(root, 'billing', item('big rewrite', { impact: 'medium', effort: 'large' }), now);
+  fileItem(root, 'billing', item('quick tweak', { impact: 'medium', effort: 'small' }), now);
+
+  assert.deepEqual(titles(plan(root).entries), ['quick tweak', 'big rewrite', 'small win']);
+});
+
+test('the queue runs the user\'s picks, then P0, then a row for each project left alone, then the rest, then what was skipped', t => {
+  const root = dataRoot(t);
+  project(root, 'billing', 'critical');
+  project(root, 'tool', 'important');
+  project(root, 'site', 'casual');
+  ranRecently(root, 'billing', 'tool');
+  fileItem(root, 'tool', item('routine', { impact: 'high' }), now);
+  const picked = fileItem(root, 'tool', item('picked', { impact: 'low' }), now);
+  const skipped = fileItem(root, 'tool', item('skipped', { impact: 'high' }), now);
+  fileItem(root, 'billing', item('first', { impact: 'high' }), now);
+  fileItem(root, 'site', item('alone', { impact: 'low', effort: 'small' }), now);
+  fileItem(root, 'site', item('alone too', { impact: 'low', effort: 'large' }), now);
+  pickNext(root, `item:tool:${picked.id}`);
+  skipInQueue(root, `item:tool:${skipped.id}`);
+
+  assert.deepEqual(titles(plan(root).entries), ['picked', 'first', 'alone', 'routine', 'alone too', 'skipped']);
+});
+
+test('a project with no run for a day, or none ever, puts its top row up, and that row says why', t => {
+  const root = dataRoot(t);
+  project(root, 'busy');
+  project(root, 'quiet', 'casual');
+  project(root, 'new', 'casual');
+  ranRecently(root, 'busy');
+  recordTokens(root, { slug: 'quiet', lane: 'do', tokens: 1 }, now - 25 * HOUR);
+  fileItem(root, 'busy', item('busy fix', { impact: 'high' }), now);
+  fileItem(root, 'quiet', item('quiet chore', { impact: 'low' }), now);
+  fileItem(root, 'new', item('new chore', { impact: 'low' }), now);
+
+  const { entries } = plan(root);
+
+  assert.deepEqual(titles(entries), ['quiet chore', 'new chore', 'busy fix']);
+  assert.match(entries[0].why, /^left alone, low impact/);
+  assert.match(entries[1].why, /^left alone/);
+  assert.doesNotMatch(entries[2].why, /left alone/);
+});
+
+test('a run going now means a project is not left alone', t => {
+  const root = dataRoot(t);
+  project(root, 'site', 'casual');
+  fileItem(root, 'site', item('tidy', { impact: 'low', effort: 'large' }), now);
+
+  assert.match(plan(root).entries[0].why, /^left alone/);
+  assert.doesNotMatch(plan(root, { running: [{ slug: 'site', lane: 'look' }] }).entries[0].why, /left alone/);
+});
+
+test('a P0 row needs no lift, and a project whose top row is picked gets none', t => {
+  const root = dataRoot(t);
+  project(root, 'billing', 'critical');
+  project(root, 'tool', 'important');
+  fileItem(root, 'billing', item('first', { impact: 'high' }), now);
+  fileItem(root, 'billing', item('second', { impact: 'low' }), now);
+  const picked = fileItem(root, 'tool', item('picked', { impact: 'high' }), now);
+  fileItem(root, 'tool', item('next', { impact: 'medium' }), now);
+  pickNext(root, `item:tool:${picked.id}`);
+
+  const { entries } = plan(root);
+
+  assert.deepEqual(titles(entries), ['picked', 'first', 'second', 'next']);
+  assert.ok(entries.every(entry => !entry.why.startsWith('left alone')));
+});
+
+test('a paused project stays where it is, and a skipped row hands its place to the next one', t => {
+  const root = dataRoot(t);
+  project(root, 'busy');
+  project(root, 'paused', 'casual');
+  project(root, 'skipping', 'casual');
+  ranRecently(root, 'busy');
+  fileItem(root, 'busy', item('busy fix', { impact: 'high' }), now);
+  fileItem(root, 'paused', item('paused chore', { impact: 'low' }), now);
+  const skipped = fileItem(root, 'skipping', item('not this', { impact: 'high' }), now);
+  fileItem(root, 'skipping', item('this one', { impact: 'low' }), now);
+  setProjectPaused(root, 'paused', true);
+  skipInQueue(root, `item:skipping:${skipped.id}`);
+
+  assert.deepEqual(titles(plan(root).entries), ['this one', 'busy fix', 'paused chore', 'not this']);
+});
+
+test('a project left alone puts up the row that can start, and not one waiting behind its started item', t => {
+  const root = dataRoot(t);
+  project(root, 'busy');
+  project(root, 'site', 'casual');
+  ranRecently(root, 'busy');
+  fileItem(root, 'busy', item('busy fix', { impact: 'high' }), now);
+  const started = fileItem(root, 'site', item('started', { impact: 'low' }), now);
+  updateItem(root, 'site', started.id, { state: 'doing', branch: 'hobkin/started' }, now);
+  fileItem(root, 'site', item('waits for it', { impact: 'high' }), now);
+
+  const { entries } = plan(root);
+
+  assert.deepEqual(titles(entries), ['started', 'busy fix', 'waits for it']);
+  assert.equal(entries[2].waiting, 'after its started item');
+});
+
+test('what was left for the user runs like any other row, at the front', t => {
+  const root = dataRoot(t);
+  project(root, 'billing', 'critical');
+  project(root, 'site', 'casual');
+  ranRecently(root, 'billing', 'site');
+  fileItem(root, 'billing', item('routine', { impact: 'medium' }), now);
+  fileItem(root, 'site', { key: 'token', kind: 'attention', title: 'Rotate the token', brief }, now);
+
+  const { entries, next } = plan(root);
+
+  assert.deepEqual(entries.map(({ title, grade }) => [title, grade]), [['Rotate the token', 'P0'], ['routine', 'P1']]);
+  assert.equal(next.title, 'Rotate the token');
+  assert.ok(Number.isFinite(next.score));
+});
+
+test('an item an older version left stuck runs again', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  const old = fileItem(root, 'api', item('old'), now);
+  updateItem(root, 'api', old.id, { state: 'stuck', stuckReason: 'It ended twice.' }, now);
+
+  assert.equal(plan(root).next.title, 'old');
+});
+
+test('a study that has failed holds nothing back: the items run, and it comes round again at the project\'s own grade', t => {
+  const root = dataRoot(t);
+  chooseProject(root, '/repos/api', 'casual', now);
+  fileItem(root, 'api', item('main is broken', { urgent: true }), now);
+  assert.equal(plan(root).entries.find(entry => entry.kind === 'item').waiting, 'needs its study');
+
+  writeState(root, 'api', { lastLookAt: new Date(now - HOUR / 8).toISOString() });
+  assert.equal(plan(root).next.title, 'main is broken');
+
+  writeState(root, 'api', { lastLookAt: new Date(now - HOUR).toISOString() });
+  const { entries } = plan(root);
+  assert.deepEqual(entries.map(({ kind, grade, waiting }) => [kind, grade, waiting]), [['item', 'P0', null], ['study', 'P2', null]]);
+});
 
 test('a quick high-value fix beats a slow low-value one, whatever order they were filed in', t => {
   const root = dataRoot(t);
@@ -51,17 +373,7 @@ test('the same work ranks by how much the project matters', t => {
   assert.deepEqual(titles(plan(root).entries), ['fix billing', 'fix tool', 'fix site']);
 });
 
-test('small work with a visible benefit goes ahead of large work on a more critical project', t => {
-  const root = dataRoot(t);
-  project(root, 'tool', 'important');
-  project(root, 'billing', 'critical');
-  fileItem(root, 'billing', item('big rewrite', { impact: 'medium', effort: 'large' }), now);
-  fileItem(root, 'tool', item('small win', { impact: 'high', effort: 'small' }), now);
-
-  assert.deepEqual(titles(plan(root).entries), ['small win', 'big rewrite']);
-});
-
-test('urgency lifts an item above everything of its size', t => {
+test('urgent work is P0, and within P0 the project that matters most goes first', t => {
   const root = dataRoot(t);
   project(root, 'billing', 'critical');
   project(root, 'site', 'casual');
@@ -87,25 +399,25 @@ test('an older item with no impact or effort still gets a place, from its kind',
   assert.ok(entries.every(entry => Number.isFinite(entry.estimate.fresh)));
 });
 
-test('what only the user can do is never planned', t => {
+test('a first study takes the best grade of what it unlocks, so a project with a real fix waiting is studied first', t => {
   const root = dataRoot(t);
-  project(root, 'api');
-  fileItem(root, 'api', { key: 'token', kind: 'attention', title: 'Rotate the token', brief }, now);
-
-  assert.deepEqual(plan(root).entries, []);
-});
-
-test('a first study takes the rank of what it unlocks, so a project with a real fix waiting is studied first', t => {
-  const root = dataRoot(t);
-  chooseProject(root, '/repos/quiet', 'critical', now);
+  chooseProject(root, '/repos/quiet', 'important', now);
   chooseProject(root, '/repos/broken', 'casual', now);
   fileItem(root, 'broken', item('main is broken', { urgent: true, impact: 'high', effort: 'small' }), now);
 
   const { entries } = plan(root);
 
-  assert.deepEqual(entries.filter(entry => entry.kind === 'study').map(entry => entry.slug), ['broken', 'quiet']);
+  assert.deepEqual(entries.filter(entry => entry.kind === 'study').map(({ slug, grade }) => [slug, grade]), [['broken', 'P0'], ['quiet', 'P1']]);
   const waiting = entries.find(entry => entry.kind === 'item');
   assert.equal(waiting.waiting, 'needs its study');
+});
+
+test('a study never sits below its own project, whatever it unlocks', t => {
+  const root = dataRoot(t);
+  chooseProject(root, '/repos/api', 'important', now);
+  fileItem(root, 'api', item('tidy', { impact: 'low' }), now);
+
+  assert.equal(plan(root).entries.find(entry => entry.kind === 'study').grade, 'P1');
 });
 
 test('with nothing filed, a study ranks by the level of its project', t => {
@@ -164,6 +476,134 @@ test('ideas are low in the plan, and fewer when there is work open or the day is
   assert.equal(ideasWanted(root, 'api', { used: 0, limit: 100 }), 0);
 });
 
+test('with 5 waiting to merge, features and improvements move down one grade and say why, and with 4 nothing moves', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  ranRecently(root, 'api');
+  fileItem(root, 'api', item('feature', { kind: 'feature', impact: 'high' }), now);
+  fileItem(root, 'api', item('improvement', { kind: 'improvement', impact: 'high' }), now);
+
+  waitingToMerge(root, { api: 4 });
+  assert.deepEqual(['feature', 'improvement'].map(title => gradeOf(root, title)), ['P1', 'P1']);
+  assert.ok(plan(root).entries.every(entry => !entry.why.includes('shipping first')));
+
+  waitingToMerge(root, { api: 5 });
+  assert.deepEqual(['feature', 'improvement'].map(title => gradeOf(root, title)), ['P2', 'P2']);
+  assert.ok(plan(root).entries.every(entry => /^shipping first, /.test(entry.why)));
+});
+
+test('shipping first moves nothing else: ship items, security, fixes and the rest keep their grade, and so does another project', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  project(root, 'quiet');
+  ranRecently(root, 'api', 'quiet');
+  const kinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'attention'];
+  for (const kind of kinds) fileItem(root, 'api', item(kind, { kind }), now);
+  fileItem(root, 'quiet', item('quiet feature', { kind: 'feature', impact: 'high' }), now);
+  const graded = () => [...kinds, 'quiet feature'].map(title => gradeOf(root, title));
+  const before = graded();
+
+  waitingToMerge(root, { api: 50 });
+
+  assert.deepEqual(graded(), before);
+  assert.ok(plan(root).entries.every(entry => !entry.why.includes('shipping first')));
+});
+
+test('what was marked by hand stays where it was marked, with the project shipping first', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  ranRecently(root, 'api');
+  const graded = fileItem(root, 'api', item('graded', { kind: 'feature' }), now);
+  updateItem(root, 'api', graded.id, { grade: 'P1' }, now);
+  fileItem(root, 'api', item('urgent', { kind: 'feature', urgent: true }), now);
+  const max = fileItem(root, 'api', item('max', { kind: 'feature', impact: 'medium' }), now);
+  updateItem(root, 'api', max.id, { max: true }, now);
+  waitingToMerge(root, { api: 5 });
+
+  assert.deepEqual(['graded', 'urgent', 'max'].map(title => gradeOf(root, title)), ['P1', 'P0', 'P1']);
+  assert.ok(plan(root).entries.every(entry => !entry.why.includes('shipping first')));
+});
+
+test('a feature already at P3 has no lower to go, and still starts', t => {
+  const root = dataRoot(t);
+  project(root, 'site', 'casual');
+  fileItem(root, 'site', item('feature', { kind: 'feature', impact: 'low' }), now);
+  waitingToMerge(root, { site: 5 });
+
+  assert.equal(gradeOf(root, 'feature'), 'P3');
+  assert.equal(plan(root).next.title, 'feature');
+});
+
+test('a project with 50 waiting to merge still starts its top item, and nothing on it waits for a merge', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  ranRecently(root, 'api');
+  fileItem(root, 'api', item('feature', { kind: 'feature', impact: 'high', effort: 'small' }), now);
+  writeState(root, 'api', { lastLensAt: null });
+  waitingToMerge(root, { api: 50 });
+
+  const { entries, next, pause, waitingOn } = plan(root);
+
+  assert.equal(next.title, 'feature');
+  assert.equal(pause, null);
+  assert.equal(waitingOn, null);
+  assert.deepEqual(entries.map(entry => entry.waiting), [null, null]);
+});
+
+test('a ship item goes ahead of the same grade of anything else, and new work behind it on a project shipping first', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  ranRecently(root, 'api');
+  fileItem(root, 'api', item('feature', { kind: 'feature', impact: 'high', effort: 'small' }), now);
+  fileItem(root, 'api', item('fix', { kind: 'fix', impact: 'high', effort: 'medium' }), now);
+  fileItem(root, 'api', item('Rebase hobkin/abc onto main', { kind: 'pr-fix', impact: 'high', effort: 'small' }), now);
+  waitingToMerge(root, { api: 5 });
+
+  assert.deepEqual(titles(plan(root).entries), ['Rebase hobkin/abc onto main', 'fix', 'feature']);
+});
+
+test('the ideas row does not appear with 5 waiting to merge, and 4 still lets it', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'critical');
+  writeState(root, 'api', { lastIdeasAt: null });
+
+  waitingToMerge(root, { api: 4 });
+  assert.deepEqual(plan(root).entries.map(entry => entry.kind), ['ideas']);
+
+  waitingToMerge(root, { api: 5 });
+  assert.deepEqual(plan(root).entries, []);
+});
+
+test('work waiting to merge counts toward how many ideas a project wants, with its open items', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  const wanted = () => ideasWanted(root, 'api', { used: 0, limit: 100 });
+
+  assert.equal(wanted(), 3);
+  waitingToMerge(root, { api: 2 });
+  assert.equal(wanted(), 1);
+  fileItem(root, 'api', item('one'), now);
+  fileItem(root, 'api', item('two'), now);
+  assert.equal(wanted(), 1);
+  fileItem(root, 'api', item('three'), now);
+  assert.equal(wanted(), 0);
+});
+
+test('hobkin work items and search show the grade the queue uses', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  ranRecently(root, 'api');
+  fileItem(root, 'api', item('feature', { kind: 'feature', impact: 'high' }), now);
+  waitingToMerge(root, { api: 5 });
+
+  const [row] = itemsView(root);
+
+  assert.equal(queueView(root)[0].grade, 'P2');
+  assert.equal(row.grade, 'P2');
+  assert.equal(itemsView(root, 'api')[0].grade, 'P2');
+  assert.equal(searchView(root, 'feature').find(({ type }) => type === 'item').grade, 'P2');
+});
+
 test('an interrupted item finishes before another starts in that project, because its work is in the tree', t => {
   const root = dataRoot(t);
   project(root, 'api', 'critical');
@@ -175,6 +615,159 @@ test('an interrupted item finishes before another starts in that project, becaus
 
   assert.equal(next.title, 'started');
   assert.equal(entries.find(entry => entry.title === 'quick').waiting, 'after its started item');
+});
+
+// A row only waits on one that can itself start. Anything else would wait for ever.
+
+const notStudied = (root, title = 'fix') => {
+  chooseProject(root, '/repos/api', 'casual', now);
+  return fileItem(root, 'api', item(title, { impact: 'high', effort: 'small' }), now);
+};
+const startedAhead = root => {
+  project(root, 'api', 'critical');
+  const started = fileItem(root, 'api', item('started', { impact: 'high', effort: 'small' }), now);
+  updateItem(root, 'api', started.id, { state: 'doing', branch: 'hobkin/started' }, now);
+  return { started, behind: fileItem(root, 'api', item('behind', { impact: 'low', effort: 'large' }), now) };
+};
+
+test('a picked item does not wait for its study, with auto-pick off, where nothing else would start that study', t => {
+  const root = dataRoot(t);
+  const filed = notStudied(root);
+  writeMode(root, { autoPick: false });
+  assert.equal(plan(root).next, null);
+
+  pickNext(root, `item:api:${filed.id}`);
+
+  const { next, entries } = plan(root);
+  assert.equal(next.title, 'fix');
+  assert.equal(entries.find(entry => entry.kind === 'item').waiting, null);
+});
+
+test('a picked item does not wait for its study with auto-pick on either', t => {
+  const root = dataRoot(t);
+  pickNext(root, `item:api:${notStudied(root).id}`);
+
+  assert.equal(plan(root).next.title, 'fix');
+});
+
+test('a skipped study holds nothing, so the item behind it is next', t => {
+  const root = dataRoot(t);
+  notStudied(root);
+  assert.equal(plan(root).next.kind, 'study');
+
+  skipInQueue(root, 'study:api');
+
+  const { next, entries } = plan(root);
+  assert.equal(next.title, 'fix');
+  assert.deepEqual(entries.map(({ kind, waiting }) => [kind, waiting]), [['item', null], ['study', 'skipped']]);
+});
+
+test('with auto-pick off a study nobody picked says nothing about the items, and a picked study still goes first', t => {
+  const root = dataRoot(t);
+  notStudied(root, 'other');
+  writeMode(root, { autoPick: false });
+  assert.equal(plan(root).entries.find(entry => entry.kind === 'item').waiting, null);
+
+  pickNext(root, 'study:api');
+
+  const { next, entries } = plan(root);
+  assert.equal(next.kind, 'study');
+  assert.equal(entries.find(entry => entry.kind === 'item').waiting, 'needs its study');
+});
+
+test('a skipped started item holds nothing, so the row behind it is next', t => {
+  const root = dataRoot(t);
+  const { started } = startedAhead(root);
+
+  skipInQueue(root, `item:api:${started.id}`);
+
+  const { next, entries } = plan(root);
+  assert.equal(next.title, 'behind');
+  assert.equal(entries.find(entry => entry.title === 'behind').waiting, null);
+});
+
+test('with auto-pick off a started item nobody picked holds nothing, so the pick behind it is next', t => {
+  const root = dataRoot(t);
+  const { behind } = startedAhead(root);
+  writeMode(root, { autoPick: false });
+  pickNext(root, `item:api:${behind.id}`);
+
+  const { next, entries } = plan(root);
+
+  assert.equal(next.title, 'behind');
+  assert.equal(entries.find(entry => entry.title === 'behind').waiting, null);
+});
+
+test('with auto-pick off a started item that was picked still goes first, and what is behind it waits', t => {
+  const root = dataRoot(t);
+  const { started, behind } = startedAhead(root);
+  writeMode(root, { autoPick: false });
+  pickNext(root, `item:api:${behind.id}`);
+  pickNext(root, `item:api:${started.id}`);
+
+  const { next, entries } = plan(root);
+
+  assert.equal(next.title, 'started');
+  assert.equal(entries.find(entry => entry.title === 'behind').waiting, 'after its started item');
+});
+
+test('a project left alone puts up the row behind a skipped started item, because that row can go', t => {
+  const root = dataRoot(t);
+  project(root, 'busy');
+  project(root, 'site', 'casual');
+  ranRecently(root, 'busy');
+  fileItem(root, 'busy', item('busy fix', { impact: 'high' }), now);
+  const started = fileItem(root, 'site', item('started', { impact: 'low' }), now);
+  updateItem(root, 'site', started.id, { state: 'doing', branch: 'hobkin/started' }, now);
+  fileItem(root, 'site', item('behind', { impact: 'low', effort: 'large' }), now);
+  skipInQueue(root, `item:site:${started.id}`);
+
+  const { entries } = plan(root);
+
+  assert.deepEqual(titles(entries), ['behind', 'busy fix', 'started']);
+  assert.match(entries[0].why, /^left alone/);
+});
+
+test('outside Herdr a max row does not wait for a pane, and is next', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'max');
+  fileItem(root, 'api', item('fix'), now);
+
+  const { next, entries } = plan(root, { panes: false });
+
+  assert.equal(next.title, 'fix');
+  assert.equal(entries[0].waiting, null);
+});
+
+test('a max project with no study yet can start outside Herdr', t => {
+  const root = dataRoot(t);
+  chooseProject(root, '/repos/api', 'max', now);
+
+  assert.equal(plan(root, { panes: false }).next.kind, 'study');
+});
+
+test('outside Herdr max keeps its limits', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'max');
+  fileItem(root, 'api', item('fix'), now);
+
+  const running = [{ slug: 'other', lane: 'do', level: 'max' }];
+  assert.equal(plan(root, { panes: false, running }).entries[0].waiting, 'one max run at a time');
+
+  for (let run = 0; run < 6; run++) recordTokens(root, { slug: 'other', lane: 'do', level: 'max', tokens: 1000 }, now - HOUR);
+  const { next, entries } = plan(root, { panes: false });
+  assert.equal(entries[0].waiting, '6 max runs a day');
+  assert.equal(next, null);
+});
+
+test('Claude\'s usage limit says nothing about a max row outside Herdr, because it does not run on Claude there', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'max');
+  fileItem(root, 'api', item('fix'), now);
+  writeMode(root, { claudePause: { at: new Date(now).toISOString(), until: new Date(now + HOUR).toISOString(), reason: 'Usage limit reached.', strikes: 1 } });
+
+  assert.equal(plan(root, { panes: true }).entries[0].waiting, 'Claude usage limit');
+  assert.equal(plan(root, { panes: false }).next.title, 'fix');
 });
 
 test('a run on a project makes small work there wait, and medium work may share it from a worktree', t => {
@@ -222,29 +815,59 @@ test('only as many agents run as the mode allows, and scheduled checks take thei
   assert.ok(plan(root, { running }).next, 'two agents by default, and one is running');
   assert.equal(plan(root, { running, checks: 1 }).next, null);
   assert.equal(plan(root, { checks: 2 }).next, null);
+  assert.match(plan(root, { checks: 2 }).waitingOn, /Scheduled checks/);
 });
 
-test('nothing starts while Chat is busy, and the plan says so', t => {
+test('while a run is going work starts spaced out, and the plan says when the next one can', t => {
   const root = dataRoot(t);
   project(root, 'api');
+  project(root, 'site');
   fileItem(root, 'api', item('fix'), now);
+  const running = [{ slug: 'site', lane: 'look' }];
 
-  const { next, waitingOn } = plan(root, { chatBusy: true });
-
-  assert.equal(next, null);
-  assert.match(waitingOn, /Chat/);
-});
-
-test('work starts spaced out, and the plan says when the next one can', t => {
-  const root = dataRoot(t);
-  project(root, 'api');
-  fileItem(root, 'api', item('fix'), now);
-
-  const { next, nextStartAt } = plan(root, { lastStartAt: now - 60000 });
+  const { next, nextStartAt } = plan(root, { running, lastStartAt: now - 60000 });
 
   assert.equal(next, null);
   assert.equal(Date.parse(nextStartAt), now - 60000 + 5 * 60000);
-  assert.ok(plan(root, { lastStartAt: now - 5 * 60000 }).next);
+  assert.ok(plan(root, { running, lastStartAt: now - 5 * 60000 }).next);
+});
+
+test('with nothing running a free worker does not sit out the gap, because no cost is left to wait for', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('fix'), now);
+
+  assert.equal(plan(root, { lastStartAt: now - 10000 }).next, null, 'it still takes a breath, so a run that dies at once cannot spin');
+  assert.ok(plan(root, { lastStartAt: now - 30000 }).next);
+});
+
+test('a long queue shortens the gap, so the work spreads out across the day instead of waiting', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  project(root, 'site');
+  for (let index = 0; index < 60; index++) fileItem(root, 'api', { ...item(`fix ${index}`), key: `fix:${index}` }, now);
+  const running = [{ slug: 'site', lane: 'look' }];
+
+  assert.ok(plan(root, { running, lastStartAt: now - 60000 }).next, 'a sixth of the gap for sixty rows');
+  assert.equal(plan(root, { running, lastStartAt: now - 20000 }).next, null, 'and never under the shortest gap');
+});
+
+test('a row that keeps failing waits its own turn longer, and everything else goes past it', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  const failing = fileItem(root, 'api', { ...item('failing'), key: 'failing' }, now);
+  updateItem(root, 'api', failing.id, { attempts: 2, lastError: 'It broke.' }, now - 60000);
+
+  const alone = plan(root);
+  assert.match(alone.entries[0].waiting, /^tries again at /);
+  assert.equal(alone.next, null);
+
+  fileItem(root, 'api', { ...item('healthy'), key: 'healthy' }, now);
+  assert.equal(plan(root).next.title, 'healthy');
+
+  assert.equal(planWork(root, { now: now + 21 * 60000 }).entries.find(entry => entry.title === 'failing').waiting, null, 'it always comes round');
+  pickNext(root, `item:api:${failing.id}`);
+  assert.equal(plan(root).next.title, 'failing', 'and a pick is the user\'s own word');
 });
 
 test('with no reading of the subscription, one agent runs at a time, because the token limit alone cannot protect it', t => {
@@ -392,17 +1015,24 @@ test('with little of the day left and nothing that fits, that counts as the day 
   assert.equal(plan(root).pause.kind, 'day');
 });
 
-test('urgent work on a critical project skips the hourly share and never the daily limit', t => {
+test('a P0 row skips the hourly share, whatever made it P0, and nothing skips the daily limit', t => {
   const root = dataRoot(t);
   project(root, 'billing', 'critical');
   project(root, 'site', 'casual');
-  fileItem(root, 'billing', item('main is broken', { urgent: true, effort: 'small' }), now);
+  project(root, 'tool', 'casual');
+  fileItem(root, 'billing', item('main is broken', { effort: 'small' }), now);
   fileItem(root, 'site', item('site is broken', { urgent: true, effort: 'small' }), now);
+  const graded = fileItem(root, 'tool', item('tool fix', { effort: 'small' }), now);
   writeMode(root, { dailyTokens: 10000000 });
   recordTokens(root, { slug: 'billing', lane: 'do', tokens: 900000 }, now - HOUR / 2);
+  const waitOf = title => plan(root).entries.find(entry => entry.title === title).waiting;
 
   assert.equal(plan(root).next.title, 'main is broken');
-  assert.equal(plan(root).entries.find(entry => entry.slug === 'site').waiting, 'over this hour\'s share');
+  assert.equal(waitOf('site is broken'), null);
+  assert.equal(waitOf('tool fix'), 'over this hour\'s share');
+
+  updateItem(root, 'tool', graded.id, { grade: 'P0' }, now);
+  assert.equal(waitOf('tool fix'), null);
 
   recordTokens(root, { slug: 'billing', lane: 'do', tokens: 9100000 }, now - HOUR / 2);
   assert.equal(plan(root).next, null, 'the daily limit holds for everything');

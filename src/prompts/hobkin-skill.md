@@ -13,7 +13,7 @@ Everything here is local files plus a few commands. There is no API or server, a
 
 The data folder is `$HOBKIN_HOME`, or `~/.hobkin`. Every command also takes `--home /absolute/path`. If the folder holds `active.json`, the data lives in the subfolder its `directory` field names. Paths below are relative to the data folder.
 
-Checks only run while a dashboard or `hobkin run` owns the workspace. Only one owner can exist. A live owner refreshes the `runtime.lock` entry beside `runtime/` every few seconds, so one modified within the last minute means an owner is running. A saved file or view proves nothing ran.
+Checks and work mode only run while a dashboard is open. Only one dashboard can own a workspace. A live dashboard refreshes the `runtime.lock` entry beside `runtime/` every few seconds, so one modified within the last minute means a dashboard is open. A saved file or view proves nothing ran.
 
 ## Commands
 
@@ -27,18 +27,20 @@ These read saved state. They start nothing and call no model:
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
 | `hobkin work status` | Work mode in short, as JSON: on or off, any pause and why, tokens, limits and what is next. |
-| `hobkin work projects`, `items [project]` | Each project or item with its level, state and counts. `--state` narrows them. |
+| `hobkin work projects`, `items [project]` | Each project with its level, state and counts, or each item with its `grade`, `state`, `branch`, `attempts`, `lastError`, `summary`, `proof` and `left`. `--state` narrows them. |
 | `hobkin work running`, `queue`, `attention` | Each agent, the plan in order, and what is waiting on the user. |
-| `hobkin work search <text>` | Finds projects and items by name, title, path or stuck reason. |
+| `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |
+| `hobkin work pr <project> <item>` | A local PR: a local `hobkin/*` branch and its saved description, for the user to review. |
+| `hobkin work diff <project> <item>` | Opens that branch's diff in pi-coder, in a Herdr pane in front of the user. Outside Herdr it says what to type in Pi. |
+| `hobkin work review` | The weekly review: whether work mode is running and progressing, and which projects look stale. |
 | `hobkin work help` | Every work mode command. A project is its name, slug or path. |
 
 These change things. Use them only when the user asked:
 
 | Command | Effect |
 | --- | --- |
-| `hobkin work add item <project> <title>`, `trigger`, `pause`, `cancel`, ... | Each prints `ok` and a `message`. See `hobkin work help`. |
+| `hobkin work add item <project> <title>`, `trigger`, `pause`, `cancel`, `priority`, `prs`, `grade`, `sync`, ... | Each prints `ok` and a `message`. See `hobkin work help`. |
 | `hobkin reports delete ID...` | Deletes reports everywhere. Run receipts stay, so nothing replays. |
-| `hobkin run` | Becomes the owner and runs checks in the foreground until stopped. Fails if an owner exists. |
 | `hobkin init` | Creates a workspace. |
 | `hobkin patterns-submit`, `upgrade-apply` | Model spend and migrations, with their own confirmation steps. |
 
@@ -141,14 +143,14 @@ After two blocked or failed runs in a row, a check is held and retries after 1, 
 Only the main agent can run a schedule on request. From outside, write a one-time check instead. This is the supported way to hand Hobkin work:
 
 1. Write `schedules/once/<unique-id>.md` with today's `date` in the file's timezone, `at` set to the current minute or later, and `enabled: true`.
-2. An owner picks it up within seconds of that minute. If none is running, it runs once as soon as one starts, however late.
+2. An open dashboard picks it up within seconds of that minute. If none is open, it runs once as soon as one opens, however late.
 3. Watch `hobkin reports` for its `scheduleId`, or `checks/<id>/log.md`.
 
 A one-time file never runs twice. Once it has run, Hobkin moves it to `checks/<id>/once-<date>.md`, so it leaves `schedules/once/`. Use a new ID for new work.
 
 ## Stay out of
 
-- `runtime/hobkin.sqlite` and `runtime.lock`. Never edit or delete them. Removing a live owner's lock can start two owners.
+- `runtime/hobkin.sqlite` and `runtime.lock`. Never edit or delete them. Removing a live dashboard's lock can let two run on one workspace.
 - `runtime/view.json`, `runtime/presentation.json`, `runtime/learning.json`, `runtime/learning-actions.jsonl`, `sessions/` and `jobs/`. Hobkin owns these, and their formats can change. `hobkin learning` shows what was learned and removes it.
 - `reports/`. Read reports with `hobkin reports` and delete them with its `delete` command.
 - `work/`. Its files are for Hobkin, and `work/*/trees/` are worktrees its agents are using. Read work mode with `hobkin work` instead. To hand a project work, use `hobkin work add item <project> <title>`, or pipe JSON to `hobkin work item <slug>`.

@@ -35,6 +35,21 @@ test('question tool validates choices and returns only the exact selected answer
   }
 });
 
+test('the tool offers Other, and what the user types comes back as their answer', async () => {
+  const asked = [];
+  const ask = async request => {
+    asked.push(request);
+    return { typed: 'Neither, ask me tomorrow' };
+  };
+
+  const { details, content } = await createQuestionTool(ask).execute('q', question);
+
+  assert.equal(asked[0].other, true);
+  assert.deepEqual(details, { status: 'answered', typed: 'Neither, ask me tomorrow' });
+  assert.deepEqual(JSON.parse(content[0].text), details);
+  await assert.rejects(createQuestionTool(async () => ({ typed: '' })).execute('q', question), /choice/i);
+});
+
 test('real SDK registers the main question tool and application delivers selection and cancellation to it', async t => {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-questions-'));
   isolatePiHome(t, join(root, 'agent'));

@@ -34,39 +34,37 @@ function freshHome(t) {
   return { home, root: join(home, '.hobkin') };
 }
 
-for (const [args, isTTY] of [[[], true], [['run'], false]]) {
-  test(`${args[0] ?? 'interactive launch'} initializes the default workspace without touching legacy data`, async t => {
-    const { home, root } = freshHome(t);
-    const legacy = join(home, '.pi/agent/hobkin');
-    mkdirSync(legacy, { recursive: true });
-    writeFileSync(join(legacy, 'state.json'), '{"legacy":"preserved"}');
-    const signals = new EventEmitter();
-    let opens = 0;
-    const dependencies = {
-      signals,
-      input: { isTTY },
-      startDashboard: () => ({ update() {}, stop() {} }),
-      openApplication: async selectedRoot => {
-        assert.equal(selectedRoot, root);
-        assert.equal(JSON.parse(readFileSync(join(root, 'config.json'))).version, 2);
-        opens++;
-        signals.emit('SIGTERM');
-        return { close: async () => {} };
-      },
-    };
-    assert.equal(await main(args, { isTTY, write() {} }, dependencies), 0);
-    const config = readFileSync(join(root, 'config.json'), 'utf8');
-    assert.equal(await main(args, { isTTY, write() {} }, dependencies), 0);
-    assert.equal(readFileSync(join(root, 'config.json'), 'utf8'), config);
-    assert.equal(opens, 2);
-    for (const cadence of ['daily', 'weekly', 'monthly']) {
-      assert.equal(existsSync(join(root, 'schedules', cadence)), true);
-    }
-    assert.equal(readFileSync(join(legacy, 'state.json'), 'utf8'), '{"legacy":"preserved"}');
-    assert.equal(existsSync(`${legacy}-control`), false);
-    assert.equal(existsSync(join(root, 'migration')), false);
-  });
-}
+test('interactive launch initializes the default workspace without touching legacy data', async t => {
+  const { home, root } = freshHome(t);
+  const legacy = join(home, '.pi/agent/hobkin');
+  mkdirSync(legacy, { recursive: true });
+  writeFileSync(join(legacy, 'state.json'), '{"legacy":"preserved"}');
+  const signals = new EventEmitter();
+  let opens = 0;
+  const dependencies = {
+    signals,
+    input: { isTTY: true },
+    startDashboard: () => ({ update() {}, stop() {} }),
+    openApplication: async selectedRoot => {
+      assert.equal(selectedRoot, root);
+      assert.equal(JSON.parse(readFileSync(join(root, 'config.json'))).version, 2);
+      opens++;
+      signals.emit('SIGTERM');
+      return { close: async () => {} };
+    },
+  };
+  assert.equal(await main([], { isTTY: true, write() {} }, dependencies), 0);
+  const config = readFileSync(join(root, 'config.json'), 'utf8');
+  assert.equal(await main([], { isTTY: true, write() {} }, dependencies), 0);
+  assert.equal(readFileSync(join(root, 'config.json'), 'utf8'), config);
+  assert.equal(opens, 2);
+  for (const cadence of ['daily', 'weekly', 'monthly']) {
+    assert.equal(existsSync(join(root, 'schedules', cadence)), true);
+  }
+  assert.equal(readFileSync(join(legacy, 'state.json'), 'utf8'), '{"legacy":"preserved"}');
+  assert.equal(existsSync(`${legacy}-control`), false);
+  assert.equal(existsSync(join(root, 'migration')), false);
+});
 
 test('finite reads do not initialize, and connected startup cannot bypass an incomplete migration', async t => {
   const { root } = freshHome(t);
@@ -74,15 +72,13 @@ test('finite reads do not initialize, and connected startup cannot bypass an inc
     input: { isTTY: true },
     openApplication: () => { throw Error('Must not open'); },
   };
-  for (const [args, isTTY] of [[[], false], [['--plain'], true], [['schedules'], true], [['run', '--plain'], true]]) {
+  for (const [args, isTTY] of [[[], false], [['--plain'], true], [['schedules'], true]]) {
     await assert.rejects(main(args, { isTTY, write() {} }, dependencies), { code: 'ENOENT' });
     assert.equal(existsSync(root), false);
   }
   mkdirSync(join(root, 'migration'), { recursive: true });
-  for (const args of [[], ['run']]) {
-    await assert.rejects(main(args, { isTTY: true, write() {} }, dependencies), /Migration is incomplete/);
-    assert.equal(existsSync(join(root, 'config.json')), false);
-  }
+  await assert.rejects(main([], { isTTY: true, write() {} }, dependencies), /Migration is incomplete/);
+  assert.equal(existsSync(join(root, 'config.json')), false);
 });
 
 test('the published hobkin executable runs from PATH outside the checkout and preserves failure exits', t => {
@@ -111,15 +107,15 @@ test('the published hobkin executable runs from PATH outside the checkout and pr
   assert.ok(rejected.stderr.length > 0);
 });
 
-test('explicit headless command holds one owner until a signal, then closes and removes handlers', async t => {
-  const h = fixture(t);
+test('the dashboard holds one owner until a signal, then closes and removes handlers', async t => {
+  const h = fixture(t, true);
   const started = Promise.withResolvers();
   let closes = 0;
-  const work = main(['run', '--home', h.root], h.output, {
+  const work = main(['--home', h.root], h.output, {
     signals: h.signals,
-    input: { isTTY: false },
-    openApplication: async (_root, options) => {
-      assert.equal(await options.askQuestion({ question: 'Headless?' }), undefined);
+    input: { isTTY: true },
+    startDashboard: () => ({ update() {}, stop() {} }),
+    openApplication: async () => {
       started.resolve();
       return { close: async () => { closes++; } };
     },
@@ -136,12 +132,13 @@ test('explicit headless command holds one owner until a signal, then closes and 
 });
 
 test('connected command exits the process only after the application has closed', async t => {
-  const h = fixture(t);
+  const h = fixture(t, true);
   const started = Promise.withResolvers();
   const steps = [];
-  const work = main(['run', '--home', h.root], h.output, {
+  const work = main(['--home', h.root], h.output, {
     signals: h.signals,
-    input: { isTTY: false },
+    input: { isTTY: true },
+    startDashboard: () => ({ update() {}, stop() {} }),
     exit: code => { steps.push(`exit ${code}`); },
     openApplication: async () => {
       started.resolve();
@@ -162,13 +159,14 @@ test('connected command exits the process only after the application has closed'
 });
 
 test('quitting during startup exits cleanly without waiting for the connection', async t => {
-  const h = fixture(t);
+  const h = fixture(t, true);
   const started = Promise.withResolvers();
   const connecting = Promise.withResolvers();
   const exits = [];
-  const work = main(['run', '--home', h.root], h.output, {
+  const work = main(['--home', h.root], h.output, {
     signals: h.signals,
-    input: { isTTY: false },
+    input: { isTTY: true },
+    startDashboard: () => ({ update() {}, stop() {} }),
     exit: code => { exits.push(code); },
     openApplication: () => {
       started.resolve();
@@ -188,12 +186,13 @@ test('quitting during startup exits cleanly without waiting for the connection',
 });
 
 test('a connection that fails after a quit stays silent', async t => {
-  const h = fixture(t);
+  const h = fixture(t, true);
   const started = Promise.withResolvers();
   const connecting = Promise.withResolvers();
-  const work = main(['run', '--home', h.root], h.output, {
+  const work = main(['--home', h.root], h.output, {
     signals: h.signals,
-    input: { isTTY: false },
+    input: { isTTY: true },
+    startDashboard: () => ({ update() {}, stop() {} }),
     openApplication: () => {
       started.resolve();
       return connecting.promise;

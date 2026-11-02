@@ -38,6 +38,10 @@ This schedules ten checks in one file. The interval starts at `start`; it includ
 
 Weekly files also need `"weekday": 1` (Sunday 0 through Saturday 6), or a list of days such as `"weekday": [1, 2, 3, 4, 5]` for Monday to Friday. Monthly files need `"day": 1` (1 to 31); missing dates are skipped. All times use the named timezone. Repeated daylight-saving times run once; nonexistent times are skipped. IDs must be unique across folders.
 
+## Spread them
+
+Checks that pile up compete for the same agents and all arrive at once, so `hobkin schedules` prints when each one runs. Put a weekly check on the day with the fewest, and a monthly one on the date with the fewest, from 1 to 28. Keep hours apart too, by at least 15 minutes. A morning briefing or disclosure stays in the morning, staggered. A day or time you need wins over all of this.
+
 ## One-time schedules
 
 A file in `once/` runs on one date and never again. Add `"date": "2026-05-04"` (a real local calendar date in the file's timezone) to the usual fields; only `once/` files may carry `date`. `at` (one time or a list) or `window` then apply to that date only.
@@ -55,4 +59,4 @@ For "remind me at 3pm", use today's date in the user's timezone. For "in 2 hours
 
 `hobkin schedules` lists files and validation errors without calling a model. Initialization also needs no model. Editing files requires neither code changes nor a restart. One file counts as one schedule, regardless of its times.
 
-Keep the dashboard or headless runner active for checks to execute. A saved file does not prove a check ran. An external supervisor can manage the runner; Hobkin does not install one. Old non-Pi harness bindings remain on disk but fail validation; saved configuration and history remain readable.
+Keep the dashboard open for checks to execute. A saved file does not prove a check ran. Old non-Pi harness bindings remain on disk but fail validation; saved configuration and history remain readable.

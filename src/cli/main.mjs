@@ -7,6 +7,8 @@ import { indexStatus } from './memory-index.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { readLocalView, savePresentationState } from './view.mjs';
 import { deleteReports } from './reports.mjs';
+import { whenItRuns } from './schedules.mjs';
+import { stayAwake } from './stay-awake.mjs';
 
 export function parseArguments(args) {
   const values = [...args];
@@ -22,6 +24,7 @@ export function parseArguments(args) {
     } else if (options.command === 'work' && ['--state', '--brief'].includes(flag) && values.length) {
       options[flag.slice(2)] = values.shift();
     } else if (flag === '--plain') options.plain = true;
+    else if (flag === '--keep' && options.command === 'session') options.keep = true;
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else if (['reports', 'work', 'import', 'jev', 'learning'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
@@ -30,7 +33,7 @@ export function parseArguments(args) {
   return options;
 }
 
-async function connected(options, snapshot, output, dependencies) {
+async function connected(options, snapshot, dependencies) {
   const signals = dependencies.signals ?? process;
   const done = Promise.withResolvers();
   const cancellation = new AbortController();
@@ -40,52 +43,46 @@ async function connected(options, snapshot, output, dependencies) {
   };
   let dashboard;
   let app;
-  let keepAlive;
   signals.on('SIGINT', stop);
   signals.on('SIGTERM', stop);
+  stayAwake();
   try {
-    if (options.command !== 'run') {
-      const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
-      dashboard = start(snapshot, {
-        onQuit: stop,
-        send: (text, report) => {
-          if (!app) throw Error('Main conversation is still connecting.');
-          return app.send(text, report);
-        },
-        clear: messageIds => savePresentationState(options.root, messageIds),
-        reset: () => {
-          if (!app) throw Error('Main conversation is still connecting.');
-          return app.reset();
-        },
-        kill: runId => {
-          if (!app) throw Error('Hobkin is still connecting.');
-          return app.kill(runId);
-        },
-        reportRead: read => app?.recordReportRead(read),
-        workAction: (...request) => {
-          if (!app) throw Error('Hobkin is still connecting.');
-          return app.workAction(...request);
-        },
-        toggleJev: () => {
-          if (!app) throw Error('Hobkin is still connecting.');
-          return app.toggleJev();
-        },
-        toggleLearning: () => {
-          if (!app) throw Error('Hobkin is still connecting.');
-          return app.toggleLearning();
-        },
-      }, { theme: { cwd: snapshot.config.main.cwd } });
-    } else {
-      keepAlive = setInterval(() => {}, 60000);
-      output.write('Hobkin running in this process. SIGINT/SIGTERM stops owned work.\n');
-    }
+    const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
+    dashboard = start(snapshot, {
+      onQuit: stop,
+      send: (text, report) => {
+        if (!app) throw Error('Main conversation is still connecting.');
+        return app.send(text, report);
+      },
+      clear: messageIds => savePresentationState(options.root, messageIds),
+      reset: () => {
+        if (!app) throw Error('Main conversation is still connecting.');
+        return app.reset();
+      },
+      kill: runId => {
+        if (!app) throw Error('Hobkin is still connecting.');
+        return app.kill(runId);
+      },
+      reportRead: read => app?.recordReportRead(read),
+      workAction: (...request) => {
+        if (!app) throw Error('Hobkin is still connecting.');
+        return app.workAction(...request);
+      },
+      toggleJev: () => {
+        if (!app) throw Error('Hobkin is still connecting.');
+        return app.toggleJev();
+      },
+      toggleLearning: () => {
+        if (!app) throw Error('Hobkin is still connecting.');
+        return app.toggleLearning();
+      },
+    }, { theme: { cwd: snapshot.config.main.cwd } });
     const open = dependencies.openApplication ?? (await import('./application.mjs')).HobkinApplication.open;
     const opening = open(options.root, {
       signal: cancellation.signal,
-      watched: options.command !== 'run',
       memoryIndex: {},
-      onChange: view => dashboard?.update(view),
-      askQuestion: (request, signal) => dashboard?.askQuestion(request, signal),
+      onChange: view => dashboard.update(view),
+      askQuestion: (request, signal) => dashboard.askQuestion(request, signal),
     }).then(opened => {
       app = opened;
       if (cancellation.signal.aborted) return opened.close();
@@ -95,7 +92,6 @@ async function connected(options, snapshot, output, dependencies) {
     await done.promise;
     return 0;
   } finally {
-    clearInterval(keepAlive);
     signals.removeListener('SIGINT', stop);
     signals.removeListener('SIGTERM', stop);
     dashboard?.stop();
@@ -106,8 +102,12 @@ async function connected(options, snapshot, output, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history | run  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  session [--title name] [--cwd directory]  hand the brief on stdin to a full Pi session in a Herdr pane\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  session [--title name] [--cwd directory] [--keep]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
     return 0;
+  }
+  if (options.command === 'setup') {
+    const { printSetup } = await import('./setup.mjs');
+    return printSetup(options.root, output, dependencies);
   }
   if (options.command === 'skill') {
     output.write(readFileSync(new URL('../prompts/hobkin-skill.md', import.meta.url), 'utf8'));
@@ -132,10 +132,10 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     return 0;
   }
   if (options.command === 'session') {
-    const { readBrief, requireHerdr, startSession } = await import('./session.mjs');
+    const { followInBackground, readBrief, requireHerdr, startSession } = await import('./session.mjs');
     requireHerdr();
     const brief = await readBrief(dependencies.input ?? process.stdin);
-    const started = await startSession({ root: options.root, title: options.title, cwd: options.cwd, brief });
+    const started = await startSession({ root: options.root, title: options.title, cwd: options.cwd, brief, keep: options.keep, follow: followInBackground });
     output.write(`${JSON.stringify(started, null, 2)}\n`);
     return 0;
   }
@@ -221,15 +221,15 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     output.write(`${JSON.stringify(loadImportedHistory(options.root), null, 2)}\n`);
     return 0;
   }
-  if (!['init', 'schedules', 'status', 'run'].includes(options.command)) throw Error(`Unknown command: ${options.command}`);
+  if (!['init', 'schedules', 'status'].includes(options.command)) throw Error(`Unknown command: ${options.command}`);
   const tty = output.isTTY && (dependencies.input ?? process.stdin).isTTY;
-  const connect = !options.plain && (options.command === 'run' || (options.command === 'status' && tty));
+  const connect = !options.plain && options.command === 'status' && tty;
   if (options.command === 'init') initialize(options.root, { legacySources: options.explicitRoot ? [] : legacySources() });
   else if (connect) initialize(options.root);
   const snapshot = readLocalView(options.root);
   const { config, schedules, counts, errors, usage } = snapshot;
   if (connect) {
-    const code = await connected(options, snapshot, output, dependencies);
+    const code = await connected(options, snapshot, dependencies);
     // Extension handles can outlive close(); Pi's own quit exits the same way.
     dependencies.exit?.(code);
     return code;
@@ -242,7 +242,9 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   output.write(`${indexStatus(resolveDataRoot(options.root))}\n`);
   if (snapshot.savedAt) output.write(`Saved view ${snapshot.savedAt}; not a liveness check\n`);
   for (const item of schedules) {
-    output.write(`${item.enabled ? 'enabled' : 'paused'}  ${item.cadence}/${item.id}  ${item.title}\n`);
+    const state = item.enabled ? 'enabled' : 'paused';
+    const listing = `${state}  ${item.cadence}/${item.id}  ${item.title}  ${whenItRuns(item)}`;
+    output.write(`${listing.trimEnd()}\n`);
   }
   for (const error of errors) {
     output.write(`Invalid ${error.path}: ${error.message}\n`);
@@ -250,9 +252,18 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   return errors.length ? 1 : 0;
 }
 
+/** A new person's first failures are about setup, and `/setup` cannot help before Hobkin opens, so these name the command that can. */
+export function failureLine({ message, code, path }) {
+  const noWorkspace = code === 'ENOENT' && String(path).endsWith('config.json');
+  const needsSetup = noWorkspace || message.includes('No models available');
+  const failure = noWorkspace ? 'This folder has no Hobkin workspace yet.' : message;
+  const nextStep = needsSetup ? 'Run hobkin setup to see what is missing and how to fix it.\n' : '';
+  return `Hobkin: ${failure}\n${nextStep}`;
+}
+
 if (import.meta.main) {
   main(undefined, undefined, { exit: process.exit }).then(code => { process.exitCode = code; }).catch(error => {
-    process.stderr.write(`Hobkin: ${error.message}\n`);
+    process.stderr.write(failureLine(error));
     if (error.diagnostics) process.stderr.write(`${JSON.stringify(error.diagnostics, null, 2)}\n`);
     process.exitCode = 1;
   });

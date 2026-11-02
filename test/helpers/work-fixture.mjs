@@ -21,6 +21,38 @@ export function repository(base, name) {
   return checkout;
 }
 
+export function commit(checkout, file, text) {
+  writeFileSync(join(checkout, file), text);
+  git(checkout, 'add', '.');
+  git(checkout, 'commit', '-qm', text.trim());
+}
+
+/** A branch with one commit of its own, with the checkout back on `main`. */
+export function branched(checkout, name, file = `${name.replaceAll('/', '-')}.txt`, text = `${name}\n`) {
+  git(checkout, 'switch', '-qc', name);
+  commit(checkout, file, text);
+  git(checkout, 'switch', '-q', 'main');
+}
+
+/** An open PR on its own hobkin head, as `gh pr list` gives it. */
+export const pull = (number, details = {}) => ({
+  number,
+  title: `PR ${number}`,
+  url: `https://example.com/pull/${number}`,
+  state: 'OPEN',
+  isDraft: false,
+  createdAt: '2026-05-20T00:00:00Z',
+  mergedAt: null,
+  additions: 1,
+  deletions: 0,
+  changedFiles: 1,
+  reviewDecision: 'REVIEW_REQUIRED',
+  statusCheckRollup: [{ conclusion: 'SUCCESS' }],
+  mergeable: 'MERGEABLE',
+  headRefName: `hobkin/${number}-fix`,
+  ...details,
+});
+
 /** A local bare repository as `origin`, with `main` pushed and `origin/HEAD` known, as a clone would have it. */
 export function withOrigin(base, checkout, name = 'origin.git') {
   const origin = join(base, name);

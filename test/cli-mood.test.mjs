@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { moods as allMoods } from '../src/cli/face.mjs';
-import { askJev, Moods } from '../src/cli/mood.mjs';
+import { askJev, currentMood, Moods } from '../src/cli/mood.mjs';
+import { createDashboard } from '../src/cli/ui.mjs';
 
 function fixture({ enabled = true, answer = 'surprised' } = {}) {
   const h = { clock: 100000, asked: [], enabled, answer };
@@ -21,6 +22,38 @@ function fixture({ enabled = true, answer = 'surprised' } = {}) {
 const view = (patch = {}) => ({ messages: [], runs: [], busy: false, ...patch });
 const report = (tone, id = 'one') => ({ messages: [{ id, role: 'notice', content: 'Email follow-ups: two replies are due.', tone }] });
 const check = title => ({ title, state: 'running', kind: 'background' });
+
+test('a face gone quiet wakes when the user types, and a passing reaction plays out', () => {
+  const asleep = { mood: 'sleepy', lasting: true, until: Number.MAX_SAFE_INTEGER };
+  const pleased = { mood: 'happy', until: 2000 };
+
+  assert.equal(currentMood({ reaction: asleep, now: 1000 }), 'sleepy');
+  assert.equal(currentMood({ reaction: asleep, typing: true, now: 1000 }), 'listening');
+  assert.equal(currentMood({ reaction: pleased, typing: true, now: 1000 }), 'happy');
+});
+
+test('typing in the composer wakes the face, and clearing it lets it sleep again', () => {
+  const asleep = { mood: 'sleepy', lasting: true, until: Number.MAX_SAFE_INTEGER };
+  const ui = createDashboard({
+    config: { main: {}, background: { harness: 'pi', model: null, effort: 'medium' } },
+    counts: { daily: 0, weekly: 0, monthly: 0 },
+    schedules: [],
+    reports: [],
+    messages: [],
+    connection: 'connected',
+    runs: [],
+    usage: null,
+    mood: asleep,
+  });
+  assert.equal(ui.state().mood, 'sleepy');
+
+  ui.input('h');
+  assert.equal(ui.state().mood, 'listening');
+
+  ui.input('\x03');
+  assert.equal(ui.state().mood, 'sleepy');
+  ui.stop();
+});
 
 test('without Jev a good report makes Hobkin happy, and nothing leaves the machine', async () => {
   const h = fixture({ enabled: false });

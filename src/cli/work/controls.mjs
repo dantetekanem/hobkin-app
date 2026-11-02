@@ -1,17 +1,28 @@
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
-import { planWork, rowWait } from './plan.mjs';
+import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
+import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
-  retryItem, setProjectLevel, setProjectPaused, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
+  answerAllowance, chooseProject, dropProject, fileItem, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
+  retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
-import { unmergedNow } from './unmerged.mjs';
+import { defaultBranch } from './tree.mjs';
+import { surveyUnmerged } from './unmerged.mjs';
 
 const QUEUE_KEY = /^(item|look|study|ideas):([^:]+)(?::(.+))?$/;
 const LOOKS = ['look', 'study', 'ideas'];
+// A finished branch can go round again. Its item goes back to `open`, and the next run picks up from that branch.
+const statesThatRun = [...runnableStates, 'branch'];
+const landings = {
+  off: 'finished work stays on a local branch with its description, for the user to review',
+  draft: 'finished work opens a draft PR',
+  published: 'finished work opens a PR',
+};
 
 /** One line: what happened and what comes next. A failure throws, and `printWorkCommand` says it the same way. */
 export const reply = (message, details = {}) => ({ ok: true, message, ...details });
@@ -46,7 +57,6 @@ export function pauseWork(root, reference) {
   return reply('Paused everywhere. Work mode stays on, running agents finish, and nothing new starts until hobkin work resume.');
 }
 
-/** A pause goes first and alone, so ending one can never restart the unmerged count. Only a real stop does, because that is the user saying keep going. */
 export function resumeWork(root, reference) {
   const pauseLeft = () => planWork(root, ownerView(root)).pause?.line;
   if (reference) {
@@ -55,15 +65,9 @@ export function resumeWork(root, reference) {
     return reply(`Resumed ${nameOf(project)}. ${pauseLeft() ?? 'Its work is back in the queue.'}`);
   }
 
-  const mode = readMode(root);
-  if (mode.pausedAt) {
+  if (readMode(root).pausedAt) {
     writeMode(root, { pausedAt: null });
     return reply(`Resumed. ${pauseLeft() ?? 'The queue carries on at the next tick.'}`);
-  }
-
-  if (mode.mergeStop || unmergedNow(root, mode).full.length) {
-    writeMode(root, { keptGoingAt: new Date().toISOString(), mergeStop: null });
-    return reply('Keeping going. The unmerged count starts again from now, and the queue carries on at the next tick.');
   }
 
   const otherPause = pauseLeft();
@@ -121,7 +125,7 @@ function rowNames(reference, target) {
 
 const isDiscovery = (root, name) => name === 'discover' && !projectNamed(root, name);
 
-/** A row of the queue. `unnamed` picks one for a project when the caller named none, and nothing runs on a project before its study. */
+/** A row of the queue. `unnamed` picks one for a project when the caller named none, and a look on a project with no study yet is that study. */
 function queueRow(root, reference, target, unnamed = () => null) {
   const { name, wanted } = rowNames(reference, target);
   if (isDiscovery(root, name)) return { key: 'discover', label: 'the look for projects' };
@@ -142,10 +146,8 @@ function assertCanRun(root, { project, item }) {
   if (!item) return;
 
   assertNotRunning(root, project, item);
-  const { id, title, state, kind } = item;
-  if (state === 'stuck') throw Error(`"${title}" is stuck. hobkin work retry ${project.slug} ${id} tries it again.`);
-  if (!doableKinds.includes(kind)) throw Error(`"${title}" is waiting on the user, so no agent can run it.`);
-  if (!['open', 'doing'].includes(state)) throw Error(`"${title}" is ${state}, so there is nothing to run.`);
+  const { title, state } = item;
+  if (!statesThatRun.includes(state)) throw Error(`"${title}" is ${state}, so there is nothing to run.`);
 }
 
 function whenItStarts({ mode, pause, waitingOn, entries, free }, key, owner) {
@@ -172,6 +174,7 @@ export function triggerRow(root, reference, target) {
 
   const row = queueRow(root, reference, target, nextOnProject);
   assertCanRun(root, row);
+  if (row.item?.state === 'branch') updateItem(root, row.project.slug, row.item.id, { state: 'open' });
   pickNext(root, row.key);
 
   const next = whenItStarts(planWork(root, view), row.key, view.owner);
@@ -183,13 +186,13 @@ export function cancelRuns(root, reference) {
   if (!reference) throw Error('Say what to cancel: a project, a run id or an item id.');
   const { owner, running } = ownerView(root);
   const runs = runsNamed(root, running, reference);
-  if (!owner) throw Error('Nothing is running, because no dashboard or hobkin run is open.');
+  if (!owner) throw Error('Nothing is running, because no dashboard is open.');
   if (!runs.length) throw Error(`Nothing is running on ${reference}. hobkin work running lists what is.`);
   const ids = runs.map(({ id }) => id);
   for (const id of ids) requestCancel(root, id);
 
   const titles = runs.map(({ title }) => title).join(', ');
-  return reply(`Cancel requested for ${titles}. The owner stops it on its next tick, and a cancelled item stays stuck until retry or done.`, { runs: ids });
+  return reply(`Cancel requested for ${titles}. The owner stops it on its next tick, and a cancelled item goes to the end of the queue until hobkin work back puts it back.`, { runs: ids });
 }
 
 export function skipRow(root, reference, target) {
@@ -212,18 +215,75 @@ export function putBackRow(root, reference, target) {
   return reply(`Put ${label} back. It takes its place in the queue again.`, { key });
 }
 
-export function retryStuck(root, reference, id) {
+export function retryNow(root, reference, id) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
-  if (item.state !== 'stuck') throw Error(`"${item.title}" is ${item.state}, not stuck, so there is nothing to retry.`);
+  assertNotRunning(root, project, item);
+  if (!statesThatRun.includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to retry.`);
   retryItem(root, project.slug, item.id);
-  return reply(`"${item.title}" goes back at the front of the queue with its tries at zero.`);
+  return reply(`"${item.title}" goes to the front of the queue with its tries at zero.`);
 }
 
 export function setLevel(root, reference, word) {
   const project = findProject(root, reference);
   const { level } = setProjectLevel(root, project.slug, levelNamed(word));
   return reply(`${nameOf(project)} is now ${level}. The next run there uses it, and running agents finish as they are.`);
+}
+
+export function setPriority(root, reference, word) {
+  const project = findProject(root, reference);
+  const { priority } = setProjectPriority(root, project.slug, word);
+  return reply(`${nameOf(project)} is now ${priority}. Its work takes its new place in the queue on the next tick.`);
+}
+
+export function setPrMode(root, reference, word) {
+  const project = findProject(root, reference);
+  const { prMode } = setProjectPrMode(root, project.slug, word);
+  return reply(`On ${nameOf(project)}, ${landings[prMode]}, from the next run.`);
+}
+
+/** `auto` hands the item back to the queue, which works its grade out again. */
+export function setGrade(root, reference, id, word) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  if (!word) throw Error('Say a grade: P0 to P3, or auto.');
+
+  const auto = word === 'auto';
+  const graded = updateItem(root, project.slug, item.id, { grade: auto ? null : word });
+  const grade = itemGrade(withPending(root, project), graded);
+  return reply(`"${item.title}" on ${nameOf(project)} is now ${grade}${auto ? ', the grade the queue gives it' : ''}. It takes its new place on the next tick.`);
+}
+
+const diffPanes = () => (insideHerdr() ? new WorkPanes({ tab: SESSION_TAB }) : null);
+
+/** Shows a branch the way a reviewer sees it, in the repository that holds it: a project's own folder, or the clone Hobkin keeps of a URL. */
+export async function openDiff(root, reference, id, { panes = diffPanes(), follow = followInBackground } = {}) {
+  const project = findProject(root, reference);
+  const { branch, title } = findItem(root, project, id);
+  if (!branch) throw Error(`"${title}" has no branch yet, so there is no diff to show.`);
+
+  const cwd = project.path ?? paths(root, project.slug).clone;
+  const range = `${await defaultBranch(cwd)}...${branch}`;
+  if (!panes) return reply(`Outside Herdr there is no pane to open. Run Pi in ${shortPath(cwd)} and type /diff ${range}.`, { range, cwd });
+
+  // Herdr refuses a name already in use, and the same diff can be open twice.
+  const name = agentName('diff', `${randomBytes(2).toString('hex')}-${project.slug}`);
+  const { pane } = await panes.startDiff({ name, cwd, range });
+  follow({ name, pane });
+  return reply(`"${title}" is open in pi-coder, in pane ${pane}. It closes by itself a few minutes after you leave it.`, { range, cwd, pane });
+}
+
+/** Asks `git` and `gh` now instead of at the next survey. They only read the repositories: all this changes is Hobkin's own record of its items. */
+export async function syncWork(root) {
+  const { settled, filed } = await surveyUnmerged(root);
+  const merged = settled.filter(({ state }) => state === 'merged').length;
+  const back = settled.length - merged;
+  const found = [
+    merged && `${merged} merged`,
+    back && `${back} back to a local branch, because a PR was closed`,
+    filed.length && `${filed.length} ${filed.length === 1 ? 'branch' : 'branches'} to get ready to merge`,
+  ].filter(Boolean).join(', and ');
+  return reply(`Checked every project. ${found || 'Nothing was merged or closed'}.`, { settled, filed });
 }
 
 export function dropWork(root, reference, id) {
@@ -242,7 +302,7 @@ export function markDone(root, reference, id) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
-  updateItem(root, project.slug, item.id, { state: 'done' });
+  updateItem(root, project.slug, item.id, { state: 'done', left: null });
   return reply(`"${item.title}" on ${nameOf(project)} is done. It leaves the queue, and any branch or PR stays as it is.`);
 }
 
@@ -250,7 +310,7 @@ export function markMax(root, reference, id) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   updateItem(root, project.slug, item.id, { max: true });
-  return reply(`"${item.title}" on ${nameOf(project)} is now max: Claude Opus at max effort, whatever harness is set.`);
+  return reply(`"${item.title}" on ${nameOf(project)} is now max: Claude Opus at max effort in a Herdr pane, whatever harness is set, and the normal harness at its best outside one.`);
 }
 
 export function answerAllow(root, word) {

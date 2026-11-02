@@ -5,27 +5,31 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
 export const levels = {
-  // Super critical work runs on Claude whatever harness is set. Each run is the dearest there is, so it looks less often than `critical`.
-  max: { rank: -1, lookEveryHours: 12, lookEffort: 'max', doEffort: 'max', model: 'claude-opus-5-5', harness: 'claude' },
-  critical: { rank: 0, lookEveryHours: 8, lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
-  important: { rank: 1, lookEveryHours: 24, lookEffort: 'medium', doEffort: 'high', model: 'main' },
-  casual: { rank: 2, lookEveryHours: 72, lookEffort: 'low', doEffort: 'medium', model: 'background' },
+  // Super critical work runs on Claude whatever harness is set, in a pane, because nothing else can run it. Each run is the dearest there is, so it looks less often than `critical`.
+  max: { rank: -1, priority: 'P0', lookEveryHours: 12, lookEffort: 'max', doEffort: 'max', model: 'claude-opus-5-5', harness: 'claude' },
+  critical: { rank: 0, priority: 'P0', lookEveryHours: 8, lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
+  important: { rank: 1, priority: 'P1', lookEveryHours: 24, lookEffort: 'medium', doEffort: 'high', model: 'main' },
+  casual: { rank: 2, priority: 'P2', lookEveryHours: 72, lookEffort: 'low', doEffort: 'medium', model: 'background' },
 };
+export const grades = ['P0', 'P1', 'P2', 'P3'];
+export const prModes = ['off', 'draft', 'published'];
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];
-export const itemStates = ['open', 'doing', 'waiting', 'pr', 'merged', 'done', 'declined', 'dropped', 'stuck', 'noted'];
+// `branch` is finished on a branch with no PR. `stuck` is only ever on older records, and they run again like anything open.
+export const itemStates = ['open', 'doing', 'waiting', 'branch', 'pr', 'merged', 'done', 'declined', 'dropped', 'stuck', 'noted'];
+export const runnableStates = ['open', 'doing', 'stuck'];
+// What an agent may record. Any other state leaves an item out of the plan with no way back.
+export const agentStates = ['open', 'branch', 'pr', 'done', 'dropped'];
 export const impacts = ['high', 'medium', 'low'];
 export const efforts = ['small', 'medium', 'large'];
-export const doableKinds = ['pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
-// The most agents work mode will ever run, whatever is asked for. The default sits well below it, and the reason is in the README.
+export const doableKinds = ['attention', 'pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
+// The most agents work mode will ever run, whatever is asked for. The default sits well below it, and the reason is in docs/guide.md.
 export const MAX_AGENTS = 8;
 
-const itemKinds = [...doableKinds, 'attention'];
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;
 const DEFAULT_DAILY_TOKENS = 100000000;
 const DEFAULT_AGENTS = 2;
-const DEFAULT_UNMERGED_LIMIT = 30;
 const HOUR_MS = 3600000;
 // An open owner refreshes its lock every 10 seconds, so a minute without one means it is gone.
 const OWNER_FRESH_MS = 60000;
@@ -44,14 +48,17 @@ const cancelsPath = root => join(workRoot(root), 'cancels.jsonl');
 
 export const paths = (root, slug) => {
   const directory = join(workRoot(root), slug);
+  const trees = join(directory, 'trees');
   return {
     directory,
     project: join(directory, 'project.md'),
     directions: join(directory, 'directions.md'),
     items: join(directory, 'items.jsonl'),
     state: join(directory, 'state.json'),
-    lookTree: join(directory, 'trees', 'look'),
-    doTree: join(directory, 'trees', 'do'),
+    prs: join(directory, 'prs'),
+    trees,
+    lookTree: join(trees, 'look'),
+    doTree: join(trees, 'do'),
     clone: join(directory, 'repo'),
   };
 };
@@ -98,7 +105,7 @@ function fold(events, identify) {
 export function readMode(root) {
   const defaults = {
     version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS,
-    unmergedLimit: DEFAULT_UNMERGED_LIMIT, startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [],
+    startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [],
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
   const { pool, ...saved } = readJson(modePath(root), {});
@@ -123,7 +130,7 @@ export function realFolder(path) {
 
 /**
  * Discovery searches only where the user said to start, so the first start needs a folder.
- * The daily clock is for looking again at projects that exist, so with nothing to show a start looks now.
+ * The daily clock is for looking again at projects that exist, so with nothing to show a start looks now, unless the look at this folder already finished.
  */
 export function startWork(root, requested) {
   const { folder: saved } = readMode(root);
@@ -141,11 +148,6 @@ export function setHarness(root, harness) {
 export function setAgents(root, agents) {
   if (!Number.isInteger(agents) || agents < 1 || agents > MAX_AGENTS) throw Error(`The number of agents must be between 1 and ${MAX_AGENTS}.`);
   return writeMode(root, { agents });
-}
-
-export function setUnmergedLimit(root, unmergedLimit) {
-  if (!Number.isInteger(unmergedLimit) || unmergedLimit <= 0) throw Error('The unmerged limit must be a positive number.');
-  return writeMode(root, { unmergedLimit });
 }
 
 /** Queue keys are the plan's own, such as `item:api:abc123` or `look:api`. Picking one puts it first, and takes it back out of skipped. */
@@ -225,6 +227,12 @@ export function readDiscovery(root) {
 }
 
 export const recordDiscovery = (root, change) => appendEvent(discoveryPath(root), change);
+
+/** A finished look ends the search of that folder, and the watcher proposes what turns up there later for no tokens. */
+export function folderSearched(root, folder) {
+  const { folder: looked, status } = readDiscovery(root);
+  return looked === folder && status === 'finished';
+}
 
 /** What the agent says as it goes. The lists only grow, so a run that stops leaves them for the next one. */
 export function noteDiscovery(root, { folder, doing, repositories, rootFolders, finishedFolders }) {
@@ -318,11 +326,29 @@ export function setProjectLevel(root, slug, level) {
   return readProject(root, slug);
 }
 
+export function setProjectPriority(root, slug, priority) {
+  if (!grades.includes(priority)) throw Error(`priority must be one of: ${grades.join(', ')}`);
+  appendEvent(projectsPath(root), { slug, priority });
+  return readProject(root, slug);
+}
+
+export function setProjectPrMode(root, slug, prMode) {
+  if (!prModes.includes(prMode)) throw Error(`PR mode must be one of: ${prModes.join(', ')}`);
+  appendEvent(projectsPath(root), { slug, prMode });
+  return readProject(root, slug);
+}
+
+export const priorityOf = ({ priority, level }) => priority ?? levels[level]?.priority;
+
+export const byPriority = (left, right) => grades.indexOf(left.priority) - grades.indexOf(right.priority);
+
 export const hasWorkToShow = root => readProjects(root).some(project => ['proposed', 'chosen'].includes(project.state));
 
 export const byRank = (left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity);
 
 export const proposedProjects = root => readProjects(root).filter(project => project.state === 'proposed').toSorted(byRank);
+
+export const chosenProjects = root => readProjects(root).filter(project => project.state === 'chosen');
 
 function assertLevel(level) {
   if (!levels[level]) throw Error(`level must be one of: ${Object.keys(levels).join(', ')}`);
@@ -336,7 +362,7 @@ function assertSize({ impact, effort }) {
 function assertItem(item) {
   const { key, kind, title, brief } = item;
   if (!key) throw Error('An item needs a stable key.');
-  if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
+  if (!doableKinds.includes(kind)) throw Error(`kind must be one of: ${doableKinds.join(', ')}`);
   if (!title || !brief) throw Error('An item needs a title and a brief.');
   assertSize(item);
 }
@@ -401,20 +427,23 @@ export function fileItem(root, slug, item, now = Date.now()) {
 export function updateItem(root, slug, id, change, now = Date.now()) {
   if (!readItems(root, slug).some(existing => existing.id === id)) throw Error(`Unknown item: ${id}`);
   assertSize(change);
+  if (change.grade != null && !grades.includes(change.grade)) throw Error(`grade must be one of: ${grades.join(', ')}`);
   appendEvent(paths(root, slug).items, { ...change, id, updatedAt: new Date(now).toISOString() });
   return readItems(root, slug).find(existing => existing.id === id);
 }
 
-/** A stuck item goes back in the queue at the front, with its count of tries back at zero. */
+/** An item goes to the front of the queue with its count of tries back at zero. One already started stays started, so nothing else takes its tree. */
 export function retryItem(root, slug, id, now = Date.now()) {
-  updateItem(root, slug, id, { state: 'open', attempts: 0, stuckReason: null }, now);
+  const started = readItems(root, slug).some(item => item.id === id && item.state === 'doing');
+  const fresh = { attempts: 0, lastError: null };
+  updateItem(root, slug, id, started ? fresh : { ...fresh, state: 'open' }, now);
   return pickNext(root, `item:${slug}:${id}`);
 }
 
-export const landing = (level, kind) => {
-  if (['max', 'critical'].includes(level)) return 'draft';
-  return level === 'important' && kind === 'feature' ? 'draft' : 'pr';
-};
+/** How a finished item leaves its branch. `off` opens no PR: the branch and its description are a local PR for the user to review. */
+export const landing = project => project.prMode ?? 'off';
+
+export const prFile = (root, slug, id) => join(paths(root, slug).prs, `${id}.md`);
 
 export const readState = (root, slug) => readJson(paths(root, slug).state, {});
 

@@ -63,13 +63,27 @@ test('a work item is judged by where its PR ended up, and by nothing else', () =
 
   assert.equal(judgeItem(item(), { state: 'MERGED' }, now), 'merged');
   assert.equal(judgeItem(item(), { state: 'CLOSED' }, now), 'closed');
+  assert.equal(judgeItem(item({ state: 'branch', pr: null, closedPr: pr }), undefined, now), 'closed', 'still seen after the survey moves it back to its branch');
+  assert.equal(judgeItem(item({ state: 'open', attempts: 2 }), undefined, now), 'stuck', 'nothing stops it, and it is still worth learning from');
+  assert.equal(judgeItem(item({ state: 'open', attempts: 1 }), undefined, now), null);
   assert.equal(judgeItem(item(), { state: 'OPEN' }, now), 'unmerged', 'open for weeks');
   assert.equal(judgeItem(item({ at: day(39) }), { state: 'OPEN' }, now), null, 'open for a day');
   assert.equal(judgeItem(item(), undefined, now), null, 'nobody could ask GitHub');
   assert.equal(judgeItem(item({ pr: 'local branch hobkin/x' }), undefined, now), null);
   assert.equal(judgeItem(item({ state: 'stuck' }), undefined, now), 'stuck');
   assert.equal(judgeItem(item({ state: 'declined' }), undefined, now), 'closed');
-  for (const state of ['open', 'doing', 'dropped', 'done']) assert.equal(judgeItem(item({ state }), undefined, now), null);
+  assert.equal(judgeItem(item({ state: 'merged' }), undefined, now), 'merged', 'the survey closed it, so GitHub need not be asked');
+  for (const state of ['open', 'doing', 'branch', 'dropped', 'done']) assert.equal(judgeItem(item({ state }), undefined, now), null);
+});
+
+test('an item keeps teaching after the survey closes it', () => {
+  const items = [1, 2, 3].map(number => ({ id: `f${number}`, key: `k${number}`, kind: 'fix', state: 'merged', pr: `https://github.com/acme/api/pull/${number}`, at: day(number * 2) }));
+
+  const concluded = gatherEvidence({
+    runs: [], schedules: [], projects: [{ slug: 'api', name: 'API', state: 'chosen' }], itemsOf: () => items, signals, pullRequests: {}, clears: [], attention: [], now,
+  }).map(conclude).filter(item => item.code).map(({ scope, code }) => [scope, code]);
+
+  assert.deepEqual(concluded, [['work.api.fix', 'merged']]);
 });
 
 test('a proposal is judged by the answer it got', () => {

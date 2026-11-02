@@ -67,7 +67,7 @@ function outsideHerdr(t) {
 function fixture(t) {
   outsideHerdr(t);
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-flow-')));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
   const root = join(base, 'home');
   mkdirSync(root);
   const config = initialize(root, { cwd: base });
@@ -277,7 +277,7 @@ test('from /work to a PR: told what it looks at, asked in Chat, answered in Chat
   // Looking and doing: taking it is what lets work start, and the first item ends in a PR.
   await hobkin.settled(() => readItems(h.root, 'billing').some(item => item.state === 'pr'), { timeout: 15000 });
   hobkin.press(LEFT);
-  await hobkin.until(/billing\s+important\s+1 PR/);
+  await hobkin.until(/billing\s+P1\s+important\s+no PRs · 1 PR/);
   assert.doesNotMatch(hobkin.screen(), /PROPOSED/);
 
   // Stop: only from Chat, and the tab goes.
@@ -318,13 +318,11 @@ test('the folder question comes from /work, and Hobkin stays in Chat', async t =
   assert.equal(hobkin.state().view, 'conversation');
 });
 
-test('a look that finds nothing, or fails, says so with the reason in Chat and in the tab, with the next look', async t => {
+test('a look that finds nothing says so with the reason in Chat and in the tab, and promises no other', async t => {
   const h = fixture(t);
   writeMode(h.root, { enabled: false, folder: h.folder });
-  let failing = false;
   const hobkin = await openHobkin(h, {
     agent: async run => {
-      if (failing) throw Error('Provider is down.');
       await pipeTo(request(run).work.commands.progress, { rootFolders: ['old'], finishedFolders: ['old'] });
       return 'Useful: Looked through 1 repository and offers none, because it is an unchanged fork.';
     },
@@ -333,14 +331,18 @@ test('a look that finds nothing, or fails, says so with the reason in Chat and i
 
   hobkin.send('/work');
   await hobkin.until(/nothing to propose: Looked through 1 repository/);
+  assert.doesNotMatch(hobkin.screen(), /looks again/);
   hobkin.press(LEFT);
   await hobkin.until(/The last look proposed nothing: Looked through 1 repository/);
-  assert.match(hobkin.screen(), /Next: A look at .* at \d\d:\d\d tomorrow/);
+  assert.doesNotMatch(hobkin.screen(), /A look at /);
+});
 
-  failing = true;
-  hobkin.press(ESCAPE);
-  hobkin.send('/work');
-  await hobkin.until(/Work mode off/);
+test('a look that fails says so with the reason in Chat and in the tab, with the next look', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: false, folder: h.folder });
+  const hobkin = await openHobkin(h, { agent: async () => { throw Error('Provider is down.'); } });
+  t.after(() => hobkin.close());
+
   hobkin.send('/work');
   await hobkin.until(/could not finish looking in .*Provider is down/);
   hobkin.press(LEFT);
@@ -456,7 +458,6 @@ test('reopening Hobkin keeps what was asked, what was picked and the mode, and a
   hobkin.press(LEFT);
   await hobkin.until(/billing\s+critical/);
   assert.match(hobkin.screen(), /CI is red on main/);
-  assert.match(hobkin.screen(), /Next: A look at /);
 });
 
 test('a proposal left from before this version is told when Hobkin opens', async t => {
@@ -469,46 +470,6 @@ test('a proposal left from before this version is told when Hobkin opens', async
 
   await hobkin.until(/Work mode proposes 1 project/);
   assert.match(hobkin.screen(), /CI is red on main/);
-});
-
-test('when nothing merges the main agent is told once, the user never sees the block, and saying keep going starts work again', async t => {
-  const h = fixture(t);
-  const path = repository(h.folder, 'billing');
-  const git = (...args) => execFileSync('git', ['-C', path, ...args]);
-  for (const name of ['one', 'two']) {
-    git('switch', '-qc', `hobkin/${name}`);
-    writeFileSync(join(path, `${name}.txt`), `${name}\n`);
-    git('add', '.');
-    git('commit', '-qm', name);
-    git('switch', '-q', 'main');
-  }
-  writeMode(h.root, { enabled: true, folder: h.folder, unmergedLimit: 2, lastDiscoveryAt: new Date().toISOString() });
-  chooseProject(h.root, path);
-  const turns = [];
-  const hobkin = await openHobkin(h, {
-    chat: async text => {
-      turns.push(text);
-      return text.startsWith('<hobkin-work-stop>') ? 'Two small branches are waiting for review.' : 'OK.';
-    },
-  });
-  t.after(() => hobkin.close());
-
-  await hobkin.until(/Two small branches are waiting for review/);
-  await new Promise(resolve => setTimeout(resolve, 400));
-
-  assert.equal(turns.filter(text => text.startsWith('<hobkin-work-stop>')).length, 1, 'once for this stop');
-  assert.doesNotMatch(hobkin.screen(), /hobkin-work-stop/);
-  const facts = JSON.parse(turns[0].split('\n')[1]);
-  assert.deepEqual(facts.open.map(unit => [unit.project, unit.kind, unit.branch]), [['billing', 'branch', 'hobkin/one'], ['billing', 'branch', 'hobkin/two']]);
-  assert.equal(facts.open[0].size.files, 1);
-  assert.equal(facts.limit, 2);
-
-  hobkin.press(LEFT);
-  await hobkin.until(/WORK MODE\s+● paused/);
-  assert.match(hobkin.screen(), /Stopped: 2 unmerged and none merged yet/);
-
-  await shell(`${quoted(process.execPath)} ${quoted(join(process.cwd(), 'src/cli/main.mjs'))} work resume --home ${quoted(h.root)}`);
-  await hobkin.until(/WORK MODE\s+● active/);
 });
 
 test('another process sees a real run and cancels it through the owner, and knows when the owner has gone', async t => {
@@ -547,8 +508,8 @@ test('another process sees a real run and cancels it through the owner, and know
 
   assert.equal(ok, true);
   assert.match(message, /requested/i);
-  await hobkin.settled(() => readItems(h.root, 'billing')[0].state === 'stuck');
-  assert.equal(readItems(h.root, 'billing')[0].stuckReason, 'Cancelled by hand.');
+  await hobkin.settled(() => readMode(h.root).queueSkipped.includes(`item:billing:${filed.id}`));
+  assert.equal(readItems(h.root, 'billing')[0].state, 'open');
 
   await hobkin.close();
 

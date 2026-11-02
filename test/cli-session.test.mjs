@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { parseArguments } from '../src/cli/main.mjs';
 import { readBrief, startSession } from '../src/cli/session.mjs';
 import { WorkPanes } from '../src/cli/work/panes.mjs';
 
@@ -26,25 +29,36 @@ const fakeHerdr = (tabs = []) => {
   return { calls, panes: new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' }) };
 };
 
-test('a session\'s Pi loads the extensions it was given', async t => {
-  const calls = [];
-  const exec = async (_command, args) => {
-    calls.push(args);
-    if (args[1] === 'list') return JSON.stringify({ result: { tabs: [] } });
-    return JSON.stringify({ result: { root_pane: { pane_id: 'w1:p9' } } });
-  };
-  const asked = [];
-  const extensionsFor = async cwd => {
-    asked.push(cwd);
-    return ['/chrome/index.ts'];
-  };
-  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin', extensionsFor });
+const briefIn = prompt => /^Read (.+) and follow it\.$/.exec(prompt[3])[1];
+
+test('a session\'s Pi has every extension and every tool the user has, and only skips the permission prompts', async t => {
+  const { calls, panes } = fakeHerdr();
 
   await startSession({ root: dataFolder(t), cwd: '/repos/api', brief: 'Go.', env: herdr, panes });
 
   const start = calls.find(args => args[1] === 'start');
-  assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve', '--no-extensions', '--extension', '/chrome/index.ts']);
-  assert.deepEqual(asked, ['/repos/api']);
+  assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve']);
+});
+
+test('a session started the ordinary way limits nothing either', async t => {
+  const root = dataFolder(t);
+  const log = join(root, 'herdr.log');
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'herdr'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho '{"result":{"tabs":[],"root_pane":{"pane_id":"w1:p9"}}}'\n`, { mode: 0o755 });
+  const { PATH, HERDR_WORKSPACE_ID } = process.env;
+  process.env.PATH = `${bin}:${PATH}`;
+  process.env.HERDR_WORKSPACE_ID = 'w1';
+  t.after(() => {
+    process.env.PATH = PATH;
+    if (HERDR_WORKSPACE_ID === undefined) delete process.env.HERDR_WORKSPACE_ID;
+    else process.env.HERDR_WORKSPACE_ID = HERDR_WORKSPACE_ID;
+  });
+
+  await startSession({ root, cwd: root, brief: 'Go.', env: herdr });
+
+  const start = readFileSync(log, 'utf8').split('\n').find(line => line.startsWith('agent start'));
+  assert.match(start, / -- --approve$/);
 });
 
 test('a session is a full Pi with every permission, in its own tab, and starts on the brief', async t => {
@@ -65,7 +79,7 @@ test('a session is a full Pi with every permission, in its own tab, and starts o
   assert.equal(start[start.indexOf('--kind') + 1], 'pi');
   assert.deepEqual(start.slice(start.indexOf('--') + 1), ['--approve']);
   assert.deepEqual(prompt.slice(0, 3), ['agent', 'prompt', name]);
-  assert.equal(readFileSync(/^Read (.+) and follow it\.$/.exec(prompt[3])[1], 'utf8'), 'Rebuild it all.');
+  assert.match(readFileSync(briefIn(prompt), 'utf8'), /^Rebuild it all\./);
 });
 
 test('a brief of any length reaches the agent as a private file', async t => {
@@ -75,12 +89,88 @@ test('a brief of any length reaches the agent as a private file', async t => {
 
   await startSession({ root, cwd: '/repos/api', brief, env: herdr, panes });
 
-  const prompt = calls.find(args => args[1] === 'prompt')[3];
-  assert.ok(prompt.length < 200, 'only the path travels through the terminal');
-  const file = /^Read (.+) and follow it\.$/.exec(prompt)[1];
+  const prompt = calls.find(args => args[1] === 'prompt');
+  assert.ok(prompt[3].length < 200, 'only the path travels through the terminal');
+  const file = briefIn(prompt);
   assert.ok(file.startsWith(root));
-  assert.equal(readFileSync(file, 'utf8'), brief);
+  assert.ok(readFileSync(file, 'utf8').startsWith(brief));
   assert.equal(statSync(file).mode & 0o777, 0o600);
+});
+
+test('work handed to a session is followed, and its brief says where the report goes', async t => {
+  const root = dataFolder(t);
+  const { calls, panes } = fakeHerdr();
+  const followed = [];
+
+  const started = await startSession({ root, brief: 'Rebuild it all.', env: herdr, panes, follow: session => followed.push(session) });
+
+  assert.deepEqual(followed, [started]);
+  assert.ok(started.report.startsWith(root));
+  assert.ok(readFileSync(briefIn(calls.find(args => args[1] === 'prompt')), 'utf8').includes(started.report));
+});
+
+test('a conversation the user means to carry on in stays open', async t => {
+  const { calls, panes } = fakeHerdr();
+  const followed = [];
+
+  const started = await startSession({ root: dataFolder(t), brief: 'Carry on from here.', keep: true, env: herdr, panes, follow: session => followed.push(session) });
+
+  assert.deepEqual(followed, []);
+  assert.equal(started.report, undefined);
+  assert.equal(readFileSync(briefIn(calls.find(args => args[1] === 'prompt')), 'utf8'), 'Carry on from here.');
+  assert.equal(parseArguments(['session', '--keep']).keep, true);
+});
+
+const closingHerdr = onAgent => {
+  const closed = [];
+  const exec = async (_command, args) => {
+    if (args[0] === 'pane' && args[1] === 'close') closed.push(args[2]);
+    if (args[0] === 'agent' && args[1] === 'get') return JSON.stringify({ result: { agent: { agent_status: onAgent() } } });
+    return JSON.stringify({ result: {} });
+  };
+  return { closed, panes: new WorkPanes({ workspace: 'w1', exec, pollMs: 1, idleGraceMs: 0 }) };
+};
+
+test('a followed session closes its pane when its report appears', async t => {
+  const report = join(dataFolder(t), 'report.md');
+  const { closed, panes } = closingHerdr(() => {
+    writeFileSync(report, 'Done.');
+    return 'working';
+  });
+
+  await panes.followSession({ name: 'hobkin-job', pane: 'w1:p9', report });
+
+  assert.deepEqual(closed, ['w1:p9']);
+});
+
+test('a session that stops without a report still closes its pane', async t => {
+  const { closed, panes } = closingHerdr(() => 'idle');
+
+  await panes.followSession({ name: 'hobkin-job', pane: 'w1:p9', report: join(dataFolder(t), 'never.md') });
+
+  assert.deepEqual(closed, ['w1:p9']);
+});
+
+test('a session whose agent has gone still closes its pane', async t => {
+  const { closed, panes } = closingHerdr(() => { throw Error('agent_not_found'); });
+
+  await panes.followSession({ name: 'hobkin-job', pane: 'w1:p9', report: join(dataFolder(t), 'never.md') });
+
+  assert.deepEqual(closed, ['w1:p9']);
+});
+
+test('the watcher runs as a process of its own and closes the pane', t => {
+  const folder = dataFolder(t);
+  const log = join(folder, 'herdr.log');
+  writeFileSync(join(folder, 'herdr'), `#!/bin/sh\necho "$*" >> "${log}"\necho '{"result":{}}'\n`, { mode: 0o755 });
+  const report = join(folder, 'report.md');
+  writeFileSync(report, 'Done.');
+  const script = fileURLToPath(new URL('../src/cli/session-follow.mjs', import.meta.url));
+
+  const { status, stderr } = spawnSync(process.execPath, [script, 'hobkin-job', 'w1:p9', report], { env: { ...process.env, PATH: `${folder}:${process.env.PATH}` }, encoding: 'utf8' });
+
+  assert.equal(status, 0, stderr);
+  assert.match(readFileSync(log, 'utf8'), /pane close w1:p9/);
 });
 
 test('a pane whose shell is still starting gets another try, and the agent starts', async t => {

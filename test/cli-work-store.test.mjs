@@ -5,8 +5,8 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
-  paths, proposeProject, readDiscovery, readItems, readMode, readProjects, recordDiscovery, recordTokens, sessionError, sessionUsage, setAgents, setDailyTokens, setHarness, setUnmergedLimit,
-  skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  paths, prFile, priorityOf, proposeProject, readDiscovery, readItems, readMode, readProject, readProjects, recordDiscovery, recordTokens, retryItem, sessionError, sessionUsage, setAgents,
+  setDailyTokens, setHarness, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -53,14 +53,6 @@ test('a pool saved by an older version never comes back, because the machine cho
   assert.equal(readMode(root).agents, 2);
   assert.equal(writeMode(root, { enabled: false }).pool, undefined);
   assert.equal(readMode(root).pool, undefined);
-});
-
-test('work waits on the merges once 30 are open, and that number can be changed', t => {
-  const root = dataRoot(t);
-  assert.equal(readMode(root).unmergedLimit, 30);
-
-  assert.equal(setUnmergedLimit(root, 12).unmergedLimit, 12);
-  assert.throws(() => setUnmergedLimit(root, 0), /positive number/);
 });
 
 test('work mode starts from a real folder the user named, and remembers it', t => {
@@ -421,6 +413,70 @@ test('an item keeps the impact and effort it was filed with, and a word it does 
   assert.equal(updateItem(root, 'api', filed.id, { effort: 'medium' }).effort, 'medium');
 });
 
+test('a grade on an item is the user\'s to set and to clear, and a word it does not know is refused', t => {
+  const root = dataRoot(t);
+  const filed = fileItem(root, 'api', item);
+
+  assert.equal(updateItem(root, 'api', filed.id, { grade: 'P1' }).grade, 'P1');
+  assert.throws(() => updateItem(root, 'api', filed.id, { grade: 'P4' }), /grade must be one of: P0, P1, P2, P3/);
+  assert.equal(readItems(root, 'api')[0].grade, 'P1');
+  assert.equal(updateItem(root, 'api', filed.id, { grade: null }).grade, null);
+});
+
+test('an attention item files like any other, so an agent can still say what goes first', t => {
+  const root = dataRoot(t);
+
+  const filed = fileItem(root, 'api', { ...item, kind: 'attention' });
+
+  assert.deepEqual([filed.kind, filed.state], ['attention', 'open']);
+});
+
+test('a retry forgets the last failure and starts its tries again', t => {
+  const root = dataRoot(t);
+  const filed = fileItem(root, 'api', item);
+  updateItem(root, 'api', filed.id, { attempts: 3, lastError: 'The tests would not start.' });
+
+  retryItem(root, 'api', filed.id);
+
+  const [retried] = readItems(root, 'api');
+  assert.deepEqual([retried.state, retried.attempts, retried.lastError], ['open', 0, null]);
+  assert.deepEqual(readMode(root).queueNext, [`item:api:${filed.id}`]);
+});
+
+test('a project\'s priority comes from its level until the user sets one', () => {
+  assert.deepEqual(['max', 'critical', 'important', 'casual'].map(level => priorityOf({ level })), ['P0', 'P0', 'P1', 'P2']);
+  assert.equal(priorityOf({ level: 'casual', priority: 'P1' }), 'P1');
+});
+
+test('a priority is saved on the project and changes nothing else about it', t => {
+  const root = dataRoot(t);
+  chooseProject(root, '/repos/api', 'casual');
+
+  const project = setProjectPriority(root, 'api', 'P0');
+
+  assert.deepEqual([project.priority, project.level, project.state], ['P0', 'casual', 'chosen']);
+  assert.throws(() => setProjectPriority(root, 'api', 'P9'), /priority must be one of: P0, P1, P2, P3/);
+  assert.equal(readProject(root, 'api').priority, 'P0');
+});
+
+test('a project lands as a local branch until the user says otherwise', t => {
+  const root = dataRoot(t);
+  assert.equal(landing(chooseProject(root, '/repos/api', 'critical')), 'off');
+
+  const project = setProjectPrMode(root, 'api', 'draft');
+
+  assert.equal(project.prMode, 'draft');
+  assert.equal(landing(project), 'draft');
+  assert.throws(() => setProjectPrMode(root, 'api', 'loud'), /PR mode must be one of: off, draft, published/);
+  assert.equal(landing(setProjectPrMode(root, 'api', 'published')), 'published');
+});
+
+test('a local PR\'s description sits with the project, named after its item', t => {
+  const root = dataRoot(t);
+
+  assert.equal(prFile(root, 'api', 'abc123'), join(paths(root, 'api').directory, 'prs', 'abc123.md'));
+});
+
 test('a broken line loses one event, not the file', t => {
   const root = dataRoot(t);
   fileItem(root, 'api', item);
@@ -428,13 +484,6 @@ test('a broken line loses one event, not the file', t => {
   fileItem(root, 'api', { ...item, key: 'other' });
 
   assert.equal(readItems(root, 'api').length, 2);
-});
-
-test('changes stay in draft where they should not reach anyone yet', () => {
-  assert.equal(landing('critical', 'fix'), 'draft');
-  assert.equal(landing('important', 'feature'), 'draft');
-  assert.equal(landing('important', 'fix'), 'pr');
-  assert.equal(landing('casual', 'feature'), 'pr');
 });
 
 test('project folders are created when work is filed', t => {

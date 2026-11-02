@@ -33,7 +33,9 @@ const MOOD_MEANINGS = {
 /** What the app can show from its own state. Every other mood needs Jev to read the moment. */
 export const defaultMoods = ['idle', 'thinking', 'working', 'happy'];
 
-export function currentMood({ reaction, busy, running, now }) {
+export function currentMood({ reaction, busy, running, typing, now }) {
+  // A face that went quiet with the room wakes for whoever starts typing, and waits to hear what they want.
+  if (reaction?.lasting && typing) return 'listening';
   const stepsAside = reaction?.yields && (busy || running);
   if (reaction && now < reaction.until && !stepsAside) return reaction.mood;
   if (busy) return 'thinking';

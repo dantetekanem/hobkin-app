@@ -24,7 +24,7 @@ Under the workspace root, `runtime/hobkin.sqlite` stores dispatch receipts, `run
 
 Reports retain output alongside execution errors without a JSON envelope or tracking comments. Model completion does not establish successful collection, reading or usefulness.
 
-Only one dashboard, headless runner or pattern-review submission can own a workspace. SIGINT/SIGTERM stops owned work. A stale lock may take five minutes to expire after an unclean exit. SQLite WAL with `synchronous=NORMAL` protects against process crashes, not all power failures, and cannot guarantee exactly-once external effects. Storage contract: https://github.com/earendil-works/pi/blob/v1.1.0/packages/durable/README.md#storage
+Only one dashboard or pattern-review submission can own a workspace. SIGINT/SIGTERM stops owned work. A stale lock may take five minutes to expire after an unclean exit. SQLite WAL with `synchronous=NORMAL` protects against process crashes, not all power failures, and cannot guarantee exactly-once external effects. Storage contract: https://github.com/earendil-works/pi/blob/v1.1.0/packages/durable/README.md#storage
 
 ## Schedules
 
@@ -40,7 +40,7 @@ Pi TUI uses the alternate screen and restores the terminal on exit. Cached state
 
 Navigation preserves drafts, selection and scroll position. Rejected sends retain drafts; interrupted sends are not retried. Themes follow Pi settings and custom files, with Dracula as the fallback for package-only themes.
 
-Live output carries public Pi text and tool results. Custom child renderers, images and reconnect replay are not guaranteed. Plain status reads a snapshot without starting work; `run` starts a foreground headless runner.
+Live output carries public Pi text and tool results. Custom child renderers, images and reconnect replay are not guaranteed. Plain status reads a snapshot without starting work.
 
 ## Migration
 

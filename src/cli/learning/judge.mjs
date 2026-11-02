@@ -1,7 +1,7 @@
 import { inconclusive, scheduleDefinition, stalled } from '../checks.mjs';
 import { answeredUntil } from '../holds.mjs';
 import { reportTriage } from '../reports.mjs';
-import { doableKinds } from '../work/store.mjs';
+import { doableKinds, runnableStates } from '../work/store.mjs';
 import { clearedAt } from './store.mjs';
 
 const DAY_MS = 86400000;
@@ -35,10 +35,17 @@ const judgeLane = run => {
   return stalled(run) ? stallOf(run) : { is: 'done' };
 };
 
+const REPEATED_FAILURE = 2;
+
 /** An item's worth is where it ended up. Hobkin never merges, so a merge is the user's yes. */
 export function judgeItem(item, pullRequest, now) {
+  // Nothing stops an item any more, so one that keeps failing is what `stuck` now means.
+  if (runnableStates.includes(item.state) && item.attempts >= REPEATED_FAILURE) return 'stuck';
   if (item.state === 'stuck') return 'stuck';
   if (item.state === 'declined') return 'closed';
+  if (item.state === 'merged') return 'merged';
+  // The survey moves a closed PR's item back to its branch, and the close is still something to learn from.
+  if (item.state === 'branch' && item.closedPr) return 'closed';
   if (item.state !== 'pr') return null;
   if (pullRequest?.state === 'MERGED') return 'merged';
   if (pullRequest?.state === 'CLOSED') return 'closed';

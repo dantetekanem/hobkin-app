@@ -1,5 +1,8 @@
 # Work mode
 
+> This plan is history, kept as it was written.
+> The [README](../README.md#work-mode) describes how work mode behaves now.
+
 Work mode is a proactive agent mode to get work done. When the user turns it on, the agent goes out on its own, finds the user's projects, looks at each one, and proposes them with what it found and how critical it thinks each one is. The user tells it which ones. From then on agents work on those projects without being asked. They see what is happening, see what has gone stale, look for improvements, features and bug fixes, follow trends in each project's space, watch for security issues and general bugs, do chores and update things, so that everything the user has keeps running.
 
 ## Turning it on

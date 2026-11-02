@@ -53,6 +53,19 @@ export function scheduleTimes({ at, window }) {
   return [...times].sort();
 }
 
+const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** When a check runs in a few words, so a list of them reads as the whole calendar. */
+export function whenItRuns({ cadence, at, window, weekday, day, date }) {
+  const days = {
+    weekly: [weekday].flat().map(value => dayNames[value]).join(', '),
+    monthly: `day ${day}`,
+    once: date,
+  }[cadence];
+  const times = window ? `${window.start}-${window.end} every ${window.everyMinutes}m` : [at].flat().join(', ');
+  return [days, times].filter(Boolean).join(' ');
+}
+
 export function scheduleDate(date) {
   const match = typeof date === 'string' && date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const [year, month, day] = match ? match.slice(1).map(Number) : [];

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
@@ -12,23 +12,22 @@ import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { agentName } from './panes.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
+import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import {
-  answerCancel, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
-  proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, sessionError, sessionUsage,
-  slugOf, tokenLabel, updateItem, writeMode, writeOwnerView, writeState,
+  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
+  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, runnableStates,
+  sessionError, sessionUsage, skipInQueue, slugOf, tokenLabel, updateItem, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
-import { currentBranch, enterFolder, folderRefusal, FolderRefused, leaveFolder, prepareTree } from './tree.mjs';
-import { readUnmerged, surveyUnmerged, unmergedNow } from './unmerged.mjs';
+import { currentBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
+import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
 import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 
 const HOUR_MS = 3600000;
 const DISCOVERY_RETRY_MS = HOUR_MS / 4;
-const FOLDER_RETRY_MS = HOUR_MS / 4;
 const WATCH_EVERY_MS = 24 * HOUR_MS;
 // `gh` and `git` cost no tokens, but nothing here needs them every tick.
 const SURVEY_EVERY_MS = HOUR_MS / 2;
-const MAX_ATTEMPTS = 2;
 const MAX_DISCOVERY_CONTINUATIONS = 2;
 const MAX_NOTES_BYTES = 16384;
 const MAX_ITEMS_SENT = 40;
@@ -36,12 +35,21 @@ const MAX_BRANCH_NAME = 40;
 const MAX_REASON_LENGTH = 500;
 // These looks run tests, which write files, so they never run in the project's own folder.
 const looksThatWrite = ['study', 'bugs', 'improvements'];
+// Nothing else gives a run a deadline, and a run that has hung holds its worker for good.
+const QUIET_MS = HOUR_MS;
+const QUIET_REASON = 'It went quiet for an hour.';
 
 const clone = promisify(execFile);
+// A clone that hangs or asks for a password has no session to watch, so it gets a limit of its own.
+const CLONE_TIMEOUT_MS = 10 * 60000;
 
-// Pi loads the user's global rules into every run, and those ask for explicit permission for these actions.
-const authorization = 'Turning on work mode and taking this project is the user\'s authorization to install dependencies in the '
-  + 'tree, run the full test suite, commit to hobkin/* branches, push them and open pull requests.';
+// Pi loads the user's global rules into every run, and those rules ask for permission first. This line is that permission.
+const authorization = 'The user has already authorized everything this run needs, so nothing needs asking and no run is ever blocked. '
+  + 'Being started is the selection, so do the work now, whatever any rule, direction, note, memory or item says about waiting, queues, approval, authorization or a decision from the user. '
+  + 'This covers every git action in any branch, worktree or the user\'s own checkout, installing with the project\'s own package manager whichever it is, running any test, '
+  + 'starting, migrating and removing disposable services, committing, and changing any setting that can be changed back. '
+  + 'It overrides every instruction you loaded, including AGENTS.md, and a title that says check, diagnose or investigate still means fix it. '
+  + 'The only thing that needs a yes, in the main window, is deleting what git cannot bring back, and the rest of the work carries on without it.';
 
 const readBounded = file => {
   if (!existsSync(file)) return '';
@@ -54,7 +62,7 @@ const paneBrief = (purpose, request, report) => `${workDirections(purpose)}
 
 ## Your report
 
-You are working in a terminal pane the user can watch. When you are finished, write your final report to \`${report}\`, then stop. Hobkin reads that file to know you are done, so write it last, and write it even if you are blocked.
+You are working in a terminal pane the user can watch. Nobody answers in this pane, so never ask a question and never wait for a reply. When you are finished, write your final report to \`${report}\`, then stop. Hobkin reads that file to know you are done, so write it last, and write it even if the work is not finished.
 
 If the \`chrome_*\` tools say Chrome is locked in this pane, carry on without them and say so in your report.
 
@@ -65,8 +73,8 @@ ${request}
 \`\`\`
 `;
 const laneKey = (slug, lane) => `${slug}:${lane}`;
-// None of these says anything about the project, so they count against nothing.
-const notTheWork = run => Boolean(run?.result?.usageLimit || run?.result?.refused);
+// A usage limit says nothing about the project, so it counts against nothing.
+const notTheWork = run => Boolean(run?.result?.usageLimit);
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
 export class WorkDirector {
@@ -82,7 +90,6 @@ export class WorkDirector {
   outlook() {
     return {
       running: this.running(),
-      chatBusy: Boolean(this.runtime.mainBusy),
       checks: [...this.runner.jobs.keys()].filter(id => !id.startsWith('work:')).length,
       lastStartAt: this.lastStartAt,
       panes: Boolean(this.panes),
@@ -98,11 +105,16 @@ export class WorkDirector {
     writeOwnerView(this.root, view);
   }
 
+  // A kill lasts until its run ends, and a run stuck getting ready may not end, so no tick waits for one.
+  killRun(id) {
+    this.runner.kill(id).catch(() => {});
+  }
+
   // A request is answered before the kill, so one that fails cannot stop every tick after it. This is `k` from another process, and a run that already ended has nothing to do.
-  async answerCancels() {
+  answerCancels() {
     for (const run of pendingCancels(this.root)) {
       answerCancel(this.root, run, this.now());
-      await this.runner.kill(run);
+      this.killRun(run);
     }
   }
 
@@ -112,18 +124,20 @@ export class WorkDirector {
     this.tellNewProposals();
     // Agents keep working after the mode goes off, so these do too.
     this.meterRuns();
-    await this.answerCancels();
+    this.answerCancels();
     await this.guardFolders();
     this.publish();
+    // Work merges whether the mode is on or not, and finding that costs no tokens.
+    this.surveyWork();
+
     const mode = readMode(this.root);
+    this.reviewWeek(mode);
     if (!mode.enabled) {
-      const look = this.active.get('discover');
-      if (look) await this.runner.kill(look.id);
+      this.stopLook();
       return;
     }
 
     this.watchChanges(mode);
-    this.surveyWork();
 
     const current = readMode(this.root);
     const { pause, budget, next } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
@@ -131,6 +145,27 @@ export class WorkDirector {
     this.tellPause(pause, current);
     if (pause?.kind === 'day') this.askForAllowance(current, budget);
     if (next) this.begin(next, budget, current);
+  }
+
+  // The next tick can find the look still stopping, and it only needs telling once.
+  stopLook() {
+    const look = this.active.get('discover');
+    if (!look || look.stopping) return;
+    look.stopping = true;
+    this.killRun(look.id);
+  }
+
+  // Code only, with no model. It comes before the mode check, because whether work mode is running is the first thing it answers.
+  reviewWeek(mode) {
+    if (!chosenProjects(this.root).length) return;
+    const now = this.now();
+    const at = new Date(now).toISOString();
+    if (!mode.lastReviewAt) writeMode(this.root, { lastReviewAt: at });
+    if (!reviewDue(mode, now)) return;
+
+    const view = reviewView(this.root, now);
+    writeMode(this.root, { lastReviewAt: at, review: { at, message: reviewMessage(view), stale: view.stale } });
+    this.onChange();
   }
 
   /** One start per tick, and the plan keeps them spaced out, so each run shows what it costs before the next one begins. */
@@ -145,21 +180,33 @@ export class WorkDirector {
     return this.startLook(project, entry.focus, tokens, cost);
   }
 
-  /** Sessions are followed as they grow, so a long run counts while it runs. The final figure replaces this when it ends. */
+  /**
+   * Sessions are followed as they grow, so a long run counts while it runs. The final figure replaces this when it ends.
+   * A session that stops growing is a run that has hung. One with no session to read, such as a Claude or Codex pane, says nothing either way.
+   */
   meterRuns() {
+    const now = this.now();
     for (const run of this.running()) {
-      run.meter = followUsage(run.sessionFile, run.meter);
-      Object.assign(run, { tokens: run.meter.tokens, cached: run.meter.cached });
+      const { offset = 0, grewAt = null } = run.meter ?? {};
+      const meter = followUsage(run.sessionFile, run.meter);
+      run.meter = { ...meter, grewAt: meter.offset > offset ? now : grewAt };
+      Object.assign(run, { tokens: meter.tokens, cached: meter.cached });
+      if (run.stalled || run.meter.grewAt === null || now - run.meter.grewAt < QUIET_MS) continue;
+      run.stalled = true;
+      this.killRun(run.id);
     }
   }
 
   // A run works on its own branch in the user's folder. If the folder has left that branch, whatever it commits next lands somewhere else.
+  // During a rebase there is no branch to read, and the run's own rebase is no reason to leave the folder in the middle of one.
   async guardFolders() {
     for (const run of this.running()) {
       const { folder } = run;
-      if (!folder?.branch || run.moved || await currentBranch(folder.repo) === folder.branch) continue;
+      if (!folder?.branch || run.moved) continue;
+      const branch = await currentBranch(folder.repo);
+      if (!branch || branch === folder.branch) continue;
       run.moved = true;
-      await this.runner.kill(run.id);
+      this.killRun(run.id);
     }
   }
 
@@ -175,21 +222,10 @@ export class WorkDirector {
 
   surveyWork() {
     if (this.surveying || elapsedSince(readUnmerged(this.root).at, this.now()) < SURVEY_EVERY_MS) return;
+    if (!chosenProjects(this.root).length) return;
     this.surveying = surveyUnmerged(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
-      .then(() => this.settleStop())
       .catch(() => {})
       .finally(() => { this.surveying = null; });
-  }
-
-  /** A stop follows the real state: a merge ends it, and so does the user closing enough of what is open. */
-  settleStop() {
-    const mode = readMode(this.root);
-    const { stalled, stretch, since } = unmergedNow(this.root, mode);
-    if (stalled === Boolean(mode.mergeStop)) return;
-    const when = since ? `since ${since.slice(0, 10)}` : 'yet';
-    const line = `Stopped: ${stretch} unmerged and none merged ${when}. What is running finishes, and nothing new starts until work moves.`;
-    writeMode(this.root, { mergeStop: stalled ? { at: new Date(this.now()).toISOString(), stretch, line } : null });
-    this.onChange();
   }
 
   // Once for each pause, in Chat. The tab keeps the live numbers, and a daily pause speaks through its question.
@@ -208,10 +244,9 @@ export class WorkDirector {
     const asked = currentRequest(mode, this.now());
     if (asked?.limit === limit || declinedToday(mode, this.now())) return;
 
-    const waiting = readProjects(this.root).filter(project => project.state === 'chosen')
-      .flatMap(project => readItems(this.root, project.slug)
-        .filter(item => ['open', 'doing'].includes(item.state) && item.kind !== 'attention')
-        .map(item => ({ item, project })));
+    const waiting = chosenProjects(this.root).flatMap(project => readItems(this.root, project.slug)
+      .filter(item => runnableStates.includes(item.state))
+      .map(item => ({ item, project })));
     if (!waiting.length) return;
 
     const proposed = limit * 2;
@@ -249,8 +284,13 @@ export class WorkDirector {
     this.concludeDiscovery({ status: 'unfinished', folder, reason: 'The token limit stopped it.', nextAt: null });
   }
 
+  /** `max` is bound to Claude, which only a pane can run. Without panes it takes the best the normal harness has, and it still counts as `max`. */
+  settingsFor(level) {
+    return levels[level].harness && !this.panes ? levels.critical : levels[level];
+  }
+
   modelFor(level) {
-    const { model, harness } = levels[level];
+    const { model, harness } = this.settingsFor(level);
     return harness ? model : this.config[model].model;
   }
 
@@ -263,6 +303,7 @@ export class WorkDirector {
     return {
       choose: this.command('choose <slug> [max|critical|important|casual]'),
       skip: this.command('skip <slug>'),
+      drop: this.command('drop <slug>'),
       allow: this.command('allow [tokens | no]'),
       resume: this.command('resume'),
     };
@@ -286,7 +327,12 @@ export class WorkDirector {
 
   async repositoryFor(project) {
     const repo = project.path ?? paths(this.root, project.slug).clone;
-    if (!existsSync(repo) && project.remote) await clone('git', ['clone', '--quiet', project.remote, repo]);
+    if (existsSync(repo) || !project.remote) return repo;
+
+    await clone('git', ['clone', '--quiet', project.remote, repo], {
+      timeout: CLONE_TIMEOUT_MS,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
     return repo;
   }
 
@@ -297,7 +343,8 @@ export class WorkDirector {
   async place(entry, { project, tree, branch, resume, writes = false }) {
     const repo = await this.repositoryFor(project);
     const sharing = this.running().some(run => run !== entry && run.slug === project.slug);
-    let reason = writes ? 'this look runs tests' : sharing ? 'another agent is in this repository' : null;
+    const writing = branch ? 'this item rebases' : 'this look runs tests';
+    let reason = writes ? writing : sharing ? 'another agent is in this repository' : null;
     if (!reason && resume && await currentBranch(tree) === branch) reason = 'its work is there';
     if (!reason) {
       const { refused, base } = await enterFolder({ repo, branch });
@@ -305,11 +352,18 @@ export class WorkDirector {
       reason = refused;
     }
     await prepareTree({ repo, tree, branch, resume });
-    return { cwd: tree, note: `Worktree: ${reason}` };
+    return { cwd: tree, tree, note: `Worktree: ${reason}` };
   }
 
-  /** A run hands the folder back as it found it. If that cannot be done it stays as it is, and the tab says so. */
-  async leave(slug, { folder }) {
+  // An item still in the queue has no outcome yet, whoever put it there, and the next run carries on from what this one left.
+  recordedOutcome(slug, id) {
+    const state = readItems(this.root, slug).find(item => item.id === id)?.state;
+    return Boolean(state) && !runnableStates.includes(state);
+  }
+
+  /** A run hands the folder back as it found it. If that cannot be done it stays as it is, and the tab says so. A tree lets go of its branch, so the user can check that out. */
+  async leave(slug, id, { folder, tree }) {
+    if (tree) await releaseTree(tree, { finished: this.recordedOutcome(slug, id) });
     if (!folder) return;
     const left = folder.branch ? await leaveFolder(folder) : await folderRefusal(folder.repo);
     const said = left && !folder.branch ? `After the look, ${left}.` : left;
@@ -355,6 +409,7 @@ export class WorkDirector {
         ...(rootFolders ? { folders: { root: rootFolders, finished: finishedFolders ?? [] } } : {}),
         known: readProjects(this.root).map(({ slug, path, state }) => ({ slug, path, state })),
         commands: { propose: this.command('propose'), progress: this.command('progress') },
+        authorization,
       }),
       settle: run => this.settleDiscovery(run, folder),
     });
@@ -370,7 +425,7 @@ export class WorkDirector {
     const discovery = readDiscovery(this.root);
     if (foldersLeft(discovery)?.length === 0) return { status: 'finished', reason };
 
-    const carriesOn = enabled && triage?.level !== 'blocked' && (discovery.continuation ?? 0) < MAX_DISCOVERY_CONTINUATIONS;
+    const carriesOn = enabled && (discovery.continuation ?? 0) < MAX_DISCOVERY_CONTINUATIONS;
     return { status: carriesOn ? 'continuing' : 'unfinished', reason };
   }
 
@@ -398,8 +453,8 @@ export class WorkDirector {
     }
   }
 
-  /** Each proposal is told once, a repeated failure is not told again, and a quiet day with projects says nothing. */
-  concludeDiscovery({ status, reason, folder, nextAt = nextDiscoveryAt(readMode(this.root)) }) {
+  /** Each proposal is told once, a repeated failure is not told again, and a quiet day with projects says nothing. A look that finished has no other coming. */
+  concludeDiscovery({ status, reason, folder, nextAt = status === 'finished' ? null : nextDiscoveryAt(readMode(this.root)) }) {
     const now = this.now();
     const discovery = readDiscovery(this.root);
     const { told = [], lastFailure } = discovery;
@@ -439,7 +494,7 @@ export class WorkDirector {
       level,
       ...cost,
       model: this.modelFor(level),
-      effort: levels[level].lookEffort,
+      effort: this.settingsFor(level).lookEffort,
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: entry => this.place(entry, { project, tree, writes: looksThatWrite.includes(focus) }),
       work: place => ({ lane: 'look', focus, tokens, place, ...ideas, ...this.describe(project) }),
@@ -467,6 +522,8 @@ export class WorkDirector {
     updateItem(this.root, slug, item.id, { state: 'doing', branch }, this.now());
 
     const tree = paths(this.root, slug).doTree;
+    const description = prFile(this.root, slug, item.ships ?? item.id);
+    mkdirSync(dirname(description), { recursive: true, mode: 0o700 });
     this.start({
       key: laneKey(slug, 'do'),
       lane: 'do',
@@ -478,24 +535,26 @@ export class WorkDirector {
       level,
       ...cost,
       model: this.modelFor(level),
-      effort: levels[level].doEffort,
+      effort: this.settingsFor(level).doEffort,
       instructions: `Finish this item on ${project.name}: ${item.title}`,
-      prepare: entry => this.place(entry, { project, tree, branch, resume }),
+      prepare: entry => this.place(entry, { project, tree, branch, resume, writes: item.kind === 'pr-fix' }),
       work: place => ({
         lane: 'do',
         place,
-        item: { ...item, branch },
-        landing: landing(level, item.kind),
+        item: { ...item, branch, prFile: description },
+        landing: landing(project),
         ...this.describe(project),
       }),
       settle: (run, entry) => this.settleItem(slug, item.id, run, entry),
     });
   }
 
-  // A run that ended without recording an outcome did not finish. Closing Hobkin keeps the item, so it resumes, and so does anything that was not the item's doing.
-  // Cancelling one is the user saying stop, so it waits for them instead of starting again on the next tick.
+  // Closing Hobkin keeps the item, so it resumes, and so does anything that was not the item's doing.
   // A pane closed by hand, or a folder moved under a run, only ended that run: the item stays in the plan.
-  settleItem(slug, id, run, { moved = false } = {}) {
+  // Cancelling one is the user's own stop, so it stays in sight at the end of the queue instead of starting again on the next tick.
+  // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
+  // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
+  settleItem(slug, id, run, { moved = false, stalled = false } = {}) {
     const interrupted = run?.status === 'interrupted';
     if ((interrupted && this.runner.stopped) || notTheWork(run)) return;
     const item = readItems(this.root, slug).find(entry => entry.id === id);
@@ -505,21 +564,23 @@ export class WorkDirector {
       updateItem(this.root, slug, id, { state: 'open' }, this.now());
       return;
     }
-    const attempts = (item.attempts ?? 0) + 1;
-    const stuck = interrupted || attempts >= MAX_ATTEMPTS;
-    const stuckReason = interrupted ? 'Cancelled by hand.' : runError(run) || 'It ended twice without recording an outcome.';
-    updateItem(this.root, slug, id, { state: stuck ? 'stuck' : 'open', attempts, ...(stuck ? { stuckReason } : {}) }, this.now());
+    if (interrupted && !stalled) {
+      updateItem(this.root, slug, id, { state: 'open' }, this.now());
+      skipInQueue(this.root, `item:${slug}:${id}`);
+      return;
+    }
+    const lastError = stalled ? QUIET_REASON : runError(run) || firstLine(run?.result?.text) || 'The run ended without recording an outcome.';
+    updateItem(this.root, slug, id, { state: 'open', attempts: (item.attempts ?? 0) + 1, lastError }, this.now());
   }
 
-  // Pi only reports that a run did not finish, so its own words come from the session. Another harness has only its last lines.
-  // A `max` run's limit is Claude's, and says nothing about the subscription everything else runs on, so it pauses only `max` work.
-  noteUsageLimit(result, sessionFile, paneKind, level) {
+  // Pi only reports that a run did not finish, so its own words come from the session. Only the first line of an error counts, because a pane's last lines can be about anything.
+  // A `max` run bound to Claude has Claude's limit, which says nothing about the subscription everything else runs on, so it pauses only `max` work.
+  noteUsageLimit(result, sessionFile, bound) {
     if (result.status !== 'failed') return result;
     const { usagePause, claudePause } = readMode(this.root);
-    const said = sessionError(sessionFile) ?? (paneKind === 'pi' ? firstLine(result.error) : result.error);
-    const limit = usageLimitIn(said, this.now());
+    const limit = usageLimitIn(sessionError(sessionFile) ?? firstLine(result.error), this.now());
     if (!limit) return result;
-    if (level === 'max') writeMode(this.root, { claudePause: nextPause(claudePause, limit, this.now()) });
+    if (bound) writeMode(this.root, { claudePause: nextPause(claudePause, limit, this.now()) });
     else writeMode(this.root, { usagePause: nextPause(usagePause, limit, this.now()) });
     return { ...result, usageLimit: true };
   }
@@ -529,13 +590,7 @@ export class WorkDirector {
     if (usagePause && Date.parse(usagePause.until) <= this.now()) writeMode(this.root, { usagePause: null });
   }
 
-  // A folder that cannot be used costs nothing and says nothing about the work, so the project only waits a while and the tab says why.
-  holdProject(slug, reason) {
-    const heldUntil = new Date(this.now() + FOLDER_RETRY_MS).toISOString();
-    writeState(this.root, slug, { heldUntil, heldReason: reason.split(/[,.:]/, 1)[0], folderNote: reason });
-  }
-
-  async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal, paneKind, bound, entry }) {
+  async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal, paneKind, bound }) {
     const directory = join(paths(this.root, slug).directory, 'runs');
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const brief = join(directory, `${harnessId}.md`);
@@ -552,13 +607,6 @@ export class WorkDirector {
       report,
       signal,
       ...(paneKind === 'claude' ? { claudeSession: harnessId, bound } : {}),
-      onStatus: status => {
-        const waiting = status === 'blocked';
-        if (Boolean(entry.waitingForApproval) === waiting) return;
-        entry.waitingForApproval = waiting;
-        this.publish();
-        this.onChange();
-      },
     });
     const { usd, sessionId } = sessionUsage(sessionFile);
     return usd ? { ...result, cost: { usd, kind: 'estimate', cumulative: true, sessionId } } : result;
@@ -570,7 +618,7 @@ export class WorkDirector {
     const scheduleId = slug ? `work.${slug}.${lane}` : 'work.discover';
     const inPane = Boolean(slug && this.panes);
     const pane = inPane ? agentName(lane, slug) : null;
-    const bound = Boolean(levels[level]?.harness);
+    const bound = inPane && Boolean(levels[level]?.harness);
     const paneKind = !inPane ? 'pi' : bound ? levels[level].harness : readMode(this.root).harness;
     const request = {
       id,
@@ -596,7 +644,7 @@ export class WorkDirector {
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work(place.folder ? 'folder' : 'tree'));
       mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
-      if (inPane) return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd: here, model, effort, sessionFile, signal, paneKind, bound, entry });
+      if (inPane) return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd: here, model, effort, sessionFile, signal, paneKind, bound });
       return this.runHarness({
         id: harnessId,
         harness: 'pi',
@@ -610,20 +658,13 @@ export class WorkDirector {
       }, { onEvent: event => this.runner.onActivity(id, event) });
     };
     const effect = async signal => {
-      let place = { cwd };
-      try {
-        if (prepare) place = await prepare(entry);
-      } catch (error) {
-        if (!(error instanceof FolderRefused)) throw error;
-        this.holdProject(slug, error.message);
-        return { status: 'failed', cost: null, noModel: true, refused: true, error: error.message };
-      }
+      const place = prepare ? await prepare(entry) : { cwd };
       Object.assign(entry, place);
       try {
-        return this.noteUsageLimit(await runIn(place, signal), sessionFile, paneKind, level);
+        return this.noteUsageLimit(await runIn(place, signal), sessionFile, bound);
       } finally {
         // A folder that went away during the run must not hide how the run ended.
-        await this.leave(slug, place).catch(() => {});
+        await this.leave(slug, item, place).catch(() => {});
       }
     };
     this.active.set(key, entry);
@@ -633,9 +674,12 @@ export class WorkDirector {
       const { tokens, cached } = paneKind === 'claude' ? claudeSessionUsage(harnessId, this.claudeProjects) : sessionUsage(sessionFile);
       const facts = { slug, lane, kind, ...(level ? { level } : {}) };
       // Nothing can be read from a pane with no readable usage, so its run counts as what one like it costs, marked so nothing learns from it.
-      const unseen = paneKind !== 'pi' && !run?.result?.refused;
+      // A run with no `cwd` never got as far as a place to work, so it spent nothing, however often it comes round.
+      // It still leaves a mark, or its project stays left alone and takes every start. With no `level` it is no max run.
+      const unseen = paneKind !== 'pi' && Boolean(entry.cwd);
       if (tokens) recordTokens(this.root, { ...facts, tokens, cached }, this.now());
       else if (unseen) recordTokens(this.root, { ...facts, tokens: estimate.fresh ?? 0, cached: estimate.cached ?? 0, estimated: true }, this.now());
+      else recordTokens(this.root, { slug, lane, kind, tokens: 0, cached: 0, estimated: true }, this.now());
       if (run?.status === 'completed') this.clearUsagePause();
       settle?.(run, entry);
       this.publish();
