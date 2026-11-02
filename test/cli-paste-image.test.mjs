@@ -28,6 +28,9 @@ test('an image on the clipboard is kept private under runtime, with a preview of
   assert.equal(image.preview.length, 3);
   assert.equal(image.columns, 12);
   assert.ok(image.preview.every(row => visibleWidth(row) === 12));
+  const picture = Buffer.from(image.picture, 'base64');
+  assert.equal(picture.toString('latin1', 1, 4), 'PNG');
+  assert.equal(picture.readUInt32BE(20), 132, 'sharp enough for the box of cells, and no bigger');
 });
 
 test('a big image is shrunk to fit, and says so', async t => {
@@ -174,12 +177,17 @@ test('every PNG line filter decodes', () => {
   ]);
 });
 
-test('a preview that cannot be read is simply left out', () => {
-  // Pi hands a tiny image back as it came, and the preview only decodes 8-bit RGBA.
-  const palette = Buffer.from(png(4, 4));
-  palette[25] = 3;
-  assert.equal(pngPixels(palette), null);
-  assert.deepEqual(halfBlocks(null), []);
+test('an image too tiny for Pi to redraw has no preview, and still attaches', async t => {
+  // Pi hands it back as it came, and the preview only decodes the 8-bit RGBA that Pi writes.
+  const tiny = png(4, 4, () => [1, 2, 3], 3);
+  assert.equal(pngPixels(tiny), null);
+  const { pasted } = fixture(t, { getImage: async () => tiny });
+
+  const { image } = await pasted.paste();
+
+  assert.ok(existsSync(image.file));
+  assert.deepEqual(image.preview, []);
+  assert.equal(image.picture, undefined);
 });
 
 test('previews sit side by side and stop before the width runs out', () => {

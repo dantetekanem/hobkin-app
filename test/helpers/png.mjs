@@ -11,17 +11,18 @@ const chunk = (type, body) => {
   return Buffer.concat([length, typed, check]);
 };
 
-/** An 8-bit RGBA PNG. `pixel(x, y)` gives [red, green, blue, alpha]. */
-export const png = (width, height, pixel = () => [200, 100, 50, 255]) => {
+/** An 8-bit PNG. `pixel(x, y)` gives [red, green, blue, alpha], and with three channels the alpha is left out. */
+export const png = (width, height, pixel = () => [200, 100, 50, 255], channels = 4) => {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8;
-  header[9] = 6;
-  const rows = Buffer.alloc((width * 4 + 1) * height);
+  header[9] = channels === 4 ? 6 : 2;
+  const stride = width * channels;
+  const rows = Buffer.alloc((stride + 1) * height);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      rows.set(pixel(x, y), y * (width * 4 + 1) + 1 + x * 4);
+      rows.set(pixel(x, y).slice(0, channels), y * (stride + 1) + 1 + x * channels);
     }
   }
   return Buffer.concat([SIGNATURE, chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);

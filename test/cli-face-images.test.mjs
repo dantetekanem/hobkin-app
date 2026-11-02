@@ -183,6 +183,43 @@ test('a theme change sends the other theme\'s frames', () => {
   assert.ok(transmissions(written.join('')).length > 10);
 });
 
+test('a pasted picture goes out once and fills the box its text cells stand for', () => {
+  const { faces, written } = images();
+  const image = { file: 'one.png', columns: 12, preview: ['cells', 'cells', 'cells'], picture: 'cGljdHVyZQ==' };
+
+  const shown = faces.showPicture(image);
+
+  const sent = written.join('');
+  assert.equal(transmissions(sent).length, 1);
+  assert.ok(transmissions(sent)[0].includes('f=100'));
+  assert.ok(transmissions(sent)[0].includes('c=12,r=3,'));
+  assert.ok(sent.includes('cGljdHVyZQ=='));
+  assert.equal(shown.preview.length, 3);
+  for (const value of shown.preview) {
+    assert.equal(visibleWidth(value), 12);
+    assert.equal(imageIdOf(value), shown.pictureId);
+  }
+  assert.equal(shown.file, 'one.png');
+});
+
+test('an image with no picture keeps its text cells', () => {
+  const { faces, written } = images();
+  const image = { file: 'one.png', columns: 12, preview: ['cells'] };
+
+  assert.equal(faces.showPicture(image), image);
+  assert.deepEqual(written, []);
+});
+
+test('forgetting pictures deletes them from the terminal, and only them', () => {
+  const { faces, written } = images();
+  const shown = faces.showPicture({ columns: 2, preview: ['ab'], picture: 'cGljdHVyZQ==' });
+  written.length = 0;
+
+  faces.forgetPictures([shown, { columns: 2, preview: ['cd'] }]);
+
+  assert.deepEqual(written, [`\x1b_Ga=d,d=I,i=${shown.pictureId},q=2\x1b\\`]);
+});
+
 test('images need a terminal that draws them, and a way out', () => {
   assert.equal(supportsFaceImages({ GHOSTTY_RESOURCES_DIR: '/Applications/Ghostty.app', HERDR_ENV: '1' }), true);
   assert.equal(supportsFaceImages({ KITTY_WINDOW_ID: '1' }), true);

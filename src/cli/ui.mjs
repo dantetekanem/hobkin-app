@@ -10,6 +10,7 @@ import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
 import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
 import { shownMood } from './mood.mjs';
 import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
+import { IMAGE_ONLY_TEXT, MAX_IMAGES, previewRows } from './paste-image.mjs';
 import { followPiTheme } from './theme.mjs';
 import { lookTime, shortPath } from './work/chat.mjs';
 import { byPriority, byRank, foldersLeft, grades, prModes, tokenLabel } from './work/store.mjs';
@@ -151,6 +152,8 @@ const ACTIVE_FRAME_MS = 100;
 const MOVING_FACE_MS = 125;
 const RESTING_FACE_MS = 250;
 const MIN_ROWS_FOR_PINNED_DAY = 8;
+const MIN_ROWS_FOR_PREVIEW = 18;
+const PASTE_NOTICE_MS = 4000;
 const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
@@ -598,15 +601,16 @@ const messageLines = ({ message, at, latest, repeats }, inner, markdown) => {
     return [...lines, ''];
   }
   const about = message.about ? [`  ${muted(`↳ ${clean(message.about)}`)}`] : [];
+  const pictures = message.images ? [`  ${muted(`↳ ${count(message.images, 'image')}`)}`] : [];
   // Markdown paints its own colors, so a waiting message stays plain to read as one gray block.
   const body = message.waiting
     ? wrapped(message.content, inner - 2).map(value => `  ${dim(value)}`)
     : markdown(message.content, inner - 2).map(value => `  ${value}`);
-  return [row(authorLabel(message), time, inner), ...about, ...body, ''];
+  return [row(authorLabel(message), time, inner), ...about, ...pictures, ...body, ''];
 };
 // A message's rows depend on these and nothing else, so an entry keeps its rows for as long as its key holds.
 const entryKey = ({ message, latest, repeats }, inner) => [
-  inner, message.role, message.tone, message.waiting, message.about, message.at, latest, repeats, message.content,
+  inner, message.role, message.tone, message.waiting, message.about, message.images, message.at, latest, repeats, message.content,
 ].join('\0');
 const chatLines = ({ messages, inner, clock, rowsOf }) => {
   const entries = chatEntries(messages);
@@ -1117,6 +1121,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let reading = null;
   let onDonePage = null;
   let referencedReport = null;
+  let attachments = [];
+  let readingClipboard = false;
   let workKey = null;
   let armedDrop = null;
   let armedMax = null;
@@ -1353,25 +1359,54 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
     } else toggleWorkFromChat(submitted);
   };
+  const takesImages = () => !askingWorkFolder && !notingOn;
+  const dropImages = dropped => {
+    attachments = attachments.filter(image => !dropped.includes(image));
+    images?.forgetPictures(dropped);
+    callbacks.dropImages?.(dropped);
+  };
+  const pasteImage = () => {
+    if (readingClipboard) return;
+    if (attachments.length >= MAX_IMAGES) {
+      say(`A message can hold ${MAX_IMAGES} images.`, 'warning', { timeout: PASTE_NOTICE_MS });
+      return;
+    }
+    readingClipboard = true;
+    pending = Promise.resolve().then(() => callbacks.pasteImage?.() ?? {}).then(({ image, notice, tone }) => {
+      if (image) attachments.push(images?.showPicture(image) ?? image);
+      if (notice) say(notice, tone, { timeout: PASTE_NOTICE_MS });
+    }, error => {
+      say(`Paste failed: ${clean(error?.message ?? error)}`, 'error', { timeout: PASTE_NOTICE_MS });
+    }).finally(() => {
+      readingClipboard = false;
+      changed();
+    });
+  };
   const sendMessage = text => {
     const report = referencedReport;
-    const entry = { role: 'user', content: text, about: report?.title, at: new Date(now()).toISOString(), waiting: true };
+    const sending = attachments;
+    const entry = { role: 'user', content: text, about: report?.title, images: sending.length, at: new Date(now()).toISOString(), waiting: true };
     outbox.push(entry);
     editor.setText('');
     editor.addToHistory(text);
     referencedReport = null;
+    attachments = [];
     view = 'conversation';
     focus = 'composer';
     scroll = 0;
     say('');
     changed();
-    pending = Promise.resolve().then(() => callbacks.send(text, report)).then(() => {
+    pending = Promise.resolve().then(() => callbacks.send(text, report, sending)).then(() => {
       entry.accepted = true;
+      images?.forgetPictures(sending);
     }, error => {
       outbox = outbox.filter(item => item !== entry);
       if (!editor.getExpandedText()) {
         editor.setText(text);
         referencedReport = report;
+        attachments = [...sending, ...attachments];
+      } else if (sending.length) {
+        dropImages(sending);
       }
       fail('Send', error);
     }).finally(() => {
@@ -1490,25 +1525,26 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         });
       return;
     }
-    if (!submitted.trim() || clearing) return;
+    if ((!submitted.trim() && !attachments.length) || clearing) return;
     if (!connected()) {
       say('Offline — send unavailable until the main conversation connects', 'warning');
       changed();
       return;
     }
-    sendMessage(submitted);
+    sendMessage(submitted.trim() ? submitted : IMAGE_ONLY_TEXT);
   };
 
   let quitArmedUntil = 0;
   // Ctrl+C clears first, so a stray press never closes hobkin on something half typed.
   const interrupt = () => {
     const filtering = isReportListFocus(focus) && (typingFilter || reportFilter.getValue());
-    if (filtering || (focus === 'composer' && (editor.getExpandedText() || referencedReport))) {
+    if (filtering || (focus === 'composer' && (editor.getExpandedText() || referencedReport || attachments.length))) {
       if (filtering) {
         clearFilter();
       } else {
         editor.setText('');
         referencedReport = null;
+        dropImages(attachments);
       }
       quitArmedUntil = 0;
       say('');
@@ -1647,6 +1683,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
+    if (attachments.length) return [['enter', 'send'], ['esc', 'drop image'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
     if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
     if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
     return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+q', 'quit']];
@@ -1727,10 +1764,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const prompt = index ? '    ' : `  ${connected() ? highlight('❯') : muted('❯')} `;
       return prompt + (empty && !index ? value.trimEnd() + muted(placeholder) : value);
     });
+    const attached = takesImages() ? attachments : [];
+    const names = attached.map((_, index) => `image ${index + 1}`).join(' · ');
+    const pictures = names && `${accent('↳')} ${dim(names)}`;
+    const preview = rows >= MIN_ROWS_FOR_PREVIEW ? previewRows(attached, inner - 4).map(value => `    ${value}`) : [];
     const subject = askingWorkFolder ? 'Which folder should work mode start from?' : notingOn?.title ?? referencedReport?.title;
-    const reference = subject ? `${accent('↳')} ${dim(line(clean(subject), inner - 16))}` : '';
-    const top = [reference, above && muted(above)].filter(Boolean).join(muted(' · '));
-    return ruled({ paint, top, bottom: below && muted(below), lines: content, inner });
+    const reference = subject ? `${accent('↳')} ${dim(line(clean(subject), inner - 16 - visibleWidth(pictures)))}` : '';
+    const top = [reference, pictures, above && muted(above)].filter(Boolean).join(muted(' · '));
+    return ruled({ paint, top, bottom: below && muted(below), lines: [...preview, ...content], inner });
   };
   const onOtherRow = () => question.selection.getSelectedItem() === OTHER_ROW;
   // The row stays reserved, so moving onto Other never moves the list.
@@ -2231,6 +2272,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       clearInterval(idleRedraw);
       animate();
       images?.clear();
+      images?.forgetPictures(attachments);
       question?.finish(null, 'expired');
     },
     handleMouse(event) {
@@ -2319,7 +2361,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       } else if (followsTail() && (key(data, 'pageUp') || key(data, 'pageDown'))) {
         scroll = Math.max(0, scroll + (key(data, 'pageUp') ? 8 : -8));
       } else if (focus === 'composer') {
-        if (key(data, 'escape')) {
+        if (key(data, 'escape') && attachments.length && takesImages()) {
+          say('');
+          dropImages([attachments.at(-1)]);
+        } else if (key(data, 'escape')) {
           say('');
           referencedReport = null;
           askingWorkFolder = false;
@@ -2331,6 +2376,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
           // Tab finished the command.
         } else {
+          if (key(data, 'ctrl+v') && takesImages()) pasteImage();
           editor.disableSubmit = clearing;
           editor.handleInput(data);
         }

@@ -89,6 +89,19 @@ export class FaceImages {
     return placeholderRow(this.wordmarkId, 0, WORDMARK_COLUMNS);
   }
 
+  /** A pasted image, through the same kind of cells as the face. It never changes, so it has nothing to flicker. */
+  showPicture(image) {
+    if (!image.picture) return image;
+    const { picture, columns, preview: { length: rows } } = image;
+    const [pictureId] = this.send([picture], columns, rows);
+    return { ...image, pictureId, preview: Array.from({ length: rows }, (_, row) => placeholderRow(pictureId, row, columns)) };
+  }
+
+  forgetPictures(images) {
+    const ids = images.flatMap(({ pictureId }) => pictureId ?? []);
+    if (ids.length) this.write(deletion(ids));
+  }
+
   useTheme(theme) {
     if (theme === this.theme) return;
     this.clear();

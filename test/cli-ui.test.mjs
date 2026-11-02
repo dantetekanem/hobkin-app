@@ -10,6 +10,7 @@ import {
   setCapabilityOverrides, setCellDimensions, stripTerminalSequences, visibleWidth,
 } from '@earendil-works/pi-tui';
 import { FaceImages } from '../src/cli/face-images.mjs';
+import { IMAGE_ONLY_TEXT } from '../src/cli/paste-image.mjs';
 import { createDashboard, startDashboard } from '../src/cli/ui.mjs';
 import { savePresentationState } from '../src/cli/view.mjs';
 
@@ -2543,4 +2544,292 @@ test('a chat that is already connected starts setup straight away', async () => 
   await ui.pending();
 
   assert.deepEqual(sent, ['Help me set up hobkin.']);
+});
+
+const CTRL_V = '\x16';
+const CTRL_C = '\x03';
+const picture = name => ({ file: `/runtime/pasted/${name}.png`, mimeType: 'image/png', columns: 3, preview: ['▀▀▀', '▀▀▀'] });
+const liveChat = { ...snapshot, connection: 'connected', messages: [] };
+const composerWith = (handlers = {}, view = liveChat) => {
+  const images = [picture('first'), picture('second'), picture('third'), picture('fourth'), picture('fifth')];
+  const calls = { pasted: 0, dropped: [], sent: [] };
+  const ui = createDashboard(view, {
+    send: (...message) => { calls.sent.push(message); },
+    pasteImage: async () => ({ image: images[calls.pasted++] }),
+    dropImages: dropped => calls.dropped.push(...dropped.map(({ file }) => file)),
+    ...handlers,
+  });
+  const paste = async (keys = CTRL_V) => {
+    ui.input(keys);
+    await ui.pending();
+  };
+  return { ui, calls, images, paste };
+};
+
+test('Ctrl+V attaches the image on the clipboard and shows it above the input', async () => {
+  const { ui, paste } = composerWith();
+
+  await paste();
+
+  const rows = screen(ui, 80, 24).split('\n');
+  const input = rows.findIndex(value => value.includes('Message hobkin'));
+  assert.match(rows[input - 3], /─ ↳ image 1 ─/);
+  assert.match(rows[input - 2], /▀▀▀/);
+  assert.match(rows[input - 1], /▀▀▀/);
+});
+
+test('Ctrl+V arrives the same from a terminal that reports modified keys', async () => {
+  const { ui, paste } = composerWith();
+
+  await paste('\x1b[118;5u');
+
+  assert.match(screen(ui, 80, 24), /↳ image 1/);
+});
+
+test('the row of pictures gives way on a terminal too short for it, and the name stays', async () => {
+  const { ui, paste } = composerWith();
+
+  await paste();
+
+  const rows = screen(ui, 80, 16);
+  assert.match(rows, /↳ image 1/);
+  assert.doesNotMatch(rows, /▀▀▀/);
+});
+
+test('Esc removes the newest image first, and the hints name the key', async () => {
+  const { ui, calls, paste } = composerWith();
+  await paste();
+  await paste();
+  ui.input('words');
+
+  assert.match(screen(ui, 80, 24), /↳ image 1 · image 2/);
+  assert.match(screen(ui, 80, 24), /esc drop image/);
+
+  ui.input(ESCAPE);
+  assert.doesNotMatch(screen(ui, 80, 24), /image 2/);
+  assert.deepEqual(calls.dropped, ['/runtime/pasted/second.png']);
+
+  ui.input(ESCAPE);
+  assert.doesNotMatch(screen(ui, 80, 24), /image 1/);
+  assert.doesNotMatch(screen(ui, 80, 24), /drop image/);
+  assert.equal(ui.state().draft, 'words');
+});
+
+test('Ctrl+C clears the images with the draft', async () => {
+  const { ui, calls, paste } = composerWith();
+  await paste();
+  ui.input('words');
+
+  ui.input(CTRL_C);
+
+  assert.equal(ui.state().draft, '');
+  assert.doesNotMatch(screen(ui, 80, 24), /image 1/);
+  assert.deepEqual(calls.dropped, ['/runtime/pasted/first.png']);
+});
+
+test('Ctrl+C with only an image attached clears it, and does not start quitting', async () => {
+  let quits = 0;
+  const { ui, paste } = composerWith({ onQuit: () => { quits++; } });
+  await paste();
+
+  ui.input(CTRL_C);
+  ui.input(CTRL_C);
+
+  assert.equal(quits, 0);
+  assert.match(screen(ui, 80, 24), /Press Ctrl\+C again/);
+});
+
+test('sending takes the images along, and the chat marks the message', async () => {
+  const { ui, calls, images, paste } = composerWith();
+  await paste();
+  await paste();
+
+  ui.input('what is this?');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(calls.sent, [['what is this?', null, images.slice(0, 2)]]);
+  assert.equal(ui.state().draft, '');
+  assert.deepEqual(calls.dropped, [], 'the file stays until the message has gone');
+  const rows = screen(ui, 80, 24).split('\n');
+  const you = rows.findIndex(value => value.includes('◆ You'));
+  assert.match(rows[you + 1], /↳ 2 images/);
+  assert.doesNotMatch(screen(ui, 80, 24), /drop image/);
+});
+
+test('Enter sends an image with no words, under a short line for the model', async () => {
+  const { ui, calls, images, paste } = composerWith();
+  await paste();
+
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(calls.sent, [[IMAGE_ONLY_TEXT, null, [images[0]]]]);
+});
+
+test('Enter with nothing attached and nothing typed still sends nothing', async () => {
+  const { ui, calls } = composerWith();
+
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(calls.sent, []);
+});
+
+test('a failed message brings its images back to the composer', async () => {
+  const { ui, paste } = composerWith({ send: async () => { throw Error('no route'); } });
+  await paste();
+
+  ui.input('look');
+  ui.input('\r');
+  await ui.pending();
+
+  assert.equal(ui.state().draft, 'look');
+  assert.match(screen(ui, 80, 24), /↳ image 1/);
+});
+
+test('a failed message that cannot come back lets its images go', async () => {
+  const failing = Promise.withResolvers();
+  const { ui, calls, paste } = composerWith({ send: () => failing.promise });
+  await paste();
+  ui.input('look');
+  ui.input('\r');
+  ui.input('something new');
+
+  failing.reject(Error('no route'));
+  await ui.pending();
+
+  assert.equal(ui.state().draft, 'something new');
+  assert.doesNotMatch(screen(ui, 80, 24), /↳ image 1/);
+  assert.deepEqual(calls.dropped, ['/runtime/pasted/first.png']);
+});
+
+test('text on the clipboard leaves Ctrl+V as it was', async () => {
+  const { ui, paste } = composerWith({ pasteImage: async () => ({}) });
+  ui.input('draft');
+
+  await paste();
+
+  assert.equal(ui.state().draft, 'draft');
+  assert.equal(ui.state().notice, '');
+  assert.doesNotMatch(screen(ui, 80, 24), /image 1/);
+});
+
+test('what stopped a paste says so in the notice row, and nothing else changes', async () => {
+  const stopped = { notice: 'No image on the clipboard.', tone: 'warning' };
+  const { ui, paste } = composerWith({ pasteImage: async () => stopped });
+  ui.input('draft');
+
+  await paste();
+
+  assert.equal(ui.state().notice, 'No image on the clipboard.');
+  assert.equal(ui.state().draft, 'draft');
+  assert.doesNotMatch(screen(ui, 80, 24), /image 1/);
+});
+
+test('a shrunk image still attaches, and says so', async () => {
+  const shrunk = { image: picture('big'), notice: 'Shrunk to 1568×784 to send.', tone: 'info' };
+  const { ui, paste } = composerWith({ pasteImage: async () => shrunk });
+
+  await paste();
+
+  assert.equal(ui.state().notice, 'Shrunk to 1568×784 to send.');
+  assert.match(screen(ui, 80, 24), /↳ image 1/);
+});
+
+test('a read that fails says what went wrong', async () => {
+  const { ui, paste } = composerWith({ pasteImage: async () => { throw Error('pasteboard busy'); } });
+
+  await paste();
+
+  assert.equal(ui.state().notice, 'Paste failed: pasteboard busy');
+});
+
+test('a fifth image is refused without reading the clipboard', async () => {
+  const { ui, calls, paste } = composerWith();
+  for (let pasted = 0; pasted < 4; pasted++) await paste();
+
+  await paste();
+
+  assert.equal(calls.pasted, 4);
+  assert.equal(ui.state().notice, 'A message can hold 4 images.');
+});
+
+test('a second Ctrl+V waits for the first read', async () => {
+  const reading = Promise.withResolvers();
+  let reads = 0;
+  const { ui } = composerWith({ pasteImage: () => { reads++; return reading.promise; } });
+
+  ui.input(CTRL_V);
+  await new Promise(resolve => setImmediate(resolve));
+  ui.input(CTRL_V);
+  reading.resolve({ image: picture('only') });
+  await ui.pending();
+
+  assert.equal(reads, 1);
+  assert.doesNotMatch(screen(ui, 80, 24), /image 2/);
+});
+
+test('the composer takes no image while it asks for something else', async () => {
+  const { ui, calls, paste } = composerWith();
+  await paste();
+  ui.input('/work');
+  ui.input('\r');
+  await ui.pending();
+
+  await paste();
+
+  assert.match(screen(ui, 80, 24), /Which folder should work mode start from/);
+  assert.doesNotMatch(screen(ui, 80, 24), /image 1/);
+  assert.equal(calls.pasted, 1);
+});
+
+test('a terminal that draws images shows the real picture until the message has gone', async () => {
+  const written = [];
+  const images = new FaceImages({ write: data => written.push(data) });
+  const image = { ...picture('real'), picture: 'cGljdHVyZQ==' };
+  const accepted = Promise.withResolvers();
+  const ui = createDashboard(liveChat, { send: () => accepted.promise, pasteImage: async () => ({ image }) }, { images });
+  ui.input(CTRL_V);
+  await ui.pending();
+
+  const rows = screen(ui, 120, 40).split('\n');
+  const input = rows.findIndex(value => value.includes('Message hobkin'));
+  assert.equal(rows.slice(input - 2, input).filter(value => value.split('\u{10EEEE}').length > 3).length, 2);
+  assert.ok(rows.every(value => !value.includes('▀▀▀')));
+  assert.ok(written.join('').includes('cGljdHVyZQ=='));
+
+  written.length = 0;
+  ui.input('\r');
+  assert.equal(written.join('').includes('a=d'), false, 'a failed send brings it back');
+
+  accepted.resolve();
+  await ui.pending();
+  assert.equal(written.join('').match(/a=d,d=I/g).length, 1);
+  ui.stop();
+});
+
+test('dropping an image takes its picture off the terminal', async () => {
+  const written = [];
+  const images = new FaceImages({ write: data => written.push(data) });
+  const image = { ...picture('real'), picture: 'cGljdHVyZQ==' };
+  const ui = createDashboard(liveChat, { send: async () => {}, pasteImage: async () => ({ image }) }, { images });
+  ui.input(CTRL_V);
+  await ui.pending();
+  written.length = 0;
+
+  ui.input(ESCAPE);
+
+  assert.equal(written.join('').match(/a=d,d=I/g).length, 1);
+  ui.stop();
+});
+
+test('a sent message that had images shows a short marker, read from the conversation', () => {
+  const view = { ...liveChat, messages: [{ id: 'one', role: 'user', content: 'look', images: 1, at: soon() }] };
+  const ui = createDashboard(view, { send: async () => {} });
+
+  const rows = screen(ui, 80, 24).split('\n');
+  const you = rows.findIndex(value => value.includes('◆ You'));
+  assert.match(rows[you + 1], /↳ 1 image$/);
+  assert.match(rows[you + 2], /look/);
 });

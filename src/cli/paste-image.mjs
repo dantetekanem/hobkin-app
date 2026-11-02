@@ -11,7 +11,11 @@ export const IMAGE_ONLY_TEXT = 'Look at what I pasted.';
 
 // Every image stays in the session file for good and crosses to Pi again on each sync, so what is kept stays small.
 const SEND_LIMITS = { maxWidth: 1568, maxHeight: 1568, maxBytes: 3 * 1024 * 1024 };
-const THUMBNAIL_LIMITS = { maxWidth: 18, maxHeight: 6 };
+// Half blocks hold two pixels to a cell, so this is at most 18 columns by 3 rows.
+const CELL_LIMITS = { maxWidth: 18, maxHeight: 6 };
+// The same box in real pixels, on a Retina screen, for a terminal that draws images.
+const PICTURE_LIMITS = { maxWidth: 360, maxHeight: 132 };
+const NO_PREVIEW = { preview: [], columns: 0 };
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i;
 const EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 const NO_IMAGE = { notice: 'No image on the clipboard.', tone: 'warning' };
@@ -80,9 +84,8 @@ const colorAt = ({ width, pixels }, x, y) => {
   return [0, 1, 2].map(channel => Math.round(pixels[at + channel] * opacity)).join(';');
 };
 
-/** Two pixels to a cell, drawn as text because images flicker inside multiplexers and text cells never do. */
+/** Two pixels to a cell, for a terminal not known to draw images. */
 export const halfBlocks = image => {
-  if (!image) return [];
   const rows = [];
   for (let y = 0; y < image.height; y += 2) {
     let cells = '';
@@ -108,13 +111,16 @@ export const previewRows = (images, width) => {
   return Array.from({ length: height }, (_, y) => shown.map(({ preview, columns }) => preview[y] ?? ' '.repeat(columns)).join(' '));
 };
 
-const thumbnail = async (resizeImage, data, mimeType) => {
+// The image is already safe to send by here, so a preview that fails only leaves the preview out.
+const previewOf = async (resizeImage, { data, mimeType }) => {
   try {
-    const small = await resizeImage(Buffer.from(data, 'base64'), mimeType, THUMBNAIL_LIMITS);
-    const image = small?.mimeType === 'image/png' ? pngPixels(Buffer.from(small.data, 'base64')) : null;
-    return { preview: halfBlocks(image), columns: image?.width ?? 0 };
+    const picture = await resizeImage(Buffer.from(data, 'base64'), mimeType, PICTURE_LIMITS);
+    const small = await resizeImage(Buffer.from(picture.data, 'base64'), picture.mimeType, CELL_LIMITS);
+    const image = small.mimeType === 'image/png' ? pngPixels(Buffer.from(small.data, 'base64')) : null;
+    if (!image) return NO_PREVIEW;
+    return { preview: halfBlocks(image), columns: image.width, ...(picture.mimeType === 'image/png' ? { picture: picture.data } : {}) };
   } catch {
-    return { preview: [], columns: 0 };
+    return NO_PREVIEW;
   }
 };
 
@@ -155,7 +161,7 @@ export class PastedImages {
     if (!sendable) return UNSHRINKABLE;
 
     const image = {
-      ...await thumbnail(resizeImage, sendable.data, sendable.mimeType),
+      ...await previewOf(resizeImage, sendable),
       file: this.save(sendable),
       mimeType: sendable.mimeType,
     };
