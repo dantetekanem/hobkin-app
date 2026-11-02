@@ -598,6 +598,38 @@ test('the dashboard keeps the index current, and a signal stops it', async t => 
   assert.equal(qmd.started('update'), 2);
 });
 
+test('an index deadline reports its home, status and saved health', async t => {
+  const { root } = fixture(t);
+  const checkFailure = async health => {
+    await assert.rejects(settledIndex(root, () => false, 'the pass finish', 0), error => {
+      assert.match(error.message, /Never saw the pass finish/);
+      assert.ok(error.message.includes(root));
+      assert.ok(error.message.includes(indexStatus(root)));
+      assert.ok(error.message.includes(health));
+      return true;
+    });
+  };
+
+  await checkFailure('not written');
+  const health = { problem: 'qmd update failed', checkedAt: '2026-11-02T00:00:00.000Z' };
+  atomicJson(join(root, 'runtime/memory-index.json'), health);
+  await checkFailure(JSON.stringify(health, null, 2));
+});
+
+// Real qmd starts several processes; keep its integration budget separate from shell fixtures.
+const REAL_QMD_MS = 30000;
+
+async function settledIndex(root, check, what, timeout = REAL_QMD_MS) {
+  try {
+    await settled(check, what, timeout);
+  } catch (error) {
+    const file = join(root, 'runtime/memory-index.json');
+    const health = existsSync(file) ? readFileSync(file, 'utf8') : 'not written';
+    error.message += `\nDeadline: ${timeout} ms\nHome: ${root}\n${indexStatus(root)}\nHealth: ${health}`;
+    throw error;
+  }
+}
+
 const installed = spawnSync('qmd', ['--version'], { encoding: 'utf8' });
 
 /** The real qmd in a temporary folder, with `embed` answered here so that no model runs. */
@@ -638,7 +670,7 @@ test('the installed qmd finds a memory line and a lesson with the command agents
 
   const notes = [];
   const index = open(t, root, { quietMs: 0, onNote: () => notes.push(index.takeNote()) });
-  await settled(() => /^Index 5 files/.test(indexStatus(root)), 'the real pass finish');
+  await settledIndex(root, () => /^Index 5 files/.test(indexStatus(root)), 'the real pass finish');
 
   assert.deepEqual(notes, []);
   assert.match(await asAgent(root, 'qmd search "zanzibar"'), /zanzibar invoice is late/);
@@ -661,15 +693,15 @@ test('the installed qmd forgets a file that went empty, and one that was deleted
   realQmd(t, base);
   writeFileSync(join(root, 'AGENTS.md'), '# Prefer kestrels\n');
   open(t, root, { quietMs: 0 });
-  await settled(() => /^Index 2 files/.test(indexStatus(root)), 'the real pass finish');
+  await settledIndex(root, () => /^Index 2 files/.test(indexStatus(root)), 'the real pass finish');
   assert.match(await asAgent(root, 'qmd search "zanzibar"'), /zanzibar/);
 
   writeFileSync(join(root, 'memory.md'), '');
-  await settled(() => /^Index 1 file /.test(indexStatus(root)), 'the emptied file leave');
+  await settledIndex(root, () => /^Index 1 file /.test(indexStatus(root)), 'the emptied file leave');
   assert.doesNotMatch(await asAgent(root, 'qmd search "zanzibar"'), /zanzibar/);
 
   rmSync(join(root, 'AGENTS.md'));
-  await settled(() => /^Index 0 files/.test(indexStatus(root)), 'the deleted file leave');
+  await settledIndex(root, () => /^Index 0 files/.test(indexStatus(root)), 'the deleted file leave');
   assert.doesNotMatch(await asAgent(root, 'qmd search "kestrels"'), /kestrels/);
 });
 
@@ -677,7 +709,7 @@ test('a home that moved keeps working with the installed qmd', whenInstalled, as
   const { base, root } = fixture(t);
   realQmd(t, base);
   const before = open(t, root, { quietMs: 0 });
-  await settled(() => /^Index 1 file /.test(indexStatus(root)), 'the real pass finish');
+  await settledIndex(root, () => /^Index 1 file /.test(indexStatus(root)), 'the real pass finish');
   await before.stop();
 
   const moved = join(base, 'moved');
@@ -685,7 +717,7 @@ test('a home that moved keeps working with the installed qmd', whenInstalled, as
   writeFileSync(join(moved, 'memory.md'), '- A heron nests by the moved home\n');
   const earlier = indexStatus(moved);
   open(t, moved, { quietMs: 0 });
-  await settled(() => indexStatus(moved) !== earlier, 'the pass in its new place finish');
+  await settledIndex(moved, () => indexStatus(moved) !== earlier, 'the pass in its new place finish');
 
   assert.match(await asAgent(moved, 'qmd search "heron"'), /heron nests/);
   assert.match(await asAgent(moved, 'qmd collection list'), /notes \(qmd:\/\/notes\/\)/);
