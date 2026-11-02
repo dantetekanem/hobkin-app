@@ -1564,13 +1564,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const tabRow = tabs.map(tab => tab.text).join(TAB_GAP);
     return [focus === 'workTabs' ? selectedRow(tabRow, inner) : tabRow, ''];
   };
-  const renderHeader = (inner, clock, frame) => {
-    const live = snapshot.connection === 'connected';
+  const renderHeader = (inner, frame) => {
+    const indicator = snapshot.connection === 'connected' ? positive('●') : muted('○');
     const activeRuns = liveJobs();
-    const indicator = !live ? muted('○') : snapshot.busy ? highlight(frame) : positive('●');
-    const working = busySince ? `working ${elapsed(busySince, clock)}` : 'working';
-    const connection = live && snapshot.busy ? working : clean(snapshot.connection ?? 'offline');
-    const connectionStatus = `${indicator} ${dim(connection)}`;
+    const connectionStatus = `${indicator} ${dim(clean(snapshot.connection ?? 'offline'))}`;
     const runningCount = activeRuns.length + workRuns().length;
     const running = positive(`${runningCount} running`);
     const statuses = runningCount
@@ -1674,6 +1671,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const memorySize = () => (Number.isFinite(snapshot.memoryBytes)
     ? `${muted('memory')} ${dim(kilobytes(snapshot.memoryBytes))}` : '');
+  const workingNote = (clock, frame) => {
+    if (snapshot.connection !== 'connected' || !snapshot.busy) return '';
+    return `${highlight(frame)} ${dim(busySince ? `working ${elapsed(busySince, clock)}` : 'working')}`;
+  };
   const greetingLine = clock => {
     const name = clean(snapshot.userName ?? '');
     if (!name || clock - startedAt >= TIP_SHOW_MS) return '';
@@ -1755,7 +1756,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const activity = activityText(keys(hints.slice(0, shown)), frame);
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
-    const memory = [workNote, memorySize()].filter(Boolean).join(muted(' · '));
+    const memory = [workingNote(clock, frame), workNote, memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
     // The row stays reserved so a tip coming or going never moves anything.
@@ -2354,7 +2355,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const inner = width - 4;
       const clock = now();
       const frame = spinner(clock);
-      const header = renderHeader(inner, clock, frame);
+      const header = renderHeader(inner, frame);
       const footer = renderFooter(inner, height, header.length, clock, frame);
       const available = Math.max(1, height - header.length - footer.length);
       contentBounds = { top: header.length, bottom: height - footer.length };

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Move `working` and its timer from the tab row down beside `memory`, so a running turn no longer takes room from the tabs.
 - Ask before quitting with agents at work: stop them, or let them finish. Agents left going keep working in their Herdr panes, and the next hobkin picks up each one and records it as usual, so a restart stops nothing. A signal lets them finish, because it cannot be asked.
 - Add a quality grade beside the safety grade. The review run goes through a branch with `security-expert`, `test-expert` and `database-engineer`, whichever fit, because each found real problems on branches graded safe when tried. It also says who would notice the change.
 - Add a Decisions tab. A question from a routine or work mode stays on screen for 30 seconds, then waits there with a one-line summary and numbered choices. `hobkin decide` lets a run file one and carry on, and the answer reaches it later.
