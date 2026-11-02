@@ -78,7 +78,8 @@ const claudeArguments = ({ claudeSession, bound, model, effort }) => [
 
 const codexArguments = ['--dangerously-bypass-approvals-and-sandbox'];
 
-export const insideHerdr = (env = process.env) => env.HERDR_ENV === '1' && Boolean(env.HERDR_WORKSPACE_ID);
+// Agents and test runs inherit the user's Herdr, and a test that opened hobkin would open and close their real panes. One that wants Herdr passes an environment of its own.
+export const insideHerdr = (env = process.env) => env.HERDR_ENV === '1' && Boolean(env.HERDR_WORKSPACE_ID) && !env.NODE_TEST_CONTEXT;
 
 export const agentName = (lane, slug) => `work-${lane}-${slug}`.toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, MAX_NAME_LENGTH);
 

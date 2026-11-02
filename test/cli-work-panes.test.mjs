@@ -138,6 +138,7 @@ const refused = () => Object.assign(Error('Command failed: herdr agent prompt'),
 
 test('work mode only uses panes when Hobkin runs inside Herdr', () => {
   assert.equal(insideHerdr({ HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }), true);
+  assert.equal(insideHerdr({ HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1', NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test run never reaches the real panes');
   assert.equal(insideHerdr({ HERDR_ENV: '1' }), false);
   assert.equal(insideHerdr({}), false);
 });
