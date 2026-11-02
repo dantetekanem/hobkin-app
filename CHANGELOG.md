@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Have Hobkin edit every report itself before the user reads it, whichever agent wrote it. A no-tools job on the checks model rewrites the draft in plain sentences with a bundled copy of humanizer. An edit that changes the triage label, a number, a link or any code is thrown away, and a failure leaves the report as written.
 - Let the user answer a question in their own words. Every `ask_question` gets an Other row to type in, which reaches the agent as `typed`, and Esc chooses none. The list shows every choice when the terminal has room. A dialog from another extension stays a closed list.
 - Open a local PR's diff in pi-coder: `d` on a READY row or `hobkin work diff` starts a Pi in a pane of its own on the branch's range, and the pane closes itself a few minutes after the user leaves it. Without pi-coder nothing opens, outside Herdr the key says what to type, and `hobkin setup` says how to install it.
 - Close what a run or session leaves behind. An agent a tool opened beside it, such as a code review, goes when it ends, so an empty tab closes too.

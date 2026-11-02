@@ -12,6 +12,7 @@ import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
 import { MemoryIndex } from './memory-index.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
+import { editReport } from './report-editor.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
@@ -103,6 +104,7 @@ export class HobkinApplication {
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
       messageCheck: request => app.runner.messageCheck(request),
+      editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
       onChange: () => app.requestRefresh(),
     });
     try {

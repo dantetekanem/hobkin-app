@@ -30,13 +30,14 @@ const costOf = session => {
 };
 
 export class HobkinRuntime {
-  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, editReport, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
     this.askQuestion = askQuestion;
     this.triggerSchedule = triggerSchedule;
     this.messageCheck = messageCheck;
+    this.editReport = editReport;
     this.onChange = onChange;
     this.active = new Map();
     this.busySessions = new Set();
@@ -315,6 +316,12 @@ export class HobkinRuntime {
     if (finished) logRun(this.directory, finished);
   }
 
+  // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it.
+  edited(request, result, signal) {
+    if (request.kind !== 'background' || !this.editReport) return result;
+    return this.editReport(result, { root: this.directory, signal });
+  }
+
   dispatch(request, effect, onAdmitted) {
     if (this.active.has(request.id)) return this.active.get(request.id).completion;
     const controller = new AbortController();
@@ -332,7 +339,7 @@ export class HobkinRuntime {
           error: String(error.message ?? error),
         };
       }
-      await this.finish(request.id, result);
+      await this.finish(request.id, await this.edited(request, result, controller.signal));
       return (await this.state()).runs[request.id];
     });
     this.active.set(request.id, { controller, completion });

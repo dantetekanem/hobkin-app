@@ -37,7 +37,7 @@ export function buildInvocation(request) {
     || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 65536) {
     throw Error('Invalid harness request identity, cwd or bounded prompt.');
   }
-  if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', ...workPurposes].includes(request.purpose)) {
+  if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', 'humanizer', ...workPurposes].includes(request.purpose)) {
     throw Error('Unsupported harness purpose.');
   }
   const isWork = workPurposes.includes(request.purpose);

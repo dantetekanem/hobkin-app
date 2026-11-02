@@ -55,7 +55,7 @@ A source that failed before is no reason to stop now. Follow the routine in its 
 
 ## Report
 
-Write a plain Markdown report with the result first, followed by sources and gaps.
+Write a plain Markdown report with the result first, followed by sources and gaps. Write it for a person, in full sentences and plain words. Hobkin edits the style before the user reads it and can only work with what you wrote, so put your care into the facts, and write numbers, links and paths exactly.
 
 Start the report with exactly one triage line, then a blank line:
 - `Critical: <one or two sentences>` when something needs the user's attention or action soon.

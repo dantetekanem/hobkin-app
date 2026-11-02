@@ -14,6 +14,27 @@ function home(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { root, config };
 }
+test('a background report is edited before it is saved, and a main turn never is', async t => {
+  const { root, config } = home(t);
+  const seen = [];
+  const editReport = async (result, job) => {
+    seen.push({ text: result.text, root: job.root });
+    return { ...result, text: 'Useful: Edited.' };
+  };
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(), editReport });
+
+  try {
+    await runtime.dispatch({ id: 'job:edited', kind: 'background' }, async () => ({ status: 'completed', text: 'Useful: Draft.', cost: null }));
+    await runtime.dispatch({ id: 'turn:main', kind: 'main' }, async () => ({ status: 'completed', text: 'A reply.', cost: null }));
+
+    assert.deepEqual(seen, [{ text: 'Useful: Draft.', root: runtime.directory }]);
+    assert.equal(readReport(root, 'job:edited'), 'Useful: Edited.');
+    assert.equal((await runtime.state()).runs['job:edited'].result.text, 'Useful: Edited.');
+  } finally {
+    await runtime.close();
+  }
+});
+
 function mainFactory(control = {}) {
   return async options => openPiSession(options, {
     agentDir: join(options.root, 'pi-agent'),
