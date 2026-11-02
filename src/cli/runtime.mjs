@@ -243,6 +243,12 @@ export class HobkinRuntime {
     return Boolean(this.main) && this.sessionReady(this.main.sessionId) && !this.mainFault && !this.resetting
       && !this.main.isStreaming && !this.main.isCompacting;
   }
+  /** Pi swaps an image for a placeholder on a model that cannot see one, so the user has to hear it here. A model that does not say is taken at its word. */
+  get imageRefusal() {
+    const { provider, id, input } = this.main?.model ?? {};
+    return input && !input.includes('image') ? `${provider}/${id} cannot see images.` : null;
+  }
+
   /** At the force level new work waits for the chat, and carries on by itself once there is room. A chat that has stopped holds nothing up. */
   get workWaitsForChat() {
     if (!this.main || this.mainFault || this.closing) return false;
@@ -384,7 +390,7 @@ export class HobkinRuntime {
     return completion.finally(() => this.active.delete(request.id));
   }
 
-  async queueSteering(text, id, turn) {
+  async queueSteering(text, id, turn, images) {
     const request = {
       id,
       kind: 'main',
@@ -414,7 +420,7 @@ export class HobkinRuntime {
         if (this.main !== turn.session || !turn.session.isStreaming || typeof turn.session.steer !== 'function') {
           throw Error(MAIN_BUSY);
         }
-        await turn.session.steer(text);
+        await turn.session.steer(text, images);
         turn.children.push(id);
         return { id, queued: true };
       } catch (error) {
@@ -455,23 +461,24 @@ export class HobkinRuntime {
     });
   }
 
-  async send(text, id = randomUUID()) {
+  async send(text, id = randomUUID(), images) {
     this.check();
     if (!this.main) throw Error('Main conversation is not connected.');
     if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart hobkin to reconnect.`);
     if (this.resetting) throw Error('Main conversation is resetting.');
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) throw Error(`Message must contain 1–${MAX_MESSAGE_BYTES} bytes.`);
+    if (images && this.imageRefusal) throw Error(this.imageRefusal);
 
     const activeTurn = this.mainTurn;
     if (activeTurn?.session === this.main) {
       if (activeTurn.preflight && this.main.isStreaming && typeof this.main.steer === 'function') {
-        return this.queueSteering(text, id, activeTurn);
+        return this.queueSteering(text, id, activeTurn, images);
       }
       if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
       await this.mainWork;
       this.check();
       if (this.resetting) throw Error('Main conversation is resetting.');
-      return this.send(text, id);
+      return this.send(text, id, images);
     }
     if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
 
@@ -501,6 +508,7 @@ export class HobkinRuntime {
     }, async signal => {
       try {
         await withPiCancellation(session, signal, () => session.prompt(text, {
+          images,
           preflightResult: result => {
             disposition = result;
             preflight = result !== false;

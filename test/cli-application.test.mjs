@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize, atomicJson, loadConfig, setLearning } from '../src/cli/config.mjs';
@@ -9,6 +9,7 @@ import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
+import { png } from './helpers/png.mjs';
 import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { openCheck } from '../src/cli/checks.mjs';
 import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
@@ -1266,4 +1267,64 @@ test('a failure Pi retried past stays out of Chat', async t => {
 
   assert.equal(contents.some(content => content.includes('Authentication Fails')), false);
   assert.ok(contents.includes('Hello.'));
+});
+
+const clipboardWith = bytes => ({ getFilePaths: async () => null, getImage: async () => bytes, getText: async () => null });
+
+test('a pasted image reaches the model as an image, and the saved chat keeps only a marker', async t => {
+  const h = fixture(t);
+  const bytes = png(10, 10);
+  const app = await h.openApp({ clipboard: clipboardWith(bytes) });
+  t.after(() => app.close());
+
+  const { image } = await app.pasteImage();
+  await app.send('What is this?', null, [image]);
+  await app.runtime.mainWork;
+  await app.refresh();
+
+  const sent = app.runtime.messages().find(message => message.role === 'user');
+  assert.deepEqual(sent.content.at(-1), { type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' });
+  assert.equal(existsSync(image.file), false, 'nothing needs the file once it has gone');
+  const view = readFileSync(join(h.root, 'runtime/view.json'), 'utf8');
+  assert.equal(view.includes(bytes.toString('base64')), false);
+  const chat = JSON.parse(view).messages.find(message => message.role === 'user');
+  assert.equal(chat.content, 'What is this?');
+  assert.equal(chat.images, 1);
+});
+
+test('an image stays on disk when its message fails, so it can go again', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ clipboard: clipboardWith(png(10, 10)) });
+  t.after(() => app.close());
+  const { image } = await app.pasteImage();
+  app.runtime.send = async () => { throw Error('no route'); };
+
+  await assert.rejects(app.send('look', null, [image]), /no route/);
+
+  assert.equal(existsSync(image.file), true);
+});
+
+test('a model that cannot see images refuses them at the paste and at the send', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ clipboard: clipboardWith(png(10, 10)) });
+  t.after(() => app.close());
+  const { image } = await app.pasteImage();
+  app.runtime.main.model = { provider: 'fixture', id: 'text', input: ['text'] };
+
+  assert.deepEqual(await app.pasteImage(), { notice: 'fixture/text cannot see images.', tone: 'warning' });
+  await assert.rejects(app.send('look', null, [image]), /fixture\/text cannot see images/);
+  assert.equal(existsSync(image.file), true);
+});
+
+test('images nothing is waiting for go when hobkin opens and when it closes', async t => {
+  const h = fixture(t);
+  mkdirSync(join(h.root, 'runtime/pasted'), { recursive: true });
+  writeFileSync(join(h.root, 'runtime/pasted/left-behind.png'), 'x');
+
+  const app = await h.openApp({ clipboard: clipboardWith(png(10, 10)) });
+  assert.equal(existsSync(join(h.root, 'runtime/pasted/left-behind.png')), false);
+
+  const { image } = await app.pasteImage();
+  await app.close();
+  assert.equal(existsSync(image.file), false);
 });

@@ -36,6 +36,7 @@ import { Learner } from './learning/learner.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
 import { readLocalView } from './view.mjs';
+import { PastedImages } from './paste-image.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
 
@@ -50,15 +51,20 @@ const turnFailure = ({ stopReason, errorMessage }) => {
   const fix = SIGN_IN_TROUBLE.test(errorMessage) ? ' Run `hobkin login` in a terminal, then reopen hobkin.' : '';
   return `The model did not answer: ${reason.slice(0, 300)}${fix}`;
 };
+const imagesIn = message => (Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image').length;
+// Every refresh hashes the whole chat, and an image would be most of what it hashes.
+const withoutImageData = (_, value) => (value?.type === 'image' ? { ...value, data: '' } : value);
 const chatMessage = (message, index, shown) => {
   const { text, about } = splitReportReference(withoutLearningNote(withoutWorkNote(textOf(message))));
   const endedTheChat = index === shown.length - 1;
+  const images = imagesIn(message);
   return {
-    id: createHash('sha256').update(JSON.stringify(message)).digest('hex'),
+    id: createHash('sha256').update(JSON.stringify(message, withoutImageData)).digest('hex'),
     role: message.role,
     content: reportText(text || (endedTheChat ? turnFailure(message) : '')).slice(0, 8192),
     at: message.timestamp ?? message.at,
     ...(about ? { about } : {}),
+    ...(images ? { images } : {}),
   };
 };
 const isVisibleScheduledReport = run => run.kind === 'background'
@@ -100,7 +106,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, showDone, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null } = {}) {
+  static async open(root, { createMain, askQuestion, showDone, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -128,6 +134,9 @@ export class HobkinApplication {
     });
     try {
       moveRoutinesFolder(app.runtime.directory);
+      // Only a draft ever needs these, and a draft does not outlive the process.
+      app.pastedImages = new PastedImages(app.runtime.directory, clipboard);
+      app.pastedImages.clear();
       await app.runtime.connect();
       const initialState = await app.runtime.state();
       app.noticeRunIds = new Set(Object.values(initialState.runs)
@@ -443,21 +452,22 @@ export class HobkinApplication {
   }
 
   // Messages go out in the order they were typed, and one the conversation cannot take yet waits here.
-  send(text, report) {
+  send(text, report, images = []) {
     this.sending++;
-    const sent = this.outgoing.then(() => this.deliver(text, report)).finally(() => { this.sending--; });
+    const sent = this.outgoing.then(() => this.deliver(text, report, images)).finally(() => { this.sending--; });
     this.outgoing = sent.catch(() => {});
     return sent;
   }
 
-  async deliver(text, report) {
+  async deliver(text, report, images = []) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const note = workNote(workStatus(this.runtime.directory, this.director.outlook()), this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // A message with no room for the note still goes, and the note goes with the next one.
     const fits = Buffer.byteLength(`${opening}${learned}${message}`) <= MAX_MESSAGE_BYTES;
-    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${message}`);
+    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${message}`, images);
+    this.pastedImages.remove(images);
     this.workNoteSeen = note;
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
@@ -468,16 +478,20 @@ export class HobkinApplication {
     return accepted;
   }
 
-  async sendWhenFree(message) {
+  async sendWhenFree(message, attachments) {
+    const images = attachments.length ? this.pastedImages.contents(attachments) : undefined;
     for (;;) {
       try {
-        return await this.runtime.send(message);
+        return await this.runtime.send(message, undefined, images);
       } catch (error) {
         if (error.message !== MAIN_BUSY) throw error;
         await wait(BUSY_RETRY_MS);
       }
     }
   }
+
+  pasteImage() { return this.pastedImages.paste(this.runtime.imageRefusal); }
+  dropImages(images) { this.pastedImages.remove(images); }
 
   kill(runId) { return this.runner.kill(runId); }
 
@@ -669,6 +683,7 @@ export class HobkinApplication {
           await Promise.all([this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
           await this.delivery?.close();
           await this.runtime.idle();
+          this.pastedImages?.clear();
           await this.refreshing;
           if (this.runner) await this.refresh();
         } finally {

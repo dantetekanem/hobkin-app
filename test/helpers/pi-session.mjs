@@ -49,7 +49,8 @@ export function fakePi(root, controls = new Map()) {
           busy = true;
           control.calls = (control.calls ?? 0) + 1;
           try {
-            sessionManager.appendMessage({ role: 'user', content: text, timestamp: Date.now() });
+            const content = options.images ? [{ type: 'text', text }, ...options.images] : text;
+            sessionManager.appendMessage({ role: 'user', content, timestamp: Date.now() });
             options.preflightResult?.(true);
             control.started?.resolve();
             await control.gate?.promise;

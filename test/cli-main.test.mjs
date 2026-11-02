@@ -379,6 +379,44 @@ test('interactive dashboard wiring persists clear state through the activated ro
   assert.equal(await work, 0);
 });
 
+test('interactive pasting goes through the connected application, and images go out with their message', async t => {
+  const h = fixture(t, true);
+  const started = Promise.withResolvers();
+  const connecting = Promise.withResolvers();
+  const calls = [];
+  let handlers;
+  const work = main(['--home', h.root], h.output, {
+    signals: h.signals,
+    input: { isTTY: true },
+    startDashboard: (_view, next) => {
+      handlers = next;
+      started.resolve();
+      return { update() {}, stop() {} };
+    },
+    openApplication: async () => {
+      await connecting.promise;
+      return {
+        close: async () => {},
+        pasteImage: () => calls.push('paste'),
+        dropImages: images => calls.push(images),
+        send: (...sent) => calls.push(sent),
+      };
+    },
+  });
+
+  await started.promise;
+  assert.throws(() => handlers.pasteImage(), /connecting/);
+  connecting.resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  handlers.pasteImage();
+  handlers.dropImages(['one']);
+  handlers.send('look', null, ['one']);
+
+  assert.deepEqual(calls, ['paste', ['one'], ['look', null, ['one']]]);
+  h.signals.emit('SIGTERM');
+  assert.equal(await work, 0);
+});
+
 test('interactive reset awaits the connected application and refreshes the dashboard', async t => {
   const h = fixture(t, true);
   const started = Promise.withResolvers();

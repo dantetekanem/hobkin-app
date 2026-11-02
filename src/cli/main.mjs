@@ -96,10 +96,15 @@ async function connected(options, snapshot, dependencies) {
     const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
     dashboard = start(snapshot, {
       onQuit: quit,
-      send: (text, report) => {
+      send: (text, report, images) => {
         if (!app) throw Error('Main conversation is still connecting.');
-        return app.send(text, report);
+        return app.send(text, report, images);
       },
+      pasteImage: () => {
+        if (!app) throw Error('hobkin is still connecting.');
+        return app.pasteImage();
+      },
+      dropImages: images => app?.dropImages(images),
       clear: messageIds => savePresentationState(options.root, messageIds),
       reset: () => {
         if (!app) throw Error('Main conversation is still connecting.');

@@ -567,3 +567,21 @@ test('a bridge answer is not delivered after the child that asked has gone', asy
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(responses(h.fake, id).length, 0);
 });
+
+test('images go to Pi beside the words, on a prompt and on steering, and stay out of the durable record', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  const images = [{ type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }];
+  h.fake.gate = Promise.withResolvers();
+
+  await runtime.send('look', 'message:first', images);
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  await runtime.send('and this', 'message:second', images);
+
+  const sent = type => h.fake.received.find(record => record.type === type);
+  assert.deepEqual(sent('prompt').images, images);
+  assert.deepEqual(sent('steer').images, images);
+  assert.equal(JSON.stringify(await runtime.state()).includes('aGVsbG8='), false);
+  h.fake.gate.resolve();
+  await runtime.idle();
+});

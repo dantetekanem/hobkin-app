@@ -168,12 +168,12 @@ class PiRpcSession {
     }
   }
 
-  async prompt(text, { preflightResult } = {}) {
+  async prompt(text, { images, preflightResult } = {}) {
     const run = Promise.withResolvers();
     run.promise.catch(() => {});
     let disposition;
     try {
-      await this.child.request('prompt', { message: text }, data => {
+      await this.child.request('prompt', { message: text, images }, data => {
         disposition = data?.disposition ?? 'started';
         // Records after this response belong to the run, so the wait is armed as the response is read.
         if (disposition !== 'handled') {
@@ -189,8 +189,8 @@ class PiRpcSession {
     if (disposition !== 'handled') await run.promise;
   }
 
-  async steer(text) {
-    return (await this.child.request('steer', { message: text }))?.disposition;
+  async steer(text, images) {
+    return (await this.child.request('steer', { message: text, images }))?.disposition;
   }
 
   clearQueue() {
