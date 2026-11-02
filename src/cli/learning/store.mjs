@@ -71,7 +71,6 @@ export function readActions(root) {
     clears: ofType('clear'),
     answers: ofType('answer'),
     posted: ofType('posted'),
-    asked: ofType('asked'),
     rejected: new Set(ofType('reply').map(({ id }) => id)),
   };
 }

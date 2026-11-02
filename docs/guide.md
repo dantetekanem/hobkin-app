@@ -42,7 +42,7 @@ Chat opens ready to type. Reports holds completed checks; Routines shows their n
 - **k** cancels the selected running check. Jobs have no automatic execution deadline.
 - **Ctrl+C** clears the input. With nothing to clear, press it twice to quit. **Ctrl+Q** quits straight away.
 
-Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off, and `/learning` does the same for [learning](#learning). Pi's editor shortcuts and configured editor keybindings work in the composer.
+Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/learning` turns [learning](#learning) on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
 
 The first time, hobkin asks you to sign in to a model before it opens, using the same sign-in as `/login` in Pi, and then starts setup by itself. `hobkin login` signs in again, for a key that was refused or a login that ran out. If the model refuses a turn, Chat says why.
 
@@ -50,11 +50,7 @@ The first time, hobkin asks you to sign in to a model before it opens, using the
 
 Colors follow Pi's saved theme. The header shows connection state; the status bar shows the next check, the total size of Hobkin's memory files, model, context usage and estimated cost. Critical and useful report summaries appear in Chat; no-news reports stay in Reports. Occasional tips appear above the shortcuts.
 
-Hobkin's face sits left of the input bar in Chat and follows what is happening. On its own it uses four moods: idle when nothing is running, thinking while the agent replies, working while a check or work agent runs, and happy for 30 seconds after a useful report. In Ghostty and Kitty it plays the design's own animation, including inside Herdr. Each frame is sent once, so animating it only changes text, and only the mood on screen stays in the terminal. Other terminals, tmux and `HOBKIN_FACE=blocks` use block characters instead. It hides on a terminal under 76 columns or 20 rows.
-
-Jev, a model from TypeSafe, can pick from all 18 moods instead. Set it with `/jev` in the dashboard or `hobkin jev [on | off]`. It needs `TYPESAFE_API_KEY` in the environment, and the status bar shows `jev` while it is on. Jev then picks a mood when a session starts, a report arrives, a routine or work agent starts or finishes, work mode pauses, the agent finishes a reply or you send a message, and after 15 quiet minutes. Each request goes to `https://api.typesafe.ai/v1/systemone` and carries the event, a report's outcome and its line in Chat, your latest message and the agent's latest reply, each cut to its last 400 characters, and the names of what is running. Nothing is sent with Jev off.
-
-Ask the agent to run a configured check now, even if its recurring routine is paused. This runs it once without changing its routine. While a check runs, tell the agent anything that bears on it and the agent passes it on: the check reads the message at its next step and carries on, and its report holds the result.
+Hobkin's face sits left of the input bar in Chat and follows what is happening. In Ghostty and Kitty it plays the design's own animation, including inside Herdr. Each frame is sent once, so animating it only changes text, and only the mood on screen stays in the terminal. Other terminals, tmux and `HOBKIN_FACE=blocks` use block characters instead. It hides on a terminal under 76 columns or 20 rows.
 
 Ask the agent for a different model or thinking effort and the conversation switches on its next model call, with no restart. Each routine has its own model and effort, and its reports use them: name a check to change only that one, and its next run picks it up. Routines shows each check's effort.
 
@@ -206,7 +202,7 @@ Reads print short JSON and need nothing running. Changes print `ok` and a `messa
 
 Learning judges how each check and work mode run turned out, and keeps what that teaches as a few very short lessons that every agent gets. Set it with `/learning` in the dashboard or `hobkin learning [on | off]`. It is off in a new data folder, and the status bar shows `learning` while it is on. With it off, nothing is judged, no agent gets anything and nothing is sent anywhere.
 
-A verdict comes from what Hobkin already holds: how the run ended, `Blocked:` and holds, which reports you opened or messaged about, proposals you took or skipped, and whether a PR was merged or closed. Of a report it reads only the first word of the triage line, so nothing a page or an email says can reach a lesson. No model runs to learn this, so judging costs nothing. Two things leave your machine, both only with learning on. `gh` is asked what became of work mode's open PRs, at most 5 a pass and each at most every 6 hours. If Jev is also on, a reply about a report that the local rules cannot read goes to Jev, at most 20 a day, cut to its last 400 characters, as your messages already do.
+A verdict comes from what Hobkin already holds: how the run ended, `Blocked:` and holds, which reports you opened or messaged about, proposals you took or skipped, and whether a PR was merged or closed. Of a report it reads only the first word of the triage line, so nothing a page or an email says can reach a lesson. No model runs to learn this, so judging costs nothing. One thing leaves your machine, only with learning on: `gh` is asked what became of work mode's open PRs, at most 5 a pass and each at most every 6 hours.
 
 A lesson is one line that says what to do on its own, the same for every agent, with a check's own lessons first:
 

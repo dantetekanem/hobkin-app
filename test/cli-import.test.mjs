@@ -175,12 +175,12 @@ test('a setting made before the import survives it', async t => {
   const { from, to } = folders(t);
   await companionHome(from);
   prepared(to);
-  atomicJson(join(to, 'config.json'), { ...JSON.parse(readFileSync(join(to, 'config.json'), 'utf8')), jev: { enabled: true }, learning: { enabled: true } });
+  atomicJson(join(to, 'config.json'), { ...JSON.parse(readFileSync(join(to, 'config.json'), 'utf8')), learning: { enabled: true } });
 
   await importHome(to, from);
 
   const saved = JSON.parse(readFileSync(join(to, 'config.json'), 'utf8'));
-  assert.deepEqual([saved.jev, saved.learning], [{ enabled: true }, { enabled: true }]);
+  assert.deepEqual(saved.learning, { enabled: true });
 });
 
 test('history an earlier migration brought in still shows after the import', async t => {

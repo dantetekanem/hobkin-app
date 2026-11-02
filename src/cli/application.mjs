@@ -31,7 +31,7 @@ import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
 import { readingUsage } from './work/usage.mjs';
-import { atomicJson, jevEnabled, learningEnabled, loadConfig, setJev, setLearning } from './config.mjs';
+import { atomicJson, learningEnabled, loadConfig, setLearning } from './config.mjs';
 import { Learner } from './learning/learner.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods } from './mood.mjs';
@@ -115,7 +115,6 @@ export class HobkinApplication {
     runHarness ??= namingExtensions(readingUsage(defaultRunHarness));
     app.snapshot = readLocalView(root);
     app.moods = new Moods({
-      enabled: () => jevEnabled(root),
       now: () => new Date(app.now()).getTime(),
       onChange: () => app.requestRefresh(),
     });
@@ -415,7 +414,6 @@ export class HobkinApplication {
       decisions: openDecisions(this.runtime.directory),
       connection: 'connected',
       busy: this.runtime.mainBusy,
-      jev: jevEnabled(this.runtime.directory),
       learning: learningEnabled(this.runtime.directory),
       userName: callName(readProfile(this.runtime.directory)),
       main: {
@@ -461,7 +459,7 @@ export class HobkinApplication {
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
       recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });
-      void this.learner.noteReply(report.id, text);
+      this.learner.noteReply(report.id, text);
     }
     this.requestRefresh();
     return accepted;
@@ -491,7 +489,7 @@ export class HobkinApplication {
     await this.director.tick();
     await this.learn();
     const root = this.runtime.directory;
-    const signature = JSON.stringify({ work: workStatus(root, this.director.outlook()), decisions: openDecisions(root), jev: jevEnabled(root), learning: learningEnabled(root) });
+    const signature = JSON.stringify({ work: workStatus(root, this.director.outlook()), decisions: openDecisions(root), learning: learningEnabled(root) });
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();
@@ -557,14 +555,6 @@ export class HobkinApplication {
       void this.runtime.send(holdBrief(this.runtime.directory, schedule, runs, turn), turn.id).catch(() => {});
       return;
     }
-  }
-
-  async toggleJev() {
-    const root = this.runtime.directory;
-    const result = setJev(root, !jevEnabled(root));
-    this.workSignature = null;
-    await this.refresh();
-    return result;
   }
 
   async workAction(action, slug, value, extra) {

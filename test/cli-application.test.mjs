@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initialize, atomicJson, jevEnabled, setJev } from '../src/cli/config.mjs';
+import { initialize, atomicJson, loadConfig, setLearning } from '../src/cli/config.mjs';
 import { HobkinApplication, readLocalView } from '../src/cli/application.mjs';
 import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
@@ -1123,55 +1123,12 @@ test('the Work tab sets a project\'s priority and PR mode and an item\'s grade, 
   }
 });
 
-const setJevKey = (t, key) => {
-  const original = process.env.TYPESAFE_API_KEY;
-  t.after(() => {
-    if (original === undefined) delete process.env.TYPESAFE_API_KEY;
-    else process.env.TYPESAFE_API_KEY = original;
-  });
-  if (key === undefined) delete process.env.TYPESAFE_API_KEY;
-  else process.env.TYPESAFE_API_KEY = key;
-};
 const usefulReport = () => backgroundRun('useful', {
   title: 'Health progress',
   result: { status: 'completed', text: 'Useful: Resting heart rate fell 3 bpm over two weeks.\n\nDetails.' },
 });
 
-test('toggleJev flips the setting and the next snapshot shows it', async t => {
-  const h = fixture(t);
-  setJevKey(t, 'test-key');
-  t.mock.method(globalThis, 'fetch', async () => { throw Error('Unexpected network call in a local Jev test.'); });
-  const app = await h.openApp();
-  try {
-    assert.equal((await app.refresh()).jev, false);
-
-    assert.deepEqual(await app.toggleJev(), { enabled: true });
-    assert.equal(jevEnabled(h.root), true);
-    assert.equal(app.snapshot.jev, true);
-
-    assert.deepEqual(await app.toggleJev(), { enabled: false });
-    assert.equal(jevEnabled(h.root), false);
-    assert.equal(app.snapshot.jev, false);
-  } finally {
-    await app.close();
-  }
-});
-
-test('turning Jev on without a key fails and leaves it off', async t => {
-  const h = fixture(t);
-  setJevKey(t, undefined);
-  const app = await h.openApp();
-  try {
-    await assert.rejects(app.toggleJev(), { message: 'Set TYPESAFE_API_KEY first.' });
-
-    assert.equal(jevEnabled(h.root), false);
-    assert.equal((await app.refresh()).jev, false);
-  } finally {
-    await app.close();
-  }
-});
-
-test('with Jev off a useful scheduled report makes Hobkin happy through a real refresh', async t => {
+test('a useful scheduled report makes hobkin happy through a real refresh', async t => {
   const h = fixture(t);
   const runHarness = async () => { throw Error('Unexpected provider call in synthetic mood test.'); };
   const app = await h.openApp({ runHarness });
@@ -1186,43 +1143,20 @@ test('with Jev off a useful scheduled report makes Hobkin happy through a real r
   }
 });
 
-test('Jev switched here and back from another terminal between ticks still reaches the footer', async t => {
+test('a setting left in config.json by a removed feature loads and does nothing', async t => {
   const h = fixture(t);
-  setJevKey(t, 'test-key');
-  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ answers: {} }) }));
+  // The user's real config still holds this key, and the name is put together so a search for it finds only history.
+  const removed = ['j', 'ev'].join('');
+  atomicJson(join(h.root, 'config.json'), { ...h.config, [removed]: { enabled: true } });
+  t.mock.method(globalThis, 'fetch', async () => { throw Error('Nothing here reaches the network.'); });
+
+  assert.deepEqual(loadConfig(h.root)[removed], { enabled: true });
   const app = await h.openApp();
   try {
-    await app.tickWork();
-    await app.toggleJev();
-    setJev(h.root, false);
-    const refreshes = t.mock.method(app, 'requestRefresh');
-
-    await app.tickWork();
-
-    assert.equal(refreshes.mock.callCount() > 0, true);
-  } finally {
-    await app.close();
-  }
-});
-
-test('with Jev on a useful scheduled report goes to Jev, and the mood it picks reaches the dashboard', async t => {
-  const h = fixture(t);
-  setJevKey(t, 'test-key');
-  const asked = [];
-  t.mock.method(globalThis, 'fetch', async (_url, request) => {
-    asked.push(JSON.parse(request.body).state);
-    return { ok: true, json: async () => ({ answers: { mood: { choice: 'surprised' } } }) };
-  });
-  const runHarness = async () => { throw Error('Unexpected provider call in synthetic mood test.'); };
-  const shown = Promise.withResolvers();
-  const app = await h.openApp({ runHarness, onChange: view => { if (view.mood?.mood === 'surprised') shown.resolve(); } });
-  try {
-    await app.toggleJev();
-    await app.runtime.change(state => { state.runs.useful = usefulReport(); });
-
-    await shown.promise;
-
-    assert.deepEqual(asked.map(({ event, outcome }) => [event, outcome]), [['A report just arrived', 'useful']]);
+    await app.send('Thank you.');
+    await app.runtime.idle();
+    assert.deepEqual(setLearning(h.root, true), { enabled: true });
+    assert.equal((await app.refresh()).learning, true);
   } finally {
     await app.close();
   }

@@ -90,16 +90,16 @@ test('a ready machine reads as ok, and setup only asks tools about themselves', 
   const { exec, calls } = fakeTools();
   const rows = await setupChecks(root, {
     exec,
-    env: { TYPESAFE_API_KEY: 'key', HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w' },
+    env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w' },
     nodeVersion: minimumNode,
     piSdkVersion: pinned,
   });
 
   assert.deepEqual(rows.filter(row => row.state !== 'ok'), []);
-  const optionalRows = rows.slice(-4);
-  assert.deepEqual(optionalRows.map(row => row.name), ['Herdr', 'Jev', 'qmd', 'pi-coder']);
+  const optionalRows = rows.slice(-3);
+  assert.deepEqual(optionalRows.map(row => row.name), ['Herdr', 'qmd', 'pi-coder']);
   assert.ok(optionalRows.every(row => row.group === 'optional'));
-  assert.ok(rows.slice(0, -4).every(row => row.group === 'needed'));
+  assert.ok(rows.slice(0, -3).every(row => row.group === 'needed'));
   assert.deepEqual(calls.toSorted(), [
     'gh auth status',
     'git --version',
@@ -313,29 +313,6 @@ test('Herdr is optional: inside it, installed, or not there', async t => {
   for (const row of [inside, outside, notThere]) assert.match(row.detail, /panes/, 'says what it adds');
 });
 
-test('Jev is optional: no key, a key, or on', async t => {
-  const none = (await checks(home(t))).Jev;
-  assert.equal(none.state, 'optional');
-  assert.match(none.detail, /TYPESAFE_API_KEY/);
-  assert.match(none.fix, /https:\/\/console\.typesafe\.ai\/keys/);
-  assert.match(none.fix, /\/jev/);
-
-  const env = { TYPESAFE_API_KEY: 'key' };
-  const off = (await checks(home(t), { env })).Jev;
-  assert.equal(off.state, 'ok');
-  assert.match(off.fix, /\/jev/);
-
-  const on = (await checks(home(t, { jev: { enabled: true } }), { env })).Jev;
-  assert.equal(on.state, 'ok');
-  assert.equal(on.fix, null);
-});
-
-test('Jev: an old setting with no key left says so', async t => {
-  const row = (await checks(home(t, { jev: { enabled: true } }))).Jev;
-  assert.equal(row.state, 'optional');
-  assert.match(row.detail, /TYPESAFE_API_KEY/);
-});
-
 test('qmd is optional: search works with it and agents read files without it', async t => {
   const root = home(t);
   assert.equal((await checks(root)).qmd.state, 'ok');
@@ -355,7 +332,7 @@ test('pi-coder is optional: it is how a local PR\'s diff opens, and setup says h
 });
 
 test('a tool that is missing or broken never throws', async t => {
-  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'Herdr', 'Jev', 'qmd', 'pi-coder'];
+  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'Herdr', 'qmd', 'pi-coder'];
 
   for (const answer of [absent, broken]) {
     const rows = await checks(home(t), { tools: everyToolIs(answer) });
@@ -399,7 +376,7 @@ test('the report groups needed and optional rows, and names the guide last', () 
     { name: 'Pi', state: 'missing', detail: 'Not there.', fix: 'Install it.', group: 'needed' },
     { name: 'Node', state: 'ok', detail: '26.0.0.', fix: null, group: 'needed' },
     { name: 'Herdr', state: 'optional', detail: 'Adds panes.', fix: 'Get it.', group: 'optional' },
-    { name: 'Jev', state: 'ok', detail: 'Has a key.', fix: 'Type /jev.', group: 'optional' },
+    { name: 'qmd', state: 'ok', detail: 'Has search.', fix: 'Type /help.', group: 'optional' },
   ];
 
   const text = formatSetup('/some/home', rows);
@@ -407,7 +384,7 @@ test('the report groups needed and optional rows, and names the guide last', () 
   const [neededPart, optionalPart] = text.split('\nOptional\n');
   assert.match(neededPart, /\/some\/home/);
   assert.match(neededPart, /\nNeeded\n {2}missing\s+Pi: Not there\.\n\s+Fix: Install it\.\n {2}ok\s+Node: 26\.0\.0\.\n/);
-  assert.match(optionalPart, /^ {2}optional\s+Herdr: Adds panes\.\n\s+To add: Get it\.\n {2}ok\s+Jev: Has a key\.\n\s+Next: Type \/jev\.\n/);
+  assert.match(optionalPart, /^ {2}optional\s+Herdr: Adds panes\.\n\s+To add: Get it\.\n {2}ok\s+qmd: Has search\.\n\s+Next: Type \/help\.\n/);
   assert.match(optionalPart, /1 needed thing is missing/);
   assert.equal(text.trimEnd().split('\n').at(-1), `Setup guide: ${setupGuide}`);
 

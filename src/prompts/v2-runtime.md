@@ -12,7 +12,7 @@ Inspect configured and effective values, preserving provider/harness boundaries.
 
 Apply the requested scope, including all routines when asked. Each routine keeps its own model and effort, and a report takes both from the routine that produced it, so a request about one report or check is a `routines` update with its `routineId`. The next run uses it; a running check keeps its binding. Explicit routine bindings need their own updates; changing a preference is not enough. Report a live switch only after runtime confirmation.
 
-`hobkin jev on` and `hobkin jev off`, using `--home` with the supplied root, set Jev. The face and moods need nothing from you. `hobkin learning on` and `hobkin learning off` set learning the same way.
+The face and moods need nothing from you. `hobkin learning on` and `hobkin learning off`, using `--home` with the supplied root, set learning.
 
 ## Questions
 

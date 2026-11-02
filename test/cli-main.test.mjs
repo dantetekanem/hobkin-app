@@ -464,7 +464,7 @@ test('interactive dashboard cancellation delegates outcomes to the connected app
   assert.equal(await work, 0);
 });
 
-test('interactive dashboard reaches Jev through the connected application and says when it is still connecting', async t => {
+test('interactive dashboard reaches learning through the connected application and says when it is still connecting', async t => {
   const h = fixture(t, true);
   const started = Promise.withResolvers();
   const connecting = Promise.withResolvers();
@@ -485,11 +485,11 @@ test('interactive dashboard reaches Jev through the connected application and sa
   });
 
   await started.promise;
-  assert.throws(() => handlers.toggleJev(), /hobkin is still connecting\./);
+  assert.throws(() => handlers.toggleLearning(), /hobkin is still connecting\./);
 
-  connecting.resolve({ toggleJev: async () => ({ enabled: true }), async close() {} });
+  connecting.resolve({ toggleLearning: async () => ({ enabled: true }), async close() {} });
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(await handlers.toggleJev(), { enabled: true });
+  assert.deepEqual(await handlers.toggleLearning(), { enabled: true });
 });
 
 test('plain status never opens an application even on a TTY', async t => {
@@ -543,48 +543,7 @@ test('reports lists the whole inventory and delete removes only known reports', 
   await assert.rejects(main(['status', 'extra', '--home', h.root], h.output), /Unknown/);
 });
 
-const setJevKey = (t, key) => {
-  const original = process.env.TYPESAFE_API_KEY;
-  t.after(() => {
-    if (original === undefined) delete process.env.TYPESAFE_API_KEY;
-    else process.env.TYPESAFE_API_KEY = original;
-  });
-  if (key === undefined) delete process.env.TYPESAFE_API_KEY;
-  else process.env.TYPESAFE_API_KEY = key;
-};
 const readConfig = root => JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'));
-
-test('hobkin jev shows the setting, and on and off change only that in the chosen home', async t => {
-  const h = fixture(t);
-  setJevKey(t, 'test-key');
-  const before = readConfig(h.root);
-  const jev = async (...args) => {
-    h.output.text = '';
-    assert.equal(await main(['jev', ...args, '--home', h.root], h.output), 0);
-    return JSON.parse(h.output.text);
-  };
-
-  assert.deepEqual(await jev(), { enabled: false });
-  assert.deepEqual(await jev('on'), { enabled: true });
-  assert.deepEqual(await jev(), { enabled: true });
-  assert.deepEqual(readConfig(h.root), { ...before, jev: { enabled: true } });
-
-  assert.deepEqual(await jev('off'), { enabled: false });
-  assert.deepEqual(await jev(), { enabled: false });
-  assert.deepEqual(readConfig(h.root), { ...before, jev: { enabled: false } });
-});
-
-test('hobkin jev on needs a key and changes nothing without one, while off never needs it', async t => {
-  const h = fixture(t);
-  setJevKey(t, undefined);
-  const before = readConfig(h.root);
-
-  await assert.rejects(main(['jev', 'on', '--home', h.root], h.output), { message: 'Set TYPESAFE_API_KEY first.' });
-  assert.deepEqual(readConfig(h.root), before);
-
-  assert.equal(await main(['jev', 'off', '--home', h.root], h.output), 0);
-  assert.deepEqual(readConfig(h.root), { ...before, jev: { enabled: false } });
-});
 
 test('hobkin learning says where it stands in words, and on and off change only that in the chosen home', async t => {
   const h = fixture(t);
@@ -622,16 +581,4 @@ test('the usage names hobkin learning', async t => {
   await main(['--help'], h.output);
 
   assert.match(h.output.text, /learning \[on \| off \| clear <id> \| clear all \| answer <id> yes\|no\]/);
-});
-
-test('hobkin jev refuses anything but on or off and changes nothing', async t => {
-  const h = fixture(t);
-  setJevKey(t, 'test-key');
-  const before = readConfig(h.root);
-
-  for (const args of [['maybe'], ['ON'], ['on', 'off']]) {
-    await assert.rejects(main(['jev', ...args, '--home', h.root], h.output), { message: 'Usage: hobkin jev [on | off]' });
-  }
-
-  assert.deepEqual(readConfig(h.root), before);
 });

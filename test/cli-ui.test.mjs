@@ -329,7 +329,7 @@ test('Tab on a bare slash walks every command and comes back round', () => {
 
   ui.input('/');
 
-  assert.deepEqual(Array.from({ length: 8 }, tab), ['/help', '/setup', '/clear', '/reset', '/work', '/jev', '/learning', '/help']);
+  assert.deepEqual(Array.from({ length: 7 }, tab), ['/help', '/setup', '/clear', '/reset', '/work', '/learning', '/help']);
 });
 
 test('Ctrl+C clears what is typed and does not quit', () => {
@@ -1367,32 +1367,6 @@ test('a newer notice outlives the /clear confirmation timer', async t => {
   assert.match(ui.state().notice, /Unknown command/);
 });
 
-test('/jev turns Jev on and off from the composer and never becomes a prompt', async () => {
-  const answers = [{ enabled: true }, { enabled: false }];
-  const sent = [];
-  const ui = createDashboard({ ...snapshot, connection: 'connected' }, {
-    send: text => { sent.push(text); },
-    toggleJev: async () => answers.shift(),
-  });
-  const submit = async () => {
-    ui.input('/jev');
-    ui.input('\r');
-    await ui.pending();
-  };
-
-  await submit();
-  assert.equal(ui.state().draft, '');
-  assert.match(ui.state().notice, /^Jev on\./);
-
-  await submit();
-  assert.equal(ui.state().draft, '');
-  assert.match(ui.state().notice, /^Jev off\./);
-
-  assert.deepEqual(answers, []);
-  assert.deepEqual(sent, []);
-  ui.stop();
-});
-
 test('/learning turns learning on and off from the composer and never becomes a prompt', async () => {
   const answers = [{ enabled: true }, { enabled: false }];
   const sent = [];
@@ -1441,39 +1415,6 @@ test('/help says what /learning is for', () => {
   ui.input('\r');
 
   assert.match(screen(ui, 120, 40), /\/learning/);
-  ui.stop();
-});
-
-test('a failed /jev keeps the draft and shows why', async () => {
-  for (const [toggleJev, why] of [
-    [undefined, 'Jev failed: Jev unavailable'],
-    [async () => { throw Error('Set TYPESAFE_API_KEY first.'); }, 'Jev failed: Set TYPESAFE_API_KEY first.'],
-  ]) {
-    const ui = createDashboard(snapshot, { toggleJev });
-    ui.input('/jev');
-    ui.input('\r');
-    await ui.pending();
-
-    assert.equal(ui.state().draft, '/jev');
-    assert.equal(ui.state().notice, why);
-    ui.stop();
-  }
-});
-
-test('/jev keeps whatever was typed while it ran', async () => {
-  const gate = Promise.withResolvers();
-  let calls = 0;
-  const ui = createDashboard(snapshot, { toggleJev: () => { calls++; return gate.promise; } });
-  ui.input('/jev');
-  ui.input('\r');
-  await Promise.resolve();
-
-  ui.input(' more');
-  gate.resolve({ enabled: true });
-  await ui.pending();
-
-  assert.equal(calls, 1);
-  assert.equal(ui.state().draft, '/jev more');
   ui.stop();
 });
 
@@ -2045,23 +1986,6 @@ test('the /learning tip comes up only while learning is off', () => {
 
   assert.equal(tipShows({ ...snapshot, learning: false }), true);
   assert.equal(tipShows({ ...snapshot, learning: true }), false);
-});
-
-test('the /jev tip comes up only while Jev is off', () => {
-  const tipShows = view => {
-    const period = 180000;
-    let clock = 0;
-    const ui = createDashboard(view, {}, { now: () => clock });
-    const shown = Array.from({ length: 60 }, (_, turn) => {
-      clock = period * turn;
-      return screen(ui, 120, 40).includes('Type /jev');
-    });
-    ui.stop();
-    return shown.some(Boolean);
-  };
-
-  assert.equal(tipShows({ ...snapshot, jev: false }), true);
-  assert.equal(tipShows({ ...snapshot, jev: true }), false);
 });
 
 test('an idle dashboard redraws often enough for tips and countdowns, then stops with it', async t => {

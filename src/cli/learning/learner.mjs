@@ -1,9 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
-import { jevEnabled, learningEnabled } from '../config.mjs';
-import { askJudgement } from '../mood.mjs';
+import { learningEnabled } from '../config.mjs';
 import { readItems, readProjects } from '../work/store.mjs';
 import { gatherEvidence, rejectsReport, stillOpen } from './judge.mjs';
 import { conclude, evidenceText, proposalLine, proposing, renderLessons } from './lessons.mjs';
@@ -16,9 +14,6 @@ const PULL_REQUEST_EVERY_MS = 6 * HOUR_MS;
 const MAX_PULL_REQUESTS_A_PASS = 5;
 const GH_TIMEOUT_MS = 15000;
 const MAX_WAITING_PROPOSALS = 3;
-const MAX_JEV_A_DAY = 20;
-const MAX_QUOTE_LENGTH = 400;
-const REJECTED_AT = 0.7;
 const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 const FINISHED_STATES = ['MERGED', 'CLOSED'];
 
@@ -27,14 +22,9 @@ const asks = {
   refactor: 'Refactor it?',
   ideas: 'Want new ideas built on it?',
 };
-const REPLY_QUESTION = readFileSync(new URL('../../prompts/learning-reply.md', import.meta.url), 'utf8').trim();
 
 const shell = promisify(execFile);
 const askGitHubFor = async url => JSON.parse((await shell('gh', ['pr', 'view', url, '--json', 'state'], { timeout: GH_TIMEOUT_MS })).stdout).state;
-const askJevAbout = async reply => (await askJudgement(
-  { reply: reply.slice(-MAX_QUOTE_LENGTH) },
-  { rejected: { type: 'noul', instructions: REPLY_QUESTION } },
-))?.rejected?.noul >= REJECTED_AT;
 
 const iso = time => new Date(time).toISOString();
 const sameDay = (at, now) => new Date(at).toDateString() === new Date(now).toDateString();
@@ -62,13 +52,13 @@ const keptLesson = ({ id, scope, title, code, seen, runs, days, usd, latest, con
 
 /**
  * Judges what finished and keeps what it teaches. It has no way to start a model run: every verdict comes from what
- * Hobkin already recorded, and the only calls out are `gh`, and Jev when Jev is on, each with a limit.
+ * Hobkin already recorded, and the only call out is `gh`, with a limit.
  */
 export class Learner {
   post = null;
 
-  constructor({ root, telemetry, now = Date.now, pullRequestState = askGitHubFor, askJev = askJevAbout }) {
-    Object.assign(this, { root, telemetry, now, pullRequestState, askJev });
+  constructor({ root, telemetry, now = Date.now, pullRequestState = askGitHubFor }) {
+    Object.assign(this, { root, telemetry, now, pullRequestState });
     this.settledAt = -Infinity;
   }
 
@@ -182,22 +172,13 @@ export class Learner {
     }
   }
 
-  /** Only the outcome is kept. The reply itself goes nowhere, unless Jev is on and already reads each message. */
-  async noteReply(id, text) {
+  /** Only the outcome is kept. The reply itself goes nowhere. */
+  noteReply(id, text) {
     try {
-      if (!this.enabled()) return;
-      if (rejectsReport(text) || await this.jevRejects(text)) appendAction(this.root, { type: 'reply', id, at: iso(this.now()) });
+      if (this.enabled() && rejectsReport(text)) appendAction(this.root, { type: 'reply', id, at: iso(this.now()) });
     } catch {
       // An unread reply counts for nothing, so a problem here cannot reach the conversation.
     }
-  }
-
-  async jevRejects(text) {
-    const now = this.now();
-    if (!jevEnabled(this.root) || !process.env.TYPESAFE_API_KEY) return false;
-    if (readActions(this.root).asked.filter(({ at }) => sameDay(at, now)).length >= MAX_JEV_A_DAY) return false;
-    appendAction(this.root, { type: 'asked', at: iso(now) });
-    return this.askJev(text);
   }
 
   // Chat holds the evidence, so the agent gets only what lets it record an answer. Those few lines always fit, and lessons share what is left.

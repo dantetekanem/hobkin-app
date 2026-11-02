@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initialize, setJev, setLearning } from '../src/cli/config.mjs';
+import { initialize, setLearning } from '../src/cli/config.mjs';
 import { runLearningCommand } from '../src/cli/learning/commands.mjs';
 import { Learner, proposalMessage } from '../src/cli/learning/learner.mjs';
 import { MAX_TOKENS, tokensIn } from '../src/cli/learning/lessons.mjs';
@@ -43,7 +43,6 @@ function home(t, { enabled = true } = {}) {
       github.push(url);
       return 'MERGED';
     },
-    askJev: async () => { throw Error('Unexpected Jev call.'); },
   });
   return { root, clock, telemetry, learner, github, settle: runs => learner.settle({ runs, schedules: [schedule] }) };
 }
@@ -428,81 +427,25 @@ test('a reply that plainly turns a report down counts, and its words are kept no
   assert.doesNotMatch(readFileSync(join(h.root, 'runtime/learning-actions.jsonl'), 'utf8'), /bank/);
 });
 
-test('with learning off a reply is not read, even with Jev on', async t => {
+test('with learning off a reply is not read', t => {
   const h = home(t, { enabled: false });
-  process.env.TYPESAFE_API_KEY = 'test-key';
-  t.after(() => { delete process.env.TYPESAFE_API_KEY; });
-  setJev(h.root, true);
-  let asked = 0;
-  h.learner.askJev = async () => { asked++; return true; };
 
-  await h.learner.noteReply('run-1', 'This is wrong.');
-  await h.learner.noteReply('run-2', 'Tell me more.');
-
-  assert.equal(asked, 0);
-  assert.deepEqual([...readActions(h.root).rejected], []);
-});
-
-test('Jev is asked only when it is on, only for a reply the local rule cannot read, and only so many times a day', async t => {
-  const h = home(t);
-  process.env.TYPESAFE_API_KEY = 'test-key';
-  t.after(() => { delete process.env.TYPESAFE_API_KEY; });
-  const asked = [];
-  h.learner.askJev = async text => {
-    asked.push(text);
-    return true;
-  };
-
-  await h.learner.noteReply('run-1', 'Hmm, I expected something else.');
-  assert.deepEqual(asked, [], 'Jev is off');
-
-  setJev(h.root, true);
-  await h.learner.noteReply('run-2', 'This is wrong.');
-  assert.deepEqual(asked, [], 'no need');
-
-  await h.learner.noteReply('run-3', 'Hmm, I expected something else.');
-  assert.deepEqual(asked, ['Hmm, I expected something else.']);
-  assert.deepEqual([...readActions(h.root).rejected], ['run-2', 'run-3']);
-
-  for (let number = 0; number < 30; number++) await h.learner.noteReply(`more-${number}`, 'Hmm.');
-  assert.equal(asked.length, 20, 'a hard daily limit');
-  h.clock.now += DAY;
-  await h.learner.noteReply('tomorrow', 'Hmm.');
-  assert.equal(asked.length, 21);
-});
-
-test('a failed Jev call judges nothing, and goes no further', async t => {
-  const h = home(t);
-  process.env.TYPESAFE_API_KEY = 'test-key';
-  t.after(() => { delete process.env.TYPESAFE_API_KEY; });
-  setJev(h.root, true);
-  h.learner.askJev = async () => { throw Error('Jev answered 503.'); };
-
-  await assert.doesNotReject(h.learner.noteReply('run-1', 'Hmm.'));
+  h.learner.noteReply('run-1', 'This is wrong.');
 
   assert.deepEqual([...readActions(h.root).rejected], []);
 });
 
-test('the default Jev question sends the last 400 characters of the reply and nothing else', async t => {
+test('an old asked line in the log means nothing, and the lines around it still count', t => {
   const h = home(t);
-  process.env.TYPESAFE_API_KEY = 'test-key';
-  t.after(() => { delete process.env.TYPESAFE_API_KEY; });
-  setJev(h.root, true);
-  const sent = [];
-  t.mock.method(globalThis, 'fetch', async (url, options) => {
-    sent.push({ url, body: JSON.parse(options.body) });
-    return { ok: true, json: async () => ({ answers: { rejected: { type: 'noul', noul: 0.9 } } }) };
-  });
-  const learner = new Learner({ root: h.root, telemetry: h.telemetry, now: () => h.clock.now });
+  const log = join(h.root, 'runtime/learning-actions.jsonl');
+  h.learner.noteReply('run-1', 'This is wrong.');
+  appendFileSync(log, `${JSON.stringify({ type: 'asked', at: new Date(h.clock.now).toISOString() })}\n`);
+  h.learner.noteReply('run-2', 'This is wrong.');
 
-  await learner.noteReply('run-1', `${'x'.repeat(500)} hmm`);
+  const actions = readActions(h.root);
 
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].url, 'https://api.typesafe.ai/v1/systemone');
-  assert.deepEqual(Object.keys(sent[0].body.state), ['reply']);
-  assert.equal(sent[0].body.state.reply.length, 400);
-  assert.equal(sent[0].body.questions.rejected.type, 'noul');
-  assert.deepEqual([...readActions(h.root).rejected], ['run-1']);
+  assert.deepEqual([...actions.rejected], ['run-1', 'run-2']);
+  assert.deepEqual(Object.keys(actions).toSorted(), ['answers', 'clears', 'posted', 'rejected']);
 });
 
 test('the view is for a person: state, each lesson with its evidence, proposals and how to remove them', t => {

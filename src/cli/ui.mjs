@@ -162,16 +162,9 @@ const localCommands = [
   ['/clear', 'hide visible chat'],
   ['/reset', 'start a fresh main context'],
   ['/work', 'work mode'],
-  ['/jev', 'moods'],
   ['/learning', 'learn from outcomes'],
 ];
 const settingCommands = {
-  '/jev': {
-    name: 'Jev',
-    toggle: 'toggleJev',
-    on: 'Jev on. hobkin can show all 18 moods.',
-    off: 'Jev off. hobkin keeps its four moods.',
-  },
   '/learning': {
     name: 'Learning',
     toggle: 'toggleLearning',
@@ -191,7 +184,6 @@ const tips = [
   '/clear hides the chat. /reset starts a fresh conversation.',
   'Install Hex and talk to me when you need: https://anoma.ly/hex/',
 ];
-const jevTip = 'Type /jev so hobkin can show all 18 moods.';
 const learningTip = 'Type /learning so hobkin learns from how its work turns out.';
 const greetings = [
   name => `Welcome ${name}! Nice to see you again.`,
@@ -1700,7 +1692,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const greeting = greetingLine(clock);
     if (greeting) return greeting;
 
-    const tip = tipAt([...tips, ...(snapshot.jev ? [] : [jevTip]), ...(snapshot.learning ? [] : [learningTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
+    const tip = tipAt([...tips, ...(snapshot.learning ? [] : [learningTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
     return tip ? `${muted('tip')}  ${dim(tip)}` : '';
   };
   const drawnFace = clock => {

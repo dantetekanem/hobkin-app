@@ -41,7 +41,7 @@ export function loadConfig(root) {
   return validateConfig(JSON.parse(readFileSync(file, 'utf8')), { allowLegacyHarness: true });
 }
 
-/** Read each time, so `hobkin jev` or `hobkin learning` in another terminal reaches a running dashboard. Neither is worth failing a refresh. */
+/** Read each time, so `hobkin learning` in another terminal reaches a running dashboard. It is not worth failing a refresh. */
 function settingOn(root, name) {
   try {
     return loadConfig(root)[name]?.enabled === true;
@@ -55,13 +55,7 @@ function setSetting(root, name, enabled) {
   return { enabled };
 }
 
-export const jevEnabled = root => settingOn(root, 'jev');
 export const learningEnabled = root => settingOn(root, 'learning');
-
-export function setJev(root, enabled) {
-  if (enabled && !process.env.TYPESAFE_API_KEY) throw Error('Set TYPESAFE_API_KEY first.');
-  return setSetting(root, 'jev', enabled);
-}
 
 export const setLearning = (root, enabled) => setSetting(root, 'learning', enabled);
 

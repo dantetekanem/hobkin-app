@@ -26,8 +26,6 @@ const SIGN_IN = 'Run `hobkin login` and pick a provider. It is the same sign-in 
 const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host works without it, through that host\'s own CLI, with less to read.';
 const HERDR_ADDS = 'With it, work mode runs in panes you can watch and big jobs get a Pi session of their own. Without it, work runs in the background.';
 const INSTALL_HERDR = 'Run `curl -fsSL https://herdr.dev/install.sh | sh`, then start Hobkin inside `herdr`.';
-const JEV_ADDS = 'Jev picks from all 18 moods for Hobkin\'s face, not just the 4 Hobkin shows by itself.';
-const GET_JEV_KEY = 'Get a key at https://console.typesafe.ai/keys, add `export TYPESAFE_API_KEY=...` to your shell profile, open Hobkin from a new terminal and type /jev.';
 const INSTALL_QMD = 'Run `npm install -g @tobilu/qmd`. Hobkin finds it the next time it opens, and qmd downloads a 330 MB model the first time it indexes.';
 const PI_CODER_ADDS = 'With it, d on a local PR opens the branch\'s diff.';
 const INSTALL_PI_CODER = 'Run `pi install npm:pi-coder`.';
@@ -243,13 +241,6 @@ async function herdrRow(ask, env) {
   return ready('Herdr', `Installed. ${HERDR_ADDS}`, 'Run `herdr` and start Hobkin in one of its panes.');
 }
 
-function jevRow(env, config) {
-  if (!env.TYPESAFE_API_KEY) return optional('Jev', `TYPESAFE_API_KEY is not set. ${JEV_ADDS}`, GET_JEV_KEY);
-  if (config?.jev?.enabled === true) return ready('Jev', 'On. Type /jev in Chat to turn it off.');
-
-  return ready('Jev', `TYPESAFE_API_KEY is set. ${JEV_ADDS}`, 'Type /jev in Chat to turn it on.');
-}
-
 async function qmdRow(ask) {
   const answer = await ask('qmd', ['--version']);
   if (!answer.failed) return ready('qmd', 'Installed. Agents can search what Hobkin keeps.');
@@ -294,7 +285,6 @@ export async function setupChecks(root, {
   ]);
   const extras = await Promise.all([
     herdrRow(ask, env),
-    jevRow(env, config),
     qmdRow(ask),
     piCoderRow(ask, launcher),
   ]);

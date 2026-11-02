@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defaultRoot, initialize, jevEnabled, legacySources, setJev } from './config.mjs';
+import { defaultRoot, initialize, legacySources } from './config.mjs';
 import { loadImportedHistory } from './history.mjs';
 import { indexStatus } from './memory-index.mjs';
 import { recordEvent } from './events.mjs';
@@ -34,7 +34,7 @@ export function parseArguments(args) {
     else if (flag === '--approved' && options.command === 'session') options.approved = true;
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
     else if (flag === '--help' || flag === '-h') options.command = 'help';
-    else if (['reports', 'work', 'import', 'jev', 'learning', 'profile', 'decide'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
+    else if (['reports', 'work', 'import', 'learning', 'profile', 'decide'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
   }
   return options;
@@ -115,10 +115,6 @@ async function connected(options, snapshot, dependencies) {
         if (!app) throw Error('hobkin is still connecting.');
         return app.workAction(...request);
       },
-      toggleJev: () => {
-        if (!app) throw Error('hobkin is still connecting.');
-        return app.toggleJev();
-      },
       toggleLearning: () => {
         if (!app) throw Error('hobkin is still connecting.');
         return app.toggleLearning();
@@ -151,7 +147,7 @@ async function connected(options, snapshot, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -171,13 +167,6 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     if (!output.isTTY) throw Error('hobkin login needs a terminal.');
     const signIn = dependencies.signIn ?? (await import('./signin.mjs')).signIn;
     await signIn({ always: true });
-    return 0;
-  }
-  if (options.command === 'jev') {
-    const [choice, ...extra] = options.args;
-    if (extra.length || ![undefined, 'on', 'off'].includes(choice)) throw Error('Usage: hobkin jev [on | off]');
-    const result = choice ? setJev(options.root, choice === 'on') : { enabled: jevEnabled(options.root) };
-    output.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
   if (options.command === 'learning') {

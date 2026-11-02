@@ -84,7 +84,6 @@ export function readLocalView(requestedRoot) {
     memoryBytes: memoryBytes(root),
     work: workStatus(root),
     decisions: openDecisions(root),
-    jev: config.jev?.enabled === true,
     learning: config.learning?.enabled === true,
     userName: callName(readProfile(root)),
   };

@@ -26,18 +26,6 @@ Anything that asks questions or opens a browser, such as `gh auth login`, is for
 
 Then cover the rows under Optional with a `To add` or `Next` line, in one message: what each adds, in a line, and which they want. Hobkin works without all of them.
 
-## Jev
-
-Jev is a model from TypeSafe that picks the mood on Hobkin's face from all 18. It picks when a session starts, a report arrives, a check or work agent starts or finishes, work mode pauses, a reply ends or the user sends a message, and after 15 quiet minutes. Without it the face shows 4 moods.
-
-Say what leaves the machine before they choose. Each request goes to `https://api.typesafe.ai/v1/systemone` with the event, a report's outcome and its line in Chat, the user's latest message and your latest reply, each cut to its last 400 characters, and the names of what is running. With learning on, a reply about a report that local rules cannot read goes there too, at most 20 a day. Nothing is sent with Jev off.
-
-To turn it on:
-
-1. The user gets a key at https://console.typesafe.ai/keys. Never ask for the key here, because this conversation goes to a model provider.
-2. They add `export TYPESAFE_API_KEY=...` to their shell profile and reopen Hobkin from a new terminal. A running Hobkin cannot see a key added after it started, and `/jev` answers `Jev failed: Set TYPESAFE_API_KEY first.` until then. Reopening restores this conversation, so setup carries on.
-3. They type `/jev` in Chat. The status bar shows `jev` while it is on, and `/jev` again turns it off.
-
 ## Connect what they use
 
 MCP servers are how checks and agents reach mail, calendars, GitHub, notes and other services. Run `pi mcp list` to see what is connected, then ask which other services they want hobkin to reach. Skip this if they want none.
