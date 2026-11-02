@@ -68,7 +68,7 @@ Optional pattern review sends only previewed excerpts from explicitly selected s
 
 ## Development
 
-The CLI uses ESM `.mjs`, Node 22.19+, Pi SDK/TUI 1.4.0 and Durable 1.1.0. The legacy extension remains TypeScript.
+The CLI uses ESM `.mjs`, Node 22.19+, Pi SDK/TUI 1.5.0 and Durable 1.1.0. The legacy extension remains TypeScript.
 
 Tests use temporary roots, synthetic histories, fake provider boundaries and real Durable/SessionManager. Migration compatibility checks need `HOBKIN_TEST_SCHEDULER` set to an installed scheduler package; otherwise those cases skip. Use the package's `test`, `test:cli` and `test:migration` scripts for their respective areas.
 
