@@ -139,7 +139,7 @@ test('projects lists each one with its counts, and --state narrows it', async t 
 
   assert.deepEqual(json.map(({ name, slug, state }) => [name, slug, state]), [['api', 'api', 'chosen'], ['site', 'the-site', 'proposed']]);
   assert.deepEqual(json[0], {
-    name: 'api', slug: 'api', level: 'critical', priority: 'P0', prMode: 'off', state: 'chosen', path: '/repos/api', paused: false, open: 2, prs: 1, branches: 1, left: 1, nextLookAt: '2026-01-01T08:00:00.000Z',
+    name: 'api', slug: 'api', level: 'critical', priority: 'P0', prMode: 'off', state: 'chosen', path: '/repos/api', paused: false, open: 2, prs: 1, branches: 1, left: 1, nextLookAt: '2026-01-01T03:00:00.000Z',
   });
   assert.deepEqual((await hobkin(root, 'projects', '--state', 'proposed')).json.map(({ slug }) => slug), ['the-site']);
   assert.match((await failure(root, 'projects', '--state', 'lost')).message, /chosen, proposed, skipped/);

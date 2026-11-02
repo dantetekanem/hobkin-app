@@ -199,7 +199,7 @@ test('status says when a taken project is next looked at, and why its last look 
 
   const { result: { projects: [project] } } = await work(root, []);
 
-  assert.equal(project.nextLookAt, '2026-01-01T08:00:00.000Z');
+  assert.equal(project.nextLookAt, '2026-01-01T03:00:00.000Z');
   assert.equal(project.lookError, 'The clone is gone.');
 });
 

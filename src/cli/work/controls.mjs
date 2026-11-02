@@ -8,7 +8,7 @@ import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, dropProject, fileItem, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
+  answerAllowance, chooseProject, dropProject, fileItem, lookEveryHours, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
   retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch } from './tree.mjs';
@@ -232,8 +232,8 @@ export function setLevel(root, reference, word) {
 
 export function setPriority(root, reference, word) {
   const project = findProject(root, reference);
-  const { priority } = setProjectPriority(root, project.slug, word);
-  return reply(`${nameOf(project)} is now ${priority}. Its work takes its new place in the queue on the next tick.`);
+  const changed = setProjectPriority(root, project.slug, word);
+  return reply(`${nameOf(project)} is now ${changed.priority}, with a look every ${lookEveryHours(changed)} hours. Its work takes its new place in the queue on the next tick.`);
 }
 
 export function setPrMode(root, reference, word) {

@@ -44,7 +44,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   grade <project> <item> <P0..P3|auto> set an item's grade; auto clears it
   max <project> <item>                 make one item max: Claude Opus at max
   level <project> <low..max>           casual (low), important, critical, max
-  priority <project> <P0..P3>          the project's place in the queue
+  priority <project> <P0..P3>          how often it runs, and its queue place
   prs <project> <off|draft|published>  local PR, draft PR or published PR
   auto [on|off]                        pick by itself, or run triggers only
   harness <pi|claude|codex>            which agent works on projects

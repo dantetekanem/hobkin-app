@@ -8,7 +8,7 @@ import { workStatus } from '../src/cli/work/commands.mjs';
 import { ideasWanted, itemGrade, planWork } from '../src/cli/work/plan.mjs';
 import { itemsView, queueView, searchView } from '../src/cli/work/reads.mjs';
 import {
-  chooseProject, fileItem, lenses, paths, pickNext, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
+  chooseProject, fileItem, lenses, nextLookAt, paths, pickNext, readProject, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
@@ -438,7 +438,85 @@ test('a study that is not done yet waits before it tries again', t => {
   assert.deepEqual(plan(root).entries.map(entry => entry.kind), ['study']);
 });
 
-test('a look comes up as often as the level says, and the longer overdue, the higher it ranks', t => {
+const dueSlugs = root => plan(root).entries.map(entry => entry.slug);
+const lastLookedAt = (root, slug, hoursAgo) => writeState(root, slug, { lastLensAt: new Date(now - hoursAgo * HOUR).toISOString() });
+
+test('priority decides how often a project is looked at, so P0 runs far more than P3', t => {
+  const root = dataRoot(t);
+  const hoursBetweenLooks = { P0: 3, P1: 8, P2: 24, P3: 48 };
+
+  for (const [priority, hours] of Object.entries(hoursBetweenLooks)) {
+    const slug = `at-${priority.toLowerCase()}`;
+    project(root, slug);
+    setProjectPriority(root, slug, priority);
+
+    lastLookedAt(root, slug, hours - 1);
+    assert.ok(!dueSlugs(root).includes(slug), `${priority} is not due after ${hours - 1} hours`);
+
+    lastLookedAt(root, slug, hours);
+    assert.ok(dueSlugs(root).includes(slug), `${priority} is due after ${hours} hours`);
+    lastLookedAt(root, slug, 0);
+  }
+});
+
+test('a project\'s level sets how hard it thinks, and its priority alone sets how often it runs', t => {
+  const root = dataRoot(t);
+  project(root, 'critical-but-low', 'critical');
+  setProjectPriority(root, 'critical-but-low', 'P3');
+  project(root, 'casual-but-urgent', 'casual');
+  setProjectPriority(root, 'casual-but-urgent', 'P0');
+  lastLookedAt(root, 'critical-but-low', 9);
+  lastLookedAt(root, 'casual-but-urgent', 9);
+
+  assert.deepEqual(dueSlugs(root), ['casual-but-urgent']);
+});
+
+test('with no priority set, a project takes its pace from its level', t => {
+  const root = dataRoot(t);
+  project(root, 'critical', 'critical');
+  project(root, 'important', 'important');
+  project(root, 'casual', 'casual');
+  for (const slug of ['critical', 'important', 'casual']) lastLookedAt(root, slug, 4);
+
+  assert.deepEqual(dueSlugs(root), ['critical']);
+});
+
+test('a max project still waits 12 hours between looks, because each is the dearest run there is', t => {
+  const root = dataRoot(t);
+  project(root, 'dear', 'max');
+
+  lastLookedAt(root, 'dear', 9);
+  assert.deepEqual(dueSlugs(root), []);
+
+  lastLookedAt(root, 'dear', 12);
+  assert.deepEqual(dueSlugs(root), ['dear']);
+});
+
+test('new ideas come every third look, so they follow the priority too', t => {
+  const root = dataRoot(t);
+  project(root, 'first', 'important');
+  setProjectPriority(root, 'first', 'P0');
+  project(root, 'last', 'important');
+  setProjectPriority(root, 'last', 'P3');
+  for (const slug of ['first', 'last']) {
+    writeState(root, slug, { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now - 24 * HOUR).toISOString() });
+  }
+
+  assert.deepEqual(plan(root).entries.map(entry => [entry.slug, entry.kind]), [['first', 'ideas']]);
+
+  writeState(root, 'last', { lastIdeasAt: new Date(now - 144 * HOUR).toISOString() });
+  assert.deepEqual(dueSlugs(root).toSorted(), ['first', 'last']);
+});
+
+test('the next look a project shows follows its priority', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  setProjectPriority(root, 'api', 'P3');
+
+  assert.equal(nextLookAt(root, readProject(root, 'api')), new Date(now + 48 * HOUR).toISOString());
+});
+
+test('the longer a look is overdue, the higher it ranks', t => {
   const root = dataRoot(t);
   project(root, 'late');
   project(root, 'barely');
@@ -454,8 +532,8 @@ test('new commits bring a look forward and up the plan, and start nothing by the
   const root = dataRoot(t);
   project(root, 'moved');
   project(root, 'still');
-  writeState(root, 'moved', { lastLensAt: new Date(now - 13 * HOUR).toISOString(), newCommits: 4 });
-  writeState(root, 'still', { lastLensAt: new Date(now - 13 * HOUR).toISOString() });
+  writeState(root, 'moved', { lastLensAt: new Date(now - 5 * HOUR).toISOString(), newCommits: 4 });
+  writeState(root, 'still', { lastLensAt: new Date(now - 5 * HOUR).toISOString() });
 
   const { entries } = plan(root);
 

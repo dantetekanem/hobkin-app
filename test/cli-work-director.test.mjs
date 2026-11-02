@@ -725,7 +725,7 @@ test('after the study the agent looks for work and starts on what is open, on a 
   assert.match(h.work(run).commands.item, /work item api --home/);
 });
 
-test('each lens comes up in turn, as often as the level says', async t => {
+test('each lens comes up in turn, as often as the priority says', async t => {
   const h = fixture(t);
   h.agent = study(h.root);
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
@@ -734,7 +734,7 @@ test('each lens comes up in turn, as often as the level says', async t => {
   await h.tick();
   await h.tick();
 
-  h.clock += 7 * HOUR;
+  h.clock += 2 * HOUR;
   await h.tick();
   assert.equal(h.calls.length, 3);
 

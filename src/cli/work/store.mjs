@@ -5,13 +5,15 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
 export const levels = {
-  // Super critical work runs on Claude whatever harness is set, in a pane, because nothing else can run it. Each run is the dearest there is, so it looks less often than `critical`.
-  max: { rank: -1, priority: 'P0', lookEveryHours: 12, lookEffort: 'max', doEffort: 'max', model: 'claude-opus-5-5', harness: 'claude' },
-  critical: { rank: 0, priority: 'P0', lookEveryHours: 8, lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
-  important: { rank: 1, priority: 'P1', lookEveryHours: 24, lookEffort: 'medium', doEffort: 'high', model: 'main' },
-  casual: { rank: 2, priority: 'P2', lookEveryHours: 72, lookEffort: 'low', doEffort: 'medium', model: 'background' },
+  // Super critical work runs on Claude whatever harness is set, in a pane, because nothing else can run it. Each run is the dearest there is, so its looks stay this far apart at any priority.
+  max: { rank: -1, priority: 'P0', fewestHoursBetweenLooks: 12, lookEffort: 'max', doEffort: 'max', model: 'claude-opus-5-5', harness: 'claude' },
+  critical: { rank: 0, priority: 'P0', lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
+  important: { rank: 1, priority: 'P1', lookEffort: 'medium', doEffort: 'high', model: 'main' },
+  casual: { rank: 2, priority: 'P2', lookEffort: 'low', doEffort: 'medium', model: 'background' },
 };
 export const grades = ['P0', 'P1', 'P2', 'P3'];
+// Each look takes one of seven lenses in turn, so these bring every lens round within a day at P0, about two days at P1, a week at P2 and two weeks at P3.
+const hoursBetweenLooks = { P0: 3, P1: 8, P2: 24, P3: 48 };
 export const prModes = ['off', 'draft', 'published'];
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];
@@ -340,6 +342,9 @@ export function setProjectPrMode(root, slug, prMode) {
 
 export const priorityOf = ({ priority, level }) => priority ?? levels[level]?.priority;
 
+/** A project's priority sets how often it runs, so P0 comes round far more than P3. Its level sets the model and how hard it thinks. */
+export const lookEveryHours = project => Math.max(hoursBetweenLooks[priorityOf(project)], levels[project.level].fewestHoursBetweenLooks ?? 0);
+
 export const byPriority = (left, right) => grades.indexOf(left.priority) - grades.indexOf(right.priority);
 
 export const hasWorkToShow = root => readProjects(root).some(project => ['proposed', 'chosen'].includes(project.state));
@@ -451,7 +456,7 @@ export function writeState(root, slug, change) {
   atomicJson(paths(root, slug).state, { ...readState(root, slug), ...change });
 }
 
-export function nextLookAt(root, { slug, level }) {
-  const { lastLensAt } = readState(root, slug);
-  return lastLensAt ? new Date(Date.parse(lastLensAt) + levels[level].lookEveryHours * HOUR_MS).toISOString() : null;
+export function nextLookAt(root, project) {
+  const { lastLensAt } = readState(root, project.slug);
+  return lastLensAt ? new Date(Date.parse(lastLensAt) + lookEveryHours(project) * HOUR_MS).toISOString() : null;
 }

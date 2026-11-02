@@ -3,13 +3,13 @@ import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLi
 import { lookTime } from './chat.mjs';
 import { overReserve, readSubscription, usageWindows } from './usage.mjs';
 import {
-  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, paths, priorityOf, readDiscovery, readItems, readMode, readState, runnableStates, tokenEvents,
+  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, paths, priorityOf, readDiscovery, readItems, readMode, readState, runnableStates, tokenEvents,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
 
 const HOUR_MS = 3600000;
 const STUDY_RETRY_MS = HOUR_MS / 4;
-const IDEAS_EVERY_MS = 24 * HOUR_MS;
+const LOOKS_PER_IDEAS = 3;
 const LEFT_ALONE_MS = 24 * HOUR_MS;
 const SHORTEST_START_GAP_MS = 30000;
 const ROWS_PER_GAP_STEP = 10;
@@ -143,7 +143,7 @@ function studyEntry(project, unlocked) {
 /** The lens that is due next on a project. New commits bring it forward and move it up, and start nothing by themselves. */
 function lensEntry(project, state, now, triggered) {
   const { slug, level } = project;
-  const every = levels[level].lookEveryHours * HOUR_MS / (state.newCommits ? 2 : 1);
+  const every = lookEveryHours(project) * HOUR_MS / (state.newCommits ? 2 : 1);
   const elapsed = elapsedSince(state.lastLensAt, now);
   if (elapsed < every && !triggered) return null;
 
@@ -166,7 +166,8 @@ function lensEntry(project, state, now, triggered) {
 
 function ideasEntry(project, state, { root, now, budget }) {
   const { slug, level } = project;
-  if (elapsedSince(state.lastIdeasAt, now) < IDEAS_EVERY_MS || !ideasWanted(root, slug, budget)) return null;
+  const every = lookEveryHours(project) * LOOKS_PER_IDEAS * HOUR_MS;
+  if (elapsedSince(state.lastIdeasAt, now) < every || !ideasWanted(root, slug, budget)) return null;
   return {
     ...ofProject(project),
     key: `ideas:${slug}`,
@@ -177,7 +178,7 @@ function ideasEntry(project, state, { root, now, budget }) {
     title: 'new ideas',
     effort: 'small',
     score: levelWorth[level] * impactWorth.low / effortCost.medium,
-    why: 'daily ideas',
+    why: 'due',
   };
 }
 

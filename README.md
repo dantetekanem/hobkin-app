@@ -73,7 +73,7 @@ Every change happens on a `hobkin/*` branch, and git can bring it all back, so n
 
 If a project's folder is clean, idle and on its default branch, a run works there, so you will see its branch until the run ends. Otherwise it uses a worktree.
 
-Each project has a priority, which sets the grade its items start at, and a PR setting, which is off by default. With PRs off, finished work is a local branch plus a saved description, listed under READY for you to review. `hobkin work pr <project> <item>` prints one. The `draft` and `published` settings open a PR instead.
+Each project has a priority, which sets how often agents look at it, from every 3 hours at P0 to every 2 days at P3, and the grade its items start at. It also has a PR setting, which is off by default. With PRs off, finished work is a local branch plus a saved description, listed under READY for you to review. `hobkin work pr <project> <item>` prints one. The `draft` and `published` settings open a PR instead.
 
 In the Work Mode tab:
 
