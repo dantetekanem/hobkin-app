@@ -33,6 +33,8 @@ export function parseArguments(args) {
   return options;
 }
 
+const looksNew = ({ schedules, messages, userName }) => !schedules.length && !messages.length && !userName;
+
 async function connected(options, snapshot, dependencies) {
   const signals = dependencies.signals ?? process;
   const done = Promise.withResolvers();
@@ -47,6 +49,10 @@ async function connected(options, snapshot, dependencies) {
   signals.on('SIGTERM', stop);
   stayAwake();
   try {
+    // An injected application brings its own model.
+    const signIn = dependencies.signIn ?? (dependencies.openApplication ? null : (await import('./signin.mjs')).signIn);
+    if (signIn) await signIn({ launcher: snapshot.config.launcher });
+
     const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
     dashboard = start(snapshot, {
       onQuit: stop,
@@ -86,6 +92,7 @@ async function connected(options, snapshot, dependencies) {
     }).then(opened => {
       app = opened;
       if (cancellation.signal.aborted) return opened.close();
+      if (looksNew(snapshot)) dashboard.startSetup?.();
     });
     // A quit never waits for startup. Exit hooks release the lock and stop MCP servers.
     await Promise.race([opening, done.promise]);
@@ -102,7 +109,7 @@ async function connected(options, snapshot, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -116,6 +123,12 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'import') {
     const { importHome } = await import('./import.mjs');
     output.write(`${JSON.stringify(await importHome(options.root, options.args[0]), null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'login') {
+    if (!output.isTTY) throw Error('hobkin login needs a terminal.');
+    const signIn = dependencies.signIn ?? (await import('./signin.mjs')).signIn;
+    await signIn({ always: true });
     return 0;
   }
   if (options.command === 'jev') {

@@ -22,7 +22,7 @@ const MINIMUM_NODE = engines.node.replace('>=', '');
 
 const INSTALL_PI = `Run \`npm install -g --ignore-scripts ${PI_PACKAGE}@${PI_VERSION}\`.`;
 const MATCH_PI = `${INSTALL_PI} \`pi update\` moves Pi past that version, so skip it. To run a patched Pi, point \`launcher\` in config.json at it: docs/guide.md explains how, under "Start Pi through a launcher".`;
-const SIGN_IN = 'Run `pi`, type /login and pick a provider. Hobkin uses the same sign-in.';
+const SIGN_IN = 'Run `hobkin login` and pick a provider. It is the same sign-in as /login in `pi`.';
 const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host works without it, through that host\'s own CLI, with less to read.';
 const HERDR_ADDS = 'With it, work mode runs in panes you can watch and big jobs get a Pi session of their own. Without it, work runs in the background.';
 const INSTALL_HERDR = 'Run `curl -fsSL https://herdr.dev/install.sh | sh`, then start Hobkin inside `herdr`.';

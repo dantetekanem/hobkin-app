@@ -1144,3 +1144,49 @@ test('with Jev on a useful scheduled report goes to Jev, and the mood it picks r
     await app.close();
   }
 });
+
+const refused = {
+  role: 'assistant',
+  content: [],
+  stopReason: 'error',
+  errorMessage: '401: {"message":"Authentication Fails, Your api key: ****0000 is invalid","type":"authentication_error"}',
+  timestamp: 2,
+};
+
+test('a turn the model refused says why in Chat, and how to sign in again', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  app.runtime.messages = () => [{ role: 'user', content: 'Hello', timestamp: 1 }, refused];
+
+  const { content } = (await app.refresh()).messages.at(-1);
+
+  assert.match(content, /Authentication Fails, Your api key: \*\*\*\*0000 is invalid/);
+  assert.match(content, /hobkin login/);
+  assert.doesNotMatch(content, /authentication_error/);
+});
+
+test('a failure that is not about signing in does not send anyone to sign in', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  app.runtime.messages = () => [{ ...refused, errorMessage: 'Connection reset by peer' }];
+
+  const { content } = (await app.refresh()).messages.at(-1);
+
+  assert.match(content, /Connection reset by peer/);
+  assert.doesNotMatch(content, /hobkin login/);
+});
+
+test('a failure Pi retried past stays out of Chat', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  const answer = { role: 'assistant', content: [{ type: 'text', text: 'Hello.' }], stopReason: 'stop', timestamp: 3 };
+  app.runtime.messages = () => [refused, answer];
+
+  const contents = (await app.refresh()).messages.map(message => message.content);
+
+  assert.equal(contents.some(content => content.includes('Authentication Fails')), false);
+  assert.ok(contents.includes('Hello.'));
+});

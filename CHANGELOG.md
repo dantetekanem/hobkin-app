@@ -4,6 +4,8 @@
 
 - Add All, Scheduled and Work Done subtabs to Reports, opening on All. Up from the first report reaches them, Left/Right changes subtab there, and Down goes back to the reports. Typing `/` in the list filters report titles as you type, ignoring case, across every saved report rather than the 25 the list shows. The filter stays until Esc or Ctrl+C clears it.
 - Open a main tab or a Reports subtab with a mouse click.
+- Make the first run seamless. With no model, `hobkin` asks the user to sign in before it opens, through Pi's own sign-in screens, and then starts setup by itself on a home with no routines, chat or profile. `hobkin login` signs in again at any time.
+- Say why in Chat when the model refuses a turn. A bad key or an expired login used to look like hobkin ignoring the user.
 - Get to know the user in `/setup`: their name, what to call them, their email and which services to connect through MCP. `hobkin profile` shows or changes the details, and the chat and every check get them. Opening hobkin greets the user by name in the tip row for 30 seconds, in one of seven ways.
 - Write the name as hobkin across the main window: labels, tips, the input box, `/help`, what it posts in Chat and its error notices. The main agent is told to write its own name that way too.
 - Rename Schedules to Routines: the tab, messages, docs, prompts, `hobkin routines`, the `run_routine` tool and the `routines/` folder in Hobkin's data. The dashboard moves the folder the next time it opens and leaves `schedules` as a link, so a path written inside a routine keeps working. `hobkin schedules` still works.

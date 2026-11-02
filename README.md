@@ -6,7 +6,7 @@ Website: https://hobkin.dev
 
 ## Run it
 
-You need Node 22.19 or newer, pnpm and Pi. Install the Pi version hobkin pins, then run `pi` once and use `/login` there to add a model:
+You need Node 22.19 or newer, pnpm and Pi. Install the Pi version hobkin pins:
 
 ```sh
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
@@ -16,11 +16,10 @@ Then run hobkin from a checkout:
 
 ```sh
 pnpm install
-pnpm hobkin setup
 pnpm hobkin
 ```
 
-`hobkin setup` changes nothing. It checks Pi, git, `gh`, your models and routines, and says how to fix what is missing. Once hobkin opens, type `/setup` in Chat and it walks you through the rest: who you are, the services to connect, Jev and your first checks.
+The first time, hobkin asks you to sign in to a model, then opens and starts setup by itself: who you are, the services to connect, Jev and your first checks. `hobkin login` signs in again at any time, and `/setup` runs setup again. `hobkin setup` changes nothing: it checks Pi, git, `gh`, your models and routines, and says how to fix what is missing.
 
 If `hobkin` is on your PATH, run it from any directory. Otherwise, run the `hobkin` commands below as `pnpm hobkin` from the checkout. The first launch creates `~/.hobkin`, and later launches reopen the same conversation.
 

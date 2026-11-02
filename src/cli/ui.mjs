@@ -176,6 +176,7 @@ const settingCommands = {
     off: 'Learning off. Nothing is judged, and agents get nothing.',
   },
 };
+const SETUP_REQUEST = 'Help me set up hobkin.';
 const helpGuide = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
 const tips = [
   'Type /help to see what hobkin can do.',
@@ -1047,6 +1048,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let armedDrop = null;
   let armedMax = null;
   let askingWorkFolder = false;
+  let setupWaiting = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
   // What the user sent that the conversation does not show yet, oldest first.
@@ -1273,6 +1275,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
     });
   };
+  // Whatever someone is already typing comes first, and /setup is still there for them.
+  const sendWaitingSetup = () => {
+    if (!setupWaiting || !connected()) return;
+
+    setupWaiting = false;
+    if (!editor.getExpandedText()) sendMessage(SETUP_REQUEST);
+  };
   editor.onSubmit = submitted => {
     // Editor clears before onSubmit; a command keeps the draft until it succeeds.
     editor.setText(submitted);
@@ -1295,7 +1304,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         return;
       }
       if (submitted === '/setup' && connected()) {
-        sendMessage('Help me set up hobkin.');
+        sendMessage(SETUP_REQUEST);
         return;
       }
       editor.addToHistory(submitted);
@@ -1890,6 +1899,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       keepSelectionListed();
       animate();
       changed();
+      sendWaitingSetup();
+    },
+    startSetup() {
+      setupWaiting = true;
+      sendWaitingSetup();
     },
     invalidate() {
       editor.invalidate();

@@ -10,6 +10,7 @@ import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
+import { setProfile } from '../src/cli/profile.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
 import { fileItem, chooseProject, paths, proposeProject, readItems, readMode, readProjects, readState, recordTokens, writeMode, writeState } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
@@ -71,6 +72,8 @@ function fixture(t) {
   const root = join(base, 'home');
   mkdirSync(root);
   const config = initialize(root, { cwd: base });
+  // A returning user, so setup does not start by itself and take the first turn.
+  setProfile(root, 'call', 'Ada');
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
   atomicJson(join(root, 'config.json'), config);

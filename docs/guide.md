@@ -44,6 +44,8 @@ Chat opens ready to type. Reports holds completed checks; Routines shows their n
 
 Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/jev` turns Jev on or off, and `/learning` does the same for [learning](#learning). Pi's editor shortcuts and configured editor keybindings work in the composer.
 
+The first time, hobkin asks you to sign in to a model before it opens, using the same sign-in as `/login` in Pi, and then starts setup by itself. `hobkin login` signs in again, for a key that was refused or a login that ran out. If the model refuses a turn, Chat says why.
+
 `/setup` also asks your name, what to call you and your email, and which services to connect through MCP. It skips what is already saved and you can skip the rest. Once it has a name, hobkin greets you with it in the tip row each time it opens. The name and email go to the model provider with every agent's prompt, so the chat and your checks know who they work for. `hobkin profile` shows them, `hobkin profile name`, `call` or `email` followed by a value changes one, and `hobkin profile clear` forgets them.
 
 Colors follow Pi's saved theme. The header shows connection state; the status bar shows the next check, the total size of Hobkin's memory files, model, context usage and estimated cost. Critical and useful report summaries appear in Chat; no-news reports stay in Reports. Occasional tips appear above the shortcuts.

@@ -37,12 +37,22 @@ export { readLocalView } from './view.mjs';
 
 const textOf = message => (typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n'));
-const chatMessage = message => {
+const SIGN_IN_TROUBLE = /\b40[13]\b|unauthori[sz]ed|authentication|api key|credential|log ?in\b/i;
+/** A refused turn has no text of its own, so without this the chat just goes quiet. */
+const turnFailure = ({ stopReason, errorMessage }) => {
+  if (stopReason !== 'error' || !errorMessage) return '';
+
+  const reason = errorMessage.match(/"message":"([^"]+)"/)?.[1] ?? errorMessage.split('\n', 1)[0];
+  const fix = SIGN_IN_TROUBLE.test(errorMessage) ? ' Run `hobkin login` in a terminal, then reopen hobkin.' : '';
+  return `The model did not answer: ${reason.slice(0, 300)}${fix}`;
+};
+const chatMessage = (message, index, shown) => {
   const { text, about } = splitReportReference(withoutLearningNote(withoutWorkNote(textOf(message))));
+  const endedTheChat = index === shown.length - 1;
   return {
     id: createHash('sha256').update(JSON.stringify(message)).digest('hex'),
     role: message.role,
-    content: reportText(text).slice(0, 8192),
+    content: reportText(text || (endedTheChat ? turnFailure(message) : '')).slice(0, 8192),
     at: message.timestamp ?? message.at,
     ...(about ? { about } : {}),
   };

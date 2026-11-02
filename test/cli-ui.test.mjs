@@ -2579,3 +2579,29 @@ test('a name arriving after the start window is not greeted late', () => {
 
   assert.doesNotMatch(tipRow(ui), /Ada/);
 });
+
+test('a first run asks for setup by itself once the main chat is connected', async () => {
+  const sent = [];
+  const live = { ...snapshot, connection: 'connected' };
+  const ui = createDashboard({ ...snapshot, connection: 'connecting' }, { send: text => { sent.push(text); } });
+
+  ui.startSetup();
+  assert.deepEqual(sent, []);
+
+  ui.update(live);
+  await ui.pending();
+  ui.update(live);
+  await ui.pending();
+
+  assert.deepEqual(sent, ['Help me set up hobkin.']);
+});
+
+test('a chat that is already connected starts setup straight away', async () => {
+  const sent = [];
+  const ui = createDashboard({ ...snapshot, connection: 'connected' }, { send: text => { sent.push(text); } });
+
+  ui.startSetup();
+  await ui.pending();
+
+  assert.deepEqual(sent, ['Help me set up hobkin.']);
+});

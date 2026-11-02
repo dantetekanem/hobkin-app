@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
 import { readPresentationState } from '../src/cli/view.mjs';
+import { setProfile } from '../src/cli/profile.mjs';
 
 function fixture(t, isTTY = false) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-main-'));
@@ -205,6 +206,64 @@ test('a connection that fails after a quit stays silent', async t => {
 
   connecting.reject(Error('This operation was aborted'));
   await new Promise(resolve => setImmediate(resolve));
+});
+
+test('a new home signs in before the dashboard, then starts setup once the chat is ready', async t => {
+  const h = fixture(t, true);
+  const steps = [];
+
+  await main(['--home', h.root], h.output, {
+    signals: h.signals,
+    input: { isTTY: true },
+    signIn: async () => { steps.push('sign in'); },
+    startDashboard: () => {
+      steps.push('dashboard');
+      return {
+        update() {},
+        stop() {},
+        startSetup() {
+          steps.push('setup');
+          h.signals.emit('SIGTERM');
+        },
+      };
+    },
+    openApplication: async () => {
+      steps.push('open');
+      return { close: async () => {} };
+    },
+  });
+
+  assert.deepEqual(steps, ['sign in', 'dashboard', 'open', 'setup']);
+});
+
+test('hobkin login signs in on request, and only in a terminal', async t => {
+  const h = fixture(t, true);
+  const requests = [];
+  const signIn = async request => { requests.push(request); };
+
+  assert.equal(await main(['login', '--home', h.root], h.output, { input: { isTTY: true }, signIn }), 0);
+  await assert.rejects(main(['login', '--home', h.root], { isTTY: false, write() {} }, { input: { isTTY: true }, signIn }), /needs a terminal/);
+
+  assert.deepEqual(requests, [{ always: true }]);
+});
+
+test('a home with a name saved does not start setup by itself', async t => {
+  const h = fixture(t, true);
+  setProfile(h.root, 'call', 'Ada');
+  let started = 0;
+
+  await main(['--home', h.root], h.output, {
+    signals: h.signals,
+    input: { isTTY: true },
+    signIn: async () => {},
+    startDashboard: () => ({ update() {}, stop() {}, startSetup() { started++; } }),
+    openApplication: async () => {
+      setImmediate(() => h.signals.emit('SIGTERM'));
+      return { close: async () => {} };
+    },
+  });
+
+  assert.equal(started, 0);
 });
 
 test('dashboard paints before connection, wires sends and restores terminal on startup failure', async t => {
