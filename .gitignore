@@ -19,6 +19,7 @@
 !/docs/images/work-mode.png
 /src/prompts/*
 !/src/prompts/*.md
+!/src/prompts/*.LICENSE
 /test/*
 !/test/*.mjs
 !/test/helpers/
