@@ -1113,7 +1113,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const isJob = () => view.startsWith('job:');
   const followsTail = () => view === 'conversation' || isJob();
-  const showsReportList = () => view === 'reports' && (question?.previous.focus ?? focus) === 'reports';
+  const isReportListFocus = value => value === 'reports' || value === 'reportTabs';
+  const showsReportList = () => view === 'reports' && isReportListFocus(question?.previous.focus ?? focus);
   const selectedIndex = () => Math.max(0, reports().findIndex(report => report.id === selectedId));
   const keepSelectionListed = () => {
     if (!completedReport && !reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
@@ -1129,14 +1130,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     typingFilter = false;
     keepSelectionListed();
   };
-  const nextReportKind = () => {
-    const index = reportKinds.findIndex(({ name }) => name === reportKind);
-    return reportKinds[(index + 1) % reportKinds.length];
-  };
   const showReportKind = kind => {
     reportKind = kind;
     keepSelectionListed();
     scroll = 0;
+  };
+  const stepReportKind = delta => {
+    const index = reportKinds.findIndex(({ name }) => name === reportKind);
+    const next = (index + delta + reportKinds.length) % reportKinds.length;
+    showReportKind(reportKinds[next].name);
+  };
+  const startFilter = () => {
+    focus = 'reports';
+    typingFilter = true;
   };
   const reportOnScreen = () => {
     if (view !== 'reports' || focus !== 'detail') return null;
@@ -1369,7 +1375,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let quitArmedUntil = 0;
   // Ctrl+C clears first, so a stray press never closes Hobkin on something half typed.
   const interrupt = () => {
-    const filtering = focus === 'reports' && (typingFilter || reportFilter.getValue());
+    const filtering = isReportListFocus(focus) && (typingFilter || reportFilter.getValue());
     if (filtering || (focus === 'composer' && (editor.getExpandedText() || referencedReport))) {
       if (filtering) {
         clearFilter();
@@ -1437,7 +1443,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return tabText({ ...kind, count: String(matches) }, kind.name === reportKind);
     });
     clickableTabs.push(...tabZones(tabs, y, 0));
-    return [tabs.map(tab => tab.text).join(TAB_GAP), filterRow(inner)];
+    const tabRow = tabs.map(tab => tab.text).join(TAB_GAP);
+    return [focus === 'reportTabs' ? selectedRow(tabRow, inner) : tabRow, filterRow(inner)];
   };
   const renderHeader = (inner, clock, frame) => {
     const live = snapshot.connection === 'connected';
@@ -1478,11 +1485,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
-    if (focus === 'reports') {
-      const nextKind = ['tab', nextReportKind().label];
-      if (typingFilter) return [['enter', 'read'], ['↑↓', 'select'], nextKind, ['esc', 'clear']];
-      return [['↑↓', 'select'], ['enter', 'read'], ['/', 'filter'], nextKind, ['←→', 'views'], ['esc', reportFilter.getValue() ? 'clear filter' : 'chat']];
-    }
+    if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
+    const leaveList = ['esc', reportFilter.getValue() ? 'clear filter' : 'chat'];
+    if (focus === 'reportTabs') return [['←→', 'subtabs'], ['↓', 'reports'], ['/', 'filter'], leaveList];
+    if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['/', 'filter'], ['←→', 'views'], leaveList];
     if (focus === 'detail') return [['r m', 'reply'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') {
@@ -1681,7 +1687,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return content.length ? { content, days, marks } : { content: welcomeLines(inner, available, !snapshot.schedules?.length), marks };
     }
     if (showsReportList()) {
-      return reportListLines({ reports: reports(), total: reportsOfKind(reportKind).length, selectedId, filtered: Boolean(filterText()), inner, clock });
+      return reportListLines({
+        reports: reports(),
+        total: reportsOfKind(reportKind).length,
+        selectedId: focus === 'reportTabs' ? null : selectedId,
+        filtered: Boolean(filterText()),
+        inner,
+        clock,
+      });
     }
     return {
       content: reportDetailLines({ report: completedReport ?? reports()[selectedIndex()], inner, clock, markdown }),
@@ -1776,11 +1789,21 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     keepSelectionListed();
     scroll = 0;
   };
+  const handleReportTabsKey = data => {
+    if (key(data, 'left') || key(data, 'right')) {
+      stepReportKind(key(data, 'right') ? 1 : -1);
+    } else if (key(data, 'down') || key(data, 'enter')) {
+      focus = 'reports';
+    } else if (key(data, '/')) {
+      startFilter();
+    } else {
+      return key(data, 'up');
+    }
+    return true;
+  };
   const handleFilterKey = data => {
     if (key(data, 'escape')) {
       clearFilter();
-    } else if (key(data, 'tab')) {
-      showReportKind(nextReportKind().name);
     } else if (key(data, 'up') || key(data, 'down')) {
       moveReportSelection(key(data, 'down') ? 1 : -1);
     } else if (key(data, 'enter')) {
@@ -1913,7 +1936,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         return { handled: true };
       }
       if (event.type !== 'wheel') return;
-      if (event.y >= contentBounds.top && event.y < contentBounds.bottom && focus !== 'reports') {
+      if (event.y >= contentBounds.top && event.y < contentBounds.bottom && !isReportListFocus(focus)) {
         const delta = (event.wheelDelta ?? 0) * (followsTail() ? -1 : 1);
         scroll = Math.max(0, scroll + delta);
         changed();
@@ -1963,6 +1986,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           .finally(changed);
       } else if (focus === 'work' && handleWorkKey(data)) {
         // The Work tab handled it.
+      } else if (focus === 'reportTabs' && handleReportTabsKey(data)) {
+        // The subtab row handled it.
       } else if ((key(data, 'm') || key(data, 'r')) && focus === 'detail') {
         referencedReport = reportOnScreen();
         view = 'conversation';
@@ -2001,15 +2026,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           focus = watchingWork ? 'work' : 'composer';
         }
         scroll = 0;
+      } else if (view === 'reports' && focus === 'reports' && key(data, 'up') && !selectedIndex()) {
+        focus = 'reportTabs';
       } else if (view === 'reports' && focus === 'reports' && (key(data, 'up') || key(data, 'down'))) {
         moveReportSelection(key(data, 'down') ? 1 : -1);
       } else if (view === 'reports' && focus === 'reports' && key(data, 'enter')) {
         focus = 'detail';
         scroll = 0;
       } else if (view === 'reports' && focus === 'reports' && key(data, '/')) {
-        typingFilter = true;
-      } else if (view === 'reports' && focus === 'reports' && key(data, 'tab')) {
-        showReportKind(nextReportKind().name);
+        startFilter();
       } else if (key(data, 'pageDown') || key(data, 'down')) {
         scroll = Math.max(0, scroll + (key(data, 'pageDown') ? 8 : 1) * (isJob() ? -1 : 1));
       } else if (key(data, 'pageUp') || key(data, 'up')) {

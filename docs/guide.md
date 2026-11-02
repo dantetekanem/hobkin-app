@@ -35,7 +35,7 @@ Chat opens ready to type. Reports holds completed checks; Routines shows their n
 - **When the agent asks you something**, pick an answer with the arrows and **Enter**. The last row, Other, takes your own words. **Esc** chooses none.
 - **Left/Right** changes views when the chat draft is empty; otherwise it moves the cursor. A click on a tab opens it too.
 - **Arrow keys** select reports. **Page Up/Down** and the mouse wheel scroll.
-- **Tab** in Reports moves between All, Scheduled and Work Done, and a click on any of them does the same. Reports opens on All.
+- **Up** from the first report reaches the row of subtabs: All, Scheduled and Work Done. There, **Left/Right** changes subtab and **Down** goes back to the reports, and a click on a subtab works from anywhere. Reports opens on All.
 - **/** in Reports filters by title as you type, ignoring case. The arrows move through the matches and **Enter** opens one. The filter stays while you read or change subtabs, until **Esc** clears it.
 - **m** inside a report moves to the composer with that report attached, so you can ask about it and carry on in Chat. **Escape** in the composer drops the report and keeps your draft.
 - **Escape** leaves a report or returns to Chat without losing the draft.

@@ -2123,28 +2123,60 @@ const mixedReports = {
 const openReports = ui => ui.input('\x1b[C');
 const ENTER = '\r';
 const ESC = '\x1b';
-const TAB = '\t';
+const LEFT = '\x1b[D';
+const RIGHT = '\x1b[C';
 const BACKSPACE = '\x7f';
 
-test('Reports opens on All, and Tab walks through Scheduled and Work Done and back', () => {
+test('Reports opens on the first report of All, and the subtab row sits above the list', () => {
   const ui = createDashboard(mixedReports);
+
   openReports(ui);
+
   const all = screen(ui, 120, 40);
   assert.match(all, /All 3\s+Scheduled 2\s+Work Done 1/);
   assert.match(all, /Reports 3/);
   assert.match(all, /Morning Recap/);
   assert.match(all, /Fix the login flow/);
+  assert.equal(ui.state().focus, 'reports');
   assert.equal(ui.state().selectedId, 'routine-a');
+});
 
-  ui.input(TAB);
+test('up from the first report reaches the subtab row, and down comes back to where it was', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+
+  ui.input(UP);
+  assert.equal(ui.state().focus, 'reportTabs');
+  ui.input(UP);
+  assert.equal(ui.state().focus, 'reportTabs');
+
+  ui.input(DOWN);
+  assert.equal(ui.state().focus, 'reports');
+  assert.equal(ui.state().selectedId, 'routine-a');
+  ui.input(DOWN);
+  assert.equal(ui.state().selectedId, 'routine-b');
+  ui.input(UP);
+  assert.equal(ui.state().focus, 'reports');
+  assert.equal(ui.state().selectedId, 'routine-a');
+});
+
+test('left and right change the subtab on its row, and main tabs everywhere else', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input(UP);
+
+  ui.input(RIGHT);
   const scheduled = screen(ui, 120, 40);
+  assert.equal(ui.state().view, 'reports');
   assert.match(scheduled, /Morning Recap/);
   assert.doesNotMatch(scheduled, /Fix the login flow/);
 
-  ui.input(TAB);
+  ui.input(RIGHT);
   const work = screen(ui, 120, 40);
   assert.match(work, /Fix the login flow/);
   assert.doesNotMatch(work, /Morning Recap/);
+
+  ui.input(DOWN);
   assert.equal(ui.state().selectedId, 'work-a');
   ui.input(ENTER);
   assert.equal(ui.state().focus, 'detail');
@@ -2152,10 +2184,71 @@ test('Reports opens on All, and Tab walks through Scheduled and Work Done and ba
   assert.doesNotMatch(screen(ui, 120, 40), /Work Done/);
 
   ui.input(ESC);
-  ui.input(TAB);
+  ui.input(RIGHT);
+  assert.equal(ui.state().view, 'schedules');
+});
+
+test('subtabs wrap at both ends of the row', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input(UP);
+
+  ui.input(LEFT);
+  assert.doesNotMatch(screen(ui, 120, 40), /Morning Recap/);
+
+  ui.input(RIGHT);
   assert.match(screen(ui, 120, 40), /Morning Recap/);
   assert.match(screen(ui, 120, 40), /Fix the login flow/);
-  assert.equal(ui.state().selectedId, 'work-a');
+});
+
+test('Enter on the subtab row goes into the list instead of opening a report', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input(UP);
+
+  ui.input(ENTER);
+
+  assert.equal(ui.state().focus, 'reports');
+  assert.equal(ui.state().selectedId, 'routine-a');
+});
+
+test('the subtab row leaves the same way the list does', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input(UP);
+
+  ui.input(ESC);
+
+  assert.equal(ui.state().view, 'conversation');
+  assert.equal(ui.state().focus, 'composer');
+  ui.input('hello');
+  assert.equal(ui.state().draft, 'hello');
+});
+
+test('an empty subtab still has a way back up', () => {
+  const ui = createDashboard({ ...mixedReports, reports: mixedReports.reports.slice(0, 2) });
+  openReports(ui);
+  ui.input(UP);
+  ui.input(LEFT);
+  ui.input(DOWN);
+  assert.match(screen(ui, 120, 40), /No reports yet/);
+
+  ui.input(UP);
+
+  assert.equal(ui.state().focus, 'reportTabs');
+});
+
+test('/ on the subtab row starts the filter there', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input(UP);
+
+  ui.input('/');
+  typing(ui, 'inbox');
+
+  assert.equal(ui.state().focus, 'reports');
+  assert.match(screen(ui, 120, 40), /\/ inbox/);
+  assert.equal(ui.state().selectedId, 'routine-b');
 });
 
 test('typing after / filters report titles, ignoring case and bodies', () => {
@@ -2268,7 +2361,7 @@ test('Backspace on an empty filter stops typing, and arrows change views when th
   assert.doesNotMatch(screen(ui, 120, 40), /\/ m/);
 });
 
-test('arrows move the caret while the filter holds text, and Tab keeps the filter across subtabs', () => {
+test('arrows move the caret while the filter holds text', () => {
   const ui = createDashboard(mixedReports);
   openReports(ui);
   ui.input('/');
@@ -2277,11 +2370,24 @@ test('arrows move the caret while the filter holds text, and Tab keeps the filte
   ui.input('i');
   assert.equal(ui.state().view, 'reports');
   assert.match(screen(ui, 120, 40), /\/ fix/);
-  ui.input(TAB);
+});
+
+test('the filter carries across subtabs', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  typing(ui, 'fix');
+  ui.input(ENTER);
+  ui.input(ESC);
+  ui.input(UP);
+
+  ui.input(RIGHT);
   assert.match(screen(ui, 120, 40), /No report titles match/);
   assert.match(screen(ui, 120, 40), /\/ fix/);
-  ui.input(TAB);
+
+  ui.input(RIGHT);
   assert.match(screen(ui, 120, 40), /Fix the login flow/);
+  assert.match(screen(ui, 120, 40), /\/ fix/);
 });
 
 test('Ctrl+C clears the filter before it arms quit', () => {
@@ -2302,7 +2408,9 @@ test('a work report that opens by itself comes back to a list that shows it, wit
   const live = { ...mixedReports, connection: 'connected', runs: [running] };
   const ui = createDashboard(live, { send() {} });
   openReports(ui);
-  ui.input(TAB);
+  ui.input(UP);
+  ui.input(RIGHT);
+  ui.input(DOWN);
   ui.input('/');
   ui.input('z');
   ui.input(ENTER);
