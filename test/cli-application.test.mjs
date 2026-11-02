@@ -678,6 +678,7 @@ test('job activity is transient and quiet completion hands off exact saved Markd
   assert.equal(notified.completedJobReports.live.body, body);
   assert.equal(completed.completedJobReports.live.body, body);
   assert.equal(completed.completedJobReports.live.outcome, 'no_change');
+  assert.equal(completed.completedJobReports.live.scheduleId, 'check');
   assert.equal(completed.reports.some(report => report.id === 'live'), false);
   assert.deepEqual(completed.jobActivity, {});
   assert.equal(app.jobActivity.size, 0);

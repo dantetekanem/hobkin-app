@@ -2017,7 +2017,9 @@ test('a schedule\'s report wears the blue dot of the Schedules tab, and work mod
   const mark = title => /\x1b\[[0-9;]*m[●✕]/.exec(ui.render(120, 40).find(value => value.includes(title)))[0];
 
   ui.input('\x1b[C');
-  const [mail, work, failed] = ['Email follow-ups', 'pi-intro: Fix it', 'Calendar deadlines'].map(mark);
+  const [mail, failed] = ['Email follow-ups', 'Calendar deadlines'].map(mark);
+  ui.input('\t');
+  const work = mark('pi-intro: Fix it');
   ui.input('\x1b[C');
 
   assert.equal(mail, mark('Morning recap'));
@@ -2110,4 +2112,287 @@ test('a slide rewrites the rows that moved and never the whole screen', async t 
   assert.ok(sizes.length >= 4, `${sizes.length} frames`);
   assert.ok(Math.max(...sizes) < 8192, `${Math.max(...sizes)} bytes`);
   assert.ok(!terminal.writes.some(frame => frame.includes('\x1b[2J')));
+});
+
+const mixedReports = {
+  ...snapshot,
+  reports: [
+    { id: 'routine-a', title: 'Morning Recap', scheduleId: 'recap', at: '2026-10-27T09:00:00.000Z', body: 'Deploys look fine', outcome: 'completed' },
+    { id: 'routine-b', title: 'Inbox sweep', scheduleId: 'inbox', at: '2026-10-27T08:00:00.000Z', body: 'Nothing urgent', outcome: 'completed' },
+    { id: 'work-a', title: 'Fix the login flow', scheduleId: 'work.demo.do', at: '2026-10-27T07:00:00.000Z', body: 'Merged', outcome: 'completed' },
+  ],
+};
+const openReports = ui => ui.input('\x1b[C');
+const ENTER = '\r';
+const ESC = '\x1b';
+const TAB = '\t';
+const BACKSPACE = '\x7f';
+
+test('Reports splits into Scheduled and Work Done, and Tab moves between them', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  const scheduled = screen(ui, 120, 40);
+  assert.match(scheduled, /Scheduled 2\s+Work Done 1/);
+  assert.match(scheduled, /Reports 3/);
+  assert.match(scheduled, /Morning Recap/);
+  assert.doesNotMatch(scheduled, /Fix the login flow/);
+  assert.equal(ui.state().selectedId, 'routine-a');
+
+  ui.input(TAB);
+  const work = screen(ui, 120, 40);
+  assert.match(work, /Fix the login flow/);
+  assert.doesNotMatch(work, /Morning Recap/);
+  assert.equal(ui.state().selectedId, 'work-a');
+  ui.input(ENTER);
+  assert.equal(ui.state().focus, 'detail');
+  assert.match(screen(ui, 120, 40), /Merged/);
+  assert.doesNotMatch(screen(ui, 120, 40), /Work Done/);
+
+  ui.input(ESC);
+  ui.input(TAB);
+  assert.equal(ui.state().selectedId, 'routine-a');
+});
+
+test('typing after / filters report titles, ignoring case and bodies', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  typing(ui, 'RECAP');
+  const matched = screen(ui, 120, 40);
+  assert.match(matched, /\/ RECAP/);
+  assert.match(matched, /Morning Recap/);
+  assert.doesNotMatch(matched, /Inbox sweep/);
+  assert.match(matched, /Scheduled 1\s+Work Done 0/);
+
+  for (let left = 5; left; left--) ui.input(BACKSPACE);
+  typing(ui, 'deploys');
+  const body = screen(ui, 120, 40);
+  assert.doesNotMatch(body, /Morning Recap/);
+  assert.match(body, /No report titles match/);
+});
+
+test('keys that mean something else on the list are plain letters in the filter', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  typing(ui, 'kmr/');
+  assert.equal(ui.state().view, 'reports');
+  assert.equal(ui.state().focus, 'reports');
+  assert.match(screen(ui, 120, 40), /\/ kmr\//);
+});
+
+test('the filter finds reports past the 25 the list shows', () => {
+  const reports = Array.from({ length: 40 }, (_, index) => ({
+    id: `r${index}`, title: `Report number ${index}`, at: '2026-10-27T09:00:00.000Z', body: 'Body', outcome: 'completed',
+  }));
+  const ui = createDashboard({ ...snapshot, reports });
+  openReports(ui);
+  assert.match(screen(ui, 120, 40), /latest 25 of 40/);
+  assert.doesNotMatch(screen(ui, 120, 40), /Report number 39/);
+  ui.input('/');
+  typing(ui, 'number 39');
+  assert.match(screen(ui, 120, 40), /Report number 39/);
+  assert.equal(ui.state().selectedId, 'r39');
+});
+
+test('the filter keeps a selection it can show, and arrows move through the matches while typing', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('\x1b[B');
+  assert.equal(ui.state().selectedId, 'routine-b');
+  ui.input('/');
+  typing(ui, 'o');
+  assert.equal(ui.state().selectedId, 'routine-b');
+  ui.input('\x1b[A');
+  assert.equal(ui.state().selectedId, 'routine-a');
+  ui.input('z');
+  assert.equal(ui.state().selectedId, null);
+});
+
+test('Enter opens the match and Esc works back out one step at a time', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  typing(ui, 'inbox');
+  ui.input(ENTER);
+  assert.equal(ui.state().focus, 'detail');
+  assert.match(screen(ui, 120, 40), /Nothing urgent/);
+
+  ui.input(ESC);
+  assert.equal(ui.state().focus, 'reports');
+  assert.match(screen(ui, 120, 40), /\/ inbox/);
+  assert.doesNotMatch(screen(ui, 120, 40), /Morning Recap/);
+
+  ui.input(ESC);
+  assert.equal(ui.state().view, 'reports');
+  assert.match(screen(ui, 120, 40), /Morning Recap/);
+  assert.doesNotMatch(screen(ui, 120, 40), /\/ inbox/);
+
+  ui.input(ESC);
+  assert.equal(ui.state().view, 'conversation');
+});
+
+test('Esc while typing clears the filter and stays on the list; Enter with no match stays too', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  ui.input('z');
+  ui.input(ENTER);
+  assert.equal(ui.state().focus, 'reports');
+  assert.match(screen(ui, 120, 40), /\/ z/);
+  ui.input('/');
+  ui.input(ESC);
+  assert.equal(ui.state().view, 'reports');
+  assert.match(screen(ui, 120, 40), /Morning Recap/);
+  assert.equal(ui.state().selectedId, 'routine-a');
+});
+
+test('Backspace on an empty filter stops typing, and arrows change views when the filter is empty', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  ui.input(BACKSPACE);
+  ui.input('k');
+  assert.doesNotMatch(screen(ui, 120, 40), /\/ k/);
+
+  ui.input('/');
+  ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'schedules');
+  ui.input('\x1b[D');
+  ui.input('m');
+  assert.doesNotMatch(screen(ui, 120, 40), /\/ m/);
+});
+
+test('arrows move the caret while the filter holds text, and Tab keeps the filter across subtabs', () => {
+  const ui = createDashboard(mixedReports);
+  openReports(ui);
+  ui.input('/');
+  typing(ui, 'fx');
+  ui.input('\x1b[D');
+  ui.input('i');
+  assert.equal(ui.state().view, 'reports');
+  assert.match(screen(ui, 120, 40), /\/ fix/);
+  ui.input(TAB);
+  assert.match(screen(ui, 120, 40), /Fix the login flow/);
+  assert.match(screen(ui, 120, 40), /\/ fix/);
+});
+
+test('Ctrl+C clears the filter before it arms quit', () => {
+  let quits = 0;
+  const ui = createDashboard(mixedReports, { onQuit: () => { quits++; } });
+  openReports(ui);
+  ui.input('/');
+  ui.input('z');
+  ui.input('\x03');
+  ui.input('\x03');
+  assert.equal(quits, 0);
+  assert.match(screen(ui, 120, 40), /Morning Recap/);
+  assert.match(ui.state().notice, /Ctrl\+C again/);
+});
+
+test('a work report that opens by itself comes back to Work Done with nothing hiding it', () => {
+  const running = { id: 'job', state: 'running', kind: 'background', scheduleId: 'work.demo.do', title: 'Fix the login flow' };
+  const live = { ...mixedReports, connection: 'connected', runs: [running] };
+  const ui = createDashboard(live, { send() {} });
+  openReports(ui);
+  ui.input('/');
+  ui.input('z');
+  ui.input(ENTER);
+  ui.input('\x1b[C');
+  ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'job:job');
+
+  const finished = { id: 'job', title: 'Fix the login flow', scheduleId: 'work.demo.do', at: '2026-10-27T10:00:00.000Z', body: 'Done', outcome: 'completed' };
+  ui.update({ ...live, runs: [], reports: [finished, ...mixedReports.reports], completedJobReports: { job: finished } });
+  assert.equal(ui.state().focus, 'detail');
+  ui.input(ESC);
+  assert.equal(ui.state().selectedId, 'job');
+  const list = screen(ui, 120, 40);
+  assert.match(list, /Scheduled 2\s+Work Done 2/);
+  assert.doesNotMatch(list, /\/ z/);
+  assert.doesNotMatch(list, /Morning Recap/);
+});
+
+const cellOf = (ui, text, width, height) => {
+  const rows = stripTerminalSequences(ui.render(width, height).join('\n')).split('\n');
+  const y = rows.findIndex(value => value.includes(text));
+  assert.notEqual(y, -1, `${text} is on screen`);
+  return { x: visibleWidth(rows[y].slice(0, rows[y].indexOf(text))), y };
+};
+const click = (terminal, { x, y }, button = 0) => {
+  terminal.input(`\x1b[<${button};${x + 1};${y + 1}M`);
+  terminal.input(`\x1b[<${button};${x + 1};${y + 1}m`);
+};
+
+const clickableDashboard = async t => {
+  const terminal = new FakeTerminal();
+  const ui = startDashboard(mixedReports, {}, { terminal });
+  t.after(() => ui.stop());
+  // A click lands on what the screen last drew, so it needs a first frame.
+  while (!terminal.writes.some(frame => frame.includes('Chat'))) await new Promise(resolve => setImmediate(resolve));
+  return { terminal, ui };
+};
+
+test('clicking a main tab opens it, wherever the header put the tabs', async t => {
+  const { terminal, ui } = await clickableDashboard(t);
+  terminal.input('draft');
+  for (const [columns, rows] of [[120, 40], [60, 18], [35, 14]]) {
+    terminal.columns = columns;
+    terminal.rows = rows;
+    terminal.resize();
+    click(terminal, cellOf(ui, 'Reports', columns, rows));
+    assert.equal(ui.state().view, 'reports');
+    assert.equal(ui.state().focus, 'reports');
+    click(terminal, cellOf(ui, 'Chat', columns, rows));
+    assert.equal(ui.state().view, 'conversation');
+    assert.equal(ui.state().focus, 'composer');
+    assert.equal(ui.state().draft, 'draft');
+  }
+});
+
+test('a click on the last column of a tab counts, and one in the gap after it does not', async t => {
+  const { terminal, ui } = await clickableDashboard(t);
+  const { x, y } = cellOf(ui, 'Chat', 120, 40);
+  const end = cellOf(ui, 'Routines', 120, 40).x - 3;
+  click(terminal, { x: end, y });
+  assert.equal(ui.state().view, 'conversation');
+  click(terminal, { x: end - 1, y });
+  assert.equal(ui.state().view, 'reports');
+  click(terminal, { x, y });
+  assert.equal(ui.state().view, 'conversation');
+});
+
+test('clicking a tab from a report goes back to its list, and clicking a subtab switches it', async t => {
+  const { terminal, ui } = await clickableDashboard(t);
+  terminal.input('\x1b[C');
+  click(terminal, cellOf(ui, 'Work Done', 120, 40));
+  assert.match(screen(ui, 120, 40), /Fix the login flow/);
+  assert.doesNotMatch(screen(ui, 120, 40), /Morning Recap/);
+  click(terminal, cellOf(ui, 'Scheduled', 120, 40));
+  assert.match(screen(ui, 120, 40), /Morning Recap/);
+
+  terminal.input('\r');
+  assert.equal(ui.state().focus, 'detail');
+  click(terminal, cellOf(ui, 'Reports', 120, 40));
+  assert.equal(ui.state().focus, 'reports');
+});
+
+test('only a left click on a tab acts, and never over an open question', async t => {
+  const { terminal, ui } = await clickableDashboard(t);
+  const tab = cellOf(ui, 'Reports', 120, 40);
+  click(terminal, tab, 2);
+  assert.equal(ui.state().view, 'conversation');
+  terminal.input(`\x1b[<0;${tab.x + 1};${tab.y + 1}M`);
+  terminal.input(`\x1b[<32;${tab.x + 3};${tab.y + 1}M`);
+  terminal.input(`\x1b[<0;${tab.x + 3};${tab.y + 1}m`);
+  assert.equal(ui.state().view, 'conversation');
+
+  const answer = ui.askQuestion({ question: 'Keep it?', choices: [{ label: 'Yes', value: 'yes' }] });
+  click(terminal, tab);
+  assert.equal(ui.state().view, 'conversation');
+  assert.equal(ui.state().focus, 'question');
+  terminal.input(ESC);
+  assert.equal(await answer, null);
+  click(terminal, tab);
+  assert.equal(ui.state().view, 'reports');
 });

@@ -212,10 +212,12 @@ const outcomes = {
   imported: ['◇', muted],
 };
 const outcome = value => Object.hasOwn(outcomes, value) ? outcomes[value] : ['•', dim];
+const reportKinds = [{ name: 'scheduled', label: 'Scheduled' }, { name: 'done', label: 'Work Done' }];
+const reportKindOf = ({ scheduleId }) => (String(scheduleId ?? '').startsWith('work.') ? 'done' : 'scheduled');
 // A routine's report wears the dot of the Routines tab, so the two kinds tell apart at a glance. Anything that went wrong looks the same on both.
-const reportMark = ({ outcome: result, scheduleId }) => {
-  const [glyph, tone] = outcome(result);
-  return tone === positive && !String(scheduleId ?? '').startsWith('work.') ? accent(glyph) : tone(glyph);
+const reportMark = report => {
+  const [glyph, tone] = outcome(report.outcome);
+  return tone === positive && reportKindOf(report) === 'scheduled' ? accent(glyph) : tone(glyph);
 };
 const kilobytes = bytes => `${Number((bytes / 1024).toFixed(1))}kb`;
 
@@ -308,16 +310,26 @@ const ruled = ({ paint, top = '', bottom = '', lines, inner }) => {
     : paint('─'.repeat(inner)));
   return [edge(top), ...lines, edge(bottom)];
 };
-const tabText = ({ label, count = '', prefix = '' }, active) => {
-  const name = active ? highlight(bold(label)) : dim(label);
+const TAB_GAP = '   ';
+const tabText = ({ name, label, count = '', prefix = '' }, active) => {
+  const title = active ? highlight(bold(label)) : dim(label);
   const badge = count ? ` ${active ? highlight(count) : muted(count)}` : '';
-  const text = `${prefix}${name}${badge}`;
-  return { text, active, width: visibleWidth(text) };
+  const text = `${prefix}${title}${badge}`;
+  return { name, text, active, width: visibleWidth(text) };
+};
+// Where each tab landed, so a click can find it. The gaps between tabs belong to neither side.
+const tabZones = (tabs, y, left) => {
+  let from = left;
+  return tabs.map(({ name, width }) => {
+    const zone = { name, y, from, to: from + width };
+    from = zone.to + TAB_GAP.length;
+    return zone;
+  });
 };
 // Tabs share the brand row when everything fits, shortening the status before giving up the row, because a
 // second row would push the whole screen down each time a job starts. Otherwise they get a row windowed around the active tab.
 const headerLines = ({ tabs, statuses, inner, wordmark }) => {
-  const span = (from, to) => tabs.slice(from, to + 1).reduce((sum, tab) => sum + tab.width, 0) + 3 * (to - from);
+  const span = (from, to) => tabs.slice(from, to + 1).reduce((sum, tab) => sum + tab.width, 0) + TAB_GAP.length * (to - from);
   const activeTab = Math.max(0, tabs.findIndex(tab => tab.active));
   const brandText = brand(wordmark);
   const brandWidth = visibleWidth(brandText);
@@ -343,7 +355,8 @@ const headerLines = ({ tabs, statuses, inner, wordmark }) => {
   }
   const before = first > 0 ? muted('‹ ') : '';
   const after = last < tabs.length - 1 ? muted(' ›') : '';
-  const tabRow = before + tabs.slice(first, last + 1).map(tab => tab.text).join('   ') + after;
+  const shownTabs = tabs.slice(first, last + 1);
+  const tabRow = before + shownTabs.map(tab => tab.text).join(TAB_GAP) + after;
   const underlineStart = (inline ? brandWidth + 4 : 0) + visibleWidth(before) + span(first, activeTab) - tabs[activeTab].width;
   const underlineWidth = Math.min(tabs[activeTab].width, Math.max(0, inner - underlineStart));
   // The tabs' row cannot move, so the line evens the gaps: this glyph sits a little below the middle of its row.
@@ -351,7 +364,10 @@ const headerLines = ({ tabs, statuses, inner, wordmark }) => {
   const underline = faint(rule.repeat(underlineStart)) + highlight(rule.repeat(underlineWidth))
     + faint(rule.repeat(Math.max(0, inner - underlineStart - underlineWidth)));
   const titleRows = inline ? [row(`${brandText}    ${tabRow}`, inlineStatus, inner)] : [row(brandText, statuses[0], inner), tabRow];
-  return [...titleRows, underline];
+  return {
+    lines: [...titleRows, underline],
+    zones: tabZones(shownTabs, titleRows.length - 1, (inline ? brandWidth + 4 : 0) + visibleWidth(before)),
+  };
 };
 const modelLabel = (effort, model, withProvider) => {
   const provider = model.lastIndexOf('/');
@@ -618,7 +634,7 @@ const welcomeLines = (inner, available, isNew) => {
   const topPadding = Math.max(0, Math.floor((available - welcome.length) / 2));
   return [...Array(topPadding).fill(''), ...welcome.map(value => centered(value, inner))];
 };
-const reportListLines = ({ reports, total, selectedId, inner, clock }) => {
+const reportListLines = ({ reports, total, selectedId, filtered, inner, clock }) => {
   const content = [];
   const ranges = [];
   let day;
@@ -645,7 +661,7 @@ const reportListLines = ({ reports, total, selectedId, inner, clock }) => {
     content.push(...lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
     ranges.push([start, content.length]);
   });
-  if (!reports.length) content.push(dim('No reports yet.'));
+  if (!reports.length) content.push(dim(filtered ? 'No report titles match.' : 'No reports yet.'));
   return { content, ranges };
 };
 const prWords = { off: 'no PRs', draft: 'draft PRs', published: 'PRs' };
@@ -991,6 +1007,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let callbacks = handlers;
   let selectedId = snapshot.reports?.[0]?.id ?? null;
   let completedReport = null;
+  let reportKind = reportKinds[0].name;
+  const reportFilter = new Input({ prompt: '' });
+  let typingFilter = false;
   let focus = 'composer';
   let view = 'conversation';
   let scroll = 0;
@@ -998,6 +1017,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let rows = 24;
   let columns = 80;
   let contentBounds = { top: 0, bottom: 0 };
+  let clickableTabs = [];
   let hasFocus = true;
   let question = null;
   let notice = '';
@@ -1052,8 +1072,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }, timeout);
     noticeTimer.unref?.();
   };
-  const reports = () => (snapshot.reports ?? []).slice(0, 25);
   const allReports = () => snapshot.reports ?? [];
+  const filterText = () => reportFilter.getValue().trim().toLowerCase();
+  const reportsOfKind = kind => {
+    const searchText = filterText();
+    return allReports().filter(report => reportKindOf(report) === kind
+      && clean(report.title).toLowerCase().includes(searchText));
+  };
+  const reports = () => reportsOfKind(reportKind).slice(0, 25);
   const liveJobs = () => snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run =>
     run.state === 'running' && run.kind === 'background' && !run.work
     && typeof run.scheduleId === 'string' && run.scheduleId.trim()) : [];
@@ -1085,6 +1111,26 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const followsTail = () => view === 'conversation' || isJob();
   const showsReportList = () => view === 'reports' && (question?.previous.focus ?? focus) === 'reports';
   const selectedIndex = () => Math.max(0, reports().findIndex(report => report.id === selectedId));
+  const keepSelectionListed = () => {
+    if (!completedReport && !reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
+  };
+  const moveReportSelection = delta => {
+    const list = reports();
+    completedReport = null;
+    selectedId = list[Math.max(0, Math.min(list.length - 1, selectedIndex() + delta))]?.id ?? null;
+    scroll = 0;
+  };
+  const clearFilter = () => {
+    reportFilter.setValue('');
+    typingFilter = false;
+    keepSelectionListed();
+  };
+  const otherReportKind = () => reportKinds.find(({ name }) => name !== reportKind);
+  const showReportKind = kind => {
+    reportKind = kind;
+    keepSelectionListed();
+    scroll = 0;
+  };
   const reportOnScreen = () => {
     if (view !== 'reports' || focus !== 'detail') return null;
     return completedReport ?? reports()[selectedIndex()] ?? null;
@@ -1316,9 +1362,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let quitArmedUntil = 0;
   // Ctrl+C clears first, so a stray press never closes Hobkin on something half typed.
   const interrupt = () => {
-    if (focus === 'composer' && (editor.getExpandedText() || referencedReport)) {
-      editor.setText('');
-      referencedReport = null;
+    const filtering = focus === 'reports' && (typingFilter || reportFilter.getValue());
+    if (filtering || (focus === 'composer' && (editor.getExpandedText() || referencedReport))) {
+      if (filtering) {
+        clearFilter();
+      } else {
+        editor.setText('');
+        referencedReport = null;
+      }
       quitArmedUntil = 0;
       say('');
       return;
@@ -1366,6 +1417,21 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const jobTitle = run => run.title
     || snapshot.schedules?.find(schedule => schedule.id === run.scheduleId)?.title
     || 'Background job';
+  // The filter takes the blank row under the subtabs, so the list stays put when it opens.
+  const filterRow = inner => {
+    reportFilter.focused = hasFocus && typingFilter && focus === 'reports';
+    const query = reportFilter.getValue();
+    if (!typingFilter && !query) return '';
+    return `${accent('/')} ${typingFilter ? reportFilter.render(inner - 2)[0] : clean(query)}`;
+  };
+  const reportTabRows = (inner, y) => {
+    const tabs = reportKinds.map(kind => {
+      const matches = reportsOfKind(kind.name).length;
+      return tabText({ ...kind, count: String(matches) }, kind.name === reportKind);
+    });
+    clickableTabs.push(...tabZones(tabs, y, 0));
+    return [tabs.map(tab => tab.text).join(TAB_GAP), filterRow(inner)];
+  };
   const renderHeader = (inner, clock, frame) => {
     const live = snapshot.connection === 'connected';
     const activeRuns = liveJobs();
@@ -1394,17 +1460,22 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       ...activeRuns.map(run => ({ name: `job:${run.id}`, label: line(clean(jobTitle(run)), 24), prefix: `${positive(frame)} ` })),
     ].map(tab => tabText(tab, tab.name === view));
     images?.useTheme(palette.face.theme);
-    const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
+    const { lines: header, zones } = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
+    clickableTabs = zones;
     const invalid = invalidSchedules().length;
     if (invalid) header.push(warning(`▲ ${invalid} invalid routine${invalid === 1 ? '' : 's'} · see Routines`));
-    return [...header, ''];
+    return showsReportList() ? [...header, ...reportTabRows(inner, header.length)] : [...header, ''];
   };
 
   const hintsFor = draft => {
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
-    if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['←→', 'views'], ['esc', 'chat']];
+    if (focus === 'reports') {
+      const nextKind = ['tab', otherReportKind().label];
+      if (typingFilter) return [['enter', 'read'], ['↑↓', 'select'], nextKind, ['esc', 'clear']];
+      return [['↑↓', 'select'], ['enter', 'read'], ['/', 'filter'], nextKind, ['←→', 'views'], ['esc', reportFilter.getValue() ? 'clear filter' : 'chat']];
+    }
     if (focus === 'detail') return [['r m', 'reply'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') {
@@ -1603,7 +1674,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return content.length ? { content, days, marks } : { content: welcomeLines(inner, available, !snapshot.schedules?.length), marks };
     }
     if (showsReportList()) {
-      return reportListLines({ reports: reports(), total: allReports().length, selectedId, inner, clock });
+      return reportListLines({ reports: reports(), total: reportsOfKind(reportKind).length, selectedId, filtered: Boolean(filterText()), inner, clock });
     }
     return {
       content: reportDetailLines({ report: completedReport ?? reports()[selectedIndex()], inner, clock, markdown }),
@@ -1683,6 +1754,49 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return true;
   };
 
+  const openView = name => {
+    askingWorkFolder = false;
+    typingFilter = false;
+    view = name;
+    if (view === 'conversation') {
+      focus = 'composer';
+    } else if (isJob()) {
+      focus = 'job';
+    } else {
+      focus = view;
+    }
+    if (view === 'reports') completedReport = null;
+    keepSelectionListed();
+    scroll = 0;
+  };
+  const handleFilterKey = data => {
+    if (key(data, 'escape')) {
+      clearFilter();
+    } else if (key(data, 'tab')) {
+      showReportKind(otherReportKind().name);
+    } else if (key(data, 'up') || key(data, 'down')) {
+      moveReportSelection(key(data, 'down') ? 1 : -1);
+    } else if (key(data, 'enter')) {
+      typingFilter = false;
+      if (reports().length) {
+        focus = 'detail';
+        scroll = 0;
+      }
+    } else if (key(data, 'backspace') && !reportFilter.getValue()) {
+      typingFilter = false;
+    } else {
+      reportFilter.handleInput(data);
+      keepSelectionListed();
+      scroll = 0;
+    }
+  };
+  // Every row sits inside the frame's two columns of margin.
+  const tabAt = ({ x, y }) => clickableTabs.find(zone => zone.y === y && x - 2 >= zone.from && x - 2 < zone.to)?.name;
+  const openTab = name => {
+    if (reportKinds.some(kind => kind.name === name)) showReportKind(name);
+    else openView(name);
+  };
+
   const controller = {
     state: () => ({ selectedId, focus, view, scroll, draft: editor.getExpandedText(), notice, mood: moodNow(now()) }),
     get focused() { return hasFocus; },
@@ -1710,7 +1824,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       }
       if (target.view.startsWith('job:') && !jobViews().includes(target.view)) {
         completedReport = next.completedJobReports?.[target.view.slice(4)] ?? null;
-        if (completedReport) selectedId = completedReport.id;
+        if (completedReport) {
+          selectedId = completedReport.id;
+          reportKind = reportKindOf(completedReport);
+          reportFilter.setValue('');
+        }
         target.view = completedReport ? 'reports' : 'conversation';
         target.focus = completedReport ? 'detail' : 'composer';
         target.scroll = 0;
@@ -1720,7 +1838,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       } else {
         view = target.view;
       }
-      if (!completedReport && !reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
+      keepSelectionListed();
       animate();
       changed();
     },
@@ -1776,7 +1894,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       question?.finish(null);
     },
     handleMouse(event) {
-      if (event.type !== 'wheel' || question) return;
+      if (question) return;
+      if (event.type === 'press' || event.type === 'click') {
+        const tab = event.button === 'left' ? tabAt(event) : null;
+        if (!tab) return;
+        if (event.type === 'click') {
+          openTab(tab);
+          changed();
+        }
+        // Taking the press too is what makes the click arrive, and stops it starting a text selection.
+        return { handled: true };
+      }
+      if (event.type !== 'wheel') return;
       if (event.y >= contentBounds.top && event.y < contentBounds.bottom && focus !== 'reports') {
         const delta = (event.wheelDelta ?? 0) * (followsTail() ? -1 : 1);
         scroll = Math.max(0, scroll + delta);
@@ -1832,24 +1961,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         view = 'conversation';
         focus = 'composer';
         scroll = 0;
+      } else if (typingFilter && (reportFilter.getValue() || !(key(data, 'left') || key(data, 'right')))) {
+        handleFilterKey(data);
       } else if ((key(data, 'left') || key(data, 'right'))
         && (focus !== 'composer' || !editor.getExpandedText())) {
-        askingWorkFolder = false;
         const tabs = views();
         const direction = key(data, 'left') ? -1 : 1;
-        view = tabs[(tabs.indexOf(view) + direction + tabs.length) % tabs.length];
-        if (view === 'conversation') {
-          focus = 'composer';
-        } else if (isJob()) {
-          focus = 'job';
-        } else {
-          focus = view;
-        }
-        if (view === 'reports') completedReport = null;
-        if (!completedReport && !reports().some(report => report.id === selectedId)) {
-          selectedId = reports()[0]?.id ?? null;
-        }
-        scroll = 0;
+        openView(tabs[(tabs.indexOf(view) + direction + tabs.length) % tabs.length]);
       } else if (followsTail() && (key(data, 'pageUp') || key(data, 'pageDown'))) {
         scroll = Math.max(0, scroll + (key(data, 'pageUp') ? 8 : -8));
       } else if (focus === 'composer') {
@@ -1867,7 +1985,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         if (focus === 'detail') {
           focus = 'reports';
           completedReport = null;
-          if (!reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
+          keepSelectionListed();
+        } else if (view === 'reports' && reportFilter.getValue()) {
+          clearFilter();
         } else {
           const watchingWork = workVisible() && workRuns().some(run => `job:${run.id}` === view);
           view = watchingWork ? 'work' : 'conversation';
@@ -1875,14 +1995,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }
         scroll = 0;
       } else if (view === 'reports' && focus === 'reports' && (key(data, 'up') || key(data, 'down'))) {
-        const delta = key(data, 'down') ? 1 : -1;
-        const list = reports();
-        completedReport = null;
-        selectedId = list[Math.max(0, Math.min(list.length - 1, selectedIndex() + delta))]?.id ?? null;
-        scroll = 0;
+        moveReportSelection(key(data, 'down') ? 1 : -1);
       } else if (view === 'reports' && focus === 'reports' && key(data, 'enter')) {
         focus = 'detail';
         scroll = 0;
+      } else if (view === 'reports' && focus === 'reports' && key(data, '/')) {
+        typingFilter = true;
+      } else if (view === 'reports' && focus === 'reports' && key(data, 'tab')) {
+        showReportKind(otherReportKind().name);
       } else if (key(data, 'pageDown') || key(data, 'down')) {
         scroll = Math.max(0, scroll + (key(data, 'pageDown') ? 8 : 1) * (isJob() ? -1 : 1));
       } else if (key(data, 'pageUp') || key(data, 'up')) {
@@ -1896,6 +2016,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       rows = height;
       columns = width;
       contentBounds = { top: 0, bottom: 0 };
+      clickableTabs = [];
       const tooSmall = text => {
         motion?.reset();
         return [line(text, width)];

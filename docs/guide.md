@@ -33,8 +33,10 @@ Chat opens ready to type. Reports holds completed checks; Routines shows their n
 
 - **Enter** sends a message or opens the selected report. Your message shows in Chat straight away, gray until the agent has it. One sent while the agent is busy waits its turn.
 - **When the agent asks you something**, pick an answer with the arrows and **Enter**. The last row, Other, takes your own words. **Esc** chooses none.
-- **Left/Right** changes views when the chat draft is empty; otherwise it moves the cursor.
+- **Left/Right** changes views when the chat draft is empty; otherwise it moves the cursor. A click on a tab opens it too.
 - **Arrow keys** select reports. **Page Up/Down** and the mouse wheel scroll.
+- **Tab** in Reports moves between Scheduled and Work Done, and a click on either does the same.
+- **/** in Reports filters by title as you type, ignoring case. The arrows move through the matches and **Enter** opens one. The filter stays while you read or change subtabs, until **Esc** clears it.
 - **m** inside a report moves to the composer with that report attached, so you can ask about it and carry on in Chat. **Escape** in the composer drops the report and keeps your draft.
 - **Escape** leaves a report or returns to Chat without losing the draft.
 - **k** cancels the selected running check. Jobs have no automatic execution deadline.

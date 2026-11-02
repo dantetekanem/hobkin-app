@@ -362,6 +362,7 @@ export class HobkinApplication {
         completedJobReports[id] = {
           id,
           title: run.title ?? run.scheduleId ?? id,
+          scheduleId: run.scheduleId,
           at: run.finishedAt,
           body,
           outcome: run.status,
