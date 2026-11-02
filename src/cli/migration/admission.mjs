@@ -70,6 +70,9 @@ function activation(requested) {
 /** Finite, read-only pointer resolution; it never completes an upgrade as a side effect. */
 export const resolveDataRoot = root => activation(root).root;
 
+/** The verified record of an upgrade in place, or null for a home that never had one. */
+export const migrationRecord = root => activation(root).record;
+
 /** Working config/session files evolve; imported history remains pinned and distinct. */
 export function assertRuntimeAdmission(root) {
   const admitted = activation(root);

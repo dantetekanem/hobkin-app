@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { loadImportedHistory } from '../src/cli/history.mjs';
 import { importHome } from '../src/cli/import.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -180,6 +181,23 @@ test('a setting made before the import survives it', async t => {
 
   const saved = JSON.parse(readFileSync(join(to, 'config.json'), 'utf8'));
   assert.deepEqual([saved.jev, saved.learning], [{ enabled: true }, { enabled: true }]);
+});
+
+test('history an earlier migration brought in still shows after the import', async t => {
+  const { from, to } = folders(t);
+  await companionHome(from);
+  mkdirSync(join(from, 'imported/sessions'), { recursive: true });
+  mkdirSync(join(from, 'imported/states'), { recursive: true });
+  writeFileSync(join(from, 'imported/sessions/index.json'), JSON.stringify({ sessions: [] }));
+  writeFileSync(join(from, 'imported/states/origin.json'), JSON.stringify({
+    origin: 'session:one',
+    source: 'old-state.json',
+    legacy: { items: [{ id: 'r1', title: 'Old report', body: 'From the extension.', savedAt: '2026-01-01T00:00:00Z' }] },
+  }));
+
+  await importHome(to, from);
+
+  assert.deepEqual(loadImportedHistory(to).reports.map(report => report.title), ['Old report']);
 });
 
 test('a folder with no data is refused', async t => {

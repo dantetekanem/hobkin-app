@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { assertRuntimeAdmission } from './migration/admission.mjs';
+import { assertRuntimeAdmission, migrationRecord } from './migration/admission.mjs';
 import { sha256 } from './migration/inventory.mjs';
 
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
@@ -67,15 +67,20 @@ export function loadImportedHistory(requestedRoot, { limit = 200 } = {}) {
   const indexPath = join(root, 'imported/sessions/index.json');
   const reports = localReports(root);
   if (!existsSync(indexPath)) return visibleHistory(history, reports, limit);
-  const record = json(join(dirname(dirname(root)), 'journal.json'));
-  history.archives = record.manifest.files.map(entry => ({
+  // `hobkin import` copies the imported history but not the migration record that listed it.
+  const record = migrationRecord(requestedRoot);
+  const statesFolder = join(root, 'imported/states');
+  const states = record
+    ? record.validation.artifacts.map(item => item.path).filter(path => path.startsWith('imported/states/'))
+    : (existsSync(statesFolder) ? readdirSync(statesFolder) : []).filter(name => name.endsWith('.json')).map(name => `imported/states/${name}`);
+  history.archives = (record?.manifest.files ?? []).map(entry => ({
     ...entry,
     archivePath: join(dirname(root), 'originals', sha256(entry.path)),
     authority: 'historical-evidence',
   }));
   history.sessions = json(indexPath).sessions.map(session => ({ ...session, path: join(root, session.path) }));
-  for (const artifact of record.validation.artifacts.filter(item => item.path.startsWith('imported/states/'))) {
-    const path = join(root, artifact.path);
+  for (const state of states) {
+    const path = join(root, state);
     const { origin, source, legacy } = json(path);
     history.origins.push({ origin, path, source, authority: 'historical-evidence' });
     for (const item of legacy.items) {
