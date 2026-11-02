@@ -20,7 +20,7 @@ For a custom workspace, set this variable to its absolute path. `--home` overrid
 
 ```sh
 hobkin status --plain --home "$hobkin_home"
-hobkin schedules --home "$hobkin_home"
+hobkin routines --home "$hobkin_home"
 hobkin --home "$hobkin_home"
 ```
 
@@ -117,7 +117,7 @@ This records your confirmation; it does not inspect processes. The session set m
 hobkin upgrade-apply --confirm MIGRATION_ID --selection /absolute/authorization.json --home "$hobkin_home"
 ```
 
-Apply checks shutdown evidence, prevents legacy startup, stages preserved originals and validates every origin and schedule. It then disables selected old tasks under the scheduler lock and activates the destination. Unrelated tasks, unknown metadata and original source files remain intact. Durable checkpoint inspection uses a disposable copy.
+Apply checks shutdown evidence, prevents legacy startup, stages preserved originals and validates every origin and routine. It then disables selected old tasks under the scheduler lock and activates the destination. Unrelated tasks, unknown metadata and original source files remain intact. Durable checkpoint inspection uses a disposable copy.
 
 The journal records `inventory`, `staged`, `fencing`, `fenced`, `committed` and `verified`. On failure, keep its files, resolve the reported error and repeat the same command. Do not delete the fence, reset the journal or replace originals. Source changes require reconciliation; there is no automatic rollback or discard command.
 
@@ -126,11 +126,11 @@ The journal records `inventory`, `staged`, `fencing`, `fenced`, `committed` and 
 ```sh
 hobkin upgrade-status --home "$hobkin_home"
 hobkin status --plain --home "$hobkin_home"
-hobkin schedules --home "$hobkin_home"
+hobkin routines --home "$hobkin_home"
 hobkin history --home "$hobkin_home"
 ```
 
-Check for `phase: "verified"`, expected schedules and paused states, and imported origins and archive paths. These commands do not start providers or checks. Then launch:
+Check for `phase: "verified"`, expected routines and paused states, and imported origins and archive paths. These commands do not start providers or checks. Then launch:
 
 ```sh
 hobkin --home "$hobkin_home"
@@ -148,7 +148,7 @@ Historical `timeoutMs` fields are preserved but do not impose execution deadline
 - For migration, identify all origins, task ownership and original model/provider bindings. Preserve stops and pauses.
 - Stop the old owner before hashing. Review and save the complete plan, then prepare with its hash.
 - Apply with the returned migration ID and actual shutdown evidence. Resume the same journal after interruption.
-- Verify status, schedules and history. Report unresolved errors and whether any live check was actually run.
+- Verify status, routines and history. Report unresolved errors and whether any live check was actually run.
 
 ## Optional bounded state repair
 
@@ -183,6 +183,6 @@ Apply returns `repair_review` (exit code 2), the proposal, attempt ID, cost and 
 }
 ```
 
-Approved repairs change staging only and must pass import and schedule validation. Original bytes remain intact; parseable control fields cannot change. Valid JSON alone does not establish correct meaning.
+Approved repairs change staging only and must pass import and routine validation. Original bytes remain intact; parseable control fields cannot change. Valid JSON alone does not establish correct meaning.
 
 Attempts are reserved before dispatch. Interrupted attempts are not replayed. A completed invalid attempt needs `retryOf` and remaining consented budget, at most three attempts. Sources are limited to 32 KiB; repair costs count toward the CLI estimate. Neither limit guarantees spending.

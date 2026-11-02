@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { scheduleDefinition } from '../src/cli/checks.mjs';
 import { initialize, loadConfig, validateConfig } from '../src/cli/config.mjs';
-import { parseSchedule, loadSchedules, formatSchedule, validateBinding, whenItRuns } from '../src/cli/schedules.mjs';
+import { parseSchedule, loadSchedules, formatSchedule, moveRoutinesFolder, routinesFolder, validateBinding, whenItRuns } from '../src/cli/schedules.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-cli-'));
@@ -36,7 +38,7 @@ test('initialization is model-free, private, repeatable and does not replace edi
   assert.equal(config.version, 2);
   assert.equal(config.main.cwd, '/project');
   assert.equal(statSync(join(root, 'config.json')).mode & 0o777, 0o600);
-  assert.deepEqual(readdirSync(join(root, 'schedules')).sort(), ['README.md', 'daily', 'monthly', 'once', 'weekly']);
+  assert.deepEqual(readdirSync(join(root, 'routines')).sort(), ['README.md', 'daily', 'monthly', 'once', 'weekly']);
   const saved = { ...config, background: { harness: 'claude', model: 'sonnet', effort: 'high' } };
   writeFileSync(join(root, 'config.json'), JSON.stringify(saved));
   assert.deepEqual(initialize(root, { cwd: '/different', now: '2027-01-01T00:00:00.000Z' }), saved);
@@ -87,7 +89,7 @@ test('one paused schedule can hold multiple times and round-trip in every recurr
   const at = Array.from({ length: 10 }, (_, i) => `${String(i + 8).padStart(2, '0')}:00`);
   for (const [cadence, extra] of [['daily', {}], ['weekly', { weekday: 1 }], ['monthly', { day: 31 }]]) {
     const source = file({ ...extra, at, id: cadence });
-    const path = join(root, `schedules/${cadence}/check.md`);
+    const path = join(root, `routines/${cadence}/check.md`);
     writeFileSync(path, source);
     const schedule = parseSchedule(source, cadence, path);
     assert.deepEqual(schedule.at, at);
@@ -104,7 +106,7 @@ test('one paused window schedule round-trips and invalid or conflicting windows 
   const window = { start: '08:00', end: '17:00', everyMinutes: 60 };
   for (const [cadence, extra] of [['daily', {}], ['weekly', { weekday: 1 }], ['monthly', { day: 31 }]]) {
     const source = file({ ...extra, at: undefined, window, id: cadence });
-    const path = join(root, `schedules/${cadence}/check.md`);
+    const path = join(root, `routines/${cadence}/check.md`);
     writeFileSync(path, source);
     const schedule = parseSchedule(source, cadence, path);
     assert.deepEqual(schedule.window, window);
@@ -157,12 +159,12 @@ test('validation rejects ambiguous configuration, unsafe input and unsupported e
 test('loader reports per-file errors and rejects every conflicting ID or symlink rather than executing one', t => {
   const root = fixture(t);
   initialize(root, { cwd: root });
-  writeFileSync(join(root, 'schedules/daily/first.md'), file());
-  writeFileSync(join(root, 'schedules/weekly/duplicate.md'), file({ weekday: 1 }));
-  writeFileSync(join(root, 'schedules/daily/broken.md'), 'not metadata');
-  writeFileSync(join(root, 'schedules/monthly/valid.md'), file({ id: 'monthly', day: 1 }));
-  symlinkSync(join(root, 'schedules/monthly/valid.md'), join(root, 'schedules/daily/link.md'));
-  const legacyPath = join(root, 'schedules/daily/legacy.md');
+  writeFileSync(join(root, 'routines/daily/first.md'), file());
+  writeFileSync(join(root, 'routines/weekly/duplicate.md'), file({ weekday: 1 }));
+  writeFileSync(join(root, 'routines/daily/broken.md'), 'not metadata');
+  writeFileSync(join(root, 'routines/monthly/valid.md'), file({ id: 'monthly', day: 1 }));
+  symlinkSync(join(root, 'routines/monthly/valid.md'), join(root, 'routines/daily/link.md'));
+  const legacyPath = join(root, 'routines/daily/legacy.md');
   const legacy = file({ id: 'legacy', harness: 'claude', effort: 'max' });
   writeFileSync(legacyPath, legacy);
 
@@ -189,9 +191,9 @@ test('CLI init/list uses only the explicit temporary root and fails on invalid s
   assert.match(listed.stdout, /daily.*0/i);
   assert.doesNotMatch(listed.stdout, /\u001b/);
   const recap = { id: 'recap', title: 'Recap', at: '09:30', weekday: [1, 3], timezone: 'UTC', enabled: true, harness: 'pi', model: null, effort: 'medium', cwd: root, context: [] };
-  writeFileSync(join(root, 'schedules/weekly/recap.md'), `---\n${JSON.stringify(recap)}\n---\nDo it.\n`);
+  writeFileSync(join(root, 'routines/weekly/recap.md'), `---\n${JSON.stringify(recap)}\n---\nDo it.\n`);
   assert.match(run('schedules').stdout, /enabled {2}weekly\/recap {2}Recap {2}Mon, Wed 09:30/);
-  writeFileSync(join(root, 'schedules/daily/broken.md'), 'broken');
+  writeFileSync(join(root, 'routines/daily/broken.md'), 'broken');
   assert.equal(run('schedules').status, 1);
   assert.equal(run('unknown-command').status, 1);
 });
@@ -205,4 +207,63 @@ test('a check says when it runs in a few words, so a list reads as the calendar'
   assert.equal(whenItRuns({ cadence: 'monthly', day: 27, at: '09:00' }), 'day 27 09:00');
   assert.equal(whenItRuns({ cadence: 'once', date: '2026-05-04', at: '15:00' }), '2026-05-04 15:00');
   assert.equal(whenItRuns({ cadence: 'compatibility' }), '');
+});
+
+const oldHome = t => {
+  const root = fixture(t);
+  mkdirSync(join(root, 'schedules', 'daily'), { recursive: true });
+  writeFileSync(join(root, 'schedules', 'daily', 'recap.md'), formatSchedule({ ...metadata, prompt: 'Check it.' }));
+  return root;
+};
+
+test('a home that has not moved yet keeps working from its old folder', t => {
+  const root = oldHome(t);
+
+  assert.equal(routinesFolder(root), join(root, 'schedules'));
+  assert.deepEqual(loadSchedules(root).schedules.map(({ id }) => id), ['recap']);
+});
+
+test('moving the folder keeps every routine, and a path written inside one still works', t => {
+  const root = oldHome(t);
+
+  moveRoutinesFolder(root);
+
+  assert.equal(routinesFolder(root), join(root, 'routines'));
+  assert.deepEqual(loadSchedules(root).schedules.map(({ id }) => id), ['recap']);
+  assert.match(readFileSync(join(root, 'schedules', 'daily', 'recap.md'), 'utf8'), /Check it/);
+  assert.equal(lstatSync(join(root, 'schedules')).isSymbolicLink(), true);
+
+  moveRoutinesFolder(root);
+  assert.equal(lstatSync(join(root, 'routines')).isDirectory(), true, 'moving twice changes nothing');
+});
+
+test('a folder already moved is never overwritten', t => {
+  const root = oldHome(t);
+  mkdirSync(join(root, 'routines', 'daily'), { recursive: true });
+
+  moveRoutinesFolder(root);
+
+  assert.equal(lstatSync(join(root, 'schedules')).isDirectory(), true);
+  assert.equal(routinesFolder(root), join(root, 'routines'));
+});
+
+test('a new home starts with routines, and init leaves an old home where it is', t => {
+  const fresh = fixture(t);
+  initialize(fresh, { cwd: fresh });
+  assert.equal(lstatSync(join(fresh, 'routines', 'daily')).isDirectory(), true);
+  assert.equal(lstatSync(join(fresh, 'schedules'), { throwIfNoEntry: false }), undefined);
+
+  const old = oldHome(t);
+  initialize(old, { cwd: old });
+  assert.equal(lstatSync(join(old, 'routines'), { throwIfNoEntry: false }), undefined, 'an empty new folder would hide the old one');
+  assert.deepEqual(loadSchedules(old).schedules.map(({ id }) => id), ['recap']);
+});
+
+test('moving the folder does not change a routine\'s fingerprint, so holds and answers stand', () => {
+  const routine = { id: 'recap', prompt: 'Check it.', path: '/home/me/.hobkin/schedules/daily/recap.md' };
+  const moved = { ...routine, path: '/home/me/.hobkin/routines/daily/recap.md' };
+
+  assert.equal(scheduleDefinition(moved), scheduleDefinition(routine));
+  assert.equal(scheduleDefinition(routine), createHash('sha256').update(JSON.stringify(routine)).digest('hex'), 'runs already saved keep matching');
+  assert.notEqual(scheduleDefinition({ ...moved, prompt: 'Check more.' }), scheduleDefinition(routine));
 });

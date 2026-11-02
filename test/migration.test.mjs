@@ -116,7 +116,7 @@ test('real-engine upgrade preserves mixed origins/actions/stops and fences the o
   assert.deepEqual(await runUpgrade(reopened, {}), result);
   assert.deepEqual(readFileSync(reopened.file), journalBytes);
   assert.deepEqual(readFileSync(h.schedulerFile), schedulerBytes);
-  assert.equal(readdirSync(join(root, 'schedules/compatibility')).length, 7);
+  assert.equal(readdirSync(join(root, 'routines/compatibility')).length, 7);
   const restored = await HobkinRuntime.open(h.root, config);
   const next = new HobkinRunner({ root, config, runtime: restored, compatibility: adapter, now: () => new Date(due) });
   t.after(async () => {

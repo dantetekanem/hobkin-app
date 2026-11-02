@@ -180,7 +180,7 @@ const helpGuide = readFileSync(new URL('../prompts/help.md', import.meta.url), '
 const tips = [
   'Type /help to see what Hobkin can do.',
   'Try another model or thinking effort? Just ask Hobkin.',
-  'Each schedule can have its own model and thinking effort.',
+  'Each routine can have its own model and thinking effort.',
   'Ask Hobkin to run any check now, even a paused one.',
   'Ask why a check stopped. Every check keeps a run log.',
   'Tell Hobkin what matters. It remembers across chats.',
@@ -212,7 +212,7 @@ const outcomes = {
   imported: ['◇', muted],
 };
 const outcome = value => Object.hasOwn(outcomes, value) ? outcomes[value] : ['•', dim];
-// A schedule's report wears the dot of the Schedules tab, so the two kinds tell apart at a glance. Anything that went wrong looks the same on both.
+// A routine's report wears the dot of the Routines tab, so the two kinds tell apart at a glance. Anything that went wrong looks the same on both.
 const reportMark = ({ outcome: result, scheduleId }) => {
   const [glyph, tone] = outcome(result);
   return tone === positive && !String(scheduleId ?? '').startsWith('work.') ? accent(glyph) : tone(glyph);
@@ -410,7 +410,7 @@ const scheduleWhen = (schedule, clock) => {
 };
 const lifecycleLabels = {
   completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', expired: 'Expired',
-  paused: 'Paused', pending: 'Awaiting scheduler', blocked: 'Invalid schedule',
+  paused: 'Paused', pending: 'Awaiting scheduler', blocked: 'Invalid routine',
 };
 const scheduleStatus = ({ schedule, jobs, live, clock, frame }) => {
   if (jobs.length) return { timing: 'running now', tone: positive, glyph: positive(frame) };
@@ -498,7 +498,7 @@ const scheduleLines = ({ schedules, counts, diagnostics, attention, activeRuns, 
       ...wrapTextWithAnsi(jobDetails(run, clock), inner - 2).map(value => `  ${value}`),
     );
   }
-  if (!schedules.length) content.push(dim('No schedules yet. Type /setup in Chat, or add a file to schedules/daily, weekly, monthly or once.'));
+  if (!schedules.length) content.push(dim('No routines yet. Type /setup in Chat, or add a file to routines/daily, weekly, monthly or once.'));
   return content;
 };
 const toolState = (state, frame) => {
@@ -1384,7 +1384,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const tabs = [
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
-      { name: 'schedules', label: 'Schedules', count: String(scheduleCount) },
+      { name: 'schedules', label: 'Routines', count: String(scheduleCount) },
       ...(workVisible() ? [{
         name: 'work',
         label: 'Work Mode',
@@ -1396,7 +1396,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     images?.useTheme(palette.face.theme);
     const header = headerLines({ tabs, statuses, inner, wordmark: images?.wordmark() });
     const invalid = invalidSchedules().length;
-    if (invalid) header.push(warning(`▲ ${invalid} invalid schedule${invalid === 1 ? '' : 's'} · see Schedules`));
+    if (invalid) header.push(warning(`▲ ${invalid} invalid routine${invalid === 1 ? '' : 's'} · see Routines`));
     return [...header, ''];
   };
 
@@ -1435,8 +1435,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const title = line(clean(upcoming.title), Math.max(12, inner - 24));
       detail = `${assistantColor(title)}  ${accent(until(upcoming.nextRun.at, clock))}`;
     } else if (schedules.some(schedule => schedule.enabled)) detail = muted('no run scheduled');
-    else if (schedules.length) detail = negative('none · all schedules paused');
-    else detail = muted('no schedules');
+    else if (schedules.length) detail = negative('none · all routines paused');
+    else detail = muted('no routines');
     return `${muted('next check')}   ${detail}`;
   };
   const activityText = (hints, frame) => {

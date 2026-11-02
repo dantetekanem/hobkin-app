@@ -3,27 +3,27 @@ import { join, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getSupportedThinkingLevels } from '@earendil-works/pi-ai';
 import { atomicJson, loadConfig } from './config.mjs';
-import { cadences, efforts, loadSchedules } from './schedules.mjs';
+import { cadences, efforts, loadSchedules, routinesFolder } from './schedules.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 
-const scopes = ['main', 'background', 'schedules', 'all'];
+const scopes = ['main', 'background', 'routines', 'all'];
 function selected(scope) {
   if (!scopes.includes(scope)) throw Error(`scope must be one of: ${scopes.join(', ')}`);
-  return { main: scope === 'main' || scope === 'all', background: scope === 'background' || scope === 'all', schedules: scope === 'schedules' || scope === 'all' };
+  return { main: scope === 'main' || scope === 'all', background: scope === 'background' || scope === 'all', routines: scope === 'routines' || scope === 'all' };
 }
 function inspect(root, scope, scheduleId) {
   const targets = selected(scope);
-  if (scheduleId !== undefined && scope !== 'schedules') throw Error('scheduleId needs scope schedules.');
+  if (scheduleId !== undefined && scope !== 'routines') throw Error('routineId needs scope routines.');
   const config = loadConfig(root);
   let schedules = [];
-  if (targets.schedules) {
+  if (targets.routines) {
     const loaded = loadSchedules(root);
-    const dirs = cadences.map(cadence => join(root, 'schedules', cadence));
+    const dirs = cadences.map(cadence => join(routinesFolder(root), cadence));
     const errors = loaded.errors.filter(item => dirs.some(dir => item.path === dir || item.path.startsWith(`${dir}${sep}`)));
-    if (errors.length) throw Error(`Cannot update schedules with invalid native bindings: ${errors.map(item => item.path).join(', ')}`);
+    if (errors.length) throw Error(`Cannot update routines with invalid native bindings: ${errors.map(item => item.path).join(', ')}`);
     schedules = loaded.schedules.filter(item => item.cadence !== 'compatibility'
       && (scheduleId === undefined || item.id === scheduleId));
-    if (scheduleId !== undefined && !schedules.length) throw Error(`Unknown schedule: ${scheduleId}`);
+    if (scheduleId !== undefined && !schedules.length) throw Error(`Unknown routine: ${scheduleId}`);
   }
   return { targets, config, schedules };
 }
@@ -32,7 +32,7 @@ function snapshot(scope, { targets, config, schedules }) {
     scope,
     ...(targets.main ? { main: { model: config.main.model, effort: config.main.effort } } : {}),
     ...(targets.background ? { background: { harness: config.background.harness, model: config.background.model, effort: config.background.effort } } : {}),
-    ...(targets.schedules ? { schedules: schedules.map(({ id, cadence, enabled, harness, model, effort }) => ({ id, cadence, enabled, harness, model, effort })) } : {}),
+    ...(targets.routines ? { routines: schedules.map(({ id, cadence, enabled, harness, model, effort }) => ({ id, cadence, enabled, harness, model, effort })) } : {}),
   };
 }
 export function readSettings(root, scope = 'all', scheduleId) {
@@ -67,10 +67,10 @@ function assertRunnable(schedules, model, effort, modelRuntime) {
 }
 function writeSchedule(path, model, effort) {
   const stat = lstatSync(path);
-  if (!stat.isFile()) throw Error(`Schedule is not a regular file: ${path}`);
+  if (!stat.isFile()) throw Error(`Routine is not a regular file: ${path}`);
   const source = readFileSync(path, 'utf8');
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
-  if (!match) throw Error(`Invalid schedule frontmatter: ${path}`);
+  if (!match) throw Error(`Invalid routine frontmatter: ${path}`);
   const metadata = JSON.parse(match[1]);
   if (model !== undefined) metadata.model = `${model.provider}/${model.id}`;
   if (effort !== undefined) metadata.effort = effort;
@@ -90,7 +90,7 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
   const bindings = [
     ...(state.targets.main ? [{ scope: 'main', harness: 'pi' }] : []),
     ...(state.targets.background ? [{ scope: 'background', harness: state.config.background.harness }] : []),
-    ...state.schedules.map(item => ({ scope: `schedules:${item.id}`, harness: item.harness, path: item.path })),
+    ...state.schedules.map(item => ({ scope: `routines:${item.id}`, harness: item.harness, path: item.path })),
   ];
   const incompatible = bindings.filter(item => (reference !== undefined && item.harness !== 'pi') || (effort !== undefined && !efforts[item.harness]?.includes(effort)));
   if (incompatible.length) {
@@ -124,7 +124,7 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
       if (state.targets.background) completed.push('background');
     }
     for (const item of state.schedules) {
-      attempting = `schedules:${item.id}`;
+      attempting = `routines:${item.id}`;
       writeSchedule(item.path, resolved, effort);
       completed.push(attempting);
     }
@@ -156,5 +156,5 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
   }
   return { scope, persisted: { status: 'complete', settings: safeSnapshot(root, scope, scheduleId), completed }, activeRuntime, unchangedScopes: scopesFor(state.targets) };
 }
-function scopesFor(targets) { return ['main', 'background', 'schedules'].filter(scope => !targets[scope]); }
+function scopesFor(targets) { return ['main', 'background', 'routines'].filter(scope => !targets[scope]); }
 function safeSnapshot(root, scope, scheduleId) { try { return readSettings(root, scope, scheduleId); } catch (error) { return { error: error.message }; } }

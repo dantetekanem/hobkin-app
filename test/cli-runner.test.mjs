@@ -57,12 +57,12 @@ class MemoryRuntime {
 async function fixture(t, options = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'hobkin-runner-')));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await mkdir(join(root, 'schedules/daily'), { recursive: true });
+  await mkdir(join(root, 'routines/daily'), { recursive: true });
 
   const schedule = { ...base, cwd: root, ...options };
   const save = async (value = schedule) => {
     const { cadence, prompt, ...metadata } = value;
-    const path = join(root, 'schedules', cadence, `${value.id}.md`);
+    const path = join(root, 'routines', cadence, `${value.id}.md`);
     await writeFile(path, `---\n${JSON.stringify(metadata)}\n---\n${prompt}\n`);
   };
   await save();
@@ -443,7 +443,7 @@ test('runner snapshots forecast only enabled, unblocked schedules and distinguis
   snapshot = await runner.snapshot();
   assert.deepEqual(snapshot.schedules.find(item => item.id === 'check').nextRun, { state: 'running', at: '2026-04-27T09:00:00.000Z' });
   delete h.runtime.data.runs.running;
-  runner.loaded.errors.push({ path: h.schedule.path ?? join(h.root, 'schedules/daily/check.md'), message: 'Missing context' });
+  runner.loaded.errors.push({ path: h.schedule.path ?? join(h.root, 'routines/daily/check.md'), message: 'Missing context' });
   snapshot = await runner.snapshot();
   assert.deepEqual(snapshot.schedules.find(item => item.id === 'check').nextRun, { state: 'blocked', at: null });
   assert.equal(Object.keys(h.runtime.data.runs).length, 0);
@@ -551,7 +551,7 @@ test('tick returns before completion, deduplicates and exposes durable full repo
     model: 'test',
     sources: ['source'],
   });
-  assert.equal(envelope.schedule.instructions, fixtureData.schedule.prompt);
+  assert.equal(envelope.routine.instructions, fixtureData.schedule.prompt);
   assert.deepEqual(envelope.sources, [{ path: 'source', text: 'Selected source content' }]);
   assert.deepEqual(envelope.memory, ['Rent is due November 1']);
   const snapshot = await runner.snapshot();
@@ -575,7 +575,7 @@ test('reload rejects malformed cached authority and unsafe/missing context befor
     },
   });
 
-  await writeFile(join(fixtureData.root, 'schedules/daily/check.md'), 'broken');
+  await writeFile(join(fixtureData.root, 'routines/daily/check.md'), 'broken');
   await runner.tick();
   assert.equal(calls, 0);
   assert.equal((await runner.snapshot()).errors.length, 1);
@@ -734,11 +734,11 @@ test('kill stops only the named owned native run and keeps its schedule', async 
 test('kill interrupts only the named compatibility attempt and keeps explicit reconciliation', async t => {
   const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
   const h = await fixture(t);
-  await mkdir(join(h.root, 'schedules/compatibility'));
+  await mkdir(join(h.root, 'routines/compatibility'));
   const files = [];
   for (const action of ['prompt', 'shell']) {
     const task = { id: `task_${action}`, action, prompt: 'Check', command: 'synthetic', enabled: true, status: 'pending' };
-    files.push(join(h.root, `schedules/compatibility/${action}.json`));
+    files.push(join(h.root, `routines/compatibility/${action}.json`));
     await writeFile(files.at(-1), JSON.stringify({
       version: 1,
       id: `legacy-${action}`,
@@ -881,7 +881,7 @@ test('a definition changed after reservation cannot use the old provider authori
   let calls = 0;
   const dispatch = fixtureData.runtime.dispatch.bind(fixtureData.runtime);
   fixtureData.runtime.dispatch = (request, effect) => dispatch(request, async signal => {
-    await writeFile(join(fixtureData.root, 'schedules/daily/check.md'), 'broken');
+    await writeFile(join(fixtureData.root, 'routines/daily/check.md'), 'broken');
     return effect(signal);
   });
   const runner = new HobkinRunner({

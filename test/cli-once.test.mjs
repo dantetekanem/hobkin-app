@@ -31,7 +31,7 @@ function fixture(t, patch = {}) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root, now: initializedAt });
   const save = (value = patch, name = 'dentist') =>
-    writeFileSync(join(root, 'schedules/once', `${name}.md`), source({ cwd: root, ...value }));
+    writeFileSync(join(root, 'routines/once', `${name}.md`), source({ cwd: root, ...value }));
   save();
   return { root, save };
 }
@@ -63,7 +63,7 @@ test('once files accept times, lists, windows and a named timezone, and reject b
   assert.throws(() => parseSchedule(source({ day: 4 }), 'once', 'p'), /day/);
 });
 
-test('the loader reads schedules/once and counts it', t => {
+test('the loader reads routines/once and counts it', t => {
   const { root, save } = fixture(t);
   save({ id: 'other', date: '2026-06-01' }, 'other');
   const loaded = loadSchedules(root);
@@ -215,7 +215,7 @@ test('a once run admitted before a restart does not repeat, even if its file cha
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-once-real-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root, now: initializedAt });
-  const save = patch => writeFileSync(join(root, 'schedules/once/dentist.md'), source({ cwd: root, ...patch }));
+  const save = patch => writeFileSync(join(root, 'routines/once/dentist.md'), source({ cwd: root, ...patch }));
   save();
   let calls = 0;
   const config = { concurrency: 2, initializedAt };
@@ -285,7 +285,7 @@ test('a once file that has run moves in with its check, and no longer counts', a
 
   await tickAt(h, '2026-05-04T15:00:31Z');
 
-  assert.equal(existsSync(join(h.root, 'schedules/once/dentist.md')), false);
+  assert.equal(existsSync(join(h.root, 'routines/once/dentist.md')), false);
   assert.match(readFileSync(join(h.root, 'checks/dentist/once-2026-05-04.md'), 'utf8'), /Remind me about the dentist/);
   assert.equal((await h.runner.snapshot()).counts.once, 0);
 });

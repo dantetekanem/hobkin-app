@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { assertRuntimeAdmission, adoptedSession } from './migration/admission.mjs';
 import { readSessionHeader } from './migration/ownership.mjs';
 import { readSource, sha256 } from './migration/inventory.mjs';
-import { validateBinding } from './schedules.mjs';
+import { routinesFolder, validateBinding } from './schedules.mjs';
 import { createMemoryExtension, createMemoryTool } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { grantChrome } from './chrome.mjs';
@@ -109,7 +109,7 @@ function mainPrompts(root, config) {
     readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').replace('{{runtime}}', JSON.stringify({
       root,
       notes: join(root, 'notes'),
-      schedules: join(root, 'schedules'),
+      routines: routinesFolder(root),
       main: config.main,
       background: config.background,
       learningAnswer: hobkinCommand(root, 'learning answer <id> yes|no'),

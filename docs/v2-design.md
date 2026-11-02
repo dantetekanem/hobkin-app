@@ -8,7 +8,7 @@ The main conversation uses Pi's SDK and SessionManager. It loads ordinary tools,
 
 With a configured `launcher`, the main conversation instead runs as a launcher-started Pi RPC child, and every job uses the same command. Hobkin's tools still run in the host. A small extension loaded with `--extension` registers matching proxies and reaches the host through RPC `input` dialogs titled `hobkin/bridge`. Startup verifies the session identity, model, effort and the proxied tools before use. An unexpected child exit stops the chat until a restart, without respawning; scheduled checks keep running.
 
-Background checks use separate Pi RPC sessions and verify each schedule's model/effort before submission. Anthropic/Claude models work through Pi. The CLI has no Claude executable or Teams-specific integration.
+Background checks use separate Pi RPC sessions and verify each routine's model/effort before submission. Anthropic/Claude models work through Pi. The CLI has no Claude executable or Teams-specific integration.
 
 Checks receive their instructions, named context files, their working memory, their recent log lines and a limited previous outcome rather than the main transcript. Each run is a fresh process, so these are all it inherits. Context files must be regular files within the working directory, at most 32 KiB each. The complete supplied context is limited to 64 KiB. This preload rule is not a sandbox: Pi tools retain their configured access.
 
@@ -20,19 +20,19 @@ Under the workspace root, `runtime/hobkin.sqlite` stores dispatch receipts, `run
 
 `checks/<id>/memory.md` is a check's working memory, written by its agent; only the first 8 KiB reach a run, flagged as truncated when cut. `checks/<id>/log.md` has one line per finished run, written by Hobkin after the receipt commits, and keeps its newest lines once it passes 64 KiB. Receipts stay authoritative; a log write failure never changes an outcome.
 
-`runtime/telemetry.jsonl` is an append-only local log of report reads and messages about reports, with run IDs and timings but no report text. It starts with a `tracking_started` event, so reports from before tracking are never judged, and keeps its newest half once it passes 1 MiB. Hobkin joins it with run receipts on each refresh to write `runtime/report-attention.json`, a per-check rollup with no model call. Telemetry only observes: a write failure never reaches the dashboard, and the rollup never changes a schedule.
+`runtime/telemetry.jsonl` is an append-only local log of report reads and messages about reports, with run IDs and timings but no report text. It starts with a `tracking_started` event, so reports from before tracking are never judged, and keeps its newest half once it passes 1 MiB. Hobkin joins it with run receipts on each refresh to write `runtime/report-attention.json`, a per-check rollup with no model call. Telemetry only observes: a write failure never reaches the dashboard, and the rollup never changes a routine.
 
 Reports retain output alongside execution errors without a JSON envelope or tracking comments. Model completion does not establish successful collection, reading or usefulness.
 
 Only one dashboard or pattern-review submission can own a workspace. SIGINT/SIGTERM stops owned work. A stale lock may take five minutes to expire after an unclean exit. SQLite WAL with `synchronous=NORMAL` protects against process crashes, not all power failures, and cannot guarantee exactly-once external effects. Storage contract: https://github.com/earendil-works/pi/blob/v1.1.0/packages/durable/README.md#storage
 
-## Schedules
+## Routines
 
-The [schedule guide](../src/prompts/schedule-setup.md) defines JSON-frontmatter files and local-calendar timing. The runner reloads files before admission and dispatch. Invalid definitions, duplicate IDs and explicit non-Pi bindings produce errors rather than using cached authority or rewriting history.
+The [routine guide](../src/prompts/routine-setup.md) defines JSON-frontmatter files and local-calendar timing. The runner reloads files before admission and dispatch. Invalid definitions, duplicate IDs and explicit non-Pi bindings produce errors rather than using cached authority or rewriting history.
 
 Stable occurrence IDs prevent duplicate dispatch. Missed dates are not replayed. Imported intervals and irregular cron retain their original semantics through the compatibility adapter.
 
-Receipts also decide whether a native check is held. Failed, incomplete and `Blocked:` runs form a streak; interrupted and never-started runs neither extend nor clear it. Two in a row hold the check for a day after the latest one, and each further stalled run doubles the wait up to a week. Occurrences skipped by a hold leave no receipt and are not replayed. A working run or a changed schedule definition ends the streak, and a manual run ignores the hold.
+Receipts also decide whether a native check is held. Failed, incomplete and `Blocked:` runs form a streak; interrupted and never-started runs neither extend nor clear it. Two in a row hold the check for a day after the latest one, and each further stalled run doubles the wait up to a week. Occurrences skipped by a hold leave no receipt and are not replayed. A working run or a changed routine definition ends the streak, and a manual run ignores the hold.
 
 ## Terminal
 
@@ -51,7 +51,7 @@ Cutover has five parts:
 1. Fence legacy startup and reinforcement, and drain admitted work before writing shutdown receipts. Older owners need explicit offline confirmation.
 2. Preserve source bytes and saved-session identities. Inspect Durable through a working copy without starting its task harness; retain original database and WAL files.
 3. Compare selected raw scheduler records under its compatible lock before disabling them. Preserve unrelated tasks and unknown metadata. Before/after hashes reconcile writes interrupted before receipt persistence.
-4. Validate every origin and schedule while retaining disabled, cancelled and stopped states. First occurrences follow cutover without catch-up.
+4. Validate every origin and routine while retaining disabled, cancelled and stopped states. First occurrences follow cutover without catch-up.
 5. Activate the destination only with a matching verified journal. Mutable working configuration stays separate from migration evidence; the active pointer alone is insufficient.
 
 The adapter uses installed scheduler 0.5.1/Croner 10.0.1 helpers. Its raw `tasks.json` lock uses `realpath: false`, a 10-second stale period and a 2-second update. The scheduler's normalizer can drop unknown records, so migration reads and preserves raw data.
@@ -64,7 +64,7 @@ Usage adds deltas from cumulative Pi observations per session. Adopted sessions 
 
 `/reset` changes the displayed-spend baseline without deleting history. Estimates include turns, checks and migration repairs, not provider invoices or spending guarantees. Context figures and automatic compaction come from Pi.
 
-Optional pattern review sends only previewed excerpts from explicitly selected sessions to the chosen Pi model. It proposes schedules without enabling them. Reflection records one attempt per UTC day and proposes changes with evidence and success signals. Historical content is evidence rather than instructions; explicit stops and existing permissions govern changes. Silence is not negative feedback.
+Optional pattern review sends only previewed excerpts from explicitly selected sessions to the chosen Pi model. It proposes routines without enabling them. Reflection records one attempt per UTC day and proposes changes with evidence and success signals. Historical content is evidence rather than instructions; explicit stops and existing permissions govern changes. Silence is not negative feedback.
 
 ## Development
 

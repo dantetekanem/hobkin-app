@@ -186,7 +186,7 @@ export async function importSchedules(journal, { ownership, states, sessions, de
           },
           legacy: task,
         };
-        result.artifacts.push({ ...journal.writeData(`schedules/compatibility/${id}.json`, Buffer.from(JSON.stringify(wrapper))), kind: 'schedule', taskId: task.id });
+        result.artifacts.push({ ...journal.writeData(`routines/compatibility/${id}.json`, Buffer.from(JSON.stringify(wrapper))), kind: 'schedule', taskId: task.id });
         result.validatedScheduleIds.push(task.id);
       } catch (failure) {
         error(task.id, failure);

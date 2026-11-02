@@ -15,7 +15,7 @@ async function fixture(t, runHarness) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-trigger-')));
   isolatePiHome(t, join(root, 'agent'));
   initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
-  const file = join(root, 'schedules/daily/email.md');
+  const file = join(root, 'routines/daily/email.md');
   const schedule = {
     id: 'email',
     title: 'Email follow-up',
@@ -61,7 +61,7 @@ async function fixture(t, runHarness) {
         ...options,
         modelRuntime: models,
         model,
-        tools: ['run_schedule', 'message_check'],
+        tools: ['run_routine', 'message_check'],
         settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       }),
     }),
@@ -70,7 +70,7 @@ async function fixture(t, runHarness) {
     await app.close();
     rmSync(root, { recursive: true, force: true });
   });
-  const tool = app.runtime.main.agent.state.tools.find(tool => tool.name === 'run_schedule');
+  const tool = app.runtime.main.agent.state.tools.find(tool => tool.name === 'run_routine');
   assert.ok(tool, 'real SDK registers main-session trigger tool');
   return { root, file, schedule, save, app, tool, config: app.config };
 }
@@ -102,16 +102,16 @@ test('exact-ID one-off is durable, asynchronous, replay-safe, visible and leaves
   });
   const original = readFileSync(h.file, 'utf8');
   const release = h.app.runtime.reserveSession(h.app.runtime.main.sessionId);
-  const result = (await h.tool.execute('explicit-one', { scheduleId: 'email' })).details;
+  const result = (await h.tool.execute('explicit-one', { routineId: 'email' })).details;
   assert.equal(result.status, 'running');
   assert.match(result.id, /^once:/);
   assert.equal(h.app.runtime.mainBusy, true);
   assert.equal((await h.app.runtime.state()).runs[result.id].status, 'running');
-  await assert.rejects(h.tool.execute('overlap', { scheduleId: 'email' }), /running|overlap/i);
+  await assert.rejects(h.tool.execute('overlap', { routineId: 'email' }), /running|overlap/i);
   done.resolve(outcome);
   release();
   await h.app.runtime.idle();
-  assert.equal((await h.tool.execute('explicit-one', { scheduleId: 'email' })).details.status, 'completed');
+  assert.equal((await h.tool.execute('explicit-one', { routineId: 'email' })).details.status, 'completed');
   assert.equal(calls, 1);
   const view = await h.app.refresh();
   assert.equal(view.reports.find(report => report.id === result.id).body, 'Checked fixture: nothing new');
@@ -127,7 +127,7 @@ test('one-offs do not consume calendar occurrences and reopened Durable receipts
   h.schedule.at = '09:00';
   delete h.schedule.window;
   h.save();
-  const manual = (await h.tool.execute('persisted', { scheduleId: 'email' })).details;
+  const manual = (await h.tool.execute('persisted', { routineId: 'email' })).details;
   await h.app.runtime.idle();
   const callId = `${h.app.runtime.main.sessionId}:persisted`;
   await h.app.runner.tick();
@@ -160,26 +160,26 @@ test('candidate listing, invalid authority, cancellation and shutdown never gues
     return new Promise(resolve => request.signal.addEventListener('abort', () => resolve({ status: 'interrupted' }), { once: true }));
   });
   const listing = (await h.tool.execute('list', {})).details;
-  assert.deepEqual(listing.schedules, [{ id: 'email', title: 'Email follow-up', enabled: false }]);
-  await assert.rejects(h.tool.execute('unknown', { scheduleId: 'unknown' }), /exact|unknown/i);
-  await assert.rejects(h.tool.execute('override', { scheduleId: 'email', model: 'other' }), /Invalid/);
+  assert.deepEqual(listing.routines, [{ id: 'email', title: 'Email follow-up', enabled: false }]);
+  await assert.rejects(h.tool.execute('unknown', { routineId: 'unknown' }), /exact|unknown/i);
+  await assert.rejects(h.tool.execute('override', { routineId: 'email', model: 'other' }), /Invalid/);
   const aborted = AbortSignal.abort();
-  await assert.rejects(h.tool.execute('aborted', { scheduleId: 'email' }, aborted), /abort/i);
+  await assert.rejects(h.tool.execute('aborted', { routineId: 'email' }, aborted), /abort/i);
   h.schedule.context = ['missing'];
   h.save();
-  await assert.rejects(h.tool.execute('missing', { scheduleId: 'email' }), /ENOENT/);
+  await assert.rejects(h.tool.execute('missing', { routineId: 'email' }), /ENOENT/);
   assert.equal(calls, 0);
   h.schedule.context = ['source'];
   h.save();
-  const receipt = (await h.tool.execute('cancel', { scheduleId: 'email' })).details;
+  const receipt = (await h.tool.execute('cancel', { routineId: 'email' })).details;
   h.app.runner.config.concurrency = 1;
-  writeFileSync(join(h.root, 'schedules/daily/other.md'), `---\n${JSON.stringify({ ...h.schedule, id: 'other' })}\n---\nOther fixture.\n`);
-  await assert.rejects(h.tool.execute('capacity', { scheduleId: 'other' }), /capacity/i);
-  await assert.rejects(h.tool.execute('cancel', { scheduleId: 'other' }), /another schedule/i);
+  writeFileSync(join(h.root, 'routines/daily/other.md'), `---\n${JSON.stringify({ ...h.schedule, id: 'other' })}\n---\nOther fixture.\n`);
+  await assert.rejects(h.tool.execute('capacity', { routineId: 'other' }), /capacity/i);
+  await assert.rejects(h.tool.execute('cancel', { routineId: 'other' }), /another routine/i);
   await h.app.runtime.cancel(receipt.id);
   assert.equal((await h.app.runtime.state()).runs[receipt.id].status, 'interrupted');
-  await h.tool.execute('shutdown', { scheduleId: 'email' });
+  await h.tool.execute('shutdown', { routineId: 'email' });
   await h.app.close();
-  await assert.rejects(h.tool.execute('closed', { scheduleId: 'email' }), /stopped|closing|stale/i);
+  await assert.rejects(h.tool.execute('closed', { routineId: 'email' }), /stopped|closing|stale/i);
   assert.equal(calls, 2);
 });

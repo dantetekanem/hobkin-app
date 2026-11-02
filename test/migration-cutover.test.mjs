@@ -31,7 +31,7 @@ test('complete upgrade preserves every source, imports every owned schedule and 
   assert.equal(scheduler.unknown, 'preserve');
   assert.deepEqual(scheduler.tasks[3], h.tasks[3]);
   assert.ok(scheduler.tasks.slice(0, 3).every(task => task.enabled === false));
-  const schedules = readdirSync(join(h.journal.dataRoot, 'schedules/compatibility')).map(file => JSON.parse(readFileSync(join(h.journal.dataRoot, 'schedules/compatibility', file))));
+  const schedules = readdirSync(join(h.journal.dataRoot, 'routines/compatibility')).map(file => JSON.parse(readFileSync(join(h.journal.dataRoot, 'routines/compatibility', file))));
   assert.deepEqual(schedules.map(item => item.legacy).sort((a,b)=>a.id.localeCompare(b.id)), h.tasks.slice(0,3).sort((a,b)=>a.id.localeCompare(b.id)));
   for (const source of h.manifest.files) assert.equal(sha256(readFileSync(h.journal.sourcePath(source))), source.sha256);
   const before = readFileSync(h.schedulerFile, 'utf8');
@@ -56,7 +56,7 @@ test('every durable boundary resumes under one migration identity without duplic
     assert.equal(result.status, 'verified');
     assert.equal(resumed.record.id, id);
     assert.equal(JSON.parse(readFileSync(h.schedulerFile, 'utf8')).revision, 5);
-    assert.equal(readdirSync(join(resumed.dataRoot, 'schedules/compatibility')).length, 3);
+    assert.equal(readdirSync(join(resumed.dataRoot, 'routines/compatibility')).length, 3);
   }
 });
 

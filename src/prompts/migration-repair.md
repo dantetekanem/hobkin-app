@@ -8,7 +8,7 @@ Return one JSON object, without Markdown fences:
 {"action":"replace_state","sourceSha256":"the supplied digest","value":{},"explanation":"What changed and why the source supports it."}
 ```
 
-`value` is the complete proposed state. Preserve the original IDs, content, unknown fields, timestamps, evidence links, questions, read flags and origin. Make only the smallest correction supported by the source. Do not invent missing facts, silently discard records, change permissions or owners, enable stopped work, alter pause receipts or change schedules. Do not translate or rewrite historical prose.
+`value` is the complete proposed state. Preserve the original IDs, content, unknown fields, timestamps, evidence links, questions, read flags and origin. Make only the smallest correction supported by the source. Do not invent missing facts, silently discard records, change permissions or owners, enable stopped work, alter pause receipts or change routines. Do not translate or rewrite historical prose.
 
 If the source does not establish the correction, return:
 

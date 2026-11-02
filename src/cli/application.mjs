@@ -14,6 +14,7 @@ import { MemoryIndex } from './memory-index.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
 import { compactionDue, nextRunIn } from './compaction.mjs';
 import { editReport } from './report-editor.mjs';
+import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
@@ -50,7 +51,7 @@ const isVisibleScheduledReport = run => run.kind === 'background'
   && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual');
 const pauseNote = ({ nextRun, timezone }) => {
   const resumes = new Date(nextRun.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: timezone });
-  return ` Paused until ${resumes}; running it manually or editing the schedule resumes it sooner.`;
+  return ` Paused until ${resumes}; running it manually or editing the routine resumes it sooner.`;
 };
 const messageTime = message => {
   const value = message.at ?? message.timestamp;
@@ -110,6 +111,7 @@ export class HobkinApplication {
       onChange: () => app.requestRefresh(),
     });
     try {
+      moveRoutinesFolder(app.runtime.directory);
       await app.runtime.connect();
       const initialState = await app.runtime.state();
       app.noticeRunIds = new Set(Object.values(initialState.runs)
@@ -272,7 +274,7 @@ export class HobkinApplication {
       noticedRunIds.add(run.id);
       const id = `notice:report:${createHash('sha256').update(String(run.id)).digest('hex')}`;
       if (noticeIds.has(id)) continue;
-      const scheduleName = String(run.title ?? run.scheduleId ?? 'your schedule').slice(0, 512);
+      const scheduleName = String(run.title ?? run.scheduleId ?? 'your routine').slice(0, 512);
       const triage = reportTriage(run);
       if (triage?.level === 'nothing') continue;
       // A busy project would push the conversation out of Chat, so only what needs the user reaches it.
@@ -499,7 +501,7 @@ export class HobkinApplication {
     return !this.closing && !this.sending && this.runtime.mainFree;
   }
 
-  /** A held check owes the user a plan. This never waits for the turn itself, because the turn's `run_schedule` needs this tick to end. */
+  /** A held check owes the user a plan. This never waits for the turn itself, because the turn's `run_routine` needs this tick to end. */
   async tickHolds() {
     const owed = schedules => schedules.filter(({ nextRun }) => nextRun?.state === 'held' && !this.handledHolds.has(nextRun.holdId));
     if (!owed(this.snapshot.schedules ?? []).length || !this.canStartHoldTurn()) return;

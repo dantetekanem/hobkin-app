@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize, atomicJson, jevEnabled, setJev } from '../src/cli/config.mjs';
@@ -117,7 +117,7 @@ test('connected application serves input while a background check waits, saves r
     effort: 'medium',
   };
   for (const id of ['check', 'check-two']) {
-    writeFileSync(join(h.root, `schedules/daily/${id}.md`), `---\n${JSON.stringify({ ...schedule, id })}\n---\nCheck local state.\n`);
+    writeFileSync(join(h.root, `routines/daily/${id}.md`), `---\n${JSON.stringify({ ...schedule, id })}\n---\nCheck local state.\n`);
   }
   let now = new Date('2026-01-02T10:00:00Z');
   let calls = 0;
@@ -256,7 +256,7 @@ test('activity projection keeps live scheduled jobs visible beyond history limit
       model: 'fixture/check',
       effort: 'medium',
     };
-    writeFileSync(join(h.root, `schedules/daily/${id}.md`), `---\n${JSON.stringify(schedule)}\n---\nCheck local state.\n`);
+    writeFileSync(join(h.root, `routines/daily/${id}.md`), `---\n${JSON.stringify(schedule)}\n---\nCheck local state.\n`);
   }
   const app = await h.openApp();
   const state = app.runtime.state.bind(app.runtime);
@@ -299,7 +299,7 @@ test('activity projection keeps live scheduled jobs visible beyond history limit
     ui.input('\x1b[C');
     ui.input('\x1b[C');
     const live = stripTerminalSequences(ui.render(140, 60).join('\n'));
-    assert.match(live, /Schedules 2\b/);
+    assert.match(live, /Routines 2\b/);
     assert.match(live, /2 running/);
     for (const text of [
       'Daily audit', 'Backup review', 'fixture-harness', 'fixture/daily', 'fixture/backup',
@@ -484,8 +484,8 @@ test('scheduled reports talk back in chat only for critical or useful triage lin
 
 test('a blocked check talks back in chat and says when a repeat pauses it', async t => {
   const h = fixture(t);
-  mkdirSync(join(h.root, 'schedules/daily'), { recursive: true });
-  writeFileSync(join(h.root, 'schedules/daily/mail.md'), `---\n${JSON.stringify({
+  mkdirSync(join(h.root, 'routines/daily'), { recursive: true });
+  writeFileSync(join(h.root, 'routines/daily/mail.md'), `---\n${JSON.stringify({
     id: 'mail', title: 'Mail', at: '23:00', timezone: 'UTC', enabled: true,
     harness: 'pi', model: 'fixture/check', effort: 'medium', cwd: h.root, context: [],
   })}\n---\nCheck mail.\n`);
@@ -506,7 +506,7 @@ test('a blocked check talks back in chat and says when a repeat pauses it', asyn
     await app.runtime.change(state => { state.runs.second = blocked('second', '2026-01-02T10:00:00.000Z'); });
     await app.runner.tick();
     assert.deepEqual(notices(await app.refresh()).at(-1), {
-      content: 'Mail: Gmail tools are unavailable. Paused until Jan 3; running it manually or editing the schedule resumes it sooner.',
+      content: 'Mail: Gmail tools are unavailable. Paused until Jan 3; running it manually or editing the routine resumes it sooner.',
       tone: 'blocked',
     });
   } finally {
@@ -551,7 +551,7 @@ test('application reset refreshes the connected view after preserving the previo
   app.onChange = view => dashboard.update(view);
   const reset = await app.reset();
   const tools = toolSets.at(-1);
-  assert.deepEqual(tools.map(tool => tool.name), ['ask_question', 'run_schedule', 'message_check', 'hobkin_memory', 'model_settings']);
+  assert.deepEqual(tools.map(tool => tool.name), ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings']);
   const activeBinding = (await tools.find(tool => tool.name === 'model_settings').execute('binding', {
     action: 'inspect', scope: 'main',
   })).details.activeMainBinding;
@@ -893,6 +893,20 @@ test('a full chat compacts itself when nothing needs it, and leaves it alone whe
     usage(85);
     await app.tickCompaction();
     assert.equal(compactions, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('opening the dashboard moves an old home\'s folder and leaves its old path working', async t => {
+  const h = fixture(t);
+  renameSync(join(h.root, 'routines'), join(h.root, 'schedules'));
+
+  const app = await h.openApp();
+
+  try {
+    assert.equal(lstatSync(join(h.root, 'routines')).isDirectory(), true);
+    assert.equal(lstatSync(join(h.root, 'schedules')).isSymbolicLink(), true);
   } finally {
     await app.close();
   }

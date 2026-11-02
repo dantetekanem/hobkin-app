@@ -211,26 +211,26 @@ function modelRow(name, setting, saved, answer) {
 
 function schedulesRow({ schedules, errors }) {
   const enabled = schedules.filter(schedule => schedule.enabled).length;
-  const total = count(schedules.length, 'schedule');
+  const total = count(schedules.length, 'routine');
   const unread = errors.length ? ` ${count(errors.length, 'file')} could not be read.` : '';
-  const seeUnread = errors.length ? 'Run `hobkin schedules` to see what is wrong.' : null;
+  const seeUnread = errors.length ? 'Run `hobkin routines` to see what is wrong.' : null;
 
   if (enabled) {
-    return ready('Schedules', `${total}, ${enabled} enabled. They run while Hobkin is open.${unread}`, seeUnread);
+    return ready('Routines', `${total}, ${enabled} enabled. They run while Hobkin is open.${unread}`, seeUnread);
   }
 
   if (schedules.length) {
     return missing(
-      'Schedules',
+      'Routines',
       `${total}, none enabled, so nothing runs.${unread}`,
       'Ask Hobkin in Chat to enable one, or set `enabled` to true in its file.',
     );
   }
 
   return missing(
-    'Schedules',
+    'Routines',
     `None yet, so nothing runs by itself.${unread}`,
-    seeUnread ?? `Open Hobkin and ask it to set you up, or follow the schedule guide at ${promptPath('schedule-setup')}.`,
+    seeUnread ?? `Open Hobkin and ask it to set you up, or follow the routine guide at ${promptPath('routine-setup')}.`,
   );
 }
 

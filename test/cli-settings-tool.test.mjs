@@ -26,7 +26,7 @@ function model(id, thinkingLevelMap) {
 }
 
 function schedule(root) {
-  const path = join(root, 'schedules/daily/daily-check.md');
+  const path = join(root, 'routines/daily/daily-check.md');
   const metadata = {
     id: 'daily-check', title: 'Daily check', at: '09:00', timezone: 'UTC', enabled: false,
     harness: 'pi', model: 'fixture/old', effort: 'medium', cwd: root, context: [],
@@ -106,7 +106,7 @@ test('SDK model settings tool persists exact scopes, updates the active session,
 
   const modelRuntime = await syntheticRuntime(root, [oldModel, nextModel]);
 
-  const tools = ['ask_question', 'run_schedule', 'model_settings'];
+  const tools = ['ask_question', 'run_routine', 'model_settings'];
   const createSession = options => createAgentSession({
     ...options,
     modelRuntime,
@@ -142,7 +142,7 @@ test('SDK model settings tool persists exact scopes, updates the active session,
   assert.deepEqual(firstReceipt.activeRuntime, {
     status: 'verified', effective: { model: 'fixture/next', effort: 'high' },
   });
-  assert.equal(readSettings(root, 'all').schedules[0].model, 'fixture/next');
+  assert.equal(readSettings(root, 'all').routines[0].model, 'fixture/next');
   assert.equal(config.background.model, 'fixture/next');
   assert.deepEqual(observations, [
     { model: 'fixture/old', effort: 'medium' },
@@ -205,13 +205,13 @@ test('a request for one schedule changes that schedule through the settings tool
   });
   const tool = session.agent.state.tools.find(item => item.name === 'model_settings');
 
-  const { details } = await tool.execute('update', { action: 'update', scope: 'schedules', scheduleId: 'daily-check', effort: 'high' });
+  const { details } = await tool.execute('update', { action: 'update', scope: 'routines', routineId: 'daily-check', effort: 'high' });
 
-  assert.deepEqual(details.persisted.completed, ['schedules:daily-check']);
-  assert.equal(readSettings(root, 'schedules').schedules[0].effort, 'high');
+  assert.deepEqual(details.persisted.completed, ['routines:daily-check']);
+  assert.equal(readSettings(root, 'routines').routines[0].effort, 'high');
   assert.equal(session.thinkingLevel, 'medium');
 
-  const rejected = (await tool.execute('update', { action: 'update', scope: 'schedules', scheduleId: 'missing', effort: 'low' })).details;
+  const rejected = (await tool.execute('update', { action: 'update', scope: 'routines', routineId: 'missing', effort: 'low' })).details;
   assert.equal(rejected.persisted.status, 'failed');
-  assert.match(rejected.persisted.failed.error, /Unknown schedule: missing/);
+  assert.match(rejected.persisted.failed.error, /Unknown routine: missing/);
 });

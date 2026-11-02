@@ -140,7 +140,7 @@ test('runner admits compatibility work once, retains completion state and blocks
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const engine = SchedulerCompatibility.open(packageDirectory), task = rawTask();
   const value = wrapper(task, await engine.validate(task, 'America/New_York'));
-  const directory = join(root, 'schedules/compatibility');
+  const directory = join(root, 'routines/compatibility');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'fixture.json'), JSON.stringify(value));
   assert.equal(loadSchedules(root).counts.compatibility, 1);

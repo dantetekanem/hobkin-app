@@ -84,9 +84,9 @@ async function stageUpgrade(journal, options) {
   const bindings = await importBindings(journal, { config, sessions, schedules, reviewSettings: options.reviewSettings });
   config = bindings.config;
   const artifacts = [...states.artifacts, ...histories.artifacts, ...archives.artifacts, ...schedules.artifacts, bindings.artifact];
-  for (const cadence of cadences) mkdirSync(journal.dataPath(`schedules/${cadence}`), { recursive: true, mode: 0o700 });
+  for (const cadence of cadences) mkdirSync(journal.dataPath(`routines/${cadence}`), { recursive: true, mode: 0o700 });
   mkdirSync(journal.dataPath('notes'), { recursive: true, mode: 0o700 });
-  artifacts.push(journal.writeData('schedules/README.md', readFileSync(new URL('../../prompts/schedule-setup.md', import.meta.url))));
+  artifacts.push(journal.writeData('routines/README.md', readFileSync(new URL('../../prompts/routine-setup.md', import.meta.url))));
   artifacts.push(journal.writeData('config.json', Buffer.from(`${JSON.stringify(config, null, 2)}\n`)));
   const plan = {
     sessions,

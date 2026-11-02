@@ -20,7 +20,7 @@ pnpm hobkin setup
 pnpm hobkin
 ```
 
-`hobkin setup` changes nothing. It checks Pi, git, `gh`, your models and schedules, and says how to fix what is missing. Once hobkin opens, type `/setup` in Chat and it walks you through the rest, including Jev and your first checks.
+`hobkin setup` changes nothing. It checks Pi, git, `gh`, your models and routines, and says how to fix what is missing. Once hobkin opens, type `/setup` in Chat and it walks you through the rest, including Jev and your first checks.
 
 If `hobkin` is on your PATH, run it from any directory. Otherwise, run the `hobkin` commands below as `pnpm hobkin` from the checkout. The first launch creates `~/.hobkin`, and later launches reopen the same conversation.
 
@@ -28,7 +28,7 @@ Coming from pi-companion? Close it, then run `hobkin import`.
 
 ## Use it
 
-Chat opens ready to type. Ask the agent to run a check now, switch models or remember something. Reports holds finished checks. Schedules shows when each check runs next. The Work Mode tab appears while work mode is on, and a running check gets a tab of its own.
+Chat opens ready to type. Ask the agent to run a check now, switch models or remember something. Reports holds finished checks. Routines shows when each check runs next. The Work Mode tab appears while work mode is on, and a running check gets a tab of its own.
 
 - `Enter` sends a message or opens the selected report.
 - `Left` and `Right` change tabs when your draft is empty.
@@ -40,9 +40,9 @@ Chat opens ready to type. Ask the agent to run a check now, switch models or rem
 
 Checks and work mode run only while hobkin is open. On a Mac it keeps the machine awake for that long, and the display still dims and sleeps.
 
-## Add a schedule
+## Add a routine
 
-Ask the agent in Chat, or save this as `~/.hobkin/schedules/daily/morning-recap.md`:
+Ask the agent in Chat, or save this as `~/.hobkin/routines/daily/morning-recap.md`:
 
 ```markdown
 ---
@@ -61,7 +61,7 @@ Ask the agent in Chat, or save this as `~/.hobkin/schedules/daily/morning-recap.
 Check this project for changes worth acting on. Cite the evidence.
 ```
 
-Set your own timezone and `cwd`. hobkin picks the file up by itself, and `hobkin schedules` lists your checks and any errors. The [schedule guide](src/prompts/schedule-setup.md) covers weekly, monthly, one-time and hourly checks.
+Set your own timezone and `cwd`. hobkin picks the file up by itself, and `hobkin routines` lists your checks and any errors. The [routine guide](src/prompts/routine-setup.md) covers weekly, monthly, one-time and hourly checks.
 
 ## Work mode
 

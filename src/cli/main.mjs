@@ -7,7 +7,7 @@ import { indexStatus } from './memory-index.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { readLocalView, savePresentationState } from './view.mjs';
 import { deleteReports } from './reports.mjs';
-import { whenItRuns } from './schedules.mjs';
+import { inRoutineWords, whenItRuns } from './schedules.mjs';
 import { stayAwake } from './stay-awake.mjs';
 
 export function parseArguments(args) {
@@ -102,7 +102,7 @@ async function connected(options, snapshot, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | schedules | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  session [--title name] [--cwd directory] [--keep]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  session [--title name] [--cwd directory] [--keep]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -197,7 +197,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'reports') {
     const inventory = () => readLocalView(options.root).reports;
     if (!options.args.length) {
-      output.write(`${JSON.stringify(inventory(), null, 2)}\n`);
+      output.write(`${inRoutineWords(JSON.stringify(inventory(), null, 2))}\n`);
       return 0;
     }
     const [action, ...ids] = options.args;
@@ -221,7 +221,8 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     output.write(`${JSON.stringify(loadImportedHistory(options.root), null, 2)}\n`);
     return 0;
   }
-  if (!['init', 'schedules', 'status'].includes(options.command)) throw Error(`Unknown command: ${options.command}`);
+  // `schedules` is the command's old name, and agents can still have it in their memory.
+  if (!['init', 'routines', 'schedules', 'status'].includes(options.command)) throw Error(`Unknown command: ${options.command}`);
   const tty = output.isTTY && (dependencies.input ?? process.stdin).isTTY;
   const connect = !options.plain && options.command === 'status' && tty;
   if (options.command === 'init') initialize(options.root, { legacySources: options.explicitRoot ? [] : legacySources() });

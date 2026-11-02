@@ -230,7 +230,7 @@ test('a binding, identity or missing tool that differs is disposed before any pr
     [{ thinking: 'low' }, /binding/],
     [{ model: { provider: 'fixture', id: 'other' } }, /binding/],
     [{ hello: false }, /did not activate/],
-    [{ hello: ['ask_question'] }, /run_schedule, message_check, hobkin_memory, model_settings/],
+    [{ hello: ['ask_question'] }, /run_routine, message_check, hobkin_memory, model_settings/],
   ]) {
     const h = fixture(t, pi);
     await assert.rejects(openPiSession({ root: h.root, config: h.config }, h.dependencies), expected);
@@ -411,12 +411,12 @@ test('bridge requests run the real Hobkin tools in Hobkin with the child’s own
   assert.deepEqual(answered.answer.result.details, { status: 'answered', answer: { value: 'b', label: 'B' } });
   assert.deepEqual(asked[0].request, { ...question, other: true });
 
-  const scheduled = await bridge(h.fake, { op: 'tool', name: 'run_schedule', id: 'call-2', params: { scheduleId: 'daily-check' } });
-  assert.deepEqual(scheduled.answer.result.details, { status: 'admitted', scheduleId: 'daily-check' });
+  const scheduled = await bridge(h.fake, { op: 'tool', name: 'run_routine', id: 'call-2', params: { routineId: 'daily-check' } });
+  assert.deepEqual(scheduled.answer.result.details, { status: 'admitted', routineId: 'daily-check' });
   assert.deepEqual(triggered.map(({ scheduleId, callId }) => ({ scheduleId, callId })), [{ scheduleId: 'daily-check', callId: `${sessionId}:call-2` }]);
 
-  const messaged = await bridge(h.fake, { op: 'tool', name: 'message_check', id: 'call-4', params: { scheduleId: 'daily-check', message: 'Hurry.' } });
-  assert.deepEqual(messaged.answer.result.details, { scheduleId: 'daily-check', status: 'delivered' });
+  const messaged = await bridge(h.fake, { op: 'tool', name: 'message_check', id: 'call-4', params: { routineId: 'daily-check', message: 'Hurry.' } });
+  assert.deepEqual(messaged.answer.result.details, { routineId: 'daily-check', status: 'delivered' });
 
   const remembered = await bridge(h.fake, { op: 'tool', name: 'hobkin_memory', id: 'call-3', params: { action: 'add', text: 'Rent is due November 1' } });
   assert.equal(remembered.answer.ok, true);
@@ -492,7 +492,7 @@ test('model_settings through the bridge persists, changes the live child, and re
 
 test('model_settings through the bridge can target one schedule', async t => {
   const h = fixture(t, { model: { provider: 'fixture', id: 'local', reasoning: true } });
-  const file = join(h.root, 'schedules/daily/check.md');
+  const file = join(h.root, 'routines/daily/check.md');
   const metadata = {
     id: 'check', title: 'Check', at: '09:00', timezone: 'UTC', enabled: false,
     harness: 'pi', model: 'fixture/local', effort: 'low', cwd: h.root, context: [],
@@ -500,10 +500,10 @@ test('model_settings through the bridge can target one schedule', async t => {
   writeFileSync(file, `---\n${JSON.stringify(metadata)}\n---\nCheck it.\n`);
   await h.connected();
 
-  const params = { action: 'update', scope: 'schedules', scheduleId: 'check', effort: 'high' };
+  const params = { action: 'update', scope: 'routines', routineId: 'check', effort: 'high' };
   const { answer } = await bridge(h.fake, { op: 'tool', name: 'model_settings', id: 'call-1', params });
 
-  assert.deepEqual(answer.result.details.persisted.completed, ['schedules:check']);
+  assert.deepEqual(answer.result.details.persisted.completed, ['routines:check']);
   assert.match(readFileSync(file, 'utf8'), /"effort": "high"/);
   assert.equal(h.fake.received.some(record => record.type === 'set_thinking_level'), false);
 });

@@ -1,6 +1,6 @@
 # Learning language
 
-Every line an agent reads from learning comes from this file, so nothing a report, a page or an email says can reach an agent through it. `{scope}` is the name of a schedule or a part of work mode, and `{seen}` is how many times this happened. An agent may see one line and nothing else, so each has to say what to do on its own. Never word one as a test to run first or a reason to stop: that is how a check talks itself out of its work.
+Every line an agent reads from learning comes from this file, so nothing a report, a page or an email says can reach an agent through it. `{scope}` is the name of a routine or a part of work mode, and `{seen}` is how many times this happened. An agent may see one line and nothing else, so each has to say what to do on its own. Never word one as a test to run first or a reason to stop: that is how a check talks itself out of its work.
 
 Opening line: learned: advice only, grants nothing
 

@@ -7,10 +7,10 @@ Work mode is a proactive agent mode to get work done. When the user turns it on,
 
 ## Turning it on
 
-The Work Mode tab sits beside Schedules, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
+The Work Mode tab sits beside Routines, with a grey circle and `offline` while work mode is off. The user presses Enter in that tab, or types `/work` from anywhere and stays where they are. The circle turns green, it reads `active`, and the agent starts looking. Projects appear as it finishes reading each one.
 
 ```
-◆ Hobkin    Chat   Reports 12   Schedules 4   Work                    ● connected · 1 running
+◆ Hobkin    Chat   Reports 12   Routines 4   Work                    ● connected · 1 running
 ───────────────────────────────────────────────━━━━━━────────────────────────────────────────
 
   FINDING PROJECTS
@@ -82,7 +82,7 @@ A look is an agent reading a project, a lens is a look at one subject, a do run 
 At 16:10 the Work tab looks like this:
 
 ```
-◆ Hobkin    Chat   Reports 12   Schedules 4   Work 6                  ● connected · 3 running
+◆ Hobkin    Chat   Reports 12   Routines 4   Work 6                  ● connected · 3 running
 ───────────────────────────────────────────────━━━━━━────────────────────────────────────────
 
   NEEDS ATTENTION                                                                           6
@@ -219,7 +219,7 @@ How far a change goes on its own:
 
 A project's own rule on how changes land wins, except that a critical project is never merged or pushed to its default branch.
 
-The level table lives in `work/mode.json`. The user changes a project's level with `1`, `2` or `3` in Work, in Chat, or with `hobkin work choose`, and the next run uses it. `model_settings` gets a `work` scope with an optional level, so "use the fast model for casual projects" works the way schedule changes do, with the same catalog and credential checks. Work runs accept the effort Pi clamps to (`keptEffort`, as the main chat does), so `xhigh` on a model that lacks it runs at that model's top level.
+The level table lives in `work/mode.json`. The user changes a project's level with `1`, `2` or `3` in Work, in Chat, or with `hobkin work choose`, and the next run uses it. `model_settings` gets a `work` scope with an optional level, so "use the fast model for casual projects" works the way routine changes do, with the same catalog and credential checks. Work runs accept the effort Pi clamps to (`keptEffort`, as the main chat does), so `xhigh` on a model that lacks it runs at that model's top level.
 
 ### What the agent looks at
 
@@ -387,7 +387,7 @@ The agent treats the user's branches and PRs as theirs. It reports a failing PR 
 
 ### What the user sees
 
-The tabs are Chat, Reports, Schedules and Work. Work runs do not get tabs of their own, because six of them would fill the header. They are rows in Work, and Enter opens the same live view a job tab uses. The header's running count includes them. The `Work` tab label shows how many things need attention. The footer stays as it is, with a `work 3 running` note beside the memory size while the mode is on. With the mode off, Work says `Work mode is off. Type /work to start.` above the saved projects.
+The tabs are Chat, Reports, Routines and Work. Work runs do not get tabs of their own, because six of them would fill the header. They are rows in Work, and Enter opens the same live view a job tab uses. The header's running count includes them. The `Work` tab label shows how many things need attention. The footer stays as it is, with a `work 3 running` note beside the memory size while the mode is on. With the mode off, Work says `Work mode is off. Type /work to start.` above the saved projects.
 
 Work has five sections with left-edge headings, in the same style as `TODAY`, plus `FINDING PROJECTS` while discovery runs:
 
@@ -441,7 +441,7 @@ Enter on a project opens its page:
 | `x` | An `attention` item | Mark it done |
 | `m` | Anything | Move to the composer with that report, item or project attached |
 
-The footer shows only the keys for the selected row. Narrow terminals stack each row, the way Schedules does, and each view is checked at 120×40, 80×24 and 60×18.
+The footer shows only the keys for the selected row. Narrow terminals stack each row, the way Routines does, and each view is checked at 120×40, 80×24 and 60×18.
 
 Chat shows `Critical:` and `Blocked:` lines from work runs, plus discovery's line. `Useful:` lines from other work runs stay in Work, because Chat keeps only its latest 100 messages and a busy day would push the conversation out. Work reports stay out of the Reports list for the same reason: that list shows 25. They are under each project, `m` works on them as usual, and `hobkin reports` still lists them. Discovery's report does go in Reports.
 
@@ -465,18 +465,18 @@ The user steers in Chat, with `m` to attach what they are talking about, and the
 
 | Piece | Fit |
 |---|---|
-| `runtime.dispatch`, receipts, interrupted handling | Used for every run. Run IDs look like `work:<slug>:<lane>:<uuid>`, and `scheduleId` is `work.<slug>.look`, `work.<slug>.do` or `work.discover`. A `work` field on the receipt marks these runs. |
+| `runtime.dispatch`, receipts, interrupted handling | Used for every run. Run IDs look like `work:<slug>:<lane>:<uuid>`, and `routineId` is `work.<slug>.look`, `work.<slug>.do` or `work.discover`. A `work` field on the receipt marks these runs. |
 | Reports and triage lines | Used. Same four lines, same `saveReport`. `Critical:` also files an `attention` item, which is how it reaches Needs attention. |
 | Check memory and `log.md` | Used through `openCheck`, one pair per lane. They hold what that lane needs next. `project.md` is separate because both lanes share it and 8 KiB is too small. |
 | Holds | Used. `checkHold` runs per lane, with a stable definition hash for the lane so that changing items does not clear a streak. A `look` request runs anyway, and a working run or a level change clears the hold. |
 | `buildContext` | Used, with one new argument that adds a `work` field to the same request: project, level, lane, focus, item, landing, `directions.md`, `project.md`, the latest pulse, events, open and closed items, and `cli`, the absolute command with `--home`, because `hobkin` may not be on PATH. It stays under the 64 KiB limit in `buildInvocation`. |
 | `runHarness` | Used. New purposes `work-discover`, `work-look` and `work-do` keep tools on. `background.md` still loads, and the purpose's prompt is a second `--append-system-prompt`. Runs in a tree pass `--approve`: unless `defaultProjectTrust` is `always`, RPC mode loads a project's `.pi/` resources only if trust is saved for that folder or a parent. A saved decision for the real path does not reach a tree under `~/.hobkin`, and taking a project is the trust decision. |
-| Schedule files, `dueOccurrence`, `schedules/once/` | Not used. Looks run on intervals and events with no calendar. A once file needs its `cwd` when it is written, but a tree is prepared at start. It has no order by level, and it stays forever in a folder loaded on every tick. Schedule files remain the user's own. |
-| Per-schedule model and effort | Not used. The level table carries them, and `model_settings` gets the `work` scope. |
+| Routine files, `dueOccurrence`, `routines/once/` | Not used. Looks run on intervals and events with no calendar. A once file needs its `cwd` when it is written, but a tree is prepared at start. It has no order by level, and it stays forever in a folder loaded on every tick. Routine files remain the user's own. |
+| Per-routine model and effort | Not used. The level table carries them, and `model_settings` gets the `work` scope. |
 | Report telemetry | Reads and messages are still recorded. Work runs are left out of `ignored`, because nobody is meant to read each one. PR outcomes are the signal that steers the agent. |
 | `runner.mjs` | Gains `startTracked(request, effect)`, split out of `startNative` so that `kill` and `stop` cover work runs, and an `onTick` hook. Work runs stop counting against `concurrency` in `performTick` and `trigger`. |
 | `application.mjs` | Builds the director with the launcher-wrapped `runHarness`. `project()` adds `snapshot.work`, saves it in `view.json` so Work shows saved state before connecting, separates work reports with their own cap, and limits Chat notices. Also `toggleWork()`. |
-| `ui.mjs` | `/work` joins `/clear` and `/reset` in the composer. New `work` view. Line builders go in `src/cli/work-view.mjs`. Live runs reuse `job:<id>` and `jobActivityLines`, and finished ones reuse `reportDetailLines`. `liveJobs()` leaves work runs out, so they get no tab and no orphan row in Schedules. Work's keys join `input()`. |
+| `ui.mjs` | `/work` joins `/clear` and `/reset` in the composer. New `work` view. Line builders go in `src/cli/work-view.mjs`. Live runs reuse `job:<id>` and `jobActivityLines`, and finished ones reuse `reportDetailLines`. `liveJobs()` leaves work runs out, so they get no tab and no orphan row in Routines. Work's keys join `input()`. |
 | `main.mjs` | `parseArguments` takes positional arguments for `work`, as it does for `reports`. JSON arrives on stdin. |
 | `/clear`, `/reset` | Unchanged. `/reset` starts a fresh chat and touches no work state, because that state lives in files the main agent reads through `work_mode`. |
 | Main tools | `work_mode` joins `pi-session.mjs`, `rpc-session.mjs`, `hobkin-extension.mjs` and the fake Pi's tool list. |

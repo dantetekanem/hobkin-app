@@ -2,7 +2,7 @@ import { closeSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openS
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { cadences, validateBinding } from './schedules.mjs';
+import { cadences, routinesFolder, validateBinding } from './schedules.mjs';
 import { validateLauncher } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 
@@ -92,13 +92,14 @@ export function initialize(root, { cwd = process.cwd(), now = new Date().toISOSt
   if (!isAbsolute(cwd) || !Number.isFinite(Date.parse(now))) throw Error('Initialization requires an absolute cwd and a valid date.');
   mkdirSync(root, { recursive: true, mode: 0o700 });
   if (!lstatSync(root).isDirectory()) throw Error('Hobkin home must be a real directory.');
+  const routines = routinesFolder(root);
   for (const cadence of cadences) {
-    mkdirSync(join(root, 'schedules', cadence), { recursive: true, mode: 0o700 });
+    mkdirSync(join(routines, cadence), { recursive: true, mode: 0o700 });
   }
 
-  const guide = join(root, 'schedules', 'README.md');
+  const guide = join(routines, 'README.md');
   try {
-    writeFileSync(guide, readFileSync(new URL('../prompts/schedule-setup.md', import.meta.url)), { flag: 'wx', mode: 0o600 });
+    writeFileSync(guide, readFileSync(new URL('../prompts/routine-setup.md', import.meta.url)), { flag: 'wx', mode: 0o600 });
   } catch (error) {
     if (error.code !== 'EEXIST') throw error;
   }

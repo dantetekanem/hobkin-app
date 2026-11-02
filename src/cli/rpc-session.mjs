@@ -315,7 +315,7 @@ export async function openRpcSession(
   });
   session.tools = {
     ask_question: createQuestionTool(askQuestion),
-    run_schedule: createScheduleTool(triggerSchedule),
+    run_routine: createScheduleTool(triggerSchedule),
     message_check: createCheckMessageTool(messageCheck),
     hobkin_memory: createMemoryTool(root),
     model_settings: createSettingsTool(request => runModelSettings({

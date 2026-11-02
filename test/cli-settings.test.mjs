@@ -18,7 +18,7 @@ function fixture(t, background = {}) {
   return root;
 }
 function schedule(root, id, patch = {}, body = 'Do the scheduled work.\n') {
-  const path = join(root, 'schedules/daily', `${id}.md`);
+  const path = join(root, 'routines/daily', `${id}.md`);
   const data = { id, title: id, at: '09:00', timezone: 'UTC', enabled: false, harness: 'pi', effort: 'medium', cwd: root, context: [], ...patch };
   writeFileSync(path, `---\n${JSON.stringify(data, null, 2)}\n---\n${body}`);
   return path;
@@ -30,7 +30,7 @@ function activatedHome(t) {
   const id = '123e4567-e89b-42d3-a456-426614174000';
   const fingerprint = 'synthetic-fingerprint';
   const dataRoot = join(home, 'migration', id, 'data');
-  for (const cadence of ['daily', 'weekly', 'monthly']) mkdirSync(join(dataRoot, 'schedules', cadence), { recursive: true, mode: 0o700 });
+  for (const cadence of ['daily', 'weekly', 'monthly']) mkdirSync(join(dataRoot, 'routines', cadence), { recursive: true, mode: 0o700 });
   atomicJson(join(dataRoot, 'config.json'), config);
   const schedulePath = schedule(dataRoot, 'migrated');
   const controlRoot = join(home, 'control');
@@ -65,7 +65,7 @@ test('updates all Pi conversation and schedule bindings without touching unrelat
   assert.match(saved, /"context": \[\s+"notes.md"/);
   assert.ok(saved.endsWith('Keep this body.\n'));
   assert.deepEqual(applied, { model, effort: 'xhigh' });
-  assert.deepEqual([result.persisted.settings.background.effort, result.persisted.settings.schedules[0].model], ['xhigh', 'openai-codex/gpt-6-luna']);
+  assert.deepEqual([result.persisted.settings.background.effort, result.persisted.settings.routines[0].model], ['xhigh', 'openai-codex/gpt-6-luna']);
   assert.deepEqual(result.activeRuntime, { status: 'verified', effective: { model: 'openai-codex/gpt-6-luna', effort: 'xhigh' } });
 });
 
@@ -94,7 +94,7 @@ test('reports persisted bindings separately when the active-session setter fails
   });
   assert.deepEqual([result.persisted.status, result.persisted.settings.main.effort], ['complete', 'high']);
   assert.deepEqual(result.activeRuntime, { status: 'unverified', error: 'setter failed' });
-  assert.deepEqual(result.unchangedScopes, ['background', 'schedules']);
+  assert.deepEqual(result.unchangedScopes, ['background', 'routines']);
 });
 
 test('requires a fully qualified installed Pi model and leaves unrelated scopes unchanged', async t => {
@@ -122,7 +122,7 @@ test('does not verify a requested active binding when the setter reports a diffe
 test('classifies a saved config followed by a failed native schedule write as partial persistence', async t => {
   const root = fixture(t);
   const path = schedule(root, 'paused', { model: 'openai-codex/old' });
-  const directory = join(root, 'schedules', 'daily');
+  const directory = join(root, 'routines', 'daily');
   chmodSync(directory, 0o500);
   let result;
   try {
@@ -133,7 +133,7 @@ test('classifies a saved config followed by a failed native schedule write as pa
 
   assert.equal(result.persisted.status, 'partial');
   assert.equal(result.persisted.settings.main.model, 'openai-codex/gpt-6-luna');
-  assert.equal(result.persisted.failed.target, 'schedules:paused');
+  assert.equal(result.persisted.failed.target, 'routines:paused');
   assert.match(readFileSync(path, 'utf8'), /"model": "openai-codex\/old"/);
 });
 
@@ -146,20 +146,20 @@ test('reads and writes model settings within a verified activated data root', as
   assert.equal(loadConfig(dataRoot).main.model, 'openai-codex/gpt-6-luna');
   assert.equal(readFileSync(join(home, 'config.json'), 'utf8'), beforeHomeConfig);
   assert.match(readFileSync(schedulePath, 'utf8'), /"model": "openai-codex\/gpt-6-luna"/);
-  assert.equal(readSettings(home, 'all').schedules[0].model, 'openai-codex/gpt-6-luna');
+  assert.equal(readSettings(home, 'all').routines[0].model, 'openai-codex/gpt-6-luna');
 });
 
 test('settings updates cover once schedules and keep their date', { concurrency: false }, async t => {
   const root = fixture(t);
-  const path = join(root, 'schedules/once/dentist.md');
+  const path = join(root, 'routines/once/dentist.md');
   const data = { id: 'dentist', title: 'Dentist', date: '2026-05-04', at: '15:00', timezone: 'UTC', enabled: true, harness: 'pi', effort: 'medium', cwd: root, context: [] };
   writeFileSync(path, `---\n${JSON.stringify(data, null, 2)}\n---\nRemind me.\n`);
-  const result = await updateSettings(root, { scope: 'schedules', model: 'openai-codex/gpt-6-luna', effort: 'high' }, { modelRuntime });
+  const result = await updateSettings(root, { scope: 'routines', model: 'openai-codex/gpt-6-luna', effort: 'high' }, { modelRuntime });
   const saved = readFileSync(path, 'utf8');
   assert.match(saved, /"date": "2026-05-04"/);
   assert.match(saved, /"effort": "high"/);
   assert.ok(saved.endsWith('Remind me.\n'));
-  assert.deepEqual(result.persisted.settings.schedules.map(item => [item.id, item.cadence]), [['dentist', 'once']]);
+  assert.deepEqual(result.persisted.settings.routines.map(item => [item.id, item.cadence]), [['dentist', 'once']]);
 });
 
 test('scheduleId changes one schedule and leaves the others and the conversations alone', async t => {
@@ -169,19 +169,19 @@ test('scheduleId changes one schedule and leaves the others and the conversation
   const untouched = readFileSync(other, 'utf8');
   let applied = false;
 
-  const result = await updateSettings(root, { scope: 'schedules', scheduleId: 'target', model: 'openai-codex/gpt-6-luna', effort: 'high' }, {
+  const result = await updateSettings(root, { scope: 'routines', scheduleId: 'target', model: 'openai-codex/gpt-6-luna', effort: 'high' }, {
     modelRuntime,
     applyCurrent: () => { applied = true; },
   });
 
-  assert.deepEqual(result.persisted.completed, ['schedules:target']);
-  assert.deepEqual(result.persisted.settings.schedules.map(({ id, model, effort }) => [id, model, effort]), [['target', 'openai-codex/gpt-6-luna', 'high']]);
+  assert.deepEqual(result.persisted.completed, ['routines:target']);
+  assert.deepEqual(result.persisted.settings.routines.map(({ id, model, effort }) => [id, model, effort]), [['target', 'openai-codex/gpt-6-luna', 'high']]);
   assert.match(readFileSync(target, 'utf8'), /"effort": "high"/);
   assert.equal(readFileSync(other, 'utf8'), untouched);
   assert.equal(applied, false);
   assert.equal(loadConfig(root).main.effort, 'medium');
   assert.equal(loadConfig(root).background.effort, 'low');
-  assert.deepEqual(readSettings(root, 'schedules', 'other').schedules.map(item => item.id), ['other']);
+  assert.deepEqual(readSettings(root, 'routines', 'other').routines.map(item => item.id), ['other']);
 });
 
 test('scheduleId must name a native schedule under the schedules scope', async t => {
@@ -189,8 +189,8 @@ test('scheduleId must name a native schedule under the schedules scope', async t
   const path = schedule(root, 'target', { effort: 'low' });
   const before = readFileSync(path, 'utf8');
 
-  await assert.rejects(updateSettings(root, { scope: 'schedules', scheduleId: 'missing', effort: 'high' }, { modelRuntime }), /Unknown schedule: missing/);
-  await assert.rejects(updateSettings(root, { scope: 'all', scheduleId: 'target', effort: 'high' }, { modelRuntime }), /scheduleId needs scope schedules/);
+  await assert.rejects(updateSettings(root, { scope: 'routines', scheduleId: 'missing', effort: 'high' }, { modelRuntime }), /Unknown routine: missing/);
+  await assert.rejects(updateSettings(root, { scope: 'all', scheduleId: 'target', effort: 'high' }, { modelRuntime }), /routineId needs scope routines/);
   assert.equal(readFileSync(path, 'utf8'), before);
 });
 
@@ -211,7 +211,7 @@ test('a level a schedule could never run is refused before anything is saved', a
   const runtime = { getModel: () => noExtraHigh };
 
   await assert.rejects(
-    updateSettings(root, { scope: 'schedules', scheduleId: 'target', effort: 'xhigh' }, { modelRuntime: runtime }),
+    updateSettings(root, { scope: 'routines', scheduleId: 'target', effort: 'xhigh' }, { modelRuntime: runtime }),
     /target cannot run at xhigh on openai-codex\/gpt-6-luna/,
   );
   assert.equal(readFileSync(path, 'utf8'), before);
@@ -225,7 +225,7 @@ test('moving a schedule to a model that lacks its level is refused too', async t
   const runtime = { getModel: () => noThinking };
 
   await assert.rejects(
-    updateSettings(root, { scope: 'schedules', model: 'openai-codex/gpt-6-luna' }, { modelRuntime: runtime }),
+    updateSettings(root, { scope: 'routines', model: 'openai-codex/gpt-6-luna' }, { modelRuntime: runtime }),
     /target cannot run at high/,
   );
   assert.equal(readFileSync(path, 'utf8'), before);
@@ -235,7 +235,7 @@ test('a schedule on an unknown model keeps its effort free, since nothing can be
   const root = fixture(t);
   schedule(root, 'target', { effort: 'low' });
 
-  const result = await updateSettings(root, { scope: 'schedules', effort: 'xhigh' }, { modelRuntime });
+  const result = await updateSettings(root, { scope: 'routines', effort: 'xhigh' }, { modelRuntime });
 
   assert.equal(result.persisted.status, 'complete');
 });

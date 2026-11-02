@@ -96,11 +96,11 @@ export function holdBrief(root, schedule, runs, { resumed = false } = {}) {
     .toSorted((a, b) => a.finishedAt.localeCompare(b.finishedAt))
     .slice(-RUNS_SHOWN);
   const details = {
-    scheduleId: id,
+    routineId: id,
     title,
     reason: nextRun.reason,
     retriesAt: nextRun.at,
-    scheduleFile: path,
+    routineFile: path,
     log: join(folder, 'log.md'),
     memory: join(folder, 'memory.md'),
     runs: latest.map(run => runDetails(root, run)),

@@ -70,7 +70,7 @@ function fixture(t) {
 }
 
 function writeSchedule(h, schedule) {
-  writeFileSync(join(h.root, `schedules/daily/${schedule.id}.md`), `---\n${JSON.stringify({
+  writeFileSync(join(h.root, `routines/daily/${schedule.id}.md`), `---\n${JSON.stringify({
     timezone: 'UTC', enabled: true, harness: 'pi', model: 'fixture/check', effort: 'medium', cwd: h.base, context: [], ...schedule,
   })}\n---\nFollow up on mail.\n`);
 }
@@ -119,12 +119,12 @@ const planning = (seen, onUser = async () => ({ text: 'OK.' })) => async message
   const text = textOf(last);
   if (last.role === 'user' && isHoldBrief(text)) return { text: PLAN, call: { name: 'ask_question', arguments: QUESTION } };
   if (last.role === 'user') return onUser(text);
-  if (last.toolName === 'run_schedule') return { text: 'Mail is running once to prove the fix.' };
+  if (last.toolName === 'run_routine') return { text: 'Mail is running once to prove the fix.' };
   return JSON.parse(text).answer?.value === 'fix'
-    ? { call: { name: 'run_schedule', arguments: { scheduleId: 'mail' } } }
+    ? { call: { name: 'run_routine', arguments: { routineId: 'mail' } } }
     : { text: 'Mail stays held, and I will not ask again.' };
 };
-const runsAgain = async () => ({ call: { name: 'run_schedule', arguments: { scheduleId: 'mail' } } });
+const runsAgain = async () => ({ call: { name: 'run_routine', arguments: { routineId: 'mail' } } });
 
 // What Pi writes for the failure this feature came from: code mode says it worked, and only its details say otherwise.
 const failingRun = sessionFile => {
@@ -156,7 +156,7 @@ async function mainAgent(h, play) {
     agentDir,
     createSession: async sdkOptions => {
       const result = await createAgentSession({
-        ...sdkOptions, agentDir, modelRuntime: models, model, tools: ['ask_question', 'run_schedule'],
+        ...sdkOptions, agentDir, modelRuntime: models, model, tools: ['ask_question', 'run_routine'],
         settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       });
       result.session.agent.streamFunction = streamFrom(play);
@@ -250,7 +250,7 @@ test('a check held over one broken tool brings a plan, and a yes fixes it and pr
   assert.doesNotMatch(asked, /hobkin-hold/);
   assert.equal(briefs(seen).length, 1);
   const brief = details(briefs(seen)[0]);
-  assert.equal(brief.scheduleFile, join(h.root, 'schedules/daily/mail.md'));
+  assert.equal(brief.routineFile, join(h.root, 'routines/daily/mail.md'));
   assert.deepEqual(brief.runs.at(-1).toolErrors, [{ tool: 'chrome_tab', error: CHROME_DOWN }]);
 
   hobkin.press(DOWN);
@@ -374,7 +374,7 @@ test('quitting with the question open is not a no, however long the quit takes: 
   writeSchedule(h, { id: 'slow', title: 'Slow', at: '23:59' });
   const seen = [];
   const check = async run => {
-    if (JSON.parse(run.prompt).schedule.id === 'mail') return failingRun(run.sessionFile);
+    if (JSON.parse(run.prompt).routine.id === 'mail') return failingRun(run.sessionFile);
     // A check that takes a moment to stop keeps the quit waiting, and the agent must not use that moment.
     await new Promise(resolve => run.signal.addEventListener('abort', resolve, { once: true }));
     await rest(100);

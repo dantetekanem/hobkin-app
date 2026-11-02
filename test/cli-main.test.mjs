@@ -59,7 +59,7 @@ test('interactive launch initializes the default workspace without touching lega
   assert.equal(readFileSync(join(root, 'config.json'), 'utf8'), config);
   assert.equal(opens, 2);
   for (const cadence of ['daily', 'weekly', 'monthly']) {
-    assert.equal(existsSync(join(root, 'schedules', cadence)), true);
+    assert.equal(existsSync(join(root, 'routines', cadence)), true);
   }
   assert.equal(readFileSync(join(legacy, 'state.json'), 'utf8'), '{"legacy":"preserved"}');
   assert.equal(existsSync(`${legacy}-control`), false);
@@ -72,7 +72,7 @@ test('finite reads do not initialize, and connected startup cannot bypass an inc
     input: { isTTY: true },
     openApplication: () => { throw Error('Must not open'); },
   };
-  for (const [args, isTTY] of [[[], false], [['--plain'], true], [['schedules'], true]]) {
+  for (const [args, isTTY] of [[[], false], [['--plain'], true], [['routines'], true], [['schedules'], true]]) {
     await assert.rejects(main(args, { isTTY, write() {} }, dependencies), { code: 'ENOENT' });
     assert.equal(existsSync(root), false);
   }

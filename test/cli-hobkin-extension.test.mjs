@@ -82,7 +82,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
         asked.push({ request, signal });
         return 'enable';
       }),
-      run_schedule: createScheduleTool(async (scheduleId, id) => {
+      run_routine: createScheduleTool(async (scheduleId, id) => {
         scheduled.push({ scheduleId, id });
         return { status: 'admitted', scheduleId };
       }),
@@ -138,20 +138,20 @@ test('a tool the model calls runs in the host through the input dialog and its r
   const { session, dialogs, asked, scheduled, root } = await fixture(t);
   scriptedModel(session, [
     { name: 'ask_question', arguments: question },
-    { name: 'run_schedule', arguments: { scheduleId: 'daily-check' } },
+    { name: 'run_routine', arguments: { routineId: 'daily-check' } },
     { name: 'hobkin_memory', arguments: { action: 'add', text: 'Rent is due November 1' } },
     { name: 'model_settings', arguments: { action: 'inspect', scope: 'main' } },
-    { name: 'message_check', arguments: { scheduleId: 'daily-check', message: 'Hurry.' } },
+    { name: 'message_check', arguments: { routineId: 'daily-check', message: 'Hurry.' } },
   ]);
   await session.prompt('Use every Hobkin tool.', { preflightResult() {} });
 
   const results = toolResults(session);
   assert.equal(results.length, 5);
   assert.deepEqual(JSON.parse(results[0].content[0].text), { status: 'answered', answer: question.choices[1] });
-  assert.deepEqual(JSON.parse(results[1].content[0].text), { status: 'admitted', scheduleId: 'daily-check' });
+  assert.deepEqual(JSON.parse(results[1].content[0].text), { status: 'admitted', routineId: 'daily-check' });
   assert.match(results[2].content[0].text, /Memory holds 1 of 20 items\.\n- Rent is due November 1/);
   assert.deepEqual(JSON.parse(results[3].content[0].text), { action: 'inspect', scope: 'main' });
-  assert.deepEqual(JSON.parse(results[4].content[0].text), { scheduleId: 'daily-check', status: 'delivered' });
+  assert.deepEqual(JSON.parse(results[4].content[0].text), { routineId: 'daily-check', status: 'delivered' });
   assert.ok(results.every(result => result.isError !== true));
   assert.deepEqual(asked.map(item => item.request), [{ ...question, other: true }]);
   assert.deepEqual(scheduled, [{ scheduleId: 'daily-check', id: 'call-2' }]);
@@ -170,8 +170,8 @@ test('a host error becomes an ordinary failed tool result, and an aborted call i
 
   const abort = new AbortController();
   abort.abort();
-  const tool = session.agent.state.tools.find(item => item.name === 'run_schedule');
-  await assert.rejects(tool.execute('late', { scheduleId: 'daily-check' }, abort.signal, undefined, { mode: 'rpc', ui: { input: async () => undefined } }), /Cancelled/);
+  const tool = session.agent.state.tools.find(item => item.name === 'run_routine');
+  await assert.rejects(tool.execute('late', { routineId: 'daily-check' }, abort.signal, undefined, { mode: 'rpc', ui: { input: async () => undefined } }), /Cancelled/);
   assert.ok(dialogs.length > 0);
 });
 

@@ -19,6 +19,6 @@ Create a local JSON selection naming the files, date window and destination:
 2. Inspect the local preview's excerpts, source hashes, omissions and destination. It contains user text and tool names, not full transcripts or tool arguments. Keep it private.
 3. Stop the running Hobkin owner, then submit the reviewed preview with `hobkin patterns-submit --preview HASH --confirm HASH`, using the returned hash twice. Changed sources or destination require another preview.
 
-Use the same `--home` for both commands and the dashboard. Submission sends the preview to the chosen Pi model with tools disabled. The report proposes schedules without creating or enabling them. Submitting the same preview again does not rerun it.
+Use the same `--home` for both commands and the dashboard. Submission sends the preview to the chosen Pi model with tools disabled. The report proposes routines without creating or enabling them. Submitting the same preview again does not rerun it.
 
 Choose a Pi-supported provider/model and effort, including Anthropic/Claude models. Historical Claude files are source data, not Claude execution. Exclusion text stays local; only exclusion counts and collection omissions reach the model. Counts describe selected material, not all your work or proof of unused features.

@@ -21,9 +21,9 @@ These read saved state. They start nothing and call no model:
 
 | Command | Output |
 | --- | --- |
-| `hobkin status --plain` | Workspace, bindings, and each schedule as `enabled` or `paused`. Exits 1 if any schedule is invalid. |
-| `hobkin schedules` | The same, without needing `--plain`. Use it to validate a schedule file. |
-| `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `scheduleId`, `at`, `body`, `outcome`. |
+| `hobkin status --plain` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
+| `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
+| `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
 | `hobkin work status` | Work mode in short, as JSON: on or off, any pause and why, tokens, limits and what is next. |
@@ -56,7 +56,7 @@ Never run bare `hobkin` from an agent. In a terminal it opens the dashboard and 
 - `Useful: ...` a finding that is not urgent.
 - `Nothing new.` nothing material changed.
 
-Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `scheduleId` to follow one check.
+Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check.
 
 **Run history.** `checks/<id>/log.md` has one line per finished run, oldest first:
 
@@ -71,8 +71,8 @@ The fields are finish time, trigger (`scheduled` or `manual`), status, duration,
 **Attention.** `runtime/report-attention.json` shows which checks earn their cost, based on each check's latest 10 reports:
 
 ```json
-{ "version": 1, "trackingSince": "2026-10-30T16:56:48.794Z", "schedules": [
-  { "scheduleId": "digest", "title": "Digest", "reports": 7, "read": 0, "critical": 0, "nothingNew": 6, "usd": 2.1, "lastReadAt": null, "ignored": true }
+{ "version": 1, "trackingSince": "2026-10-30T16:56:48.794Z", "routines": [
+  { "routineId": "digest", "title": "Digest", "reports": 7, "read": 0, "critical": 0, "nothingNew": 6, "usd": 2.1, "lastReadAt": null, "ignored": true }
 ] }
 ```
 
@@ -82,7 +82,7 @@ The fields are finish time, trigger (`scheduled` or `manual`), status, duration,
 
 ## Add or change a check
 
-A check is one Markdown file in `schedules/daily/`, `weekly/`, `monthly/` or `once/`, with JSON between the `---` lines (JSON, not YAML), then the instructions. Hobkin reloads files by itself, so no restart or registration is needed.
+A check is one Markdown file in `routines/daily/`, `weekly/`, `monthly/` or `once/`, with JSON between the `---` lines (JSON, not YAML), then the instructions. Hobkin reloads files by itself, so no restart or registration is needed.
 
 ```markdown
 ---
@@ -119,7 +119,7 @@ Summarize what changed in the notes since the last run. Cite the evidence.
 | `day` | Monthly files only: `1` to `31`. Months without that date are skipped. |
 | `date` | `once/` files only: `"YYYY-MM-DD"` in the file's timezone. |
 
-Unknown fields make a file invalid. After writing, run `hobkin schedules` and fix anything listed as `Invalid`. Keep the file's other settings when editing it. Editing a file clears a hold, and a running check keeps the settings it started with.
+Unknown fields make a file invalid. After writing, run `hobkin routines` and fix anything listed as `Invalid`. Keep the file's other settings when editing it. Editing a file clears a hold, and a running check keeps the settings it started with.
 
 Every enabled check spends the user's money on each run. Say so when you add one, and do not enable a check or add a new data source without being asked.
 
@@ -127,7 +127,7 @@ Every enabled check spends the user's money on each run. Say so when you add one
 
 Each run is a fresh Pi process in `cwd` with the user's normal tools. The instructions arrive inside a JSON request, with a limit of 64 KiB:
 
-- `schedule`: the check's ID, title and instructions.
+- `routine`: the check's ID, title and instructions.
 - `sources`: the `context` files.
 - `memory`: the user's list.
 - `checkMemory`: this check's memory, with its `path`. The run updates that file itself.
@@ -141,13 +141,13 @@ After two blocked or failed runs in a row, a check is held and retries after 1, 
 
 ## Start work from outside
 
-Only the main agent can run a schedule on request. From outside, write a one-time check instead. This is the supported way to hand Hobkin work:
+Only the main agent can run a routine on request. From outside, write a one-time check instead. This is the supported way to hand Hobkin work:
 
-1. Write `schedules/once/<unique-id>.md` with today's `date` in the file's timezone, `at` set to the current minute or later, and `enabled: true`.
+1. Write `routines/once/<unique-id>.md` with today's `date` in the file's timezone, `at` set to the current minute or later, and `enabled: true`.
 2. An open dashboard picks it up within seconds of that minute. If none is open, it runs once as soon as one opens, however late.
-3. Watch `hobkin reports` for its `scheduleId`, or `checks/<id>/log.md`.
+3. Watch `hobkin reports` for its `routineId`, or `checks/<id>/log.md`.
 
-A one-time file never runs twice. Once it has run, Hobkin moves it to `checks/<id>/once-<date>.md`, so it leaves `schedules/once/`. Use a new ID for new work.
+A one-time file never runs twice. Once it has run, Hobkin moves it to `checks/<id>/once-<date>.md`, so it leaves `routines/once/`. Use a new ID for new work.
 
 ## Stay out of
 

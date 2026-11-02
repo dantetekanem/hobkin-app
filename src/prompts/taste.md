@@ -17,7 +17,7 @@ Each entry should name the preference or interest, its context and exceptions, i
 
 Read the existing profile before changing it. Merge duplicates and make the smallest supported update while preserving unrelated entries. If nothing qualifies, leave the file unchanged. A current explicit correction overrides an older inference; keep unresolved conflicts when contexts differ. Honor forget requests without retaining or reintroducing the removed preference. Verify the saved result before claiming success.
 
-Taste maintenance does not create schedules, grant source access, authorize actions, or require a separate agent. In the standalone v2 CLI, keep it in the owned main Pi conversation; Durable dispatch receipts do not replace the profile.
+Taste maintenance does not create routines, grant source access, authorize actions, or require a separate agent. In the standalone v2 CLI, keep it in the owned main Pi conversation; Durable dispatch receipts do not replace the profile.
 
 ## Apply the profile
 

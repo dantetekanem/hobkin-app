@@ -6,21 +6,21 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import lockfile from 'proper-lockfile';
 import { atomicJson } from './config.mjs';
-import { cadences } from './schedules.mjs';
+import { cadences, routinesFolder } from './schedules.mjs';
 
 const OLD_DATABASE = 'companion.sqlite';
 const DATABASE = 'hobkin.sqlite';
 const OWNER_STALE_MS = 300000;
-const TEXT_ROOTS = ['schedules', 'checks', 'notes', 'work', 'memory.md', 'config.json'];
+const TEXT_ROOTS = ['routines', 'schedules', 'checks', 'notes', 'work', 'memory.md', 'config.json'];
 // All that starting Hobkin once leaves behind. Anything else means this folder is not one to replace.
-const FRESH_ENTRIES = new Set(['AGENTS.md', 'config.json', 'runtime', 'runtime.lock', 'schedules', 'sessions']);
+const FRESH_ENTRIES = new Set(['AGENTS.md', 'config.json', 'routines', 'runtime', 'runtime.lock', 'schedules', 'sessions']);
 
 const hasDatabase = root => [OLD_DATABASE, DATABASE].some(name => existsSync(join(root, 'runtime', name)));
 
 const entries = path => (existsSync(path) ? readdirSync(path) : []);
 
 const hasOwnHistory = root => entries(join(root, 'reports')).length > 0
-  || cadences.some(cadence => entries(join(root, 'schedules', cadence)).length > 0)
+  || cadences.some(cadence => entries(join(routinesFolder(root), cadence)).length > 0)
   || entries(join(root, 'sessions')).some(name => readFileSync(join(root, 'sessions', name), 'utf8').includes('"type":"message"'));
 
 const isInside = (path, parent) => path === parent || path.startsWith(`${parent}/`);

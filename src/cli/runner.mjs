@@ -235,15 +235,15 @@ export class HobkinRunner {
         more: native.length > 20,
       };
       const schedule = native.find(item => item.id === scheduleId);
-      if (!schedule) throw Error('Unknown exact native schedule ID; list candidates first.');
+      if (!schedule) throw Error('Unknown exact native routine ID; list candidates first.');
       const id = `once:${createHash('sha256').update(requestId).digest('hex')}`;
       const state = await this.runtime.state();
       if (state.runs[id]) {
-        if (state.runs[id].scheduleId !== scheduleId) throw Error('Request ID already belongs to another schedule.');
+        if (state.runs[id].scheduleId !== scheduleId) throw Error('Request ID already belongs to another routine.');
         return { id, status: state.runs[id].status, replay: true };
       }
       const running = Object.values(state.runs).filter(run => run.kind === 'background' && run.status === 'running');
-      if (running.some(run => run.scheduleId === scheduleId)) throw Error('Schedule is already running.');
+      if (running.some(run => run.scheduleId === scheduleId)) throw Error('Routine is already running.');
       if (this.scheduledJobCount(state) >= this.config.concurrency) throw Error('Background capacity is full.');
       const accepted = Promise.withResolvers();
       const occurrence = { id, requestedAt: new Date(this.now()).toISOString(), trigger: 'manual' };
@@ -267,7 +267,7 @@ export class HobkinRunner {
     const fresh = loadSchedules(this.root);
     const current = fresh.schedules.find(item => item.id === schedule.id);
     if (!current || JSON.stringify(current) !== JSON.stringify(schedule)) {
-      throw Error('Schedule changed during preflight; not dispatched');
+      throw Error('Routine changed during preflight; not dispatched');
     }
     signal?.throwIfAborted();
     if (this.stopped) throw Error('Runner has stopped');
@@ -288,13 +288,13 @@ export class HobkinRunner {
     }, async signal => {
       const admitted = loadSchedules(this.root).schedules.find(item => item.id === schedule.id);
       if (!admitted || JSON.stringify(admitted) !== JSON.stringify(schedule)) {
-        throw Error('Schedule changed before provider dispatch');
+        throw Error('Routine changed before provider dispatch');
       }
       if (occurrence.trigger !== 'manual' && schedule.window && dueOccurrence(schedule, this.now())?.id !== occurrence.id) {
         return {
           status: 'incomplete',
           noModel: true,
-          error: 'Schedule window elapsed before dispatch; no provider started.',
+          error: 'Routine window elapsed before dispatch; no provider started.',
         };
       }
       return this.runHarness({
@@ -327,7 +327,7 @@ export class HobkinRunner {
   }
 
   async startCompatibility(schedule, state, now) {
-    if (!this.compatibility) throw Error('A migrated schedule needs its pinned compatibility engine and delivery handlers.');
+    if (!this.compatibility) throw Error('A migrated routine needs its pinned compatibility engine and delivery handlers.');
     const sessionId = schedule.legacy.session.sessionId;
     if (this.legacySessions.has(sessionId)
       || Object.values(state.runs).some(run => run.harnessId === sessionId && run.status === 'running')) {
@@ -338,7 +338,7 @@ export class HobkinRunner {
     if (!prepared || state.runs[prepared.occurrence.id] || this.jobs.has(prepared.occurrence.id) || this.stopped) return false;
     const current = () => {
       const value = loadSchedules(this.root).schedules.find(item => item.id === schedule.id);
-      if (!value || JSON.stringify(value) !== JSON.stringify(schedule)) throw Error('Compatibility schedule changed before execution.');
+      if (!value || JSON.stringify(value) !== JSON.stringify(schedule)) throw Error('Compatibility routine changed before execution.');
     };
     current();
     const reservation = this.compatibility.handlers.reserve?.(schedule.legacy);

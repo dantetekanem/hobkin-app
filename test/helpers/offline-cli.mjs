@@ -25,7 +25,7 @@ const schedule = {
   ...config.background,
 };
 for (const id of ['check', 'check-two']) {
-  writeFileSync(join(root, `schedules/daily/${id}.md`), `---\n${JSON.stringify({ ...schedule, id, title: id === 'check' ? schedule.title : 'Second offline background' })}\n---\nInspect the synthetic fixture.\n`);
+  writeFileSync(join(root, `routines/daily/${id}.md`), `---\n${JSON.stringify({ ...schedule, id, title: id === 'check' ? schedule.title : 'Second offline background' })}\n---\nInspect the synthetic fixture.\n`);
 }
 
 const fake = fakePi(root);

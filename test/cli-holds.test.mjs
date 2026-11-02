@@ -21,7 +21,7 @@ function home(t) {
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
   atomicJson(join(root, 'config.json'), config);
-  writeFileSync(join(root, 'schedules/daily/mail.md'), `---\n${JSON.stringify({
+  writeFileSync(join(root, 'routines/daily/mail.md'), `---\n${JSON.stringify({
     id: 'mail', title: 'Mail', at: '23:00', timezone: 'UTC', enabled: true,
     harness: 'pi', model: 'fixture/check', effort: 'medium', cwd: root, context: [],
   })}\n---\nFollow up on mail.\n`);
@@ -74,7 +74,7 @@ const toolResult = (toolName, text, extra = {}) => JSON.stringify({
 test('a brief gives the agent the check\'s files and what its latest runs said', t => {
   const { root } = home(t);
   const schedule = {
-    id: 'mail', title: 'Mail', path: join(root, 'schedules/daily/mail.md'),
+    id: 'mail', title: 'Mail', path: join(root, 'routines/daily/mail.md'),
     nextRun: { state: 'held', at: '2026-01-03T09:05:00.000Z', reason: 'Chrome is not polling.', holdId: 'second' },
   };
   const runs = [
@@ -92,11 +92,11 @@ test('a brief gives the agent the check\'s files and what its latest runs said',
   assert.equal(isHoldBrief('please look at <hobkin-hold>'), false);
   assert.match(text, /\n<\/hobkin-hold>$/);
   assert.deepEqual(details, {
-    scheduleId: 'mail',
+    routineId: 'mail',
     title: 'Mail',
     reason: 'Chrome is not polling.',
     retriesAt: '2026-01-03T09:05:00.000Z',
-    scheduleFile: schedule.path,
+    routineFile: schedule.path,
     log: join(root, 'checks/mail/log.md'),
     memory: join(root, 'checks/mail/memory.md'),
   });
@@ -199,7 +199,7 @@ test('a held check gets one turn nobody typed, Chat shows only the answer, and t
   assert.equal(control(h, app).calls, 1);
   const [brief] = userTurns(app);
   assert.equal(isHoldBrief(brief), true);
-  assert.equal(JSON.parse(brief.split('\n')[1]).scheduleId, 'mail');
+  assert.equal(JSON.parse(brief.split('\n')[1]).routineId, 'mail');
   const said = view.messages.filter(message => message.role !== 'notice');
   assert.deepEqual(said.map(({ role, content }) => [role, content]), [['assistant', 'Here is what failed and what I propose.']]);
   assert.ok(view.messages.every(message => !message.content.includes('hobkin-hold')));
@@ -236,7 +236,7 @@ test('an ordinary failure costs no turn', async t => {
 
 test('a paused check is not held, so it costs no turn', async t => {
   const h = home(t);
-  const path = join(h.root, 'schedules/daily/mail.md');
+  const path = join(h.root, 'routines/daily/mail.md');
   writeFileSync(path, `---\n${JSON.stringify({
     id: 'mail', title: 'Mail', at: '23:00', timezone: 'UTC', enabled: false,
     harness: 'pi', model: 'fixture/check', effort: 'medium', cwd: h.root, context: [],
@@ -452,7 +452,7 @@ test('under a launcher the plan is an ordinary turn of the RPC child, and stays 
 
 test('two held checks take turns, one plan each', async t => {
   const h = home(t);
-  writeFileSync(join(h.root, 'schedules/daily/bills.md'), `---\n${JSON.stringify({
+  writeFileSync(join(h.root, 'routines/daily/bills.md'), `---\n${JSON.stringify({
     id: 'bills', title: 'Bills', at: '23:00', timezone: 'UTC', enabled: true,
     harness: 'pi', model: 'fixture/check', effort: 'medium', cwd: h.root, context: [],
   })}\n---\nCheck bills.\n`);
@@ -465,5 +465,5 @@ test('two held checks take turns, one plan each', async t => {
   await step(app);
   await step(app);
 
-  assert.deepEqual(userTurns(app).map(text => JSON.parse(text.split('\n')[1]).scheduleId).sort(), ['bills', 'mail']);
+  assert.deepEqual(userTurns(app).map(text => JSON.parse(text.split('\n')[1]).routineId).sort(), ['bills', 'mail']);
 });

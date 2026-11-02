@@ -63,7 +63,7 @@ function home(t, change = {}) {
   return root;
 }
 
-const addSchedule = (root, id, enabled) => writeFileSync(join(root, 'schedules', 'daily', `${id}.md`), `---\n${JSON.stringify({
+const addSchedule = (root, id, enabled) => writeFileSync(join(root, 'routines', 'daily', `${id}.md`), `---\n${JSON.stringify({
   id, title: id, at: '09:00', timezone: 'UTC', enabled, harness: 'pi', model: null, effort: 'medium', cwd: root, context: [],
 })}\n---\nCheck something.\n`);
 
@@ -270,30 +270,30 @@ test('models: no credentials, no Pi, or a Pi that cannot list them', async t => 
 test('schedules: none, none enabled, or some running', async t => {
   const root = home(t);
 
-  const none = (await checks(root)).Schedules;
+  const none = (await checks(root)).Routines;
   assert.equal(none.state, 'missing');
-  assert.match(none.fix, /schedule-setup\.md/, 'points at the guide');
+  assert.match(none.fix, /routine-setup\.md/, 'points at the guide');
 
   addSchedule(root, 'morning', false);
-  const paused = (await checks(root)).Schedules;
+  const paused = (await checks(root)).Routines;
   assert.equal(paused.state, 'missing');
-  assert.match(paused.detail, /1 schedule, none enabled/);
+  assert.match(paused.detail, /1 routine, none enabled/);
 
   addSchedule(root, 'evening', true);
-  const running = (await checks(root)).Schedules;
+  const running = (await checks(root)).Routines;
   assert.equal(running.state, 'ok');
-  assert.match(running.detail, /2 schedules, 1 enabled/);
+  assert.match(running.detail, /2 routines, 1 enabled/);
   assert.equal(running.fix, null);
 });
 
 test('schedules: a file that cannot be read is counted and pointed at', async t => {
   const root = home(t);
   addSchedule(root, 'evening', true);
-  writeFileSync(join(root, 'schedules', 'daily', 'broken.md'), 'not a schedule');
-  const row = (await checks(root)).Schedules;
+  writeFileSync(join(root, 'routines', 'daily', 'broken.md'), 'not a schedule');
+  const row = (await checks(root)).Routines;
   assert.equal(row.state, 'ok');
   assert.match(row.detail, /1 file could not be read/);
-  assert.match(row.fix, /hobkin schedules/);
+  assert.match(row.fix, /hobkin routines/);
 });
 
 test('Herdr is optional: inside it, installed, or not there', async t => {
@@ -355,7 +355,7 @@ test('pi-coder is optional: it is how a local PR\'s diff opens, and setup says h
 });
 
 test('a tool that is missing or broken never throws', async t => {
-  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Schedules', 'Herdr', 'Jev', 'qmd', 'pi-coder'];
+  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'Herdr', 'Jev', 'qmd', 'pi-coder'];
 
   for (const answer of [absent, broken]) {
     const rows = await checks(home(t), { tools: everyToolIs(answer) });
@@ -376,7 +376,7 @@ test('a home that does not exist yet is reported and left alone', async t => {
 
   const rows = await checks(notCreated);
 
-  assert.equal(rows.Schedules.state, 'missing');
+  assert.equal(rows.Routines.state, 'missing');
   assert.equal(rows['Chat model'].state, 'ok');
   assert.equal(existsSync(notCreated), false);
 });

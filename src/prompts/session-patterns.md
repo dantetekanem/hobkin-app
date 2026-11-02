@@ -13,4 +13,4 @@ Write a concise review covering:
 3. Each candidate's likely benefit, required permissions and one success measure.
 4. Uncertainty, alternatives and cases too weak to support a proposal.
 
-Candidates do not create or enable schedules. Keep attribution in private CLI records and return ordinary report text without legacy tracking comments or publication markers.
+Candidates do not create or enable routines. Keep attribution in private CLI records and return ordinary report text without legacy tracking comments or publication markers.

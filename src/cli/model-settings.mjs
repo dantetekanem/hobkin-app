@@ -24,7 +24,7 @@ export async function runModelSettings({ root, config, request, binding, modelRu
     const details = {
       action: 'inspect',
       scope: request.scope,
-      settings: readSettings(root, request.scope, request.scheduleId),
+      settings: readSettings(root, request.scope, request.routineId),
       availableModels: models.map(model => `${model.provider}/${model.id}`).sort(),
     };
     if (request.scope === 'main' || request.scope === 'all') details.activeMainBinding = await binding();
@@ -35,7 +35,7 @@ export async function runModelSettings({ root, config, request, binding, modelRu
   try {
     result = await updateSettings(root, {
       scope: request.scope,
-      scheduleId: request.scheduleId,
+      scheduleId: request.routineId,
       model: request.model,
       effort: request.effort,
     }, { modelRuntime: await modelRuntime(), applyCurrent: apply });

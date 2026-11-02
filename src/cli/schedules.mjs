@@ -1,6 +1,8 @@
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, symlinkSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { parseCompatibility } from './legacy-schedules.mjs';
+
+const OLD_FOLDER = 'schedules';
 
 export const cadences = ['daily', 'weekly', 'monthly', 'once'];
 export const efforts = {
@@ -78,7 +80,7 @@ export function scheduleDate(date) {
 
 export function parseSchedule(source, cadence, path) {
   try {
-    if (Buffer.byteLength(source) > 65536) throw Error('schedule is too large');
+    if (Buffer.byteLength(source) > 65536) throw Error('routine is too large');
     if (!cadences.includes(cadence)) throw Error('unknown recurrence folder');
     const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (!match) throw Error('expected JSON metadata between --- lines');
@@ -105,15 +107,15 @@ export function parseSchedule(source, cadence, path) {
       ? !weekdays.length || new Set(weekdays).size !== weekdays.length
         || weekdays.some(day => !Number.isInteger(day) || day < 0 || day > 6)
       : value.weekday !== undefined) {
-      throw Error('weekday must be 0–6 or a list of distinct 0–6 days, for weekly schedules only');
+      throw Error('weekday must be 0–6 or a list of distinct 0–6 days, for weekly routines only');
     }
     if (cadence === 'monthly'
       ? !Number.isInteger(value.day) || value.day < 1 || value.day > 31
       : value.day !== undefined) {
-      throw Error('day must be 1–31 for monthly schedules only');
+      throw Error('day must be 1–31 for monthly routines only');
     }
     if (cadence === 'once') scheduleDate(value.date);
-    else if (value.date !== undefined) throw Error('date is for once schedules only');
+    else if (value.date !== undefined) throw Error('date is for once routines only');
 
     const prompt = match[2].trim();
     if (!text(prompt)) throw Error('instructions must be nonempty and contain no terminal controls');
@@ -128,11 +130,34 @@ export function formatSchedule(schedule) {
   return `---\n${JSON.stringify(metadata, null, 2)}\n---\n${prompt}\n`;
 }
 
+/** A home keeps its old folder until a dashboard opens it, so a CLI call can never pull the folder out from under a running one. */
+export function routinesFolder(root) {
+  const folder = join(root, 'routines');
+  const old = join(root, OLD_FOLDER);
+  return !existsSync(folder) && existsSync(old) ? old : folder;
+}
+
+/**
+ * Only the dashboard calls this, holding the lock, so nothing is reading the folder. The old path stays as a link because routines,
+ * notes and memories can have it written out in full, and changing their text would count as changing them.
+ */
+export function moveRoutinesFolder(root) {
+  const folder = join(root, 'routines');
+  const old = join(root, OLD_FOLDER);
+  if (existsSync(folder) || !lstatSync(old, { throwIfNoEntry: false })?.isDirectory()) return;
+
+  renameSync(old, folder);
+  symlinkSync('routines', old);
+}
+
+/** Runs keep their stored names. What a person or an agent reads says routine, and JSON escapes any quote inside a value, so this only ever matches a key. */
+export const inRoutineWords = json => json.replaceAll('"scheduleId":', '"routineId":').replaceAll('"schedules":', '"routines":');
+
 export function loadSchedules(root) {
   const schedules = [];
   const errors = [];
   for (const cadence of [...cadences, 'compatibility']) {
-    const directory = join(root, 'schedules', cadence);
+    const directory = join(routinesFolder(root), cadence);
     let entries;
     try {
       if (!lstatSync(directory).isDirectory()) throw Error('recurrence path must be a real directory');
@@ -147,8 +172,8 @@ export function loadSchedules(root) {
       const path = join(directory, name);
       try {
         const stat = lstatSync(path);
-        if (!stat.isFile()) throw Error('schedule must be a regular file, not a symlink');
-        if (stat.size > (cadence === 'compatibility' ? 1048576 : 65536)) throw Error('schedule is too large');
+        if (!stat.isFile()) throw Error('routine must be a regular file, not a symlink');
+        if (stat.size > (cadence === 'compatibility' ? 1048576 : 65536)) throw Error('routine is too large');
         const source = readFileSync(path, 'utf8');
         schedules.push(cadence === 'compatibility'
           ? parseCompatibility(source, path)
@@ -164,7 +189,7 @@ export function loadSchedules(root) {
   }
   const valid = schedules.filter(schedule => {
     if (ids.get(schedule.id) === 1) return true;
-    errors.push({ path: schedule.path, message: `duplicate schedule id: ${schedule.id}` });
+    errors.push({ path: schedule.path, message: `duplicate routine id: ${schedule.id}` });
     return false;
   });
   const groups = valid.some(item => item.cadence === 'compatibility') ? [...cadences, 'compatibility'] : cadences;

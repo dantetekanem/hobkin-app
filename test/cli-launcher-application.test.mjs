@@ -22,7 +22,7 @@ function fixture(t, withLauncher) {
     id: 'email', title: 'Email follow-up', enabled: false, window: { start: '09:00', end: '10:00', everyMinutes: 60 },
     timezone: 'UTC', cwd: root, harness: 'pi', model: 'fixture/local', effort: 'high', context: [],
   };
-  writeFileSync(join(root, 'schedules/daily/email.md'), `---\n${JSON.stringify(schedule)}\n---\nCheck fixture only.\n`);
+  writeFileSync(join(root, 'routines/daily/email.md'), `---\n${JSON.stringify(schedule)}\n---\nCheck fixture only.\n`);
   const requests = [];
   const runHarness = async request => {
     requests.push(request);
@@ -48,7 +48,7 @@ test('with a launcher the main chat is an RPC child and a schedule it starts run
   const id = dialog(pi.children[0], {
     method: 'input',
     title: 'hobkin/bridge',
-    placeholder: JSON.stringify({ op: 'tool', name: 'run_schedule', id: 'call-1', params: { scheduleId: 'email' } }),
+    placeholder: JSON.stringify({ op: 'tool', name: 'run_routine', id: 'call-1', params: { routineId: 'email' } }),
   });
   while (!pi.received.some(record => record.id === id)) await new Promise(resolve => setImmediate(resolve));
   const answer = JSON.parse(pi.received.find(record => record.id === id).value);

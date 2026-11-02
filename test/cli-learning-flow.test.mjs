@@ -70,7 +70,7 @@ function fixture(t) {
   return { base, root, folder };
 }
 
-const addSchedule = ({ base, root }, id, title, enabled = false) => writeFileSync(join(root, 'schedules/daily', `${id}.md`), `---\n${JSON.stringify({
+const addSchedule = ({ base, root }, id, title, enabled = false) => writeFileSync(join(root, 'routines/daily', `${id}.md`), `---\n${JSON.stringify({
   id, title, at: '03:00', timezone: 'UTC', enabled, harness: 'pi', model: null, effort: 'medium', cwd: base, context: [],
 })}\n---\nCheck the thing.\n`);
 

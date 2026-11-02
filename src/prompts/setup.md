@@ -10,7 +10,7 @@ Take the rows under Needed that say `missing`, from the top, and give the `Fix` 
 
 - Pi: checks and work mode start the `pi` on the PATH, and the main chat runs on Hobkin's own copy, so both must match the pinned version. Pi's installer always takes the latest, so use the npm command, which names the version. If `pi --version` still shows another version, an earlier install comes first on the PATH, and `curl -fsSL https://pi.dev/install.sh | sh` offers Uninstall Pi.
 - gh: ask first whether their projects are on GitHub. A project on another host works without it. By default finished work stays a local branch, and for PRs agents use that host's own CLI, such as `glab` for GitLab. Hobkin then sees the project's branches but not its PRs.
-- Models: to change the model for chat or checks, use the settings tool. A lighter model for checks costs less, and each schedule can have its own.
+- Models: to change the model for chat or checks, use the settings tool. A lighter model for checks costs less, and each routine can have its own.
 
 Anything that asks questions or opens a browser, such as `gh auth login`, is for the user to run in a terminal of their own.
 
@@ -28,7 +28,7 @@ To turn it on:
 2. They add `export TYPESAFE_API_KEY=...` to their shell profile and reopen Hobkin from a new terminal. A running Hobkin cannot see a key added after it started, and `/jev` answers `Jev failed: Set TYPESAFE_API_KEY first.` until then. Reopening restores this conversation, so setup carries on.
 3. They type `/jev` in Chat. The status bar shows `jev` while it is on, and `/jev` again turns it off.
 
-## First schedules
+## First routines
 
 Ask what they want to hear about without having to ask for it, and offer the ideas below if they are not sure. Two or three checks are enough to start. For each one, settle:
 
@@ -39,14 +39,14 @@ Ask what they want to hear about without having to ask for it, and offer the ide
 
 Then write the files:
 
-1. Read `README.md` in the supplied schedules path for the format. If it is missing, `schedule-setup.md` beside this guide has the same format.
-2. Run `hobkin schedules --home /supplied/root`, then place each check as "Spread what you schedule" says: a morning briefing stays in the morning, weekly and monthly checks go where there are fewest, and hours stay at least 15 minutes apart.
+1. Read `README.md` in the supplied routines path for the format. If it is missing, `routine-setup.md` beside this guide has the same format.
+2. Run `hobkin routines --home /supplied/root`, then place each check as "Spread what you routine" says: a morning briefing stays in the morning, weekly and monthly checks go where there are fewest, and hours stay at least 15 minutes apart.
 3. Use the user's timezone as a name such as `America/Sao_Paulo`. `node -p "Intl.DateTimeFormat().resolvedOptions().timeZone"` prints it.
 4. Bind the background model and effort from the runtime block, and set `enabled` to `true` once the user has agreed to the check.
 5. Write the instructions for an agent that has seen none of this conversation: what to read, what to report and what to leave alone.
-6. Run `hobkin schedules --home /supplied/root` again and fix any error it lists.
+6. Run `hobkin routines --home /supplied/root` again and fix any error it lists.
 
-Say in one line where each check went and why. Offer to run one now with `run_schedule` so they see a report, and run it only on their yes.
+Say in one line where each check went and why. Offer to run one now with `run_routine` so they see a report, and run it only on their yes.
 
 Tell them plainly that checks run only while Hobkin is open. After downtime, only the latest time due that day runs.
 

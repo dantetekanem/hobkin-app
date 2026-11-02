@@ -93,7 +93,12 @@ export function logRun(root, run) {
   }
 }
 
-export const scheduleDefinition = schedule => createHash('sha256').update(JSON.stringify(schedule)).digest('hex');
+// Runs keep this fingerprint and it covers the path, so the path stays under the folder's old name: moving the folder changes no routine.
+const beforeTheMove = path => path.replace(/([/\\])routines(?=[/\\][^/\\]+[/\\][^/\\]+$)/, '$1schedules');
+export const scheduleDefinition = schedule => {
+  const fingerprinted = typeof schedule.path === 'string' ? { ...schedule, path: beforeTheMove(schedule.path) } : schedule;
+  return createHash('sha256').update(JSON.stringify(fingerprinted)).digest('hex');
+};
 
 export const stalled = run => ['failed', 'incomplete'].includes(run.status) || reportTriage(run)?.level === 'blocked';
 // A cancelled, skipped or unfinished attempt says nothing about whether the check works.

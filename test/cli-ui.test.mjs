@@ -724,7 +724,7 @@ test('fullscreen input reaches dashboard pagination and composer boundaries', t 
   const bindings = getKeybindings().getUserBindings();
   const runs = Array.from({ length: 20 }, (_, index) => ({
     state: 'invalid',
-    title: `broken-${index}.md: invalid schedule`,
+    title: `broken-${index}.md: invalid routine`,
   }));
   const ui = startDashboard({ ...snapshot, runs }, {}, { terminal });
   t.after(() => ui.stop());

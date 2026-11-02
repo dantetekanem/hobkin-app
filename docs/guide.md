@@ -21,7 +21,7 @@ hobkin
 
 First launch creates `~/.hobkin` and connects Pi without sending a model request. Later launches reopen the same conversation. Use `--home /absolute/path` or `HOBKIN_HOME` for another workspace.
 
-Coming from pi-companion? Close it, then run `hobkin import`. That copies `~/.companion` into `~/.hobkin`, with your schedules, memory, reports and conversation, and points them at the new folder. The old folder is not changed. Run only one of the two: each would run every schedule.
+Coming from pi-companion? Close it, then run `hobkin import`. That copies `~/.companion` into `~/.hobkin`, with your routines, memory, reports and conversation, and points them at the new folder. The old folder is not changed. Run only one of the two: each would run every routine.
 
 Hobkin uses your ordinary Pi tools, extensions, MCP servers and project context. It leaves out `pi-emote`, because it has a face of its own: the chat and background runs never load it, and Pi keeps it. A pane Hobkin opens, for work or a session, is your ordinary Pi with every extension, that one too. With a launcher, the launcher decides which extensions load. Models configured in Pi, including Anthropic/Claude models, work here. Pi's own screens and custom extension widgets are not reproduced.
 
@@ -29,7 +29,7 @@ Updating Hobkin? Read the [CLI update steps](upgrade.md#already-using-the-cli). 
 
 ## Use it
 
-Chat opens ready to type. Reports holds completed checks; Schedules shows their next run and any configuration errors. In Reports, a schedule's report has the blue dot of the Schedules tab, a work mode report has a green one, and a failed run is a red cross on both. Running checks get their own read-only tabs. Finishing the selected check opens its report.
+Chat opens ready to type. Reports holds completed checks; Routines shows their next run and any configuration errors. In Reports, a routine's report has the blue dot of the Routines tab, a work mode report has a green one, and a failed run is a red cross on both. Running checks get their own read-only tabs. Finishing the selected check opens its report.
 
 - **Enter** sends a message or opens the selected report. Your message shows in Chat straight away, gray until the agent has it. One sent while the agent is busy waits its turn.
 - **When the agent asks you something**, pick an answer with the arrows and **Enter**. The last row, Other, takes your own words. **Esc** chooses none.
@@ -46,17 +46,17 @@ Colors follow Pi's saved theme. The header shows connection state; the status ba
 
 Hobkin's face sits left of the input bar in Chat and follows what is happening. On its own it uses four moods: idle when nothing is running, thinking while the agent replies, working while a check or work agent runs, and happy for 30 seconds after a useful report. In Ghostty and Kitty it plays the design's own animation, including inside Herdr. Each frame is sent once, so animating it only changes text, and only the mood on screen stays in the terminal. Other terminals, tmux and `HOBKIN_FACE=blocks` use block characters instead. It hides on a terminal under 76 columns or 20 rows.
 
-Jev, a model from TypeSafe, can pick from all 18 moods instead. Set it with `/jev` in the dashboard or `hobkin jev [on | off]`. It needs `TYPESAFE_API_KEY` in the environment, and the status bar shows `jev` while it is on. Jev then picks a mood when a session starts, a report arrives, a schedule or work agent starts or finishes, work mode pauses, the agent finishes a reply or you send a message, and after 15 quiet minutes. Each request goes to `https://api.typesafe.ai/v1/systemone` and carries the event, a report's outcome and its line in Chat, your latest message and the agent's latest reply, each cut to its last 400 characters, and the names of what is running. Nothing is sent with Jev off.
+Jev, a model from TypeSafe, can pick from all 18 moods instead. Set it with `/jev` in the dashboard or `hobkin jev [on | off]`. It needs `TYPESAFE_API_KEY` in the environment, and the status bar shows `jev` while it is on. Jev then picks a mood when a session starts, a report arrives, a routine or work agent starts or finishes, work mode pauses, the agent finishes a reply or you send a message, and after 15 quiet minutes. Each request goes to `https://api.typesafe.ai/v1/systemone` and carries the event, a report's outcome and its line in Chat, your latest message and the agent's latest reply, each cut to its last 400 characters, and the names of what is running. Nothing is sent with Jev off.
 
-Ask the agent to run a configured check now, even if its recurring schedule is paused. This runs it once without changing its schedule. While a check runs, tell the agent anything that bears on it and the agent passes it on: the check reads the message at its next step and carries on, and its report holds the result.
+Ask the agent to run a configured check now, even if its recurring routine is paused. This runs it once without changing its routine. While a check runs, tell the agent anything that bears on it and the agent passes it on: the check reads the message at its next step and carries on, and its report holds the result.
 
-Ask the agent for a different model or thinking effort and the conversation switches on its next model call, with no restart. Each schedule has its own model and effort, and its reports use them: name a check to change only that one, and its next run picks it up. Schedules shows each check's effort.
+Ask the agent for a different model or thinking effort and the conversation switches on its next model call, with no restart. Each routine has its own model and effort, and its reports use them: name a check to change only that one, and its next run picks it up. Routines shows each check's effort.
 
-The main chat compacts itself in two ways, and you can see it in the footer. From 80% of the context window it compacts ahead of time when nobody needs it: the chat has been quiet for 2 minutes, and either other agents are working or the next check is at least 2 hours away. At 95% it is forced. During a turn Pi compacts between model calls and the turn carries on by itself. New work and your own messages wait for it and then continue, and schedules keep their time. A compaction that fails holds nothing up and tries again 10 minutes later. Turning auto-compaction off in Pi turns both off. The 95% setting stays in memory, so your Pi settings do not change. On a window under about 328,000 tokens it comes a little sooner, to keep the room Pi needs.
+The main chat compacts itself in two ways, and you can see it in the footer. From 80% of the context window it compacts ahead of time when nobody needs it: the chat has been quiet for 2 minutes, and either other agents are working or the next check is at least 2 hours away. At 95% it is forced. During a turn Pi compacts between model calls and the turn carries on by itself. New work and your own messages wait for it and then continue, and routines keep their time. A compaction that fails holds nothing up and tries again 10 minutes later. Turning auto-compaction off in Pi turns both off. The 95% setting stays in memory, so your Pi settings do not change. On a window under about 328,000 tokens it comes a little sooner, to keep the room Pi needs.
 
 Hobkin edits every report before you read it, whichever agent wrote it. A small job with no tools, on your checks model, rewrites the draft in plain sentences. It uses the guide in `src/prompts/humanizer.md`, based on [blader/humanizer](https://github.com/blader/humanizer) under the MIT license in `src/prompts/humanizer.LICENSE`, so it needs nothing installed. The edit has to keep the report's first label and every number, link and piece of code. If it changes one of those, fails, or takes over three minutes, you get the report as the agent wrote it. `Nothing new.` reports skip this. Each edit costs about 8,500 tokens, and it does not count against work mode's daily limit.
 
-Hobkin notices which reports you open or message about. A check is flagged in Schedules, and mentioned in tips, when at most 1 in 5 of its latest reports was, across at least 5 reports and a week of tracking, with no critical finding and no run you requested. Nothing changes on its own: ask the agent to revisit a flagged check. This stays in the data folder as run IDs and timings in `runtime/telemetry.jsonl` and a per-check summary in `runtime/report-attention.json`, and a summary you only read in Chat does not show up.
+Hobkin notices which reports you open or message about. A check is flagged in Routines, and mentioned in tips, when at most 1 in 5 of its latest reports was, across at least 5 reports and a week of tracking, with no critical finding and no run you requested. Nothing changes on its own: ask the agent to revisit a flagged check. This stays in the data folder as run IDs and timings in `runtime/telemetry.jsonl` and a per-check summary in `runtime/report-attention.json`, and a summary you only read in Chat does not show up.
 
 The agent keeps a short list of what matters right now in `memory.md` in the data folder: up to 20 one-line items that it adds, updates and removes as things change. Ask it to remember or forget something, or edit the file yourself. The list stays within Hobkin, chat sees it on every turn, and scheduled checks can read it but not change it.
 
@@ -64,13 +64,13 @@ The agent keeps a short list of what matters right now in `memory.md` in the dat
 
 Each check also keeps its own folder at `~/.hobkin/checks/<id>/`, and every run starts with both files in it. `memory.md` is the check's working memory: checkpoints, open items and what it has already reported. Its agent maintains the file, and you can edit it too. `log.md` has one line per run, written by Hobkin, with the time, trigger, outcome, duration, cost and first report line.
 
-A check that could do none of its work says `Blocked:` in Chat. If one source is down, it does the rest and reports that source as unverified. After two blocked or failed runs in a row, Hobkin stops scheduling it instead of retrying: Schedules shows it as held, and it tries again after 1 day, then 2, 4 and 7. A working run or a schedule edit clears the hold, and you can still run it on request.
+A check that could do none of its work says `Blocked:` in Chat. If one source is down, it does the rest and reports that source as unverified. After two blocked or failed runs in a row, Hobkin stops scheduling it instead of retrying: Routines shows it as held, and it tries again after 1 day, then 2, 4 and 7. A working run or a routine edit clears the hold, and you can still run it on request.
 
-When a check becomes held, the agent brings you a plan without being asked. As soon as it is free, it reads the check's log, memory and schedule file and the failing run's tool errors, then tells you in Chat what failed, the real cause with its evidence and what it proposes, and asks yes or no. It changes nothing before a yes. On a yes it carries out the plan and runs the check once to prove it, and a working run clears the hold. On a no the check stays held. You are asked once per hold, and a retry that fails is still the same hold. If the fix is yours to make, such as reloading a browser extension, the plan says exactly what to do and the agent offers to run the check afterwards. A hold the agent has not reached when you quit gets its plan the next time you open Hobkin, and a turn that gets cut off is picked up then too, up to three tries. Each plan costs one main agent turn.
+When a check becomes held, the agent brings you a plan without being asked. As soon as it is free, it reads the check's log, memory and routine file and the failing run's tool errors, then tells you in Chat what failed, the real cause with its evidence and what it proposes, and asks yes or no. It changes nothing before a yes. On a yes it carries out the plan and runs the check once to prove it, and a working run clears the hold. On a no the check stays held. You are asked once per hold, and a retry that fails is still the same hold. If the fix is yours to make, such as reloading a browser extension, the plan says exactly what to do and the agent offers to run the check afterwards. A hold the agent has not reached when you quit gets its plan the next time you open Hobkin, and a turn that gets cut off is picked up then too, up to three tries. Each plan costs one main agent turn.
 
-## Add a schedule
+## Add a routine
 
-Create a Markdown file in `~/.hobkin/schedules/daily/`, `weekly/` or `monthly/`:
+Create a Markdown file in `~/.hobkin/routines/daily/`, `weekly/` or `monthly/`:
 
 ```markdown
 ---
@@ -92,9 +92,9 @@ Check the approved notes for changes worth acting on. Cite the evidence.
 
 Set your paths, timezone and model, then enable the file. `model: null` uses Pi's default. Weekly files take a `weekday`, or a list such as `[1, 2, 3, 4, 5]` for Monday to Friday.
 
-Ask the agent and it spreads what it schedules without being told: a weekly check goes on the day with the fewest, a monthly one on the emptiest date, and hours stay apart, while morning briefings stay in the morning. A day or time you name wins. `hobkin schedules` shows when each check runs.
+Ask the agent and it spreads what it routines without being told: a weekly check goes on the day with the fewest, a monthly one on the emptiest date, and hours stay apart, while morning briefings stay in the morning. A day or time you name wins. `hobkin routines` shows when each check runs.
 
-For a check that runs once, put the file in `once/` with a `date` (`YYYY-MM-DD` in the file's timezone) plus `at` or `window`. If Hobkin was not running at that time, the check runs as soon as it is, however late. It never runs twice, and once it has run it leaves Schedules: its file moves to `checks/<id>/`, next to its log. The [schedule guide](../src/prompts/schedule-setup.md) covers multiple daily times, hourly windows and weekly/monthly settings. Hobkin reloads edited schedules automatically. Keep the dashboard open for checks to run.
+For a check that runs once, put the file in `once/` with a `date` (`YYYY-MM-DD` in the file's timezone) plus `at` or `window`. If Hobkin was not running at that time, the check runs as soon as it is, however late. It never runs twice, and once it has run it leaves Routines: its file moves to `checks/<id>/`, next to its log. The [routine guide](../src/prompts/routine-setup.md) covers multiple daily times, hourly windows and weekly/monthly settings. Hobkin reloads edited routines automatically. Keep the dashboard open for checks to run.
 
 ## Start Pi through a launcher
 
@@ -108,7 +108,7 @@ Hobkin then starts every Pi process with that command. The main chat runs as an 
 
 ## Work mode
 
-Work mode is a proactive agent mode to get work done on your projects. Type `/work` in Chat to turn it on or off. The first time, Hobkin asks which folder to start from, and `/work ~/Projects` names it directly or looks somewhere new. While it is on, a Work Mode tab sits beside Schedules, with a green circle while it is active and an orange one while it is paused. `/work` leaves you in Chat and says when the tab appears or goes. The agent looks only in that folder, one folder at a time, reading each repository's git history to see what is published and still moving. The tab always says what is happening now and when the next look is.
+Work mode is a proactive agent mode to get work done on your projects. Type `/work` in Chat to turn it on or off. The first time, Hobkin asks which folder to start from, and `/work ~/Projects` names it directly or looks somewhere new. While it is on, a Work Mode tab sits beside Routines, with a green circle while it is active and an orange one while it is paused. `/work` leaves you in Chat and says when the tab appears or goes. The agent looks only in that folder, one folder at a time, reading each repository's git history to see what is published and still moving. The tab always says what is happening now and when the next look is.
 
 A look is finished only when every root folder is done. A run that stops sooner is picked up from where it stopped, up to two more times, and then Hobkin tells you it stopped early and why. A finished folder is not looked through again, because the daily watcher proposes new repositories with no tokens. A failed or unfinished look comes round again, and `/work <folder>` or `hobkin work trigger discover` looks whenever you ask.
 
@@ -144,7 +144,7 @@ When a worker is free and the budget allows it, the top of the queue starts by i
 
 `p` on a project row sets the priority its items start at. With none set, max and critical are P0, important P1 and casual P2. Priorities and PR settings live in Hobkin's data, not in the repository.
 
-Two agents run at once by default, and `hobkin work agents <number>` changes it, up to a ceiling of 8. Starts go one at a time. With nothing running the next one starts within 30 seconds, and while a run is going they are up to 5 minutes apart so it can show what it costs, less as the queue gets longer. A row that keeps failing waits 10 minutes more after each try, up to an hour, while everything else goes past it. Schedules take priority: they never wait on work mode, and a running check takes a worker's place.
+Two agents run at once by default, and `hobkin work agents <number>` changes it, up to a ceiling of 8. Starts go one at a time. With nothing running the next one starts within 30 seconds, and while a run is going they are up to 5 minutes apart so it can show what it costs, less as the queue gets longer. A row that keeps failing waits 10 minutes more after each try, up to an hour, while everything else goes past it. Routines take priority: they never wait on work mode, and a running check takes a worker's place.
 
 Run `/work` again to stop. The tab goes away, a look in progress stops and carries on from its notes next time, project agents finish, nothing new starts, and projects, items and branches stay. In the tab, Enter on a running agent's row opens that agent, and `k` there cancels it. A cancelled item goes to the end of the queue, skipped, until `s` or `hobkin work back` puts it back.
 
@@ -202,7 +202,7 @@ learned: advice only, grants nothing
 +price-watch used x5: keep this approach
 ```
 
-Lessons are built from a fixed list in `src/prompts/learning-language.md`, so they hold codes and counts and no text of their own. It takes at least 3 sightings on at least 2 days to teach anything, and only the latest 10 runs of a check count. A lesson goes when the latest runs stop showing it, when the schedule is edited, or after 120 days without new evidence. Each session gets at most 160 tokens from learning, counted as they are sent and in whole lines only. That is all a run pays for it. Lessons are advice: they limit no tool and grant nothing. Checks and work agents get them in their request, and `hobkin session` panes in their brief. Chat gets them with your next message when they have changed, never in the system prompt, so a new lesson leaves the conversation's prompt cache alone.
+Lessons are built from a fixed list in `src/prompts/learning-language.md`, so they hold codes and counts and no text of their own. It takes at least 3 sightings on at least 2 days to teach anything, and only the latest 10 runs of a check count. A lesson goes when the latest runs stop showing it, when the routine is edited, or after 120 days without new evidence. Each session gets at most 160 tokens from learning, counted as they are sent and in whole lines only. That is all a run pays for it. Lessons are advice: they limit no tool and grant nothing. Checks and work agents get them in their request, and `hobkin session` panes in their brief. Chat gets them with your next message when they have changed, never in the system prompt, so a new lesson leaves the conversation's prompt cache alone.
 
 From the same evidence Hobkin concludes which checks work, which do not, and which should be refactored, rethought or built on with new ideas. The last three reach you as a short proposal in Chat, at most one a day and three waiting, with the evidence. Nothing changes on its own: say yes and the agent brings a plan and asks, or say no and it does not come up again. A held check is left out, because the agent already brings its plan: nothing is asked about it while the hold stands, and only what happens after that plan can raise a new question.
 
@@ -239,11 +239,11 @@ mkdir -p ~/.pi/agent/skills/hobkin
 hobkin skill > ~/.pi/agent/skills/hobkin/SKILL.md
 ```
 
-These commands read saved state without starting Pi or schedules:
+These commands read saved state without starting Pi or routines:
 
 ```sh
 hobkin status --plain
-hobkin schedules
+hobkin routines
 hobkin history
 ```
 
