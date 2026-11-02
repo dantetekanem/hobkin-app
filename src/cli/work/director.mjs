@@ -6,24 +6,50 @@ import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
 import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mjs';
+import { followInBackground } from '../session.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
 import { nameOf } from './names.mjs';
-import { agentName } from './panes.mjs';
+import { agentName, WorkPanes } from './panes.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import {
   answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
-  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates,
+  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates, takeHanded, writeHanded,
   sessionError, sessionUsage, skipInQueue, slugOf, tokenLabel, updateItem, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
 import { changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
+
+const handedRecord = ({ harnessId, slug, lane, item, title, level, kind, estimate, model, effort, sessionFile, paneId, report, harness, bound, startedAt, cwd, folder, tree, note }) => ({
+  harnessId,
+  slug,
+  lane,
+  item,
+  title,
+  level,
+  kind,
+  estimate,
+  model,
+  effort,
+  sessionFile,
+  paneId,
+  report,
+  paneKind: harness,
+  bound,
+  startedAt,
+  place: { cwd, folder, tree, note },
+});
+
+function withSessionCost(result, sessionFile) {
+  const { usd, sessionId } = sessionUsage(sessionFile);
+  return usd ? { ...result, cost: { usd, kind: 'estimate', cumulative: true, sessionId } } : result;
+}
 
 const HOUR_MS = 3600000;
 const DISCOVERY_RETRY_MS = HOUR_MS / 4;
@@ -80,8 +106,8 @@ const notTheWork = run => Boolean(run?.result?.usageLimit);
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, claudeProjects }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, claudeProjects });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, claudeProjects, follow = followInBackground }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, claudeProjects, follow });
     this.active = new Map();
     this.lastStartAt = null;
   }
@@ -122,6 +148,7 @@ export class WorkDirector {
 
   // Turning work mode off starts nothing new. Project agents finish, but a look stops: it only reads, it carries on from its notes, and nothing shows what it spends once the tab is gone.
   async tick() {
+    this.pickUpHanded();
     this.recoverDiscovery();
     this.tellNewProposals();
     // Agents keep working after the mode goes off, so these do too.
@@ -623,7 +650,39 @@ export class WorkDirector {
     if (usagePause && Date.parse(usagePause.until) <= this.now()) writeMode(this.root, { usagePause: null });
   }
 
-  async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal, paneKind, bound }) {
+  /** Runs that can outlive hobkin: an agent working in a pane, briefed and on its way. Nothing else can carry on with hobkin gone. */
+  agentsInPanes() {
+    return this.running().filter(run => run.paneId);
+  }
+
+  /** Called as hobkin closes on the user's word. Each run is written down for the next hobkin, and a follower of its own sees it to the end. */
+  handOff() {
+    const runs = this.agentsInPanes();
+    if (!runs.length) return;
+
+    this.panes?.release();
+    for (const run of runs) run.handedOff = true;
+    writeHanded(this.root, runs.map(handedRecord));
+    for (const { pane, paneId, report } of runs) this.follow({ name: pane, pane: paneId, report, kind: 'handed' });
+  }
+
+  /** Each run comes back as it would have ended here, so its report, tokens and folder are settled the usual way. A look has nothing to restore. */
+  pickUpHanded() {
+    if (this.pickedUp) return;
+    this.pickedUp = true;
+    for (const record of takeHanded(this.root)) {
+      const { slug, lane, item, title, level, kind, estimate, model, effort, place } = record;
+      const settle = lane === 'do' ? (run, entry) => this.settleItem(slug, item, run, entry) : run => this.settleLook(slug, run, {});
+      this.start({ key: laneKey(slug, lane), lane, slug, item, title, purpose: `work-${lane}`, cwd: place.cwd, level, kind, estimate, model, effort, instructions: title, settle, handed: record });
+    }
+  }
+
+  async followHanded({ pane, report, sessionFile }, signal) {
+    const panes = this.panes ?? new WorkPanes();
+    return withSessionCost(await panes.awaitHanded({ pane, report, signal }), sessionFile);
+  }
+
+  async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal, paneKind, bound, onStarted }) {
     const directory = join(paths(this.root, slug).directory, 'runs');
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const brief = join(directory, `${harnessId}.md`);
@@ -639,20 +698,21 @@ export class WorkDirector {
       brief,
       report,
       signal,
+      onStarted: pane => onStarted(pane, report),
       ...(paneKind === 'claude' ? { claudeSession: harnessId, bound } : {}),
     });
-    const { usd, sessionId } = sessionUsage(sessionFile);
-    return usd ? { ...result, cost: { usd, kind: 'estimate', cumulative: true, sessionId } } : result;
+    return withSessionCost(result, sessionFile);
   }
 
-  start({ key, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, instructions, prepare, work, settle }) {
-    const harnessId = randomUUID();
-    const id = `work:${slug ?? 'discover'}:${lane}:${harnessId}`;
+  start({ key, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, instructions, prepare, work, settle, handed = null }) {
+    const harnessId = handed?.harnessId ?? randomUUID();
+    // Its first run already ended in the record as left running, and an id is only ever used once.
+    const id = `work:${slug ?? 'discover'}:${lane}:${handed ? randomUUID() : harnessId}`;
     const scheduleId = slug ? `work.${slug}.${lane}` : 'work.discover';
-    const inPane = Boolean(slug && this.panes);
+    const inPane = Boolean(handed) || Boolean(slug && this.panes);
     const pane = inPane ? agentName(lane, slug) : null;
-    const bound = inPane && Boolean(levels[level]?.harness);
-    const paneKind = !inPane ? 'pi' : bound ? levels[level].harness : readMode(this.root).harness;
+    const bound = handed?.bound ?? (inPane && Boolean(levels[level]?.harness));
+    const paneKind = handed?.paneKind ?? (!inPane ? 'pi' : bound ? levels[level].harness : readMode(this.root).harness);
     const request = {
       id,
       kind: 'background',
@@ -666,8 +726,8 @@ export class WorkDirector {
       work: { slug, lane, item, ...(pane ? { pane } : {}) },
     };
     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
-    const startedAt = new Date(this.now()).toISOString();
-    const entry = { id, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: paneKind, pane, startedAt };
+    const startedAt = handed?.startedAt ?? new Date(this.now()).toISOString();
+    const entry = { id, harnessId, kind, model, bound, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: paneKind, pane, startedAt, paneId: handed?.paneId, report: handed?.report };
     const runIn = async (place, signal) => {
       const here = place.cwd;
       const schedule = { id: scheduleId, title, prompt: instructions, cwd: here, harness: 'pi', model, context: [] };
@@ -677,7 +737,10 @@ export class WorkDirector {
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work(place.folder ? 'folder' : 'tree'));
       mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
-      if (inPane) return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd: here, model, effort, sessionFile, signal, paneKind, bound });
+      if (inPane) {
+        const onStarted = (paneId, report) => Object.assign(entry, { paneId, report });
+        return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd: here, model, effort, sessionFile, signal, paneKind, bound, onStarted });
+      }
       return this.runHarness({
         id: harnessId,
         harness: 'pi',
@@ -691,19 +754,22 @@ export class WorkDirector {
       }, { onEvent: event => this.runner.onActivity(id, event) });
     };
     const effect = async signal => {
-      const place = prepare ? await prepare(entry) : { cwd };
+      const place = handed?.place ?? (prepare ? await prepare(entry) : { cwd });
       Object.assign(entry, place);
       try {
-        return this.noteUsageLimit(await runIn(place, signal), sessionFile, bound);
+        const ended = await (handed ? this.followHanded(entry, signal) : runIn(place, signal));
+        return this.noteUsageLimit(ended, sessionFile, bound);
       } finally {
-        // A folder that went away during the run must not hide how the run ended.
-        await this.leave(slug, item, place).catch(() => {});
+        // A folder that went away during the run must not hide how the run ended. A run still going keeps its folder.
+        if (!entry.handedOff) await this.leave(slug, item, place).catch(() => {});
       }
     };
     this.active.set(key, entry);
     const { work: finished } = this.runner.startTracked(request, effect);
     const closed = finished.then(run => {
       this.active.delete(key);
+      // It is still working, and the next hobkin counts what it spent once, when it ends.
+      if (entry.handedOff) return null;
       const { tokens, cached } = paneKind === 'claude' ? claudeSessionUsage(harnessId, this.claudeProjects) : sessionUsage(sessionFile);
       const facts = { slug, lane, kind, ...(level ? { level } : {}) };
       // Nothing can be read from a pane with no readable usage, so its run counts as what one like it costs, marked so nothing learns from it.

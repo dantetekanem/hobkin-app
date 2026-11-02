@@ -30,6 +30,8 @@ const MOSTLY_WIDE = 0.75;
 const LAST_LINES = 20;
 const MAX_REASON_LENGTH = 1000;
 
+const LEFT_RUNNING = 'hobkin closed and left this agent running. The next hobkin picks it up.';
+
 const runCommand = promisify(execFile);
 const defaultExec = async (command, args) => (await runCommand(command, args, { maxBuffer: 16 * 1024 * 1024 })).stdout;
 
@@ -381,28 +383,61 @@ export class WorkPanes {
     return codexArguments;
   }
 
+  /** From here on a run that is stopped keeps its pane, because hobkin is closing and the agent carries on without it. */
+  release() {
+    this.released = true;
+  }
+
   async run(request) {
     try {
       return await this.runInPane(request);
     } finally {
-      await this.closeLeftovers(request.cwd);
+      if (!this.released) await this.closeLeftovers(request.cwd);
     }
   }
 
-  async runInPane({ name, kind, cwd, model, effort, sessionFile, brief, report, signal, claudeSession, bound }) {
+  /** Waits for a run a closed hobkin left going. Its follower did any nudging, so the report or the pane going is all there is to see. */
+  async awaitHanded({ pane, report, signal }) {
+    while (!existsSync(report)) {
+      if (signal?.aborted) return this.stopHanded(pane);
+      const gone = await this.paneIsGone(pane);
+      if (gone && !existsSync(report)) return { status: 'interrupted', cost: null, paneClosed: true, error: 'The agent ended with no report while hobkin was closed.' };
+      await delay(this.pollMs, undefined, { signal }).catch(() => {});
+    }
+    await this.closePane(pane);
+    return { status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null };
+  }
+
+  async stopHanded(pane) {
+    if (this.released) return { status: 'interrupted', cost: null, handedOff: true, error: LEFT_RUNNING };
+    await this.closePane(pane);
+    return { status: 'interrupted', cost: null, error: 'Harness cancelled.' };
+  }
+
+  /** The agent carries on with nobody watching, so this does what the run would have: it keeps the agent going, then closes the pane. */
+  async followHanded({ name, pane, report }) {
+    await this.waitForReport({ name, report }).catch(() => {});
+    await this.closeWithLeftovers(pane);
+  }
+
+  async runInPane({ name, kind, cwd, model, effort, sessionFile, brief, report, signal, claudeSession, bound, onStarted }) {
     let pane = null;
     let started = false;
+    let briefed = false;
     try {
       signal?.throwIfAborted();
       pane = await this.openPane(cwd);
       await this.startAgent(name, kind, pane, this.runArguments({ kind, model, effort, sessionFile, brief, claudeSession, bound }));
       started = true;
       await this.giveBrief({ name, brief, signal });
+      briefed = true;
+      onStarted?.(pane);
       await this.waitForReport({ name, report, signal });
       await this.closePane(pane);
       return { status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null };
     } catch (error) {
       if (signal?.aborted) {
+        if (briefed && this.released) return { status: 'interrupted', cost: null, handedOff: true, error: LEFT_RUNNING };
         if (pane) await this.closePane(pane);
         return { status: 'interrupted', cost: null, error: 'Harness cancelled.' };
       }

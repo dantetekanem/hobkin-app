@@ -33,20 +33,52 @@ export function parseArguments(args) {
   return options;
 }
 
+function quitQuestion(agents) {
+  const them = agents === 1 ? 'it' : 'them';
+  const working = agents === 1 ? '1 agent is' : `${agents} agents are`;
+  return {
+    question: `You are quitting, and ${working} still working. Stop ${them} or let ${them} finish? Whatever finishes, hobkin picks up the next time it opens.`,
+    choices: [
+      { value: 'finish', label: `Let ${them} finish` },
+      { value: 'stop', label: `Stop ${them} now` },
+    ],
+  };
+}
+
 const looksNew = ({ schedules, messages, userName }) => !schedules.length && !messages.length && !userName;
 
 async function connected(options, snapshot, dependencies) {
   const signals = dependencies.signals ?? process;
   const done = Promise.withResolvers();
   const cancellation = new AbortController();
+  // Nothing is asked of a signal, and an agent left going loses nothing, so that is what it gets.
+  let letFinish = false;
   const stop = () => {
     cancellation.abort();
     done.resolve();
   };
+  const stopBySignal = () => {
+    letFinish = true;
+    stop();
+  };
   let dashboard;
   let app;
-  signals.on('SIGINT', stop);
-  signals.on('SIGTERM', stop);
+  let askingToQuit = false;
+  const quit = async () => {
+    const agents = app?.agentsAtWork() ?? 0;
+    if (askingToQuit) return;
+    if (agents) {
+      askingToQuit = true;
+      const answer = await dashboard.askQuestion(quitQuestion(agents));
+      askingToQuit = false;
+      // Esc keeps hobkin open. With another question already up nothing could be asked, and leaving them going costs nothing.
+      if (answer === null) return;
+      letFinish = answer !== 'stop';
+    }
+    stop();
+  };
+  signals.on('SIGINT', stopBySignal);
+  signals.on('SIGTERM', stopBySignal);
   stayAwake();
   try {
     // An injected application brings its own model.
@@ -55,7 +87,7 @@ async function connected(options, snapshot, dependencies) {
 
     const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
     dashboard = start(snapshot, {
-      onQuit: stop,
+      onQuit: quit,
       send: (text, report) => {
         if (!app) throw Error('Main conversation is still connecting.');
         return app.send(text, report);
@@ -100,10 +132,10 @@ async function connected(options, snapshot, dependencies) {
     await done.promise;
     return 0;
   } finally {
-    signals.removeListener('SIGINT', stop);
-    signals.removeListener('SIGTERM', stop);
+    signals.removeListener('SIGINT', stopBySignal);
+    signals.removeListener('SIGTERM', stopBySignal);
     dashboard?.stop();
-    await app?.close();
+    await app?.close({ letFinish });
   }
 }
 

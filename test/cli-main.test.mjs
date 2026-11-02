@@ -132,6 +132,71 @@ test('the dashboard holds one owner until a signal, then closes and removes hand
   assert.equal(h.signals.listenerCount('SIGINT'), 0);
 });
 
+function quittingWith(h, agents, answer) {
+  const closes = [];
+  const asked = [];
+  const opened = Promise.withResolvers();
+  const work = main(['--home', h.root], h.output, {
+    signals: h.signals,
+    input: { isTTY: true },
+    startDashboard: (_view, handlers) => {
+      opened.resolve(handlers);
+      return { update() {}, askQuestion: async request => { asked.push(request); return answer; }, stop() {} };
+    },
+    openApplication: async () => ({ agentsAtWork: () => agents, close: async options => { closes.push(options); } }),
+  });
+  return { work, opened: opened.promise, closes, asked };
+}
+const applicationOpen = () => new Promise(resolve => setImmediate(resolve));
+
+test('quitting with agents at work asks, and letting them finish leaves them going', async t => {
+  const h = fixture(t, true);
+  const { work, opened, closes, asked } = quittingWith(h, 2, 'finish');
+  const handlers = await opened;
+  await applicationOpen();
+
+  await handlers.onQuit();
+  await work;
+
+  assert.match(asked[0].question, /You are quitting, and 2 agents are still working/);
+  assert.deepEqual(asked[0].choices.map(({ value }) => value), ['finish', 'stop']);
+  assert.deepEqual(closes, [{ letFinish: true }]);
+});
+
+test('stopping them closes as it always did, and Esc stays open', async t => {
+  const stopping = fixture(t, true);
+  const stopped = quittingWith(stopping, 1, 'stop');
+  const handlers = await stopped.opened;
+  await applicationOpen();
+  await handlers.onQuit();
+  await stopped.work;
+  assert.deepEqual(stopped.closes, [{ letFinish: false }]);
+  assert.match(stopped.asked[0].question, /1 agent is still working. Stop it or let it finish/);
+
+  const staying = fixture(t, true);
+  const stayed = quittingWith(staying, 1, null);
+  const kept = await stayed.opened;
+  await applicationOpen();
+  await kept.onQuit();
+  assert.deepEqual(stayed.closes, [], 'Esc keeps hobkin open');
+  staying.signals.emit('SIGTERM');
+  await stayed.work;
+  assert.deepEqual(stayed.closes, [{ letFinish: true }], 'a signal cannot be asked, and leaving them going loses nothing');
+});
+
+test('with no agent at work a quit asks nothing', async t => {
+  const h = fixture(t, true);
+  const { work, opened, closes, asked } = quittingWith(h, 0, 'stop');
+  const handlers = await opened;
+  await applicationOpen();
+
+  await handlers.onQuit();
+  await work;
+
+  assert.deepEqual(asked, []);
+  assert.deepEqual(closes, [{ letFinish: false }]);
+});
+
 test('connected command exits the process only after the application has closed', async t => {
   const h = fixture(t, true);
   const started = Promise.withResolvers();

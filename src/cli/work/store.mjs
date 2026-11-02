@@ -48,6 +48,7 @@ const projectsPath = root => join(workRoot(root), 'projects.jsonl');
 const tokensPath = root => join(workRoot(root), 'tokens.jsonl');
 const discoveryPath = root => join(workRoot(root), 'discovery.jsonl');
 const ownerPath = root => join(workRoot(root), 'owner.json');
+const handedPath = root => join(workRoot(root), 'handed.json');
 const cancelsPath = root => join(workRoot(root), 'cancels.jsonl');
 
 export const paths = (root, slug) => {
@@ -168,6 +169,14 @@ export function skipInQueue(root, key) {
 export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });
 
 /** What only the owner knows, left where a command in another process can read it. */
+/** Runs a closing hobkin left going in their panes, for the next one to pick up. Taking them empties the list, so each is picked up once. */
+export const writeHanded = (root, runs) => atomicJson(handedPath(root), runs);
+export function takeHanded(root) {
+  const runs = readJson(handedPath(root), []);
+  if (runs.length) atomicJson(handedPath(root), []);
+  return runs;
+}
+
 export const writeOwnerView = (root, view) => atomicJson(ownerPath(root), view);
 
 /** With no owner open nothing can be running, whatever the last one left behind. */

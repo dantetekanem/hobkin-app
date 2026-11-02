@@ -37,7 +37,7 @@ Chat opens ready to type. Ask the agent to run a check now, switch models or rem
 - `k` in a running check's tab cancels it.
 - `Ctrl+C` clears your input. `Ctrl+Q` quits.
 
-Checks and work mode run only while hobkin is open. On a Mac it keeps the machine awake for that long, and the display still dims and sleeps.
+Checks and work mode run only while hobkin is open, but agents already working in Herdr panes can outlive it: quitting asks whether to stop them or let them finish, and the next hobkin picks up what they did. On a Mac it keeps the machine awake for that long, and the display still dims and sleeps.
 
 ## Add a routine
 

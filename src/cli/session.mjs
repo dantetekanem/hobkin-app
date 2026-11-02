@@ -39,8 +39,8 @@ function saveBrief(root, name, brief, report) {
 }
 
 /** The command that starts a session returns at once and the work can take hours, so a process of its own waits to close the pane. */
-export function followInBackground({ name, pane, report }) {
-  const follower = spawn(process.execPath, [followScript, name, pane, ...(report ? [report] : [])], { detached: true, stdio: 'ignore' });
+export function followInBackground({ name, pane, report, kind }) {
+  const follower = spawn(process.execPath, [followScript, name, pane, ...(report ? [report] : []), ...(kind ? [kind] : [])], { detached: true, stdio: 'ignore' });
   follower.unref();
 }
 

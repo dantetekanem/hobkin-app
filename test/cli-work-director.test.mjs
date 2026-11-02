@@ -64,11 +64,13 @@ function repository(base, name) {
   return checkout;
 }
 
-function fixture(t, agent = async () => {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-director-')));
+function fixture(t, agent = async () => {}, earlier = null) {
+  const base = earlier?.base ?? realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-director-')));
   const root = join(base, 'home');
-  mkdirSync(root);
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  if (!earlier) {
+    mkdirSync(root);
+    t.after(() => rmSync(base, { recursive: true, force: true }));
+  }
 
   const h = { base, root, clock: Date.parse('2026-06-01T12:00:00Z'), calls: [], changes: 0, agent };
   const runtime = new MemoryRuntime();
@@ -1136,6 +1138,110 @@ test('nothing new starts while the main chat compacts, and the queue carries on 
   h.runtime.workWaitsForChat = false;
   await h.tick();
   assert.equal(doRuns(h).length, started + 1);
+});
+
+/** A new hobkin on the same home, with panes that only answer for what was left going. */
+function reopened(t, first) {
+  const next = fixture(t, undefined, first);
+  next.ran = [];
+  next.director.panes = {
+    awaitHanded: first.director.panes.awaitHanded,
+    run: async request => {
+      next.ran.push(request);
+      return { status: 'completed', text: 'Useful: Done.', cost: null };
+    },
+    closeLeftovers: async () => {},
+  };
+  return next;
+}
+
+async function agentInAPane(h) {
+  await readyToDo(h);
+  const started = Promise.withResolvers();
+  const report = join(h.base, 'report.md');
+  h.director.follow = run => h.followed.push(run);
+  h.followed = [];
+  h.director.panes = {
+    release: () => { h.released = true; },
+    run: async ({ signal, onStarted }) => {
+      onStarted('w1:p9', report);
+      started.resolve();
+      await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+      return { status: 'interrupted', cost: null, handedOff: true, error: 'Left running.' };
+    },
+    awaitHanded: async ({ report: file }) => (existsSync(file) ? { status: 'completed', text: readFileSync(file, 'utf8'), cost: null } : { status: 'interrupted', cost: null, paneClosed: true, error: 'Gone.' }),
+    closeLeftovers: async () => {},
+  };
+  h.director.tick();
+  await started.promise;
+  return report;
+}
+
+test('closing with an agent at work leaves it going: written down, followed, its folder and tokens untouched', async t => {
+  const h = fixture(t);
+  await agentInAPane(h);
+  const [{ id }] = readItems(h.root, 'api');
+  assert.equal(h.director.agentsInPanes().length, 1);
+  const tokensBefore = tokenEvents(h.root).length;
+
+  h.director.handOff();
+  await h.runner.stop();
+  await h.director.closing;
+
+  const [item] = readItems(h.root, 'api');
+  assert.equal(item.state, 'doing', 'it is still that agent\'s');
+  assert.equal(h.released, true);
+  assert.deepEqual(h.followed.map(({ pane, kind }) => [pane, kind]), [['w1:p9', 'handed']]);
+  assert.equal(tokenEvents(h.root).length, tokensBefore);
+  assert.deepEqual(JSON.parse(readFileSync(join(h.root, 'work', 'handed.json'), 'utf8')).map(run => run.item), [id]);
+});
+
+test('the next hobkin picks a finished agent up and settles it as if it had never left', async t => {
+  const first = fixture(t);
+  const report = await agentInAPane(first);
+  const [{ id }] = readItems(first.root, 'api');
+  first.director.handOff();
+  await first.runner.stop();
+  await first.director.closing;
+  updateItem(first.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
+  writeFileSync(report, 'Useful: Finished.\n');
+
+  const next = reopened(t, first);
+  const offered = [];
+  next.director.onDraftDone = draft => offered.push(draft);
+  writeMode(next.root, { reviewOnFinish: false });
+
+  await next.tick();
+  await next.settled();
+
+  assert.equal(next.ran.filter(({ name }) => name.startsWith('work-do')).length, 0, 'no new run was started for it');
+  assert.equal(offered.length, 1);
+  assert.ok(tokenEvents(next.root).some(event => event.lane === 'do'));
+  assert.equal(next.director.running().length, 0);
+});
+
+test('an agent that ended with no report goes back in the queue, and is picked up only once', async t => {
+  const first = fixture(t);
+  await agentInAPane(first);
+  first.director.handOff();
+  await first.runner.stop();
+  await first.director.closing;
+
+  const next = reopened(t, first);
+  await next.tick();
+  await next.settled();
+
+  assert.equal(readItems(next.root, 'api')[0].state, 'open');
+  assert.deepEqual(JSON.parse(readFileSync(join(next.root, 'work', 'handed.json'), 'utf8')), []);
+});
+
+test('with no agent in a pane there is nothing to hand off', async t => {
+  const h = fixture(t);
+  await readyToDo(h);
+
+  h.director.handOff();
+
+  assert.equal(existsSync(join(h.root, 'work', 'handed.json')), false);
 });
 
 test('a finished branch gets its review next by itself, and only then can it land', async t => {

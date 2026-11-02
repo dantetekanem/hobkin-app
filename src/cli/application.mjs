@@ -636,8 +636,14 @@ export class HobkinApplication {
     return result;
   }
 
-  close() {
+  /** Agents in panes can outlive hobkin, so these are what a quit has to ask about. */
+  agentsAtWork() {
+    return this.director?.agentsInPanes().length ?? 0;
+  }
+
+  close({ letFinish = false } = {}) {
     if (!this.closing) {
+      if (letFinish) this.director?.handOff();
       this.closing = (async () => {
         clearTimeout(this.refreshTimer);
         this.moods?.stop();

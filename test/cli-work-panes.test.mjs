@@ -1037,3 +1037,47 @@ test('Herdr failing to start the agent fails the run with the reason', async t =
   assert.equal(result.status, 'failed');
   assert.match(result.error, /agent_start_timeout/);
 });
+
+test('released panes stay open when their run is stopped, and only a briefed agent counts', async () => {
+  const herdr = fakeHerdr();
+  const panes = new WorkPanes({ workspace: 'w1', exec: herdr.exec, pollMs: 1 });
+  const controller = new AbortController();
+  let started;
+  const running = panes.run({ name: 'work-do-api', kind: 'pi', cwd: '/repo', sessionFile: '/s', brief: '/b', report: '/tmp/hobkin-no-such-report', signal: controller.signal, onStarted: pane => { started = pane; } });
+  while (!started) await new Promise(resolve => setImmediate(resolve));
+
+  panes.release();
+  controller.abort();
+  const ended = await running;
+
+  assert.equal(ended.handedOff, true);
+  assert.equal(herdr.calls.some(([group, action]) => group === 'pane' && action === 'close'), false);
+});
+
+test('a run left going ends with its report, or with its pane gone and none', async t => {
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-handed-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const report = join(folder, 'report.md');
+  const herdr = fakeHerdr();
+  const panes = new WorkPanes({ workspace: 'w1', exec: herdr.exec, pollMs: 1 });
+
+  const gone = await panes.awaitHanded({ pane: 'w1:p404', report });
+  assert.deepEqual([gone.status, gone.paneClosed], ['interrupted', true]);
+
+  writeFileSync(report, 'Useful: Done.\n');
+  const finished = await panes.awaitHanded({ pane: 'w1:p404', report });
+  assert.deepEqual([finished.status, finished.text], ['completed', 'Useful: Done.']);
+});
+
+test('a run left going has its pane closed by its follower once the report is there', async t => {
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-handed-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const report = join(folder, 'report.md');
+  writeFileSync(report, 'Useful: Done.\n');
+  const herdr = fakeHerdr();
+  const panes = new WorkPanes({ workspace: 'w1', exec: herdr.exec, pollMs: 1 });
+
+  await panes.followHanded({ name: 'work-do-api', pane: 'w1:p7', report });
+
+  assert.ok(herdr.calls.some(([group, action, target]) => group === 'pane' && action === 'close' && target === 'w1:p7'));
+});
