@@ -1122,7 +1122,10 @@ test('Jev switched here and back from another terminal between ticks still reach
   }
 });
 
-test('with Jev on a useful scheduled report goes to Jev, and the mood it picks reaches the dashboard', async t => {
+test('with Jev on a useful scheduled report goes to Jev, and the mood it picks reaches the dashboard', { timeout: 5000 }, async t => {
+  // The synthetic app has no terminal handle to keep its unref'ed refresh alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
   const h = fixture(t);
   setJevKey(t, 'test-key');
   const asked = [];
