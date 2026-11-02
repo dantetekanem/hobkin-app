@@ -10,9 +10,9 @@
   "files": ["src", "assets", "README.md", "docs/guide.md", "docs/upgrade.md", "docs/legacy.md"],
   "pi": { "extensions": ["./src/index.ts"] },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^1.1.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
-    "@earendil-works/pi-tui": "1.4.0",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-tui": "1.5.0",
     "typebox": "*"
   },
   "scripts": {

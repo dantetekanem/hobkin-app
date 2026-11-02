@@ -9,7 +9,7 @@ Website: https://hobkin.dev
 You need Node 22.19 or newer, pnpm and Pi. Install the Pi version hobkin pins:
 
 ```sh
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0
 ```
 
 Then run hobkin from a checkout:
