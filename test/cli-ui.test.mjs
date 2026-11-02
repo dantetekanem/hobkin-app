@@ -2017,9 +2017,7 @@ test('a schedule\'s report wears the blue dot of the Schedules tab, and work mod
   const mark = title => /\x1b\[[0-9;]*m[●✕]/.exec(ui.render(120, 40).find(value => value.includes(title)))[0];
 
   ui.input('\x1b[C');
-  const [mail, failed] = ['Email follow-ups', 'Calendar deadlines'].map(mark);
-  ui.input('\t');
-  const work = mark('pi-intro: Fix it');
+  const [mail, work, failed] = ['Email follow-ups', 'pi-intro: Fix it', 'Calendar deadlines'].map(mark);
   ui.input('\x1b[C');
 
   assert.equal(mail, mark('Morning recap'));
@@ -2128,15 +2126,20 @@ const ESC = '\x1b';
 const TAB = '\t';
 const BACKSPACE = '\x7f';
 
-test('Reports splits into Scheduled and Work Done, and Tab moves between them', () => {
+test('Reports opens on All, and Tab walks through Scheduled and Work Done and back', () => {
   const ui = createDashboard(mixedReports);
   openReports(ui);
+  const all = screen(ui, 120, 40);
+  assert.match(all, /All 3\s+Scheduled 2\s+Work Done 1/);
+  assert.match(all, /Reports 3/);
+  assert.match(all, /Morning Recap/);
+  assert.match(all, /Fix the login flow/);
+  assert.equal(ui.state().selectedId, 'routine-a');
+
+  ui.input(TAB);
   const scheduled = screen(ui, 120, 40);
-  assert.match(scheduled, /Scheduled 2\s+Work Done 1/);
-  assert.match(scheduled, /Reports 3/);
   assert.match(scheduled, /Morning Recap/);
   assert.doesNotMatch(scheduled, /Fix the login flow/);
-  assert.equal(ui.state().selectedId, 'routine-a');
 
   ui.input(TAB);
   const work = screen(ui, 120, 40);
@@ -2150,7 +2153,9 @@ test('Reports splits into Scheduled and Work Done, and Tab moves between them', 
 
   ui.input(ESC);
   ui.input(TAB);
-  assert.equal(ui.state().selectedId, 'routine-a');
+  assert.match(screen(ui, 120, 40), /Morning Recap/);
+  assert.match(screen(ui, 120, 40), /Fix the login flow/);
+  assert.equal(ui.state().selectedId, 'work-a');
 });
 
 test('typing after / filters report titles, ignoring case and bodies', () => {
@@ -2273,8 +2278,10 @@ test('arrows move the caret while the filter holds text, and Tab keeps the filte
   assert.equal(ui.state().view, 'reports');
   assert.match(screen(ui, 120, 40), /\/ fix/);
   ui.input(TAB);
-  assert.match(screen(ui, 120, 40), /Fix the login flow/);
+  assert.match(screen(ui, 120, 40), /No report titles match/);
   assert.match(screen(ui, 120, 40), /\/ fix/);
+  ui.input(TAB);
+  assert.match(screen(ui, 120, 40), /Fix the login flow/);
 });
 
 test('Ctrl+C clears the filter before it arms quit', () => {
@@ -2290,11 +2297,12 @@ test('Ctrl+C clears the filter before it arms quit', () => {
   assert.match(ui.state().notice, /Ctrl\+C again/);
 });
 
-test('a work report that opens by itself comes back to Work Done with nothing hiding it', () => {
+test('a work report that opens by itself comes back to a list that shows it, with nothing hiding it', () => {
   const running = { id: 'job', state: 'running', kind: 'background', scheduleId: 'work.demo.do', title: 'Fix the login flow' };
   const live = { ...mixedReports, connection: 'connected', runs: [running] };
   const ui = createDashboard(live, { send() {} });
   openReports(ui);
+  ui.input(TAB);
   ui.input('/');
   ui.input('z');
   ui.input(ENTER);
@@ -2308,9 +2316,24 @@ test('a work report that opens by itself comes back to Work Done with nothing hi
   ui.input(ESC);
   assert.equal(ui.state().selectedId, 'job');
   const list = screen(ui, 120, 40);
-  assert.match(list, /Scheduled 2\s+Work Done 2/);
+  assert.match(list, /All 4\s+Scheduled 2\s+Work Done 2/);
   assert.doesNotMatch(list, /\/ z/);
   assert.doesNotMatch(list, /Morning Recap/);
+});
+
+test('a report that opens by itself leaves All where it is', () => {
+  const running = { id: 'job', state: 'running', kind: 'background', scheduleId: 'work.demo.do', title: 'Fix the login flow' };
+  const live = { ...mixedReports, connection: 'connected', runs: [running] };
+  const ui = createDashboard(live, { send() {} });
+  ui.input('\x1b[D');
+  assert.equal(ui.state().view, 'job:job');
+
+  const finished = { id: 'job', title: 'Fix the login flow', scheduleId: 'work.demo.do', at: '2026-10-27T10:00:00.000Z', body: 'Done', outcome: 'completed' };
+  ui.update({ ...live, runs: [], reports: [finished, ...mixedReports.reports], completedJobReports: { job: finished } });
+  ui.input(ESC);
+
+  assert.equal(ui.state().selectedId, 'job');
+  assert.match(screen(ui, 120, 40), /Morning Recap/);
 });
 
 const cellOf = (ui, text, width, height) => {
@@ -2370,6 +2393,9 @@ test('clicking a tab from a report goes back to its list, and clicking a subtab 
   assert.doesNotMatch(screen(ui, 120, 40), /Morning Recap/);
   click(terminal, cellOf(ui, 'Scheduled', 120, 40));
   assert.match(screen(ui, 120, 40), /Morning Recap/);
+  assert.doesNotMatch(screen(ui, 120, 40), /Fix the login flow/);
+  click(terminal, cellOf(ui, 'All 3', 120, 40));
+  assert.match(screen(ui, 120, 40), /Fix the login flow/);
 
   terminal.input('\r');
   assert.equal(ui.state().focus, 'detail');

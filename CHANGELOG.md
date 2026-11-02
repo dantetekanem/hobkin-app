@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Split Reports into Scheduled and Work Done subtabs, moved between with Tab. Typing `/` in the list filters report titles as you type, ignoring case, across every saved report rather than the 25 the list shows. The filter stays until Esc or Ctrl+C clears it.
+- Add All, Scheduled and Work Done subtabs to Reports, opening on All and moved between with Tab. Typing `/` in the list filters report titles as you type, ignoring case, across every saved report rather than the 25 the list shows. The filter stays until Esc or Ctrl+C clears it.
 - Open a main tab or a Reports subtab with a mouse click.
 - Rename Schedules to Routines: the tab, messages, docs, prompts, `hobkin routines`, the `run_routine` tool and the `routines/` folder in Hobkin's data. The dashboard moves the folder the next time it opens and leaves `schedules` as a link, so a path written inside a routine keeps working. `hobkin schedules` still works.
 - Compact the main chat ahead of time. From 80% it compacts when the chat is quiet and either agents are working or the next check is 2 hours away or more. At 95% it is forced: a running turn compacts between model calls and carries on by itself, and new work and messages wait for it. A failed compaction holds nothing up.

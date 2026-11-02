@@ -212,7 +212,11 @@ const outcomes = {
   imported: ['◇', muted],
 };
 const outcome = value => Object.hasOwn(outcomes, value) ? outcomes[value] : ['•', dim];
-const reportKinds = [{ name: 'scheduled', label: 'Scheduled' }, { name: 'done', label: 'Work Done' }];
+const reportKinds = [
+  { name: 'all', label: 'All' },
+  { name: 'scheduled', label: 'Scheduled' },
+  { name: 'done', label: 'Work Done' },
+];
 const reportKindOf = ({ scheduleId }) => (String(scheduleId ?? '').startsWith('work.') ? 'done' : 'scheduled');
 // A routine's report wears the dot of the Routines tab, so the two kinds tell apart at a glance. Anything that went wrong looks the same on both.
 const reportMark = report => {
@@ -1076,7 +1080,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const filterText = () => reportFilter.getValue().trim().toLowerCase();
   const reportsOfKind = kind => {
     const searchText = filterText();
-    return allReports().filter(report => reportKindOf(report) === kind
+    return allReports().filter(report => (kind === 'all' || reportKindOf(report) === kind)
       && clean(report.title).toLowerCase().includes(searchText));
   };
   const reports = () => reportsOfKind(reportKind).slice(0, 25);
@@ -1125,7 +1129,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     typingFilter = false;
     keepSelectionListed();
   };
-  const otherReportKind = () => reportKinds.find(({ name }) => name !== reportKind);
+  const nextReportKind = () => {
+    const index = reportKinds.findIndex(({ name }) => name === reportKind);
+    return reportKinds[(index + 1) % reportKinds.length];
+  };
   const showReportKind = kind => {
     reportKind = kind;
     keepSelectionListed();
@@ -1472,7 +1479,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'reports') {
-      const nextKind = ['tab', otherReportKind().label];
+      const nextKind = ['tab', nextReportKind().label];
       if (typingFilter) return [['enter', 'read'], ['↑↓', 'select'], nextKind, ['esc', 'clear']];
       return [['↑↓', 'select'], ['enter', 'read'], ['/', 'filter'], nextKind, ['←→', 'views'], ['esc', reportFilter.getValue() ? 'clear filter' : 'chat']];
     }
@@ -1773,7 +1780,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (key(data, 'escape')) {
       clearFilter();
     } else if (key(data, 'tab')) {
-      showReportKind(otherReportKind().name);
+      showReportKind(nextReportKind().name);
     } else if (key(data, 'up') || key(data, 'down')) {
       moveReportSelection(key(data, 'down') ? 1 : -1);
     } else if (key(data, 'enter')) {
@@ -1826,7 +1833,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         completedReport = next.completedJobReports?.[target.view.slice(4)] ?? null;
         if (completedReport) {
           selectedId = completedReport.id;
-          reportKind = reportKindOf(completedReport);
+          if (reportKind !== 'all') reportKind = reportKindOf(completedReport);
           reportFilter.setValue('');
         }
         target.view = completedReport ? 'reports' : 'conversation';
@@ -2002,7 +2009,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       } else if (view === 'reports' && focus === 'reports' && key(data, '/')) {
         typingFilter = true;
       } else if (view === 'reports' && focus === 'reports' && key(data, 'tab')) {
-        showReportKind(otherReportKind().name);
+        showReportKind(nextReportKind().name);
       } else if (key(data, 'pageDown') || key(data, 'down')) {
         scroll = Math.max(0, scroll + (key(data, 'pageDown') ? 8 : 1) * (isJob() ? -1 : 1));
       } else if (key(data, 'pageUp') || key(data, 'up')) {
