@@ -11,6 +11,7 @@ import { closePiSession, openPiSession, withPiCancellation } from './pi-session.
 import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
+import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 
 export const MAIN_BUSY = 'Main conversation is busy.';
 export const MAX_MESSAGE_BYTES = 65536;
@@ -90,7 +91,10 @@ export class HobkinRuntime {
         }
         return copy(stopped);
       });
-      for (const run of abandoned) logRun(root, run);
+      for (const run of abandoned) {
+        logRun(root, run);
+        recordRunFinished(root, run);
+      }
       return runtime;
     } catch (error) {
       if (runtime.harness) await runtime.harness.close(context);
@@ -164,6 +168,10 @@ export class HobkinRuntime {
     let unsubscribe;
     try {
       unsubscribe = main.subscribe(event => {
+        if (event.type === 'compaction_start') {
+          this.compactingSince = Date.now();
+          recordEvent(this.directory, 'compaction_started', { reason: event.reason });
+        }
         if (event.type === 'compaction_end') {
           this.lastCompaction = {
             status: event.aborted ? 'cancelled' : event.errorMessage ? 'failed' : 'completed',
@@ -171,6 +179,7 @@ export class HobkinRuntime {
             at: new Date().toISOString(),
             error: event.errorMessage ?? null,
           };
+          recordEvent(this.directory, 'compaction_finished', { reason: event.reason, status: this.lastCompaction.status, ms: Date.now() - this.compactingSince });
         }
         this.notify();
       });
@@ -337,7 +346,10 @@ export class HobkinRuntime {
       });
       return copy(run);
     });
-    if (finished) logRun(this.directory, finished);
+    if (finished) {
+      logRun(this.directory, finished);
+      recordRunFinished(this.directory, finished);
+    }
   }
 
   // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it.
@@ -351,6 +363,7 @@ export class HobkinRuntime {
     const controller = new AbortController();
     const completion = Promise.resolve().then(async () => {
       if (!await this.admit(request)) return (await this.state()).runs[request.id];
+      recordRunStarted(this.directory, request);
       onAdmitted?.();
       let result;
       try {
@@ -509,6 +522,7 @@ export class HobkinRuntime {
         const last = session.messages.filter(message => message.role === 'assistant').at(-1);
         return {
           status: last?.stopReason === 'stop' ? 'completed' : 'incomplete',
+          stopReason: last?.stopReason,
           cost: costOf(session),
           text: last?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n') ?? '',
         };

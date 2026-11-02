@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initialize, setLearning } from '../src/cli/config.mjs';
+import { readEvents } from '../src/cli/events.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { firstGuess } from '../src/cli/work/budget.mjs';
@@ -1361,6 +1362,18 @@ const goesQuiet = async request => {
   writeFileSync(request.sessionFile, sessionLine);
   await waitForAbort(request);
 };
+
+test('what a run spent is recorded against its own id, once its session can be counted', async t => {
+  const h = fixture(t);
+  await readyToDo(h);
+  h.agent = request => { writeFileSync(request.sessionFile, sessionLine); };
+
+  await h.tick();
+
+  const spent = readEvents(h.root).filter(({ type }) => type === 'run_tokens').at(-1);
+  assert.match(spent.id, /^work:api:do:/);
+  assert.deepEqual([spent.tokens, spent.cached], [20, 0]);
+});
 const untilStarted = async h => {
   await h.director.tick();
   while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 10));

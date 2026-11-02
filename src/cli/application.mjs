@@ -9,6 +9,7 @@ import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
+import { recordEvent } from './events.mjs';
 import { memoryBytes } from './memory.mjs';
 import { callName, readProfile } from './profile.mjs';
 import { MemoryIndex } from './memory-index.mjs';
@@ -76,6 +77,8 @@ const DISCOVERY_POST = 'notice:work-discovery:';
 const isOwnPost = message => message.role === 'notice' || message.id?.startsWith('notice:');
 
 const BUSY_RETRY_MS = 100;
+// The keys of the Done walk, which only the user presses.
+const WALK_EVENTS = { diff: 'done_diff', merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
 
 export class HobkinApplication {
   jobActivity = new Map();
@@ -191,6 +194,8 @@ export class HobkinApplication {
         app.memoryIndex.start();
       }
       await app.refresh();
+      app.openedAt = app.now();
+      recordEvent(app.runtime.directory, 'app_opened');
       return app;
     } catch (error) {
       await app.close();
@@ -206,6 +211,7 @@ export class HobkinApplication {
       this.refreshTimer = null;
       void this.refresh().catch(error => {
         this.snapshot = { ...this.snapshot, error: error.message };
+        recordEvent(this.runtime.directory, 'error_shown', { from: 'refresh' });
         this.onChange?.(this.snapshot);
       });
     }, 25);
@@ -247,6 +253,7 @@ export class HobkinApplication {
         };
       });
     const notices = (this.snapshot.messages ?? []).filter(isOwnPost);
+    const alreadyPosted = notices.length;
     const noticeIds = new Set(notices.map(message => message.id));
     const noticedRunIds = new Set(this.noticeRunIds);
     const work = this.workView();
@@ -389,6 +396,9 @@ export class HobkinApplication {
       if (!active.has(id)) this.jobActivity.delete(id);
     }
     this.noticeRunIds = noticedRunIds;
+    for (const { id, tone } of notices.slice(alreadyPosted)) recordEvent(this.runtime.directory, 'notice_posted', { source: id.split(':')[1], tone });
+    if (visible.error && visible.error !== this.snapshot.error) recordEvent(this.runtime.directory, 'error_shown', { from: this.runtime.mainFault ? 'main' : 'runner' });
+    this.notePause(work.pause?.kind ?? null);
     this.snapshot = {
       ...this.snapshot,
       ...visible,
@@ -423,6 +433,14 @@ export class HobkinApplication {
     return this.snapshot;
   }
 
+  notePause(kind) {
+    const was = this.pauseKind ?? null;
+    this.pauseKind = kind;
+    if (kind === was) return;
+    if (was) recordEvent(this.runtime.directory, 'work_resumed', { pause: was });
+    if (kind) recordEvent(this.runtime.directory, 'work_paused', { pause: kind });
+  }
+
   // Messages go out in the order they were typed, and one the conversation cannot take yet waits here.
   send(text, report) {
     this.sending++;
@@ -442,6 +460,7 @@ export class HobkinApplication {
     this.workNoteSeen = note;
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
+      recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });
       void this.learner.noteReply(report.id, text);
     }
     this.requestRefresh();
@@ -576,6 +595,7 @@ export class HobkinApplication {
       decide: () => this.decide(slug, value),
     };
     const result = await actions[action]();
+    if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
     await this.director.tick();
     // A refresh already under way read the state before this change, and the screen must show the change.
     await this.refreshing?.catch(() => {});
@@ -586,12 +606,13 @@ export class HobkinApplication {
   /** The asker hears first, so an answer that cannot reach it stays open for another try. */
   decide(id, value) {
     const root = this.runtime.directory;
-    const { decision: { question, answerTo }, choice } = findDecision(root, id, value);
+    const { decision: { question, answerTo, at }, choice } = findDecision(root, id, value);
     const said = `The user was asked: ${question} They answered: ${choice.label}`;
     if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said);
     if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
     answerDecision(root, id, value, this.now());
+    recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
     return { ok: true, message: `Answered: ${choice.label}.` };
   }
 
@@ -620,6 +641,7 @@ export class HobkinApplication {
 
   recordReportRead(read) {
     this.telemetry.recordReportRead(read, this.now());
+    recordEvent(this.runtime.directory, 'report_read', { id: read.id, ms: read.dwellMs });
     this.requestRefresh();
   }
 
@@ -643,6 +665,7 @@ export class HobkinApplication {
 
   close({ letFinish = false } = {}) {
     if (!this.closing) {
+      if (this.openedAt) recordEvent(this.runtime.directory, 'app_closed', { ms: this.now() - this.openedAt });
       if (letFinish) this.director?.handOff();
       this.closing = (async () => {
         clearTimeout(this.refreshTimer);

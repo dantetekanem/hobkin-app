@@ -225,7 +225,7 @@ From the same evidence Hobkin concludes which checks work, which do not, and whi
 
 ## Telemetry
 
-hobkin keeps a record of what happens in it, in `runtime/events/` in the data folder, one file a month with the newest six kept. It holds facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids, never a message, a report or anything an agent or a person wrote. Nothing reads it while hobkin runs, and none of it leaves your machine.
+hobkin keeps a record of what happens in it, in `runtime/events/` in the data folder, one file a month with the newest six kept: when it opens and closes, each turn and run, what reaches Chat, each question and decision and how it ended, reports read, the Done walk, tabs, work mode pausing, compaction and errors on screen. It holds facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids, never a message, a report or anything an agent or a person wrote. Nothing reads it while hobkin runs, and none of it leaves your machine.
 
 `hobkin telemetry [--days n]` prints a rollup as JSON, 30 days by default: events by type and day, runs by routine and by project, mean durations, and what reached you beside what you did with it.
 

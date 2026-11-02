@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { defaultRoot, initialize, jevEnabled, legacySources, setJev } from './config.mjs';
 import { loadImportedHistory } from './history.mjs';
 import { indexStatus } from './memory-index.mjs';
+import { recordEvent } from './events.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { readLocalView, savePresentationState } from './view.mjs';
 import { deleteReports } from './reports.mjs';
@@ -55,6 +56,7 @@ const looksNew = ({ schedules, messages, userName }) => !schedules.length && !me
 
 async function connected(options, snapshot, dependencies) {
   const signals = dependencies.signals ?? process;
+  const dataRoot = resolveDataRoot(options.root);
   const done = Promise.withResolvers();
   const cancellation = new AbortController();
   // Nothing is asked of a signal, and an agent left going loses nothing, so that is what it gets.
@@ -108,6 +110,7 @@ async function connected(options, snapshot, dependencies) {
         return app.kill(runId);
       },
       reportRead: read => app?.recordReportRead(read),
+      event: (type, facts) => recordEvent(dataRoot, type, facts),
       workAction: (...request) => {
         if (!app) throw Error('hobkin is still connecting.');
         return app.workAction(...request);

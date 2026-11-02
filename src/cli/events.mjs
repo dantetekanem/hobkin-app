@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { reportTriage } from './reports.mjs';
 
 const KEPT_MONTHS = 6;
 const MONTH_FILE = /^\d{4}-\d{2}\.jsonl$/;
@@ -28,6 +29,22 @@ export function recordEvent(root, type, facts = {}, now = Date.now()) {
   } catch {
     // Telemetry watches the product, so a write problem can never break it.
   }
+}
+
+const runFacts = ({ id, kind, work, scheduleId }) => ({ id, kind, lane: work?.lane, routine: scheduleId, project: work?.slug, item: work?.item });
+
+/** A main run is a turn with the user, and a run is everything else. Steering joins a turn already under way, so it is neither. */
+export function recordRunStarted(root, run) {
+  if (run.parentRunId) return;
+  if (run.kind === 'main') recordEvent(root, 'turn_started', { id: run.id });
+  else recordEvent(root, 'run_started', runFacts(run));
+}
+
+export function recordRunFinished(root, run) {
+  if (run.parentRunId) return;
+  const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
+  if (run.kind === 'main') recordEvent(root, 'turn_finished', { id: run.id, status: run.status, stopReason: run.result?.stopReason, ms });
+  else recordEvent(root, 'run_finished', { ...runFacts(run), status: run.status, ms, usd: run.cost?.usd, tokens: run.result?.tokens, triage: reportTriage(run)?.level });
 }
 
 function parseMonth(file) {

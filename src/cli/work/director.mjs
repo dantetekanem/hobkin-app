@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
+import { recordEvent } from '../events.mjs';
 import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mjs';
 import { followInBackground } from '../session.mjs';
 import { readMemory } from '../memory.mjs';
@@ -771,6 +772,7 @@ export class WorkDirector {
       // It is still working, and the next hobkin counts what it spent once, when it ends.
       if (entry.handedOff) return null;
       const { tokens, cached } = paneKind === 'claude' ? claudeSessionUsage(harnessId, this.claudeProjects) : sessionUsage(sessionFile);
+      recordEvent(this.root, 'run_tokens', { id, tokens, cached });
       const facts = { slug, lane, kind, ...(level ? { level } : {}) };
       // Nothing can be read from a pane with no readable usage, so its run counts as what one like it costs, marked so nothing learns from it.
       // A run with no `cwd` never got as far as a place to work, so it spent nothing, however often it comes round.

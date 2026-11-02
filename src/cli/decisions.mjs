@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { recordEvent } from './events.mjs';
 
 /** How long a question from a routine or work mode stays on screen before it joins the Decisions tab. */
 export const QUESTION_WAIT_MS = 30000;
@@ -62,6 +63,7 @@ export function fileDecision(root, { key = null, from, question, tldr, choices, 
     at: known?.at ?? new Date(now).toISOString(),
     shown: known?.shown ?? false,
   });
+  if (!known) recordEvent(root, 'decision_filed', { id, source: answerTo?.kind }, now);
   return { id };
 }
 

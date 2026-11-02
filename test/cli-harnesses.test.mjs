@@ -125,6 +125,7 @@ test('Pi checks effective model and thinking before submission and returns sessi
   assert.equal(result.status, 'completed');
   assert.equal(result.text, 'Result \u2028 Unicode');
   assert.deepEqual(result.cost, { usd: 0.25, kind: 'estimate', cumulative: true, sessionId: 'pi-job' });
+  assert.equal(result.tokens, 15);
   assert.equal(result.model, 'test/model');
   assert.equal(result.effort, 'high');
   assert.equal(result.freshSession, true);

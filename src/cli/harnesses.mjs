@@ -196,6 +196,7 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     if (validCost(stats?.cost)) {
       result.cost = { usd: stats.cost, kind: 'estimate', cumulative: true, sessionId: state.sessionId };
     }
+    if (stats?.tokens) result.tokens = (stats.tokens.input ?? 0) + (stats.tokens.cacheWrite ?? 0) + (stats.tokens.output ?? 0);
     result.status = 'completed';
     child.terminate();
     await child.closed;

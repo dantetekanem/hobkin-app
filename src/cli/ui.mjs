@@ -1122,6 +1122,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let faceShown = false;
   const motion = options.motion ? new Slide() : null;
   let reading = null;
+  let onDonePage = null;
   let referencedReport = null;
   let workKey = null;
   let armedDrop = null;
@@ -1158,6 +1159,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const onChange = options.onChange ?? (() => {});
   const now = () => (options.now ?? Date.now)();
   const startedAt = now();
+  const record = (type, facts) => callbacks.event?.(type, facts);
   // A newer notice always cancels a pending timeout, so it never erases what replaced it.
   const say = (text, tone = 'info', { timeout } = {}) => {
     notice = text;
@@ -1171,6 +1173,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
     }, timeout);
     noticeTimer.unref?.();
+  };
+  const fail = (what, error) => {
+    say(`${what} failed: ${clean(error?.message ?? error)}`, 'error');
+    record('error_shown', { from: what });
   };
   const allReports = () => snapshot.reports ?? [];
   const filterText = () => reportFilter.getValue().trim().toLowerCase();
@@ -1255,9 +1261,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (reading) callbacks.reportRead?.({ id: reading.id, dwellMs: now() - reading.since });
     reading = report ? { id: report.id, since: now() } : null;
   };
+  const trackDonePage = page => {
+    if (onDonePage?.page === page) return;
+    if (onDonePage) {
+      const { entry: { slug, item } } = onDonePage.page;
+      record('done_page', { project: slug, item, ms: now() - onDonePage.since });
+    }
+    onDonePage = page ? { page, since: now() } : null;
+  };
   const changed = () => {
     if (stopped) return;
     trackReading(reportOnScreen());
+    trackDonePage(donePage);
     animate();
     onChange();
   };
@@ -1314,7 +1329,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       editor.setText('');
       askingWorkFolder = false;
       announceWork(true);
-    }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+    }, error => { fail('Work mode', error); })
       .finally(() => { clearing = false; changed(); });
   };
   const toggleWorkFromChat = submitted => {
@@ -1325,7 +1340,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }).then(mode => {
       if (editor.getExpandedText() === submitted) editor.setText('');
       announceWork(Boolean(mode?.enabled));
-    }, error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+    }, error => { fail('Work mode', error); })
       .finally(() => { clearing = false; changed(); });
   };
   const setWorkFromChat = (submitted, wanted) => {
@@ -1359,7 +1374,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         editor.setText(text);
         referencedReport = report;
       }
-      say(`Send failed: ${clean(error?.message ?? error)}`, 'error');
+      fail('Send', error);
     }).finally(() => {
       changed();
     });
@@ -1439,7 +1454,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }).then(result => {
           if (editor.getExpandedText() === submitted) editor.setText('');
           say(result?.enabled ? setting.on : setting.off, 'success', { timeout: 3000 });
-        }, error => { say(`${setting.name} failed: ${clean(error?.message ?? error)}`, 'error'); })
+        }, error => { fail(setting.name, error); })
           .finally(() => { clearing = false; changed(); });
         return;
       }
@@ -1451,7 +1466,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }).then(() => {
           if (editor.getExpandedText() === submitted) editor.setText('');
           say('Main context reset.', 'success');
-        }, error => { say(`Reset failed: ${clean(error?.message ?? error)}`, 'error'); })
+        }, error => { fail('Reset', error); })
           .finally(() => { clearing = false; changed(); });
         return;
       }
@@ -1467,7 +1482,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           say('Visible chat cleared; context and history kept.', 'success', { timeout: 3000 });
         }, error => {
           if (!editor.getExpandedText()) editor.setText(submitted);
-          say(`Clear failed: ${clean(error?.message ?? error)}`, 'error');
+          fail('Clear', error);
         })
         .finally(() => {
           clearing = false;
@@ -1852,7 +1867,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const runWorkAction = (...request) => {
     pending = Promise.resolve().then(() => callbacks.workAction(...request))
       .then(result => { if (result?.ok) say(clean(result.message)); })
-      .catch(error => { say(`Work mode failed: ${clean(error?.message ?? error)}`, 'error'); })
+      .catch(error => { fail('Work mode', error); })
       .finally(changed);
   };
   const workRows = () => currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries).filter(entry => entry.key);
@@ -2008,6 +2023,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
 
   const openView = name => {
+    record('tab_opened', { tab: name });
     askingWorkFolder = false;
     notingOn = null;
     donePage = null;
@@ -2161,7 +2177,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     },
     askQuestion(request, signal) {
       // Someone is waiting on this one, and what it replaces can wait in Decisions.
-      if (question?.whenQuiet && !request.whenQuiet) question.finish(null);
+      if (question?.whenQuiet && !request.whenQuiet) question.finish(null, 'expired');
       if (stopped || question) return Promise.resolve(undefined);
       if (signal?.aborted) return Promise.resolve(null);
       // A question nobody is waiting on stays out of the way of what the user is typing.
@@ -2171,16 +2187,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         const selection = new SelectList(request.other ? [...request.choices, OTHER_ROW] : request.choices, FEWEST_CHOICES_SHOWN, selectTheme);
         const other = request.other ? new Input({ placeholder: 'Type here, then Enter', placeholderStyle: dim }) : null;
         const current = { ...request, other, selection, finish, previous, scroll: 0 };
-        function finish(value) {
+        const shownAt = now();
+        function finish(value, how = value === null ? 'escaped' : 'answered') {
           if (question !== current) return;
           clearTimeout(expiry);
           signal?.removeEventListener('abort', cancel);
           question = null;
           ({ focus, view, scroll } = previous);
+          const choice = value?.typed ? request.choices.length : request.choices.findIndex(item => item.value === value);
+          record('question_ended', { how, ...(how === 'answered' ? { choice } : {}), ms: now() - shownAt });
           resolve(value);
           changed();
         }
-        const cancel = () => finish(null);
+        const cancel = () => finish(null, 'expired');
         const expiry = request.waitMs ? setTimeout(cancel, request.waitMs) : null;
         selection.onSelectionChange = () => { current.scroll = 0; };
         selection.onSelect = item => {
@@ -2197,17 +2216,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         signal?.addEventListener('abort', cancel, { once: true });
         question = current;
         focus = 'question';
+        record('question_shown');
         changed();
       });
     },
     stop() {
       trackReading(null);
+      trackDonePage(null);
       stopped = true;
       clearTimeout(noticeTimer);
       clearInterval(idleRedraw);
       animate();
       images?.clear();
-      question?.finish(null);
+      question?.finish(null, 'expired');
     },
     handleMouse(event) {
       if (question) return;
@@ -2268,7 +2289,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }).then(accepted => {
           if (accepted) say('Cancellation accepted.', 'success');
           else say('No owned running job.', 'warning');
-        }, error => { say(`Kill failed: ${clean(error?.message ?? error)}`, 'error'); })
+        }, error => { fail('Kill', error); })
           .finally(changed);
       } else if (focus === 'work' && handleWorkKey(data)) {
         // The Work tab handled it.
