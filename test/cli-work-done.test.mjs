@@ -333,6 +333,23 @@ test('the next five rows without a description or proof get an agent, once, and 
   fillGaps(h.root, NOW);
 });
 
+test('a quality grade belongs to its commit too, and sorts within a safety grade', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/weak', 'weak.txt', 'x\n');
+  branched(h.checkout, 'hobkin/good', 'good.txt', 'x\n');
+  branched(h.checkout, 'hobkin/moved', 'moved.txt', 'x\n');
+  const weak = finished(h, 'hobkin/weak', { quality: { rating: 'D', reason: 'No test covers it.', head: tipOf(h, 'hobkin/weak') } });
+  const good = finished(h, 'hobkin/good', { quality: { rating: 'A', reason: 'Well covered.', head: tipOf(h, 'hobkin/good') }, notices: 'Authors see a failed save.' });
+  const moved = finished(h, 'hobkin/moved', { quality: { rating: 'A', reason: 'Well covered.', head: 'older' } });
+
+  await survey(h);
+
+  assert.deepEqual(readyItems(h.root).map(({ item }) => item), [good.id, moved.id, weak.id]);
+  assert.equal(row(h, good).notices, 'Authors see a failed save.');
+  assert.equal(row(h, good).quality.stale, false);
+  assert.equal(row(h, moved).quality.stale, true);
+});
+
 test('a row with no branch holds nothing, even beside an open PR', async t => {
   const h = workspace(t);
   const { id } = fileItem(h.root, 'api', { key: 'setting:dns', kind: 'yours', title: 'Point the domain', brief: 'At the registrar.' }, NOW);

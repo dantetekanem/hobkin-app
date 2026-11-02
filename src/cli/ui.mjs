@@ -846,6 +846,11 @@ const safetyWords = ({ safety }) => {
   if (stale) return dim(`${clean(grade)} ${clean(rating)} on an older commit`);
   return (safetyTone[grade] ?? dim)(`${clean(grade)} ${clean(rating)}`);
 };
+const qualityWords = ({ quality }) => {
+  if (!quality) return '';
+  const { rating, stale } = quality;
+  return dim(stale ? `quality ${clean(rating)} on an older commit` : `quality ${clean(rating)}`);
+};
 const sizeWords = ({ size }) => {
   if (!size) return '';
   const changed = size.additions + size.deletions;
@@ -860,7 +865,7 @@ const landedFacts = entry => {
     described === false && caution('no description'),
     proved === false && caution('no proof'),
   ];
-  return [safetyWords(entry), mergeState(entry), ...facts].filter(Boolean).join(muted(' · '));
+  return [safetyWords(entry), qualityWords(entry), mergeState(entry), ...facts].filter(Boolean).join(muted(' · '));
 };
 const doneRow = (entry, type, facts) => {
   const { slug, project, item, title } = entry;
@@ -896,8 +901,9 @@ const doneSections = ({ work: { ready = [], closing = [] }, inner }) => {
   return sections.filter(([, rows]) => rows.length);
 };
 const doneReading = ({ entry, description, inner }) => {
-  const { project, title, safety, left, summary } = entry;
-  const reason = safety?.reason ? wrapped(`Why: ${safety.reason}`, inner).map(dim) : [];
+  const { project, title, safety, quality, notices, left, summary } = entry;
+  const grounds = [safety?.reason && `Why: ${safety.reason}`, quality?.reason && `Quality: ${quality.reason}`, notices && `Who notices: ${notices}`];
+  const reason = grounds.filter(Boolean).flatMap(text => wrapped(text, inner)).map(dim);
   const leftFor = left ? ['', ...wrapped(`Left for you: ${left}`, inner).map(caution)] : [];
   const said = description ?? summary ?? 'This branch has no description yet.';
   return {

@@ -604,6 +604,25 @@ test('Enter reads a row with its description, every key still works there, and t
   ui.stop();
 });
 
+test('quality sits beside safety on a row, and its page says why and who notices', async () => {
+  const { workAction } = acting();
+  const quality = { rating: 'B', reason: 'A hung save has no test.', stale: false };
+  const ready = [landing('one', { safety: { grade: 'safe', rating: 'A' }, quality, notices: 'Authors see a failed save.' }), landing('two', { quality: { ...quality, stale: true } })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  assert.match(screen(ui, 110, 40), /safe A · quality B/);
+  assert.match(screen(ui, 110, 40), /quality B on an older commit/);
+
+  ui.input('\r');
+  await ui.pending();
+
+  const page = screen(ui, 110, 40);
+  assert.match(page, /Quality: A hung save has no test\./);
+  assert.match(page, /Who notices: Authors see a failed save\./);
+  ui.stop();
+});
+
 test('Done fits every supported size, and so does the page Enter opens', async () => {
   const { workAction } = acting();
   const long = 'Update Astro to the latest release of the framework and everything that depends on it';

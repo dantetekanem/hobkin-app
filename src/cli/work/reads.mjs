@@ -147,11 +147,16 @@ export function itemsView(root, reference, state) {
 const safetyOrder = { safe: 0, medium: 2, risky: 3 };
 const NOT_GRADED = 1;
 const safetyRank = ({ safety }) => (safety && !safety.stale ? safetyOrder[safety.grade] : NOT_GRADED);
+// No grade sits between a good one and a poor one, for the same reason.
+const qualityOrder = { A: 0, B: 1, C: 3, D: 4, E: 5, F: 6 };
+const NO_QUALITY = 2;
+const qualityRank = ({ quality }) => (quality && !quality.stale ? qualityOrder[quality.rating] ?? NO_QUALITY : NO_QUALITY);
 const linesChanged = ({ size }) => (size?.additions ?? 0) + (size?.deletions ?? 0);
 
-/** What is easiest to say yes to comes first: nothing in its way, the safest, the smallest, then the oldest. */
+/** What is easiest to say yes to comes first: nothing in its way, the safest, the best made, the smallest, then the oldest. */
 const nextToMerge = (first, second) => Number(Boolean(first.conflict)) - Number(Boolean(second.conflict))
   || safetyRank(first) - safetyRank(second)
+  || qualityRank(first) - qualityRank(second)
   || linesChanged(first) - linesChanged(second)
   || (first.at ?? '').localeCompare(second.at ?? '');
 
@@ -177,7 +182,7 @@ function holdsCount(unit, units) {
 }
 
 function readyRow(root, project, item, items, openUnits = []) {
-  const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null } = item;
+  const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null } = item;
   const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
   const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null } = unit;
   return {
@@ -193,6 +198,8 @@ function readyRow(root, project, item, items, openUnits = []) {
     conflict,
     size,
     safety,
+    quality: quality && { rating: quality.rating, reason: quality.reason, stale: quality.head !== unit.sha },
+    notices,
     onlyDocs,
     landedOn,
     gap: gapOf(item, unit, items),

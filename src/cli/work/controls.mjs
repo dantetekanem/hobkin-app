@@ -290,7 +290,7 @@ export function requestReview(root, reference, id) {
 const firstLine = text => String(text).split('\n', 1)[0];
 const whyNoMerge = (error, base, title) => {
   if (error.message === 'conflict') return `"${title}" conflicts with ${base}, so nothing changed. Send an agent back to rebase it.`;
-  if (/overwritten|uncommitted|local changes/i.test(`${error.stderr} ${error.message}`)) return `The folder has uncommitted changes in files this merge touches, so nothing changed.`;
+  if (/overwritten|uncommitted|local changes/i.test(`${error.stderr} ${error.message}`)) return 'The folder has uncommitted changes in files this merge touches, so nothing changed.';
   return `"${title}" did not merge: ${firstLine(error.stderr || error.message)}`;
 };
 
