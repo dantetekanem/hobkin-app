@@ -303,6 +303,23 @@ test('shutdown drains dispatch admission before releasing the storage owner', as
   await reopened.close();
 });
 
+test('a scheduled run that finds nothing new keeps its receipt and log line, and saves no report', async t => {
+  const { root, config } = home(t);
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });
+  const quiet = async () => ({ status: 'completed', text: 'Nothing new.\n\nChecked the inbox.', cost: null });
+  try {
+    await runtime.dispatch({ id: 'job:quiet', kind: 'background', scheduleId: 'inbox', trigger: 'scheduled' }, quiet);
+    await runtime.dispatch({ id: 'job:asked', kind: 'background', scheduleId: 'inbox', trigger: 'manual' }, quiet);
+
+    assert.equal((await runtime.state()).runs['job:quiet'].status, 'completed');
+    assert.equal(readReport(root, 'job:quiet', null), null);
+    assert.equal(readReport(root, 'job:asked', null), 'Nothing new.\n\nChecked the inbox.');
+    assert.equal(readFileSync(join(root, 'checks/inbox/log.md'), 'utf8').match(/Nothing new\./g).length, 2);
+  } finally {
+    await runtime.close();
+  }
+});
+
 test('background dispatch commits final receipts once and a second call cannot repeat its effect', async t => {
   const { root, config } = home(t);
   const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });

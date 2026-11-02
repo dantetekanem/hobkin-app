@@ -30,6 +30,9 @@ export const reportTriage = run => {
   };
 };
 
+/** A run nobody asked for that found nothing new. Its receipt and log line stay, but no report is kept or shown. */
+export const isQuietRun = run => run.trigger !== 'manual' && reportTriage(run)?.level === 'nothing';
+
 // `Useful:` marks an ordinary report for hobkin and tells a reader nothing, so a report shown on screen starts at its point. The saved text keeps the word.
 const usefulWord = /^\s*useful:[ \t]+/i;
 export const readerText = text => String(text ?? '').replace(usefulWord, '');

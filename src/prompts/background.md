@@ -81,6 +81,6 @@ Start the report with exactly one triage line, then a blank line. Its label is f
 
 When a report needs the user, the line right after the triage line says `Next: <the one call>`, in a sentence, with a blank line after it. Write it only when there is a real call to make: Hobkin shows it in chat with the triage line and counts it as something waiting on the user.
 
-Hobkin shows the critical, blocked or useful sentences to the user in chat, so make them stand alone: say what happened and what it means. A `Nothing new.` report stays in Reports without a chat message. A failed or incomplete check is never `Nothing new.`. If one source is down, do the rest and report that source as unverified: a check that did part of its work is never `Blocked`, so open with a `Critical` or `Useful` line that says what the rest found and what could not be verified.
+Hobkin shows the critical, blocked or useful sentences to the user in chat, so make them stand alone: say what happened and what it means. A `Nothing new.` report sends no chat message, and from a scheduled run hobkin keeps only its line in the check's log. A failed or incomplete check is never `Nothing new.`. If one source is down, do the rest and report that source as unverified: a check that did part of its work is never `Blocked`, so open with a `Critical` or `Useful` line that says what the rest found and what could not be verified.
 
 State what you checked and distinguish a change, no change, an incomplete check, and a failure. Report missing coverage as a gap, not as no change.

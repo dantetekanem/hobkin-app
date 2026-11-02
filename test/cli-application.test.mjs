@@ -481,7 +481,6 @@ test('scheduled reports talk back in chat only for critical or useful triage lin
       { content: 'Financial freedom: Rent is due tomorrow and the balance is short.', tone: 'critical' },
       { content: 'Health progress: Resting heart rate fell 3 bpm over two weeks.', tone: 'useful' },
     ]);
-    assert.ok(view.reports.some(report => report.id === 'quiet'));
     assert.deepEqual(app.runtime.messages(), contextMessagesBefore);
   } finally {
     await app.close();
@@ -504,6 +503,25 @@ test('a report that needs the user shows its one call with the notice', async t 
 
     const [notice] = view.messages.filter(message => message.role === 'notice');
     assert.equal(notice.content, 'Mail: The bank wrote back. Next: Reply by Friday.');
+  } finally {
+    await app.close();
+  }
+});
+
+test('a scheduled check that found nothing new stays out of Reports, and a run the user asked for stays in', async t => {
+  const h = fixture(t);
+  const runHarness = async () => { throw Error('Unexpected provider call in synthetic report test.'); };
+  const app = await h.openApp({ runHarness });
+  try {
+    const quiet = { status: 'completed', text: 'Nothing new.\n\nChecked the next 14 days.' };
+    await app.runtime.change(state => {
+      state.runs.quiet = backgroundRun('quiet', { result: quiet });
+      state.runs.asked = backgroundRun('asked', { trigger: 'manual', result: quiet });
+    });
+
+    const view = await app.refresh();
+
+    assert.deepEqual(view.reports.map(report => report.id).filter(id => ['quiet', 'asked'].includes(id)), ['asked']);
   } finally {
     await app.close();
   }
