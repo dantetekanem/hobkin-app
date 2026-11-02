@@ -30,6 +30,7 @@ Coming from pi-companion? Close it, then run `hobkin import`.
 Chat opens ready to type. Ask the agent to run a check now, switch models or remember something. Reports holds finished checks. Routines shows when each check runs next. The Work Mode tab appears while work mode is on, and a running check gets a tab of its own.
 
 - `Enter` sends a message or opens the selected report.
+- `Ctrl+V` attaches the image on the clipboard to your message and shows it above the input. `Esc` removes the last one.
 - `Left` and `Right` change tabs when your draft is empty.
 - `Up` and `Down` select a report. `Page Up` and `Page Down` scroll.
 - `r` or `m` in a report takes it to Chat, so you can reply to it.
