@@ -13,6 +13,9 @@ import { chooseProject, fileItem, updateItem, writeMode } from '../src/cli/work/
 import { fakePi } from './helpers/pi-session.mjs';
 import { branched, repository } from './helpers/work-fixture.mjs';
 
+// Inside Herdr, opening an app or a diff starts and closes real panes in front of the user, so this file must never look like it is in there.
+for (const name of Object.keys(process.env).filter(key => key.startsWith('HERDR_'))) delete process.env[name];
+
 function fixture(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-recording-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
