@@ -1603,7 +1603,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
-    if (donePage) return [...doneKeys(donePage.entry), ['d', 'diff'], ['r', 'review'], ['↑↓', 'scroll'], ['esc', 'back']];
+    if (view === 'work' && donePage) return [...doneKeys(donePage.entry), ['d', 'diff'], ['r', 'review'], ['↑↓', 'scroll'], ['esc', 'back']];
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
     if (focus === 'decisions') return [[`1-${selectedDecision()?.choices.length ?? 2}`, 'answer'], ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];

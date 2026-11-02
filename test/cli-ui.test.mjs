@@ -2466,6 +2466,19 @@ const clickableDashboard = async t => {
   return { terminal, ui };
 };
 
+test('clicking the Done subtab opens it', async t => {
+  const terminal = new FakeTerminal();
+  const ready = [{ slug: 'site', project: 'website', item: 'one', title: 'Land me', gap: 'land' }];
+  const ui = startDashboard({ ...mixedReports, work: { enabled: true, projects: [], ready } }, {}, { terminal });
+  t.after(() => ui.stop());
+  ui.input('\x1b[D');
+  while (!terminal.writes.some(frame => frame.includes('Done'))) await new Promise(resolve => setImmediate(resolve));
+
+  click(terminal, cellOf(ui, 'Done 1', terminal.columns, terminal.rows));
+
+  assert.match(stripTerminalSequences(ui.render(terminal.columns, terminal.rows).join('\n')), /NEXT TO LAND/);
+});
+
 test('clicking a main tab opens it, wherever the header put the tabs', async t => {
   const { terminal, ui } = await clickableDashboard(t);
   terminal.input('draft');

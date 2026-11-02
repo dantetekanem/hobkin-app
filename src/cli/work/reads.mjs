@@ -170,6 +170,7 @@ function gapOf(item, unit, items) {
 }
 
 function holdsCount(unit, units) {
+  if (!unit.branch) return 0;
   const under = name => units.filter(other => other.stackedUnder === name);
   const count = name => under(name).reduce((sum, other) => sum + 1 + count(other.branch), 0);
   return count(unit.branch);

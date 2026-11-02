@@ -308,7 +308,7 @@ test('a row knows whether it has a description and recorded proof', async t => {
   assert.deepEqual([row(h, told).described, row(h, told).proved], [true, true]);
 });
 
-test('the next five rows without a description or proof get an agent, once, and the rest wait their turn', async t => {
+test('the next five rows without a description or proof get an agent, once, and the sixth waits for one of them to finish', async t => {
   const h = workspace(t);
   const names = ['one', 'two', 'three', 'four', 'five', 'six'];
   for (const name of names) {
@@ -325,8 +325,20 @@ test('the next five rows without a description or proof get an agent, once, and 
   assert.ok(fixes.every(({ branch, ships }) => branch && ships));
 
   await survey(h);
+  assert.deepEqual(fillGaps(h.root, NOW), [], 'a row being closed keeps its place, so nothing new is filed');
+
+  const [{ id }] = readItems(h.root, 'api').filter(item => item.kind === 'pr-fix');
+  updateItem(h.root, 'api', id, { state: 'done' }, NOW);
+  for (const { id: maker } of readItems(h.root, 'api').filter(item => item.kind === 'fix').slice(0, 1)) updateItem(h.root, 'api', maker, { proof: 'It passed.' }, NOW);
   fillGaps(h.root, NOW);
-  assert.equal(readItems(h.root, 'api').filter(item => item.kind === 'pr-fix').length, 6, 'the sixth moved up, and the five were not filed again');
+});
+
+test('a row with no branch holds nothing, even beside an open PR', async t => {
+  const h = workspace(t);
+  const { id } = fileItem(h.root, 'api', { key: 'setting:dns', kind: 'yours', title: 'Point the domain', brief: 'At the registrar.' }, NOW);
+  await surveyUnmerged(h.root, { now: NOW, reviews: h.reviews, gh: async () => JSON.stringify([{ number: 1, title: 'x', url: 'u', state: 'OPEN', headRefName: 'hobkin/pr', statusCheckRollup: [] }]) });
+
+  assert.equal(readyItems(h.root).find(({ item }) => item === id).holds, 0);
 });
 
 test('a step only a person can take waits in the list and no agent runs it', async t => {

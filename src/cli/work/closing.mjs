@@ -1,5 +1,5 @@
 import { readyItems } from './reads.mjs';
-import { fileItem, updateItem } from './store.mjs';
+import { fileItem, readItems, updateItem } from './store.mjs';
 import { surveyUnmerged } from './unmerged.mjs';
 
 // The rows the user sees next. Filling in any more would pay for work they may never ship.
@@ -14,14 +14,20 @@ const describeWork = ({ branch }) => ({
   effort: 'small',
 });
 
-/** Rows near the top that cannot be decided on yet get an agent, once each. A key per branch means one that fails stays a gap rather than a loop. */
+/**
+ * Rows near the top that cannot be decided on yet get an agent, once each. A key per branch means one that fails stays a gap rather than a loop.
+ * A row being closed keeps its place in the five, or each one filed would pull another up behind it and the limit would mean nothing.
+ */
 export function fillGaps(root, now = Date.now()) {
-  const next = readyItems(root).filter(row => row.gap === 'land').slice(0, NEXT_ROWS);
-  const lacking = next.filter(({ described, proved }) => !described || !proved);
-  return lacking.map(row => {
-    const { id, state } = fileItem(root, row.slug, describeWork(row), now);
-    if (state === 'open') updateItem(root, row.slug, id, { branch: row.branch, ships: row.item }, now);
-    return { slug: row.slug, id, title: `Describe ${row.branch}`, branch: row.branch };
+  const next = readyItems(root).filter(({ gap }) => ['land', 'closing'].includes(gap)).slice(0, NEXT_ROWS);
+  const lacking = next.filter(({ gap, described, proved }) => gap === 'land' && (!described || !proved));
+  return lacking.flatMap(row => {
+    const work = describeWork(row);
+    if (readItems(root, row.slug).some(({ key }) => key === work.key)) return [];
+
+    const { id, title } = fileItem(root, row.slug, work, now);
+    updateItem(root, row.slug, id, { branch: row.branch, ships: row.item }, now);
+    return [{ slug: row.slug, id, title, branch: row.branch }];
   });
 }
 

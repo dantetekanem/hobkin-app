@@ -6,12 +6,15 @@ import { join } from 'node:path';
 export const QUESTION_WAIT_MS = 30000;
 
 const LONGEST_TLDR = 100;
+const LONGEST_QUESTION = 1000;
+const LONGEST_LABEL = 80;
 const FEWEST_CHOICES = 2;
 const MOST_CHOICES = 6;
 
 const logPath = root => join(root, 'decisions.jsonl');
 
 const firstSentence = text => /^.*?[.?!](?=\s|$)/.exec(text)?.[0] ?? text;
+const shortChoice = ({ value, label }) => ({ value, label: String(label).slice(0, LONGEST_LABEL) });
 const tldrFrom = ({ tldr, question }) => (tldr?.trim() || firstSentence(question.trim())).slice(0, LONGEST_TLDR);
 
 function append(root, event) {
@@ -52,9 +55,9 @@ export function fileDecision(root, { key = null, from, question, tldr, choices, 
     id,
     key,
     from,
-    question: question.trim(),
+    question: question.trim().slice(0, LONGEST_QUESTION),
     tldr: tldrFrom({ tldr, question }),
-    choices,
+    choices: choices.map(shortChoice),
     answerTo,
     at: known?.at ?? new Date(now).toISOString(),
     shown: known?.shown ?? false,
