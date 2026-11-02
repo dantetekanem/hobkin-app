@@ -59,6 +59,8 @@ export const paths = (root, slug) => {
     project: join(directory, 'project.md'),
     directions: join(directory, 'directions.md'),
     items: join(directory, 'items.jsonl'),
+    launches: join(directory, 'launches.jsonl'),
+    signals: join(directory, 'signals.json'),
     state: join(directory, 'state.json'),
     prs: join(directory, 'prs'),
     trees,
@@ -455,6 +457,11 @@ export function retryItem(root, slug, id, now = Date.now()) {
   updateItem(root, slug, id, started ? fresh : { ...fresh, state: 'open' }, now);
   return pickNext(root, `item:${slug}:${id}`);
 }
+
+/** What became of a change after it landed, one record for each merged item. A CLI call and the owner can write at once, as they can on items. */
+export const readLaunches = (root, slug) => fold(parseEvents(paths(root, slug).launches), event => event.item);
+
+export const recordLaunch = (root, slug, change, now = Date.now()) => appendEvent(paths(root, slug).launches, { ...change, updatedAt: new Date(now).toISOString() });
 
 /** How a finished item leaves its branch. `off` opens no PR: the branch and its description are a local PR for the user to review. */
 export const landing = project => project.prMode ?? 'off';

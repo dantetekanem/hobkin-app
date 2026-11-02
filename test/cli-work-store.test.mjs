@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
-  paths, prFile, priorityOf, proposeProject, readDiscovery, readItems, readMode, readProject, readProjects, recordDiscovery, recordTokens, retryItem, sessionError, sessionUsage, setAgents,
+  paths, prFile, priorityOf, proposeProject, readDiscovery, readItems, readLaunches, readMode, readProject, readProjects, recordDiscovery, recordLaunch, recordTokens, retryItem, sessionError, sessionUsage, setAgents,
   setDailyTokens, setHarness, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
@@ -493,4 +493,17 @@ test('project folders are created when work is filed', t => {
   fileItem(root, 'api', item);
 
   assert.equal(readItems(root, 'api').length, 1);
+});
+
+test('a launch folds by its item, so a later change keeps what came before', t => {
+  const root = dataRoot(t);
+
+  recordLaunch(root, 'api', { item: 'abc', sha: 'f00', stage: 'merged' }, Date.parse('2026-06-01T12:00:00Z'));
+  recordLaunch(root, 'api', { item: 'abc', stage: 'pushed' }, Date.parse('2026-06-01T13:00:00Z'));
+  recordLaunch(root, 'api', { item: 'def', sha: 'b42', stage: 'merged' });
+
+  const [first, second] = readLaunches(root, 'api');
+  assert.deepEqual([first.item, first.sha, first.stage], ['abc', 'f00', 'pushed']);
+  assert.equal(second.item, 'def');
+  assert.deepEqual(readLaunches(root, 'quiet-project'), []);
 });
