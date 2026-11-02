@@ -113,6 +113,7 @@ function mainPrompts(root, config) {
       main: config.main,
       background: config.background,
       learningAnswer: hobkinCommand(root, 'learning answer <id> yes|no'),
+      profile: hobkinCommand(root, 'profile'),
     }, null, 2)));
 }
 

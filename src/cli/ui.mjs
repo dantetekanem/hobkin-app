@@ -189,13 +189,22 @@ const tips = [
 ];
 const jevTip = 'Type /jev so hobkin can show all 18 moods.';
 const learningTip = 'Type /learning so hobkin learns from how its work turns out.';
+const greetings = [
+  name => `Welcome ${name}! Nice to see you again.`,
+  name => `Welcome back, ${name}. Good to see you.`,
+  name => `Hey ${name}, glad you're back.`,
+  name => `Good to see you again, ${name}.`,
+  name => `There you are, ${name}. Nice to have you back.`,
+  name => `Hello again, ${name}!`,
+  name => `${name}! You're back. Let's get going.`,
+];
 const ignoredTips = attention => attention.filter(item => item.ignored).map(({ title, read, reports }) =>
   `${clean(title)}: ${read} of ${reports} reports opened. Revisit it?`);
+const pickFrom = (choices, turn) => choices[(Math.imul(turn + 1, 2654435761) >>> 16) % choices.length];
 // Tips follow the clock rather than a timer, so each one holds still for its whole turn on screen.
 const tipAt = (choices, clock) => {
   if (clock % TIP_EVERY_MS >= TIP_SHOW_MS) return '';
-  const turn = Math.floor(clock / TIP_EVERY_MS);
-  return choices[(Math.imul(turn + 1, 2654435761) >>> 16) % choices.length];
+  return pickFrom(choices, Math.floor(clock / TIP_EVERY_MS));
 };
 const toned = (text, tone, frame) => {
   const [glyph, paint] = tone === 'progress' ? [frame, highlight] : noticeStyles[tone] ?? ['', dim];
@@ -1062,6 +1071,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let stopped = false;
   const onChange = options.onChange ?? (() => {});
   const now = () => (options.now ?? Date.now)();
+  const startedAt = now();
   // A newer notice always cancels a pending timeout, so it never erases what replaced it.
   const say = (text, tone = 'info', { timeout } = {}) => {
     notice = text;
@@ -1544,7 +1554,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const memorySize = () => (Number.isFinite(snapshot.memoryBytes)
     ? `${muted('memory')} ${dim(kilobytes(snapshot.memoryBytes))}` : '');
+  const greetingLine = clock => {
+    const name = clean(snapshot.userName ?? '');
+    if (!name || clock - startedAt >= TIP_SHOW_MS) return '';
+
+    return accent(pickFrom(greetings, Math.floor(startedAt / 1000))(name));
+  };
   const tipLine = clock => {
+    const greeting = greetingLine(clock);
+    if (greeting) return greeting;
+
     const tip = tipAt([...tips, ...(snapshot.jev ? [] : [jevTip]), ...(snapshot.learning ? [] : [learningTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
     return tip ? `${muted('tip')}  ${dim(tip)}` : '';
   };

@@ -20,7 +20,7 @@ pnpm hobkin setup
 pnpm hobkin
 ```
 
-`hobkin setup` changes nothing. It checks Pi, git, `gh`, your models and routines, and says how to fix what is missing. Once hobkin opens, type `/setup` in Chat and it walks you through the rest, including Jev and your first checks.
+`hobkin setup` changes nothing. It checks Pi, git, `gh`, your models and routines, and says how to fix what is missing. Once hobkin opens, type `/setup` in Chat and it walks you through the rest: who you are, the services to connect, Jev and your first checks.
 
 If `hobkin` is on your PATH, run it from any directory. Otherwise, run the `hobkin` commands below as `pnpm hobkin` from the checkout. The first launch creates `~/.hobkin`, and later launches reopen the same conversation.
 

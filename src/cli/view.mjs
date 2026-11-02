@@ -7,6 +7,7 @@ import { loadImportedHistory } from './history.mjs';
 import { UsageLedger } from './usage.mjs';
 import { deletedReportIds, readReport } from './reports.mjs';
 import { memoryBytes } from './memory.mjs';
+import { callName, readProfile } from './profile.mjs';
 import { workStatus } from './work/commands.mjs';
 
 const presentationPath = requestedRoot => join(resolveDataRoot(requestedRoot), 'runtime', 'presentation.json');
@@ -83,5 +84,6 @@ export function readLocalView(requestedRoot) {
     work: workStatus(root),
     jev: config.jev?.enabled === true,
     learning: config.learning?.enabled === true,
+    userName: callName(readProfile(root)),
   };
 }

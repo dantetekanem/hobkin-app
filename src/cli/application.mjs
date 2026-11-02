@@ -10,6 +10,7 @@ import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.m
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { memoryBytes } from './memory.mjs';
+import { callName, readProfile } from './profile.mjs';
 import { MemoryIndex } from './memory-index.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
 import { compactionDue, nextRunIn } from './compaction.mjs';
@@ -390,6 +391,7 @@ export class HobkinApplication {
       busy: this.runtime.mainBusy,
       jev: jevEnabled(this.runtime.directory),
       learning: learningEnabled(this.runtime.directory),
+      userName: callName(readProfile(this.runtime.directory)),
       main: {
         harness: 'pi',
         model: `${this.runtime.main.model.provider}/${this.runtime.main.model.id}`,

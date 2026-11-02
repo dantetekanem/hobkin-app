@@ -2,6 +2,16 @@
 
 Go one thing at a time and keep each message short. Say what a step is for, give the exact command, and wait. Install nothing, sign in to nothing and change no setting until the user says yes to that step, using `ask_question` with a choice to skip. They can skip anything or do it themselves, so move on when they do.
 
+## About the user
+
+Start here. Run `hobkin profile --home /supplied/root` and skip anything it already shows. Then ask in chat, one at a time, and let them skip any of it:
+
+1. Their name.
+2. What they would like to be called.
+3. Their email, which lets checks and agents tell the user's own mail and accounts from anyone else's.
+
+Before the first one, say that these go to the model provider with every agent's prompt. Save each answer as it comes, with `hobkin profile --home /supplied/root` followed by `name <text>`, `call <text>` or `email <text>`, and use what they asked to be called from then on. hobkin greets them by that name each time it opens.
+
 ## What is missing
 
 Start from the output of `hobkin setup --home /supplied/root`. It only reads, so run it again after each fix to confirm the fix worked.
@@ -27,6 +37,20 @@ To turn it on:
 1. The user gets a key at https://console.typesafe.ai/keys. Never ask for the key here, because this conversation goes to a model provider.
 2. They add `export TYPESAFE_API_KEY=...` to their shell profile and reopen Hobkin from a new terminal. A running Hobkin cannot see a key added after it started, and `/jev` answers `Jev failed: Set TYPESAFE_API_KEY first.` until then. Reopening restores this conversation, so setup carries on.
 3. They type `/jev` in Chat. The status bar shows `jev` while it is on, and `/jev` again turns it off.
+
+## Connect what they use
+
+MCP servers are how checks and agents reach mail, calendars, GitHub, notes and other services. Run `pi mcp list` to see what is connected, then ask which other services they want hobkin to reach. Skip this if they want none.
+
+For each one they name:
+
+1. Find that service's own MCP server, from the vendor if there is one. Look it up rather than guessing a package name, and say what it can read and what it can change.
+2. Ask before adding it, using `ask_question`.
+3. Add it with `pi mcp add <name> -- <command>` for a local server, or `pi mcp add <name> --url <url>` for a remote one.
+4. Never ask for a key or token here, because this conversation goes to a model provider. The user adds it to their shell profile, and the server reads it from there: `--env API_KEY='${THEIR_KEY}'` for a local server, `--bearer-token-env-var THEIR_KEY` for a remote one. A server that signs in through a browser takes `pi mcp login <name>`, which they run in a terminal of their own.
+5. Run `pi mcp list` again to confirm it connects.
+
+Checks get a new server on their next run. This chat gets it when hobkin reopens, from a new terminal if a key was added, and reopening restores this conversation, so setup carries on.
 
 ## First routines
 

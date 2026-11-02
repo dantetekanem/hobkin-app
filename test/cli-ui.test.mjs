@@ -2532,3 +2532,50 @@ test('only a left click on a tab acts, and never over an open question', async t
   click(terminal, tab);
   assert.equal(ui.state().view, 'reports');
 });
+
+const tipRow = ui => screen(ui, 120, 40).split('\n').at(-5);
+
+test('opening hobkin greets the user by name, then the row goes back to tips', () => {
+  let clock = Date.parse('2026-11-02T12:00:05.000Z');
+  const ui = createDashboard({ ...snapshot, userName: 'Ada' }, {}, { now: () => clock });
+
+  assert.match(tipRow(ui), /Ada/);
+  assert.doesNotMatch(tipRow(ui), /\btip\b/);
+
+  clock += 29000;
+  assert.match(tipRow(ui), /Ada/);
+
+  clock += 2000;
+  assert.doesNotMatch(tipRow(ui), /Ada/);
+});
+
+test('the greeting changes from one start to the next', () => {
+  const greetings = new Set();
+
+  for (let start = 0; start < 60; start++) {
+    const clock = Date.parse('2026-11-02T12:00:05.000Z') + start * 1000;
+    const ui = createDashboard({ ...snapshot, userName: 'Ada' }, {}, { now: () => clock });
+    greetings.add(tipRow(ui).trim());
+  }
+
+  assert.ok(greetings.size >= 5, `${greetings.size} greetings`);
+  for (const greeting of greetings) assert.match(greeting, /Ada/);
+  assert.ok([...greetings].some(greeting => greeting.includes('Welcome Ada! Nice to see you again')));
+});
+
+test('with no name saved there is no greeting', () => {
+  const clock = Date.parse('2026-11-02T12:00:05.000Z');
+  const ui = createDashboard(snapshot, {}, { now: () => clock });
+
+  assert.doesNotMatch(tipRow(ui), /Welcome|Nice to see you|Good to see you/);
+});
+
+test('a name arriving after the start window is not greeted late', () => {
+  let clock = Date.parse('2026-11-02T12:00:05.000Z');
+  const ui = createDashboard(snapshot, {}, { now: () => clock });
+
+  clock += 60000;
+  ui.update({ ...snapshot, userName: 'Ada' });
+
+  assert.doesNotMatch(tipRow(ui), /Ada/);
+});

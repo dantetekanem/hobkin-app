@@ -4,6 +4,7 @@
 
 - Add All, Scheduled and Work Done subtabs to Reports, opening on All. Up from the first report reaches them, Left/Right changes subtab there, and Down goes back to the reports. Typing `/` in the list filters report titles as you type, ignoring case, across every saved report rather than the 25 the list shows. The filter stays until Esc or Ctrl+C clears it.
 - Open a main tab or a Reports subtab with a mouse click.
+- Get to know the user in `/setup`: their name, what to call them, their email and which services to connect through MCP. `hobkin profile` shows or changes the details, and the chat and every check get them. Opening hobkin greets the user by name in the tip row for 30 seconds, in one of seven ways.
 - Write the name as hobkin across the main window: labels, tips, the input box, `/help`, what it posts in Chat and its error notices. The main agent is told to write its own name that way too.
 - Rename Schedules to Routines: the tab, messages, docs, prompts, `hobkin routines`, the `run_routine` tool and the `routines/` folder in Hobkin's data. The dashboard moves the folder the next time it opens and leaves `schedules` as a link, so a path written inside a routine keeps working. `hobkin schedules` still works.
 - Compact the main chat ahead of time. From 80% it compacts when the chat is quiet and either agents are working or the next check is 2 hours away or more. At 95% it is forced: a running turn compacts between model calls and carries on by itself, and new work and messages wait for it. A failed compaction holds nothing up.
