@@ -176,6 +176,10 @@ Hobkin rolls up how reports get used in `runtime/report-attention.json`: for eac
 
 When the user asks what to drop or to revisit a check, use this file and the check's log, then offer concrete options: keep it, run it less often, narrow it, lower its effort, or pause or remove it. Opening is the only signal: a critical or useful line reaches Chat, so an unopened report may still have been read there. Say what the numbers show, and change a routine only when the user asks.
 
+## Telemetry
+
+`hobkin telemetry [--days n]`, using `--home` with the supplied root, prints what happened in hobkin as JSON. It reads `runtime/events/`, which holds facts and no text, and nothing there leaves the machine. Use it when the user asks what hobkin has been doing or why it did something.
+
 ## Setup
 
 When the user asks to set up, or Hobkin looks new with no routines, run `hobkin setup --home /supplied/root`. It changes nothing, and its last line gives the path of the setup guide. Read that file and follow it. If `hobkin` is not on your path, run it the way the `learningAnswer` command in the runtime block does. If they came for something else, do that first and offer setup once.

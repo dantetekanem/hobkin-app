@@ -223,6 +223,12 @@ From the same evidence Hobkin concludes which checks work, which do not, and whi
 
 `hobkin learning` shows every lesson, what it rests on and the proposals waiting. `hobkin learning clear <id>` removes one and `hobkin learning clear all` removes them all, and only new runs can teach them again. Your answers to proposals stay.
 
+## Telemetry
+
+hobkin keeps a record of what happens in it, in `runtime/events/` in the data folder, one file a month with the newest six kept. It holds facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids, never a message, a report or anything an agent or a person wrote. Nothing reads it while hobkin runs, and none of it leaves your machine.
+
+`hobkin telemetry [--days n]` prints a rollup as JSON, 30 days by default: events by type and day, runs by routine and by project, mean durations, and what reached you beside what you did with it.
+
 ## Memory search
 
 Agents can search what Hobkin keeps, so they look before they redo research. It runs on [qmd](https://github.com/tobi/qmd) and needs no setting. With `qmd` on your `PATH` it starts by itself. Without it, Hobkin says so once in Chat and carries on. Nothing is added to a session: an agent gets a result only when it searches.

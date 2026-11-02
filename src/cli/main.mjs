@@ -10,6 +10,9 @@ import { deleteReports } from './reports.mjs';
 import { inRoutineWords, whenItRuns } from './schedules.mjs';
 import { stayAwake } from './stay-awake.mjs';
 
+const DAY_MS = 86400000;
+const DEFAULT_TELEMETRY_DAYS = 30;
+
 export function parseArguments(args) {
   const values = [...args];
   const options = { command: 'status', root: resolve(defaultRoot()), explicitRoot: false, plain: false, args: [] };
@@ -23,6 +26,8 @@ export function parseArguments(args) {
       options[flag.slice(2)] = values.shift();
     } else if (options.command === 'work' && ['--state', '--brief'].includes(flag) && values.length) {
       options[flag.slice(2)] = values.shift();
+    } else if (options.command === 'telemetry' && flag === '--days' && values.length) {
+      options.days = values.shift();
     } else if (flag === '--plain') options.plain = true;
     else if (flag === '--keep' && options.command === 'session') options.keep = true;
     else if (flag === '--approved' && options.command === 'session') options.approved = true;
@@ -143,7 +148,7 @@ async function connected(options, snapshot, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  jev [on | off]  show or set whether Jev picks from all 18 moods; on needs TYPESAFE_API_KEY\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -272,6 +277,15 @@ export async function main(args = process.argv.slice(2), output = process.stdout
       after: inventory().length,
     };
     output.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'telemetry') {
+    const days = Number(options.days ?? DEFAULT_TELEMETRY_DAYS);
+    if (!Number.isInteger(days) || days < 1) throw Error('Usage: hobkin telemetry [--days n]');
+
+    const { eventRollup, readEvents } = await import('./events.mjs');
+    const events = readEvents(resolveDataRoot(options.root), { since: Date.now() - days * DAY_MS });
+    output.write(`${inRoutineWords(JSON.stringify(eventRollup(events), null, 2))}\n`);
     return 0;
   }
   if (options.command === 'history') {

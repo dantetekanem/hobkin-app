@@ -24,6 +24,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin status --plain` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
 | `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome`. |
+| `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, and what reached the user beside what they acted on. Facts only, never text. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
 | `hobkin work status` | Work mode in short, as JSON: on or off, any pause and why, tokens, limits and what is next. |
