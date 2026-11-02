@@ -9,7 +9,7 @@ export const MAX_PASTE_BYTES = 64 * 1024 * 1024;
 /** What goes out when a message is only pictures, because a model turn needs words. */
 export const IMAGE_ONLY_TEXT = 'Look at what I pasted.';
 
-// Every image stays in the session file for good and crosses to Pi again on each sync, so what is kept stays small.
+// Every image stays in the session file for good and comes back from Pi on each sync, so what is kept stays small. The bytes are base64.
 const SEND_LIMITS = { maxWidth: 1568, maxHeight: 1568, maxBytes: 3 * 1024 * 1024 };
 // Half blocks hold two pixels to a cell, so this is at most 18 columns by 3 rows.
 const CELL_LIMITS = { maxWidth: 18, maxHeight: 6 };
