@@ -27,6 +27,7 @@ const LifecycleDoc = defineDoc<Lifecycle>({
   scope: 'conversation',
   history: 'latest',
   fork: 'initial',
+  checkpointWhen: () => false,
   initial: () => ({ owner: null, active: false, setup: 'needed', taskId: null, action: null }),
 });
 
@@ -93,7 +94,12 @@ export class DurableHobkin {
       chmodSync(file, 0o600);
       const registry = createRegistry();
       registry.install(defineExtension({ name: 'hobkin', tasks: [instance.task] }));
-      instance.harness = await Harness.open(storage, { models: createModels(), registry }, BACKGROUND_CONTEXT);
+      instance.harness = await Harness.open(storage, {
+        models: createModels(),
+        registry,
+        // Lifecycle controls reconcile their receipts; keep resuming after unclean exits.
+        settings: { restartLimit: Infinity },
+      }, BACKGROUND_CONTEXT);
       instance.root = await instance.harness.root(BACKGROUND_CONTEXT, {
         init: async (tx, id) => {
           const state = await tx.doc(LifecycleDoc, id);
