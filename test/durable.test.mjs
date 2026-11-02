@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DurableHobkin } from '../src/durable.ts';
@@ -80,6 +81,72 @@ test('close and reopen resume only the unfinished control phase and reconcile it
   assert.deepEqual(calls, ['daily:start', 'reconciled routines']);
   assert.equal(effects, 1);
   assert.equal((await resumed.state()).active, true);
+});
+
+test('recovery resumes the same phase after five unclean exits without repeating receipted effects', { timeout: 30000 }, async t => {
+  const h = fixture(t);
+  const childSource = `
+    import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    import { DurableHobkin } from ${JSON.stringify(new URL('../src/durable.ts', import.meta.url).href)};
+    const dir = process.argv[1];
+    const runtime = await DurableHobkin.open(dir, {
+      sessionId: 'owner', sessionFile: join(dir, 'owner.jsonl'),
+    }, true);
+    const controls = {
+      daily: async () => appendFileSync(join(dir, 'daily.log'), 'daily\\n'),
+      routines: async () => {
+        const receipt = join(dir, 'routine.receipt');
+        if (!existsSync(receipt)) {
+          appendFileSync(join(dir, 'effects.log'), 'routine\\n');
+          writeFileSync(receipt, 'applied');
+        }
+        appendFileSync(join(dir, 'attempts.log'), 'routines\\n');
+        // Exit before Durable commits phase completion, without closing its harness.
+        process.exit(0);
+      },
+    };
+    if ((await runtime.state()).taskId === null) await runtime.control('start', controls);
+    else await runtime.recover(controls);
+  `;
+
+  for (let crash = 0; crash < 5; crash++) {
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', childSource, h.dir], {
+      encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(child.error, undefined, child.stderr);
+    assert.equal(child.status, 0, child.stderr);
+  }
+  assert.equal(readFileSync(join(h.dir, 'attempts.log'), 'utf8'), 'routines\n'.repeat(5));
+
+  const resumed = await h.open();
+  const calls = [];
+  let deadline;
+  try {
+    await Promise.race([
+      resumed.recover({
+        daily: async () => assert.fail('completed daily phase repeated'),
+        routines: async () => {
+          assert.equal(readFileSync(join(h.dir, 'routine.receipt'), 'utf8'), 'applied');
+          calls.push('reconciled routines');
+        },
+      }),
+      new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(Error('recovery did not resume after five crashes')), 2000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+  }
+  assert.deepEqual(calls, ['reconciled routines']);
+  assert.equal(readFileSync(join(h.dir, 'daily.log'), 'utf8'), 'daily\n');
+  assert.equal(readFileSync(join(h.dir, 'effects.log'), 'utf8'), 'routine\n');
+  assert.equal((await resumed.state()).active, true);
+  assert.deepEqual((await resumed.state()).owner, h.owner);
+  await resumed.close();
+  const reopened = await h.open();
+  await reopened.recover(controls(calls));
+  assert.deepEqual(calls, ['reconciled routines']);
 });
 
 test('recovery finishes an interrupted routine stop and retains the earlier daily failure', async t => {
