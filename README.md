@@ -132,6 +132,19 @@ Your model provider, and the tools you connect, see what agents work on. Beyond 
 
 The local event stream, your chats, reports and memory stay on your machine.
 
+## Development checks
+
+Use pnpm 11.12.0, as pinned in `package.json`. `pnpm install` downloads the Node 26.3.1 development runtime declared in `devEngines.runtime`; pnpm scripts and their child commands use it without changing your global Node or pnpm launcher. The application still supports Node 22.19 or newer.
+
+```sh
+pnpm install
+pnpm test
+pnpm test:cli
+pnpm test:migration
+```
+
+The CLI suite exercises qmd when it is installed, using temporary private indexes without loading embedding models. Its native addons must support the development runtime (Node 26 ABI 147). If `qmd --version` works but indexing fails, run `pnpm exec qmd --index probe status` from the checkout with both `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` set to temporary directories; version output alone does not load the database addon. Use a compatible qmd installation rather than skipping these tests. The checkout denies the optional build scripts listed in `pnpm-workspace.yaml`; dependency preflight checks remain enabled.
+
 ## Where to go next
 
 - `hobkin work help` lists every work mode command.

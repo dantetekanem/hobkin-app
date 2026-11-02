@@ -2,6 +2,7 @@
   "name": "hobkin",
   "version": "0.1.6",
   "private": true,
+  "packageManager": "pnpm@11.12.0",
   "type": "module",
   "description": "A chat-first CLI agent with recurring Pi checks, work mode and a persistent Pi conversation.",
   "bin": { "hobkin": "./src/cli/main.mjs" },
@@ -22,6 +23,9 @@
     "test:migration": "node --test test/migration.test.mjs test/migration-*.test.mjs"
   },
   "engines": { "node": ">=22.19.0" },
+  "devEngines": {
+    "runtime": { "name": "node", "version": "26.3.1", "onFail": "download" }
+  },
   "dependencies": {
     "@earendil-works/chord": "1.4.0",
     "@earendil-works/pi-durable": "1.4.0",
