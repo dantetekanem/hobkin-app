@@ -253,7 +253,10 @@ test('a binding, identity or missing tool that differs is disposed before any pr
   assert.equal(h.fake.spawned.length, 2);
 });
 
-test('a child that never answers, cannot start or exits is a clear failure that leaves nothing running', async t => {
+test('a child that never answers, cannot start or exits is a clear failure that leaves nothing running', { timeout: 5000 }, async t => {
+  // The fake child has no process handle to keep startup and shutdown timers alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
   const silent = fixture(t, { script: { get_state: () => {} }, ignoreStdinEnd: true }, { dependencies: { startupTimeoutMs: 30 } });
   await assert.rejects(openPiSession({ root: silent.root, config: silent.config }, silent.dependencies), /did not become ready/);
   assert.ok(silent.fake.children[0].stdin.writableEnded);
@@ -307,7 +310,10 @@ test('a child that exits unasked stops the chat but not scheduled work; a reques
   assert.deepEqual(calm.fake.children[0].signals, []);
 });
 
-test('closing asks Pi to exit by closing stdin and signals only a child that ignores it', async t => {
+test('closing asks Pi to exit by closing stdin and signals only a child that ignores it', { timeout: 5000 }, async t => {
+  // The fake child has no process handle to keep its unref'ed shutdown timer alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
   const h = fixture(t, { ignoreStdinEnd: true });
   const session = await openPiSession({ root: h.root, config: h.config }, h.dependencies);
   const closing = closePiSession(session);

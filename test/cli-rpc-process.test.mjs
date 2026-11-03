@@ -95,7 +95,10 @@ test('responses are matched by id, a refusal is marked, and the response callbac
   await handle.closed;
 });
 
-test('closing stdin asks the child to exit, signals only after the grace period, and later commands are refused cleanly', async () => {
+test('closing stdin asks the child to exit, signals only after the grace period, and later commands are refused cleanly', { timeout: 5000 }, async t => {
+  // PassThrough streams do not keep the child's unref'ed shutdown timer alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
   const polite = standIn();
   polite.stdin.on('end', () => polite.finish(0));
   polite.stdin.resume();

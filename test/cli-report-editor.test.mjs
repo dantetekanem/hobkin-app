@@ -119,7 +119,10 @@ test('a report the editor cannot reach is delivered as it was written', async t 
   }
 });
 
-test('the editor has a time limit, and a cancelled run skips it', async t => {
+test('the editor has a time limit, and a cancelled run skips it', { timeout: 5000 }, async t => {
+  // Unlike a real harness process, this promise cannot keep AbortSignal.timeout alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
   const stuck = request => new Promise((_, reject) => {
     request.signal.addEventListener('abort', () => reject(Error('Timed out.')), { once: true });
   });
