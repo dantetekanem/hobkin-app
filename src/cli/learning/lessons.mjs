@@ -119,7 +119,7 @@ const asks = {
   ideas: 'Want new ideas built on it?',
 };
 
-/** What a proposal asks the user, the same in Chat and in Decisions. */
+/** What a proposal asks the user, the same in Chat and in Action Items. */
 export const proposalQuestion = proposal => `${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]}`;
 
 export const isLesson = lesson => Boolean(lesson) && typeof lesson.latest === 'string' && lessonLine(lesson) !== null;

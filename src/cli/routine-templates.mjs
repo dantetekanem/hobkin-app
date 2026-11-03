@@ -112,7 +112,7 @@ export function templateNotice({ added, updated }) {
     added.length && `${added.length === 1 ? 'A new routine template' : `${added.length} new routine templates`}: ${titlesOf(added)}.`,
     updated.length && `Updated: ${titlesOf(updated)}.`,
   ].filter(Boolean);
-  return parts.length ? `${parts.join(' ')} Ask for a routine from one, or see them all with hobkin routines templates.` : null;
+  return parts.length ? `${parts.join(' ')} Each waits in Action Items, and hobkin routines templates lists them all.` : null;
 }
 
 /**

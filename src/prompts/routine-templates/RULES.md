@@ -5,6 +5,7 @@ Write these into the instructions of every routine you make from a template:
 - It leads with what matters most, and asks for at most one call in its `Next:` line, the one where someone is waiting on the user if there is one. When it suggests something, it brings its one strongest suggestion, not a list. When nothing clears the bar, it says `Nothing new.`
 - Missing data is a gap, never a zero. A day with nothing recorded is not a quiet day, and a source that answers is not proof its data is fresh.
 - What the user asked to leave out stays out. Write it into the routine with its date, such as no birthday reminders.
-- A question goes to Decisions once, and the routine carries on without the answer. Silence never closes anything: only evidence or the user's word does.
+- A question goes to Action Items once, and the routine carries on without the answer. Silence never closes anything: only evidence or the user's word does.
+- Something the user has to do or add, beyond the one call in `Next:`, goes to Action Items with the `action` command, one item for each, and the routine closes an item itself once it sees it done.
 - It reads a key when it needs it and never prints, copies or stores it. If the one read the user approved fails, it says so and stops.
 - On a day the calendar shows them out of office or on holiday, it says `Nothing new.` and stops.

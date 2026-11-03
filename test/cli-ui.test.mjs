@@ -1202,7 +1202,7 @@ test('a key or a click says the user is there, and a screen in use is not free',
   ui.stop();
 });
 
-test('a question on screen, or the Decisions tab or Done in use, leaves no room for a card', async () => {
+test('a question on screen, or the Action Items tab or Done in use, leaves no room for a card', async () => {
   const ui = createDashboard({ ...snapshot, decisions: [{ id: 'one', tldr: 'One', from: 'Mail', question: 'One?', choices: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] }] });
 
   const answer = ui.askQuestion(abc);

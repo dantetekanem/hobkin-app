@@ -1,3 +1,4 @@
+import { isActionItem } from './decisions.mjs';
 import { reportTriage } from './reports.mjs';
 import { heldByItsGrade } from './work/reads.mjs';
 
@@ -99,7 +100,7 @@ function readyFact(rows) {
 const row = (name, label, items, fact) => (items.length ? [{ name, count: items.length, label, fact: fact() }] : []);
 
 /**
- * Everything the card counts, one row each, for the Decisions tab to list under the questions it already holds. A report that went wrong
+ * Everything the card counts, one row each, for Action Items to list under the questions and items it already holds. A report that went wrong
  * keeps what opens it, `asks` are work mode's questions and `proposals` learning's. Nothing here reads or writes anything.
  */
 export function waitingRows({ ready = [], attention = [], proposals = [], launches = [], reports = [], read = new Set(), now }) {
@@ -124,15 +125,18 @@ export function pendingCard({ decisions = [], now, ...given }) {
   const landable = branches.filter(isReady);
   const branchesToRead = branches.filter(isToRead);
   const open = decisions.filter(({ answerTo }) => !NOT_QUESTIONS.includes(answerTo?.kind));
-  const questions = [...open, ...asks, ...proposals];
+  const toDo = open.filter(isActionItem);
+  const questions = [...open.filter(decision => !isActionItem(decision)), ...asks, ...proposals];
   const groups = [
     ...row('ready', 'ready', landable, () => readyFact(landable)),
     ...row('read', 'to read', [...branchesToRead, ...reports], () => readFact(branchesToRead, reports, now)),
     ...row('wrong', 'went wrong', wrong, () => wrong[0].fact),
     ...row('questions', questions.length === 1 ? 'question' : 'questions', questions, () => questionFact(questions, now)),
+    ...row('todo', 'to do', toDo, () => toDo[0].tldr),
     ...row('yours', 'yours', yours, () => yours.slice(0, 2).map(({ title }) => title).join(', ')),
   ];
-  return { total: groups.reduce((sum, { count }) => sum + count, 0), groups };
+  const total = groups.reduce((sum, { count }) => sum + count, 0);
+  return { total, groups };
 }
 
 /** The user is there for two minutes after a key, a click or gaining focus. A key or a click is enough, because Herdr may never pass focus reports on. */

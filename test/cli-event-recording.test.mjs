@@ -370,7 +370,7 @@ test('a question records that it showed, which choice answered it and how long i
   assert.deepEqual(ofType('question_ended'), [{ type: 'question_ended', how: 'answered', choice: 1, ms: 4000 }]);
 });
 
-test('an answer in the Decisions tab records how long that decision was open, not how long it waited', async () => {
+test('an answer in the Action Items tab records how long that decision was open, not how long it waited', async () => {
   let clock = 1000;
   const decision = id => ({ id, tldr: 'A private summary', from: 'Mail', question: 'A private question?', choices, at: new Date(0).toISOString() });
   const { ui, ofType } = dashboard({ decisions: [decision('one'), decision('two')] }, { workAction: async () => ({ ok: true }) }, { now: () => clock });

@@ -16,7 +16,7 @@ import { HOBKIN_VERSION } from './version.mjs';
 const DAY_MS = 86400000;
 const DEFAULT_TELEMETRY_DAYS = 30;
 const DEFAULT_WINS_DAYS = 7;
-const COMMANDS_WITH_WORDS = ['reports', 'work', 'import', 'learning', 'profile', 'decide', 'decisions', 'remind', 'remember', 'skill', 'routines', 'schedules', 'feedback', 'telemetry'];
+const COMMANDS_WITH_WORDS = ['reports', 'work', 'import', 'learning', 'profile', 'decide', 'action', 'decisions', 'remind', 'remember', 'skill', 'routines', 'schedules', 'feedback', 'telemetry'];
 
 export function parseArguments(args) {
   const values = [...args];
@@ -241,10 +241,23 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     output.write(`${JSON.stringify(filed, null, 2)}\n`);
     return 0;
   }
+  if (options.command === 'action') {
+    const { runActionCommand } = await import('./decisions.mjs');
+    const root = workspaceRoot(options.root);
+    const input = dependencies.input ?? process.stdin;
+    const result = await runActionCommand(root, options.args, input);
+    output.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
   if (options.command === 'decisions') {
     const { runDecisionsCommand } = await import('./answer.mjs');
     const result = await runDecisionsCommand(workspaceRoot(options.root), options.args, { typed: options.typed });
     output.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'action') {
+    const { runActionCommand } = await import('./decisions.mjs');
+    output.write(`${JSON.stringify(await runActionCommand(options.root, options.args, dependencies.input ?? process.stdin), null, 2)}\n`);
     return 0;
   }
   if (options.command === 'pending') {

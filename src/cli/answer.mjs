@@ -1,5 +1,6 @@
 import { noteForCheck } from './checks.mjs';
-import { answerDecision, decisionRow, findOpenDecision, openDecisions } from './decisions.mjs';
+import { answerDecision, decisionRow, findOpenDecision, handDecision, isActionItem, openDecisions } from './decisions.mjs';
+import { ROUTINE_ASKS } from './routine-care.mjs';
 import { recordEvent } from './events.mjs';
 import { handAnswer, remindTomorrow } from './inbox.mjs';
 import { answerOffer, askAgent } from './work/controls.mjs';
@@ -51,11 +52,22 @@ export async function carryOutAnswer(root, id, { value = null, typed = null } = 
     : `The user was asked: ${question} They answered: ${choice.label}`;
   if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
   if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
+  if (answerTo?.kind === 'action') noteForCheck(root, answerTo.id, `The user answered the action item "${decision.tldr}": ${choice?.label ?? words}.`);
   if (answerTo?.kind === 'outside') handAnswer(root, { from, question, answer: words ?? choice.label }, now);
+  // Doing it with hobkin keeps an action item open while the main agent helps, so it is handed on, not answered.
+  const asked = words ? null : ROUTINE_ASKS[value];
+  if (!words && value === 'hobkin' && isActionItem(decision)) {
+    if (decision.handedAt) return { ok: true, message: 'hobkin already has it. Mark it done here once it is.' };
+    handDecision(root, id, now);
+    recordEvent(root, 'action_handed', { id, routine: answerTo?.id }, now);
+    return { ok: true, handOff: decision, message: 'The main agent takes it in Chat, and it stays in Action Items until it is done.' };
+  }
   if (words) await holdWhileTheyAct(root, decision, now);
   const came = words ? null : await carryOutChoice(root, decision, value, now);
   answerDecision(root, id, words ? 'typed' : value, now, { typed: words });
   recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: now - Date.parse(at) });
+  // An answer that changes a routine or a template goes to the main agent, which makes the change and says what it did.
+  if (asked && answerTo?.kind === 'routines') return { ok: true, handOff: decision, handOffText: asked, message: 'The main agent takes it in Chat, and says what it changed.' };
   return came ?? { ok: true, message: words ? 'Answered in their own words.' : `Answered: ${choice.label}.` };
 }
 

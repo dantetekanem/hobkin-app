@@ -394,7 +394,7 @@ test('an offer whose work has gone from the list answers itself, and an answer t
   assert.deepEqual(openDecisions(h.root), []);
 });
 
-test('a plain question left from before goes once it has been on screen, because each branch it named waits in Decisions', t => {
+test('the plain question goes once it has been on screen, because each branch it names waits in Action Items', t => {
   const { root } = workspace(t);
   const walkOrLater = [{ value: 'later', label: 'Later' }, { value: 'walk', label: 'Yes, show me' }];
   const { id } = fileDecision(root, { key: 'land', from: 'Work mode', question: 'Fix login on API can land. Walk it now?', choices: walkOrLater, answerTo: { kind: 'land' } }, NOW);

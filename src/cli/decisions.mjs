@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEvents, recordEvent } from './events.mjs';
 
-/** How long a question from a routine or work mode stays on screen before it joins the Decisions tab. */
+/** How long a question from a routine or work mode stays on screen before it joins the Action Items tab. */
 export const QUESTION_WAIT_MS = 30000;
 
 const LONGEST_TLDR = 100;
@@ -15,6 +15,8 @@ const FEWEST_CHOICES = 2;
 const MOST_CHOICES = 6;
 const DAY_MS = 86400000;
 const REMEMBERED_MS = 30 * DAY_MS;
+const MOST_LINKS = 6;
+const LONGEST_URL = 2048;
 
 const logPath = root => join(root, 'decisions.jsonl');
 
@@ -22,6 +24,20 @@ const firstSentence = text => /^.*?[.?!](?=\s|$)/.exec(text)?.[0] ?? text;
 const shortChoice = ({ value, label }) => ({ value, label: String(label).slice(0, LONGEST_LABEL) });
 const shortReason = text => text?.trim().slice(0, LONGEST_REASON) || null;
 const tldrFrom = ({ tldr, question }) => (tldr?.trim() || firstSentence(question.trim())).slice(0, LONGEST_TLDR);
+const CONTROLS = /[\x00-\x1f\x7f-\x9f]/g;
+// The main agent reads a link as it was filed, so one that could carry a terminal sequence is refused rather than cleaned.
+const webAddress = url => {
+  if (typeof url !== 'string' || url.length > LONGEST_URL || url.search(CONTROLS) !== -1) return false;
+  try {
+    return ['http:', 'https:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+};
+const shortLink = ({ label, url }) => {
+  const { href, hostname } = new URL(url);
+  return { label: String(label ?? '').replace(CONTROLS, ' ').trim().slice(0, LONGEST_LABEL) || hostname, url: href };
+};
 
 function append(root, event) {
   appendFileSync(logPath(root), `${JSON.stringify(event)}\n`, { mode: 0o600 });
@@ -71,8 +87,7 @@ export function answeredByUser(root, since = 0) {
   return readAll(root).filter(({ id, answer }) => answer !== undefined && answeredIds.has(id));
 }
 
-/** Nothing waits for the answer: the asker carries on, and the answer reaches it later. A `key` keeps one open question from becoming several. */
-export function fileDecision(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null }, now = Date.now()) {
+function fileRecord(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null, links = [], shown = false }, now) {
   assertDecision({ question, choices, recommended });
   const known = key && openDecisions(root).find(decision => decision.key === key);
   const id = known?.id ?? randomUUID();
@@ -87,12 +102,19 @@ export function fileDecision(root, { key = null, from, question, tldr, choices, 
     recommended,
     why: shortReason(why),
     changed: shortReason(changed),
+    ...(links.length || known?.links ? { links: links.map(shortLink) } : {}),
     at: known?.at ?? new Date(now).toISOString(),
-    shown: known?.shown ?? false,
+    shown: known?.shown ?? shown,
   });
   if (!known) recordEvent(root, 'decision_filed', { id, source: answerTo?.kind }, now);
   return { id };
 }
+
+/**
+ * Nothing waits for the answer: the asker carries on, and the answer reaches it later. A `key` keeps one open question from becoming several.
+ * A question has no links and always gets its moment on screen, whatever the asker sends.
+ */
+export const fileDecision = (root, { links, shown, ...decision }, now = Date.now()) => fileRecord(root, decision, now);
 
 /** It has had its moment on screen, so from here it only waits in the tab. */
 export const markShown = (root, id) => append(root, { id, shown: true });
@@ -101,6 +123,42 @@ export const markShown = (root, id) => append(root, { id, shown: true });
 export function answerDecision(root, id, answer, now = Date.now(), { typed } = {}) {
   append(root, { id, answer, ...(typed ? { typed } : {}), answeredAt: new Date(now).toISOString() });
 }
+
+/** The newest answer under a key, from the user or from evidence, however old. */
+export const latestAnswer = (root, key) => readAll(root)
+  .filter(decision => decision.key === key && decision.answeredAt)
+  .toSorted((first, second) => first.answeredAt.localeCompare(second.answeredAt))
+  .at(-1) ?? null;
+
+/** What the user can do with something a routine found for them to do. With hobkin, it stays open until one of the other two. */
+export const ACTION_CHOICES = [
+  { value: 'done', label: 'Done' },
+  { value: 'hobkin', label: 'Do it with hobkin' },
+  { value: 'drop', label: 'Not doing it' },
+];
+const ACTION_KINDS = ['action', 'routines'];
+export const isActionItem = ({ answerTo }) => ACTION_KINDS.includes(answerTo?.kind);
+
+function assertLinks(links) {
+  const fits = Array.isArray(links) && links.length <= MOST_LINKS;
+  if (!fits || links.some(link => !webAddress(link?.url))) throw Error(`Links are up to ${MOST_LINKS} web addresses, each with a url and a label.`);
+}
+
+/** A decision with something to do in it. It never takes the screen: it waits in Action Items, and the card counts it. */
+export function fileActionItem(root, { title, detail, choices = ACTION_CHOICES, links = [], ...item }, now = Date.now()) {
+  if (typeof title !== 'string' || !title.trim()) throw Error('An action item needs a title.');
+  if ([detail, item.why].some(text => text != null && typeof text !== 'string')) throw Error('`detail` and `why` are text.');
+  assertLinks(links);
+  return fileRecord(root, { ...item, tldr: title, question: detail?.trim() ? detail : title, choices, links, shown: true }, now);
+}
+
+/** Evidence settles it the way the user's word does, and what showed it is kept with the answer. */
+export function settleDecision(root, id, evidence, now = Date.now()) {
+  append(root, { id, answer: 'done', evidence: shortReason(evidence), answeredAt: new Date(now).toISOString() });
+}
+
+/** The main agent is helping with it, so it stays open and says since when. */
+export const handDecision = (root, id, now = Date.now()) => append(root, { id, handedAt: new Date(now).toISOString() });
 
 /** One open decision, or a clear refusal: an answer from a stale screen must not reach the wrong question. */
 export function findOpenDecision(root, id) {
@@ -179,7 +237,77 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
   }
   const { id } = fileDecision(root, { ...asked, ...asker, key: scopedKey, changed }, now);
   const message = outside
-    ? 'Filed in hobkin\'s Decisions. The user answers it there, and hobkin\'s main agent hears the answer, not this session, so carry on without it.'
-    : 'Filed in Decisions. Carry on: the answer reaches you later.';
+    ? 'Filed in hobkin\'s Action Items. The user answers it there, and hobkin\'s main agent hears the answer, not this session, so carry on without it.'
+    : 'Filed in Action Items. Carry on: the answer reaches you later.';
   return { ok: true, id, message };
+}
+
+const filedBy = ([kind, id]) => {
+  if (kind === 'routine' && id) return { from: `Routine ${id}`, answerTo: { kind: 'action', id } };
+  throw Error('Say which routine is filing it, routine <id>, or which item is done, done <item id>.');
+};
+
+function assertEvidence(done) {
+  if (typeof done !== 'string' || !done.trim()) throw Error('`done` says what shows it is done.');
+}
+
+/** The main agent closes an item it was handed once the work is done, by the ID it was given. */
+function settleById(root, id, done, now) {
+  assertEvidence(done);
+  const item = openDecisions(root).find(decision => decision.id === id && isActionItem(decision));
+  if (!item) return { ok: true, message: 'No open action item has that ID, so nothing changed.' };
+  settleDecision(root, id, done, now);
+  recordEvent(root, 'action_settled', { id, by: 'main' }, now);
+  return { ok: true, id, message: 'Closed in Action Items, with what showed it done.' };
+}
+
+const dayOf = ({ answeredAt }) => answeredAt.slice(0, 10);
+
+function readItem(text) {
+  try {
+    const item = JSON.parse(text);
+    if (item && typeof item === 'object' && !Array.isArray(item)) return item;
+  } catch {
+    // Said below, the same way for every shape that is not one item.
+  }
+  throw Error('hobkin action reads one JSON object on stdin.');
+}
+
+/** A routine asking again after the user's word gets that word back, and files nothing. Not doing it holds for good, and done holds 30 days unless `changed` says what shows it is not. */
+function standingAnswer(earlier, changed, now) {
+  if (earlier?.answer === 'drop') {
+    return { ok: true, answer: 'drop', message: `The user said on ${dayOf(earlier)} that they are not doing this. Nothing was filed, and it will not be filed again.` };
+  }
+  const recent = earlier?.answer === 'done' && now - Date.parse(earlier.answeredAt) < REMEMBERED_MS;
+  if (!recent || changed?.trim()) return null;
+  return { ok: true, answer: 'done', message: `This was done on ${dayOf(earlier)}. Nothing was filed. If you see it is not done, file it again with \`changed\` saying what shows that.` };
+}
+
+/**
+ * `hobkin action`, for a routine in another process. The item comes as JSON on stdin and the routine carries on as soon as this returns. A `key` keeps one item
+ * from becoming several, and `done` with what shows it closes the open one. `done <item id>` is the main agent closing one it was handed.
+ */
+export async function runActionCommand(root, args, input, now = Date.now()) {
+  let text = '';
+  for await (const chunk of input) text += chunk;
+  const { key, done, changed, title, detail, why, links } = readItem(text);
+  if (args[0] === 'done' && args[1]) return settleById(root, args[1], done, now);
+  const asker = filedBy(args);
+  if (!key && typeof title !== 'string') throw Error('An action item needs a title, or the key it was filed with.');
+  const scopedKey = ['action', ...args, key || keyOf(title)].join(':');
+  const open = openDecisions(root).find(decision => decision.key === scopedKey);
+  if (done !== undefined) {
+    assertEvidence(done);
+    if (!open) return { ok: true, message: 'Nothing is open under that key, so nothing changed.' };
+    settleDecision(root, open.id, done, now);
+    recordEvent(root, 'action_settled', { id: open.id, routine: asker.answerTo.id }, now);
+    return { ok: true, id: open.id, message: 'Closed in Action Items, with what showed it done.' };
+  }
+  const standing = open ? null : standingAnswer(latestAnswer(root, scopedKey), changed, now);
+  if (standing) {
+    recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id }, now);
+    return standing;
+  }
+  const { id } = fileActionItem(root, { title, detail, why, links, ...asker, key: scopedKey, changed }, now);
+  return { ok: true, id, message: open ? 'Updated in Action Items.' : 'Filed in Action Items. Carry on: the user does it from there, and the answer reaches you later.' };
 }

@@ -9,7 +9,7 @@ fits: Someone who walks into meetings cold, or who spends the minutes before a s
 asks: Which meetings should get a brief: every meeting with other people, or only some, such as standups, 1:1s and reviews?
 ---
 
-Read <their calendar>, through the MCP server that reaches it, for today's meetings with other people. A meeting gets a brief only once the user has confirmed it. The first time a meeting or a recurring series shows up, ask in Decisions whether it should get one, and keep the answer for the whole series in this routine's memory. Until an answer comes, it gets no brief.
+Read <their calendar>, through the MCP server that reaches it, for today's meetings with other people. A meeting gets a brief only once the user has confirmed it. The first time a meeting or a recurring series shows up, ask in Action Items whether it should get one, and keep the answer for the whole series in this routine's memory. Until an answer comes, it gets no brief.
 
 For each confirmed meeting still ahead today, write a one-time routine in `once/` for 30 minutes before it starts. Give it the meeting's title, time, invite and the people in it, and the brief below as its instructions. On a refresh, add routines for meetings confirmed or added since, and turn off those of meetings that moved or were cancelled. Keep in this routine's memory which routine belongs to which meeting.
 

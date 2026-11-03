@@ -124,8 +124,8 @@ export function offerDecisions(root, now = Date.now()) {
 }
 
 /**
- * An offer whose work has left the list has nothing to ask, so it should not sit there adding to what is waiting. A plain question left
- * from before only pointed at finished branches, which Decisions lists one by one, so once it has had its moment on screen it goes too.
+ * An offer whose work has left the list has nothing to ask, so it should not sit there adding to what is waiting. The plain question only
+ * points at finished branches, which Action Items lists one by one, so once it has had its moment on screen it goes too.
  */
 export function retireOffers(root, now = Date.now()) {
   for (const { id, answerTo, shown } of openDecisions(root)) {

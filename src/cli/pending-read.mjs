@@ -56,7 +56,7 @@ export const readPending = (requestedRoot, { now = Date.now(), reports } = {}) =
 // The dashboard already holds each report's text, so a report row carries only what lists and opens it.
 const reportRow = ({ id, title, at, triage }) => ({ id, title, at, level: triage.level, next: triage.next });
 
-/** The same rows one by one, for the Decisions tab. */
+/** The same rows one by one, for the Action Items tab. */
 export function readWaiting(requestedRoot, { now = Date.now(), reports } = {}) {
   const rows = waitingRows(pendingInputs(requestedRoot, { now, reports }));
   return { ...rows, reports: rows.reports.map(reportRow) };

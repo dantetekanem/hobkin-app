@@ -11,7 +11,7 @@ import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { png } from './helpers/png.mjs';
-import { fileDecision, markShown, openDecisions } from '../src/cli/decisions.mjs';
+import { fileActionItem, fileDecision, markShown, openDecisions } from '../src/cli/decisions.mjs';
 import { readBriefState, writeBriefState } from '../src/cli/brief.mjs';
 import { openCheck } from '../src/cli/checks.mjs';
 import { retireOffers } from '../src/cli/work/land-offer.mjs';
@@ -1002,7 +1002,7 @@ test('their own words to one of hobkin\'s own questions go to the main agent wit
   }
 });
 
-test('a question left for 30 seconds stays in Decisions and is not shown again', async t => {
+test('a question left for 30 seconds stays in Action Items and is not shown again', async t => {
   const h = fixture(t);
   const asked = [];
   const app = await h.openApp({ askQuestion: async request => { asked.push(request); return null; } });
@@ -1222,7 +1222,8 @@ test('after an update, Chat says once which routine templates are new', async t 
   try {
     const [notice, ...again] = told(await app.refresh());
     assert.deepEqual(again, []);
-    assert.match(notice.content, /Important dates/);
+    assert.match(notice.content, /Important dates\. Each waits in Action Items/);
+    assert.deepEqual(openDecisions(h.root).map(({ tldr, choices }) => [tldr, choices.map(({ value }) => value)]), [['Try the Important dates template', ['try', 'no']]]);
   } finally {
     await app.close();
   }
@@ -1234,7 +1235,7 @@ test('after an update, Chat says once which routine templates are new', async t 
   }
 });
 
-test('a learning proposal answered in Decisions is recorded at once, and a yes asks the main agent for the plan', async t => {
+test('a learning proposal answered in Action Items is recorded at once, and a yes asks the main agent for the plan', async t => {
   const h = fixture(t);
   setLearning(h.root, true);
   const proposal = { id: 'abc123', scope: 'mail', kind: 'rethink', title: 'Mail', code: 'blocked', seen: 6, runs: 8, days: 8, latest: '2026-01-02T00:00:00.000Z', at: '2026-01-02T00:00:00.000Z' };
@@ -1260,6 +1261,61 @@ test('a learning proposal answered in Decisions is recorded at once, and a yes a
     assert.match(sent, /Yes, plan it\.$/);
     assert.deepEqual(shown, [{ tab: 'chat' }]);
     await assert.rejects(app.workAction('learning', 'abc123', 'yes'), /already answered/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('an action item done or turned down closes, and its routine hears, while doing it with hobkin keeps it open and hands it to the main agent', async t => {
+  const h = fixture(t);
+  const filed = title => fileActionItem(h.root, { key: title, from: 'Routine quality', title, detail: `${title}, on the payments dashboard.`, answerTo: { kind: 'action', id: 'quality' }, links: [{ label: 'Dashboard', url: 'https://example.com/d' }] }).id;
+  const [done, dropped, helped] = ['Count failed retries', 'Alert on refunds', 'Graph the queue'].map(filed);
+  const shown = [];
+  const app = await h.openApp({ intervalMs: HOUR_MS, showRow: target => shown.push(target) });
+  try {
+    await app.workAction('decide', done, 'done');
+    await app.workAction('decide', dropped, 'drop');
+    const handed = await app.workAction('decide', helped, 'hobkin');
+    const again = await app.workAction('decide', helped, 'hobkin');
+    await app.outgoing;
+    await app.runtime.idle();
+
+    assert.match(handed.message, /stays in Action Items/);
+    assert.match(again.message, /already has it/);
+    assert.equal(app.runtime.messages().filter(message => message.role === 'user').length, 1, 'a second press sends nothing more');
+    const [open, ...rest] = openDecisions(h.root);
+    assert.deepEqual([open.id, rest], [helped, []]);
+    assert.ok(open.handedAt);
+    const sent = app.runtime.messages().find(message => message.role === 'user').content;
+    assert.match(sent, /Routine quality: Graph the queue\nGraph the queue, on the payments dashboard\.\nDashboard: https:\/\/example\.com\/d/);
+    assert.match(sent, new RegExp(`Action item ID: ${helped}`));
+    assert.match(sent, /Help me do this\.$/);
+    assert.deepEqual(shown, [{ tab: 'chat' }]);
+    const memory = openCheck(h.root, 'quality').memory.text;
+    assert.match(memory, /"Count failed retries": Done\./);
+    assert.match(memory, /"Alert on refunds": Not doing it\./);
+  } finally {
+    await app.close();
+  }
+});
+
+test('an answer about a routine that changes it goes to the main agent, and keeping it only closes the item', async t => {
+  const h = fixture(t);
+  const choices = [{ value: 'later', label: 'Not now' }, { value: 'off', label: 'Turn it off' }, { value: 'keep', label: 'Keep it as it is' }];
+  const about = id => fileActionItem(h.root, { key: `care:${id}`, from: 'hobkin', title: `You opened 0 of the last 10 reports from ${id}`, choices, answerTo: { kind: 'routines', subject: 'routine', id, file: `/routines/daily/${id}.md` } }).id;
+  const [news, disk] = ['news', 'disk'].map(about);
+  const app = await h.openApp({ intervalMs: HOUR_MS });
+  try {
+    await app.workAction('decide', disk, 'keep');
+    await app.workAction('decide', news, 'off');
+    await app.outgoing;
+    await app.runtime.idle();
+
+    assert.deepEqual(openDecisions(h.root), []);
+    const sent = app.runtime.messages().filter(message => message.role === 'user').map(message => message.content);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0], /Routine file: \/routines\/daily\/news\.md/);
+    assert.match(sent[0], /Turn this routine off\.$/);
   } finally {
     await app.close();
   }
@@ -1329,7 +1385,7 @@ test('a merge that fails leaves the decision open and throws the reason for the 
   }
 });
 
-test('an offer answered on screen that fails stays in Decisions, says why in Chat and is not asked again at once', async t => {
+test('an offer answered on screen that fails stays in Action Items, says why in Chat and is not asked again at once', async t => {
   const h = fixture(t);
   const { offer } = offered(h, t);
   let asked = 0;

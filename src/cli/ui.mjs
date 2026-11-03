@@ -8,6 +8,7 @@ import {
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
+import { isActionItem } from './decisions.mjs';
 import { FaceReactions } from './face-reactions.mjs';
 import { feedbackQuestion } from './feedback/draft.mjs';
 import { FaceImages, IMAGE_FACE_COLUMNS, faceFrameLimit, supportsFaceImages } from './face-images.mjs';
@@ -1202,15 +1203,17 @@ const maxLine = ({ maxRuns, projects = [] }) => {
   return inUse ? `Max: ${maxRuns.running} of ${maxRuns.atOnce} running, ${maxRuns.today} of ${maxRuns.perDay} today. Claude's tokens count when each run ends.` : '';
 };
 // A question opens when it is selected, with why only the user can answer and its numbered choices.
-const questionLines = ({ tldr, from, question, choices, at, recommended, why, changed }, open, inner, clock) => {
+const questionLines = ({ tldr, from, question, choices, at, recommended, why, changed, links = [], handedAt }, open, inner, clock) => {
   const when = timeOf(at) === null ? '' : ` · ${relativeTime(timeOf(at), clock)}`;
   const heading = row(`${highlight('●')} ${bold(clean(tldr))}`, dim(`${clean(from)}${when}`), inner);
   if (!open) return [heading];
   const asked = clean(question) === clean(tldr) ? [] : wrapped(question, inner - 2).map(value => `  ${dim(value)}`);
   const reasons = [why && `Why you: ${why}`, changed && `What changed: ${changed}`].filter(Boolean)
     .flatMap(reason => wrapped(reason, inner - 2)).map(value => `  ${dim(value)}`);
+  const sources = links.flatMap(({ label, url }) => wrapped(`${label}: ${url}`, inner - 2)).map(value => `  ${muted(value)}`);
+  const taken = timeOf(handedAt) === null ? [] : [`  ${positive(`You asked hobkin ${relativeTime(timeOf(handedAt), clock)}.`)}`];
   const mark = value => (value === recommended ? `  ${positive('recommended')}` : '');
-  return [heading, ...asked, ...reasons, ...choices.map(({ value, label }, index) => `  ${accent(String(index + 1))} ${clean(label)}${mark(value)}`)];
+  return [heading, ...asked, ...reasons, ...sources, ...taken, ...choices.map(({ value, label }, index) => `  ${accent(String(index + 1))} ${clean(label)}${mark(value)}`)];
 };
 // Only the heading of an open question is marked, so its choices stay easy to read.
 const questionRow = decision => ({
@@ -1327,16 +1330,21 @@ const troubleRow = ({ key: trouble, fact, report }) => ({
 });
 const callRow = ({ id, title, next }) => ({ key: `report:${id}`, type: 'report', report: id, render: () => [`${positive('●')} ${clean(title)}`, `  ${dim(clean(next))}`] });
 /**
- * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work in the groups
- * one yes can finish, steps only they can take and reports with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
+ * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, what routines found for
+ * them to do, what hobkin would change in their routines, finished work in the groups one yes can finish, steps only they can take and reports
+ * with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
  */
 const decisionSections = ({ decisions, waiting, chosen, inner, clock, running = new Map() }) => {
   const { wrong = [], asks = [], proposals = [], branches = [], yours = [], reports = [] } = waiting ?? {};
   const branchesOf = type => branches.filter(entry => branchType(entry) === type).map(entry => branchRow(entry));
   const toApprove = branches.filter(entry => approvalTypes.includes(branchType(entry))).toSorted(byUrgency);
+  const questions = decisions.filter(decision => !isActionItem(decision));
+  const itemsFrom = kind => decisions.filter(({ answerTo }) => answerTo?.kind === kind).map(questionRow);
   const groups = [
     ['WENT WRONG', wrong.map(troubleRow)],
-    ['QUESTIONS', [...decisions.map(questionRow), ...proposals.map(learningRow), ...asks.map(askRow)]],
+    ['QUESTIONS', [...questions.map(questionRow), ...proposals.map(learningRow), ...asks.map(askRow)]],
+    ['TO DO', itemsFrom('action')],
+    ['YOUR ROUTINES', itemsFrom('routines')],
     ...approvalSections(toApprove, entry => branchRow(entry, groupedFacts(entry)), running),
     ['NOT LANDED', branchesOf('unlanded')],
     ['YOUR TURN', yours.map(step => (step.kind === 'item' ? stepRow(step) : branchRow(step)))],
@@ -2108,7 +2116,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
       { name: 'schedules', label: 'Routines', count: String(scheduleCount) },
-      ...(decisionCount() ? [{ name: 'decisions', label: 'Decisions', count: String(decisionCount()) }] : []),
+      ...(decisionCount() ? [{ name: 'decisions', label: 'Action Items', count: String(decisionCount()) }] : []),
       ...(workVisible() ? [{
         name: 'work',
         label: 'Work Mode',

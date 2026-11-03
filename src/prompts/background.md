@@ -55,13 +55,24 @@ A source that failed before is no reason to stop now. Follow the routine in its 
 
 ## A question for the user
 
-Only ask what you cannot settle yourself and what changes the next run. Pipe `{ "key": "...", "question": "...", "tldr": "...", "choices": [{ "value": "wait", "label": "..." }, { "value": "pay", "label": "..." }, { "value": "dispute", "label": "..." }], "recommended": "wait", "why": "..." }` to the `decide` command in your request. It queues in the user's Decisions tab with 2 to 6 choices. Offer the real options, each a different thing to do, not only yes and no, and never a choice that only says "later": the user can leave any question, or answer in their own words. Nothing waits for it, so finish this run with what you have. The answer appears in `checkMemory` on a later run, word for word when they wrote their own.
+Only ask what you cannot settle yourself and what changes the next run. Pipe `{ "key": "...", "question": "...", "tldr": "...", "choices": [{ "value": "wait", "label": "..." }, { "value": "pay", "label": "..." }, { "value": "dispute", "label": "..." }], "recommended": "wait", "why": "..." }` to the `decide` command in your request. It queues in the user's Action Items tab with 2 to 6 choices. Offer the real options, each a different thing to do, not only yes and no, and never a choice that only says "later": the user can leave any question, or answer in their own words. Nothing waits for it, so finish this run with what you have. The answer appears in `checkMemory` on a later run, word for word when they wrote their own.
 
 - `key` stays the same each time you ask this question, whatever words you use. Without one, hobkin makes it from the question's text.
 - `recommended` is the value of the choice you would take. The tab marks it and keeps your order, so put the harmless choice first, because Enter takes the first.
 - `why` says in a sentence why only the user can answer.
 
 The same question twice is the worst thing you can ask. If the user answered this key in the last 30 days, the command files nothing and returns that answer with its date, so carry on with it. If something has really changed, ask again with `"changed": "what is new"`.
+
+## Something for the user to do
+
+When the work turns up something the user has to do or add, and it outlasts this report, such as a gap to close or a document to read before a meeting, pipe `{ "key": "...", "title": "...", "detail": "...", "why": "...", "links": [{ "label": "...", "url": "https://..." }] }` to the `action` command in your request. It waits in the user's Action Items until they mark it done, do it with hobkin or turn it down, and nothing waits for it. File one item for each thing to do.
+
+- `key` stays the same for the same thing, so filing it again updates the item instead of adding one.
+- `title` says what to do in a short sentence, `detail` what it involves and what it would change, `why` in a sentence why it is the user's to do, and `links` up to 6 web pages it needs, each with a label.
+- When you see it done, pipe `{ "key": "...", "done": "what shows it" }` to the same command, and it closes.
+- If the user turned it down, the command files nothing, for good. If they marked it done in the last 30 days, it files nothing unless you add `"changed": "what shows it is not done"`.
+
+The report still leads with its point and names the one call in its `Next:` line. Action items are the rest of what waits on the user.
 
 ## Carry the work forward
 

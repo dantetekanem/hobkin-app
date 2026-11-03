@@ -23,6 +23,7 @@ import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
 import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted } from './inbox.mjs';
@@ -840,6 +841,21 @@ export class HobkinApplication {
     const root = this.runtime.directory;
     const { decision: { answerTo } } = findDecision(root, id, value);
     const result = await carryOutAnswer(root, id, { value }, this.now());
+    // Doing it with hobkin hands the item to the main agent in Chat, and it stays in Action Items until it is done.
+    if (result.handOff) {
+      this.showRow?.({ tab: 'chat' });
+      const { tldr, question, why, links = [], from, at, answerTo } = result.handOff;
+      const file = answerTo?.file && `${answerTo.subject === 'template' ? 'Template' : 'Routine'} file: ${answerTo.file}`;
+      const body = [
+        `${from ?? 'hobkin'}: ${tldr}`,
+        question !== tldr && question,
+        why && `Why the user: ${why}`,
+        ...links.map(({ label, url }) => `${label}: ${url}`),
+        file,
+        `Action item ID: ${id}`,
+      ];
+      void this.send(result.handOffText ?? 'Help me do this.', { id: `action:${id}`, title: 'Action item', at, body: body.filter(Boolean).join('\n') }).catch(() => {});
+    }
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
     if (value === 'read' && ['merge', 'read'].includes(answerTo?.kind)) this.showDone?.(answerTo);
     if (answerTo?.kind === 'pair' && value === 'read') this.showDone?.();
@@ -1038,7 +1054,10 @@ export class HobkinApplication {
   /** What an update brought in routine templates, as one line in Chat. Trouble reading them costs the line and nothing else. */
   templateLine() {
     try {
-      const content = templateNotice(templateNews(this.runtime.directory));
+      const news = templateNews(this.runtime.directory);
+      // A new or newer template becomes one item to try, so it waits in Action Items beside the notice.
+      fileTemplateNews(this.runtime.directory, news, this.now());
+      const content = templateNotice(news);
       const at = new Date(this.now()).toISOString();
       return content && { id: `notice:templates:${at}`, role: 'notice', content, tone: 'useful', at };
     } catch {

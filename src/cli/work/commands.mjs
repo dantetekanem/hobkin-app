@@ -128,13 +128,13 @@ function watchSummary(root) {
 
 /**
  * Starting with a pile says so with the real count, and the first two are filed at once, so a start never floods agents. Without `--auto`, which goes
- * before or after the folder, nothing new starts by itself, and what to pick up first waits in Decisions.
+ * before or after the folder, nothing new starts by itself, and what to pick up first waits in Action Items.
  */
 function startWithPile(root, args) {
   const folder = args.find(arg => arg !== '--auto');
   const started = startMode(root, folder, { autoPick: args.includes('--auto') });
   const pile = fileFirstPair(root);
-  const pickUp = filePickUp(root) ? 'What to start first waits in Decisions.' : null;
+  const pickUp = filePickUp(root) ? 'What to start first waits in Action Items.' : null;
   return { ...started, message: [started.message, pile, pickUp].filter(Boolean).join(' ') };
 }
 

@@ -64,7 +64,7 @@ test('what the user acted on leaves out the card and reports that asked nothing'
   assert.deepEqual(acted, { answered: 1, opened: 1, merged: 1, declined: 1, sentBack: 1 });
 });
 
-test('answers count once they took under 3 seconds, on screen or in the Decisions tab, and an unanswered question is no answer', () => {
+test('answers count once they took under 3 seconds, on screen or in the Action Items tab, and an unanswered question is no answer', () => {
   const { answers } = scoreboard([
     event('question_ended', { how: 'answered', choice: 0, ms: 2999 }),
     event('question_ended', { how: 'answered', choice: 1, ms: 3000 }),

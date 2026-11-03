@@ -12,8 +12,8 @@ version: 1
 
 Read <their calendar> and <their contacts> for the birthdays, anniversaries and events of <the people they named>, and only theirs.
 
-When one is 14 days away, say whose it is, the date, and what it may need, such as a present to order, a card to send or a table to book. If <their notes> say what that person likes, add one idea. In the same run, ask in Decisions whether it is handled.
+When one is 14 days away, say whose it is, the date, and what it may need, such as a present to order, a card to send or a table to book. If <their notes> say what that person likes, add one idea. In the same run, ask in Action Items whether it is handled.
 
 When it is 7 days away, remind them once more, unless they said it is handled.
 
-If one of these people has no date in the calendar or contacts, ask for it in Decisions once, and keep the answer in this routine's memory.
+If one of these people has no date in the calendar or contacts, ask for it in Action Items once, and keep the answer in this routine's memory.

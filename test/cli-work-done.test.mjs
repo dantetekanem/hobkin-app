@@ -358,7 +358,7 @@ test('a PR the survey cannot grade says why instead of a grade', async t => {
   assert.match(why[unread.id], /did not read its head/);
 });
 
-test('an open PR waits in Decisions as one card with its PR, its head, what it did and its proof, and its branch row stays out', async t => {
+test('an open PR waits in Action Items as one card with its PR, its head, what it did and its proof, and its branch row stays out', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/8-fix', 'eight.txt', 'eight\n');
   const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8', proof: 'The retry spec failed, then passed.' });

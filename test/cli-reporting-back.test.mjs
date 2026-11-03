@@ -376,7 +376,7 @@ function pile(root, count) {
   atomicJson(join(root, 'work', 'unmerged.json'), { at: new Date().toISOString(), projects: { api: { lastMergeAt: null, trees: 0, open } } });
 }
 
-test('/work with a pile says the count, and the first pair waits in Decisions before anything starts', async t => {
+test('/work with a pile says the count, and the first pair waits in Action Items before anything starts', async t => {
   const h = fixture(t);
   pile(h.root, 46);
   writeMode(h.root, { folder: h.root });

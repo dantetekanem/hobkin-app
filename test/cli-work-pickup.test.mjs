@@ -176,7 +176,7 @@ test('a retry puts an item back in the queue, and only a review or a fix for fin
   assert.deepEqual(readMode(h.root).queueNext, [review, note, fix].map(({ id }) => `item:api:${id}`));
 });
 
-test('hobkin work start leaves what to pick up first in Decisions, and start --auto asks nothing', async t => {
+test('hobkin work start leaves what to pick up first in Action Items, and start --auto asks nothing', async t => {
   const h = director(t);
   studied(h, 'api', 'critical');
   fileItem(h.root, 'api', item('Fix login'), h.clock);
@@ -186,13 +186,13 @@ test('hobkin work start leaves what to pick up first in Decisions, and start --a
 
   const pickUp = openDecisions(h.root).find(({ key }) => key === 'pickup');
   assert.match(pickUp.question, /Fix login/);
-  assert.match(message, /What to start first waits in Decisions\./);
+  assert.match(message, /What to start first waits in Action Items\./);
 
   answerDecision(h.root, pickUp.id, 'later');
   const auto = await runWorkCommand(h.root, ['start', '--auto']);
 
   assert.equal(openDecisions(h.root).some(({ key }) => key === 'pickup'), false);
-  assert.doesNotMatch(auto.message, /waits in Decisions/);
+  assert.doesNotMatch(auto.message, /waits in Action Items/);
 });
 
 test('with auto-pick off a fix that gets a branch merged starts by itself, so the pick-up offers only new work', async t => {

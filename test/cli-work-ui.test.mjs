@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { stripTerminalSequences, visibleWidth } from '@earendil-works/pi-tui';
+import { ACTION_CHOICES } from '../src/cli/decisions.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 
 const base = {
@@ -878,10 +879,10 @@ test('Done fits every supported size, and so does the page Enter opens', async (
 
 const asked = (id, details = {}) => ({ id, from: 'Routine mail', tldr: `Decide ${id}`, question: `Should ${id} go ahead, given what the bank said?`, choices: [{ value: 'yes', label: 'Go ahead' }, { value: 'no', label: 'Hold it' }], at: new Date().toISOString(), ...details });
 
-test('Decisions appears with what waits, one summary a line, and a number answers the selected one', async () => {
+test('Action Items appears with what waits, one summary a line, and a number answers the selected one', async () => {
   const { actions, workAction } = acting();
   const ui = createDashboard({ ...base, decisions: [asked('one'), asked('two')] }, { workAction });
-  assert.match(screen(ui), /Decisions 2/);
+  assert.match(screen(ui), /Action Items 2/);
 
   for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
   assert.equal(ui.state().view, 'decisions');
@@ -905,7 +906,7 @@ test('Decisions appears with what waits, one summary a line, and a number answer
   ui.stop();
 });
 
-test('Enter on a question in Decisions asks it the way a question on screen does', async () => {
+test('Enter on a question in Action Items asks it the way a question on screen does', async () => {
   const { actions, workAction } = acting();
   const ui = createDashboard({ ...base, decisions: [asked('one')] }, { workAction });
   toDecisions(ui);
@@ -940,7 +941,7 @@ test('with nothing to decide the tab goes away, and an empty one never opens', (
   ui.update({ ...base, decisions: [] });
 
   assert.equal(ui.state().view, 'conversation');
-  assert.doesNotMatch(screen(ui), /Decisions/);
+  assert.doesNotMatch(screen(ui), /Action Items/);
   ui.stop();
 });
 
@@ -989,7 +990,7 @@ test('Decisions lists everything waiting in groups, with work mode off, and the 
     yours: [landing('turn', { gap: 'yours', title: 'Turn on HTTPS', summary: 'Settings, Pages.' }), step],
     reports: [{ id: 'mail', title: 'Mail', at: new Date().toISOString(), level: 'useful', next: 'Reply by Friday.' }],
   }) });
-  assert.match(screen(ui), /Decisions 10/);
+  assert.match(screen(ui), /Action Items 10/);
 
   toDecisions(ui);
 
@@ -1007,7 +1008,55 @@ test('Decisions lists everything waiting in groups, with work mode off, and the 
   ui.stop();
 });
 
-test('a branch in Decisions opens its page with the same choices as in Done, and an answer comes back to the list on the next one', async () => {
+const actionItem = (id, details = {}) => ({
+  ...asked(id),
+  from: 'Routine quality',
+  tldr: 'Count the retries that fail',
+  question: 'Nothing counts the retries that fail, so a spike would go unseen.',
+  choices: ACTION_CHOICES,
+  answerTo: { kind: 'action', id: 'quality' },
+  links: [{ label: 'Payments dashboard', url: 'https://example.com/d/payments' }],
+  ...details,
+});
+const quietRoutine = {
+  ...asked('disk'),
+  from: 'hobkin',
+  tldr: 'Nothing new in 9 of the last 10 runs of Disk space',
+  question: 'Each run costs about $0.12. Running it less often would cost less, and turning it off ends it.',
+  choices: [{ value: 'later', label: 'Not now' }, { value: 'less', label: 'Run it less often' }, { value: 'off', label: 'Turn it off' }, { value: 'keep', label: 'Keep it as it is' }],
+  answerTo: { kind: 'routines', subject: 'routine', id: 'disk' },
+};
+
+test('what a routine found to do waits under TO DO, and what hobkin would change in a routine under YOUR ROUTINES, each opening with its links and choices', async () => {
+  const { actions, workAction } = acting();
+  const ui = createDashboard({ ...base, decisions: [asked('one'), actionItem('retries', { handedAt: new Date().toISOString() }), quietRoutine] }, { workAction });
+  assert.match(screen(ui), /Action Items 3/);
+  toDecisions(ui);
+
+  const text = screen(ui, 110, 60);
+  for (const [heading, count] of [['QUESTIONS', 1], ['TO DO', 1], ['YOUR ROUTINES', 1]]) assert.match(text, new RegExp(`${heading} +${count}\\n`));
+  assert.match(text, /Nothing new in 9 of the last 10 runs of Disk space\s+hobkin/);
+  assert.doesNotMatch(text, /Payments dashboard/, 'only the selected one opens');
+
+  ui.input('\x1b[B');
+  const opened = screen(ui, 110, 60);
+  assert.match(opened, /Count the retries that fail\s+Routine quality/);
+  assert.match(opened, /Nothing counts the retries that fail, so a spike would go unseen\./);
+  assert.match(opened, /Payments dashboard: https:\/\/example\.com\/d\/payments/);
+  assert.match(opened, /You asked hobkin \d+ seconds? ago\./);
+  assert.match(opened, /1 Done\n\s+2 Do it with hobkin\n\s+3 Not doing it/);
+  assert.match(opened, /1-3\s+answer/);
+
+  ui.input('1');
+  await ui.pending();
+  ui.input('2');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['decide', 'retries', 'done'], ['decide', 'disk', 'less']]);
+  ui.stop();
+});
+
+test('a branch in Action Items opens its page with the same choices as in Done, and an answer comes back to the list on the next one', async () => {
   const { actions, workAction } = acting();
   const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one', safeA), landing('two', safeA), landing('three', safeA)] }) }, { workAction });
   toDecisions(ui);
@@ -1041,7 +1090,7 @@ test('a branch in Decisions opens its page with the same choices as in Done, and
   ui.stop();
 });
 
-test('Decisions lists what to approve by priority, and the selected card says what was done, its proof, its PR and when it finished', () => {
+test('Action Items lists what to approve by priority, and the selected card says what was done, its proof, its PR and when it finished', () => {
   const finished = new Date(Date.now() - 3 * 3600000).toISOString();
   const pr = 'https://github.com/o/site/pull/9';
   const ui = createDashboard({ ...base, waiting: waiting({ branches: [
@@ -1092,7 +1141,7 @@ test('a PR card merges on GitHub at the head it showed, opens the PR, and asks f
   ui.stop();
 });
 
-test('with work waiting on more than one project, Done says how much waits on each, the biggest pile first, and Decisions does not', () => {
+test('with work waiting on more than one project, Done says how much waits on each, the biggest pile first, and Action Items does not', () => {
   const other = (item, details = {}) => landing(item, { slug: 'api', project: 'finboard-api', ...details });
   const ready = [landing('one', safeA), other('two'), other('three', { grade: 'P0' }), other('four', { gap: 'unlanded' }), other('five', { gap: 'yours' }), other('six', { gap: 'closing' })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready }, waiting: waiting({ branches: ready.slice(0, 4), yours: [ready[4]] }) });
@@ -1496,7 +1545,7 @@ test('a learning proposal takes a number, and a report with a call opens on Ente
   ui.stop();
 });
 
-test('with work mode off, hobkin opening Done walks in Decisions, straight on the row it names', async () => {
+test('with work mode off, hobkin opening Done walks in Action Items, straight on the row it names', async () => {
   const { workAction } = acting();
   const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one'), landing('two')] }) }, { workAction });
 

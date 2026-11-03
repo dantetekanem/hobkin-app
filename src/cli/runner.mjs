@@ -261,7 +261,8 @@ export class HobkinRunner {
       .filter(run => run.scheduleId === schedule.id && run.status !== 'running')
       .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
     const decide = hobkinCommand(this.root, `decide routine ${schedule.id}`);
-    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide });
+    const action = hobkinCommand(this.root, `action routine ${schedule.id}`);
+    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide, action });
     const id = randomUUID();
     const directory = join(this.root, 'jobs');
     await mkdir(directory, { recursive: true, mode: 0o700 });
