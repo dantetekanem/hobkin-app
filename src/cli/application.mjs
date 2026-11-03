@@ -26,7 +26,9 @@ import { askAgent, declineItem, mergeItem, openDiff, requestReview } from './wor
 import { prView } from './work/reads.mjs';
 import { LandOffers } from './work/land-offer.mjs';
 import { noteForCheck, stalled } from './checks.mjs';
-import { answerDecision, fileDecision, findDecision, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
+import { answerDecision, fileDecision, findDecision, lastCard, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
+import { canShowCard, cardChoices, cardDue, cardEvidence, cardQuestion } from './pending.mjs';
+import { readPending } from './pending-read.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
@@ -85,6 +87,8 @@ const isOwnPost = message => message.role === 'notice' || message.id?.startsWith
 const BUSY_RETRY_MS = 100;
 // The keys of the Done walk, which only the user presses.
 const WALK_EVENTS = { diff: 'done_diff', merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
+// A tick comes every second, and what is waiting rarely changes that fast.
+const PENDING_LOOK_MS = 30000;
 
 export class HobkinApplication {
   jobActivity = new Map();
@@ -93,6 +97,7 @@ export class HobkinApplication {
   sending = 0;
   // Holds this process has nothing more to do for: one try each, and the next start picks up a turn that was cut off.
   handledHolds = new Set();
+  pendingLookedAt = -Infinity;
 
   observeActivity(id, event) {
     try {
@@ -106,7 +111,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, showDone, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard } = {}) {
+  static async open(root, { createMain, askQuestion, askPending, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -167,11 +172,12 @@ export class HobkinApplication {
           await app.tickHolds();
           app.tickCompaction();
           app.landOffers.next();
-          // Not awaited: this holds a question on screen for as long as it stays there.
+          // Not awaited: each holds a question on screen for as long as it stays there. The card goes first, because it stands for the whole pile.
+          app.presentPending();
           app.presentDecision();
         },
       });
-      Object.assign(app, { askQuestion, showDone });
+      Object.assign(app, { askQuestion, askPending, showDone, showRow, presence });
       app.landOffers = new LandOffers({
         file: decision => fileDecision(app.runtime.directory, decision, app.now()),
         now: app.now,
@@ -619,6 +625,7 @@ export class HobkinApplication {
     if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said);
     if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
+    if (answerTo?.kind === 'pending') this.tackle(id, choice, answerTo);
     answerDecision(root, id, value, this.now());
     recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
     return { ok: true, message: `Answered: ${choice.label}.` };
@@ -645,6 +652,68 @@ export class HobkinApplication {
     } finally {
       this.presenting = false;
     }
+  }
+
+  /** The card to bring up now, if any. Nothing is read until the user is there and the screen is free. */
+  dueCard() {
+    const now = this.now();
+    const presence = this.presence?.();
+    if (!presence || now - this.pendingLookedAt < PENDING_LOOK_MS) return null;
+    if (!canShowCard({ presence, busy: Boolean(this.sending || this.runtime.mainTurn), now })) return null;
+
+    this.pendingLookedAt = now;
+    const root = this.runtime.directory;
+    const card = readPending(root, { now, reports: this.snapshot.reports });
+    return cardDue({ ...card, last: lastCard(root), now }) ? card : null;
+  }
+
+  /** The card only ever asks. Nothing waits for it and nothing stops for it, so any trouble here costs one card and no more. */
+  async presentPending() {
+    if (this.presenting) return;
+    try {
+      const card = this.dueCard();
+      if (!card) return;
+      this.presenting = true;
+      await this.askAboutCard(card);
+    } catch {
+      // The next look works it all out again.
+    } finally {
+      this.presenting = false;
+    }
+  }
+
+  /** A card that opened goes on record however it ended, and that record is what keeps it quiet. It never waits in Decisions, because a call about calls helps nobody. */
+  async askAboutCard(card) {
+    const root = this.runtime.directory;
+    const shownAt = this.now();
+    const [question, choices] = [cardQuestion(card), cardChoices(card)];
+    const answer = await this.askPending({ question, choices, groups: card.groups, other: true, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
+    if (answer === undefined) return;
+
+    const { total, trouble, walk } = card;
+    const answerTo = { kind: 'pending', total, trouble, walk, evidence: cardEvidence(card) };
+    const { id } = fileDecision(root, { from: 'hobkin', question, choices, answerTo }, shownAt);
+    if (answer?.typed) {
+      answerDecision(root, id, 'typed', this.now());
+      await this.askMain(id, answer.typed, answerTo);
+    } else if (answer) await this.workAction('decide', id, answer);
+    else answerDecision(root, id, 'dismissed', this.now());
+  }
+
+  /** Done and Now live on a tab work mode hides, so with it off the main agent walks the user through instead. */
+  tackle(id, { value, label }, answerTo) {
+    if (value === 'later' || (value === 'ready' && this.landOffers.offerReady?.())) return;
+
+    const { trouble, walk } = answerTo;
+    const target = value === 'wrong' ? trouble[0] : { tab: value === 'ready' ? 'done' : walk };
+    const hidden = ['done', 'work'].includes(target.tab) && !readMode(this.runtime.directory).enabled;
+    if (target.tab === 'chat' || hidden) void this.askMain(id, label, answerTo).catch(() => {});
+    else this.showRow?.(target);
+  }
+
+  askMain(id, text, { evidence }) {
+    this.showRow?.({ tab: 'chat' });
+    return this.send(text, { id: `pending:${id}`, title: 'Pending card', at: new Date(this.now()).toISOString(), body: evidence });
   }
 
   recordReportRead(read) {

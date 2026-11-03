@@ -25,6 +25,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome`. |
 | `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, and what reached the user beside what they acted on. Facts only, never text. |
+| `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
 | `hobkin work status` | Work mode in short, as JSON: on or off, any pause and why, tokens, limits and what is next. |
@@ -60,6 +61,8 @@ Never run bare `hobkin` from an agent. In a terminal it opens the dashboard and 
 - `Blocked: ...` the check could not do its work.
 - `Useful: ...` a finding that is not urgent.
 - `Nothing new.` nothing material changed.
+
+The line after it may say `Next: ...`, the one call the report asks of the user.
 
 Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check.
 

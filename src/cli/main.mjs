@@ -132,7 +132,10 @@ async function connected(options, snapshot, dependencies) {
       memoryIndex: {},
       onChange: view => dashboard.update(view),
       askQuestion: (request, signal) => dashboard.askQuestion(request, signal),
+      askPending: request => dashboard.askPending(request),
       showDone: () => dashboard.showDone?.(),
+      showRow: target => dashboard.showRow?.(target),
+      presence: () => dashboard.presence?.(),
     }).then(opened => {
       app = opened;
       if (cancellation.signal.aborted) return opened.close();

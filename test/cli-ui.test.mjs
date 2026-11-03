@@ -1149,6 +1149,156 @@ test('arrows and Enter still answer a question nobody needs', async () => {
   ui.stop();
 });
 
+const cardRequest = {
+  question: '9 waiting. How do you want to tackle them?',
+  groups: [
+    { name: 'ready', count: 3, label: 'ready', fact: 'safe A, about 120 lines' },
+    { name: 'questions', count: 6, label: 'questions', fact: 'oldest 3 days' },
+  ],
+  choices: [{ value: 'later', label: 'Not now' }, { value: 'ready', label: 'Start with the 3 ready' }, { value: 'walk', label: 'Walk it all' }],
+  other: true,
+  whenQuiet: true,
+};
+
+test('a card shows its rows and its numbered choices, and Enter takes Not now', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askPending(cardRequest);
+
+  const shown = screen(ui, 80, 24);
+  assert.match(shown, /9 waiting\. How do you want to tackle them\?/);
+  assert.match(shown, /● 3 ready\s+safe A, about 120 lines/);
+  assert.match(shown, /\? 6 questions\s+oldest 3 days/);
+  assert.match(shown, /1 Not now/);
+  assert.match(shown, /2 Start with the 3 ready/);
+
+  ui.input('\r');
+
+  assert.equal(await answer, 'later');
+  ui.stop();
+});
+
+test('a digit answers a card at once, and a digit with no choice is typing past it', async () => {
+  const ui = createDashboard(snapshot);
+
+  const answer = ui.askPending(cardRequest);
+  ui.input('3');
+  assert.equal(await answer, 'walk');
+
+  const typedPast = ui.askPending(cardRequest);
+  ui.input('7');
+  assert.equal(await typedPast, null);
+  assert.equal(ui.state().draft, '7');
+  ui.stop();
+});
+
+test('the Other row on a card takes words, however quiet the card is', async () => {
+  const ui = createDashboard(snapshot);
+  const answer = ui.askPending(cardRequest);
+
+  for (const _row of cardRequest.choices) ui.input(DOWN);
+  typing(ui, 'drop 2 of them');
+  ui.input('\r');
+
+  assert.deepEqual(await answer, { typed: 'drop 2 of them' });
+  ui.stop();
+});
+
+test('a card left alone goes by itself, and using it keeps it open', async () => {
+  const ui = createDashboard(snapshot);
+  assert.equal(await ui.askPending({ ...cardRequest, waitMs: 5 }), null);
+
+  const answer = ui.askPending({ ...cardRequest, waitMs: 5 });
+  ui.input(DOWN);
+  await new Promise(resolve => { setTimeout(resolve, 20); });
+  ui.input('\r');
+
+  assert.equal(await answer, 'ready');
+  ui.stop();
+});
+
+test('a card takes no screen from a draft', async () => {
+  const ui = createDashboard(snapshot);
+  typing(ui, 'half a thought');
+
+  assert.equal(await ui.askPending(cardRequest), undefined);
+  ui.stop();
+});
+
+test('a key or a click says the user is there, and a screen in use is not free', () => {
+  let clock = 1000;
+  const ui = createDashboard(snapshot, {}, { now: () => clock });
+  assert.deepEqual(ui.presence(), { seenAt: 1000, away: false, occupied: false });
+
+  clock = 2000;
+  ui.input('h');
+  assert.deepEqual(ui.presence(), { seenAt: 2000, away: false, occupied: true });
+
+  clock = 3000;
+  ui.input('\x7f');
+  ui.handleMouse({ type: 'press', button: 'left', x: 0, y: 30 });
+  assert.deepEqual(ui.presence(), { seenAt: 3000, away: false, occupied: false });
+
+  clock = 4000;
+  ui.handleMouse({ type: 'move', button: 'none', x: 0, y: 30 });
+  assert.equal(ui.presence().seenAt, 3000);
+  ui.stop();
+});
+
+test('a question on screen, or the Decisions tab or Done in use, leaves no room for a card', async () => {
+  const ui = createDashboard({ ...snapshot, decisions: [{ id: 'one', tldr: 'One', from: 'Mail', question: 'One?', choices: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] }] });
+
+  const answer = ui.askQuestion(abc);
+  assert.equal(ui.presence().occupied, true);
+  ui.input(ESCAPE);
+  await answer;
+  assert.equal(ui.presence().occupied, false);
+
+  ui.showRow({ tab: 'decisions' });
+  assert.equal(ui.presence().occupied, true);
+  ui.stop();
+});
+
+test('hobkin reads the focus reports pi-tui turns on and keeps to itself', t => {
+  const terminal = new FakeTerminal();
+  let clock = 1000;
+  const ui = startDashboard(snapshot, {}, { terminal, now: () => clock, motion: false });
+  t.after(() => ui.stop());
+  assert.ok(terminal.writes.some(data => data.includes('\x1b[?1004h')));
+
+  clock = 2000;
+  terminal.input('\x1b[O');
+  assert.deepEqual([ui.presence().seenAt, ui.presence().away], [1000, true]);
+
+  clock = 3000;
+  terminal.input('\x1b[I');
+  assert.deepEqual([ui.presence().seenAt, ui.presence().away], [3000, false]);
+
+  terminal.input('\x1b[O');
+  clock = 4000;
+  terminal.input('x');
+  assert.deepEqual([ui.presence().seenAt, ui.presence().away], [4000, false], 'with no focus reports, a key is enough');
+});
+
+test('a card opens the row it was about', () => {
+  const report = { id: 'bad', title: 'Site is down', at: '2026-10-27', body: 'The site is down.', outcome: 'completed' };
+  const ui = createDashboard({ ...snapshot, reports: [...snapshot.reports, report], work: { enabled: true, projects: [], ready: [] } });
+
+  ui.showRow({ tab: 'reports', report: 'bad' });
+  assert.deepEqual([ui.state().view, ui.state().focus, ui.state().selectedId], ['reports', 'detail', 'bad']);
+  assert.match(screen(ui, 80, 24), /The site is down\./);
+
+  ui.showRow({ tab: 'work' });
+  assert.deepEqual([ui.state().view, ui.state().focus], ['work', 'work']);
+
+  ui.showRow({ tab: 'done' });
+  assert.equal(ui.state().view, 'work');
+  assert.match(screen(ui, 80, 24), /Nothing is waiting/);
+
+  ui.showRow({ tab: 'chat' });
+  assert.deepEqual([ui.state().view, ui.state().focus], ['conversation', 'composer']);
+  ui.stop();
+});
+
 test('every choice shows at once when the terminal has room, and a small one still fits', async () => {
   const ui = createDashboard(snapshot);
   const labels = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'];

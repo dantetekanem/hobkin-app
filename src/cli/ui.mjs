@@ -102,6 +102,11 @@ const selectTheme = {
   noMatch: text => palette.select.noMatch(text),
 };
 const OTHER_ROW = { value: 'other', label: 'Other: type your own answer' };
+const FOCUS_GAINED = '\x1b[I';
+const FOCUS_LOST = '\x1b[O';
+// What a card always keeps around its own rows: one row of chat, the box's two edges and its question.
+const ROWS_AROUND_CARD = 4;
+const cardLooks = { ready: ['●', positive], read: ['◐', caution], wrong: ['▲', negative], questions: ['?', accent], yours: ['◇', dim] };
 const FEWEST_CHOICES_SHOWN = 3;
 const PRINTABLE_KEY = /^[^\x00-\x1f\x7f]$/u;
 // The question's box, the footer and the few rows of conversation that always stay in sight.
@@ -1011,6 +1016,15 @@ const decisionRow = ({ tldr, from, question, choices, at, recommended, why, chan
 const decisionLines = ({ decisions, selected, inner, clock }) => ({
   content: decisions.flatMap(decision => [...decisionRow(decision, decision === selected, inner, clock), '']),
 });
+// The fact comes last, so on a narrow terminal the box edge cuts the fact and nothing else.
+const pendingRows = groups => {
+  const countWidth = Math.max(...groups.map(({ count }) => String(count).length));
+  const labelWidth = Math.max(...groups.map(({ label }) => label.length));
+  return groups.map(({ name, count, label, fact }) => {
+    const [glyph, tone] = cardLooks[name];
+    return `${tone(glyph)} ${tone(bold(String(count).padStart(countWidth)))} ${label.padEnd(labelWidth)}  ${dim(clean(fact))}`;
+  });
+};
 const pushSections = (content, { sections, selected, inner }) => {
   let selectedRange;
   for (const [heading, rows, note, tally] of sections) {
@@ -1162,6 +1176,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const now = () => (options.now ?? Date.now)();
   const startedAt = now();
   const record = (type, facts) => callbacks.event?.(type, facts);
+  // Opening hobkin is the user being there too.
+  let seenAt = startedAt;
+  let away = false;
+  const sawUser = () => {
+    seenAt = now();
+    away = false;
+  };
   // A newer notice always cancels a pending timeout, so it never erases what replaced it.
   const say = (text, tone = 'info', { timeout } = {}) => {
     notice = text;
@@ -1657,6 +1678,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return opensToLand ? [['m', 'merge'], ['w', 'send agent'], ['n', 'no']] : [['x', 'done']];
   };
   const hintsFor = draft => {
+    if (question?.rows) return [[`1-${question.choices.length}`, 'answer'], ['↑↓', 'choose'], ['esc', 'not now']];
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
@@ -1801,6 +1823,17 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const visibleText = text.slice(question.scroll, question.scroll + capacity);
     return boxed({ paint: highlight, top: highlight(bold('hobkin asks')), lines: [...visibleText, '', ...choices, ...typing], inner });
   };
+  // A short terminal gives up the status lines, then the row kept for typing, then the blank rows. Every group and every choice stays.
+  const cardLines = (inner, height, headerLength, statusLines) => {
+    question.selection.maxVisible = question.choices.length + 1;
+    const choices = question.selection.render(inner - 4);
+    const typed = onOtherRow() ? typingRow(inner - 4) : [];
+    const room = height - headerLength - ROWS_AROUND_CARD - question.rows.length - choices.length - typed.length;
+    const blank = rowsNeeded => (room >= rowsNeeded ? [''] : []);
+    const lines = [line(bold(clean(question.question)), inner - 4), ...blank(2), ...question.rows, ...blank(1), ...choices, ...(typed.length ? typed : blank(3))];
+    const box = boxed({ paint: highlight, top: highlight(bold('hobkin')), lines, inner });
+    return [...box, ...statusLines.slice(0, Math.max(0, room - 3))];
+  };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
     const hasComposer = !question && (view === 'conversation' || askingWorkFolder || Boolean(notingOn));
@@ -1823,6 +1856,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
     // The row stays reserved so a tip coming or going never moves anything.
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
+    if (question?.rows) return cardLines(inner, height, headerLength, statusLines);
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
     if (faceShown) {
       const [activityRow, ...rest] = statusLines;
@@ -2087,6 +2121,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     keepSelectionListed();
     scroll = 0;
   };
+  const showReport = id => {
+    const found = allReports().find(report => report.id === id);
+    openView('reports');
+    if (!found) return;
+    completedReport = found;
+    selectedId = id;
+    reportKind = reportKinds[0].name;
+    reportFilter.setValue('');
+    focus = 'detail';
+  };
+  // Mid-sentence, mid-note, already walking what the card would offer, or on a terminal too small to show it.
+  const occupied = () => Boolean(question || editor.getExpandedText() || notingOn || askingWorkFolder || referencedReport
+    || view === 'decisions' || (view === 'work' && workTab === 'done') || columns < 60 || rows < 18);
   const handleDecisionKey = data => {
     const list = decisions();
     const selected = selectedDecision();
@@ -2222,6 +2269,25 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       showWorkTab('done');
       changed();
     },
+    /** Where the answer to a card leads. */
+    showRow({ tab, report }) {
+      if (tab === 'done') controller.showDone();
+      else if (tab === 'reports') showReport(report);
+      else openView(tab === 'chat' ? 'conversation' : tab);
+      if (tab === 'work') showWorkTab('now');
+      changed();
+    },
+    /** Whether the user is there, and whether the screen is theirs right now. */
+    presence: () => ({ seenAt, away, occupied: occupied() }),
+    terminalFocus(gained) {
+      if (gained) sawUser();
+      else away = true;
+    },
+    /** A question with what it is about painted above numbered choices. */
+    askPending({ groups, choices, ...request }, signal) {
+      const numbered = choices.map(({ value, label }, index) => ({ value, label: `${index + 1} ${label}` }));
+      return controller.askQuestion({ ...request, choices: numbered, rows: pendingRows(groups) }, signal);
+    },
     askQuestion(request, signal) {
       // Someone is waiting on this one, and what it replaces can wait in Decisions.
       if (question?.whenQuiet && !request.whenQuiet) question.finish(null, 'expired');
@@ -2248,6 +2314,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }
         const cancel = () => finish(null, 'expired');
         const expiry = request.waitMs ? setTimeout(cancel, request.waitMs) : null;
+        current.keepOpen = () => clearTimeout(expiry);
         selection.onSelectionChange = () => { current.scroll = 0; };
         selection.onSelect = item => {
           if (item !== OTHER_ROW) {
@@ -2279,6 +2346,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       question?.finish(null, 'expired');
     },
     handleMouse(event) {
+      if (['press', 'wheel'].includes(event.type)) sawUser();
       if (question) return;
       if (event.type === 'press' || event.type === 'click') {
         const tab = event.button === 'left' ? tabAt(event) : null;
@@ -2299,6 +2367,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return { handled: true };
     },
     input(data) {
+      sawUser();
       if (key(data, 'ctrl+q')) {
         callbacks.onQuit?.();
         return;
@@ -2308,9 +2377,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return;
       }
+      const cardChoice = question?.rows && !onOtherRow() ? question.choices[Number(data) - 1] : null;
+      if (cardChoice) {
+        question.finish(cardChoice.value);
+        return;
+      }
       // Nobody is waiting on this kind of question, so typing past it means "not now" and the key carries on to wherever the user was.
-      if (question?.whenQuiet && PRINTABLE_KEY.test(data)) question.finish(null);
+      if (question?.whenQuiet && PRINTABLE_KEY.test(data) && !onOtherRow()) question.finish(null);
       if (question) {
+        // Someone using a card has not left it alone.
+        if (question.rows) question.keepOpen();
         const tooSmall = (options.tui?.terminal.columns ?? columns) < 60 || (options.tui?.terminal.rows ?? rows) < 18;
         const paging = !tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'));
         if (key(data, 'escape')) question.finish(null);
@@ -2458,18 +2534,31 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const pinnedRows = pinned && available >= MIN_ROWS_FOR_PINNED_DAY ? 2 : 0;
       if (pinnedRows) body.splice(0, pinnedRows, framed(pinned.heading), framed(''));
       const shown = motion?.faint && fading ? motion.fade(body, { ...placed, first: pinnedRows }, fadeColors[palette.face.theme]) : body;
-      return [...header.map(framed), ...shown, ...footer.map(framed)];
+      const screen = [...header.map(framed), ...shown, ...footer.map(framed)];
+      // A tab row that wraps can only cost a card the top of the screen, never a row of its own.
+      return question?.rows ? screen.slice(-height) : screen;
     },
   };
   animate();
   return controller;
 }
 
+/** pi-tui turns focus reports on and off along with the mouse and keeps them to itself, so they can only be read on their way in. */
+function readingFocus(terminal, onFocus) {
+  const start = terminal.start.bind(terminal);
+  terminal.start = (input, resize) => start(data => {
+    if (data === FOCUS_GAINED || data === FOCUS_LOST) onFocus(data === FOCUS_GAINED);
+    input(data);
+  }, resize);
+  return terminal;
+}
+
 export function startDashboard(snapshot, handlers = {}, options = {}) {
   const images = options.images ?? (!options.terminal && supportsFaceImages() ? new FaceImages({ write: data => tui.terminal.write(data) }) : null);
   // Left to itself, the screen code deletes every image on the terminal at each full redraw, and it does not know about these.
   if (images) setCapabilityOverrides({ images: null });
-  const tui = new TuiAltScreen(options.terminal ?? new ProcessTerminal(), false, undefined, { mouse: true, wheelScrollLines: 3 });
+  const terminal = readingFocus(options.terminal ?? new ProcessTerminal(), gained => controller.terminalFocus(gained));
+  const tui = new TuiAltScreen(terminal, false, undefined, { mouse: true, wheelScrollLines: 3 });
   const controller = createDashboard(snapshot, handlers, {
     tui, images, now: options.now, motion: options.motion ?? true, onChange: () => tui.requestRender(),
   });
