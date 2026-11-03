@@ -386,7 +386,7 @@ test('a fix closes with its branch when the user merges it first, so no run is s
   assert.deepEqual(filed, []);
 });
 
-test('finished work waits on a merge, but a branch with no item does not, nor one still being worked on or given up on', async t => {
+test('finished work waits on a merge, and so does a stray branch the survey gave an item, but not one still being worked on or given up on', async t => {
   const h = workspace(t);
   const states = { finished: 'branch', sent: 'pr', running: 'doing', queued: 'open', dropped: 'dropped', declined: 'declined' };
   for (const [name, state] of Object.entries(states)) {
@@ -396,8 +396,8 @@ test('finished work waits on a merge, but a branch with no item does not, nor on
   branched(h.checkout, 'hobkin/no-item');
   await survey(h);
 
-  assert.deepEqual(pendingMerges(h.root, 'api').map(({ branch }) => branch).toSorted(), ['hobkin/finished', 'hobkin/sent']);
-  assert.equal(unmergedNow(h.root).pending.api, 2);
+  assert.deepEqual(pendingMerges(h.root, 'api').map(({ branch }) => branch).toSorted(), ['hobkin/finished', 'hobkin/no-item', 'hobkin/sent']);
+  assert.equal(unmergedNow(h.root).pending.api, 3);
   assert.equal(unmergedNow(h.root).perProject.api, 7, 'what is open still counts every branch');
 });
 

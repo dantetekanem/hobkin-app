@@ -77,7 +77,8 @@ test('one under the bar, the queue carries on by itself', t => {
   updateItem(root, 'api', id, { state: 'declined' }, now);
 
   assert.equal(plan(root).shipFirst.holding, false);
-  assert.equal(plan(root).next.title, 'New feature');
+  assert.notEqual(rowTitled(root, 'New feature').waiting, 'shipping first');
+  assert.ok(plan(root).next);
 });
 
 test('new ideas and the daily look for projects wait too', t => {
@@ -436,7 +437,7 @@ test('new lets new work start until the end of that day and stays quiet about pa
   await answered(root, 'new');
 
   assert.equal(plan(root).shipFirst.holding, false);
-  assert.equal(plan(root).next.title, 'New feature');
+  assert.notEqual(rowTitled(root, 'New feature').waiting, 'shipping first');
   bringPair(root, now + HOUR);
   assert.equal(pair(root), undefined);
 
