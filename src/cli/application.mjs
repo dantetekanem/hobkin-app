@@ -21,6 +21,7 @@ import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { failureKey, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
+import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
@@ -265,6 +266,7 @@ export class HobkinApplication {
     const runs = Object.values(state.runs).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
     const deleted = deletedReportIds(this.runtime.directory);
     const sessionsEnded = sessionsToPost(this.runtime.directory);
+    const cardActions = cardActionsToPost(this.runtime.directory);
     const runReports = runs
       .filter(run => run.kind !== 'main' && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
       .filter(run => !deleted.has(run.id) && !isQuietRun(run))
@@ -342,8 +344,7 @@ export class HobkinApplication {
     }
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
-    for (const session of sessionsEnded) {
-      const notice = sessionNotice(session);
+    for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice)]) {
       if (noticeIds.has(notice.id)) continue;
       notices.push(notice);
       noticeIds.add(notice.id);
@@ -438,6 +439,7 @@ export class HobkinApplication {
       this.savedSignature = signature;
     }
     markPosted(this.runtime.directory, sessionsEnded);
+    markCardActionsPosted(this.runtime.directory, cardActions);
     const active = new Set(runs
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
@@ -521,7 +523,8 @@ export class HobkinApplication {
   async deliver(text, report, images = []) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const sessions = sessionsToTell(this.runtime.directory);
-    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions }, this.director.answerCommands());
+    const userDid = cardActionsToTell(this.runtime.directory);
+    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid }, this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // A message with no room for the note still goes, and the note goes with the next one.
@@ -530,6 +533,7 @@ export class HobkinApplication {
     this.pastedImages.remove(images);
     this.workNoteSeen = note;
     markHeard(this.runtime.directory, sessions);
+    markCardActionsHeard(this.runtime.directory, userDid);
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
       recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });
@@ -701,6 +705,7 @@ export class HobkinApplication {
     };
     const result = await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
+    if (result?.told) recordCardAction(root, result.told, this.now());
     await this.director.tick();
     // A refresh already under way read the state before this change, and the screen must show the change.
     await this.refreshing?.catch(() => {});

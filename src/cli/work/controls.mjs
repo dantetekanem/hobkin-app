@@ -18,7 +18,7 @@ import {
   retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
-import { changeFacts, ghWithin, landedRecord, landingTip, readUnmerged, SHIP_KIND } from './unmerged.mjs';
+import { changeFacts, closeMergedPull, ghWithin, landedRecord, landingTip, pullNow, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const run = promisify(execFile);
 
@@ -38,6 +38,23 @@ const landings = {
 
 /** One line: what happened and what comes next. A failure throws, and `printWorkCommand` says it the same way. */
 export const reply = (message, details = {}) => ({ ok: true, message, ...details });
+
+/** What an action on a card tells: `line` is the whole sentence for Chat, and the rest is what the main agent hears with the user's next message. */
+const toldOf = (project, { id, title, pr }, did, line) => ({
+  did,
+  project: nameOf(project),
+  item: id,
+  title,
+  ...(pr ? { pr } : {}),
+  line,
+});
+
+/** The reply names the work by its title and project. Chat says the same with a PR's link too, so the user can tell which one it was. */
+function cardReply(project, item, did, sentence) {
+  const named = `"${item.title}" on ${nameOf(project)}`;
+  const linked = item.pr ? `${named} (${item.pr})` : named;
+  return reply(sentence(named), { told: toldOf(project, item, did, sentence(linked)) });
+}
 
 // `low` is how people say the lowest level.
 const levelNamed = word => (word === 'low' ? 'casual' : word);
@@ -300,7 +317,7 @@ export function requestReview(root, reference, id) {
 
   updateItem(root, project.slug, item.id, { reviewAsked: true });
   retryItem(root, project.slug, item.id);
-  return reply(`"${item.title}" on ${nameOf(project)} goes to the front of the queue for a review.`);
+  return cardReply(project, item, 'asked for a review', named => `${named} goes to the front of the queue for a review. It leaves the list while it is reviewed, and comes back to approve with its grade.`);
 }
 
 const firstLine = text => String(text).split('\n', 1)[0];
@@ -356,7 +373,8 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
   const closed = await closeWhatLanded({ root, repo, slug: project.slug, merged: item, target, landing, now });
   const others = closed - 1;
   const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
-  return reply(`Merged "${title}" into ${base}.${alongside} Nothing was pushed.`, { target, route });
+  const message = `Merged "${title}" into ${base} on ${nameOf(project)}.${alongside} Nothing was pushed.`;
+  return reply(message, { target, route, told: toldOf(project, item, 'merged it locally', message) });
 }
 
 const MERGE_PR_TIMEOUT_MS = 2 * 60000;
@@ -371,16 +389,20 @@ function prOf(root, reference, id) {
 
 /**
  * A PR lands on its host, and only on the user's word, so this is the one place hobkin asks its host to merge one. `head` is the commit the user
- * saw, so a PR that moved since is refused there. The survey closes the item once the host says it merged.
+ * saw, so a PR that moved since is refused there. A merge that went through closes the item now, with what the host says of it.
  */
-export async function mergePullRequest(root, reference, id, { head = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS) } = {}) {
+export async function mergePullRequest(root, reference, id, { head = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS), now = Date.now() } = {}) {
   const { project, item } = prOf(root, reference, id);
   const repo = project.path ?? paths(root, project.slug).clone;
   const pinned = head ? ['--match-head-commit', head] : [];
   await gh(['pr', 'merge', item.pr, '--merge', ...pinned], repo).catch(error => {
     throw Error(`"${item.title}" did not merge: ${firstLine(error.stderr || error.message)}`);
   });
-  return reply(`Merged ${item.pr}. hobkin closes the item at its next survey.`);
+  const pull = await pullNow(item.pr, repo, gh);
+  closeMergedPull(root, project.slug, item, pull, now);
+
+  const named = `the PR for "${item.title}" on ${nameOf(project)}`;
+  return reply(`Merged ${named}.`, { told: toldOf(project, item, 'merged the PR', `Merged ${named}: ${item.pr}.`) });
 }
 
 /** Opens an item's PR in the browser, to read or comment on it there. */
@@ -419,7 +441,7 @@ export function declineItem(root, reference, id, now = Date.now()) {
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
   updateItem(root, project.slug, item.id, { state: 'declined', ...pushbackOn(root, project, item, now) }, now);
-  return reply(`Said no to "${item.title}". Its branch stays, and hobkin learns from this.`);
+  return cardReply(project, item, 'said no', named => `Said no to ${named}. Its branch stays, and hobkin learns from this.`);
 }
 
 /**
@@ -436,7 +458,7 @@ export function askAgent(root, reference, id, note, { answering = false, now = D
   const sentBack = finished && !answering ? pushbackOn(root, project, item, now) : {};
   updateItem(root, project.slug, item.id, { workNote: note?.trim() || 'Close whatever stops this merging.', ...sentBack }, now);
   retryItem(root, project.slug, item.id);
-  return reply(`An agent goes back to "${item.title}" next.`);
+  return cardReply(project, item, 'sent it back with a note', named => `An agent goes back to ${named} next.`);
 }
 
 const stateOf = (root, slug, id) => readItems(root, slug).find(item => item.id === id)?.state;
@@ -532,7 +554,7 @@ export function markDone(root, reference, id) {
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
   updateItem(root, project.slug, item.id, { state: 'done', left: null, closedByUser: true });
-  return reply(`"${item.title}" on ${nameOf(project)} is done. It leaves the queue, and any branch or PR stays as it is.`);
+  return cardReply(project, item, 'marked it done', named => `${named} is done. It leaves the queue, and any branch or PR stays as it is.`);
 }
 
 export function markMax(root, reference, id) {

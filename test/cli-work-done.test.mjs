@@ -8,7 +8,7 @@ import { initialize } from '../src/cli/config.mjs';
 import { fillGaps } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readWaiting } from '../src/cli/pending-read.mjs';
-import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openPullRequest } from '../src/cli/work/controls.mjs';
+import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openPullRequest, requestReview } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { closingItems, landingList, readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem } from '../src/cli/work/store.mjs';
@@ -311,21 +311,85 @@ test('an open PR waits in Decisions as one card with its PR, its head, what it d
   assert.notEqual(sameBranch.id, card.item);
 });
 
-test('a PR merges on its host only at the head it was shown, and a failure says why and changes nothing', async t => {
+test('a PR merged from its card closes at once, as the survey closes one its host reports merged, and leaves Decisions', async t => {
   const h = workspace(t);
-  const item = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  branched(h.checkout, 'hobkin/7-fix', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.com/pull/7' });
+  const opened = pull(7, { additions: 12, deletions: 3, changedFiles: 2, headRefOid: tipOf(h, 'hobkin/7-fix') });
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([opened]), reviews: h.reviews });
+  const merged = { ...opened, state: 'MERGED', mergedAt: '2026-06-02T00:00:00Z', mergeCommit: { oid: 'abc123' } };
   const calls = [];
   const gh = async (args, cwd) => {
     calls.push([args, cwd]);
-    if (calls.length > 1) throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.\nmore' });
+    return args[1] === 'view' ? JSON.stringify(merged) : '';
   };
 
-  const merged = await mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh });
+  const { message, told } = await mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh });
+
+  assert.deepEqual(calls[0], [['pr', 'merge', 'https://example.com/pull/7', '--merge', '--match-head-commit', 'abc1234'], h.checkout]);
+  const { state, mergedAt, landed } = read(h, item);
+  assert.deepEqual([state, mergedAt], ['merged', '2026-06-02T00:00:00Z']);
+  assert.deepEqual([landed.sha, landed.at, landed.route, landed.area], ['abc123', '2026-06-02T00:00:00Z', 'remote', 'root']);
+  assert.deepEqual(landed.size, { additions: 12, deletions: 3, files: 2 });
+  assert.deepEqual(readWaiting(h.root, { now: NOW, reports: [] }).branches, []);
+  assert.match(message, /^Merged the PR for "work 0" on api\.$/);
+  assert.match(told.line, /^Merged the PR for "work 0" on api: https:\/\/example\.com\/pull\/7\.$/);
+});
+
+test('a PR its host cannot read back still closes on the merge, from what the last survey knew', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/7-fix', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.com/pull/7' });
+  const head = tipOf(h, 'hobkin/7-fix');
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([pull(7, { additions: 5, headRefOid: head })]), reviews: h.reviews });
+  const gh = async args => {
+    if (args[1] === 'view') throw Error('HTTP 502');
+    return '';
+  };
+
+  await mergePullRequest(h.root, 'api', item.id, { head, gh, now: NOW + 1000 });
+
+  const { state, landed } = read(h, item);
+  assert.equal(state, 'merged');
+  assert.deepEqual([landed.sha, landed.at, landed.route], [head, new Date(NOW + 1000).toISOString(), 'remote']);
+  assert.deepEqual(landed.size, { additions: 5, deletions: 0, files: 1 });
+});
+
+test('a PR that does not merge says why and changes nothing', async t => {
+  const h = workspace(t);
+  const item = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  const gh = async () => { throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.\nmore' }); };
+
   await assert.rejects(mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh }), /did not merge: Head branch was modified\.$/);
 
-  assert.match(merged.message, /Merged https:\/\/example\.com\/pull\/8/);
-  assert.deepEqual(calls[0], [['pr', 'merge', 'https://example.com/pull/8', '--merge', '--match-head-commit', 'abc1234'], h.checkout]);
-  assert.equal(read(h, item).state, 'pr', 'the survey closes it once the host says it merged');
+  assert.equal(read(h, item).state, 'pr');
+});
+
+test('what the user does from a card names the work and its project, and the line for Chat adds a PR\'s link', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const merged = finished(h, 'hobkin/abc');
+  const declined = finished(h, 'hobkin/no');
+  const sentBack = finished(h, 'hobkin/back');
+  const closed = finished(h, 'hobkin/old');
+  const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+
+  const mergeReply = await mergeItem(h.root, 'api', merged.id);
+  const declineReply = declineItem(h.root, 'api', declined.id);
+  const askReply = askAgent(h.root, 'api', sentBack.id, 'Rename it.');
+  const doneReply = markDone(h.root, 'api', closed.id);
+  const reviewReply = requestReview(h.root, 'api', published.id);
+
+  const answered = [[merged, mergeReply], [declined, declineReply], [sentBack, askReply], [closed, doneReply], [published, reviewReply]];
+  for (const [item, { message, told }] of answered) {
+    assert.match(message, new RegExp(`"${item.title}"`));
+    assert.match(message, / on api\b/);
+    assert.equal(told.title, item.title);
+  }
+  assert.match(reviewReply.message, /leaves the list while it is reviewed, and comes back to approve with its grade\.$/);
+  assert.doesNotMatch(reviewReply.message, /example\.com/, 'the reply stays short');
+  assert.match(reviewReply.told.line, /"work 4" on api \(https:\/\/example\.com\/pull\/8\)/);
+  assert.equal(declineReply.told.line, declineReply.message, 'with no PR, Chat says what the reply says');
 });
 
 test('only an item with an open PR merges or opens on its host', async t => {

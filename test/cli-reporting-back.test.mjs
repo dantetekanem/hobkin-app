@@ -11,8 +11,9 @@ import { openDecisions } from '../src/cli/decisions.mjs';
 import { saveReport } from '../src/cli/reports.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { recordSessionEnd, recordSessionStart } from '../src/cli/session-log.mjs';
+import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { foldFinishedLines, finishedLine } from '../src/cli/work/chat.mjs';
-import { chooseProject, fileItem, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { WorkPanes } from '../src/cli/work/panes.mjs';
 
@@ -382,6 +383,118 @@ test('the main agent is told the pile plainly', async t => {
     await app.send('why is nothing starting?');
 
     assert.match(sent.mock.calls[0].arguments[0], /Shipping first: 9 finished and waiting/);
+  } finally {
+    await app.close();
+  }
+});
+
+const systemLines = view => view.messages.filter(message => message.role === 'system');
+const cards = view => view.waiting.branches;
+const noteOf = text => JSON.parse(text.match(/^<hobkin-work>\n(.*)\n<\/hobkin-work>\n\n/)?.[1] ?? '{}');
+
+test('what the user does from a card is said in Chat as a system line, and it stays there across a restart', async t => {
+  const h = fixture(t);
+  pile(h.root, 1);
+  const [{ id }] = readItems(h.root, 'api');
+  let app = await h.openApp();
+  try {
+    await assert.rejects(app.workAction('decline', 'api', 'zzz'), /Unknown item/);
+    await app.workAction('decline', 'api', id);
+    await app.refresh();
+
+    const lines = systemLines(await app.refresh());
+
+    assert.equal(lines.length, 1, 'a failed action says nothing in Chat, and the line is said once');
+    assert.match(lines[0].content, /^Said no to "Row 0" on api\./);
+  } finally {
+    await app.close();
+  }
+
+  app = await h.openApp();
+  try {
+    assert.equal(systemLines(await app.refresh()).length, 1);
+  } finally {
+    await app.close();
+  }
+
+  atomicJson(join(h.root, 'runtime/view.json'), { version: 1, messages: [] });
+  app = await h.openApp();
+  try {
+    assert.equal(systemLines(await app.refresh()).length, 0, 'it was said once, so even a lost view does not say it again');
+  } finally {
+    await app.close();
+  }
+});
+
+test('a PR merged from its card leaves Decisions at once, and Chat says which one with its link', async t => {
+  const h = fixture(t);
+  pile(h.root, 1);
+  const [{ id }] = readItems(h.root, 'api');
+  updateItem(h.root, 'api', id, { state: 'pr', pr: 'https://example.com/pull/1' });
+  const app = await h.openApp();
+  try {
+    assert.equal(cards(await app.refresh()).length, 1);
+
+    await app.workAction('mergePr', 'api', id, { head: 'abc1234', gh: async () => '' });
+    const view = await app.refresh();
+
+    assert.deepEqual(cards(view), []);
+    assert.match(systemLines(view)[0].content, /^Merged the PR for "Row 0" on api: https:\/\/example\.com\/pull\/1\.$/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the main agent hears what the user did from a card with the next message, once, even across a restart', async t => {
+  const h = fixture(t);
+  pile(h.root, 2);
+  const [first, second] = readItems(h.root, 'api');
+  updateItem(h.root, 'api', second.id, { state: 'pr', pr: 'https://example.com/pull/2' });
+  let app = await h.openApp();
+  try {
+    await app.workAction('done', 'api', first.id);
+    await app.workAction('mergePr', 'api', second.id, { gh: async () => '' });
+    const sent = t.mock.method(app.runtime, 'send');
+
+    await app.send('what did I just do?');
+    await app.send('anything else?');
+
+    const [heard, heardAgain] = sent.mock.calls.map(({ arguments: [text] }) => noteOf(text).userDid);
+    assert.deepEqual(heard.map(({ did, project, item, title, pr }) => [did, project, item, title, pr]), [
+      ['marked it done', 'api', first.id, 'Row 0', undefined],
+      ['merged the PR', 'api', second.id, 'Row 1', 'https://example.com/pull/2'],
+    ]);
+    assert.ok(heard.every(({ at }) => Number.isFinite(Date.parse(at))));
+    assert.equal(heardAgain, undefined);
+  } finally {
+    await app.close();
+  }
+
+  app = await h.openApp();
+  try {
+    const sent = t.mock.method(app.runtime, 'send');
+    await app.send('and now?');
+    assert.equal(noteOf(sent.mock.calls[0].arguments[0]).userDid, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the main agent hears ten things the user did at a time, and the rest with the next message', async t => {
+  const h = fixture(t);
+  for (let index = 0; index < 12; index++) {
+    recordCardAction(h.root, { did: 'said no', project: 'api', item: `item${index}`, title: `Row ${index}`, line: `Said no to "Row ${index}" on api.` });
+  }
+  const app = await h.openApp();
+  try {
+    const sent = t.mock.method(app.runtime, 'send');
+
+    await app.send('first');
+    await app.send('second');
+
+    const [first, second] = sent.mock.calls.map(({ arguments: [text] }) => noteOf(text).userDid.map(({ title }) => title));
+    assert.equal(first.length, 10);
+    assert.deepEqual(second, ['Row 10', 'Row 11']);
   } finally {
     await app.close();
   }

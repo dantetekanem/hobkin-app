@@ -64,15 +64,17 @@ export function discoveryMessage({ folder, proposals, status, reason, left, next
   return status === 'cancelled' ? '' : openings[status];
 }
 
+const heardAction = ({ at, did, project, item, title, pr }) => ({ at, did, project, item, title, pr });
+
 /**
- * The main agent never sees what Hobkin posts in Chat, so what a post asks travels with the user's next message.
+ * The main agent never sees what hobkin posts in Chat, so what a post asks, and what the user did from a card, travels with the user's next message.
  * JSON keeps the block on one line, and escaping `</` means project text can never end it early.
  */
-export function workNote({ projects = [], allowanceRequest, pause, review, enabled, shipFirst, sessions = [] }, commands) {
+export function workNote({ projects = [], allowanceRequest, pause, review, enabled, shipFirst, sessions = [], userDid = [] }, commands) {
   const proposals = projects.filter(project => project.state === 'proposed').toSorted(byRank).slice(0, MAX_NOTE_PROPOSALS)
     .map(({ slug, name, level, summary, path }, index) => ({ position: index + 1, slug, name, level, summary: brief(summary), path }));
   const shipping = enabled && shipFirst?.holding ? shipFirst : null;
-  if (!proposals.length && !allowanceRequest && !pause && !review && !shipping && !sessions.length) return '';
+  if (!proposals.length && !allowanceRequest && !pause && !review && !shipping && !sessions.length && !userDid.length) return '';
 
   const allowance = allowanceRequest && {
     proposed: allowanceRequest.proposed,
@@ -89,6 +91,7 @@ export function workNote({ projects = [], allowanceRequest, pause, review, enabl
     ...(review ? { review: { stale: review.stale, facts: review.message } } : {}),
     ...(shipping ? { shipFirst: { finishedAndWaiting: shipping.pile, newWorkStartsUnder: shipping.bar, facts: shipping.line } } : {}),
     ...(sessions.length ? { sessions } : {}),
+    ...(userDid.length ? { userDid: userDid.map(heardAction) } : {}),
     commands,
   };
   return `<hobkin-work>\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-work>\n\n`;

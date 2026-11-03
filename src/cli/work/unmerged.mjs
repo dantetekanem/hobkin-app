@@ -349,7 +349,7 @@ export const landedRecord = (item, { safety = null, ...facts }) => ({
   quality: item.quality ? { rating: item.quality.rating } : null,
 });
 
-/** Hobkin saw none of this happen, so all it can say is what the last survey knew. A fix on a branch is no change of its own. */
+/** A merge on the remote, so all hobkin can say of it is what its host and the last survey know. A fix on a branch is no change of its own. */
 function landedElsewhere(item, pull, { tips, before }, at) {
   if (item.kind === SHIP_KIND) return {};
   const branch = pull?.headRefName ?? item.branch;
@@ -368,13 +368,39 @@ function landedElsewhere(item, pull, { tips, before }, at) {
   return { landed };
 }
 
+const mergedOutcome = (item, pull, found, at) => ({
+  state: 'merged',
+  mergedAt: pull?.mergedAt ?? at,
+  ...landedElsewhere(item, pull, found, at),
+});
+
+/** One PR as its host reports it now, with the fields the survey reads, or null when the host cannot say. */
+export async function pullNow(url, repo, gh = defaultGh) {
+  try {
+    const text = await gh(['pr', 'view', url, '--json', PR_FIELDS], repo);
+    const pull = JSON.parse(text);
+    return pull?.state ? pull : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A PR the user merged from its card closes its item at once, the way the survey closes one its host reports merged. With no `pull`, the last survey's facts stand in. */
+export function closeMergedPull(root, slug, item, pull, now = Date.now()) {
+  const before = readUnmerged(root).projects[slug]?.open ?? [];
+  // A PR merges at its host's head, which the last survey read, so no local branch tip is read for it.
+  const found = { tips: new Map(), before };
+  const outcome = mergedOutcome(item, pull, found, new Date(now).toISOString());
+  return updateItem(root, slug, item.id, outcome, now);
+}
+
 function outcomeOf(item, found, at) {
   const { pulls, held } = found;
   const pull = pullOf(item, pulls);
   if (pull?.state === 'OPEN') return null;
 
   const landed = pull?.state === 'MERGED' || (branchProvesMerge(item) && held.has(item.branch));
-  if (landed) return { state: 'merged', mergedAt: pull?.mergedAt ?? at, ...landedElsewhere(item, pull, found, at) };
+  if (landed) return mergedOutcome(item, pull, found, at);
 
   // The user closes a PR to keep its work as a local branch for review, so this declines nothing: the branch stays the record.
   if (item.state !== 'pr' || !pull) return null;
