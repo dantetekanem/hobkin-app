@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'nod
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { injectedLessons } from './learning/store.mjs';
+import { recordSessionStart } from './session-log.mjs';
 import { insideHerdr, SESSION_TAB, WorkPanes } from './work/panes.mjs';
 
 const MAX_TITLE_LENGTH = 20;
@@ -75,6 +76,7 @@ export async function startSession({ root, title = 'session', cwd = process.cwd(
   if (keep) return started;
 
   const session = { ...started, report };
+  recordSessionStart(root, { name, title, report }, now);
   follow(session);
   return session;
 }

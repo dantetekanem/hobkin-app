@@ -4,6 +4,7 @@ import { byRank } from './store.mjs';
 
 const MAX_TEXT_LENGTH = 280;
 const MAX_NOTE_PROPOSALS = 40;
+const MAX_FINISHED_LINE = 280;
 
 const mainScript = fileURLToPath(new URL('../main.mjs', import.meta.url));
 const shellWord = value => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -67,11 +68,11 @@ export function discoveryMessage({ folder, proposals, status, reason, left, next
  * The main agent never sees what Hobkin posts in Chat, so what a post asks travels with the user's next message.
  * JSON keeps the block on one line, and escaping `</` means project text can never end it early.
  */
-export function workNote({ projects = [], allowanceRequest, pause, review, enabled, shipFirst }, commands) {
+export function workNote({ projects = [], allowanceRequest, pause, review, enabled, shipFirst, sessions = [] }, commands) {
   const proposals = projects.filter(project => project.state === 'proposed').toSorted(byRank).slice(0, MAX_NOTE_PROPOSALS)
     .map(({ slug, name, level, summary, path }, index) => ({ position: index + 1, slug, name, level, summary: brief(summary), path }));
   const shipping = enabled && shipFirst?.holding ? shipFirst : null;
-  if (!proposals.length && !allowanceRequest && !pause && !review && !shipping) return '';
+  if (!proposals.length && !allowanceRequest && !pause && !review && !shipping && !sessions.length) return '';
 
   const allowance = allowanceRequest && {
     proposed: allowanceRequest.proposed,
@@ -87,9 +88,32 @@ export function workNote({ projects = [], allowanceRequest, pause, review, enabl
     ...(pause ? { pause: { limitHit: pause.kind, facts: pause.line } } : {}),
     ...(review ? { review: { stale: review.stale, facts: review.message } } : {}),
     ...(shipping ? { shipFirst: { finishedAndWaiting: shipping.pile, newWorkStartsUnder: shipping.bar, facts: shipping.line } } : {}),
+    ...(sessions.length ? { sessions } : {}),
     commands,
   };
   return `<hobkin-work>\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-work>\n\n`;
 }
 
 export const withoutWorkNote = text => text.replace(/^<hobkin-work>\n.*\n<\/hobkin-work>\n\n/, '');
+
+/** One quiet line in Chat for a finished run. It is marked so a row of them can fold. */
+export const finishedLine = (id, title, message, at) => {
+  const line = `${title}: ${message}`.slice(0, MAX_FINISHED_LINE);
+  return { id, role: 'notice', content: line, line, finished: true, tone: 'quiet', at };
+};
+
+const foldedInto = (older, newer) => {
+  const earlier = (older.earlier ?? 0) + (newer.earlier ?? 0) + 1;
+  return { ...newer, earlier, content: `${newer.line} ${earlier} more finished, in Reports.` };
+};
+
+/** A busy day finishes many runs, and Chat keeps 100 messages. A row of these takes one place and shows the newest, so they can never push the conversation out. */
+export function foldFinishedLines(messages) {
+  const kept = [];
+  for (const message of messages) {
+    const last = kept.at(-1);
+    if (message.finished && last?.finished) kept[kept.length - 1] = foldedInto(last, message);
+    else kept.push(message);
+  }
+  return kept;
+}

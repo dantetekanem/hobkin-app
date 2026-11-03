@@ -1,0 +1,311 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { test } from 'node:test';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { HobkinApplication } from '../src/cli/application.mjs';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { openDecisions } from '../src/cli/decisions.mjs';
+import { saveReport } from '../src/cli/reports.mjs';
+import { startSession } from '../src/cli/session.mjs';
+import { recordSessionEnd, recordSessionStart } from '../src/cli/session-log.mjs';
+import { foldFinishedLines, finishedLine } from '../src/cli/work/chat.mjs';
+import { chooseProject, fileItem, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
+import { WorkPanes } from '../src/cli/work/panes.mjs';
+
+function fixture(t) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-back-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  config.main.model = 'fixture/local';
+  config.background.model = 'fixture/check';
+  atomicJson(join(root, 'config.json'), config);
+  const fake = fakePi(root);
+  const runHarness = async () => { throw Error('No agent runs in this test.'); };
+  return { root, fake, openApp: (options = {}) => HobkinApplication.open(root, { createMain: fake.createMain, runHarness, ...options }) };
+}
+
+const handoffs = root => join(root, 'runtime', 'handoffs');
+const reportOf = (root, name) => join(handoffs(root), `${name}.report.md`);
+
+/** A session as `hobkin session` leaves it: a line when it starts, and the follower's line when it ends. */
+function endSession(root, name, title, text) {
+  const report = reportOf(root, name);
+  recordSessionStart(root, { name, title, report });
+  mkdirSync(handoffs(root), { recursive: true });
+  if (text !== null) writeFileSync(report, text);
+  recordSessionEnd({ name, report });
+}
+
+const backgroundRun = (id, details = {}) => ({
+  id, kind: 'background', scheduleId: 'work.api.do', title: 'api: Fix login', status: 'completed', work: { slug: 'api', lane: 'do', item: 'abc' },
+  startedAt: '2026-01-02T09:00:00.000Z', finishedAt: '2026-01-02T09:01:00.000Z', result: { status: 'completed', text: 'Useful: Fixed the login redirect on hobkin/abc.\n\nDetails.' }, ...details,
+});
+
+const chat = view => view.messages.filter(message => message.role === 'notice');
+
+test('a session writes down its title when it starts, so the ending can say it', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-back-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const exec = async (_command, args) => JSON.stringify({ result: { tabs: [], root_pane: { pane_id: 'w1:p9' } }, args });
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
+
+  const { name, report } = await startSession({ root, title: 'Land the finboard work', cwd: root, brief: 'Go.', env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }, panes });
+
+  const [line] = readFileSync(join(handoffs(root), 'sessions.jsonl'), 'utf8').trim().split('\n').map(text => JSON.parse(text));
+  assert.deepEqual([line.name, line.title, line.report], [name, 'Land the finboard work', report]);
+});
+
+test('the follower records the ending in its own process, with or without a report', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-follow-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  writeFileSync(join(folder, 'herdr'), '#!/bin/sh\necho \'{"result":{}}\'\n', { mode: 0o755 });
+  const report = join(folder, 'job.report.md');
+  writeFileSync(report, 'Done.');
+  const script = fileURLToPath(new URL('../src/cli/session-follow.mjs', import.meta.url));
+
+  const { status, stderr } = spawnSync(process.execPath, [script, 'job', 'w1:p9', report], { env: { ...process.env, PATH: `${folder}:${process.env.PATH}` }, encoding: 'utf8' });
+
+  assert.equal(status, 0, stderr);
+  const [ending] = readFileSync(join(folder, 'sessions.jsonl'), 'utf8').trim().split('\n').map(text => JSON.parse(text));
+  assert.equal(ending.name, 'job');
+  assert.ok(ending.endedAt);
+});
+
+test('a session that ended tells Chat once, with its title and what happened, and joins Reports', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    endSession(h.root, 'hobkin-land-1', 'Land finboard', '# Report\n\nMerged 3 branches.\nNothing was pushed.\n\nMore detail.');
+
+    await app.refresh();
+    const view = await app.refresh();
+
+    const [notice, ...rest] = chat(view);
+    assert.equal(rest.length, 0);
+    assert.match(notice.content, /^Land finboard: Report Merged 3 branches\./);
+    const report = view.reports.find(({ title }) => title === 'Land finboard');
+    assert.match(report.body, /More detail/);
+    assert.equal(report.outcome, 'completed');
+  } finally {
+    await app.close();
+  }
+});
+
+test('a session that stopped with no report says so, and leaves nothing to open', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    endSession(h.root, 'hobkin-quiet-1', 'Quiet one', null);
+
+    const view = await app.refresh();
+
+    assert.match(chat(view)[0].content, /Quiet one stopped without a report/);
+    assert.equal(view.reports.some(({ title }) => title === 'Quiet one'), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a session that ended while hobkin was closed is told at the next open, and once across a restart', async t => {
+  const h = fixture(t);
+  endSession(h.root, 'hobkin-night-1', 'Overnight', 'Finished the migration branch.');
+  let app = await h.openApp();
+  try {
+    assert.equal(chat(await app.refresh()).filter(({ content }) => /Overnight/.test(content)).length, 1);
+  } finally {
+    await app.close();
+  }
+
+  atomicJson(join(h.root, 'runtime/view.json'), { version: 1, messages: [] });
+  app = await h.openApp();
+  try {
+    assert.equal(chat(await app.refresh()).length, 0, 'it was marked as posted, so even a lost view does not post it again');
+    assert.equal((await app.refresh()).reports.filter(({ title }) => title === 'Overnight').length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the main agent hears of a finished session with the next message, once', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    endSession(h.root, 'hobkin-land-2', 'Land finboard', 'Merged 3 branches.');
+    const sent = t.mock.method(app.runtime, 'send');
+
+    await app.send('how did that go?');
+    await app.send('and now?');
+
+    const [first, second] = sent.mock.calls.map(({ arguments: [text] }) => text);
+    assert.match(first, /<hobkin-work>/);
+    assert.match(first, /Land finboard/);
+    assert.match(first, /Merged 3 branches/);
+    assert.match(first, /hobkin-land-2\.report\.md/);
+    assert.doesNotMatch(second, /Land finboard/);
+    const shown = (await app.refresh()).messages.filter(({ role }) => role === 'user').map(({ content }) => content);
+    assert.deepEqual(shown, ['how did that go?', 'and now?']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a work run gets one quiet line from its Useful line, a look with nothing new stays silent, and Critical works as it did', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    await app.runtime.change(state => {
+      state.runs.done = backgroundRun('done');
+      state.runs.look = backgroundRun('look', { title: 'api: security', result: { status: 'completed', text: 'Nothing new.\n\nLooked.' } });
+      state.runs.hot = backgroundRun('hot', { title: 'web: Keys', finishedAt: '2026-01-02T09:02:00.000Z', result: { status: 'completed', text: 'Critical: A secret leaked.\n\nDetails.' } });
+    });
+
+    const notices = chat(await app.refresh());
+
+    assert.deepEqual(notices.map(({ content, tone }) => [content, tone]), [
+      ['api: Fix login: Fixed the login redirect on hobkin/abc.', 'quiet'],
+      ['web: Keys: A secret leaked.', 'critical'],
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a run of finished lines folds into one that keeps the newest and counts the rest', () => {
+  const line = index => finishedLine(`notice:report:${index}`, `api: ${index}`, 'Done.', `2026-01-02T09:0${index}:00.000Z`);
+  const said = { id: 'user', role: 'user', content: 'hello' };
+
+  const first = foldFinishedLines([line(1), line(2), said, line(3), line(4)]);
+  const again = foldFinishedLines([...first, line(5)]);
+
+  assert.deepEqual(first.map(({ id }) => id), ['notice:report:2', 'user', 'notice:report:4']);
+  assert.match(first[0].content, /^api: 2: Done\. 1 more/);
+  assert.match(again.at(-1).content, /^api: 5: Done\. 2 more/);
+});
+
+test('a busy day of finished runs never pushes the conversation out of Chat', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    await app.send('Keep this one');
+    const user = app.runtime.messages().findLast(({ role }) => role === 'user');
+    await app.runtime.change(state => {
+      for (let index = 0; index < 150; index++) {
+        const id = `run-${index}`;
+        state.runs[id] = backgroundRun(id, { finishedAt: new Date(user.timestamp + 60000 + index * 1000).toISOString() });
+      }
+    });
+
+    const view = await app.refresh();
+
+    assert.ok(view.messages.some(({ role, content }) => role === 'user' && /Keep this one/.test(content)));
+    assert.equal(chat(view).length, 1);
+    assert.match(chat(view)[0].content, /149 more finished/);
+    assert.equal(view.reports.filter(({ scheduleId }) => scheduleId === 'work.api.do').length, 150);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a session line is not folded away by the runs around it', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    await app.runtime.change(state => { state.runs.first = backgroundRun('first', { finishedAt: new Date(Date.now() - 2000).toISOString() }); });
+    await app.refresh();
+    endSession(h.root, 'hobkin-middle', 'Middle', 'Did it.');
+    await app.refresh();
+    await app.runtime.change(state => { state.runs.last = backgroundRun('last', { finishedAt: new Date(Date.now() + 2000).toISOString() }); });
+
+    const notices = chat(await app.refresh());
+
+    assert.equal(notices.length, 3);
+    assert.match(notices[1].content, /^Middle: Did it\./);
+  } finally {
+    await app.close();
+  }
+});
+
+/** A chosen project with a pile of finished rows and nothing else to do. */
+function pile(root, count) {
+  chooseProject(root, '/repos/api', 'important');
+  for (let index = 0; index < count; index++) {
+    const { id } = fileItem(root, 'api', { key: `row ${index}`, kind: 'fix', title: `Row ${index}`, brief: 'The first change.' });
+    updateItem(root, 'api', id, { state: 'branch', branch: `hobkin/${index}` });
+  }
+}
+
+test('/work with a pile says the count, and the first pair waits in Decisions before anything starts', async t => {
+  const h = fixture(t);
+  pile(h.root, 46);
+  writeMode(h.root, { folder: h.root });
+  const app = await h.openApp();
+  try {
+    await app.workAction('toggle');
+
+    const view = await app.refresh();
+
+    assert.equal(view.work.shipFirst.pile, 46);
+    assert.ok(view.work.plan.every(({ waiting }) => waiting === 'shipping first'));
+    assert.deepEqual(openDecisions(h.root).map(({ key }) => key), ['pair']);
+    assert.equal(chat(view).filter(({ content }) => /Shipping first/.test(content)).length, 0, 'the reply to /work says it, so Chat does not say it again');
+  } finally {
+    await app.close();
+  }
+});
+
+test('read opens Done, and go reports in Chat what it did', async t => {
+  const h = fixture(t);
+  pile(h.root, 9);
+  writeMode(h.root, { enabled: true, folder: h.root });
+  const showDone = t.mock.fn();
+  const app = await h.openApp({ showDone });
+  try {
+    await app.director.tick();
+    const [{ id }] = openDecisions(h.root);
+    await app.workAction('decide', id, 'read');
+    assert.equal(showDone.mock.callCount(), 1);
+
+    writeMode(h.root, { ship: { ...readMode(h.root).ship, last: null } });
+    await app.director.tick();
+    const [next] = openDecisions(h.root);
+    const { message } = await app.workAction('decide', next.id, 'go');
+
+    assert.match(message, /Row 0/);
+    assert.equal(chat(await app.refresh()).filter(({ content }) => /Row 0/.test(content)).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the main agent is told the pile plainly', async t => {
+  const h = fixture(t);
+  pile(h.root, 9);
+  writeMode(h.root, { enabled: true, folder: h.root });
+  const app = await h.openApp();
+  try {
+    const sent = t.mock.method(app.runtime, 'send');
+
+    await app.send('why is nothing starting?');
+
+    assert.match(sent.mock.calls[0].arguments[0], /Shipping first: 9 finished and waiting/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a deleted session report stays deleted', async t => {
+  const h = fixture(t);
+  saveReport(h.root, 'session:hobkin-gone', 'Gone.');
+  endSession(h.root, 'hobkin-gone', 'Gone', 'Gone.');
+  writeFileSync(join(h.root, 'runtime', 'deleted-reports.json'), JSON.stringify({ version: 1, ids: ['session:hobkin-gone'] }), { mode: 0o600 });
+  const app = await h.openApp();
+  try {
+    assert.equal((await app.refresh()).reports.some(({ title }) => title === 'Gone'), false);
+  } finally {
+    await app.close();
+  }
+});

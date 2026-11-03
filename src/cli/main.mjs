@@ -204,7 +204,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     const { followInBackground, readBrief, requireHerdr, startSession } = await import('./session.mjs');
     requireHerdr();
     const brief = await readBrief(dependencies.input ?? process.stdin);
-    const started = await startSession({ root: options.root, title: options.title, cwd: options.cwd, brief, keep: options.keep, approved: options.approved, follow: followInBackground });
+    const started = await startSession({ root: resolveDataRoot(options.root), title: options.title, cwd: options.cwd, brief, keep: options.keep, approved: options.approved, follow: followInBackground });
     output.write(`${JSON.stringify(started, null, 2)}\n`);
     return 0;
   }

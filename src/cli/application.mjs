@@ -18,7 +18,8 @@ import { compactionDue, nextRunIn } from './compaction.mjs';
 import { editReport } from './report-editor.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
-import { withoutWorkNote, workNote } from './work/chat.mjs';
+import { markHeard, markPosted, sessionNotice, sessionReports, sessionsToPost, sessionsToTell } from './session-log.mjs';
+import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
@@ -253,7 +254,8 @@ export class HobkinApplication {
     const loaded = await this.runner.snapshot();
     const runs = Object.values(state.runs).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
     const deleted = deletedReportIds(this.runtime.directory);
-    const reports = runs
+    const sessionsEnded = sessionsToPost(this.runtime.directory);
+    const runReports = runs
       .filter(run => run.kind !== 'main' && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
       .filter(run => !deleted.has(run.id))
       .map(run => {
@@ -270,6 +272,7 @@ export class HobkinApplication {
           outcome: run.status,
         };
       });
+    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted)].toSorted((left, right) => (right.at ?? '').localeCompare(left.at ?? ''));
     const notices = (this.snapshot.messages ?? []).filter(isOwnPost);
     const alreadyPosted = notices.length;
     const noticeIds = new Set(notices.map(message => message.id));
@@ -316,6 +319,12 @@ export class HobkinApplication {
     if (indexNote) notices.push(indexNote);
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
+    for (const session of sessionsEnded) {
+      const notice = sessionNotice(session);
+      if (noticeIds.has(notice.id)) continue;
+      notices.push(notice);
+      noticeIds.add(notice.id);
+    }
     const scheduledReports = runs.filter(isVisibleScheduledReport)
       .sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? ''));
     for (const run of scheduledReports) {
@@ -326,8 +335,11 @@ export class HobkinApplication {
       const scheduleName = String(run.title ?? run.scheduleId ?? 'your routine').slice(0, 512);
       const triage = reportTriage(run);
       if (triage?.level === 'nothing') continue;
-      // A busy project would push the conversation out of Chat, so only what needs the user reaches it.
-      if (run.work?.slug && !['critical', 'blocked'].includes(triage?.level)) continue;
+      // A busy project would push the conversation out of Chat, so what needs no answer takes a quiet line that folds into the next.
+      if (run.work?.slug && !['critical', 'blocked'].includes(triage?.level)) {
+        if (triage?.level === 'useful') notices.push(finishedLine(id, scheduleName, triage.message, run.finishedAt));
+        continue;
+      }
       // A look speaks for itself above, with every proposal in it.
       if (run.work?.lane === 'discover') continue;
 
@@ -346,7 +358,7 @@ export class HobkinApplication {
       });
       noticeIds.add(id);
     }
-    const messages = [
+    const messages = foldFinishedLines([
       ...this.runtime.messages()
         .filter(message => ['user', 'assistant', 'custom'].includes(message.role) && message.customType !== CHROME_NOTE)
         // `display: false` is how an extension says a note is for the agent and not for the user.
@@ -361,8 +373,7 @@ export class HobkinApplication {
         if (right.time === null) return 1;
         return left.time - right.time || left.index - right.index;
       })
-      .map(({ message }) => message)
-      .slice(-100);
+      .map(({ message }) => message)).slice(-100);
     const visible = {
       version: 1,
       savedAt: new Date().toISOString(),
@@ -402,6 +413,7 @@ export class HobkinApplication {
       atomicJson(join(this.runtime.directory, 'runtime/view.json'), saved);
       this.savedSignature = signature;
     }
+    markPosted(this.runtime.directory, sessionsEnded);
     const active = new Set(runs
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
@@ -480,7 +492,8 @@ export class HobkinApplication {
 
   async deliver(text, report, images = []) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
-    const note = workNote(workStatus(this.runtime.directory, this.director.outlook()), this.director.answerCommands());
+    const sessions = sessionsToTell(this.runtime.directory);
+    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions }, this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // A message with no room for the note still goes, and the note goes with the next one.
@@ -488,6 +501,7 @@ export class HobkinApplication {
     const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${message}`, images);
     this.pastedImages.remove(images);
     this.workNoteSeen = note;
+    markHeard(this.runtime.directory, sessions);
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
       recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });

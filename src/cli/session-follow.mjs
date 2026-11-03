@@ -1,3 +1,4 @@
+import { recordSessionEnd } from './session-log.mjs';
 import { SESSION_TAB, WorkPanes } from './work/panes.mjs';
 
 const POLL_MS = 10000;
@@ -8,4 +9,7 @@ const panes = new WorkPanes({ pollMs: POLL_MS, ...(handed ? {} : { tab: SESSION_
 
 // A session ends with its report. A review writes none, and it ends when the user leaves it. A run left going by a closed hobkin ends like the run it was.
 if (handed) await panes.followHanded({ name, pane, report });
-else await (report ? panes.followSession({ name, pane, report }) : panes.followReview({ name, pane }));
+else if (report) {
+  await panes.followSession({ name, pane, report });
+  recordSessionEnd({ name, report });
+} else await panes.followReview({ name, pane });
