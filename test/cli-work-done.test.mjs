@@ -256,6 +256,23 @@ test('an open PR is on the landing list at the head its host reports, with that 
   assert.equal(readyItems(h.root).some(({ item }) => item === good.id), false, 'a PR merges on its host, so the walk stays local work');
 });
 
+test('a local branch that prepares a release on top of a PR is not where the PR shipped', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/8-fix', 'eight.txt', 'eight\n');
+  git(h.checkout, 'switch', '-q', 'hobkin/8-fix');
+  git(h.checkout, 'switch', '-q', '-c', 'release-prep/1.0.0-ab12');
+  commit(h.checkout, 'VERSION', '1.0.0\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  reviewed(h, tipOf(h, 'hobkin/8-fix'));
+
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([pull(8, { headRefOid: tipOf(h, 'hobkin/8-fix') })]), reviews: h.reviews });
+  const { landable } = landingList(h.root);
+
+  assert.deepEqual(landable.map(({ item, head, grade }) => [item, head, grade]), [[published.id, tipOf(h, 'hobkin/8-fix'), 'safe A']]);
+  assert.equal(unit(h, 'hobkin/8-fix').landedOn, null);
+});
+
 test('a PR the survey cannot grade says why instead of a grade', async t => {
   const h = workspace(t);
   branched(h.checkout, 'fix/links', 'links.txt', 'links\n');

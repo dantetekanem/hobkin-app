@@ -252,9 +252,10 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
 
 /**
  * A PR merges on its host at the head the host reports, so that commit is the one graded, the way a branch is. A head this repository does not have
- * can still match a review of it, but there is nothing to compare with an older grade or to stack, so it gets no more than that.
+ * can still match a review of it, but there is nothing to compare with an older grade or to stack, so it gets no more than that. A PR ships on its
+ * host, so a local branch of the user's that holds its head, such as one preparing a release on top of it, is not where it went.
  */
-async function pullHead({ repo, base, pr, grades, finished, others, previous }) {
+async function pullHead({ repo, base, pr, grades, finished, previous }) {
   const sha = pr.headRefOid ?? null;
   if (!sha) return { sha, safety: null };
   const here = Boolean(await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `${sha}^{commit}`));
@@ -264,7 +265,7 @@ async function pullHead({ repo, base, pr, grades, finished, others, previous }) 
     sha,
     change,
     safety: await safetyOf({ repo, name: sha, sha, change, grades, before }),
-    ...(here ? await placesOf({ repo, name: pr.headRefName, sha, finished, others }) : {}),
+    ...(here ? await placesOf({ repo, name: pr.headRefName, sha, finished, others: [] }) : {}),
   };
 }
 
@@ -303,7 +304,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const surveyPull = async pr => ({
     ...pullUnit(pr),
     ...await pathsOf(repo, base, pr.headRefName),
-    ...await pullHead({ repo, base, pr, grades, finished, others, previous }),
+    ...await pullHead({ repo, base, pr, grades, finished, previous }),
   });
   const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));
   return {
