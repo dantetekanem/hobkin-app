@@ -67,6 +67,9 @@ function scheduleAttention(scheduleId, reports, readTimes, trackedLongEnough) {
   };
 }
 
+/** Which reports someone opened or asked about. It writes nothing, so another process can ask. */
+export const readReportIds = root => new Set(parseEvents(logPath(root)).filter(isRealRead).map(({ id }) => id));
+
 /** Local-only record of how reports get used. It holds run IDs and timings, never report text. */
 export class Telemetry {
   constructor(root) {

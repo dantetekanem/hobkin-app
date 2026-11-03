@@ -222,7 +222,8 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | `src/cli/work/patterns.mjs` | pure: `patternOf`, `trackRecords`, `offerFor` |
 | `src/cli/work/launches.mjs` | opening, the pulse, closing, outcomes |
 | `src/cli/work/signals.mjs` | reading, checking and ranking signals |
-| `src/cli/pending.mjs` | pure: what is waiting, as card rows |
+| `src/cli/pending.mjs` | pure: what is waiting, as card rows, and when the card is due |
+| `src/cli/pending-read.mjs` | gathering from disk what the card needs, with no writes, for the dashboard and `hobkin pending` |
 
 Commands: `hobkin work offers`, `watching`, `watch <slug>` and `signals <slug>` (JSON on stdin from a run), `trouble`, `trust`.
 

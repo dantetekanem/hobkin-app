@@ -212,7 +212,7 @@ function readyRow(root, project, item, items, openUnits = []) {
 }
 
 /** Work finished on a branch with no PR. `gap` says what stands between each one and landing, and the top is what to merge next. */
-export function readyItems(root) {
+export function readyItems(root, most = MAX_READY_SENT) {
   const { projects: surveyed } = readUnmerged(root);
   return chosenProjects(root)
     .flatMap(project => {
@@ -222,7 +222,7 @@ export function readyItems(root) {
         .map(item => readyRow(root, project, item, items, surveyed[project.slug]?.open));
     })
     .toSorted(nextToMerge)
-    .slice(0, MAX_READY_SENT);
+    .slice(0, most);
 }
 
 const ratedA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;

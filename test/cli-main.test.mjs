@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, symlinkSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, symlinkSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -10,6 +10,8 @@ import { initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
 import { readPresentationState } from '../src/cli/view.mjs';
 import { setProfile } from '../src/cli/profile.mjs';
+import { fileDecision } from '../src/cli/decisions.mjs';
+import { chooseProject, recordLaunch } from '../src/cli/work/store.mjs';
 
 function fixture(t, isTTY = false) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-main-'));
@@ -581,6 +583,29 @@ test('reports lists the whole inventory and delete removes only known reports', 
   await assert.rejects(main(['status', 'extra', '--home', h.root], h.output), /Unknown/);
 });
 
+test('hobkin pending prints what is waiting as JSON and changes nothing', async t => {
+  const h = fixture(t);
+  fileDecision(h.root, { from: 'Routine mail', question: 'Reply to the bank?', choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] });
+  const files = () => readdirSync(h.root, { recursive: true }).toSorted();
+  const before = files();
+
+  assert.equal(await main(['pending', '--home', h.root], h.output), 0);
+
+  assert.deepEqual(JSON.parse(h.output.text).groups.map(({ name, count, label }) => [name, count, label]), [['questions', 1, 'question']]);
+  assert.equal(JSON.parse(h.output.text).total, 1);
+  assert.deepEqual(files(), before);
+});
+
+test('hobkin pending counts a launch that went wrong', async t => {
+  const h = fixture(t);
+  chooseProject(h.root, '/repos/api', 'important');
+  recordLaunch(h.root, 'api', { item: 'abc', stage: 'live', outcome: 'trouble', note: 'new error' });
+  recordLaunch(h.root, 'api', { item: 'def', stage: 'live', outcome: 'held' });
+
+  assert.equal(await main(['pending', '--home', h.root], h.output), 0);
+
+  assert.deepEqual(JSON.parse(h.output.text).groups, [{ name: 'wrong', count: 1, label: 'went wrong', fact: 'api, new error' }]);
+});
 const readConfig = root => JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'));
 
 test('hobkin learning says where it stands in words, and on and off change only that in the chosen home', async t => {
