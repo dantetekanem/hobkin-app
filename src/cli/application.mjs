@@ -25,7 +25,8 @@ import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './wo
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { answerOffer, askAgent, declineItem, markDone, mergeItem, openDiff, requestReview } from './work/controls.mjs';
+import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
+import { answerPickUp, filePickUp } from './work/pick-up.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { answerPair, fileFirstPair } from './work/pairs.mjs';
@@ -666,6 +667,7 @@ export class HobkinApplication {
     const turnOn = folder => {
       const mode = startWork(root, folder);
       fileFirstPair(root, this.now());
+      filePickUp(root, this.now());
       return mode;
     };
     const actions = {
@@ -693,6 +695,8 @@ export class HobkinApplication {
       pr: () => prView(root, slug, value),
       decide: () => this.decide(slug, value),
       learning: () => this.answerLearning(slug, value),
+      mergePr: () => mergePullRequest(root, slug, value, extra),
+      open: () => openPullRequest(root, slug, value),
     };
     const result = await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
@@ -716,9 +720,10 @@ export class HobkinApplication {
     if (value === 'read' && ['merge', 'read'].includes(answerTo?.kind)) this.showDone?.(answerTo);
     if (answerTo?.kind === 'pair' && value === 'read') this.showDone?.();
     const moved = answerTo?.kind === 'pair' ? await answerPair(root, value, answerTo.rows, this.now()) : null;
+    const picked = answerTo?.kind === 'pickup' ? answerPickUp(root, value, answerTo.keys) : null;
     answerDecision(root, id, value, this.now());
     recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
-    return offered ?? moved ?? { ok: true, message: `Answered: ${choice.label}.` };
+    return offered ?? moved ?? picked ?? { ok: true, message: `Answered: ${choice.label}.` };
   }
 
   /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */

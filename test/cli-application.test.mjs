@@ -992,6 +992,26 @@ test('an answer reaches a routine in its memory, and a work item as its next run
   }
 });
 
+test('turning work mode on without auto-pick asks what to start, and the answer comes back as its reply', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    chooseProject(h.root, '/repos/api', 'important');
+    fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'Evidence, who benefits, the first change, the proof.' });
+    writeMode(h.root, { autoPick: false });
+
+    await app.workAction('start', h.root);
+
+    const pickUp = openDecisions(h.root).find(({ key }) => key === 'pickup');
+    assert.match(pickUp.question, /nothing new starts by itself/);
+    const answer = await app.workAction('decide', pickUp.id, 'later');
+    assert.match(answer.message, /Nothing new starts until you pick/);
+    assert.equal(openDecisions(h.root).some(({ key }) => key === 'pickup'), false);
+  } finally {
+    await app.close();
+  }
+});
+
 const HOUR_MS = 3600000;
 const pileUp = (root, count, at) => {
   for (let index = 0; index < count; index += 1) {

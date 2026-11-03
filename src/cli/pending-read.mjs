@@ -7,7 +7,7 @@ import { pendingCard, waitingRows } from './pending.mjs';
 import { readReportIds } from './telemetry.mjs';
 import { readLocalView } from './view.mjs';
 import { nameOf } from './work/names.mjs';
-import { attentionView, readyItems } from './work/reads.mjs';
+import { attentionView, pullRequestRows, readyItems } from './work/reads.mjs';
 import { readItems, readLaunches, readProjects } from './work/store.mjs';
 
 // The watch closes a launch the moment it goes wrong, so what ends the trouble for the user is the fix it filed.
@@ -29,10 +29,17 @@ const launchesIn = root => readProjects(root).flatMap(project => launchesOf(root
 const proposalsIn = root => (learningEnabled(root) ? learningState(root).proposals : [])
   .map(proposal => ({ ...proposal, question: proposalQuestion(proposal) }));
 
+// An open PR speaks for its branch, so a branch row that has one is left to the PR.
+function readyAndPulls(root) {
+  const pulls = pullRequestRows(root);
+  const published = new Set(pulls.map(({ slug, branch }) => `${slug}:${branch}`));
+  return [...pulls, ...readyItems(root, Infinity).filter(({ slug, branch }) => !published.has(`${slug}:${branch}`))];
+}
+
 function pendingInputs(requestedRoot, { now, reports }) {
   const root = resolveDataRoot(requestedRoot);
   return {
-    ready: readyItems(root, Infinity),
+    ready: readyAndPulls(root),
     decisions: openDecisions(root),
     attention: attentionView(root),
     proposals: proposalsIn(root),

@@ -461,7 +461,7 @@ test('Now and Done are subtabs, the arrows move between them and Done counts wha
   ui.input('\x1b[B');
 
   assert.equal(ui.state().focus, 'work');
-  assert.match(screen(ui), /NEXT TO LAND\s+1/);
+  assert.match(screen(ui), /TO APPROVE\s+1/);
   assert.match(screen(ui), /website: Work one/);
   assert.doesNotMatch(screen(ui), /Work two|Work three/);
   ui.stop();
@@ -519,26 +519,30 @@ test('agents at work, steps only the user can take and work already elsewhere si
   ui.stop();
 });
 
-test('m merges and n says no, each on a key named on screen, and the walk moves to the next row', async () => {
+const safeA = { safety: { grade: 'safe', rating: 'A' } };
+
+test('m merges, x cancels and r asks for a review, each on a key named on screen, and the walk moves to the next row', async () => {
   const { actions, workAction } = acting();
-  const ready = [landing('one'), landing('two'), landing('three')];
+  const ready = [landing('one', safeA), landing('two', safeA), landing('three', safeA)];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
   toDone(ui);
-  assert.match(screen(ui), /m\s+merge\s+·\s+w\s+send agent\s+·\s+n\s+no\s+·\s+enter\s+read/);
+  assert.match(screen(ui), /m\s+merge\s+·\s+c\s+changes\s+·\s+x\s+cancel\s+·\s+r\s+review\s+·\s+d\s+diff\s+·\s+enter\s+read/);
 
   ui.input('m');
   await ui.pending();
-  ui.input('n');
+  ui.input('x');
+  await ui.pending();
+  ui.input('r');
   await ui.pending();
 
-  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead], ['decline', 'site', 'two']]);
+  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead], ['decline', 'site', 'two'], ['review', 'site', 'three']]);
   ui.stop();
 });
 
 test('a merge passes on how the row was read: not at all, its page, or its diff, with the time spent', async () => {
   const { actions, workAction } = acting();
   const clock = { at: 1000 };
-  const ready = [landing('one'), landing('two'), landing('three')];
+  const ready = [landing('one', safeA), landing('two', safeA), landing('three', safeA)];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => clock.at });
   toDone(ui);
 
@@ -573,7 +577,7 @@ test('a merge passes on how the row was read: not at all, its page, or its diff,
 
 test('a done item with work on its branch shows under not landed, where m merges and x closes it', async () => {
   const { actions, workAction } = acting();
-  const ready = [landing('one', { gap: 'unlanded' }), landing('two', { gap: 'unlanded' })];
+  const ready = [landing('one', { ...safeA, gap: 'unlanded' }), landing('two', { ...safeA, gap: 'unlanded' })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => 1000 });
   toDone(ui);
 
@@ -650,19 +654,53 @@ test('a risky row takes a second m', async () => {
   ui.stop();
 });
 
-test('w sends an agent with the user\'s words, and Esc leaves the row alone', async () => {
+test('a row with no grade at its commit takes a second m too, and says r reviews it', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one'), landing('two', { safety: { grade: 'safe', rating: 'A', stale: true } })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  ui.input('m');
+  await ui.pending();
+  assert.deepEqual(actions, []);
+  assert.match(screen(ui), /No grade at this commit\. Press m again to merge Work one, or r for a review\./);
+
+  ui.input('m');
+  await ui.pending();
+  ui.input('m');
+  ui.input('m');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead], ['merge', 'site', 'two', nothingRead]]);
+  ui.stop();
+});
+
+test('a merge names the commit the row showed, so a branch that moved since is read again first', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one', { ...safeA, head: 'abc1234' })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+
+  ui.input('m');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['merge', 'site', 'one', { ...nothingRead, head: 'abc1234' }]]);
+  ui.stop();
+});
+
+test('c sends an agent back with the changes the user asks for, and Esc leaves the row alone', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one'), landing('two')];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
   toDone(ui);
 
-  ui.input('w');
+  ui.input('c');
   assert.match(screen(ui), /What should it change/);
   ui.input('\x1b');
   assert.equal(ui.state().focus, 'work');
   assert.deepEqual(actions, []);
 
-  ui.input('w');
+  ui.input('c');
   for (const letter of 'Rebase') ui.input(letter);
   ui.input('\r');
   await ui.pending();
@@ -816,7 +854,7 @@ test('Decisions lists everything waiting in groups, with work mode off, and the 
   toDecisions(ui);
 
   const text = screen(ui, 110, 70);
-  const groups = [['WENT WRONG', 1], ['QUESTIONS', 3], ['NEXT TO LAND', 1], ['NOT LANDED', 1], ['YOUR TURN', 2], ['ALREADY ELSEWHERE', 1], ['TO READ', 1]];
+  const groups = [['WENT WRONG', 1], ['QUESTIONS', 3], ['TO APPROVE', 1], ['NOT LANDED', 1], ['YOUR TURN', 2], ['ALREADY ELSEWHERE', 1], ['TO READ', 1]];
   for (const [heading, count] of groups) assert.match(text, new RegExp(`${heading} +${count}\\n`));
   assert.match(text, /website, new error since 14:02/);
   assert.match(text, /Decide one\s+Routine mail/);
@@ -831,9 +869,9 @@ test('Decisions lists everything waiting in groups, with work mode off, and the 
 
 test('a branch in Decisions opens its page and takes the keys it takes in Done, and Esc comes back to the list', async () => {
   const { actions, workAction } = acting();
-  const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one'), landing('two'), landing('three')] }) }, { workAction });
+  const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one', safeA), landing('two', safeA), landing('three', safeA)] }) }, { workAction });
   toDecisions(ui);
-  assert.match(screen(ui), /m\s+merge\s+·\s+w\s+send agent\s+·\s+n\s+no\s+·\s+enter\s+read/);
+  assert.match(screen(ui), /m\s+merge\s+·\s+c\s+changes\s+·\s+x\s+cancel\s+·\s+r\s+review/);
 
   ui.input('\r');
   await ui.pending();
@@ -842,17 +880,105 @@ test('a branch in Decisions opens its page and takes the keys it takes in Done, 
   await ui.pending();
   const next = screen(ui, 110, 30);
   assert.match(next, /website: Work two/, 'the walk carries on to the next page');
-  assert.doesNotMatch(next, /NEXT TO LAND/);
+  assert.doesNotMatch(next, /TO APPROVE/);
 
   ui.input('\x1b');
   assert.equal(ui.state().focus, 'decisions');
-  ui.input('n');
+  ui.input('x');
   await ui.pending();
 
   const [merge, ...rest] = actions.filter(([action]) => action !== 'pr');
   assert.deepEqual(merge.slice(0, 3), ['merge', 'site', 'one']);
   assert.equal(merge[3].read, 'page');
   assert.deepEqual(rest, [['decline', 'site', 'two']]);
+  ui.stop();
+});
+
+test('Decisions lists what to approve by priority, and the selected card says what was done, its proof, its PR and when it finished', () => {
+  const finished = new Date(Date.now() - 3 * 3600000).toISOString();
+  const pr = 'https://github.com/o/site/pull/9';
+  const ui = createDashboard({ ...base, waiting: waiting({ branches: [
+    landing('low', { ...safeA, grade: 'P3' }),
+    landing('urgent', { grade: 'P0', about: 'Stops the double charge on retries.', proof: 'The retry spec passes.', at: finished }),
+    landing('middle', { ...safeA, grade: 'P1', pr }),
+  ] }) });
+  toDecisions(ui);
+
+  const text = screen(ui, 110, 50);
+  const places = ['P0 website: Work urgent', 'P1 website: Work middle', 'P3 website: Work low'].map(title => text.indexOf(title));
+  assert.ok(places.every(place => place >= 0));
+  assert.deepEqual(places, places.toSorted((first, second) => first - second));
+  assert.match(text, /Done: Stops the double charge on retries\./);
+  assert.match(text, /Proof: The retry spec passes\./);
+  assert.match(text, /finished 3 hours ago/);
+  assert.doesNotMatch(text, /PR https/, 'only the selected card opens');
+
+  ui.input('\x1b[B');
+
+  assert.match(screen(ui, 110, 50), /PR https:\/\/github\.com\/o\/site\/pull\/9/);
+  ui.stop();
+});
+
+test('a PR card merges on GitHub after a second m, at the head it showed, o opens it, and c asks for changes', async () => {
+  const { actions, workAction } = acting();
+  const pr = 'https://github.com/o/site/pull/9';
+  const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one', { ...safeA, pr, head: 'abc1234' }), landing('two', { ...safeA, pr })] }) }, { workAction });
+  toDecisions(ui);
+  assert.match(screen(ui), /m m\s+merge PR\s+·\s+c\s+changes\s+·\s+x\s+cancel\s+·\s+o\s+open/);
+
+  ui.input('o');
+  await ui.pending();
+  ui.input('m');
+  await ui.pending();
+  assert.deepEqual(actions, [['open', 'site', 'one']]);
+  assert.match(screen(ui), /Press m again to merge the PR for Work one on GitHub\./);
+
+  ui.input('m');
+  await ui.pending();
+  ui.input('c');
+  for (const letter of 'Rename it') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['open', 'site', 'one'], ['mergePr', 'site', 'one', { head: 'abc1234' }], ['ask', 'site', 'two', 'Rename it']]);
+  ui.stop();
+});
+
+test('with work waiting on more than one project, Decisions says how much waits on each, the biggest pile first', () => {
+  const other = (item, details = {}) => landing(item, { slug: 'api', project: 'finboard-api', ...details });
+  const ui = createDashboard({ ...base, waiting: waiting({
+    branches: [landing('one', safeA), other('two'), other('three', { grade: 'P0' }), other('four', { gap: 'unlanded' })],
+    yours: [{ ...step, slug: 'api', project: 'finboard-api' }],
+  }) });
+  toDecisions(ui);
+
+  const text = screen(ui, 110, 60);
+
+  assert.match(text, /BY PROJECT\s+2\s*\n\s*finboard-api\s+2 to approve · 1 not landed · 1 yours · 1 P0\n\s*website\s+1 to approve\n/);
+  ui.stop();
+});
+
+test('one project waiting needs no tally, and a question says how long it has waited in plain words', () => {
+  const at = new Date(Date.now() - 18 * 3600000).toISOString();
+  const ui = createDashboard({ ...base, decisions: [asked('one', { at })], waiting: waiting({ branches: [landing('one', safeA)] }) });
+  toDecisions(ui);
+
+  const text = screen(ui, 110, 40);
+
+  assert.doesNotMatch(text, /BY PROJECT/);
+  assert.match(text, /Decide one\s+Routine mail · 18 hours ago/);
+  ui.stop();
+});
+
+test('Done puts what matters most first, and each row says its priority', () => {
+  const ready = [landing('low', { ...safeA, grade: 'P3' }), landing('urgent', { ...safeA, grade: 'P0' })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } });
+  toDone(ui);
+
+  const text = screen(ui, 110, 40);
+
+  const [urgent, low] = ['P0 website: Work urgent', 'P3 website: Work low'].map(title => text.indexOf(title));
+  assert.ok(urgent >= 0 && urgent < low);
   ui.stop();
 });
 
@@ -933,7 +1059,7 @@ test('hobkin can open Done by itself', () => {
   ui.showDone();
 
   assert.equal(ui.state().view, 'work');
-  assert.match(screen(ui), /NEXT TO LAND/);
+  assert.match(screen(ui), /TO APPROVE/);
   ui.stop();
 });
 

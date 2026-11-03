@@ -164,7 +164,9 @@ const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
 const workTabs = [{ name: 'now', label: 'Now' }, { name: 'done', label: 'Done' }];
-const doneRowTypes = ['ready', 'yours', 'elsewhere', 'unlanded'];
+const doneRowTypes = ['ready', 'pr', 'yours', 'elsewhere', 'unlanded'];
+// A local branch and an open PR are both finished work waiting on a yes.
+const approvalTypes = ['ready', 'pr'];
 const localCommands = [
   ['/help', 'what hobkin can do'],
   ['/setup', 'get hobkin ready'],
@@ -866,8 +868,9 @@ const likeWords = ({ like }) => {
   return `like ${merged} merged${from ? ` on ${clean(from)}` : ''}${watching ? watched : ''}`;
 };
 const landedFacts = entry => {
-  const { holds, onlyDocs, described, proved } = entry;
+  const { holds, onlyDocs, described, proved, unread } = entry;
   const facts = [
+    unread && caution(clean(unread)),
     sizeWords(entry) && dim(sizeWords(entry)),
     onlyDocs && dim('docs only'),
     likeWords(entry) && dim(likeWords(entry)),
@@ -877,18 +880,26 @@ const landedFacts = entry => {
   ];
   return [safetyWords(entry), qualityWords(entry), mergeState(entry), ...facts].filter(Boolean).join(muted(' · '));
 };
+// A row carries the commit it showed, so a merge can refuse a branch that moved since.
 const doneRow = (entry, type, facts) => {
-  const { slug, project, item, title } = entry;
+  const { slug, project, item, title, grade, head = null, pr = null, safety } = entry;
+  const priority = grade ? `${gradeLabel(grade)} ` : '';
   return {
     key: `${type}:${slug}:${item}`,
     type,
     slug,
     id: item,
     title,
-    risky: entry.safety?.grade === 'risky' && !entry.safety.stale,
-    lines: [`${positive('●')} ${clean(project)}: ${clean(title)}`, `  ${facts}`],
+    head,
+    pr,
+    rated: Boolean(safety) && !safety.stale,
+    risky: safety?.grade === 'risky' && !safety.stale,
+    lines: [`${positive('●')} ${priority}${clean(project)}: ${clean(title)}`, `  ${facts}`],
   };
 };
+// The sort is stable, so rows of one priority keep the order that puts the easiest yes first.
+const urgencyOf = ({ grade }) => (grades.includes(grade) ? grades.indexOf(grade) : grades.length);
+const byUrgency = (first, second) => urgencyOf(first) - urgencyOf(second);
 const closingRow = ({ project, title, doing }, inner) => ({
   lines: [row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(clean(doing)), inner)],
 });
@@ -907,10 +918,10 @@ const landRows = (rows, type) => {
 const inGaps = (ready, ...gaps) => ready.filter(({ gap = 'land' }) => gaps.includes(gap));
 const doneCount = ({ ready = [] }) => inGaps(ready, 'land', 'rebase', 'unlanded', 'yours', 'elsewhere').length;
 const doneSections = ({ work: { ready = [], closing = [], watching = [] }, inner, clock }) => {
-  const land = inGaps(ready, 'land', 'rebase');
+  const land = inGaps(ready, 'land', 'rebase').toSorted(byUrgency);
   const unlanded = inGaps(ready, 'unlanded');
   const sections = [
-    ['NEXT TO LAND', landRows(land, 'ready'), null, String(land.length)],
+    ['TO APPROVE', landRows(land, 'ready'), null, String(land.length)],
     ['NOT LANDED', landRows(unlanded, 'unlanded'), null, String(unlanded.length)],
     ['AGENT ON IT', closing.map(entry => closingRow(entry, inner))],
     ['WATCHING', watching.map(entry => watchRow(entry, inner, clock))],
@@ -1028,7 +1039,7 @@ const maxLine = ({ maxRuns, projects = [] }) => {
 };
 // A question opens when it is selected, with why only the user can answer and its numbered choices.
 const questionLines = ({ tldr, from, question, choices, at, recommended, why, changed }, open, inner, clock) => {
-  const when = timeOf(at) === null ? '' : ` · ${elapsed(timeOf(at), clock)}`;
+  const when = timeOf(at) === null ? '' : ` · ${relativeTime(timeOf(at), clock)}`;
   const heading = row(`${highlight('●')} ${bold(clean(tldr))}`, dim(`${clean(from)}${when}`), inner);
   if (!open) return [heading];
   const asked = clean(question) === clean(tldr) ? [] : wrapped(question, inner - 2).map(value => `  ${dim(value)}`);
@@ -1064,16 +1075,52 @@ const askRow = ({ kind, slug, title, reason }) => {
   if (kind === 'allowance') return { key: 'allowance', type: 'allowance', render: (open, inner) => [`${gradeLabel('P0')}  ${bold(clean(title))}`, ...why(inner, dim)] };
   return { key: `proposal:${slug}`, type: 'proposal', slug, name: title, render: (open, inner) => [`${muted('◇')} ${bold(clean(title))}`, ...why(inner, dim)] };
 };
-const branchType = ({ gap = 'land' }) => ({ unlanded: 'unlanded', elsewhere: 'elsewhere', yours: 'yours' }[gap] ?? 'ready');
+const branchType = ({ gap = 'land', pr }) => ({ unlanded: 'unlanded', elsewhere: 'elsewhere', yours: 'yours' }[gap] ?? (pr ? 'pr' : 'ready'));
 const branchFacts = entry => {
   if (entry.gap === 'elsewhere') return dim(`also on ${clean(entry.landedOn)}`);
   if (entry.gap === 'yours') return dim(clean(entry.summary ?? 'Only you can do this one.'));
   if (entry.left) return caution(clean(`Left for you: ${entry.left}`));
   return landedFacts(entry);
 };
+// An open card says what the work did, how it was shown to work and where its PR is, so most answers need no page.
+const cardDetails = ({ about, proof, pr, at }, inner, clock) => {
+  const told = [about && `Done: ${clean(about)}`, proof && `Proof: ${clean(proof)}`]
+    .filter(Boolean)
+    .flatMap(text => wrapped(text, inner - 2))
+    .map(value => `  ${dim(value)}`);
+  const finished = timeOf(at);
+  const where = [pr && `PR ${clean(pr)}`, finished !== null && `finished ${relativeTime(finished, clock)}`].filter(Boolean).join(' · ');
+  return where ? [...told, `  ${muted(line(where, inner - 2))}`] : told;
+};
 const branchRow = entry => {
   const { lines, ...done } = doneRow(entry, branchType(entry), branchFacts(entry));
-  return { ...done, entry, render: () => lines };
+  const opens = approvalTypes.includes(done.type);
+  return { ...done, entry, lit: lines.length, render: (open, inner, clock) => (open && opens ? [...lines, ...cardDetails(entry, inner, clock)] : lines) };
+};
+const PILE_KINDS = [['approve', 'to approve'], ['unlanded', 'not landed'], ['yours', 'yours'], ['elsewhere', 'elsewhere']];
+const MOST_PILE_NAME = 24;
+const emptyPile = name => ({ name, total: 0, urgent: 0, approve: 0, unlanded: 0, yours: 0, elsewhere: 0 });
+/** How much waits on each project, the biggest pile first. With one project the list below already says it, so it needs no tally. */
+const pileRows = ({ branches = [], yours = [] }) => {
+  const piles = new Map();
+  const add = (entry, kind) => {
+    const pile = piles.get(entry.slug) ?? emptyPile(clean(entry.project ?? entry.slug));
+    pile[kind] += 1;
+    pile.total += 1;
+    if (entry.grade === 'P0') pile.urgent += 1;
+    piles.set(entry.slug, pile);
+  };
+  for (const entry of branches) add(entry, approvalTypes.includes(branchType(entry)) ? 'approve' : branchType(entry));
+  for (const entry of yours) add(entry, 'yours');
+  if (piles.size < 2) return [];
+
+  const sorted = [...piles.values()].toSorted((first, second) => second.total - first.total);
+  const width = Math.min(MOST_PILE_NAME, Math.max(...sorted.map(({ name }) => visibleWidth(name))));
+  return sorted.map(pile => {
+    const counts = PILE_KINDS.filter(([kind]) => pile[kind]).map(([kind, label]) => dim(`${pile[kind]} ${label}`));
+    const urgent = pile.urgent ? [negative(`${pile.urgent} P0`)] : [];
+    return { render: () => [`${cell(bold(pile.name), width)}  ${[...counts, ...urgent].join(muted(' · '))}`] };
+  });
 };
 // A step from a run that left it with no branch to show opens in place, since it has no page.
 const stepRow = ({ project, slug, item, title, reason }) => ({
@@ -1096,22 +1143,26 @@ const troubleRow = ({ key: trouble, fact, report }) => ({
 });
 const callRow = ({ id, title, next }) => ({ key: `report:${id}`, type: 'report', report: id, render: () => [`${positive('●')} ${clean(title)}`, `  ${dim(clean(next))}`] });
 /**
- * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work, steps
- * only they can take and reports with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
+ * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work by
+ * priority, steps only they can take and reports with a call, under a tally of each project's pile. The selected row is `chosen` while it
+ * is still listed, and the first row otherwise.
  */
 const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
   const { wrong = [], asks = [], proposals = [], branches = [], yours = [], reports = [] } = waiting ?? {};
   const branchesOf = type => branches.filter(entry => branchType(entry) === type).map(branchRow);
+  const toApprove = branches.filter(entry => approvalTypes.includes(branchType(entry))).toSorted(byUrgency).map(branchRow);
   const groups = [
+    ['BY PROJECT', pileRows(waiting ?? {})],
     ['WENT WRONG', wrong.map(troubleRow)],
     ['QUESTIONS', [...decisions.map(questionRow), ...proposals.map(learningRow), ...asks.map(askRow)]],
-    ['NEXT TO LAND', branchesOf('ready')],
+    ['TO APPROVE', toApprove],
     ['NOT LANDED', branchesOf('unlanded')],
     ['YOUR TURN', yours.map(step => (step.kind === 'item' ? stepRow(step) : branchRow(step)))],
     ['ALREADY ELSEWHERE', branchesOf('elsewhere')],
     ['TO READ', reports.map(callRow)],
   ].filter(([, rows]) => rows.length);
-  const keys = groups.flatMap(([, rows]) => rows.map(({ key: rowKey }) => rowKey));
+  // The tally at the top is there to read, so only rows with a key can be selected.
+  const keys = groups.flatMap(([, rows]) => rows.map(({ key: rowKey }) => rowKey)).filter(Boolean);
   const selectedKey = keys.includes(chosen) ? chosen : keys[0] ?? null;
   const sections = groups.map(([heading, rows]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) }))]);
   return { sections, selectedKey };
@@ -1361,7 +1412,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return rows.find(entry => entry.key === workKey) ?? answerable ?? rows[0] ?? null;
   };
   const currentDecisions = (inner = columns - 4, clock = now()) => decisionSections({ decisions: decisions(), waiting: snapshot.waiting, chosen: decisionKey, inner, clock });
-  const decisionRows = () => currentDecisions().sections.flatMap(([, entries]) => entries);
+  const decisionRows = () => currentDecisions().sections.flatMap(([, entries]) => entries).filter(entry => entry.key);
   const selectedDecisionRow = () => {
     const { sections, selectedKey } = currentDecisions();
     return sections.flatMap(([, entries]) => entries).find(entry => entry.key === selectedKey) ?? null;
@@ -1809,10 +1860,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return view === 'work' && !donePage ? [...header, ...workTabRows(inner, header.length)] : [...header, ''];
   };
 
+  // A list row says what it is in `type`, and a page's entry says it in `gap`.
   const doneKeys = row => {
     if (row?.type === 'unlanded' || row?.gap === 'unlanded') return [['m', 'merge'], ['x', 'close']];
-    const opensToLand = row?.type === 'ready' || ['land', 'rebase'].includes(row?.gap);
-    return opensToLand ? [['m', 'merge'], ['w', 'send agent'], ['n', 'no']] : [['x', 'done']];
+    const opensToLand = approvalTypes.includes(row?.type) || ['land', 'rebase'].includes(row?.gap);
+    if (!opensToLand) return [['x', 'done']];
+    const answers = [['c', 'changes'], ['x', 'cancel']];
+    return row.pr ? [['m m', 'merge PR'], ...answers, ['o', 'open']] : [['m', 'merge'], ...answers];
   };
   // An item that says done has no run left to review it.
   const pageKeys = entry => [...doneKeys(entry), ['d', 'diff'], ...(entry.gap === 'unlanded' ? [] : [['r', 'review']]), ['↑↓', 'scroll'], ['esc', 'back']];
@@ -1822,7 +1876,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
     allowance: [['y', 'raise'], ['n', 'keep paused']],
     run: [['enter', 'watch']],
-    ready: [...doneKeys(selected), ['enter', 'read']],
+    ready: [...doneKeys(selected), ['r', 'review'], ['d', 'diff'], ['enter', 'read']],
+    pr: [...doneKeys(selected), ['r', 'review'], ['d', 'diff'], ['enter', 'read']],
     yours: [...doneKeys(selected), ['enter', 'read']],
     elsewhere: [...doneKeys(selected), ['enter', 'read']],
     unlanded: [...doneKeys(selected), ['enter', 'read']],
@@ -2153,17 +2208,35 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const selectedDone = () => {
     if (!donePage) return selectedListRow();
     const { entry } = donePage;
-    return listRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? { key: null, slug: entry.slug, id: entry.item, title: entry.title };
+    return listRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? doneRow(entry, branchType(entry), '');
   };
+  // A page whose row has left the list still has its item, so a second press means the same row.
+  const armKeyOf = ({ key: rowKey, slug, id }) => rowKey ?? `${slug}:${id}`;
+  const pinnedTo = ({ head }) => (head ? { head } : {});
+  // Only a safe grade at the commit the row shows merges on one key. Anything else says what it lacks, and a second m is the user's word.
   const mergeRow = selected => {
-    if (selected.risky && armedMerge !== selected.key) {
-      armedMerge = selected.key;
-      say(`Rated risky. Press m again to merge ${clean(selected.title)}.`, 'warning', { timeout: 3000 });
+    const sure = selected.rated && !selected.risky;
+    if (!sure && armedMerge !== armKeyOf(selected)) {
+      armedMerge = armKeyOf(selected);
+      const lacking = selected.risky ? 'Rated risky.' : 'No grade at this commit.';
+      const review = selected.risky ? '' : ', or r for a review';
+      say(`${lacking} Press m again to merge ${clean(selected.title)}${review}.`, 'warning', { timeout: 3000 });
       return;
     }
     armedMerge = null;
     walkOn(selected);
-    runWorkAction('merge', selected.slug, selected.id, readingOf(selected));
+    runWorkAction('merge', selected.slug, selected.id, { ...readingOf(selected), ...pinnedTo(selected) });
+  };
+  // A PR merges on its host, where it cannot be undone from here, so it always takes a second m.
+  const mergePullRequestRow = selected => {
+    if (armedMerge !== armKeyOf(selected)) {
+      armedMerge = armKeyOf(selected);
+      say(`Press m again to merge the PR for ${clean(selected.title)} on GitHub.`, 'warning', { timeout: 3000 });
+      return;
+    }
+    armedMerge = null;
+    walkOn(selected);
+    runWorkAction('mergePr', selected.slug, selected.id, pinnedTo(selected));
   };
   const startNote = selected => {
     notingOn = selected;
@@ -2179,13 +2252,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     walkOn(selected);
     runWorkAction('ask', slug, id, text);
   };
+  const answerAndWalkOn = (selected, action) => {
+    walkOn(selected);
+    runWorkAction(action, selected.slug, selected.id);
+  };
+  // What a finished row waiting on a yes does with a key, on its row and on its page.
   const handleDoneRowKey = (selected, data) => {
-    if (data === 'm') mergeRow(selected);
-    else if (data === 'w') startNote(selected);
-    else if (data === 'n') {
-      walkOn(selected);
-      runWorkAction('decline', selected.slug, selected.id);
-    } else return false;
+    if (data === 'm' && selected.pr) mergePullRequestRow(selected);
+    else if (data === 'm') mergeRow(selected);
+    else if (data === 'c') startNote(selected);
+    else if (data === 'x') answerAndWalkOn(selected, 'decline');
+    else if (data === 'o' && selected.pr) runWorkAction('open', selected.slug, selected.id);
+    else return false;
     return true;
   };
   const closeRow = selected => {
@@ -2252,7 +2330,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else if (selected?.type === 'allowance' && data === 'y') runWorkAction('allow');
     else if (selected?.type === 'allowance' && data === 'n') runWorkAction('keep');
     else if (doneRowTypes.includes(selected?.type) && key(data, 'enter')) readRow(selected);
-    else if (selected?.type === 'ready' && handleDoneRowKey(selected, data)) return true;
+    else if (approvalTypes.includes(selected?.type) && data === 'r') answerAndWalkOn(selected, 'review');
+    else if (approvalTypes.includes(selected?.type) && data === 'd') openRowDiff(selected);
+    else if (approvalTypes.includes(selected?.type) && handleDoneRowKey(selected, data)) return true;
     else if (selected?.type === 'unlanded' && handleUnlandedKey(selected, data)) return true;
     else if (['yours', 'elsewhere', 'left'].includes(selected?.type) && data === 'x') closeRow(selected);
     else return false;

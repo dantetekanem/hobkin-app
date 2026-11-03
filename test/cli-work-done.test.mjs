@@ -7,7 +7,8 @@ import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { fillGaps } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
-import { askAgent, declineItem, markDone, mergeItem } from '../src/cli/work/controls.mjs';
+import { readWaiting } from '../src/cli/pending-read.mjs';
+import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openPullRequest } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { closingItems, landingList, readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem } from '../src/cli/work/store.mjs';
@@ -289,6 +290,66 @@ test('a PR the survey cannot grade says why instead of a grade', async t => {
   const why = Object.fromEntries(leftOut.map(({ item, why: reason }) => [item, reason]));
   assert.match(why[theirs.id], /fix\/links, which is not a hobkin branch/);
   assert.match(why[unread.id], /did not read its head/);
+});
+
+test('an open PR waits in Decisions as one card with its PR, its head, what it did and its proof, and its branch row stays out', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/8-fix', 'eight.txt', 'eight\n');
+  const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8', proof: 'The retry spec failed, then passed.' });
+  const sameBranch = finished(h, 'hobkin/8-fix');
+  mkdirSync(join(h.root, 'work', 'api', 'prs'), { recursive: true });
+  writeFileSync(prFile(h.root, 'api', published.id), '# Charge once\n\nIssue id: 8\n\nRetries no longer charge twice.\n');
+  reviewed(h, tipOf(h, 'hobkin/8-fix'));
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([pull(8, { headRefOid: tipOf(h, 'hobkin/8-fix') })]), reviews: h.reviews });
+
+  const { branches } = readWaiting(h.root, { now: NOW, reports: [] });
+
+  assert.deepEqual(branches.map(({ item }) => item), [published.id], 'one branch is one card, and the PR speaks for it');
+  const [card] = branches;
+  assert.deepEqual([card.pr, card.head, card.about, card.proof], ['https://example.com/pull/8', tipOf(h, 'hobkin/8-fix'), 'Retries no longer charge twice.', 'The retry spec failed, then passed.']);
+  assert.match(card.grade, /^P[0-3]$/);
+  assert.notEqual(sameBranch.id, card.item);
+});
+
+test('a PR merges on its host only at the head it was shown, and a failure says why and changes nothing', async t => {
+  const h = workspace(t);
+  const item = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  const calls = [];
+  const gh = async (args, cwd) => {
+    calls.push([args, cwd]);
+    if (calls.length > 1) throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.\nmore' });
+  };
+
+  const merged = await mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh });
+  await assert.rejects(mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh }), /did not merge: Head branch was modified\.$/);
+
+  assert.match(merged.message, /Merged https:\/\/example\.com\/pull\/8/);
+  assert.deepEqual(calls[0], [['pr', 'merge', 'https://example.com/pull/8', '--merge', '--match-head-commit', 'abc1234'], h.checkout]);
+  assert.equal(read(h, item).state, 'pr', 'the survey closes it once the host says it merged');
+});
+
+test('only an item with an open PR merges or opens on its host', async t => {
+  const h = workspace(t);
+  const local = finished(h, 'hobkin/abc');
+  const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  const opened = [];
+
+  await assert.rejects(mergePullRequest(h.root, 'api', local.id, { gh: async () => {} }), /is branch, so it has no open PR/);
+  const answer = await openPullRequest(h.root, 'api', published.id, { open: async url => { opened.push(url); } });
+
+  assert.deepEqual(opened, ['https://example.com/pull/8']);
+  assert.match(answer.message, /Opened https:\/\/example\.com\/pull\/8/);
+});
+
+test('asking for changes on a PR sends an agent back to its branch with the user\'s words', t => {
+  const h = workspace(t);
+  const item = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+
+  askAgent(h.root, 'api', item.id, 'Rename the flag.');
+
+  assert.equal(read(h, item).state, 'open');
+  assert.equal(read(h, item).branch, 'hobkin/8-fix');
+  assert.equal(read(h, item).workNote, 'Rename the flag.');
 });
 
 test('the landing list is never cut short', async t => {

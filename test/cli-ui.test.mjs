@@ -2615,7 +2615,7 @@ test('clicking the Done subtab opens it', async t => {
 
   click(terminal, cellOf(ui, 'Done 1', terminal.columns, terminal.rows));
 
-  assert.match(stripTerminalSequences(ui.render(terminal.columns, terminal.rows).join('\n')), /NEXT TO LAND/);
+  assert.match(stripTerminalSequences(ui.render(terminal.columns, terminal.rows).join('\n')), /TO APPROVE/);
 });
 
 test('clicking a main tab opens it, wherever the header put the tabs', async t => {

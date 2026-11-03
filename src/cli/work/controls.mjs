@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { promisify } from 'node:util';
 import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
@@ -16,7 +18,9 @@ import {
   retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
-import { changeFacts, landedRecord, landingTip, readUnmerged, SHIP_KIND } from './unmerged.mjs';
+import { changeFacts, ghWithin, landedRecord, landingTip, readUnmerged, SHIP_KIND } from './unmerged.mjs';
+
+const run = promisify(execFile);
 
 const QUEUE_KEY = /^(item|look|study|ideas|signals|watch):([^:]+)(?::(.+))?$/;
 const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch'];
@@ -352,6 +356,37 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
   return reply(`Merged "${title}" into ${base}.${alongside} Nothing was pushed.`, { target, route });
 }
 
+const MERGE_PR_TIMEOUT_MS = 2 * 60000;
+const browserOpener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+
+function prOf(root, reference, id) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  if (item.state !== 'pr' || !item.pr) throw Error(`"${item.title}" is ${item.state}, so it has no open PR.`);
+  return { project, item };
+}
+
+/**
+ * A PR lands on its host, and only on the user's word, so this is the one place hobkin asks its host to merge one. `head` is the commit the user
+ * saw, so a PR that moved since is refused there. The survey closes the item once the host says it merged.
+ */
+export async function mergePullRequest(root, reference, id, { head = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS) } = {}) {
+  const { project, item } = prOf(root, reference, id);
+  const repo = project.path ?? paths(root, project.slug).clone;
+  const pinned = head ? ['--match-head-commit', head] : [];
+  await gh(['pr', 'merge', item.pr, '--merge', ...pinned], repo).catch(error => {
+    throw Error(`"${item.title}" did not merge: ${firstLine(error.stderr || error.message)}`);
+  });
+  return reply(`Merged ${item.pr}. hobkin closes the item at its next survey.`);
+}
+
+/** Opens an item's PR in the browser, to read or comment on it there. */
+export async function openPullRequest(root, reference, id, { open = url => run(browserOpener, [url]) } = {}) {
+  const { item } = prOf(root, reference, id);
+  await open(item.pr);
+  return reply(`Opened ${item.pr} in the browser.`);
+}
+
 /**
  * `done` means no change was needed, so a branch holding commits the default branch lacks is finished work, whatever a run called it.
  * A fix's run works on a branch that belongs to the item that made it. With nothing to read here the run's word stands.
@@ -385,16 +420,17 @@ export function declineItem(root, reference, id, now = Date.now()) {
 }
 
 /**
- * Sends an agent back to a finished branch with the user's words, which go first in the queue like a review does.
- * `answering` is a run's own question being answered, which says nothing against the branch.
+ * Sends an agent back to a finished branch or PR with the user's words, which go first in the queue like a review does.
+ * `answering` is a run's own question being answered, which says nothing against the work.
  */
 export function askAgent(root, reference, id, note, { answering = false, now = Date.now() } = {}) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
-  if (!statesThatRun.includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to work on.`);
+  if (![...statesThatRun, 'pr'].includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to work on.`);
 
-  const sentBack = item.state === 'branch' && !answering ? pushbackOn(root, project, item, now) : {};
+  const finished = ['branch', 'pr'].includes(item.state);
+  const sentBack = finished && !answering ? pushbackOn(root, project, item, now) : {};
   updateItem(root, project.slug, item.id, { workNote: note?.trim() || 'Close whatever stops this merging.', ...sentBack }, now);
   retryItem(root, project.slug, item.id);
   return reply(`An agent goes back to "${item.title}" next.`);

@@ -187,6 +187,23 @@ function gapOf(item, unit, items) {
 /** Everything a branch would bring with it, because merging it merges them too. A grade on the top one says nothing about these. */
 const stackedBeneath = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
 
+// A card says what the work did in a few lines, so this is enough of a description or a proof to read at a glance.
+const LONGEST_ABOUT = 420;
+const LONGEST_PROOF = 260;
+const oneLine = (text, most) => String(text).replace(/\s+/g, ' ').trim().slice(0, most);
+
+/** What the work did, in its own words: the first paragraph of its description past the title, the issue line and headings, or else its summary. */
+function aboutOf(file, summary) {
+  try {
+    const paragraphs = readFileSync(file, 'utf8').slice(0, 8192).split(/\n\s*\n/).map(part => part.trim()).filter(Boolean);
+    const body = paragraphs.slice(1).find(part => !/^(#|issue id:)/i.test(part));
+    if (body) return oneLine(body, LONGEST_ABOUT);
+  } catch {
+    // An item that wrote no description still has its summary.
+  }
+  return summary ? oneLine(summary, LONGEST_ABOUT) : null;
+}
+
 function readyRow(root, project, item, items, openUnits = []) {
   const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null, launch = null } = item;
   const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
@@ -196,9 +213,14 @@ function readyRow(root, project, item, items, openUnits = []) {
     project: nameOf(project),
     item: id,
     title,
+    // How much the work matters, as the queue ranks it, without what earlier tries took off.
+    grade: itemGrade(project, { ...item, attempts: 0 }),
+    kind: item.kind ?? null,
     branch,
     head: sha,
     summary,
+    about: aboutOf(prFile(root, project.slug, id), summary),
+    proof: proof ? oneLine(proof, LONGEST_PROOF) : null,
     left,
     at: updatedAt,
     behind,
@@ -322,7 +344,7 @@ function unreadPr({ branch }, open) {
 function prRow(root, project, item, items, units) {
   const open = units.find(unit => unit.kind === 'pr' && unit.branch === item.branch);
   const unread = unreadPr(item, open);
-  if (!open) return { ...readyRow(root, project, item, items), unread };
+  if (!open) return { ...readyRow(root, project, item, items), pr: item.pr ?? null, unread };
   return { ...readyRow(root, project, item, items, units), pr: open.url, unread };
 }
 
@@ -337,14 +359,19 @@ function oncePerBranch(rows) {
   });
 }
 
-/** Everything waiting to land, uncut. A PR merges on its host, so it stays out of the walk, but bulk landing has to see it. An open PR speaks for its branch. */
-function landingRows(root) {
+/** Every item recorded as a PR, read against what the last survey found open. Each row carries its `pr`, or `unread` when there is nothing to grade. */
+export function pullRequestRows(root) {
   const { projects: surveyed } = readUnmerged(root);
-  const prs = chosenProjects(root).flatMap(project => {
+  return chosenProjects(root).flatMap(project => {
     const items = readItems(root, project.slug);
     const units = surveyed[project.slug]?.open ?? [];
     return items.filter(({ state }) => state === 'pr').map(item => prRow(root, project, item, items, units));
   });
+}
+
+/** Everything waiting to land, uncut. A PR merges on its host, so it stays out of the walk, but bulk landing has to see it. An open PR speaks for its branch. */
+function landingRows(root) {
+  const prs = pullRequestRows(root);
   const waiting = weighedRows(root).map(({ row }) => row);
   const ordered = [...prs.filter(({ unread }) => !unread), ...waiting, ...prs.filter(({ unread }) => unread)];
   return oncePerBranch(ordered).toSorted(nextToMerge);
