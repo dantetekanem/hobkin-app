@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { buildContext } from '../src/cli/context.mjs';
 import { answerDecision, fileDecision, findDecision, markShown, openDecisions, runDecideCommand } from '../src/cli/decisions.mjs';
+import { readEvents } from '../src/cli/events.mjs';
 
 const yesNo = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
+const iso = time => new Date(time).toISOString();
 
 function home(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-decisions-'));
@@ -139,6 +141,18 @@ test('a routine that asks what was answered in the last 30 days files nothing an
   assert.equal(again.label, 'No');
   assert.equal(again.answeredAt, '2026-10-20T10:00:00.000Z');
   assert.match(again.message, /2026-10-20.*No/);
+});
+
+test('an answer given again from memory goes on the record, with who asked and none of the words', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices' }), at);
+  answerDecision(root, id, 'no', at);
+
+  await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices' }), at + DAY_MS);
+
+  const recalled = readEvents(root).filter(({ type }) => type === 'decision_recalled');
+  assert.deepEqual(recalled, [{ at: iso(at + DAY_MS), type: 'decision_recalled', routine: 'mail' }]);
 });
 
 test('an answer older than 30 days is no answer, and the question is filed', async t => {

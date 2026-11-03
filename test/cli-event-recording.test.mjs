@@ -109,6 +109,19 @@ test('a run that failed on a usage limit says so, in a fact and no words', async
   assert.doesNotMatch(h.written(), /private/);
 });
 
+test('a report that asks for a call says so, in a fact and no words', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const run = (id, text) => app.runtime.dispatch({ id, kind: 'background', scheduleId: id, title: 'Private title', harness: 'pi' }, async () => ({ status: 'completed', text }));
+
+  await run('asks', 'Useful: A private finding.\nNext: Say yes to the private draft.');
+  await run('tells', 'Useful: A private finding.');
+  await app.close();
+
+  assert.deepEqual(h.ofType('run_finished').map(({ id, next }) => [id, next]), [['asks', true], ['tells', undefined]]);
+  assert.doesNotMatch(h.written(), /private/);
+});
+
 test('a run left running by a crash is recorded when the next owner finds it', async t => {
   const h = fixture(t);
   const first = await h.openApp();
@@ -306,6 +319,23 @@ test('a question records that it showed, which choice answered it and how long i
 
   assert.equal(ofType('question_shown').length, 1);
   assert.deepEqual(ofType('question_ended'), [{ type: 'question_ended', how: 'answered', choice: 1, ms: 4000 }]);
+});
+
+test('an answer in the Decisions tab records how long that decision was open, not how long it waited', async () => {
+  let clock = 1000;
+  const decision = id => ({ id, tldr: 'A private summary', from: 'Mail', question: 'A private question?', choices, at: new Date(0).toISOString() });
+  const { ui, ofType } = dashboard({ decisions: [decision('one'), decision('two')] }, { workAction: async () => ({ ok: true }) }, { now: () => clock });
+
+  for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'decisions');
+  clock += 5000;
+  ui.input(DOWN);
+  clock += 2000;
+  ui.input('1');
+  await ui.pending();
+  ui.stop();
+
+  assert.deepEqual(ofType('decision_read'), [{ type: 'decision_read', id: 'two', ms: 2000 }]);
 });
 
 test('a question escaped says so, and one left to run out says it expired', async t => {

@@ -1160,6 +1160,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const motion = options.motion ? new Slide() : null;
   let reading = null;
   let onDonePage = null;
+  let onDecision = null;
   let referencedReport = null;
   let attachments = [];
   let readingClipboard = false;
@@ -1323,10 +1324,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     onDonePage = page ? { page, since: now() } : null;
   };
+  const trackDecision = id => {
+    if (onDecision?.id === id) return;
+    onDecision = id ? { id, since: now() } : null;
+  };
   const changed = () => {
     if (stopped) return;
     trackReading(reportOnScreen());
     trackDonePage(donePage);
+    trackDecision(focus === 'decisions' ? selectedDecision()?.id : null);
     animate();
     onChange();
   };
@@ -2192,6 +2198,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       decisionId = list[Math.max(0, Math.min(list.length - 1, index))]?.id ?? null;
     } else if (choice) {
       decisionId = (list[list.indexOf(selected) + 1] ?? list[list.indexOf(selected) - 1])?.id ?? null;
+      if (onDecision?.id === selected.id) record('decision_read', { id: selected.id, ms: now() - onDecision.since });
       runWorkAction('decide', selected.id, choice.value);
     } else {
       return false;

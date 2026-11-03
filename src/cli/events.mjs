@@ -52,8 +52,13 @@ export function recordRunFinished(root, run) {
   if (run.parentRunId) return;
   const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
   const limited = hitLimit(run);
-  if (run.kind === 'main') recordEvent(root, 'turn_finished', { id: run.id, status: run.status, stopReason: run.result?.stopReason, ms, limited });
-  else recordEvent(root, 'run_finished', { ...runFacts(run), status: run.status, ms, usd: run.cost?.usd, tokens: run.result?.tokens, triage: reportTriage(run)?.level, limited });
+  if (run.kind === 'main') {
+    recordEvent(root, 'turn_finished', { id: run.id, status: run.status, stopReason: run.result?.stopReason, ms, limited });
+    return;
+  }
+  const triage = reportTriage(run);
+  // Only a report with a `Next:` counts as a call, so the fact says that it has one and leaves its words out.
+  recordEvent(root, 'run_finished', { ...runFacts(run), status: run.status, ms, usd: run.cost?.usd, tokens: run.result?.tokens, triage: triage?.level, next: triage?.next ? true : undefined, limited });
 }
 
 function parseMonth(file) {

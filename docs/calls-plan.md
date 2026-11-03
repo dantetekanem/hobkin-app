@@ -258,6 +258,7 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | `src/cli/work/pairs.mjs` | bringing the next two, and carrying out the answer |
 | `src/cli/session-log.mjs` | session endings: recording, posting and telling the main agent |
 | `src/cli/work/upkeep.mjs` | the daily pass over hobkin's own failures: classes, the `fix` on itself, or one quiet line |
+| `src/cli/work/scoreboard.mjs` | pure: what hobkin brought, what came of it and what it settled alone, from events and `landed` |
 
 Commands: `hobkin work offers`, `watching`, `watch <slug>` and `signals <slug>` (JSON on stdin from a run), `trouble`, `trust`.
 

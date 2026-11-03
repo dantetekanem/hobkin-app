@@ -291,8 +291,12 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     if (!Number.isInteger(days) || days < 1) throw Error('Usage: hobkin telemetry [--days n]');
 
     const { eventRollup, readEvents } = await import('./events.mjs');
-    const events = readEvents(resolveDataRoot(options.root), { since: Date.now() - days * DAY_MS });
-    output.write(`${inRoutineWords(JSON.stringify(eventRollup(events), null, 2))}\n`);
+    const { landedRecords, scoreboard } = await import('./work/scoreboard.mjs');
+    const dataRoot = resolveDataRoot(options.root);
+    const since = Date.now() - days * DAY_MS;
+    const events = readEvents(dataRoot, { since });
+    const landed = landedRecords(dataRoot).filter(({ at }) => Date.parse(at) >= since);
+    output.write(`${inRoutineWords(JSON.stringify({ ...eventRollup(events), scoreboard: scoreboard(events, landed) }, null, 2))}\n`);
     return 0;
   }
   if (options.command === 'history') {

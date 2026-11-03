@@ -451,12 +451,12 @@ test('with nothing stale the message says so in one line, and names no command',
 
   const lines = reviewMessage(reviewView(root, now)).split('\n').filter(Boolean);
 
-  assert.equal(lines.length, 2);
+  assert.equal(lines.length, 3, 'with the scoreboard last');
   assert.match(lines[1], /stale/i);
   assert.doesNotMatch(lines[1], /hobkin work/);
 });
 
-test('each stale project comes with why and the exact command, and the last line says what dropping keeps', t => {
+test('each stale project comes with why and the exact command, and the line after says what dropping keeps', t => {
   const root = workingRoot(t);
   const name = { name: 'Old Site', path: '/repos/old-site', level: 'critical' };
   proposeProject(root, name, daysAgo(40));
@@ -467,7 +467,7 @@ test('each stale project comes with why and the exact command, and the last line
 
   const lines = reviewMessage(reviewView(root, now)).split('\n').filter(Boolean);
 
-  assert.equal(lines.length, 4);
+  assert.equal(lines.length, 5, 'with the scoreboard last');
   assert.match(lines[0], /^Weekly review: /);
   for (const fact of ['Old Site', 'Spent 2.1m tokens on 2 runs and finished nothing.', '`hobkin work drop old-site`']) assert.ok(lines[1].includes(fact), fact);
   for (const fact of ['backlog', '1 item open and nothing ran.', '`hobkin work drop backlog`']) assert.ok(lines[2].includes(fact), fact);
@@ -481,8 +481,8 @@ test('one stale project is not spoken of as several', t => {
 
   const lines = reviewMessage(reviewView(root, now)).split('\n').filter(Boolean);
 
-  assert.match(lines.at(-1), /^This one is worth dropping/);
-  assert.match(lines.at(-1), /branches and PRs/);
+  assert.match(lines[2], /^This one is worth dropping/);
+  assert.match(lines[2], /branches and PRs/);
 });
 
 test('a review reports and changes nothing, even with a project worth dropping', t => {

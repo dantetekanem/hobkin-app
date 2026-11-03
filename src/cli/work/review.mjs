@@ -1,4 +1,6 @@
+import { readEvents } from '../events.mjs';
 import { nameOf } from './names.mjs';
+import { landedRecords, scoreboard } from './scoreboard.mjs';
 import { byPriority, chosenProjects, priorityOf, readItems, readMode, runnableStates, tokenEvents, tokenLabel } from './store.mjs';
 import { pendingMerges, readUnmerged } from './unmerged.mjs';
 
@@ -97,6 +99,7 @@ export function reviewView(root, now = Date.now()) {
     oldestDays: waiting ? Math.max(...projects.map(row => row.oldestDays ?? 0)) : null,
     projects,
     stale: projects.filter(row => row.stale).map(row => row.slug),
+    scoreboard: scoreboard(readEvents(root, { since }).filter(({ at }) => inWeek(at)), landedRecords(root).filter(({ at }) => inWeek(at))),
   };
 }
 
@@ -109,12 +112,11 @@ function waitingWords(waiting, oldestDays) {
 }
 
 /** The Chat text for a week. It names the command and leaves the dropping to the user. */
-export function reviewMessage({ verdict, runs, finished, merged, tokens, projects, waiting, oldestDays }) {
+export function reviewMessage({ verdict, runs, finished, merged, tokens, projects, waiting, oldestDays, scoreboard: { lines: score = [] } = {} }) {
   const numbers = `${counted(runs, 'run')}, ${counted(finished, 'item')} finished, ${counted(merged, 'project')} merged something, ${tokenLabel(tokens)} tokens.`;
   const opening = `Weekly review: ${verdictLines[verdict]}. ${numbers}${waitingWords(waiting, oldestDays)}`;
   const stale = projects.filter(row => row.stale);
-  if (!stale.length) return `${opening}\n\nNo project is stale.`;
-
   const each = stale.length === 1 ? 'This one is' : 'Each of these is';
-  return [opening, '', ...stale.map(staleLine), '', `${each} worth dropping, and dropping keeps its branches and PRs.`].join('\n');
+  const staleness = stale.length ? [...stale.map(staleLine), '', `${each} worth dropping, and dropping keeps its branches and PRs.`] : ['No project is stale.'];
+  return [opening, '', ...staleness, ...(score.length ? ['', ...score] : [])].join('\n');
 }

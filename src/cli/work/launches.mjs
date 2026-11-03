@@ -1,3 +1,4 @@
+import { recordEvent } from '../events.mjs';
 import { canWatch, readSignals } from './signals.mjs';
 import { chosenProjects, fileItem, paths, readItems, readLaunches, recordLaunch } from './store.mjs';
 import { defaultBranch, gitOrNothing, gitWithin, isMerged } from './tree.mjs';
@@ -158,6 +159,7 @@ function fileFlagRemoval(root, slug, { title, launch: { flag: { name, expires } 
 
 function closeLaunch(root, slug, launch, item, outcome, now) {
   recordLaunch(root, slug, { item: launch.item, stage: 'closed', outcome, closesAt: iso(now) }, now);
+  recordEvent(root, 'launch_closed', { project: slug, item: launch.item, outcome }, now);
   const clean = cleanOutcomes.includes(outcome);
   return { item: launch.item, outcome, filed: clean && item.launch?.flag ? [fileFlagRemoval(root, slug, item, now)] : [] };
 }

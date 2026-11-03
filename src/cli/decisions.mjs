@@ -131,7 +131,10 @@ export async function runDecideCommand(root, args, input, now = Date.now()) {
   assertDecision(asked);
   const scopedKey = [...args, key || keyOf(asked.question)].join(':');
   const earlier = asker.answerTo.kind === 'routine' && !changed?.trim() ? recentAnswer(root, scopedKey, now) : null;
-  if (earlier) return earlierAnswer(earlier);
+  if (earlier) {
+    recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id }, now);
+    return earlierAnswer(earlier);
+  }
   const { id } = fileDecision(root, { ...asked, ...asker, key: scopedKey, changed }, now);
   return { ok: true, id, message: 'Filed in Decisions. Carry on: the answer reaches you later.' };
 }

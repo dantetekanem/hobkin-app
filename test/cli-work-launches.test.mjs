@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
+import { readEvents } from '../src/cli/events.mjs';
 import { main } from '../src/cli/main.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { pulseLaunches, recordWatch } from '../src/cli/work/launches.mjs';
@@ -60,6 +61,17 @@ function land(h, { file, text = 'changed\n', title = `Change ${++h.merged}`, lan
 const launchOf = (h, { id }) => readLaunches(h.root, 'api').find(({ item }) => item === id);
 const itemsOf = h => readItems(h.root, 'api');
 const watchable = h => recordSignals(h.root, 'api', { type: 'service', deploy: proof, logs: proof }, NOW);
+
+test('a launch that closes goes on the record with how it ended', async t => {
+  const h = workspace(t);
+  const { id } = land(h);
+
+  await h.pulse();
+  await h.pulse(NOW + 3 * DAY);
+
+  const closed = readEvents(h.root).filter(({ type }) => type === 'launch_closed');
+  assert.deepEqual(closed.map(({ project, item, outcome }) => [project, item, outcome]), [['api', id, 'quiet']]);
+});
 
 test('a merge opens one launch, for the item that says it landed, and only for that', async t => {
   const h = workspace(t);
