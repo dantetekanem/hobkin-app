@@ -34,7 +34,7 @@ For hourly checks between 08:00 and 17:00, replace `at` with:
 "window": { "start": "08:00", "end": "17:00", "everyMinutes": 60 }
 ```
 
-This routines ten checks in one file. The interval starts at `start`; it includes `end` only when that time falls on the interval. Windows use one local day, cannot cross midnight, and accept an integer `everyMinutes` from 1 to 1440, with at most 48 checks. Use either `at` or `window`. After downtime, only the latest due check inside the window is eligible; none starts after its end minute.
+This runs ten checks from one file. The interval starts at `start`; it includes `end` only when that time falls on the interval. Windows use one local day, cannot cross midnight, and accept an integer `everyMinutes` from 1 to 1440, with at most 48 checks. Use either `at` or `window`. After downtime, only the latest due check inside the window is eligible; none starts after its end minute.
 
 Weekly files also need `"weekday": 1` (Sunday 0 through Saturday 6), or a list of days such as `"weekday": [1, 2, 3, 4, 5]` for Monday to Friday. Monthly files need `"day": 1` (1 to 31); missing dates are skipped. All times use the named timezone. Repeated daylight-saving times run once; nonexistent times are skipped. IDs must be unique across folders.
 
