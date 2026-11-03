@@ -139,7 +139,7 @@ test('projects lists each one with its counts, and --state narrows it', async t 
 
   assert.deepEqual(json.map(({ name, slug, state }) => [name, slug, state]), [['api', 'api', 'chosen'], ['site', 'the-site', 'proposed']]);
   assert.deepEqual(json[0], {
-    name: 'api', slug: 'api', level: 'critical', priority: 'P0', prMode: 'off', state: 'chosen', path: '/repos/api', paused: false, open: 2, prs: 1, branches: 1, left: 1, nextLookAt: '2026-01-01T01:00:00.000Z',
+    name: 'api', slug: 'api', level: 'critical', priority: 'P0', prMode: 'off', state: 'chosen', path: '/repos/api', paused: false, open: 2, merged: 0, prs: 1, branches: 1, left: 1, nextLookAt: '2026-01-01T01:00:00.000Z',
   });
   assert.deepEqual((await hobkin(root, 'projects', '--state', 'proposed')).json.map(({ slug }) => slug), ['the-site']);
   assert.match((await failure(root, 'projects', '--state', 'lost')).message, /chosen, proposed, skipped/);
@@ -342,8 +342,8 @@ test('status lists the local PRs waiting for review on chosen projects, oldest f
   const { json } = await hobkin(root);
 
   assert.deepEqual(json.ready, [
-    { slug: 'api', project: 'api', item: first.id, title: 'First', branch: 'hobkin/first', summary: 'The first.', left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
-    { slug: 'site', project: 'site', item: second.id, title: 'Second', branch: 'hobkin/second', summary: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
+    { slug: 'api', project: 'api', item: first.id, title: 'First', branch: 'hobkin/first', head: null, summary: 'The first.', left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
+    { slug: 'site', project: 'site', item: second.id, title: 'Second', branch: 'hobkin/second', head: null, summary: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
   ]);
 });
 

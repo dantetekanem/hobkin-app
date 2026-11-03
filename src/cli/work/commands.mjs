@@ -27,15 +27,14 @@ Read, as JSON, with nothing running:
   projects [--state state]             chosen, proposed, skipped or dropped
   running, queue                       agents and panes; the plan and its waits
   items [project] [--state state]      state, grade, branch, PR, what is left
-  ready                                what can land by real grades; why the rest cannot
+  ready                                what can land by real grades, and why not
   pr, diff <project> <item>            a local PR; diff opens it in pi-coder
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
   attention, offers                    what is left for the user; what can land
   watching, signals <project>          what landed; what a project can show
 Change, printing ok and message. Project: name, slug or path. Item: id start.
-  start [folder]                       same as on, and ends any pause
-  stop                                 same as off: agents finish, none start
+  start [folder], stop                 on and end any pause; off: agents finish
   pause, resume [project]              agents finish, none start; resume ends it
   trigger <project> [look|study|item]  run it next, inside limits (was run)
   cancel <project|run id|item>         ask the owner to cancel running work
@@ -56,8 +55,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   prs <project> <off|draft|published>  local PR, draft PR or published PR
   auto, reviews, ship [on|off]         pick alone; review; ship before new work
   harness <pi|claude|codex>, agents <1-${MAX_AGENTS}>  which agent works, how many at once
-  tokens <number>                      the daily limit, from now on
-  allow [number|no]                    answer a request, for today only
+  tokens <number>, allow [number|no]   the daily limit; or a yes for today
   reset                                forget what it found; it must be off
 Used by agents inside a run:
   item, signals, watch <project>       JSON on stdin: an item; what a look found
