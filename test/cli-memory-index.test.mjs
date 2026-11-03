@@ -32,9 +32,23 @@ async function settled(check, what = 'that', timeout = 8000) {
   }
 }
 
+const cleanups = new WeakMap();
+
+// node:test runs after hooks in registration order; resources need the reverse.
+function cleanup(t, dispose) {
+  if (!cleanups.has(t)) {
+    const stack = [];
+    cleanups.set(t, stack);
+    t.after(async () => {
+      for (const release of stack.reverse()) await release();
+    });
+  }
+  cleanups.get(t).push(dispose);
+}
+
 function fixture(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-index-')));
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
+  cleanup(t, () => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
   const home = name => {
     const root = join(base, name);
     mkdirSync(root);
@@ -51,7 +65,7 @@ function fixture(t) {
 /** A `qmd` on PATH that writes down what it was asked and how it was started, and does what files beside it say. */
 function fakeQmd(t) {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-fake-qmd-')));
-  t.after(() => rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
+  cleanup(t, () => rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
   writeFileSync(join(folder, 'status'), STATUS);
   writeFileSync(join(folder, 'qmd'), `#!/bin/sh
 folder='${folder}'
@@ -66,7 +80,7 @@ if [ "$1" = status ]; then cat "$folder/status"; fi
 `, { mode: 0o755 });
   const saved = process.env.PATH;
   process.env.PATH = `${folder}:${saved}`;
-  t.after(() => { process.env.PATH = saved; });
+  cleanup(t, () => { process.env.PATH = saved; });
   const entries = () => (existsSync(join(folder, 'calls')) ? readFileSync(join(folder, 'calls'), 'utf8').trim().split('\n') : []);
   const count = (event, command) => entries().filter(line => line.startsWith(`${event} ${command}`)).length;
   return {
@@ -84,7 +98,13 @@ if [ "$1" = status ]; then cat "$folder/status"; fi
 
 function open(t, root, options = {}) {
   const index = new MemoryIndex({ root, ...FAST, ...options }).start();
-  t.after(() => index.stop());
+  cleanup(t, async () => {
+    const { child } = index;
+    const closed = child && new Promise(resolve => child.once('close', resolve));
+    await index.stop();
+    await closed;
+    await settled(() => !index.busy, 'the stopped indexing pass settle');
+  });
   return index;
 }
 
@@ -111,6 +131,46 @@ const alive = pid => {
     return false;
   }
 };
+
+test('fixture teardown stops its writers before removing their files', async t => {
+  for (const stubborn of [false, true]) {
+    let base, folder, index, pid;
+    let closed = false;
+    const atStop = [];
+    const savedPath = process.env.PATH;
+    await t.test(stubborn ? 'stubborn launcher' : 'running writer', async child => {
+      const home = fixture(child);
+      base = home.base;
+      const qmd = fakeQmd(child);
+      folder = process.env.PATH.split(':')[0];
+      qmd.set('hold-embed');
+      if (stubborn) {
+        qmd.set('stubborn');
+        qmd.set('launcher');
+      }
+      index = open(child, home.root, { graceMs: 50 });
+      await settled(() => qmd.started('embed') === 1, 'the writer start');
+      [{ pid }] = qmd.runs('embed');
+      index.child.once('close', () => { closed = true; });
+      const stop = index.stop.bind(index);
+      index.stop = async () => {
+        atStop.push({
+          home: existsSync(home.root),
+          tools: existsSync(folder),
+          path: process.env.PATH === `${folder}:${savedPath}`,
+        });
+        await stop();
+      };
+    });
+    assert.deepEqual(atStop, [{ home: true, tools: true, path: true }], 'files and PATH stay available until the writer is stopped');
+    assert.equal(closed, true, 'the child closed before teardown finished');
+    assert.equal(alive(pid), false, 'no writer survives teardown');
+    assert.equal(index.busy, false, 'the indexing pass settled');
+    assert.equal(existsSync(folder), false);
+    assert.equal(existsSync(base), false);
+    assert.equal(process.env.PATH, savedPath);
+  }
+});
 
 test('the collections are written once, and a restart finds them after qmd has rewritten the file', async t => {
   const { root } = fixture(t);
@@ -546,7 +606,7 @@ test('the dashboard opens and answers while qmd hangs, and a quit ends qmd', asy
   const qmd = fakeQmd(t);
   qmd.set('hold-update');
   const hobkin = openHobkin(root, { timing: { ...FAST, quietMs: 0 } });
-  t.after(() => hobkin.close());
+  cleanup(t, () => hobkin.close());
 
   await hobkin.until(/connected/);
   await settled(() => qmd.started('update') === 1, 'update start');
@@ -572,7 +632,7 @@ test('a missing qmd reaches Chat as one quiet line and leaves the rest working',
     process.env.PATH = saved;
   });
   const hobkin = openHobkin(root);
-  t.after(() => hobkin.close());
+  cleanup(t, () => hobkin.close());
 
   await hobkin.until(/qmd is not installed/);
   hobkin.send('Still fine?');
@@ -585,7 +645,7 @@ test('the dashboard keeps the index current, and a signal stops it', async t => 
   const { root } = fixture(t);
   const qmd = fakeQmd(t);
   const hobkin = openHobkin(root);
-  t.after(() => hobkin.close());
+  cleanup(t, () => hobkin.close());
 
   await settled(() => qmd.ended('status') === 1, 'the first pass finish');
   assert.equal(qmd.runs('update')[0].cwd, join(root, 'runtime'));
