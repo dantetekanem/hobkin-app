@@ -141,6 +141,19 @@ test('the weekly review shows in Chat as Hobkin speaking, once', async t => {
   assert.deepEqual(posts.map(({ role }) => role), ['assistant']);
 });
 
+test('a repeated harness failure shows in Chat as one quiet line, once, and never folds into finished work', async t => {
+  const h = fixture(t);
+  const { app } = await openApp(t, h);
+  const line = 'hobkin\'s own harness: errors on screen from Send, 3 times in a day.';
+  writeMode(h.root, { harnessLines: [{ key: 'harness:error:send', line, at: new Date().toISOString() }] });
+
+  await app.refresh();
+  const { messages } = await app.refresh();
+
+  const posts = messages.filter(({ content }) => content === line);
+  assert.deepEqual(posts.map(({ role, tone, finished }) => [role, tone, finished]), [['notice', 'quiet', undefined]]);
+});
+
 test('proposals keep the order Chat listed them, so "the first two" means the same to both', () => {
   const projects = [asProject({ ...proposal, name: 'third' }, 3), asProject({ ...proposal, name: 'first' }, 1), asProject({ ...proposal, name: 'second' }, 2)];
 

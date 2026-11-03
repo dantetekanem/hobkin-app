@@ -5,7 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initialize, setLearning } from '../src/cli/config.mjs';
-import { readEvents } from '../src/cli/events.mjs';
+import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { firstGuess } from '../src/cli/work/budget.mjs';
@@ -590,6 +590,40 @@ test('the first tick starts the weekly clock, and a week later Chat gets the rev
   h.clock += HOUR;
   await h.tick();
   assert.equal(readMode(h.root).review.at, review.at, 'once a week');
+});
+
+test('once a day, mode on or off and with no model, repeated harness failures reach Chat', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: false });
+  for (const ago of [1, 2, 3]) recordEvent(h.root, 'error_shown', { from: 'Send' }, h.clock - ago * HOUR);
+
+  await h.tick();
+  const { upkeepAt, harnessLines } = readMode(h.root);
+  assert.equal(upkeepAt, new Date(h.clock).toISOString());
+  assert.deepEqual(harnessLines.map(({ key }) => key), ['harness:error:send']);
+  assert.ok(h.changes > 0);
+
+  for (let count = 0; count < 3; count += 1) recordEvent(h.root, 'error_shown', { from: 'Kill' }, h.clock);
+  h.clock += HOUR;
+  await h.tick();
+  assert.equal(readMode(h.root).upkeepAt, upkeepAt, 'once a day');
+  assert.deepEqual(readMode(h.root).harnessLines.map(({ key }) => key), ['harness:error:send']);
+
+  h.clock += 24 * HOUR;
+  await h.tick();
+  assert.notEqual(readMode(h.root).upkeepAt, upkeepAt);
+  assert.deepEqual(h.calls, [], 'it never starts a run');
+});
+
+test('a pass that cannot read its events leaves the tick alone, and the next day tries again', async t => {
+  const h = fixture(t);
+  writeMode(h.root, { enabled: false });
+  mkdirSync(join(h.root, 'runtime', 'events', '2026-06.jsonl'), { recursive: true });
+  writeFileSync(join(h.root, 'runtime', 'events', 'notes.txt'), '');
+
+  await assert.doesNotReject(h.tick());
+
+  assert.equal(readMode(h.root).upkeepAt, new Date(h.clock).toISOString());
 });
 
 test('stopping work mode during a look tells what it has so far, and starting again carries on', async t => {

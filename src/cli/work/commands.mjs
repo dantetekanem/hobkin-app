@@ -169,6 +169,7 @@ export function workStatus(root, outlook = {}) {
     pause: enabled ? pause : null,
     pauseNotice: enabled && pause ? mode.pauseNotice ?? null : null,
     review: mode.review ?? null,
+    harnessLines: mode.harnessLines ?? [],
     shipFirst: plan.shipFirst,
     shipNotice: mode.ship?.notice ?? null,
     waitingOn: plan.waitingOn,

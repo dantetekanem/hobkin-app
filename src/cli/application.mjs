@@ -297,6 +297,12 @@ export class HobkinApplication {
       notices.push({ id: shippingId, role: 'notice', content: shipping.line, tone: 'useful', at: shipping.at });
       noticeIds.add(shippingId);
     }
+    for (const { key, line, at } of work.harnessLines) {
+      const id = `notice:${key}`;
+      if (noticeIds.has(id)) continue;
+      notices.push({ id, role: 'notice', content: line, tone: 'quiet', at });
+      noticeIds.add(id);
+    }
     const reviewed = work.review;
     const reviewedId = reviewed && `notice:work-review:${reviewed.at}`;
     if (reviewed && !noticeIds.has(reviewedId)) {

@@ -244,6 +244,7 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | decision `answerTo.kind` | code | `merge` with `slug`, `item` and `head`; `read`; `pending`; `pair` with `rows` of `{ slug, item, head, step }` |
 | events | `recordEvent(root, type, facts)` in `src/cli/events.mjs` | facts only, never text |
 | `work/mode.json` `ship` | code | `{ said, notice, newWorkOn, pairsAfter, last, tried }` |
+| `work/mode.json` `upkeepAt`, `harnessLines`, `harnessTold` | code | the last daily pass, its Chat lines as `{ key, line, at }`, and every class told so far |
 | `runtime/handoffs/sessions.jsonl` | `hobkin session`, its follower and the owner | folded by `name`: `{ name, title, report, startedAt, endedAt, posted, heard }` |
 
 | Module | Owns |
@@ -256,6 +257,7 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | `src/cli/work/ship.mjs` | pure: the pile and whether it holds new work |
 | `src/cli/work/pairs.mjs` | bringing the next two, and carrying out the answer |
 | `src/cli/session-log.mjs` | session endings: recording, posting and telling the main agent |
+| `src/cli/work/upkeep.mjs` | the daily pass over hobkin's own failures: classes, the `fix` on itself, or one quiet line |
 
 Commands: `hobkin work offers`, `watching`, `watch <slug>` and `signals <slug>` (JSON on stdin from a run), `trouble`, `trust`.
 

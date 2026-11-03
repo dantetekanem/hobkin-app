@@ -95,6 +95,20 @@ test('a run records what it was, how it ended and what it cost, and none of its 
   assert.doesNotMatch(h.written(), /private/);
 });
 
+test('a run that failed on a usage limit says so, in a fact and no words', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const run = (id, result) => app.runtime.dispatch({ id, kind: 'background', scheduleId: id, title: 'Private title', harness: 'pi' }, async () => result);
+
+  await run('work', { status: 'failed', error: 'Stopped.', usageLimit: true });
+  await run('routine', { status: 'failed', error: 'Rate limit reached, try again in 5 min.' });
+  await run('other', { status: 'failed', error: 'The private tool broke.' });
+  await app.close();
+
+  assert.deepEqual(h.ofType('run_finished').map(({ id, limited }) => [id, limited]), [['work', true], ['routine', true], ['other', undefined]]);
+  assert.doesNotMatch(h.written(), /private/);
+});
+
 test('a run left running by a crash is recorded when the next owner finds it', async t => {
   const h = fixture(t);
   const first = await h.openApp();

@@ -27,6 +27,7 @@ import {
 } from './store.mjs';
 import { changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
+import { lookAfterHarness, upkeepDue } from './upkeep.mjs';
 import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 
@@ -165,6 +166,7 @@ export class WorkDirector {
 
     const mode = readMode(this.root);
     this.reviewWeek(mode);
+    this.lookAfterItself(mode);
     if (!mode.enabled) {
       this.stopLook();
       return;
@@ -201,6 +203,19 @@ export class WorkDirector {
     const view = reviewView(this.root, now);
     writeMode(this.root, { lastReviewAt: at, review: { at, message: reviewMessage(view), stale: view.stale } });
     this.onChange();
+  }
+
+  // Code only, with no model, mode on or off. The clock goes first, because a problem here costs one day's pass and must never stop a tick.
+  lookAfterItself(mode) {
+    const now = this.now();
+    if (!upkeepDue(mode, now)) return;
+    writeMode(this.root, { upkeepAt: new Date(now).toISOString() });
+    try {
+      lookAfterHarness(this.root, { now });
+      this.onChange();
+    } catch {
+      // Tomorrow's pass reads its own day.
+    }
   }
 
   /** One start per tick, and the plan keeps them spaced out, so each run shows what it costs before the next one begins. */

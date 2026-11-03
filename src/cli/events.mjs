@@ -1,11 +1,12 @@
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { reportTriage } from './reports.mjs';
+import { usageLimitIn } from './work/usage.mjs';
 
 const KEPT_MONTHS = 6;
 const MONTH_FILE = /^\d{4}-\d{2}\.jsonl$/;
 
-const eventsFolder = root => join(root, 'runtime', 'events');
+export const eventsFolder = root => join(root, 'runtime', 'events');
 const monthOf = time => new Date(time).toISOString().slice(0, 7);
 const monthFiles = folder => readdirSync(folder).filter(name => MONTH_FILE.test(name)).sort();
 
@@ -14,7 +15,7 @@ function keepNewestMonths(folder) {
 }
 
 /**
- * What happened in hobkin, for anyone asking later, and it never leaves this machine. Any process can append, and the owner never reads it.
+ * What happened in hobkin, for anyone asking later, and it never leaves this machine. Any process can append. The owner reads it once a day for its own failures and once a week for the review.
  * Facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids. Nothing an agent or a person wrote.
  */
 export function recordEvent(root, type, facts = {}, now = Date.now()) {
@@ -33,6 +34,13 @@ export function recordEvent(root, type, facts = {}, now = Date.now()) {
 
 const runFacts = ({ id, kind, work, scheduleId }) => ({ id, kind, lane: work?.lane, routine: scheduleId, project: work?.slug, item: work?.item });
 
+// A limit is the provider saying stop, which says nothing about hobkin, and a routine's failure has only its error to show it. `undefined` leaves the fact out.
+function hitLimit({ status, result, error }) {
+  if (status !== 'failed') return undefined;
+  const [said] = String(result?.error ?? error ?? '').split('\n', 1);
+  return result?.usageLimit || usageLimitIn(said, 0) ? true : undefined;
+}
+
 /** A main run is a turn with the user, and a run is everything else. Steering joins a turn already under way, so it is neither. */
 export function recordRunStarted(root, run) {
   if (run.parentRunId) return;
@@ -43,8 +51,9 @@ export function recordRunStarted(root, run) {
 export function recordRunFinished(root, run) {
   if (run.parentRunId) return;
   const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
-  if (run.kind === 'main') recordEvent(root, 'turn_finished', { id: run.id, status: run.status, stopReason: run.result?.stopReason, ms });
-  else recordEvent(root, 'run_finished', { ...runFacts(run), status: run.status, ms, usd: run.cost?.usd, tokens: run.result?.tokens, triage: reportTriage(run)?.level });
+  const limited = hitLimit(run);
+  if (run.kind === 'main') recordEvent(root, 'turn_finished', { id: run.id, status: run.status, stopReason: run.result?.stopReason, ms, limited });
+  else recordEvent(root, 'run_finished', { ...runFacts(run), status: run.status, ms, usd: run.cost?.usd, tokens: run.result?.tokens, triage: reportTriage(run)?.level, limited });
 }
 
 function parseMonth(file) {
@@ -59,7 +68,7 @@ function parseMonth(file) {
   });
 }
 
-/** Oldest first. Only a command that asks reads this. */
+/** Oldest first. */
 export function readEvents(root, { since = 0 } = {}) {
   const folder = eventsFolder(root);
   if (!lstatSync(folder, { throwIfNoEntry: false })?.isDirectory()) return [];
