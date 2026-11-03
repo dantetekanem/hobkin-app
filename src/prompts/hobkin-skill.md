@@ -23,6 +23,7 @@ These read saved state. They start nothing and call no model:
 | --- | --- |
 | `hobkin status --plain` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
 | `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
+| `hobkin routines templates` | Routine templates as JSON, hobkin's and the user's own from `routines/templates/`: `id`, `title`, `summary`, `recurrence`, `group`, `needs`, `effort`, `fits`, `asks`, `version` and `file`, then the `rules` every routine made from one keeps, and any template it could not read. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome`. |
 | `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, what reached the user beside what they acted on, and a `scoreboard` of what hobkin brought, what came of it and what it settled alone. Facts only, never text. |
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |

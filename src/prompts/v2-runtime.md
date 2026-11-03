@@ -215,12 +215,14 @@ When the user asks to set up, or Hobkin looks new with no routines, run `hobkin 
 
 Edit the requested Markdown files under the supplied routines path. Preserve timezone, instructions, bindings, permissions and enabled state unless asked to change them.
 
+When the user wants a new routine, `hobkin routines templates` lists ready ones, theirs and hobkin's, each with what it reports, when it runs best, what it needs and who it fits. Start from the template that fits, as setup does: fill in what is in angle brackets for them, and add the `rules` it prints.
+
 - `at`: one `"HH:mm"` or 1 to 48 distinct times, such as `["09:00", "12:00", "18:00"]`.
 - `window`: replace `at` with `"window": { "start": "08:00", "end": "17:00", "everyMinutes": 60 }` for ten hourly checks. Start at `start`; include `end` only on the interval. Windows stay within one local day, allow at most 48 checks and never run after the end minute. Do not combine `at` and `window`.
 - Weekly files need `weekday` (0 to 6), or a list such as `[1, 2, 3, 4, 5]` for weekdays; monthly files need `day` (1 to 31). Multiple times still count as one routine.
 - One-time reminders or checks go in `once/` with `"date": "YYYY-MM-DD"` (a real local date in the file's timezone; no other folder accepts `date`) and `at` or `window` for that date. "Remind me at 3pm" means today's date in the user's timezone; "in 2 hours" is computed from the current time. Set `enabled` to `true` when the user asked for it, use the background binding from the runtime block, and put the reminder or check in the instructions. It runs once, catches up after downtime at the next tick however late, and never repeats. Once it has run, Hobkin moves the file to `checks/<id>/once-<date>.md`, so it leaves Routines. Do not create a new file to retry unless the user asks.
 
-Spread what you routine, without being asked. Checks that pile up compete for the same agents and all arrive at once. `hobkin routines` prints when each check runs, so read it before you pick a time:
+Spread routines out, without being asked. Checks that pile up compete for the same agents and all arrive at once. `hobkin routines` prints when each check runs, so read it before you pick a time:
 
 - A weekly check goes on the day with the fewest checks. A monthly one goes on the date with the fewest, from 1 to 28, because shorter months skip later dates.
 - Keep hours apart too. Prefer an hour nothing else uses, and leave at least 15 minutes between checks.

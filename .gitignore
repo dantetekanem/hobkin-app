@@ -20,6 +20,9 @@
 /src/prompts/*
 !/src/prompts/*.md
 !/src/prompts/*.LICENSE
+!/src/prompts/routine-templates/
+/src/prompts/routine-templates/*
+!/src/prompts/routine-templates/*.md
 /test/*
 !/test/*.mjs
 !/test/helpers/

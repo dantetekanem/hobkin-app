@@ -95,7 +95,11 @@ Check the approved notes for changes worth acting on. Cite the evidence.
 
 Set your paths, timezone and model, then enable the file. `model: null` uses Pi's default. Weekly files take a `weekday`, or a list such as `[1, 2, 3, 4, 5]` for Monday to Friday.
 
-Ask the agent and it spreads what it routines without being told: a weekly check goes on the day with the fewest, a monthly one on the emptiest date, and hours stay apart, while morning briefings stay in the morning. A day or time you name wins. `hobkin routines` shows when each check runs.
+Ask the agent and it spreads routines out without being told: a weekly check goes on the day with the fewest, a monthly one on the emptiest date, and hours stay apart, while morning briefings stay in the morning. A day or time you name wins. `hobkin routines` shows when each check runs.
+
+New routines can start from a template. `/setup` asks about your work, your life and what you are working towards, then offers the two or three templates that fit, for your day, your code, your week, your life and your machine, and asks what a template needs to know, such as whose birthdays to keep. Each template is one file with a short header: what it reports, when it runs best, what it needs and who it fits. Your own go in `routines/templates/` in your data folder, in the same format, one file each, and one named like a built-in template replaces it. `hobkin routines templates` lists them all as JSON and names any it cannot read. The format is in [src/prompts/routine-templates/README.md](../src/prompts/routine-templates/README.md).
+
+Each built-in template has a version. When an update brings a new one, or a newer version of one, Chat says so once, and you can ask for a routine from it. A routine you already made from a template keeps working as it is.
 
 For a check that runs once, put the file in `once/` with a `date` (`YYYY-MM-DD` in the file's timezone) plus `at` or `window`. If Hobkin was not running at that time, the check runs as soon as it is, however late. It never runs twice, and once it has run it leaves Routines: its file moves to `checks/<id>/`, next to its log. The [routine guide](../src/prompts/routine-setup.md) covers multiple daily times, hourly windows and weekly/monthly settings. Hobkin reloads edited routines automatically. Keep the dashboard open for checks to run.
 

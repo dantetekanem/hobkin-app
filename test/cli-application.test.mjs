@@ -18,6 +18,7 @@ import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode 
 import { branched, git, repository } from './helpers/work-fixture.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { readActions, saveState } from '../src/cli/learning/store.mjs';
+import { listTemplates } from '../src/cli/routine-templates.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
 function fixture(t) {
@@ -1202,6 +1203,29 @@ test('the view carries every row the card counts, for Decisions to list', async 
 
     assert.deepEqual(waiting.yours.map(({ item, reason }) => [item, reason]), [[id, 'Rotate the keys at the provider.']]);
     assert.deepEqual(waiting.branches, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('after an update, Chat says once which routine templates are new', async t => {
+  const h = fixture(t);
+  const { templates } = listTemplates(h.root);
+  const before = templates.filter(({ id }) => id !== 'important-dates').map(({ id, version }) => [id, version]);
+  atomicJson(join(h.root, 'runtime', 'templates-seen.json'), { version: 1, seen: Object.fromEntries(before) });
+  const told = view => view.messages.filter(({ role, content }) => role === 'notice' && /routine template/.test(content));
+
+  let app = await h.openApp();
+  try {
+    const [notice, ...again] = told(await app.refresh());
+    assert.deepEqual(again, []);
+    assert.match(notice.content, /Important dates/);
+  } finally {
+    await app.close();
+  }
+  app = await h.openApp();
+  try {
+    assert.equal(told(await app.refresh()).length, 1, 'the next open says nothing new');
   } finally {
     await app.close();
   }

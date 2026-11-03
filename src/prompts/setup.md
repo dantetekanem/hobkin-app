@@ -42,10 +42,20 @@ Checks get a new server on their next run. This chat gets it when hobkin reopens
 
 ## First routines
 
-Ask what they want to hear about without having to ask for it. If they are not sure, offer the menu in `routine-ideas.md` beside this guide. Two or three checks are enough to start. For each one, settle:
+Get to know their days before offering anything. Ask one question at a time, in plain words, and let them skip any:
+
+1. What their work is, and what fills their days.
+2. What they want to keep on top of without having to ask, at work and outside it.
+3. What has slipped lately, such as a bill, a reply, a deadline or a promise.
+4. What they are working towards in the coming months, such as a goal for their health, money, learning, a move or a project of their own.
+5. Which tools hold all this: their calendar, mail, chat, code host and notes.
+
+Then run `hobkin routines templates --home /supplied/root`. It prints every template as JSON, each with its `summary`, `recurrence`, `needs`, `effort`, `fits`, `asks` and `file`, then the `rules` every routine made from a template keeps, and any template it could not read. Match their answers against each `fits`, and offer the two or three that fit best, each with one line on why it fits them. When their tools do not reach what one `needs`, say so and offer to connect it, as "Connect what they use" above says. If none fits, or they want to see more, list the templates by `group`, one line each. A routine of their own design is fine too.
+
+Two or three routines are enough to start. For each one they pick, read its `file`, ask what its `asks` says if it has one, and settle:
 
 - What it looks at, and what counts as worth telling.
-- When they want it, and how often.
+- When they want it, and how often, starting from its `recurrence`.
 - Which folder it runs in, for its `cwd`.
 - Whether Pi can reach the source. A check has this Pi's tools, extensions and MCP servers and nothing else, so mail or a calendar needs a tool that reaches it. Look before you promise, and if there is none, say what it would take. A check that cannot reach its source reports `Blocked:`, and after two of those Hobkin holds it.
 
@@ -54,8 +64,8 @@ Then write the files:
 1. Read `README.md` in the supplied routines path for the format. If it is missing, `routine-setup.md` beside this guide has the same format.
 2. Run `hobkin routines --home /supplied/root`, then place each check as "Spread them" says: a morning briefing stays in the morning, weekly and monthly checks go where there are fewest, and hours stay at least 15 minutes apart.
 3. Use the user's timezone as a name such as `America/Sao_Paulo`. `node -p "Intl.DateTimeFormat().resolvedOptions().timeZone"` prints it.
-4. Bind the background model and effort from the runtime block, and set `enabled` to `true` once the user has agreed to the check.
-5. Write the instructions for an agent that has seen none of this conversation: what to read, what to report and what to leave alone.
+4. Bind the background model from the runtime block, take the effort from the template, or from the runtime block for a routine of their own, and set `enabled` to `true` once the user has agreed to the check.
+5. Start the instructions from the template's body, fill in what is in angle brackets for them, and add the `rules`. Write them for an agent that has seen none of this conversation: what to read, what to report and what to leave alone.
 6. Run `hobkin routines --home /supplied/root` again and fix any error it lists.
 
 Say in one line where each check went and why. Offer to run one now with `run_routine` so they see a report, and run it only on their yes.
@@ -64,4 +74,4 @@ Tell them plainly that checks run only while Hobkin is open. After downtime, onl
 
 ## Ideas
 
-Finish with two or three ideas from `routine-ideas.md` that they have not picked, one line each, and with `/work` on a folder of projects: hobkin proposes the repositories worth taking, and agents work on the ones they pick, on `hobkin/*` branches.
+Finish with two or three templates that fit them and that they did not pick, one line each, and with `/work` on a folder of projects: hobkin proposes the repositories worth taking, and agents work on the ones they pick, on `hobkin/*` branches. Say too that a routine they want again and again can become a template of their own, in `routines/templates/` under the supplied root, written as `routine-templates/README.md` beside this guide describes.

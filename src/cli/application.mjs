@@ -20,6 +20,7 @@ import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { failureKey, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { templateNews, templateNotice } from './routine-templates.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
@@ -331,6 +332,12 @@ export class HobkinApplication {
     }
     const indexNote = this.memoryIndex?.takeNote();
     if (indexNote) notices.push(indexNote);
+    // An update can bring routine templates, and only an update changes them, so the first refresh after opening is the one to say so.
+    if (!this.templatesLooked) {
+      this.templatesLooked = true;
+      const told = this.templateLine();
+      if (told) notices.push(told);
+    }
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
     for (const session of sessionsEnded) {
@@ -801,6 +808,17 @@ export class HobkinApplication {
     const hidden = target.tab === 'work' && !readMode(this.runtime.directory).enabled;
     if (target.tab === 'chat' || hidden) void this.askMain(id, label, answerTo).catch(() => {});
     else this.showRow?.(target);
+  }
+
+  /** What an update brought in routine templates, as one line in Chat. Trouble reading them costs the line and nothing else. */
+  templateLine() {
+    try {
+      const content = templateNotice(templateNews(this.runtime.directory));
+      const at = new Date(this.now()).toISOString();
+      return content && { id: `notice:templates:${at}`, role: 'notice', content, tone: 'useful', at };
+    } catch {
+      return null;
+    }
   }
 
   /** Every row the card counts, for the Decisions tab. A problem reading them costs this refresh its rows and nothing else. */
