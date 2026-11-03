@@ -24,7 +24,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin status --plain` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
 | `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome`. |
-| `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, and what reached the user beside what they acted on. Facts only, never text. |
+| `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, what reached the user beside what they acted on, and a `scoreboard` of what hobkin brought, what came of it and what it settled alone. Facts only, never text. |
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
@@ -41,7 +41,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin work ask <project> <item> <note>` | Sends an agent back to that branch with the user's note. |
 | `hobkin work offers` | What could land on one key, and why the rest cannot. It changes nothing. |
 | `hobkin work trust <pattern> on\|off` | The user's own switch for a pattern's offers, and the only way back on after severe trouble. |
-| `hobkin work review` | The weekly review: whether work mode is running and progressing, and which projects look stale. |
+| `hobkin work review` | The weekly review: whether work mode is running and progressing, which projects look stale, and the `scoreboard`. |
 | `hobkin work watching` | What landed and is still being watched: its stage, how long and what is known so far. |
 | `hobkin work signals <project>` | What a project can show once a change ships, as a signal from 0 to 4. |
 | `hobkin work help` | Every work mode command. A project is its name, slug or path. |

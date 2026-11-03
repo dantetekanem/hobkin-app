@@ -103,7 +103,9 @@ With 8 or more finished and waiting, hobkin starts no new work and brings the ne
 
 When a background agent finishes, Chat says what it did, and a session's report joins Reports.
 
-Once a week, Chat gets a review that says what is progressing and which projects look stale. It drops nothing itself, and `hobkin work review` prints it at any time.
+Once a week, Chat gets a review that says what is progressing and which projects look stale, then a few lines on what hobkin brought you, what you did with it and what it settled alone. It drops nothing itself, and `hobkin work review` prints it at any time. `hobkin telemetry` prints the same numbers.
+
+hobkin looks after itself too. When its own harness fails the same way 3 times in a day, it files a fix on its own project, or says so in one quiet line in Chat if you have not chosen that project. Work mode picks the fix up like any other item.
 
 ## Where to go next
 
