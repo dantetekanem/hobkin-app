@@ -71,12 +71,15 @@ function askReviews(root, now = Date.now()) {
   return asked;
 }
 
-/** The survey, what it showed needs closing, the reviews it showed were missed, then the pulse on what has landed. These write only hobkin's own records. */
+/**
+ * The survey, what it showed needs closing, the reviews it showed were missed, then the pulse on what has landed. These write only hobkin's own
+ * records. `reviews: false` is a sync someone asked for: asking hobkin something must never start a review, so those wait for work mode's own survey.
+ */
 export async function surveyAndClose(root, options = {}) {
   const survey = await surveyUnmerged(root, options);
   const filled = fillGaps(root, options.now);
   // After the gaps, so a branch an agent is describing keeps that one agent, and gets its review on a pass after that is done.
-  const reviewing = askReviews(root, options.now);
+  const reviewing = options.reviews === false ? [] : askReviews(root, options.now);
   const pulse = await pulseLaunches(root, options);
   return { ...survey, filed: [...survey.filed, ...filled], reviewing, pulse };
 }

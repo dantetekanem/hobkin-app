@@ -1194,7 +1194,7 @@ test('sync closes what was merged, says so and lists it, and changes nothing in 
   assert.match((await success(h.root, 'sync')).message, /Nothing was merged or closed/);
 });
 
-test('sync says what it dropped as backups and which finished branches it sent for a review', async t => {
+test('sync says what it dropped as backups, and asking hobkin something never starts a review', async t => {
   const h = owned(t);
   fakeGh(t, h, []);
   const checkout = studied(h, 'api');
@@ -1211,7 +1211,7 @@ test('sync says what it dropped as backups and which finished branches it sent f
   const { message } = await success(h.root, 'sync');
 
   assert.match(message, /1 dropped as a backup of another branch/);
-  assert.match(message, /1 sent for a review/);
+  assert.equal(readItems(h.root, 'api').find(({ id }) => id === finished.id).reviewAsked, undefined, 'its review waits for work mode\'s own survey');
 });
 
 test('sync says when a closed PR sent an item back to its local branch', async t => {
