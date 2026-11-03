@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defaultRoot, initialize, legacySources } from './config.mjs';
+import { defaultRoot, initialize, legacySources, loadConfig } from './config.mjs';
 import { loadImportedHistory } from './history.mjs';
 import { indexStatus } from './memory-index.mjs';
 import { recordEvent } from './events.mjs';
@@ -29,6 +28,12 @@ export function parseArguments(args) {
       options[flag.slice(2)] = values.shift();
     } else if (options.command === 'telemetry' && flag === '--days' && values.length) {
       options.days = values.shift();
+    } else if (['remind', 'remember', 'decide'].includes(options.command) && flag === '--from' && values[0] && !values[0].startsWith('-')) {
+      options.from = values.shift();
+    } else if (options.command === 'remind' && flag === '--on' && values.length) {
+      options.on = values.shift();
+    } else if (options.command === 'skill' && flag === '--to' && values[0] && !values[0].startsWith('-')) {
+      options.to = values.shift();
     } else if (flag === '--plain') options.plain = true;
     else if (flag === '--keep' && options.command === 'session') options.keep = true;
     else if (flag === '--wake' && options.command === 'session') options.wake = true;
@@ -36,7 +41,7 @@ export function parseArguments(args) {
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
     else if (flag === '--auto' && options.command === 'work') options.args.push(flag);
     else if (flag === '--help' || flag === '-h') options.command = 'help';
-    else if (['reports', 'work', 'import', 'learning', 'profile', 'decide', 'routines', 'schedules'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
+    else if (['reports', 'work', 'import', 'learning', 'profile', 'decide', 'remind', 'remember', 'skill', 'routines', 'schedules'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
   }
   return options;
@@ -55,6 +60,12 @@ function quitQuestion(agents) {
 }
 
 const looksNew = ({ schedules, messages, userName }) => !schedules.length && !messages.length && !userName;
+
+/** What another process hands over goes only to a real workspace, so a wrong folder fails instead of starting one that no hobkin reads. */
+function workspaceRoot(requested) {
+  loadConfig(requested);
+  return resolveDataRoot(requested);
+}
 
 async function connected(options, snapshot, dependencies) {
   const signals = dependencies.signals ?? process;
@@ -158,7 +169,7 @@ async function connected(options, snapshot, dependencies) {
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
   if (options.command === 'help') {
-    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill  print a skill that teaches other agents to work with Hobkin\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept, and with --wake gives the main agent a turn when it ends\n');
+    output.write('Hobkin\nUsage: hobkin [command] [options]\n  init | routines | status | history  [--home directory] [--plain]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session in a Herdr pane, which closes when it finishes unless kept, and with --wake gives the main agent a turn when it ends\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -166,7 +177,19 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     return printSetup(options.root, output, dependencies);
   }
   if (options.command === 'skill') {
-    output.write(readFileSync(new URL('../prompts/hobkin-skill.md', import.meta.url), 'utf8'));
+    const { installSkill, skillText } = await import('./skill.mjs');
+    const action = options.args.join(' ');
+    if (action === 'install') output.write(installSkill({ to: options.to }));
+    else if (!action && !options.to) output.write(skillText());
+    else throw Error('Usage: hobkin skill [install [--to <skills folder>]]');
+    return 0;
+  }
+  if (options.command === 'remind' || options.command === 'remember') {
+    const { remember, remind } = await import('./inbox.mjs');
+    const handOver = options.command === 'remind' ? remind : remember;
+    const root = workspaceRoot(options.root);
+    const saved = handOver(root, { words: options.args, on: options.on, from: options.from });
+    output.write(`${JSON.stringify(saved, null, 2)}\n`);
     return 0;
   }
   if (options.command === 'import') {
@@ -193,7 +216,10 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   }
   if (options.command === 'decide') {
     const { runDecideCommand } = await import('./decisions.mjs');
-    output.write(`${JSON.stringify(await runDecideCommand(options.root, options.args, dependencies.input ?? process.stdin), null, 2)}\n`);
+    const root = workspaceRoot(options.root);
+    const input = dependencies.input ?? process.stdin;
+    const filed = await runDecideCommand(root, options.args, input, Date.now(), options.from);
+    output.write(`${JSON.stringify(filed, null, 2)}\n`);
     return 0;
   }
   if (options.command === 'pending') {

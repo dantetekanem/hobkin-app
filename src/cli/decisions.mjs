@@ -10,6 +10,7 @@ const LONGEST_TLDR = 100;
 const LONGEST_QUESTION = 1000;
 const LONGEST_LABEL = 80;
 const LONGEST_REASON = 300;
+const LONGEST_FROM = 80;
 const FEWEST_CHOICES = 2;
 const MOST_CHOICES = 6;
 const DAY_MS = 86400000;
@@ -97,10 +98,12 @@ export function findDecision(root, id, value) {
   return { decision, choice };
 }
 
-const whereTo = ([kind, ...names]) => {
+const whereTo = ([kind, ...names], from) => {
+  const session = from?.trim().slice(0, LONGEST_FROM);
+  if (session && !kind) return { from: session, answerTo: { kind: 'outside' } };
   if (kind === 'routine' && names[0]) return { from: `Routine ${names[0]}`, answerTo: { kind, id: names[0] } };
   if (kind === 'work' && names[0] && names[1]) return { from: `Work mode, ${names[0]}`, answerTo: { kind, slug: names[0], item: names[1] } };
-  throw Error('Say who is asking: routine <id>, or work <project> <item>.');
+  throw Error('Say who is asking: routine <id>, work <project> <item>, or --from <name>.');
 };
 
 const keyOf = question => createHash('sha256').update(question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()).digest('hex').slice(0, 16);
@@ -123,19 +126,29 @@ function earlierAnswer({ answer, answeredAt, choices }) {
   };
 }
 
-/** `hobkin decide`, for a run in another process. The question comes as JSON on stdin, and the run carries on as soon as this returns. A routine gets back what was already answered. Work runs never do, because their one use of this is deleting what git cannot restore. */
-export async function runDecideCommand(root, args, input, now = Date.now()) {
+/**
+ * `hobkin decide`, for a run in another process. The question comes as JSON on stdin, and the run carries on as soon as this returns. A routine gets back what was
+ * already answered. Work runs never do, because their one use of this is deleting what git cannot restore. Another session names itself with `--from`, and its
+ * answer goes to hobkin's main agent, because that session may be gone by then.
+ */
+export async function runDecideCommand(root, args, input, now = Date.now(), from = null) {
   let text = '';
   for await (const chunk of input) text += chunk;
   const { key, changed, ...asked } = JSON.parse(text);
-  const asker = whereTo(args);
+  const asker = whereTo(args, from);
   assertDecision(asked);
-  const scopedKey = [...args, key || keyOf(asked.question)].join(':');
+  const outside = asker.answerTo.kind === 'outside';
+  // Another session's key stays apart from hobkin's own, so it can never reach one of hobkin's questions.
+  const scope = outside ? ['outside'] : args;
+  const scopedKey = [...scope, key || keyOf(asked.question)].join(':');
   const earlier = asker.answerTo.kind === 'routine' && !changed?.trim() ? recentAnswer(root, scopedKey, now) : null;
   if (earlier) {
     recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id }, now);
     return earlierAnswer(earlier);
   }
   const { id } = fileDecision(root, { ...asked, ...asker, key: scopedKey, changed }, now);
-  return { ok: true, id, message: 'Filed in Decisions. Carry on: the answer reaches you later.' };
+  const message = outside
+    ? 'Filed in hobkin\'s Decisions. The user answers it there, and hobkin\'s main agent hears the answer, not this session, so carry on without it.'
+    : 'Filed in Decisions. Carry on: the answer reaches you later.';
+  return { ok: true, id, message };
 }

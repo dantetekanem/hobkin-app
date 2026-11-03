@@ -110,6 +110,16 @@ Once a week, Chat gets a review that says what is progressing and which projects
 
 hobkin looks after itself too. When its own harness fails the same way 3 times in a day, it files a fix on its own project, or says so in one quiet line in Chat if you have not chosen that project. Work mode picks the fix up like any other item.
 
+## From your other agents
+
+Your other agent sessions, such as Pi or Claude Code in another project, can hand hobkin what matters to you. `hobkin skill install` puts hobkin's skill in `~/.pi/agent/skills`, and `--to` puts it in another agent's skills folder, such as `~/.claude/skills`. With it, an agent hands over:
+
+- A date, with `hobkin remind <text> --on YYYY-MM-DD`. On that day Chat shows it, Decisions asks Done or Remind me tomorrow, and the main agent hears it.
+- A choice for later, with `hobkin decide --from <name>`. It waits in Decisions, and the main agent hears your answer.
+- A fact, with `hobkin remember <text>`. The main agent hears it with your next message, files it in its memory and says so.
+
+These commands write files on your machine and send nothing anywhere.
+
 ## Where to go next
 
 - `hobkin work help` lists every work mode command.

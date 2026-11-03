@@ -22,6 +22,7 @@ import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessio
 import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
+import { askReminders, handAnswer, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted, remindTomorrow } from './inbox.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
@@ -188,6 +189,7 @@ export class HobkinApplication {
           app.tickCompaction();
           retireOffers(app.runtime.directory, app.now());
           retirePickUp(app.runtime.directory, app.now());
+          app.tickInbox();
           app.landOffers.next();
           // Not awaited: each holds a question on screen for as long as it stays there. The card goes first, because it stands for the whole pile.
           app.presentPending();
@@ -270,6 +272,7 @@ export class HobkinApplication {
     const deleted = deletedReportIds(this.runtime.directory);
     const sessionsEnded = sessionsToPost(this.runtime.directory);
     const cardActions = cardActionsToPost(this.runtime.directory);
+    const handedOver = inboxToPost(this.runtime.directory, this.now());
     const runReports = runs
       .filter(run => run.kind !== 'main' && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
       .filter(run => !deleted.has(run.id) && !isQuietRun(run))
@@ -347,7 +350,8 @@ export class HobkinApplication {
     }
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
-    for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice)]) {
+    const handedLines = handedOver.map(entry => inboxNotice(entry, this.now()));
+    for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines]) {
       if (noticeIds.has(notice.id)) continue;
       notices.push(notice);
       noticeIds.add(notice.id);
@@ -443,6 +447,7 @@ export class HobkinApplication {
     }
     markPosted(this.runtime.directory, sessionsEnded);
     markCardActionsPosted(this.runtime.directory, cardActions);
+    markInboxPosted(this.runtime.directory, handedOver);
     const active = new Set(runs
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
@@ -527,7 +532,8 @@ export class HobkinApplication {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const sessions = sessionsToTell(this.runtime.directory);
     const userDid = cardActionsToTell(this.runtime.directory);
-    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid }, this.director.answerCommands());
+    const handedOver = inboxToTell(this.runtime.directory, this.now());
+    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid, handed: inboxNews(handedOver) }, this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // A message with no room for the note still goes, and the note goes with the next one.
@@ -537,6 +543,7 @@ export class HobkinApplication {
     this.workNoteSeen = note;
     markHeard(this.runtime.directory, sessions);
     markCardActionsHeard(this.runtime.directory, userDid);
+    markInboxHeard(this.runtime.directory, handedOver);
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
       recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });
@@ -592,6 +599,18 @@ export class HobkinApplication {
       if (results.length) this.requestRefresh();
     } catch {
       // Nothing was used up: the word to merge stays on the item until a merge is tried.
+    }
+  }
+
+  /** What other sessions handed over comes up by itself: a reminder whose day has come asks in Decisions, and anything new gets its line in Chat. */
+  tickInbox() {
+    const root = this.runtime.directory;
+    try {
+      const asked = askReminders(root, this.now());
+      const toPost = inboxToPost(root, this.now());
+      if (asked || toPost.length) this.requestRefresh();
+    } catch {
+      // Nothing is marked before it is done, so the next tick looks again.
     }
   }
 
@@ -745,10 +764,12 @@ export class HobkinApplication {
   /** The asker hears first, so an answer that cannot reach it stays open for another try. A merge that fails is the same: it throws, and the reason goes on screen. */
   async decide(id, value) {
     const root = this.runtime.directory;
-    const { decision: { question, answerTo, at }, choice } = findDecision(root, id, value);
+    const { decision: { question, answerTo, at, from }, choice } = findDecision(root, id, value);
     const said = `The user was asked: ${question} They answered: ${choice.label}`;
     if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
     if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
+    if (answerTo?.kind === 'outside') handAnswer(root, { from, question, answer: choice.label }, this.now());
+    const snoozed = answerTo?.kind === 'reminder' && value === 'tomorrow' ? remindTomorrow(root, answerTo.id, this.now()) : null;
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
     if (answerTo?.kind === 'pending') this.tackle(id, choice, answerTo);
     const offered = answerTo?.kind === 'merge' ? await answerOffer(root, answerTo, value, this.now()) : null;
@@ -759,7 +780,7 @@ export class HobkinApplication {
     const chose = answerTo?.kind === 'subscription' ? answerSubscriptionPause(root, value, answerTo.until, this.now()) : null;
     answerDecision(root, id, value, this.now());
     recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
-    return offered ?? moved ?? picked ?? chose ?? { ok: true, message: `Answered: ${choice.label}.` };
+    return offered ?? moved ?? picked ?? chose ?? snoozed ?? { ok: true, message: `Answered: ${choice.label}.` };
   }
 
   /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */

@@ -368,12 +368,20 @@ Hobkin uses `pi-chrome` when it is installed, in chat, checks and work mode alik
 
 ## Use it from other agents
 
-`hobkin skill` prints a skill that teaches an agent to read reports and run history, add checks, queue one-time work and stay out of Hobkin's internals. Read it directly, or save it where your agent loads skills:
+`hobkin skill` prints a skill that teaches an agent to hand hobkin what matters, read reports and run history, add checks, queue one-time work and stay out of hobkin's internals. `hobkin skill install` saves it as `~/.pi/agent/skills/hobkin/SKILL.md`, where Pi loads skills, and prints what it wrote. `--to <folder>` saves it in another agent's skills folder instead, such as `~/.claude/skills` for Claude Code. It changes nothing else, so run it again after an update to keep the copy current:
 
 ```sh
-mkdir -p ~/.pi/agent/skills/hobkin
-hobkin skill > ~/.pi/agent/skills/hobkin/SKILL.md
+hobkin skill install
+hobkin skill install --to ~/.claude/skills
 ```
+
+With the skill, an agent in any session hands hobkin three kinds of things, each with `--from` and its own name:
+
+- **A reminder.** `hobkin remind <text> --on YYYY-MM-DD` takes a real date and refuses anything else. On that day by your machine's calendar, or at once for a day gone by, Chat shows one system line, such as `Reminder for November 3, from Claude Code: Car inspection at 10:00`. Decisions asks Done or Remind me tomorrow, and Remind me tomorrow brings it all back the next day. The main agent hears it with your next message.
+- **A decision for later.** `hobkin decide --from <name>` takes the same JSON on stdin as a routine's question, and it waits in Decisions under that name. The session that asked never hears the answer. The main agent does, with your next message, and acts on it there.
+- **A fact or preference.** `hobkin remember <text>` gets one quiet line in Chat, such as `Noted from Claude Code: The user wants appointments before noon`. The main agent hears it with your next message, files it in memory or in `AGENTS.md`, wherever it belongs, and says so.
+
+hobkin does not need to be open: what an agent hands over waits until it is, and each thing comes up once, even across a restart. The same words handed over twice before hobkin takes them up are saved once. The commands write files in the data folder and send nothing off your machine, and the main agent reads what they hold like anything else in its chat.
 
 These commands read saved state without starting Pi or routines:
 
