@@ -141,7 +141,7 @@ When 8 or more calls pile up and you are there, hobkin shows a card and asks how
 
 You count as there for two minutes after a key, a click or the mouse wheel, or after the terminal gains focus, and not once it loses focus. Inside Herdr focus reports may not arrive, so keys and clicks are enough alone. The card waits while you are writing a message or a note, while a turn runs, while another question is up, and while you are in Decisions or Done, which is where it would send you. It gets 30 seconds on screen unless you use it, and it stops nothing. After a card hobkin stays quiet for 4 hours, unless 5 more calls arrive or something new goes wrong, and a restart remembers that. `hobkin pending` prints the same rows as JSON and changes nothing.
 
- A finished item records `summary`, `proof` and `left`, which is anything left for you.
+A finished item records `summary`, `proof` and `left`, which is anything left for you.
 
 Work reaches you as a local PR: a local `hobkin/*` branch and a saved PR description, with nothing pushed. The Done subtab of Work Mode is where you walk through them: press up from the first row to reach the subtabs, or click one. NEXT TO LAND shows five at a time, the safest and smallest first, each with its safety and quality grades, its size and anything missing. On a row, `m` merges, `w` sends an agent back with your note, `n` says no and Enter reads it. Each answer moves you to the next one. `m` merges into the default branch on this machine, away from your folder, and pushes nothing: uncommitted changes in the files it touches stop it, and so does a conflict. A risky row takes a second `m`. `n` keeps the branch, and learning reads it as your answer.
 
@@ -151,7 +151,7 @@ Hobkin closes what it can before you get there. A rebase goes to an agent by its
 
 `done` means no change was needed, so an agent recording `done` on a branch with commits the default branch lacks is recorded as `branch`. Older items that say `done` with work still on their branch show under NOT LANDED, where `m` lands one and `x` closes it for good. So does `hobkin work done`, and it stays closed. A `hobkin/*` branch with no item gets one from the survey, titled from its last commit. A branch ending in `-kept-` and a time is what a run left uncommitted, so it stays with that run's item and gets none.
 
-Every merge writes `landed` on its item, in code: the commit, the route (`key`, `offer`, `batch`, `chat`, or `remote` for one the survey found), whether the page or the diff was read and for how long, the grades, the size and the area. A row whose kind of change has landed before says so in a few words, such as `like 3 merged`.
+Every merge writes `landed` on its item, in code: the commit, the route (`key`, `offer`, `batch`, `pair`, `chat`, or `remote` for one the survey found), whether the page or the diff was read and for how long, the grades, the size and the area. A row whose kind of change has landed before says so in a few words, such as `like 3 merged`.
 
 #### Offers
 
@@ -171,7 +171,7 @@ Whatever its history, a branch gets no offer if it is below safe A, has a grade 
 
 A run can open helpers of its own, such as a code review, in a pane beside it. Hobkin checks on them with no tokens: while one is working the run is left alone, and once one has been quiet for six minutes the run is told which one stopped and to finish without it. When the run ends, what it opened goes with it, and an empty tab closes. A PR opens only when a project asks for it: `r` on its row or `hobkin work prs` sets `draft` or `published`, and the default is `off`.
 
-No permission is ever needed. All work is branch work and git can bring everything back, so agents never ask and never report `Blocked:`. The one thing an agent may ask about, in Chat, is deleting what git cannot bring back, and it finishes everything else meanwhile. Deploying and publishing are left for you the same way. A run that ends without an outcome goes straight back in the queue one grade lower, down to P3, and the next run carries on from the branch. No timer ends a run, and an item that keeps failing keeps coming round without holding anything else up.
+No permission is ever needed. All work is branch work and git can bring everything back, so agents never ask and never report `Blocked:`. The one thing an agent may ask about, in Decisions, is deleting what git cannot bring back, and it finishes everything else meanwhile. Deploying and publishing are left for you the same way. A run that ends without an outcome goes straight back in the queue one grade lower, down to P3, and the next run carries on from the branch. No timer ends a run that is still working, and one that goes quiet for an hour goes back in the queue. An item that keeps failing keeps coming round without holding anything else up.
 
 Work mode works in your project folders. **When a project's folder is clean, idle and on its default branch, an agent switches it to a `hobkin/*` branch and works there, so you will see that in your folder while a run is going.** Before a run it brings the default branch up to date with a fast-forward only, and it never commits to that branch, merges into it or rewrites it. When the run ends the folder goes back to the default branch and the work stays on its own branch. Looks stay on the default branch and only read. Hobkin never resets or cleans your folder, and it checks all of this as each run starts:
 
@@ -294,7 +294,7 @@ A finished work run gets one quiet line from its `Useful:` report, and a look wi
 
 ## Learning
 
-Learning judges how each check and work mode run turned out, and keeps what that teaches as a few very short lessons that every agent gets. Set it with `/learning` in the dashboard or `hobkin learning [on | off]`. It is off in a new data folder, and the status bar shows `learning` while it is on. With it off, nothing is judged, no agent gets anything and nothing is sent anywhere.
+Learning judges how each check and work mode run turned out, and keeps what that teaches as a few very short lessons that every agent gets. Set it with `/learning` in the dashboard or `hobkin learning [on | off]`. It is off in a new data folder, and the status bar shows `learning` while it is on. With it off, nothing is judged, no agent gets anything, no offer is made and nothing is sent anywhere.
 
 A verdict comes from what Hobkin already holds: how the run ended, `Blocked:` and holds, which reports you opened or messaged about, proposals you took or skipped, and whether a PR was merged or closed. Of a report it reads only the first word of the triage line, so nothing a page or an email says can reach a lesson. No model runs to learn this, so judging costs nothing. One thing leaves your machine, only with learning on: `gh` is asked what became of work mode's open PRs, at most 5 a pass and each at most every 6 hours.
 

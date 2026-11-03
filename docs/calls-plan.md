@@ -36,7 +36,7 @@ Measured from real data on 2026-11-02. Work records cover about 31 hours and rou
 
 The jam is landing more than questions. Literal copy and paste is rare. The bigger relay is the user acting as hobkin's merge detector and release manager.
 
-hobkin also cannot see itself. It does not record how a decision was answered, what the agent recommended, whether a diff was opened, who merged, or what happened after a merge.
+hobkin also could not see itself that day. It did not record how a decision was answered, what the agent recommended, whether a diff was opened, who merged, or what happened after a merge.
 
 ## What the evidence changes
 
@@ -195,7 +195,7 @@ One row per group, five at most, each with a count, a label and one fact, each i
 
 ### 8. hobkin looks after itself
 
-A failure in hobkin's own harness is never a call. On 2026-11-02 the main agent reported that a model switch was rejected, and the user had to ask why and then say fix it. The cause was a catalog read once at startup. The main agent's rule is now to find the cause and fix what can be changed back in the same turn. Once events are in, a code pass reads a day of error events, and a class that repeats files a `fix` on the hobkin project with the counts, so the next failure of its kind is already being worked on.
+A failure in hobkin's own harness is never a call. On 2026-11-02 the main agent reported that a model switch was rejected, and the user had to ask why and then say fix it. The cause was a catalog read once at startup. The main agent's rule is now to find the cause and fix what can be changed back in the same turn. Once a day a code pass reads a day of events, and a class seen 3 times or more files a `fix` on the hobkin project with the counts, so the next failure of its kind is already being worked on. It adds no wait, and if hobkin is not a chosen project it says so in one quiet line for each class.
 
 ### 9. The scoreboard
 
@@ -234,7 +234,7 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 
 | Field or file | Who writes it | Shape |
 |---|---|---|
-| item `landed` | code, at merge | `{ sha, at, route, read, readMs, safety, quality, size, area, spot }`. `route` is `key`, `offer`, `batch`, `chat` or `remote`. `read` is `none`, `page` or `diff` |
+| item `landed` | code, at merge | `{ sha, at, route, read, readMs, safety, quality, size, area, spot }`. `route` is `key`, `offer`, `batch`, `pair`, `chat` or `remote`. `read` is `none`, `page` or `diff` |
 | item `launch` | review run | `{ undo, how, risk, lookAt, flag: { name, expires } }` |
 | item `causedBy` | code, or the watch run | the id of the merged item |
 | item `closedByUser` | code, on `x` | true |
@@ -260,7 +260,7 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | `src/cli/work/upkeep.mjs` | the daily pass over hobkin's own failures: classes, the `fix` on itself, or one quiet line |
 | `src/cli/work/scoreboard.mjs` | pure: what hobkin brought, what came of it and what it settled alone, from events and `landed` |
 
-Commands: `hobkin work offers`, `watching`, `watch <slug>` and `signals <slug>` (JSON on stdin from a run), `trouble`, `trust`.
+Commands: `hobkin work offers`, `ready`, `watching`, `watch <slug>` and `signals <slug>` (JSON on stdin from a run), `trouble`, `trust`, `ship [on|off]`.
 
 ## Build order
 
