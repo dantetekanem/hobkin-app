@@ -129,6 +129,8 @@ A routine never asks the same thing twice. If you answered a question in the las
 
 The same holds for reports. A check that found nothing to act on says `Nothing new.`, even when the news is good. A report that needs you says `Next: <the one call>` on the line after its triage line, and Chat shows that with the notice. Only those reports count as waiting on you.
 
+A report reads like a short essay: its first sentence is the one thing that matters most, then what backs it up, and sources and gaps last. Agents are asked to write it that way, and hobkin's editor moves the point to the front when they do not. The first line also carries a word for hobkin, `Critical:`, `Blocked:` or `Useful:`. `Useful:` tells you nothing, so the Reports tab leaves it out, in old reports too, and the saved file keeps it for hobkin to read.
+
 When 8 or more calls pile up and you are there, hobkin shows a card and asks how you want to tackle them. It counts every source together: finished branches, reports with a `Next:`, launches that went wrong, questions, allowance requests, project and learning proposals, and steps left for you, across all routines and work mode. There is one row for each kind, in its own color, with a count and one fact. An empty kind has no row, and `Not now` comes first because Enter takes the first:
 
 - `●` ready: safe A with nothing in the way, or an offer. `Start with the N ready` opens Done.

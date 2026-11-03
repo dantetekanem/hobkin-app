@@ -2220,6 +2220,31 @@ test('Reports opens on the first report of All, and the subtab row sits above th
   assert.equal(ui.state().selectedId, 'routine-a');
 });
 
+test('a report reads from its point, and only a word that warns stays in front of it', () => {
+  const critical = {
+    id: 'down', title: 'Site check', at: '2026-10-27T09:00:00.000Z', outcome: 'completed',
+    body: 'Critical: The site has been down since 07:40.',
+  };
+  const useful = {
+    id: 'fix', title: 'Payment fix', at: '2026-10-27T08:00:00.000Z', outcome: 'completed',
+    body: 'Useful: One transaction can no longer be matched to two payments.\n\nThe fix is on the local branch `hobkin/7298ae`.',
+  };
+  const startsWithThePoint = /^ +One transaction can no longer be matched to two payments\./m;
+  const ui = createDashboard({ ...snapshot, reports: [critical, useful] });
+
+  openReports(ui);
+  const list = screen(ui, 100, 26);
+
+  assert.match(list, startsWithThePoint);
+  assert.match(list, /Critical: The site has been down since 07:40\./);
+
+  ui.showRow({ tab: 'reports', report: useful.id });
+  const opened = screen(ui, 100, 26);
+
+  assert.match(opened, startsWithThePoint);
+  ui.stop();
+});
+
 test('up from the first report reaches the subtab row, and down comes back to where it was', () => {
   const ui = createDashboard(mixedReports);
   openReports(ui);

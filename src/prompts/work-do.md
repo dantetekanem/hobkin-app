@@ -97,4 +97,4 @@ When `work.item.kind` is `pr-fix`, the job is to make that branch ready to merge
 
 ## Report
 
-Start with `Useful:` saying what you finished, with the branch or PR. Use `Critical:` only for a yes you need to delete something, or for something that cannot wait, such as a leaked secret. `Blocked:` does not exist in work mode, so never write it.
+Start with `Useful:` and the point: what the change does for the project or the people who use it, in one short sentence. Name the branch or PR in the sentence after it. Use `Critical:` only for a yes you need to delete something, or for something that cannot wait, such as a leaked secret. `Blocked:` does not exist in work mode, so never write it.

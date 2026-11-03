@@ -30,6 +30,10 @@ export const reportTriage = run => {
   };
 };
 
+// `Useful:` marks an ordinary report for hobkin and tells a reader nothing, so a report shown on screen starts at its point. The saved text keeps the word.
+const usefulWord = /^\s*useful:[ \t]+/i;
+export const readerText = text => String(text ?? '').replace(usefulWord, '');
+
 const reportPath = (root, id) => join(root, 'reports', `${createHash('sha256').update(String(id)).digest('hex')}.md`);
 const statOrMissing = file => {
   try { return lstatSync(file); } catch (error) {

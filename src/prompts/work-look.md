@@ -126,4 +126,4 @@ A `yours` item needs only its step and where to do it. For anything else, if you
 
 ## Report
 
-Start with `Useful:` saying what you filed, `Critical:` if the user must see it soon, or `Nothing new.` if you found nothing. `Blocked:` does not exist in work mode, so never write it.
+Start with `Useful:` and the most important thing you found, in one short sentence, with what you filed after it. Use `Critical:` if the user must see it soon, or `Nothing new.` if you found nothing. `Blocked:` does not exist in work mode, so never write it.

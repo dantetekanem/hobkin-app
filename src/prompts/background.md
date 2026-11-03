@@ -69,12 +69,14 @@ Take the next step as far as the routine allows. When the work ends in something
 
 ## Report
 
-Write a plain Markdown report with the result first, followed by sources and gaps. Write it for a person, in full sentences and plain words. Hobkin edits the style before the user reads it and can only work with what you wrote, so put your care into the facts, and write numbers, links and paths exactly.
+Build the report like a short essay. Its first sentence is the point: the one thing that matters most to the user, such as what changed, what they should know or what they have to do, in under about 25 words. The paragraphs after it are the body, with what backs the point up, and sources and gaps come last. Most reports need only a few short paragraphs. Write it for a person, in full sentences and plain words. Hobkin edits the style before the user reads it and can only work with what you wrote, so put your care into the facts, and write numbers, links and paths exactly.
 
-Start the report with exactly one triage line, then a blank line:
-- `Critical: <one or two sentences>` when something needs the user's attention or action soon.
-- `Blocked: <one or two sentences>` only when the check could do none of its work, naming what stopped it and what would fix it.
-- `Useful: <one or two sentences>` for a worthwhile finding that is not urgent.
+Lead with what you found, not with what you did. "Checked the calendar for deadlines" is what you did; "Two bills are due Friday, and nothing else this week" is the point.
+
+Start the report with exactly one triage line, then a blank line. Its label is for hobkin, and the words after it are the report's first sentence, with one more sentence at most:
+- `Critical: <the point>` when something needs the user's attention or action soon.
+- `Blocked: <the point>` only when the check could do none of its work, naming what stopped it and what would fix it.
+- `Useful: <the point>` for a worthwhile finding that is not urgent. hobkin leaves the word `Useful:` out when it shows the report.
 - `Nothing new.` when nothing material changed, or when you found nothing to act on, even if the news is good.
 
 When a report needs the user, the line right after the triage line says `Next: <the one call>`, in a sentence, with a blank line after it. Write it only when there is a real call to make: Hobkin shows it in chat with the triage line and counts it as something waiting on the user.

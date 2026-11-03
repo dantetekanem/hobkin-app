@@ -98,4 +98,4 @@ Suggest `critical` for something deployed with real users or money, a client's r
 
 ## Report
 
-Start with one line naming the main projects: `Useful: Looked through 34 repositories and offers 7. The main ones are finboard-api, pi-package and website. They are in Work Mode.` If you offer nothing, that line says why, because the user sees it: `Useful: Looked through 12 repositories and offers none, because all of them are unchanged forks.` Then add a `Left out` section listing what you set aside and why, so the user can still ask for it. `Blocked:` does not exist in work mode, so never write it.
+Start with one line naming the main projects: `Useful: 7 projects are ready to choose in Work Mode, mainly finboard-api, pi-package and website. They come from 34 repositories.` If you offer nothing, that line says why, because the user sees it: `Useful: None of the 12 repositories is worth taking on, because all of them are unchanged forks.` Then add a `Left out` section listing what you set aside and why, so the user can still ask for it. `Blocked:` does not exist in work mode, so never write it.

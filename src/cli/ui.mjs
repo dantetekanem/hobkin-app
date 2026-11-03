@@ -11,6 +11,7 @@ import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-image
 import { shownMood } from './mood.mjs';
 import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
 import { IMAGE_ONLY_TEXT, MAX_IMAGES, previewRows } from './paste-image.mjs';
+import { readerText } from './reports.mjs';
 import { followPiTheme } from './theme.mjs';
 import { lookTime, shortPath } from './work/chat.mjs';
 import { byPriority, byRank, foldersLeft, grades, prModes, tokenLabel } from './work/store.mjs';
@@ -301,7 +302,7 @@ const dayHeading = (at, clock) => muted(bold((at === null ? 'Undated' : dayLabel
 // A report's first substantive line, skipping rules, generic headings and lines that repeat its title.
 const summaryOf = report => {
   const title = clean(report.title).trim().toLowerCase();
-  for (const source of String(report.body ?? '').slice(0, 4000).split('\n')) {
+  for (const source of readerText(report.body).slice(0, 4000).split('\n')) {
     const text = clean(source)
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
       .replace(/\*\*|__|`|~~/g, '')
@@ -1112,7 +1113,7 @@ const reportDetailLines = ({ report, inner, clock, markdown }) => {
     ...provenance,
     faint('─'.repeat(inner)),
     '',
-    ...markdown(report.body, inner),
+    ...markdown(readerText(report.body), inner),
   ];
 };
 // A selected row's bar sits in the margin, so its glyph stays in line with every other row.
