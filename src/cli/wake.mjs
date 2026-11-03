@@ -13,6 +13,9 @@ export const sessionsBrief = sessions => brief({ sessions });
 /** Commands the agent scheduled that failed, for it to fix or cancel. */
 export const scheduledBrief = failures => brief({ scheduled: failures.slice(0, MOST_TOLD) });
 
+/** Work the user chose on a card that work mode cannot start, for the agent to hand to a session of its own. */
+export const handOffBrief = jobs => brief({ handOff: jobs });
+
 const isScheduledRun = message => message?.role === 'custom' && message.customType === 'scheduled-task' && Boolean(message.details?.result);
 
 /** A scheduled run that finished cleanly tells the user nothing, because the agent speaks when what it waited for comes. */

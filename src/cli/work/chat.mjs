@@ -24,11 +24,17 @@ export const shortPath = path => {
 /** An exact command, so an agent's answer lands in this home whatever is on its path. */
 export const hobkinCommand = (root, subcommand) => `${shellWord(process.execPath)} ${shellWord(mainScript)} ${subcommand} --home ${shellWord(root)}`;
 
-/** A next look is never more than a day away, so today or tomorrow says enough. */
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_MS = 24 * 60 * 60000;
+
+/** Today or tomorrow says enough for a next look. Anything further off, such as a week window's reset, names its day. */
 export const lookTime = (at, now) => {
   const date = new Date(at);
-  const day = date.toDateString() === new Date(now).toDateString() ? 'today' : 'tomorrow';
-  return `${pad(date.getHours())}:${pad(date.getMinutes())} ${day}`;
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const sameDayAs = other => date.toDateString() === new Date(other).toDateString();
+  if (sameDayAs(now)) return `${time} today`;
+  if (sameDayAs(now + DAY_MS)) return `${time} tomorrow`;
+  return `${time} on ${WEEKDAYS[date.getDay()]}`;
 };
 
 const proposalLine = ({ name, slug, level, summary, found, reason }, index) => {

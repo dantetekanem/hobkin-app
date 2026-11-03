@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
-import { discoveryMessage, withoutWorkNote, workNote } from '../src/cli/work/chat.mjs';
+import { discoveryMessage, lookTime, withoutWorkNote, workNote } from '../src/cli/work/chat.mjs';
 import { noteDiscovery, proposeProject, recordDiscovery, skipProject, writeMode } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -42,6 +42,14 @@ async function openApp(t, h, options = {}) {
   t.after(() => app.close());
   return { app, sent };
 }
+
+test('a time says today or tomorrow, and further off it names the day', () => {
+  const monday = new Date(2026, 5, 1, 12, 0).getTime();
+
+  assert.equal(lookTime(new Date(2026, 5, 1, 20, 9).getTime(), monday), '20:09 today');
+  assert.equal(lookTime(new Date(2026, 5, 2, 9, 30).getTime(), monday), '09:30 tomorrow');
+  assert.equal(lookTime(new Date(2026, 5, 7, 12, 42).getTime(), monday), '12:42 on Sunday');
+});
 
 test('with nothing waiting, a message goes to the main agent as it was typed', async t => {
   const h = fixture(t);

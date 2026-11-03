@@ -19,7 +19,7 @@ import { editReport } from './report-editor.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
-import { failureKey, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
@@ -29,6 +29,7 @@ import { workStatus } from './work/commands.mjs';
 import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
 import { answerPickUp, filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
+import { answerSubscriptionPause } from './work/subscription.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { answerPair, fileFirstPair } from './work/pairs.mjs';
@@ -662,6 +663,10 @@ export class HobkinApplication {
    */
   tickWakes() {
     if (!this.canStartHoldTurn()) return;
+    if (this.handOffs?.length) {
+      void this.runtime.send(handOffBrief(this.handOffs.splice(0))).catch(() => {});
+      return;
+    }
     const root = this.runtime.directory;
     const sessions = sessionsToWake(root);
     if (sessions.length) {
@@ -674,6 +679,11 @@ export class HobkinApplication {
     if (!failures.length) return;
     for (const failure of failures) this.failuresTold.add(failureKey(failure));
     void this.runtime.send(scheduledBrief(failures)).catch(() => {});
+  }
+
+  /** Work the user chose on a card that work mode cannot start. The main agent gets it as soon as it is free, and hands it to a session. */
+  handOff(job) {
+    (this.handOffs ??= []).push(job);
   }
 
   untoldFailures() {
@@ -724,6 +734,7 @@ export class HobkinApplication {
     const result = await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
     if (result?.told) recordCardAction(root, result.told, this.now());
+    if (result?.handOff) this.handOff(result.handOff);
     await this.director.tick();
     // A refresh already under way read the state before this change, and the screen must show the change.
     await this.refreshing?.catch(() => {});
@@ -745,9 +756,10 @@ export class HobkinApplication {
     if (answerTo?.kind === 'pair' && value === 'read') this.showDone?.();
     const moved = answerTo?.kind === 'pair' ? await answerPair(root, value, answerTo.rows, this.now()) : null;
     const picked = answerTo?.kind === 'pickup' ? answerPickUp(root, value, answerTo.keys) : null;
+    const chose = answerTo?.kind === 'subscription' ? answerSubscriptionPause(root, value, answerTo.until, this.now()) : null;
     answerDecision(root, id, value, this.now());
     recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
-    return offered ?? moved ?? picked ?? { ok: true, message: `Answered: ${choice.label}.` };
+    return offered ?? moved ?? picked ?? chose ?? { ok: true, message: `Answered: ${choice.label}.` };
   }
 
   /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */

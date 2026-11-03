@@ -1062,7 +1062,12 @@ const subscriptionLine = ({ subscription, harness }) => {
   if (harness && harness !== 'pi') return `${clean(harness)} panes cannot be measured: each counts as its estimate, one at a time.`;
   if (!subscription) return '';
   if (!subscription.known) return 'Subscription: not known yet, so one agent runs at a time.';
-  const windows = subscription.windows.map(({ label, usedPercent }) => `${clean(label)} ${Math.round(usedPercent)}% used`).join(', ');
+  // How far its time has gone beside how much is used, so the user can judge the pace and pause by hand. Work never pauses for it by itself.
+  const windowWords = ({ label, usedPercent, elapsedPercent }) => {
+    const used = `${clean(label)} ${Math.round(usedPercent)}% used`;
+    return Number.isFinite(elapsedPercent) ? `${used}, ${Math.round(elapsedPercent)}% of its time gone` : used;
+  };
+  const windows = subscription.windows.map(windowWords).join(', ');
   return windows ? `Subscription: ${windows}.` : '';
 };
 const watchLine = ({ watch }, clock) => {

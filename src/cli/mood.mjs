@@ -6,7 +6,7 @@ const QUIET_MS = 15 * 60000;
 const LONG_TURN_MS = 5 * 60000;
 const CROWDED_AT = 4;
 const REPLY_ENDING_LENGTH = 300;
-const LIMIT_PAUSES = ['day', 'hour', 'usage', 'reserve'];
+const LIMIT_PAUSES = ['day', 'hour', 'usage'];
 // Busy starts the moment a message is sent, so these two are the only reactions a turn may hide. Bad news and what the user said stay in sight.
 const YIELDING = ['happy', 'listening'];
 const CHEERFUL = ['happy', 'love'];

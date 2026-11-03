@@ -28,6 +28,7 @@ import {
 import { changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
+import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
 import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 
@@ -175,10 +176,13 @@ export class WorkDirector {
     this.watchChanges(mode);
 
     const current = readMode(this.root);
-    const { pause, budget, next, shipFirst } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
+    const { pause, budget, next, shipFirst, subscription } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
     watchPile(this.root, shipFirst, this.now());
     if (['day', 'hour'].includes(pause?.kind)) this.holdDiscovery();
     this.tellPause(pause, current);
+    // Ahead of the subscription's pace, hobkin tells and asks, and work carries on unless the user pauses it.
+    retireSubscriptionPause(this.root, subscription.ahead, this.now());
+    if (offerSubscriptionPause(this.root, subscription.ahead, this.now())) this.onChange();
     if (pause?.kind === 'day') this.askForAllowance(current, budget);
     // Schedules are not held. Only new work waits, and the next tick picks it up.
     if (next && !this.runtime.workWaitsForChat) this.begin(next, budget, current);
@@ -280,7 +284,7 @@ export class WorkDirector {
 
   // Once for each pause, in Chat. The tab keeps the live numbers, and a daily pause speaks through its question.
   tellPause(pause, mode) {
-    if (!['hour', 'usage', 'reserve'].includes(pause?.kind)) return;
+    if (!['hour', 'usage'].includes(pause?.kind)) return;
     const day = new Date(this.now()).toDateString();
     const id = pause.kind === 'usage' ? `usage:${mode.usagePause.at}` : `${pause.kind}:${day}`;
     if (mode.pauseNotice?.id === id) return;

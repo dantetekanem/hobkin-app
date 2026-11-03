@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { mergeRefreshed, refreshThenMerge } from '../src/cli/work/refresh.mjs';
-import { chooseProject, fileItem, readItems, updateItem } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
@@ -17,6 +17,7 @@ function workspace(t) {
   initialize(root, { cwd: base });
   const checkout = repository(base, 'api');
   chooseProject(root, checkout, 'important', NOW);
+  writeMode(root, { enabled: true });
   return { root, checkout };
 }
 
@@ -106,6 +107,31 @@ test('a refreshed PR merges on its host at whatever head the refresh left', asyn
 
   assert.equal(merged[0].ok, true);
   assert.deepEqual(calls[0], ['pr', 'merge', 'https://example.com/pull/8', '--merge']);
+});
+
+test('with work mode off or paused, refresh and merge goes to the main agent to hand to a session, and queues nothing', t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'job.txt');
+  const item = finished(h, 'hobkin/abc');
+  writeMode(h.root, { enabled: false });
+
+  const off = refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
+  writeMode(h.root, { enabled: true, pausedAt: new Date(NOW).toISOString() });
+  const paused = refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
+
+  assert.equal(read(h, item).state, 'branch');
+  assert.equal(read(h, item).mergeWhenFresh, undefined);
+  assert.deepEqual(off.handOff, {
+    project: 'api',
+    item: item.id,
+    title: 'Fix the job spec',
+    branch: 'hobkin/abc',
+    asked: 'Bring the branch up to date with the default branch, run its proof again, then merge it with hobkin work merge.',
+    why: 'work mode is off',
+  });
+  assert.equal(paused.handOff.why, 'work mode is paused');
+  assert.match(off.message, /^Work mode is off, so the main agent starts a session to bring "Fix the job spec" on api up to date/);
+  assert.equal(off.told.did, 'asked to refresh and merge it');
 });
 
 test('only finished work can be refreshed', t => {

@@ -196,6 +196,26 @@ test('a session started with --wake gives the main agent a turn as soon as it en
   }
 });
 
+test('work the user chose that work mode cannot start goes to the main agent once, as a turn of its own', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    const sent = t.mock.method(app.runtime, 'send');
+    app.handOff({ project: 'finboard', item: 'abc123', title: 'Browse older payment installments', branch: 'hobkin/abc123', asked: 'Refresh it.', why: 'work mode is off' });
+
+    await app.tickWakes();
+    await app.runtime.idle();
+    await app.tickWakes();
+
+    const woken = sent.mock.calls.map(({ arguments: [text] }) => text);
+    assert.equal(woken.length, 1);
+    assert.match(woken[0], /^<hobkin-wake>\n\{"handOff":\[/);
+    assert.match(woken[0], /Browse older payment installments/);
+  } finally {
+    await app.close();
+  }
+});
+
 const mainSession = h => h.fake.sessions.get(h.fake.opened.at(-1));
 
 /** One run of a command the main agent scheduled, as the scheduler posts it into the conversation. */

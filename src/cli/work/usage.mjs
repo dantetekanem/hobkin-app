@@ -7,9 +7,9 @@ import { readJson } from './store.mjs';
 const MINUTE_MS = 60000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MINUTES = 1440;
-// Chat and checks share these windows. Work keeps this much of any of them back, however late it is.
+// Chat and checks share these windows. Past this much of one, hobkin asks whether to pause work, however late it is.
 const CEILING_PERCENT = 70;
-// A week would otherwise be free to go on its first day, so work may be this far ahead of a window's clock and no further.
+// A week could otherwise go on its first day, so work this many points ahead of a window's clock is asked about too.
 const HEAD_START_PERCENT = 30;
 const FIRST_PAUSE_MS = HOUR_MS / 2;
 const LONGEST_PAUSE_MS = 6 * HOUR_MS;
@@ -36,29 +36,43 @@ const labelFor = ({ windowMinutes }) => {
   return windowMinutes >= DAY_MINUTES ? 'week' : `${Math.round(windowMinutes / 60)}h`;
 };
 
-export const usageWindows = (reading, now) => openWindows(reading, now)
-  .map(entry => ({ label: labelFor(entry), usedPercent: entry.usedPercent }));
-
 const lengthOf = ({ windowMinutes, resetAt }) => (windowMinutes && resetAt ? windowMinutes * MINUTE_MS : 0);
 
-function allowedPercent(entry, now) {
+// How far through its time a window is, or `null` when the reading gives it no clock.
+function elapsedPercent(entry, now) {
   const length = lengthOf(entry);
-  if (!length) return CEILING_PERCENT;
-  const elapsed = 100 * (1 - (entry.resetAt - now) / length);
-  return Math.min(CEILING_PERCENT, elapsed + HEAD_START_PERCENT);
+  return length ? 100 * (1 - (entry.resetAt - now) / length) : null;
 }
 
-function clearsAt(entry) {
+/**
+ * Each window still open, with how much of it is used and, when the reading gives its clock, how much of its time has gone. This informs the
+ * user and never stops work: a pause for it was a block, and the provider saying no is what stops runs.
+ */
+export const usageWindows = (reading, now) => openWindows(reading, now).map(entry => {
+  const elapsed = elapsedPercent(entry, now);
+  return { label: labelFor(entry), usedPercent: entry.usedPercent, ...(elapsed === null ? {} : { elapsedPercent: elapsed }) };
+});
+
+function paceLine(entry, now) {
+  const elapsed = elapsedPercent(entry, now);
+  return elapsed === null ? CEILING_PERCENT : Math.min(CEILING_PERCENT, elapsed + HEAD_START_PERCENT);
+}
+
+// When the window's clock catches up with what is used, or its reset once it is past the ceiling.
+function catchesUpAt(entry) {
   const length = lengthOf(entry);
   if (!length || entry.usedPercent >= CEILING_PERCENT) return entry.resetAt ?? null;
   return Math.round(entry.resetAt - length * (1 - (entry.usedPercent - HEAD_START_PERCENT) / 100));
 }
 
-/** The window that says stop, if one does. It clears by itself as the window's clock moves on. */
-export function overReserve(reading, now) {
-  const over = openWindows(reading, now).find(entry => entry.usedPercent >= allowedPercent(entry, now));
-  if (!over) return null;
-  return { label: labelFor(over), usedPercent: over.usedPercent, allowedPercent: allowedPercent(over, now), until: clearsAt(over) };
+/**
+ * A window used faster than its clock runs, or past the share kept for chat and checks. hobkin only asks whether to pause for it, because a
+ * pause it forced was a block. `until` is when a pause the user chooses would end by itself.
+ */
+export function aheadOfPace(reading, now) {
+  const ahead = openWindows(reading, now).find(entry => entry.usedPercent >= paceLine(entry, now));
+  if (!ahead) return null;
+  return { label: labelFor(ahead), usedPercent: ahead.usedPercent, elapsedPercent: elapsedPercent(ahead, now), until: catchesUpAt(ahead) };
 }
 
 /**

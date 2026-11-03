@@ -6,7 +6,7 @@ import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
 // `reads.mjs` imports this file too. Neither calls the other while loading, so the cycle is safe.
 import { readyItems } from './reads.mjs';
 import { shipFirst } from './ship.mjs';
-import { overReserve, readSubscription, usageWindows } from './usage.mjs';
+import { aheadOfPace, readSubscription, usageWindows } from './usage.mjs';
 import {
   chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf,
   readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
@@ -397,19 +397,21 @@ function budgetWait(entry, budget) {
   return skipsTheHour(entry) || fitsHour(budget, entry.estimate.fresh) ? null : 'over this hour\'s share';
 }
 
-/** A limit the plan cannot work around stops everything, and nothing but its own end or the user clears it. */
-function hardStop({ mode, now, reading }) {
+/**
+ * A limit the plan cannot work around stops everything, and nothing but its own end or the user clears it. Work ahead of the subscription's pace
+ * is asked about, never a stop by itself, because a pause hobkin forced was a block. A pause the user chose for it is theirs, and so is a stop.
+ */
+function hardStop({ mode, now }) {
   if (mode.pausedAt) return { kind: 'hand', line: 'Paused by hand. What is running finishes, and nothing new starts until hobkin work resume.' };
   const paused = mode.usagePause;
   if (paused && Date.parse(paused.until) > now) {
     const line = `Paused by a usage limit: ${paused.reason} It tries again at ${lookTime(paused.until, now)}.`;
     return { kind: 'usage', line, until: paused.until };
   }
-  const over = overReserve(reading, now);
-  if (over) {
-    const until = over.until ? ` It carries on around ${lookTime(over.until, now)}.` : '';
-    const percent = Math.round(over.allowedPercent);
-    return { kind: 'reserve', line: `Paused to protect the subscription: ${over.label} window ${Math.round(over.usedPercent)}% used, and work may use ${percent}% for now.${until}`, until: over.until };
+  const chosen = mode.subscriptionPause;
+  if (chosen && Date.parse(chosen.until) > now) {
+    const line = `Paused until ${lookTime(chosen.until, now)} to protect the subscription, as you chose. hobkin work resume starts it sooner.`;
+    return { kind: 'chosen', line, until: chosen.until };
   }
   return null;
 }
@@ -462,7 +464,7 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
     return { ...entry, ownWait: own, waiting: own ?? budgetWait(entry, budget) };
   });
 
-  const subscription = { known: Boolean(reading), windows: usageWindows(reading, now) };
+  const subscription = { known: Boolean(reading), windows: usageWindows(reading, now), ahead: aheadOfPace(reading, now) };
   const agents = subscription.known && mode.harness === 'pi' ? mode.agents : 1;
   const free = agents - running.length - checks;
   const ready = entries.filter(entry => !entry.waiting).length;

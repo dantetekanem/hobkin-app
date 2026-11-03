@@ -267,7 +267,7 @@ test('too much at once is dizzy, as it happens and not for as long as it lasts',
   full.moods.observe(view({ context: { percent: 95 } }));
   assert.equal(full.mood(), 'dizzy');
 
-  for (const [kind, mood] of [['day', 'dizzy'], ['hour', 'dizzy'], ['usage', 'dizzy'], ['reserve', 'dizzy'], ['hand', undefined]]) {
+  for (const [kind, mood] of [['day', 'dizzy'], ['hour', 'dizzy'], ['usage', 'dizzy'], ['hand', undefined]]) {
     const h = started();
     h.moods.observe(view({ work: { pause: { kind } } }));
     assert.equal(h.mood(), mood, kind);

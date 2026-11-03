@@ -218,7 +218,7 @@ test('the reply to start and the status the main agent reads both carry it', asy
   const root = dataRoot(t);
   writeMode(root, { enabled: false });
 
-  const { message } = await hobkin(root, 'start', root);
+  const { message } = await hobkin(root, 'start', root, '--auto');
   const { forecast: status } = await hobkin(root, 'status');
 
   const line = 'Next 8h: about 1 job · 1 P0 · 2 agents at a time.';

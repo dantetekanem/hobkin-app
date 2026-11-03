@@ -1144,7 +1144,7 @@ test('a usage limit stops everything until it lifts, whatever else fits', t => {
   assert.ok(plan(root, { now: now + HOUR + 1 }).next, 'it can try again once the time has passed');
 });
 
-test('a real reading past the reserve stops new work, and says which window and how much', t => {
+test('a reading ahead of the subscription\'s pace never stops new work by itself, and the plan says how far ahead it is', t => {
   const root = dataRoot(t);
   project(root, 'api');
   fileItem(root, 'api', item('fix'), now);
@@ -1152,11 +1152,25 @@ test('a real reading past the reserve stops new work, and says which window and 
 
   const { next, pause, subscription } = plan(root);
 
-  assert.equal(next, null);
-  assert.equal(pause.kind, 'reserve');
-  assert.match(pause.line, /5h/);
-  assert.match(pause.line, /72%/);
-  assert.deepEqual(subscription.windows, [{ label: '5h', usedPercent: 72 }]);
+  assert.ok(next, 'work carries on');
+  assert.equal(pause, null);
+  assert.deepEqual([subscription.ahead.label, subscription.ahead.usedPercent], ['5h', 72]);
+  assert.deepEqual(subscription.windows.map(({ label, usedPercent }) => [label, usedPercent]), [['5h', 72]]);
+});
+
+test('a pause the user chose to protect the subscription holds new work until its time, and says so', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('fix'), now);
+  writeMode(root, { subscriptionPause: { at: new Date(now).toISOString(), until: new Date(now + HOUR).toISOString() } });
+
+  const held = plan(root);
+  const after = plan(root, { now: now + HOUR + 1 });
+
+  assert.equal(held.next, null);
+  assert.equal(held.pause.kind, 'chosen');
+  assert.match(held.pause.line, /^Paused until \d\d:\d\d today to protect the subscription, as you chose\./);
+  assert.ok(after.next, 'it ends by itself at its time');
 });
 
 test('similar runs set the estimate, by kind and level, and a safe guess stands in until there are enough', t => {

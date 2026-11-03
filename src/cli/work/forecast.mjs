@@ -156,7 +156,7 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
 
 // Turning work mode on ends a pause by hand, so with it off only a limit that ends by itself holds anything.
 function stopThatHolds(pause, mode) {
-  if (['usage', 'reserve'].includes(pause?.kind)) return pause;
+  if (['usage', 'chosen'].includes(pause?.kind)) return pause;
   return pause?.kind === 'hand' && mode.enabled ? pause : null;
 }
 
@@ -183,7 +183,7 @@ function forecastLine({ jobs, grades: byGrade, agents, limit, until }, now) {
   const why = {
     hand: 'Paused by hand until hobkin work resume.',
     usage: `Paused by a usage limit${when}.`,
-    reserve: `Paused to protect the subscription${when}.`,
+    chosen: `Paused to protect the subscription${when}, as you chose.`,
     day: 'The daily budget caps it.',
     hour: 'The hourly share caps it.',
     pace: 'More is due than fits.',
@@ -208,7 +208,6 @@ export function forecastWork(root, plan, { now = Date.now(), running = [] } = {}
   const from = Math.floor(now / MINUTE_MS) * MINUTE_MS;
   const end = from + FORECAST_HOURS * HOUR_MS;
   const stop = stopThatHolds(pause, mode);
-  // A usage limit gives its end as a date and the reserve as a number.
   const until = stop?.until ? new Date(stop.until).getTime() : null;
   const start = firstStart(stop, until, from, end);
 

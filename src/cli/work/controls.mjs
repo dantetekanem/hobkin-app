@@ -98,8 +98,9 @@ export function resumeWork(root, reference) {
     return reply(`Resumed ${nameOf(project)}. ${pauseLeft() ?? 'Its work is back in the queue.'}`);
   }
 
-  if (readMode(root).pausedAt) {
-    writeMode(root, { pausedAt: null });
+  const { pausedAt, subscriptionPause } = readMode(root);
+  if (pausedAt || subscriptionPause) {
+    writeMode(root, { pausedAt: null, subscriptionPause: null });
     return reply(`Resumed. ${pauseLeft() ?? 'The queue carries on at the next tick.'}`);
   }
 
