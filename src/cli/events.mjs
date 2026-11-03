@@ -104,7 +104,7 @@ export function eventRollup(events) {
   const count = (...types) => ofType(...types).length;
   // A run in a pane is counted after it has ended, so its figure arrives as an event of its own.
   const counted = new Map(ofType('run_tokens').map(({ id, tokens }) => [id, tokens]));
-  const runs = ofType('run_finished').map(run => ({ ...run, tokens: counted.get(run.id) ?? run.tokens }));
+  const runs = ofType('run_finished').map(run => ({ ...run, tokens: counted.get(run.id) || run.tokens }));
   const answered = ofType('question_ended').filter(({ how }) => how === 'answered');
 
   return {

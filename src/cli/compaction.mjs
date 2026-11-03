@@ -1,5 +1,5 @@
 const SMART_AT_PERCENT = 80;
-const FORCE_AT_PERCENT = 95;
+export const FORCE_AT_PERCENT = 95;
 const MINUTE_MS = 60000;
 // Someone reading the last reply may be about to answer it, and they should not meet a spinner.
 const QUIET_BEFORE_SMART_MS = 2 * MINUTE_MS;

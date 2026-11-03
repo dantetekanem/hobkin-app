@@ -1143,6 +1143,66 @@ test('a useful scheduled report makes hobkin happy through a real refresh', asyn
   }
 });
 
+test('what the user types reaches the face while the turn runs, and the words stay out of what is kept', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    const control = h.fake.controls.get(app.runtime.main.sessionId);
+    Object.assign(control, { gate: Promise.withResolvers(), started: Promise.withResolvers() });
+
+    const accepted = app.send('dont be happy, you are doing terrible');
+    await control.started.promise;
+    await app.refreshing;
+    const view = await app.refresh();
+
+    assert.equal(view.mood.mood, 'sad');
+    assert.equal(view.mood.cause, 'user said the work is bad');
+    control.gate.resolve();
+    await accepted;
+    await app.runtime.idle();
+  } finally {
+    await app.close();
+  }
+  const kept = readdirSync(join(h.root, 'runtime/events')).map(name => readFileSync(join(h.root, 'runtime/events', name), 'utf8')).join('');
+  assert.doesNotMatch(kept, /doing terrible/);
+});
+
+test('a routine stalling twice running turns the face grumpy through a real refresh', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ runHarness: async () => { throw Error('Unexpected provider call in synthetic mood test.'); } });
+  const blocked = { status: 'completed', text: 'Blocked: The login needs a code.' };
+  try {
+    await app.runtime.change(state => {
+      state.runs.first = backgroundRun('first', { scheduleId: 'digest', result: blocked });
+      state.runs.second = backgroundRun('second', { scheduleId: 'digest', status: 'running', startedAt: '2026-01-03T08:00:00.000Z', finishedAt: '2026-01-03T08:01:00.000Z', result: blocked });
+    });
+    await app.refresh();
+
+    await app.runtime.change(state => { state.runs.second.status = 'completed'; });
+    const view = await app.refresh();
+
+    assert.equal(view.mood.mood, 'grumpy');
+  } finally {
+    await app.close();
+  }
+});
+
+test('an item merged by anything reaches the face', async t => {
+  const h = fixture(t);
+  chooseProject(h.root, '/repos/api', 'casual');
+  const { id } = fileItem(h.root, 'api', { key: 'one', kind: 'fix', title: 'One', brief: 'Evidence.' });
+  const app = await h.openApp();
+  try {
+    updateItem(h.root, 'api', id, { state: 'merged' });
+
+    const view = await app.refresh();
+
+    assert.equal(view.mood.mood, 'celebrating');
+  } finally {
+    await app.close();
+  }
+});
+
 test('a setting left in config.json by a removed feature loads and does nothing', async t => {
   const h = fixture(t);
   // The user's real config still holds this key, and the name is put together so a search for it finds only history.

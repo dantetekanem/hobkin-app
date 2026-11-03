@@ -25,7 +25,7 @@ import { workStatus } from './work/commands.mjs';
 import { askAgent, declineItem, mergeItem, openDiff, requestReview } from './work/controls.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers } from './work/land-offer.mjs';
-import { noteForCheck } from './checks.mjs';
+import { noteForCheck, stalled } from './checks.mjs';
 import { answerDecision, fileDecision, findDecision, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
@@ -34,7 +34,7 @@ import { readingUsage } from './work/usage.mjs';
 import { atomicJson, learningEnabled, loadConfig, setLearning } from './config.mjs';
 import { Learner } from './learning/learner.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
-import { Moods } from './mood.mjs';
+import { Moods, searchingTool } from './mood.mjs';
 import { readLocalView } from './view.mjs';
 import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
@@ -356,6 +356,8 @@ export class HobkinApplication {
           cwd: run.cwd ?? (run.kind === 'main' ? this.config.main.cwd : undefined),
           startedAt: run.startedAt,
           work: run.work,
+          stalled: stalled(run),
+          stopReason: run.result?.stopReason,
         })),
       ],
       lastTick: loaded.lastTick,
@@ -414,6 +416,7 @@ export class HobkinApplication {
       decisions: openDecisions(this.runtime.directory),
       connection: 'connected',
       busy: this.runtime.mainBusy,
+      searching: searchingTool(this.runtime.mainTool),
       learning: learningEnabled(this.runtime.directory),
       userName: callName(readProfile(this.runtime.directory)),
       main: {

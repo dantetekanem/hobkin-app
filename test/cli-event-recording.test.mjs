@@ -196,8 +196,8 @@ test('work mode pausing and resuming records the kind of pause', async t => {
   assert.deepEqual(h.ofType('work_resumed').map(({ pause }) => pause), ['hand']);
 });
 
-test('compaction records its start, and how it ended and how long it took', async t => {
-  const h = fixture(t);
+/** An app whose main session can be made to say anything, as Pi would. */
+async function appWithVoice(h) {
   let tell;
   const app = await h.openApp({
     createMain: async options => {
@@ -210,6 +210,12 @@ test('compaction records its start, and how it ended and how long it took', asyn
       return session;
     },
   });
+  return { app, tell: event => tell(event) };
+}
+
+test('compaction records its start, and how it ended and how long it took', async t => {
+  const h = fixture(t);
+  const { app, tell } = await appWithVoice(h);
 
   tell({ type: 'compaction_start', reason: 'threshold' });
   tell({ type: 'compaction_end', reason: 'threshold', aborted: false });
@@ -219,6 +225,23 @@ test('compaction records its start, and how it ended and how long it took', asyn
   const [finished] = h.ofType('compaction_finished');
   assert.deepEqual([finished.reason, finished.status], ['threshold', 'completed']);
   assert.ok(finished.ms >= 0);
+});
+
+test('the tool a turn is on reaches the face, and goes when the turn ends', async t => {
+  const h = fixture(t);
+  const { app, tell } = await appWithVoice(h);
+
+  tell({ type: 'tool_execution_start', toolName: 'read' });
+  assert.equal((await app.refresh()).searching, true);
+  tell({ type: 'tool_execution_start', toolName: 'bash' });
+  assert.equal((await app.refresh()).searching, false);
+
+  tell({ type: 'tool_execution_start', toolName: 'grep' });
+  await app.send('go on');
+  await app.runtime.idle();
+  await app.refreshing;
+  assert.equal((await app.refresh()).searching, false);
+  await app.close();
 });
 
 test('a stopped main chat reaches the screen as an error from main, with none of its text', async t => {
@@ -235,19 +258,19 @@ test('a stopped main chat reaches the screen as an error from main, with none of
   assert.doesNotMatch(h.written(), /private failure/);
 });
 
+const quietView = {
+  config: { main: {}, background: { harness: 'pi', model: null, effort: 'medium' } },
+  counts: { daily: 0, weekly: 0, monthly: 0 },
+  schedules: [],
+  reports: [],
+  messages: [],
+  connection: 'connected',
+  runs: [],
+  usage: null,
+};
 const dashboard = (snapshot = {}, handlers = {}, options = {}) => {
   const seen = [];
-  const ui = createDashboard({
-    config: { main: {}, background: { harness: 'pi', model: null, effort: 'medium' } },
-    counts: { daily: 0, weekly: 0, monthly: 0 },
-    schedules: [],
-    reports: [],
-    messages: [],
-    connection: 'connected',
-    runs: [],
-    usage: null,
-    ...snapshot,
-  }, { ...handlers, event: (type, facts) => seen.push({ type, ...facts }) }, options);
+  const ui = createDashboard({ ...quietView, ...snapshot }, { ...handlers, event: (type, facts) => seen.push({ type, ...facts }) }, options);
   return { ui, ofType: type => seen.filter(event => event.type === type) };
 };
 
@@ -342,6 +365,68 @@ test('an error on screen says where it came from and leaves out what it said', a
   assert.deepEqual(ofType('error_shown'), [{ type: 'error_shown', from: 'Send' }]);
 });
 
+test('each mood drawn is recorded once, with its cause', () => {
+  let clock = 1000;
+  const reaction = { mood: 'happy', cause: 'useful report', until: 2000 };
+  const { ui, ofType } = dashboard({ mood: reaction }, {}, { now: () => clock });
+
+  ui.render(120, 40);
+  ui.render(120, 40);
+  clock = 3000;
+  ui.render(120, 40);
+  ui.update({ ...quietView, busy: true });
+  ui.render(120, 40);
+  ui.stop();
+
+  assert.deepEqual(ofType('mood_shown').map(({ mood, cause }) => [mood, cause]), [
+    ['happy', 'useful report'],
+    ['idle', 'nothing going on'],
+    ['thinking', 'turn under way'],
+  ]);
+});
+
+test('a question on screen and a decision waiting both make the face listen', async () => {
+  const { ui } = dashboard({ decisions: [{ id: 'one', tldr: 'One', question: 'One?', from: 'Work mode', choices, at: new Date().toISOString() }] });
+  assert.equal(ui.state().mood, 'listening');
+
+  const quiet = dashboard();
+  assert.equal(quiet.ui.state().mood, 'idle');
+  const answer = quiet.ui.askQuestion({ question: 'Which?', choices });
+  assert.equal(quiet.ui.state().mood, 'listening');
+  quiet.ui.input(ESCAPE);
+  await answer;
+  assert.equal(quiet.ui.state().mood, 'idle');
+
+  ui.stop();
+  quiet.ui.stop();
+});
+
+test('a turn over five minutes is focused, as long as the screen has been watching it', () => {
+  let clock = 1000;
+  const { ui } = dashboard({ busy: true }, {}, { now: () => clock });
+  ui.update({ ...quietView, busy: true });
+  assert.equal(ui.state().mood, 'thinking');
+
+  clock += 300000;
+  assert.equal(ui.state().mood, 'focused');
+  ui.stop();
+});
+
+test('an unknown command and a failure reach the face as moments', async () => {
+  const moments = [];
+  const { ui } = dashboard({}, { moment: moment => moments.push(moment), send: async () => { throw Error('No.'); } });
+
+  ui.input('/nope');
+  ui.input(ENTER);
+  ui.input('\x03');
+  ui.input('hi');
+  ui.input(ENTER);
+  await ui.pending();
+  ui.stop();
+
+  assert.deepEqual(moments, [{ event: 'unknown command' }, { event: 'error' }]);
+});
+
 test('the dashboard writes its events to the data folder, connected or not', async t => {
   const h = fixture(t);
   let handlers;
@@ -349,6 +434,7 @@ test('the dashboard writes its events to the data folder, connected or not', asy
   const output = { isTTY: true, write() {} };
   const stops = new Map();
   const signals = { on: (name, listener) => stops.set(name, listener), removeListener() {} };
+  const reacted = [];
   const work = main(['--home', h.root], output, {
     signals,
     input: { isTTY: true },
@@ -358,13 +444,16 @@ test('the dashboard writes its events to the data folder, connected or not', asy
       started.resolve();
       return { update() {}, stop() {} };
     },
-    openApplication: async () => ({ async close() {} }),
+    openApplication: async () => ({ moods: { react: moment => reacted.push(moment) }, async close() {} }),
   });
 
   await started.promise;
   handlers.event('tab_opened', { tab: 'reports' });
+  await new Promise(resolve => { setImmediate(resolve); });
+  handlers.moment({ event: 'unknown command' });
   stops.get('SIGTERM')();
   await work;
 
   assert.deepEqual(h.ofType('tab_opened').map(({ tab }) => tab), ['reports']);
+  assert.deepEqual(reacted, [{ event: 'unknown command' }]);
 });

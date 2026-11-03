@@ -168,6 +168,7 @@ export class HobkinRuntime {
     let unsubscribe;
     try {
       unsubscribe = main.subscribe(event => {
+        if (event.type === 'tool_execution_start') this.mainTool = event.toolName;
         if (event.type === 'compaction_start') {
           this.compactingSince = Date.now();
           recordEvent(this.directory, 'compaction_started', { reason: event.reason });
@@ -547,6 +548,7 @@ export class HobkinRuntime {
       this.fault = error;
     }).finally(() => {
       if (this.mainTurn === turn) this.mainTurn = null;
+      this.mainTool = null;
       release();
     });
     return accepted.promise;

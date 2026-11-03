@@ -23,6 +23,7 @@ export const itemCounts = items => ({
   prs: items.filter(item => item.state === 'pr').length,
   branches: items.filter(item => item.state === 'branch').length,
   left: items.filter(leftForTheUser).length,
+  merged: items.filter(item => item.state === 'merged').length,
 });
 
 const pausedProjects = projects => projects.filter(({ paused, state }) => paused && state === 'chosen');

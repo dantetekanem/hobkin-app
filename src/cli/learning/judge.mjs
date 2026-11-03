@@ -70,6 +70,15 @@ export function rejectsReport(text) {
   return !plain.includes('?') && TURNED_DOWN.test(plain) && !NOT_TURNED_DOWN.test(plain);
 }
 
+const BAD_WORK = /\b(?:terrible|terrivel|awful|horrible|horrivel|pessim[oa]|sucks|(?:doing|did) (?:so |very |really )?(?:bad|badly|poorly)|(?:bad|poor) (?:job|work)|(?:muito|ta|esta|tao) (?:ruim|mal)|mal feito)\b/;
+const NOT_BAD_WORK = /\b(?:not|never|nao|nothing|nada)(?: (?:so|that|too|e|tao|muito))* (?:terrible|terrivel|awful|horrible|horrivel|bad|pessim[oa]|ruim|mal)\b/;
+
+/** `rejectsReport` for any message, with the words people use for the work itself. Nothing it reads is kept. */
+export function saysBadWork(text) {
+  const plain = flatten(String(text ?? ''));
+  return rejectsReport(plain) || (!plain.includes('?') && BAD_WORK.test(plain) && !NOT_BAD_WORK.test(plain));
+}
+
 const judged = (id, at, verdict, usd) => (verdict ? [{ run: id, at, ...verdict, ...(usd > 0 ? { usd } : {}) }] : []);
 
 function checkEvidence(schedule, { runs, signals, attention, now }) {

@@ -111,6 +111,7 @@ async function connected(options, snapshot, dependencies) {
       },
       reportRead: read => app?.recordReportRead(read),
       event: (type, facts) => recordEvent(dataRoot, type, facts),
+      moment: moment => app?.moods.react(moment),
       workAction: (...request) => {
         if (!app) throw Error('hobkin is still connecting.');
         return app.workAction(...request);

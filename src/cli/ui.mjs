@@ -8,7 +8,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
 import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
-import { currentMood } from './mood.mjs';
+import { shownMood } from './mood.mjs';
 import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
 import { followPiTheme } from './theme.mjs';
 import { lookTime, shortPath } from './work/chat.mjs';
@@ -1112,6 +1112,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let ticker = null;
   let tickerMs = 0;
   let faceShown = false;
+  let lastMood = null;
   const motion = options.motion ? new Slide() : null;
   let reading = null;
   let onDonePage = null;
@@ -1169,6 +1170,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const fail = (what, error) => {
     say(`${what} failed: ${clean(error?.message ?? error)}`, 'error');
     record('error_shown', { from: what });
+    callbacks.moment?.({ event: 'error' });
   };
   const allReports = () => snapshot.reports ?? [];
   const filterText = () => reportFilter.getValue().trim().toLowerCase();
@@ -1193,13 +1195,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (images) return images.frameMs(mood);
     return ['idle', 'sleepy'].includes(mood) ? RESTING_FACE_MS : MOVING_FACE_MS;
   };
-  const moodNow = clock => currentMood({
+  const faceNow = clock => shownMood({
     reaction: snapshot.mood,
     busy: snapshot.connection === 'connected' && snapshot.busy,
     running: jobViews().length || snapshot.work?.discovering,
     typing: Boolean(editor.getExpandedText()),
+    asked: Boolean(question),
+    waiting: decisions().length > 0,
+    searching: snapshot.searching,
+    busyMs: busySince === null ? 0 : clock - busySince,
     now: clock,
   });
+  const moodNow = clock => faceNow(clock).mood;
   const currentWorkSections = (inner, clock, frame) => {
     const work = snapshot.work ?? {};
     return workTab === 'done' ? doneSections({ work, inner }) : workSections({ work, runs: workRuns(), inner, clock, frame });
@@ -1400,6 +1407,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (submitted.startsWith('/')) {
       if (!localCommands.some(([name]) => name === submitted)) {
         say('Unknown command. Type /help to see them all.', 'warning');
+        callbacks.moment?.({ event: 'unknown command' });
         changed();
         return;
       }
@@ -1696,7 +1704,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return tip ? `${muted('tip')}  ${dim(tip)}` : '';
   };
   const drawnFace = clock => {
-    const mood = moodNow(clock);
+    const { mood, cause } = faceNow(clock);
+    // Here and not in the state, because a reaction ends by the clock and only a drawn face was shown.
+    if (mood !== lastMood) record('mood_shown', { mood, cause });
+    lastMood = mood;
     return images ? images.lines(mood, clock) : faceLines(mood, clock, { ...palette.face, octants: supportsOctants() });
   };
   const besideFace = (face, rows, width) => {

@@ -122,6 +122,15 @@ test('the rollup gives mean durations, and what reached the user beside what the
   assert.deepEqual(rollup.acted, { reports: 1, questions: 1, decisions: 1, merged: 1, declined: 1, sentBack: 1 });
 });
 
+test('a session nothing could be counted from leaves a run the figure it came with', () => {
+  const rollup = eventRollup([
+    event('run_finished', 2, { id: 'a', routine: 'work.site.look', project: 'site', lane: 'look', tokens: 700 }),
+    event('run_tokens', 2, { id: 'a', tokens: 0, cached: 0 }),
+  ]);
+
+  assert.equal(rollup.projects.site.tokens, 700);
+});
+
 test('a rollup of nothing is empty rather than wrong', () => {
   const rollup = eventRollup([]);
 
