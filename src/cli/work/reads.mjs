@@ -9,6 +9,7 @@ import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import {
   byPriority, byRank, chosenProjects, currentRequest, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates, tokenLabel,
 } from './store.mjs';
+import { BRANCH_PREFIX } from './tree.mjs';
 import { finishedOnBranch, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const projectStates = ['chosen', 'proposed', 'skipped', 'dropped'];
@@ -289,13 +290,14 @@ export function ratingWords({ safety }) {
 export const weakEarlierWork = (row, units) => stackedBeneath(row, units).find(unit => !ratedA(unit));
 
 function whyLeftOut(row, units) {
+  if (row.gap === 'elsewhere' && row.landedOn) return `it is already on ${row.landedOn}`;
   if (row.gap !== 'land') return gapWords[row.gap];
   if (!ratedA(row)) return ratingWords(row);
   const weak = weakEarlierWork(row, units);
   return weak ? `it brings ${weak.branch}, and ${ratingWords(weak)}` : null;
 }
 
-const landingRow = ({ project, slug, item, title, head, safety, size }, why) => ({
+const landingRow = ({ project, slug, item, title, head, safety, size, pr }, why) => ({
   project,
   slug,
   item,
@@ -304,16 +306,58 @@ const landingRow = ({ project, slug, item, title, head, safety, size }, why) => 
   grade: safety && `${safety.grade} ${safety.rating}`,
   lines: (size?.additions ?? 0) + (size?.deletions ?? 0),
   files: size?.files ?? 0,
+  ...(pr ? { pr } : {}),
   ...(why ? { why } : {}),
 });
 
+/** Why a PR has no grade to show, when the survey could not read one. */
+function unreadPr({ branch }, open) {
+  if (!branch) return 'it names no branch, so the survey cannot find its PR';
+  if (!branch.startsWith(BRANCH_PREFIX)) return `its PR is on ${branch}, which is not a hobkin branch, so the survey does not read it`;
+  if (!open) return 'the last survey saw no open PR for it';
+  return open.sha ? null : 'the last survey did not read its head, and hobkin work sync reads it';
+}
+
+/** An item recorded as a PR, read against the PR the survey found open on its branch. Without its head there is nothing to grade, whatever its branch holds. */
+function prRow(root, project, item, items, units) {
+  const open = units.find(unit => unit.kind === 'pr' && unit.branch === item.branch);
+  const unread = unreadPr(item, open);
+  if (!open) return { ...readyRow(root, project, item, items), unread };
+  return { ...readyRow(root, project, item, items, units), pr: open.url, unread };
+}
+
+/** One branch is one piece of work, however many items stand for it. The first row for a branch stays, so the caller puts the one that should speak first. */
+function oncePerBranch(rows) {
+  const seen = new Set();
+  return rows.filter(({ slug, branch }) => {
+    if (!branch) return true;
+    if (seen.has(`${slug}:${branch}`)) return false;
+    seen.add(`${slug}:${branch}`);
+    return true;
+  });
+}
+
+/** Everything waiting to land, uncut. A PR merges on its host, so it stays out of the walk, but bulk landing has to see it. An open PR speaks for its branch. */
+function landingRows(root) {
+  const { projects: surveyed } = readUnmerged(root);
+  const prs = chosenProjects(root).flatMap(project => {
+    const items = readItems(root, project.slug);
+    const units = surveyed[project.slug]?.open ?? [];
+    return items.filter(({ state }) => state === 'pr').map(item => prRow(root, project, item, items, units));
+  });
+  const waiting = weighedRows(root).map(({ row }) => row);
+  const ordered = [...prs.filter(({ unread }) => !unread), ...waiting, ...prs.filter(({ unread }) => unread)];
+  return oncePerBranch(ordered).toSorted(nextToMerge);
+}
+
 /**
  * The only evidence for landing work in bulk: a grade comes from the review of that exact commit, as the survey read it, and never from what an item
- * says about itself. What cannot go says why, so a plan can show what it left out. `surveyedAt` says how old this is, and `hobkin work sync` brings it up to date.
+ * says about itself. What cannot go says why, so a plan can show what it left out. A PR row carries its `pr`, because it lands on its host and not
+ * here. `surveyedAt` says how old this is, and `hobkin work sync` brings it up to date.
  */
 export function landingList(root) {
   const { at, projects } = readUnmerged(root);
-  const rows = readyItems(root).map(row => [row, whyLeftOut(row, projects[row.slug]?.open ?? [])]);
+  const rows = landingRows(root).map(row => [row, row.unread ?? whyLeftOut(row, projects[row.slug]?.open ?? [])]);
   return {
     surveyedAt: at,
     landable: rows.filter(([, why]) => !why).map(([row]) => landingRow(row)),

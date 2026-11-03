@@ -148,6 +148,7 @@ test('work already on another branch of the user says where, whether copied or m
   assert.equal(row(h, copied).gap, 'elsewhere');
   assert.equal(row(h, copied).landedOn, 'release/now');
   assert.equal(row(h, merged).landedOn, 'release/now');
+  assert.match(landingList(h.root).leftOut.find(({ item }) => item === merged.id).why, /already on release\/now/);
 });
 
 test('a bulk landing holds only what a review rated safe A at its current commit, and says why the rest stays out', async t => {
@@ -219,6 +220,65 @@ test('every branch on top of unrated work stays out, however many share it', asy
   await survey(h);
 
   assert.deepEqual(landingList(h.root).landable, []);
+});
+
+test('an open PR is on the landing list at the head its host reports, with that commit\'s grade and the same protections', async t => {
+  const h = workspace(t);
+  for (const number of [1, 2, 3, 4]) branched(h.checkout, `hobkin/${number}-fix`, `${number}.txt`, `${number}\n`);
+  branched(h.checkout, 'hobkin/base', 'base.txt', 'base\n');
+  git(h.checkout, 'switch', '-q', 'hobkin/base');
+  git(h.checkout, 'switch', '-q', '-c', 'hobkin/5-fix');
+  commit(h.checkout, 'five.txt', 'five\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  const published = number => finished(h, `hobkin/${number}-fix`, { state: 'pr', pr: `https://example.com/pull/${number}` });
+  const [good, moved, conflicted, unseen, stacked] = [1, 2, 3, 4, 5].map(published);
+  const sameBranch = finished(h, 'hobkin/1-fix');
+  finished(h, 'hobkin/base');
+  for (const number of [1, 2, 3, 5]) reviewed(h, tipOf(h, `hobkin/${number}-fix`));
+  git(h.checkout, 'switch', '-q', 'hobkin/2-fix');
+  commit(h.checkout, 'more.txt', 'more\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  const opened = number => pull(number, { headRefOid: tipOf(h, `hobkin/${number}-fix`) });
+  const pulls = [opened(1), opened(2), { ...opened(3), mergeable: 'CONFLICTING' }, opened(5)];
+
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify(pulls), reviews: h.reviews });
+  const { landable, leftOut } = landingList(h.root);
+
+  assert.deepEqual(landable.map(({ item, head, grade, pr }) => [item, head, grade, pr]), [[good.id, tipOf(h, 'hobkin/1-fix'), 'safe A', 'https://example.com/pull/1']]);
+  const why = Object.fromEntries(leftOut.map(({ item, why: reason }) => [item, reason]));
+  assert.match(why[moved.id], /older commit/);
+  assert.equal(unit(h, 'hobkin/3-fix').conflict, true);
+  assert.match(why[conflicted.id], /agent is still working on it/, 'a conflict gets its rebase, and stays out until then');
+  assert.match(why[unseen.id], /no open PR/);
+  assert.match(why[stacked.id], /brings hobkin\/base/);
+  assert.equal(why[sameBranch.id], undefined, 'one branch is one row, and the PR speaks for it');
+  assert.equal(read(h, good).state, 'pr', 'nothing is relabelled');
+  assert.equal(readyItems(h.root).some(({ item }) => item === good.id), false, 'a PR merges on its host, so the walk stays local work');
+});
+
+test('a PR the survey cannot grade says why instead of a grade', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'fix/links', 'links.txt', 'links\n');
+  branched(h.checkout, 'hobkin/7-fix', 'seven.txt', 'seven\n');
+  const theirs = finished(h, 'fix/links', { state: 'pr', pr: 'https://example.com/pull/6' });
+  const unread = finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.com/pull/7' });
+  reviewed(h, tipOf(h, 'hobkin/7-fix'));
+  const pulls = [pull(6, { headRefName: 'fix/links', headRefOid: tipOf(h, 'fix/links') }), pull(7)];
+
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify(pulls), reviews: h.reviews });
+  const { landable, leftOut } = landingList(h.root);
+
+  assert.deepEqual(landable, []);
+  const why = Object.fromEntries(leftOut.map(({ item, why: reason }) => [item, reason]));
+  assert.match(why[theirs.id], /fix\/links, which is not a hobkin branch/);
+  assert.match(why[unread.id], /did not read its head/);
+});
+
+test('the landing list is never cut short', async t => {
+  const h = workspace(t);
+  for (let index = 0; index < 52; index += 1) finished(h, `hobkin/many-${index}`);
+
+  assert.equal(landingList(h.root).leftOut.length, 52);
 });
 
 test('what only a person can do sits apart from what can merge', async t => {

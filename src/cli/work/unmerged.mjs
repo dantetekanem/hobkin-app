@@ -16,7 +16,7 @@ const MOST_PRS = 200;
 const DAY_MS = 24 * 3600000;
 // One survey runs at a time, so a `gh` that never answers would stop every survey after it until Hobkin restarts.
 const GH_TIMEOUT_MS = 2 * 60000;
-const PR_FIELDS = 'number,title,url,state,isDraft,createdAt,mergedAt,mergeCommit,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,headRefName';
+const PR_FIELDS = 'number,title,url,state,isDraft,createdAt,mergedAt,mergeCommit,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,headRefName,headRefOid';
 // A branch proves a merge only for these: a new branch with no commits also counts as merged into the default branch.
 export const finishedOnBranch = ['pr', 'branch'];
 const closableStates = [...finishedOnBranch, ...runnableStates];
@@ -162,11 +162,11 @@ async function nearestGrade(repo, name, grades) {
   return history.map(sha => grades.get(sha)).find(Boolean);
 }
 
-/** A grade belongs to one commit. One from further back says so, and a rebase that changed nothing keeps what it had. */
+/** A grade belongs to one commit. One from further back says so, and a rebase that changed nothing keeps what it had. With no change to compare, nothing is kept. */
 async function safetyOf({ repo, name, sha, change, grades, before }) {
   const { modified, ...exact } = grades.get(sha) ?? {};
   if (exact.grade) return exact;
-  if (before?.safety && before.change === change) return before.safety;
+  if (before?.safety && change && before.change === change) return before.safety;
 
   const older = await nearestGrade(repo, name, grades);
   if (!older) return null;
@@ -250,6 +250,24 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
   };
 }
 
+/**
+ * A PR merges on its host at the head the host reports, so that commit is the one graded, the way a branch is. A head this repository does not have
+ * can still match a review of it, but there is nothing to compare with an older grade or to stack, so it gets no more than that.
+ */
+async function pullHead({ repo, base, pr, grades, finished, others, previous }) {
+  const sha = pr.headRefOid ?? null;
+  if (!sha) return { sha, safety: null };
+  const here = Boolean(await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `${sha}^{commit}`));
+  const change = here ? await changeOf(repo, base, sha) : null;
+  const before = (previous.open ?? []).find(unit => unit.branch === pr.headRefName);
+  return {
+    sha,
+    change,
+    safety: await safetyOf({ repo, name: sha, sha, change, grades, before }),
+    ...(here ? await placesOf({ repo, name: pr.headRefName, sha, finished, others }) : {}),
+  };
+}
+
 /** Branches open last time that the default branch holds now. Only the last survey knows them once a merged branch is deleted. */
 async function mergedHere({ repo, base, units, previous }) {
   const stillOpen = new Set(units.map(unit => unit.branch));
@@ -282,8 +300,12 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
   // A PR's head is known locally when a run made it, and a merge from elsewhere leaves nothing else to tell what it touched.
-  const withPaths = async pr => ({ ...pullUnit(pr), ...await pathsOf(repo, base, pr.headRefName) });
-  const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(withPaths));
+  const surveyPull = async pr => ({
+    ...pullUnit(pr),
+    ...await pathsOf(repo, base, pr.headRefName),
+    ...await pullHead({ repo, base, pr, grades, finished, others, previous }),
+  });
+  const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));
   return {
     survey: {
       open: [...openPulls, ...units],
