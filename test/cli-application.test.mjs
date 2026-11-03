@@ -486,6 +486,27 @@ test('scheduled reports talk back in chat only for critical or useful triage lin
   }
 });
 
+test('a report that needs the user shows its one call with the notice', async t => {
+  const h = fixture(t);
+  const runHarness = async () => { throw Error('Unexpected provider call in synthetic triage test.'); };
+  const app = await h.openApp({ runHarness });
+  try {
+    await app.runtime.change(state => {
+      state.runs.useful = backgroundRun('useful', {
+        title: 'Mail',
+        result: { status: 'completed', text: 'Useful: The bank wrote back.\n\nNext: Reply by Friday.\n\nDetails.' },
+      });
+    });
+
+    const view = await app.refresh();
+
+    const [notice] = view.messages.filter(message => message.role === 'notice');
+    assert.equal(notice.content, 'Mail: The bank wrote back. Next: Reply by Friday.');
+  } finally {
+    await app.close();
+  }
+});
+
 test('a blocked check talks back in chat and says when a repeat pauses it', async t => {
   const h = fixture(t);
   mkdirSync(join(h.root, 'routines/daily'), { recursive: true });

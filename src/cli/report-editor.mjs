@@ -18,12 +18,14 @@ const fixedParts = text => [
   ...(text.match(NUMBER) ?? []),
 ];
 
-const triageLevel = text => reportTriage({ status: 'completed', result: { text } })?.level;
+const triageOf = text => reportTriage({ status: 'completed', result: { text } });
+const triageLevel = text => triageOf(text)?.level;
 
 const allKept = (from, into) => fixedParts(from).every(part => into.includes(part));
 
 function changesNoFact(draft, edited) {
   return triageLevel(edited) === triageLevel(draft)
+    && triageOf(edited)?.next === triageOf(draft)?.next
     && allKept(draft, edited)
     && allKept(edited, draft);
 }

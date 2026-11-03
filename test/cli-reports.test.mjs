@@ -3,13 +3,25 @@ import test from 'node:test';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { saveReport, readReport, reportText } from '../src/cli/reports.mjs';
+import { saveReport, readReport, reportText, reportTriage } from '../src/cli/reports.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-report-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
+
+const triaged = text => reportTriage({ status: 'completed', result: { text } });
+
+test('a Next line after the triage line is the one call the report asks for', () => {
+  assert.deepEqual(triaged('Useful: The bank wrote.\n\nNext: Reply by Friday.\n\nDetails.'), { level: 'useful', message: 'The bank wrote.', next: 'Reply by Friday.' });
+  assert.equal(triaged('**Critical:** Rent is due.\n**Next:** Pay it today.').next, 'Pay it today.');
+});
+
+test('a report with no Next line asks for no call, wherever the word appears later', () => {
+  assert.deepEqual(triaged('Useful: The bank wrote.\n\nDetails.\n\nNext: not this one.'), { level: 'useful', message: 'The bank wrote.' });
+  assert.deepEqual(triaged('Nothing new.\n\nNext: not this one.'), { level: 'nothing' });
+});
 
 test('ordinary Markdown is saved whole in a private file and read ahead of legacy text', t => {
   const root = fixture(t);

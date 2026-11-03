@@ -83,6 +83,21 @@ test('an edit that changes a fact is thrown away, because a report is evidence',
   }
 });
 
+test('the one call a report asks for survives the edit, or the edit is thrown away', async t => {
+  const withNext = text => text.replace('\n\n', '\n\nNext: Merge the branch.\n\n');
+  const changes = {
+    'kept': [withNext(human), withNext(human)],
+    'lost': [human, withNext(draft)],
+    'reworded': [withNext(human).replace('Merge the branch', 'Land it'), withNext(draft)],
+  };
+
+  for (const [name, [reply, delivered]] of Object.entries(changes)) {
+    const { edit } = editor(t, reply);
+
+    assert.equal((await edit(finished(withNext(draft)))).text, delivered, name);
+  }
+});
+
 test('code the editor only formats differently still counts as kept', async t => {
   const plain = draft.replace('`hobkin/7298ae`', 'hobkin/7298ae');
   const { edit } = editor(t, human);

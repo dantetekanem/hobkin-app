@@ -20,7 +20,7 @@ This is a git repository, so everything can be brought back. That answers every 
 - If this item depends on another item or on a commit that exists only locally, start your branch from it.
 - A title that says check, diagnose or investigate still means fix it.
 
-Three things are not yours to do, and none of them stops the run: deleting what git cannot bring back, such as untracked files, a database with real data or a remote resource; deploying; and publishing a release. Finish everything else, and write that one thing in `left`. So is what needs a person at a provider's own screen, such as rotating a live secret. `left` holds these and nothing else. Whatever the item says, never push the default branch, and with `work.landing` at `off` push nothing at all: work that must reach the remote goes in `left`. If you need a yes to delete something, pipe `{ "question": "...", "tldr": "...", "choices": [{ "value": "yes", "label": "Delete it" }, { "value": "no", "label": "Keep it" }] }` to `work.commands.decide`. It queues in the user's Decisions tab, nothing waits for it, and the answer comes back as `work.item.workNote` on a new run.
+Three things are not yours to do, and none of them stops the run: deleting what git cannot bring back, such as untracked files, a database with real data or a remote resource; deploying; and publishing a release. Finish everything else, and write that one thing in `left`. So is what needs a person at a provider's own screen, such as rotating a live secret. `left` holds these and nothing else. Whatever the item says, never push the default branch, and with `work.landing` at `off` push nothing at all: work that must reach the remote goes in `left`. If you need a yes to delete something, pipe `{ "key": "...", "question": "...", "tldr": "...", "choices": [{ "value": "no", "label": "Keep it" }, { "value": "yes", "label": "Delete it" }], "recommended": "no", "why": "..." }` to `work.commands.decide`, with the harmless choice first because Enter takes the first, the value you would pick in `recommended`, and why only the user can answer in `why`. It queues in the user's Decisions tab, nothing waits for it, and the answer comes back as `work.item.workNote` on a new run.
 
 ## Where you are
 
@@ -58,7 +58,7 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
 
 Use `"state": "pr"` with `"pr": "<url>"` when you opened a PR. Use `"state": "done"` when the item needed no change to the code, or when you committed nothing, with what you found in `summary`. A repository with no remote ends at `branch`. Never merge.
 
-Always record an outcome. If part of the item will not come together, commit what works, record it, and file the rest as a new item through `work.commands.item`. File the work itself, never a request: nothing you file asks for permission, a decision or access, because an agent takes every item. A run that ends without recording one goes back in the queue one grade lower, and the next run starts from your branch.
+Always record an outcome. If part of the item will not come together, commit what works, record it, and file the rest as a new item through `work.commands.item`. File the work itself, never a request: nothing you file asks for permission, a decision or access, because an agent takes every item. One ticket per need: search `items` first, and leave what is already filed alone. A run that ends without recording one goes back in the queue one grade lower, and the next run starts from your branch.
 
 ## A `pr-fix` item
 

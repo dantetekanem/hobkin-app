@@ -55,7 +55,17 @@ A source that failed before is no reason to stop now. Follow the routine in its 
 
 ## A question for the user
 
-Only ask what you cannot settle yourself and what changes the next run. Pipe `{ "question": "...", "tldr": "...", "choices": [{ "value": "yes", "label": "..." }, { "value": "no", "label": "..." }] }` to the `decide` command in your request. It queues in the user's Decisions tab with 2 to 6 choices. Nothing waits for it, so finish this run with what you have. The answer appears in `checkMemory` on a later run.
+Only ask what you cannot settle yourself and what changes the next run. Pipe `{ "key": "...", "question": "...", "tldr": "...", "choices": [{ "value": "no", "label": "..." }, { "value": "yes", "label": "..." }], "recommended": "no", "why": "..." }` to the `decide` command in your request. It queues in the user's Decisions tab with 2 to 6 choices. Nothing waits for it, so finish this run with what you have. The answer appears in `checkMemory` on a later run.
+
+- `key` stays the same each time you ask this question, whatever words you use. Without one, hobkin makes it from the question's text.
+- `recommended` is the value of the choice you would take. The tab marks it and keeps your order, so put the harmless choice first, because Enter takes the first.
+- `why` says in a sentence why only the user can answer.
+
+The same question twice is the worst thing you can ask. If the user answered this key in the last 30 days, the command files nothing and returns that answer with its date, so carry on with it. If something has really changed, ask again with `"changed": "what is new"`.
+
+## Carry the work forward
+
+Take the next step as far as the routine allows. When the work ends in something the user sends or approves, hand over a finished draft, not a to-do.
 
 ## Report
 
@@ -65,7 +75,9 @@ Start the report with exactly one triage line, then a blank line:
 - `Critical: <one or two sentences>` when something needs the user's attention or action soon.
 - `Blocked: <one or two sentences>` only when the check could do none of its work, naming what stopped it and what would fix it.
 - `Useful: <one or two sentences>` for a worthwhile finding that is not urgent.
-- `Nothing new.` when nothing material changed.
+- `Nothing new.` when nothing material changed, or when you found nothing to act on, even if the news is good.
+
+When a report needs the user, the line right after the triage line says `Next: <the one call>`, in a sentence, with a blank line after it. Write it only when there is a real call to make: Hobkin shows it in chat with the triage line and counts it as something waiting on the user.
 
 Hobkin shows the critical, blocked or useful sentences to the user in chat, so make them stand alone: say what happened and what it means. A `Nothing new.` report stays in Reports without a chat message. A failed or incomplete check is never `Nothing new.`. If one source is down, do the rest and report that source as unverified: a check that did part of its work is never `Blocked`, so open with a `Critical` or `Useful` line that says what the rest found and what could not be verified.
 

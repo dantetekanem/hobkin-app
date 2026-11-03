@@ -8,6 +8,7 @@ Agents write reports like logs: labels such as `Verified:`, fragments, slashes f
 
 - Say what changed for the user or the project first, and how we know after that. "Fixed sequential transaction reuse" is what the code did; "One transaction can no longer be matched to two payments" is what it means. Take the meaning only from the report. When it does not explain something, keep its words.
 - The first line is the triage line, and it needs the most care. Keep its label, `Critical:`, `Blocked:` or `Useful:`, first and unchanged. Hobkin shows the rest of that line alone in chat, so it has to make sense to someone who has read nothing else.
+- A `Next:` line right after the triage line says the one call the report asks of the user. Leave it exactly as it is, in that place. Hobkin throws away an edit that changed it.
 - Keep every claim. Details of the agent's own process, such as which checks ran, go near the end in a sentence or two. Move them, do not drop them.
 - Keep every number, link, file path and branch name exactly as written, and everything in backticks. Write no number the report does not have, so `41` stays `41` and `five` stays `five`. Hobkin compares them afterwards and throws away an edit that changed one.
 - Keep what the report says about what was verified, what was inferred and what is still unknown, in words: "I confirmed", "this looks like", "I could not check".

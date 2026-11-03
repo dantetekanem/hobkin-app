@@ -11,16 +11,22 @@ export const runOutcomeText = run => run.result?.text || run.result?.error || ru
 // Background reports open with a triage line (prompts/background.md).
 const nothingNewLine = /^(?:\*\*)?nothing new\.?(?:\*\*)?$/i;
 const talkBackLine = /^(?:\*\*)?(critical|useful|blocked)(?:\*\*)?:(?:\*\*)?\s+(.+)$/i;
+const nextLine = /^(?:\*\*)?next(?:\*\*)?:(?:\*\*)?\s+(.+)$/i;
+const LONGEST_NEXT = 300;
+const withoutBold = text => text.replace(/\*\*$/, '').trim();
+
 export const reportTriage = run => {
   if (run.status !== 'completed') return null;
-  const firstLine = String(run.result?.text ?? '').trim().split('\n', 1)[0].trim();
+  const [firstLine, ...rest] = String(run.result?.text ?? '').trim().split('\n').map(line => line.trim());
   if (nothingNewLine.test(firstLine)) return { level: 'nothing' };
 
   const match = firstLine.match(talkBackLine);
   if (!match) return null;
+  const next = rest.find(Boolean)?.match(nextLine)?.[1];
   return {
     level: match[1].toLowerCase(),
-    message: match[2].replace(/\*\*$/, '').trim().slice(0, 1024),
+    message: withoutBold(match[2]).slice(0, 1024),
+    ...(next ? { next: withoutBold(next).slice(0, LONGEST_NEXT) } : {}),
   };
 };
 

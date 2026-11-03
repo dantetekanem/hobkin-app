@@ -316,11 +316,12 @@ export class HobkinApplication {
       const schedule = loaded.schedules.find(item => item.id === run.scheduleId);
       const held = schedule?.nextRun?.state === 'held';
       const message = triage?.message ?? (held ? schedule.nextRun.reason : null);
+      const call = triage?.next ? ` Next: ${triage.next}` : '';
       notices.push({
         id,
         role: 'notice',
         content: message
-          ? `${scheduleName}: ${message}${held ? pauseNote(schedule) : ''}`
+          ? `${scheduleName}: ${message}${call}${held ? pauseNote(schedule) : ''}`
           : `Report available for ${scheduleName}`,
         tone: held ? 'blocked' : triage?.level,
         at: run.finishedAt,
