@@ -69,7 +69,7 @@ Never run bare `hobkin` from an agent. In a terminal it opens the dashboard and 
 
 The line after it may say `Next: ...`, the one call the report asks of the user.
 
-Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check.
+Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check. A scheduled run that found nothing new is not in Reports, so its line in the run history below is its only record.
 
 **Run history.** `checks/<id>/log.md` has one line per finished run, oldest first:
 

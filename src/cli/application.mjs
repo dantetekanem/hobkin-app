@@ -41,7 +41,7 @@ import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
 import { readLocalView } from './view.mjs';
 import { PastedImages } from './paste-image.mjs';
-import { deletedReportIds, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
+import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
 
 const textOf = message => (typeof message.content === 'string' ? message.content
@@ -257,7 +257,7 @@ export class HobkinApplication {
     const sessionsEnded = sessionsToPost(this.runtime.directory);
     const runReports = runs
       .filter(run => run.kind !== 'main' && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
-      .filter(run => !deleted.has(run.id))
+      .filter(run => !deleted.has(run.id) && !isQuietRun(run))
       .map(run => {
         const text = runOutcomeText(run) || 'No result text.';
         const coverage = run.result?.coverage
