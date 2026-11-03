@@ -1,11 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { learningEnabled } from '../config.mjs';
 import { lookTime } from './chat.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
+import { offerFor, trackRecords } from './patterns.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import {
-  byPriority, byRank, chosenProjects, currentRequest, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readMode, readProjects, runnableStates, tokenLabel,
+  byPriority, byRank, chosenProjects, currentRequest, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates, tokenLabel,
 } from './store.mjs';
-import { readUnmerged } from './unmerged.mjs';
+import { finishedOnBranch, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const projectStates = ['chosen', 'proposed', 'skipped', 'dropped'];
 // Work that is over asks nothing more of the user, whatever its run left.
@@ -164,7 +166,7 @@ const nextToMerge = (first, second) => Number(Boolean(first.conflict)) - Number(
 // A title is all that older items have, and agents now file these as `yours`. This only decides where a row sits.
 const onlyAPersonCan = ({ kind, title }) => kind === 'yours' || /^Prepare\b/.test(title);
 
-const closingNow = item => runnableStates.includes(item.state) && (item.kind === 'pr-fix' || item.reviewAsked || item.workNote);
+const closingNow = item => runnableStates.includes(item.state) && (item.kind === SHIP_KIND || item.reviewAsked || item.workNote);
 
 function gapOf(item, unit, items) {
   if (item.kind === 'yours') return 'yours';
@@ -172,15 +174,12 @@ function gapOf(item, unit, items) {
   if (unit.stackedUnder) return 'stacked';
   if (items.some(other => closingNow(other) && other.branch === item.branch)) return 'closing';
   if (onlyAPersonCan(item)) return 'yours';
+  if (item.state === 'done') return 'unlanded';
   return unit.conflict ? 'rebase' : 'land';
 }
 
-function holdsCount(unit, units) {
-  if (!unit.branch) return 0;
-  const under = name => units.filter(other => other.stackedUnder === name);
-  const count = name => under(name).reduce((sum, other) => sum + 1 + count(other.branch), 0);
-  return count(unit.branch);
-}
+/** Everything a branch would bring with it, because merging it merges them too. A grade on the top one says nothing about these. */
+const stackedBeneath = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
 
 function readyRow(root, project, item, items, openUnits = []) {
   const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null } = item;
@@ -205,25 +204,63 @@ function readyRow(root, project, item, items, openUnits = []) {
     onlyDocs,
     landedOn,
     gap: gapOf(item, unit, items),
-    holds: holdsCount(unit, openUnits),
+    holds: stackedBeneath(unit, openUnits).length,
     described: existsSync(prFile(root, project.slug, id)),
     proved: Boolean(proof),
   };
 }
 
-/** Work finished on a branch with no PR. `gap` says what stands between each one and landing, and the top is what to merge next. */
-export function readyItems(root, most = MAX_READY_SENT) {
+/**
+ * An item that says `done` with work still on its branch, which an agent recorded before `done` meant no change was needed. The survey lists a branch only while it
+ * holds commits the default branch lacks. A fix's work is its maker's, and a branch another item stands for is already on the list.
+ */
+function saysDoneButWaits(item, items, units) {
+  const { state, kind, branch, closedByUser } = item;
+  if (state !== 'done' || !branch || closedByUser || [SHIP_KIND, 'yours'].includes(kind)) return false;
+  const surveyed = units.some(unit => unit.kind === 'branch' && unit.branch === branch);
+  return surveyed && !items.some(other => other.branch === branch && finishedOnBranch.includes(other.state));
+}
+
+const isWaiting = (item, items, units) => item.state === 'branch' || (item.kind === 'yours' && runnableStates.includes(item.state)) || saysDoneButWaits(item, items, units);
+
+/** What has landed on every project and what came of it, by pattern. With learning off nothing is judged, so nothing should ask for this. */
+export function readTrackRecords(root, now = Date.now()) {
+  const projects = chosenProjects(root).map(({ slug }) => ({ slug, items: readItems(root, slug), launches: readLaunches(root, slug) }));
+  return trackRecords(projects, readTrust(root), now);
+}
+
+const likeOf = ({ precedent }, slug) => precedent && {
+  merged: precedent.merged,
+  watching: precedent.watching,
+  ...(precedent.slug === slug ? {} : { from: precedent.slug }),
+};
+
+function weighedRow({ root, project, item, items, units, records }) {
+  const { slug } = project;
+  const row = readyRow(root, project, item, items, units);
+  const unit = units.find(({ branch }) => branch === item.branch);
+  const beneath = unit ? stackedBeneath(unit, units) : [];
+  const offer = records && offerFor({ slug, item, unit, gap: row.gap, records, beneath });
+  return { row: { ...row, like: offer ? likeOf(offer, slug) : null }, item, unit, offer };
+}
+
+/** Each waiting row beside what it can be offered, top first. `offer` is null with learning off, and rows stay light because a unit's paths go no further than this. */
+export function weighedRows(root, now = Date.now()) {
   const { projects: surveyed } = readUnmerged(root);
+  const records = learningEnabled(root) ? readTrackRecords(root, now) : null;
   return chosenProjects(root)
     .flatMap(project => {
       const items = readItems(root, project.slug);
+      const units = surveyed[project.slug]?.open ?? [];
       return items
-        .filter(item => item.state === 'branch' || (item.kind === 'yours' && runnableStates.includes(item.state)))
-        .map(item => readyRow(root, project, item, items, surveyed[project.slug]?.open));
+        .filter(item => isWaiting(item, items, units))
+        .map(item => weighedRow({ root, project, item, items, units, records }));
     })
-    .toSorted(nextToMerge)
-    .slice(0, most);
+    .toSorted((first, second) => nextToMerge(first.row, second.row));
 }
+
+/** Work finished on a branch with no PR. `gap` says what stands between each one and landing, and the top is what to merge next. */
+export const readyItems = (root, most = MAX_READY_SENT) => weighedRows(root).slice(0, most).map(({ row }) => row);
 
 const ratedA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;
 const gapWords = {
@@ -232,6 +269,7 @@ const gapWords = {
   stacked: 'it lands with the branch above it',
   closing: 'an agent is still working on it',
   rebase: 'it conflicts with the default branch',
+  unlanded: 'its item says done, so it goes through the walk',
 };
 
 function ratingWords({ safety }) {
@@ -239,13 +277,11 @@ function ratingWords({ safety }) {
   return safety.stale ? 'its grade is for an older commit' : `it is rated ${safety.grade} ${safety.rating}`;
 }
 
-/** Everything a branch would bring with it, because merging it merges them too. A grade on the top one says nothing about these. */
-const earlierWork = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
-
 function whyLeftOut(row, units) {
   if (row.gap !== 'land') return gapWords[row.gap];
   if (!ratedA(row)) return ratingWords(row);
-  const weak = earlierWork(row, units).find(unit => !ratedA(unit));
+  const unit = units.find(({ branch }) => branch === row.branch);
+  const weak = unit && stackedBeneath(unit, units).find(earlier => !ratedA(earlier));
   return weak ? `it brings ${weak.branch}, and ${ratingWords(weak)}` : null;
 }
 
@@ -268,7 +304,7 @@ export function landingList(root) {
 }
 
 const closingWords = item => {
-  if (item.kind === 'pr-fix') return 'getting it ready to merge';
+  if (item.kind === SHIP_KIND) return 'getting it ready to merge';
   return item.reviewAsked ? 'reviewing it' : 'working on your note';
 };
 

@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
   addItem, addProject, answerAllow, askAgent, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
-  skipWork, startMode, stopMode, syncWork, takeProject, triggerRow,
+  skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
+import { offersView } from './land-offer.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
 import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
 import { reviewView } from './review.mjs';
@@ -28,6 +29,7 @@ Read, as JSON, with nothing running:
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
   attention                            what is left for the user, and the answer
+  offers                               what can land on one key, and why not
 Change, printing ok and message. Project: name, slug or path. Item: id start.
   start [folder]                       same as on, and ends any pause
   stop                                 same as off: agents finish, none start
@@ -41,6 +43,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   back <project> <look|study|item>     put a skipped row back
   retry, ask <project> <item> [note]    run it first; ask carries your note
   done, merge, decline <project> <item>  close; merge locally; or say no
+  trust <pattern> <on|off>             the user's switch for a pattern's offers
   drop <project> [item]                stop work on it; branches and PRs stay
   grade <project> <item> <P0..P3|auto> set an item's grade; auto clears it
   max <project> <item>                 make one item max: Claude Opus at max
@@ -209,6 +212,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'review': return args.length ? requestReview(root, ...args) : reviewView(root);
     case 'search': return searchView(root, args.join(' '));
     case 'attention': return attentionView(root);
+    case 'offers': return offersView(root);
+    case 'trust': return trustPattern(root, ...args);
     case 'start':
     case 'on': return startMode(root, args[0]);
     case 'stop':
@@ -231,8 +236,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'back': return putBackRow(root, ...args);
     case 'retry': return retryNow(root, ...args);
     case 'done': return markDone(root, ...args);
-    case 'merge': return mergeItem(root, ...args);
-    case 'decline': return declineItem(root, ...args);
+    case 'merge': return mergeItem(root, args[0], args[1]);
+    case 'decline': return declineItem(root, args[0], args[1]);
     case 'ask': return askAgent(root, args[0], args[1], args.slice(2).join(' '));
     case 'drop': return dropWork(root, ...args);
     case 'grade': return setGrade(root, ...args);
@@ -265,11 +270,11 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return proposeProject(root, proposal);
     }
     case 'item': {
-      // Agents file work through this, and `max`, `grade`, `reviewAsked` and `workNote` are only ever hobkin's or the user's word, so none can arrive here.
-      const { max, grade, reviewAsked, workNote, ...item } = await readJson(input);
+      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `workNote` and what a merge or an offer records are only ever hobkin's or the user's word, so none can arrive here.
+      const { max, grade, reviewAsked, workNote, landed, closedByUser, offerHeldUntil, pushbacks, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
-      return updateItem(root, args[0], item.id, item);
+      return updateItem(root, args[0], item.id, await trueOutcome(root, args[0], item));
     }
     case 'tree': return treeFor(root, args[0]);
     default: throw new WrongCommand(HELP);

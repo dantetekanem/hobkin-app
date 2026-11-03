@@ -4,21 +4,26 @@ import { basename, join } from 'node:path';
 import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
+import { offeredIn } from './land-offer.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
 import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
-import { NEEDS_AN_OWNER } from './reads.mjs';
+import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, dropProject, fileItem, lookEveryHours, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
-  retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
+  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
+  retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
-import { defaultBranch, isMerged, landBranch } from './tree.mjs';
-import { landingTip } from './unmerged.mjs';
+import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
+import { changeFacts, landedRecord, landingTip, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const QUEUE_KEY = /^(item|look|study|ideas):([^:]+)(?::(.+))?$/;
 const LOOKS = ['look', 'study', 'ideas'];
 // A finished branch can go round again. Its item goes back to `open`, and the next run picks up from that branch.
 const statesThatRun = [...runnableStates, 'branch'];
+// `done` here is an older record of finished work, and Done lists it as not landed.
+const statesThatMerge = ['branch', 'done'];
+const OFFER_HOLD_MS = 24 * 3600000;
+const PATTERN = /^([^/]+)\/([^/]+)\/.+$/;
 const landings = {
   off: 'finished work stays on a local branch with its description, for the user to review',
   draft: 'finished work opens a draft PR',
@@ -294,55 +299,146 @@ const whyNoMerge = (error, base, title) => {
   return `"${title}" did not merge: ${firstLine(error.stderr || error.message)}`;
 };
 
-/** Finished branches the default branch now holds, because a branch brings along whatever it was built on. */
-async function closeWhatLanded(root, repo, slug, target, now) {
-  const finished = readItems(root, slug).filter(item => item.state === 'branch' && item.branch);
+/** Finished branches the default branch now holds, because a branch brings along whatever it was built on. Each is a landed change of its own. */
+async function closeWhatLanded({ root, repo, slug, merged, target, landing, now }) {
+  const finished = readItems(root, slug).filter(item => item.id === merged.id || (item.state === 'branch' && item.branch));
   const held = await Promise.all(finished.map(item => isMerged(repo, item.branch, target)));
   const closing = finished.filter((_item, index) => held[index]);
-  for (const { id } of closing) updateItem(root, slug, id, { state: 'merged', mergedAt: new Date(now).toISOString() }, now);
+  const units = readUnmerged(root).projects[slug]?.open ?? [];
+  const at = new Date(now).toISOString();
+  for (const item of closing) {
+    const unit = units.find(({ branch }) => branch === item.branch);
+    const { size = null, area = null } = item.id === merged.id ? landing : unit ?? {};
+    const landed = landedRecord(item, { ...landing, sha: target, at, safety: unit?.safety, size, area, spot: item.id === merged.id && landing.spot });
+    updateItem(root, slug, item.id, { state: 'merged', mergedAt: at, ...(item.kind === SHIP_KIND ? {} : { landed }) }, now);
+  }
   return closing.length;
 }
 
-/** The only merge in work mode, and only ever the user's word. It stays on this machine: pushing is a separate step they take. */
-export async function mergeItem(root, reference, id, now = Date.now()) {
+const assertSameHead = (title, offered, head) => {
+  if (offered && offered !== head) throw Error(`"${title}" moved since it was offered, so nothing merged. It needs reading again.`);
+};
+
+/**
+ * The only merge in work mode, and only ever the user's word. It stays on this machine: pushing is a separate step they take. `head` is the commit the
+ * user was asked about, and `route`, `read` and `readMs` say how they came to say yes, for what `landed` records.
+ */
+export async function mergeItem(root, reference, id, { route = 'chat', read = 'none', readMs = 0, head = null, now = Date.now() } = {}) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   const { title, branch, state } = item;
   assertNotRunning(root, project, item);
-  if (state !== 'branch' || !branch) throw Error(`"${title}" is ${state}, so there is no local branch to merge.`);
+  if (!statesThatMerge.includes(state) || !branch) throw Error(`"${title}" is ${state}, so there is no local branch to merge.`);
 
   const repo = project.path ?? paths(root, project.slug).clone;
   const base = await defaultBranch(repo);
   const tip = await landingTip(repo, base);
   if (!tip) throw Error(`${nameOf(project)} has no ${base} to merge into.`);
+  assertSameHead(title, head, await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`));
+  if (await isMerged(repo, branch, tip)) throw Error(`"${title}" holds nothing ${base} lacks, so nothing changed.`);
 
+  const facts = await changeFacts(repo, base, branch);
+  const { offer } = weighedRows(root, now).find(({ row }) => row.slug === project.slug && row.item === item.id) ?? {};
   const target = await landBranch({ repo, base, branch, tip, message: `Merge: ${title}` })
     .catch(error => { throw Error(whyNoMerge(error, base, title)); });
-  const closed = await closeWhatLanded(root, repo, project.slug, target, now);
+  const landing = { ...facts, route, read, readMs, spot: Boolean(offer?.spot) };
+  const closed = await closeWhatLanded({ root, repo, slug: project.slug, merged: item, target, landing, now });
   const others = closed - 1;
   const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
   return reply(`Merged "${title}" into ${base}.${alongside} Nothing was pushed.`, { target });
 }
 
+/**
+ * `done` means no change was needed, so a branch holding commits the default branch lacks is finished work, whatever a run called it.
+ * A fix's run works on a branch that belongs to the item that made it. With nothing to read here the run's word stands.
+ */
+export async function trueOutcome(root, slug, change) {
+  if (change.state !== 'done') return change;
+  const item = readItems(root, slug).find(({ id }) => id === change.id);
+  const branch = change.branch ?? item?.branch;
+  const project = readProject(root, slug);
+  if (!branch || !project || item?.kind === SHIP_KIND) return change;
+
+  const repo = project.path ?? paths(root, slug).clone;
+  const tip = await landingTip(repo, await defaultBranch(repo));
+  const ahead = tip && await gitOrNothing(repo, 'rev-list', '--count', `${tip}..refs/heads/${branch}`);
+  return Number(ahead) > 0 ? { ...change, state: 'branch', branch } : change;
+}
+
+/** A no or a branch sent back counts against its pattern, so this keeps the area it had, which nothing else will once the survey moves on. */
+function pushbackOn(root, { slug }, { branch, pushbacks = [] }, now) {
+  const unit = (readUnmerged(root).projects[slug]?.open ?? []).find(known => known.branch === branch);
+  return { pushbacks: [...pushbacks, { at: new Date(now).toISOString(), area: unit?.area ?? null }] };
+}
+
 /** A no is the user's answer, and it is what learning reads. The branch stays, so changing their mind costs nothing. */
-export function declineItem(root, reference, id) {
+export function declineItem(root, reference, id, now = Date.now()) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
-  updateItem(root, project.slug, item.id, { state: 'declined' });
+  updateItem(root, project.slug, item.id, { state: 'declined', ...pushbackOn(root, project, item, now) }, now);
   return reply(`Said no to "${item.title}". Its branch stays, and hobkin learns from this.`);
 }
 
-/** Sends an agent back to a finished branch with the user's words, which go first in the queue like a review does. */
-export function askAgent(root, reference, id, note) {
+/**
+ * Sends an agent back to a finished branch with the user's words, which go first in the queue like a review does.
+ * `answering` is a run's own question being answered, which says nothing against the branch.
+ */
+export function askAgent(root, reference, id, note, { answering = false, now = Date.now() } = {}) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
   if (!statesThatRun.includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to work on.`);
 
-  updateItem(root, project.slug, item.id, { workNote: note?.trim() || 'Close whatever stops this merging.' });
+  const sentBack = item.state === 'branch' && !answering ? pushbackOn(root, project, item, now) : {};
+  updateItem(root, project.slug, item.id, { workNote: note?.trim() || 'Close whatever stops this merging.', ...sentBack }, now);
   retryItem(root, project.slug, item.id);
   return reply(`An agent goes back to "${item.title}" next.`);
+}
+
+const stateOf = (root, slug, id) => readItems(root, slug).find(item => item.id === id)?.state;
+
+async function mergeOffered({ root, slug, rows, route, now }) {
+  const merged = [];
+  for (const { item, head } of rows) {
+    // A branch earlier in the list can bring this one along.
+    if (stateOf(root, slug, item) !== 'branch') continue;
+    try {
+      merged.push((await mergeItem(root, slug, item, { route, head, now })).message);
+    } catch (error) {
+      throw Error(merged.length ? `Merged ${merged.length} of ${rows.length}, then stopped, and the rest are as they were. ${error.message}` : error.message);
+    }
+  }
+  return reply(merged.length === 1 ? merged[0] : `Merged all ${rows.length}. Nothing was pushed.`);
+}
+
+/**
+ * Carries out the answer to an offer. `later` and `read` hold it for a day, because the same question twice is the worst call hobkin can make. `no` declines.
+ * A failed merge throws, so the decision stays open and says why. What has already gone from the list has nothing left to answer.
+ */
+export async function answerOffer(root, offered, value, now = Date.now()) {
+  const { slug } = offered;
+  const rows = offeredIn(offered).filter(({ item }) => stateOf(root, slug, item) === 'branch');
+  if (!rows.length) return reply('That has already gone from the list, so nothing changed.');
+  if (value === 'merge') return mergeOffered({ root, slug, rows, route: offered.also?.length ? 'batch' : 'offer', now });
+
+  for (const { item } of rows) {
+    if (value === 'no') declineItem(root, slug, item, now);
+    else updateItem(root, slug, item, { offerHeldUntil: new Date(now + OFFER_HOLD_MS).toISOString() }, now);
+  }
+  return reply(value === 'no' ? 'Said no. The branches stay, and hobkin learns from this.' : 'Held for a day.');
+}
+
+/** The user's switch for a pattern, and the only way back on after severe trouble. Its record stays as it is: trouble has already reset that. */
+export function trustPattern(root, pattern, word) {
+  if (!['on', 'off'].includes(word)) throw Error('Say trust <pattern> on or trust <pattern> off.');
+  const [, reference, kind] = PATTERN.exec(pattern ?? '') ?? [];
+  if (!doableKinds.includes(kind)) throw Error('A pattern is project/kind/area, as hobkin work offers prints it.');
+
+  const { slug } = findProject(root, reference);
+  const named = pattern.replace(reference, slug);
+  setTrust(root, named, word === 'on');
+  return reply(word === 'on' ? `Offers can come for ${named} again. After trouble that means from its next clean merge.` : `No offers for ${named} until hobkin work trust ${named} on.`, { pattern: named });
 }
 
 /** Asks `git` and `gh` now instead of at the next survey. They only read the repositories: all this changes is Hobkin's own record of its items. */
@@ -374,7 +470,7 @@ export function markDone(root, reference, id) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
-  updateItem(root, project.slug, item.id, { state: 'done', left: null });
+  updateItem(root, project.slug, item.id, { state: 'done', left: null, closedByUser: true });
   return reply(`"${item.title}" on ${nameOf(project)} is done. It leaves the queue, and any branch or PR stays as it is.`);
 }
 

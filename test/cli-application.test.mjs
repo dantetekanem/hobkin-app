@@ -13,7 +13,9 @@ import { fakePi } from './helpers/pi-session.mjs';
 import { png } from './helpers/png.mjs';
 import { fileDecision, lastCard, markShown, openDecisions } from '../src/cli/decisions.mjs';
 import { openCheck } from '../src/cli/checks.mjs';
+import { retireOffers } from '../src/cli/work/land-offer.mjs';
 import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { branched, git, repository } from './helpers/work-fixture.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
@@ -1224,6 +1226,129 @@ test('an answer that cannot reach its item stays open, and a stale one is refuse
     assert.equal(openDecisions(h.root).length, 1);
     await assert.rejects(app.workAction('decide', id, 'maybe'), /not one of its choices/);
     await assert.rejects(app.workAction('decide', 'nothing', 'yes'), /already answered/);
+  } finally {
+    await app.close();
+  }
+});
+
+/** A real repository with one finished branch, and a decision offering to land it. */
+function offered(h, t) {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-offered-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const checkout = repository(base, 'api');
+  branched(checkout, 'hobkin/fix', 'feature.txt', 'feature\n');
+  chooseProject(h.root, checkout, 'important');
+  const { id: item } = fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'The first change.' });
+  updateItem(h.root, 'api', item, { state: 'branch', branch: 'hobkin/fix' });
+  const head = git(checkout, 'rev-parse', 'hobkin/fix');
+  const choices = ['later', 'merge', 'read', 'no'].map(value => ({ value, label: value }));
+  const offer = answerTo => fileDecision(h.root, { key: `offer:api:${item}`, from: 'Work mode', question: 'Fix login can land.', choices, answerTo: { kind: 'merge', slug: 'api', item, head, ...answerTo } }).id;
+  return { checkout, item, head, offer };
+}
+
+const onlyItem = h => readItems(h.root, 'api')[0];
+
+test('saying merge lands it on the offer route and closes the decision', async t => {
+  const h = fixture(t);
+  const { checkout, offer } = offered(h, t);
+  const app = await h.openApp();
+  try {
+    const { message } = await app.workAction('decide', offer(), 'merge');
+
+    assert.match(message, /Merged "Fix login" into main/);
+    assert.equal(onlyItem(h).landed.route, 'offer');
+    assert.equal(git(checkout, 'rev-parse', 'main'), git(checkout, 'rev-parse', 'hobkin/fix'));
+    assert.deepEqual(openDecisions(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a merge that fails leaves the decision open and throws the reason for the screen', async t => {
+  const h = fixture(t);
+  const { checkout, offer } = offered(h, t);
+  const app = await h.openApp();
+  try {
+    const before = git(checkout, 'rev-parse', 'main');
+
+    await assert.rejects(app.workAction('decide', offer({ head: 'an older commit' }), 'merge'), /moved since it was offered/);
+
+    assert.equal(git(checkout, 'rev-parse', 'main'), before);
+    assert.equal(openDecisions(h.root).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('an offer answered on screen that fails stays in Decisions, says why in Chat and is not asked again at once', async t => {
+  const h = fixture(t);
+  const { offer } = offered(h, t);
+  let asked = 0;
+  const app = await h.openApp({ askQuestion: async () => { asked += 1; return 'merge'; } });
+  try {
+    offer({ head: 'an older commit' });
+
+    await app.presentDecision();
+    await app.presentDecision();
+
+    assert.equal(asked, 1);
+    assert.equal(openDecisions(h.root).length, 1);
+    const view = await app.refresh();
+    assert.match(view.messages.find(({ role }) => role === 'notice').content, /moved since it was offered/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('read opens that row\'s page in Done and holds the offer, and later only holds it', async t => {
+  const h = fixture(t);
+  const { item, offer } = offered(h, t);
+  const opened = [];
+  const app = await h.openApp({ showDone: row => opened.push(row) });
+  try {
+    await app.workAction('decide', offer(), 'read');
+
+    assert.deepEqual(opened.map(({ slug, item: id }) => [slug, id]), [['api', item]]);
+    assert.ok(onlyItem(h).offerHeldUntil);
+    assert.equal(onlyItem(h).state, 'branch');
+
+    await app.workAction('decide', offer(), 'later');
+
+    assert.equal(opened.length, 1);
+    assert.deepEqual(openDecisions(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('no declines the item, and an offer whose item left the list closes by itself on a tick', async t => {
+  const h = fixture(t);
+  const { offer } = offered(h, t);
+  const app = await h.openApp();
+  try {
+    await app.workAction('decide', offer(), 'no');
+    assert.equal(onlyItem(h).state, 'declined');
+
+    offer();
+    retireOffers(h.root);
+
+    assert.deepEqual(openDecisions(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a decision that answers a read opens the row whatever else it says', async t => {
+  const h = fixture(t);
+  const { item } = offered(h, t);
+  const opened = [];
+  const app = await h.openApp({ showDone: row => opened.push(row) });
+  try {
+    const { id } = fileDecision(h.root, { from: 'Work mode', question: 'Read it?', choices: [{ value: 'later', label: 'Later' }, { value: 'read', label: 'Read it' }], answerTo: { kind: 'read', slug: 'api', item } });
+
+    await app.workAction('decide', id, 'read');
+
+    assert.deepEqual(opened.map(row => row.item), [item]);
   } finally {
     await app.close();
   }

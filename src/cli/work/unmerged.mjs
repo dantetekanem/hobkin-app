@@ -6,24 +6,29 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
+import { areaOf, isTestPath } from './patterns.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
-const SHIP_KIND = 'pr-fix';
+export const SHIP_KIND = 'pr-fix';
 const SHORT_SHA = 7;
 const MOST_PRS = 200;
 const DAY_MS = 24 * 3600000;
 // One survey runs at a time, so a `gh` that never answers would stop every survey after it until Hobkin restarts.
 const GH_TIMEOUT_MS = 2 * 60000;
-const PR_FIELDS = 'number,title,url,state,isDraft,createdAt,mergedAt,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,headRefName';
+const PR_FIELDS = 'number,title,url,state,isDraft,createdAt,mergedAt,mergeCommit,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,headRefName';
 // A branch proves a merge only for these: a new branch with no commits also counts as merged into the default branch.
-const finishedOnBranch = ['pr', 'branch'];
+export const finishedOnBranch = ['pr', 'branch'];
 const closableStates = [...finishedOnBranch, ...runnableStates];
 const conflictOf = { CONFLICTING: true, MERGEABLE: false };
 // A local-review branch only keeps an old PR, so holding work says nothing about that work having shipped.
 const notTheUsers = [BRANCH_PREFIX, 'local-review/'];
 const MOST_BRANCHES_CHECKED = 8;
 const MOST_COMMITS_BACK = 40;
+// Past the 300 changed lines an offer allows, so a list this long gets no offer whatever it names.
+const MOST_PATHS = 400;
+// What a run left uncommitted, saved beside its own branch. It is that item's, for its next run to use, and no change of its own.
+const KEPT_BRANCH = /-kept-\d{8}-\d{6}$/;
 
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -201,16 +206,40 @@ async function placesOf({ repo, name, sha, finished, others }) {
   return { stackedUnder, heldBy, landedOn: null };
 }
 
-async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
+const plainPaths = ['-c', 'core.quotePath=false', 'diff', '--no-renames'];
+
+function fileLine(line) {
+  const [added, removed, path] = line.split('\t');
+  return { path, lines: (Number(added) || 0) + (Number(removed) || 0) };
+}
+
+/** What a change touches, reading only. A rename is a delete and an add here, because a test moved away is a test that no longer runs where it did. */
+async function pathsOf(repo, base, name) {
   const range = `${base}...${name}`;
+  const files = lines(await gitOrNothing(repo, ...plainPaths, '--numstat', range)).map(fileLine);
+  const deleted = lines(await gitOrNothing(repo, ...plainPaths, '--name-only', '--diff-filter=D', range));
+  return { area: areaOf(files), paths: files.map(({ path }) => path).slice(0, MOST_PATHS), deletedTests: deleted.filter(isTestPath) };
+}
+
+const sizeOfRange = async (repo, base, name) => sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', `${base}...${name}`));
+
+/** What a merge records about the branch it is about to land, because once it lands the two have nothing left to compare. */
+export async function changeFacts(repo, base, name) {
+  const { area } = await pathsOf(repo, base, name);
+  return { area, size: await sizeOfRange(repo, base, name) };
+}
+
+async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
   const change = await changeOf(repo, base, name);
   const before = (previous.open ?? []).find(unit => unit.branch === name);
   return {
     kind: 'branch',
     branch: name,
     sha,
+    title: await gitOrNothing(repo, 'log', '-1', '--format=%s', name),
     openedAt: new Date(at).toISOString(),
-    size: sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', range)),
+    size: await sizeOfRange(repo, base, name),
+    ...await pathsOf(repo, base, name),
     behind: await commitsBehind(repo, tip, name),
     // Not knowing is an answer, so nothing here can cost a project its survey.
     conflict: await conflictsWith(repo, tip, name).catch(() => null),
@@ -252,14 +281,18 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
+  // A PR's head is known locally when a run made it, and a merge from elsewhere leaves nothing else to tell what it touched.
+  const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(async pr => ({ ...pullUnit(pr), ...await pathsOf(repo, base, pr.headRefName) })));
   return {
     survey: {
-      open: [...ownPulls.filter(pr => pr.state === 'OPEN').map(pullUnit), ...units],
+      open: [...openPulls, ...units],
       lastMergeAt: latest(merges),
       trees: await treesHeld(repo, trees),
     },
     pulls,
     held: new Set([...branches.filter(branch => branch.merged).map(branch => branch.name), ...landed]),
+    tips: new Map(branches.map(branch => [branch.name, branch.sha])),
+    before: previous.open ?? [],
     base,
     tip,
   };
@@ -277,12 +310,41 @@ function pullOf(item, pulls) {
 // A fix is filed for a branch with commits of its own, so that branch landing proves the merge, and no run should go on work that already landed.
 const branchProvesMerge = item => finishedOnBranch.includes(item.state) || item.kind === SHIP_KIND;
 
-function outcomeOf(item, { pulls, held }, at) {
+const pullSize = ({ additions, deletions, changedFiles }) => ({ additions, deletions, files: changedFiles });
+
+/** The record of a change `facts` says landed, one way or another. `size` is what git counted, and `area` is null when nothing read the branch before it went. */
+export const landedRecord = (item, { safety = null, ...facts }) => ({
+  ...facts,
+  safety: safety && { grade: safety.grade, rating: safety.rating, stale: Boolean(safety.stale) },
+  quality: item.quality ? { rating: item.quality.rating } : null,
+});
+
+/** Hobkin saw none of this happen, so all it can say is what the last survey knew. A fix on a branch is no change of its own. */
+function landedElsewhere(item, pull, { tips, before }, at) {
+  if (item.kind === SHIP_KIND) return {};
+  const branch = pull?.headRefName ?? item.branch;
+  const unit = before.find(known => known.branch === branch);
+  const landed = landedRecord(item, {
+    sha: pull?.mergeCommit?.oid ?? tips.get(branch) ?? unit?.sha ?? null,
+    at: pull?.mergedAt ?? at,
+    route: 'remote',
+    read: 'none',
+    readMs: 0,
+    safety: unit?.safety,
+    size: pull ? pullSize(pull) : unit?.size ?? null,
+    area: unit?.area ?? null,
+    spot: false,
+  });
+  return { landed };
+}
+
+function outcomeOf(item, found, at) {
+  const { pulls, held } = found;
   const pull = pullOf(item, pulls);
   if (pull?.state === 'OPEN') return null;
 
   const landed = pull?.state === 'MERGED' || (branchProvesMerge(item) && held.has(item.branch));
-  if (landed) return { state: 'merged', mergedAt: pull?.mergedAt ?? at };
+  if (landed) return { state: 'merged', mergedAt: pull?.mergedAt ?? at, ...landedElsewhere(item, pull, found, at) };
 
   // The user closes a PR to keep its work as a local branch for review, so this declines nothing: the branch stays the record.
   if (item.state !== 'pr' || !pull) return null;
@@ -343,9 +405,22 @@ function fileShipWork(root, slug, { survey, base, tip }, now) {
   });
 }
 
+const strayBrief = branch => `${branch} holds work no item names, so the survey filed this to keep it in sight.`;
+
+/** Nothing waiting stays out of sight, so a hobkin branch no item names gets one, once. An item keeps its branch whatever becomes of it. */
+function adoptStrayBranches(root, slug, { survey }, now) {
+  const items = readItems(root, slug);
+  const strays = survey.open.filter(({ kind, branch }) => kind === 'branch' && !KEPT_BRANCH.test(branch) && !items.some(item => item.branch === branch));
+  return strays.map(({ branch, title }) => {
+    const { id } = fileItem(root, slug, { key: `branch:${branch}`, kind: 'chore', title: title || branch, brief: strayBrief(branch) }, now);
+    updateItem(root, slug, id, { state: 'branch', branch }, now);
+    return { slug, id, title: title || branch, branch };
+  });
+}
+
 /**
  * Only projects still being worked on count. Work that has landed closes its item here, and `settled` names them. Work that cannot merge gets an item, and `filed`
- * names those. This writes only Hobkin's own records, and it never writes to a repository.
+ * names those. A branch nothing named gets an item, and `adopted` names those. This writes only Hobkin's own records, and it never writes to a repository.
  */
 export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder() } = {}) {
   const previous = readUnmerged(root).projects;
@@ -353,6 +428,7 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
   const projects = {};
   const settled = [];
   const filed = [];
+  const adopted = [];
   for (const { slug, path } of chosenProjects(root)) {
     const { clone, lookTree, doTree } = paths(root, slug);
     try {
@@ -361,6 +437,7 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
       projects[slug] = found.survey;
       settled.push(...settleItems(root, slug, found, now));
       filed.push(...fileShipWork(root, slug, found, now));
+      adopted.push(...adoptStrayBranches(root, slug, found, now));
     } catch {
       // A repository that cannot be read today keeps what it said last time, and closes nothing.
       if (previous[slug]) projects[slug] = previous[slug];
@@ -368,5 +445,5 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
   }
   const survey = { at: new Date(now).toISOString(), projects };
   atomicJson(surveyPath(root), survey);
-  return { ...survey, settled, filed };
+  return { ...survey, settled, filed, adopted };
 }

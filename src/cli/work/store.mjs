@@ -50,6 +50,7 @@ const discoveryPath = root => join(workRoot(root), 'discovery.jsonl');
 const ownerPath = root => join(workRoot(root), 'owner.json');
 const handedPath = root => join(workRoot(root), 'handed.json');
 const cancelsPath = root => join(workRoot(root), 'cancels.jsonl');
+const trustPath = root => join(workRoot(root), 'trust.jsonl');
 
 export const paths = (root, slug) => {
   const directory = join(workRoot(root), slug);
@@ -462,6 +463,11 @@ export function retryItem(root, slug, id, now = Date.now()) {
 export const readLaunches = (root, slug) => fold(parseEvents(paths(root, slug).launches), event => event.item);
 
 export const recordLaunch = (root, slug, change, now = Date.now()) => appendEvent(paths(root, slug).launches, { ...change, updatedAt: new Date(now).toISOString() });
+
+/** The user's own word on a pattern, from `hobkin work trust`. The last word on each stands. */
+export const readTrust = root => fold(parseEvents(trustPath(root)), event => event.pattern);
+
+export const setTrust = (root, pattern, on, now = Date.now()) => appendEvent(trustPath(root), { pattern, on, at: new Date(now).toISOString() });
 
 /** How a finished item leaves its branch. `off` opens no PR: the branch and its description are a local PR for the user to review. */
 export const landing = project => project.prMode ?? 'off';

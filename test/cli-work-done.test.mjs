@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import { initialize } from '../src/cli/config.mjs';
 import { fillGaps } from '../src/cli/work/closing.mjs';
-import { askAgent, declineItem, mergeItem } from '../src/cli/work/controls.mjs';
+import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import { askAgent, declineItem, markDone, mergeItem } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { closingItems, landingList, readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { branched, commit, git, repository, withOrigin } from './helpers/work-fixture.mjs';
+import { branched, commit, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 
@@ -17,6 +20,7 @@ function workspace(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-done-')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const root = join(base, 'home');
+  initialize(root, { cwd: base });
   const checkout = repository(base, 'api');
   chooseProject(root, checkout, 'important', NOW);
   return { base, root, checkout, reviews: join(base, 'auto-review') };
@@ -41,6 +45,7 @@ const survey = h => surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', rev
 const unit = (h, name) => readUnmerged(h.root).projects.api.open.find(({ branch }) => branch === name);
 const row = (h, { id }) => readyItems(h.root).find(({ item }) => item === id);
 const read = (h, { id }) => readItems(h.root, 'api').find(item => item.id === id);
+const agentSays = (h, change) => runWorkCommand(h.root, ['item', 'api'], Readable.from([JSON.stringify(change)]));
 
 test('only a finished review with a merge grade counts, and the newest for a commit wins', t => {
   const h = workspace(t);
@@ -436,4 +441,239 @@ test('a step only a person can take waits in the list and no agent runs it', asy
   await survey(h);
 
   assert.equal(readyItems(h.root).find(({ item }) => item === id).gap, 'yours');
+});
+
+test('an agent saying done on a branch with commits of its own is recorded as finished on that branch', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc', { state: 'doing' });
+
+  await agentSays(h, { id: item.id, state: 'done', summary: 'All done.' });
+
+  assert.equal(read(h, item).state, 'branch');
+  assert.equal(read(h, item).summary, 'All done.');
+});
+
+test('done stays done when the branch holds nothing new, or is a fix on another item\'s branch', async t => {
+  const h = workspace(t);
+  git(h.checkout, 'branch', 'hobkin/empty');
+  branched(h.checkout, 'hobkin/made', 'feature.txt', 'feature\n');
+  const nothing = finished(h, 'hobkin/empty', { state: 'doing' });
+  const fix = finished(h, 'hobkin/made', { state: 'doing', kind: 'pr-fix' });
+  const noBranch = fileItem(h.root, 'api', { key: 'look', kind: 'chore', title: 'Look', brief: 'Check it.' }, NOW);
+
+  for (const { id } of [nothing, fix, noBranch]) await agentSays(h, { id, state: 'done' });
+
+  assert.deepEqual([read(h, nothing).state, read(h, fix).state, read(h, noBranch).state], ['done', 'done', 'done']);
+});
+
+test('only code writes what landed, what the user closed and what an offer holds', async t => {
+  const h = workspace(t);
+  const item = finished(h, 'hobkin/abc');
+
+  await agentSays(h, { id: item.id, landed: { route: 'key' }, closedByUser: true, offerHeldUntil: 'x', pushbacks: [] });
+
+  const { landed, closedByUser, offerHeldUntil, pushbacks } = read(h, item);
+  assert.deepEqual([landed, closedByUser, offerHeldUntil, pushbacks], [undefined, undefined, undefined, undefined]);
+});
+
+test('a finished branch whose item says done shows as not landed, and merges', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc', { state: 'done' });
+  await survey(h);
+
+  assert.equal(row(h, item).gap, 'unlanded');
+
+  await mergeItem(h.root, 'api', item.id);
+
+  assert.equal(read(h, item).state, 'merged');
+  assert.equal(tipOf(h, 'main'), tipOf(h, 'hobkin/abc'));
+});
+
+test('a user closing it keeps it closed, and the branch stays', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc', { state: 'done' });
+  await survey(h);
+
+  markDone(h.root, 'api', item.id);
+  await survey(h);
+
+  assert.equal(read(h, item).closedByUser, true);
+  assert.equal(row(h, item), undefined);
+  assert.ok(tipOf(h, 'hobkin/abc'));
+});
+
+test('a done item with nothing to land stays out of the list', async t => {
+  const h = workspace(t);
+  git(h.checkout, 'branch', 'hobkin/empty');
+  branched(h.checkout, 'hobkin/shared', 'feature.txt', 'feature\n');
+  const nothing = finished(h, 'hobkin/empty', { state: 'done' });
+  finished(h, 'hobkin/shared');
+  const fix = finished(h, 'hobkin/shared', { state: 'done', kind: 'pr-fix' });
+  const alongside = finished(h, 'hobkin/shared', { state: 'done' });
+
+  await survey(h);
+
+  assert.deepEqual([row(h, nothing), row(h, fix), row(h, alongside)], [undefined, undefined, undefined]);
+});
+
+test('merging a branch with nothing the default branch lacks is refused', async t => {
+  const h = workspace(t);
+  git(h.checkout, 'branch', 'hobkin/empty');
+  const item = finished(h, 'hobkin/empty', { state: 'done' });
+  const before = tipOf(h, 'main');
+
+  await assert.rejects(mergeItem(h.root, 'api', item.id), /nothing main lacks/);
+
+  assert.equal(tipOf(h, 'main'), before);
+});
+
+test('a hobkin branch with no item gets one, once, titled from its last commit', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/stray', 'stray.txt', 'Add the stray thing\n');
+  branched(h.checkout, 'hobkin/abc-kept-20260601-120000', 'kept.txt', 'Work in progress kept by Hobkin\n');
+
+  await survey(h);
+  await survey(h);
+
+  const filed = readItems(h.root, 'api');
+  assert.deepEqual(filed.map(({ title, state, branch }) => [title, state, branch]), [['Add the stray thing', 'branch', 'hobkin/stray']]);
+  assert.equal(row(h, filed[0]).gap, 'land');
+});
+
+test('a branch the user dropped keeps its item, and no second one is filed', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/stray', 'stray.txt', 'Add the stray thing\n');
+  await survey(h);
+  const [item] = readItems(h.root, 'api');
+  updateItem(h.root, 'api', item.id, { state: 'dropped' }, NOW);
+
+  await survey(h);
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['dropped']);
+});
+
+test('the survey says what each branch touches, reading only', async t => {
+  const h = workspace(t);
+  mkdirSync(join(h.checkout, 'app', 'models'), { recursive: true });
+  mkdirSync(join(h.checkout, 'test'));
+  commit(h.checkout, 'test/old.test.js', 'old\n');
+  commit(h.checkout, 'app/models/fee.rb', 'one\n');
+  git(h.checkout, 'switch', '-qc', 'hobkin/abc');
+  commit(h.checkout, 'app/models/fee.rb', 'one\ntwo\nthree\n');
+  unlinkSync(join(h.checkout, 'test', 'old.test.js'));
+  commit(h.checkout, 'README.md', 'Readme\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  finished(h, 'hobkin/abc');
+
+  await survey(h);
+
+  const { area, paths: changed, deletedTests, title } = unit(h, 'hobkin/abc');
+  assert.equal(area, 'app/models');
+  assert.deepEqual(changed.toSorted(), ['README.md', 'app/models/fee.rb', 'test/old.test.js']);
+  assert.deepEqual(deletedTests, ['test/old.test.js']);
+  assert.equal(title, 'Readme');
+});
+
+test('a merge writes what landed, and a stacked branch it brought along lands too', async t => {
+  const h = workspace(t);
+  mkdirSync(join(h.checkout, 'lib', 'money'), { recursive: true });
+  git(h.checkout, 'switch', '-qc', 'hobkin/first');
+  commit(h.checkout, 'lib/money/first.rb', 'first\n');
+  git(h.checkout, 'switch', '-qc', 'hobkin/second');
+  commit(h.checkout, 'lib/money/second.rb', 'second\ntwo\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  const first = finished(h, 'hobkin/first');
+  const second = finished(h, 'hobkin/second', { quality: { rating: 'A', reason: 'Fine.', head: tipOf(h, 'hobkin/second') } });
+  reviewed(h, tipOf(h, 'hobkin/second'));
+  await survey(h);
+
+  await mergeItem(h.root, 'api', second.id, { route: 'key', read: 'diff', readMs: 4200, now: NOW });
+
+  const { sha, at, route, read: seen, readMs, safety, quality, size, area, spot } = read(h, second).landed;
+  assert.equal(sha, tipOf(h, 'main'));
+  assert.deepEqual([at, route, seen, readMs, spot], [new Date(NOW).toISOString(), 'key', 'diff', 4200, false]);
+  assert.deepEqual([safety.grade, safety.rating, quality.rating, area], ['safe', 'A', 'A', 'lib/money']);
+  assert.deepEqual(size, { additions: 3, deletions: 0, files: 2 });
+  assert.equal(read(h, first).landed.area, 'lib/money');
+  assert.equal(read(h, first).landed.sha, tipOf(h, 'main'));
+});
+
+test('a merge from the command line is the chat route, with nothing read', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc');
+
+  await runWorkCommand(h.root, ['merge', 'api', item.id]);
+
+  const { route, read: seen, readMs } = read(h, item).landed;
+  assert.deepEqual([route, seen, readMs], ['chat', 'none', 0]);
+});
+
+test('a merge compares the commit it was asked about with the branch, and refuses if it moved', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc');
+  const offered = tipOf(h, 'hobkin/abc');
+  git(h.checkout, 'switch', '-q', 'hobkin/abc');
+  commit(h.checkout, 'more.txt', 'more\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  const before = tipOf(h, 'main');
+
+  await assert.rejects(mergeItem(h.root, 'api', item.id, { head: offered }), /moved/);
+
+  assert.equal(tipOf(h, 'main'), before);
+  assert.equal(read(h, item).state, 'branch');
+  assert.equal(read(h, item).landed, undefined);
+});
+
+test('a merge made elsewhere is found by the survey and recorded as remote', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc', { quality: { rating: 'B', reason: 'Fine.', head: tipOf(h, 'hobkin/abc') } });
+  reviewed(h, tipOf(h, 'hobkin/abc'));
+  await survey(h);
+
+  git(h.checkout, 'merge', '-q', '--no-ff', '--no-edit', 'hobkin/abc');
+  await surveyUnmerged(h.root, { now: NOW + 1000, gh: async () => '[]', reviews: h.reviews });
+
+  const { state, landed } = read(h, item);
+  assert.equal(state, 'merged');
+  assert.deepEqual([landed.route, landed.read, landed.readMs], ['remote', 'none', 0]);
+  assert.equal(landed.sha, tipOf(h, 'hobkin/abc'));
+  assert.deepEqual([landed.safety.grade, landed.quality.rating, landed.area], ['safe', 'B', 'root']);
+  assert.deepEqual(landed.size, { additions: 1, deletions: 0, files: 1 });
+});
+
+test('a PR merged on the remote keeps its merge commit and what the survey knew of it', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/7-fix', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.com/pull/7' });
+  const opened = pull(7, { additions: 12, deletions: 3, changedFiles: 2 });
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([opened]), reviews: h.reviews });
+
+  const merged = { ...opened, state: 'MERGED', mergedAt: '2026-06-02T00:00:00Z', mergeCommit: { oid: 'abc123' } };
+  await surveyUnmerged(h.root, { now: NOW + 1000, gh: async () => JSON.stringify([merged]), reviews: h.reviews });
+
+  const { landed } = read(h, item);
+  assert.deepEqual([landed.sha, landed.at, landed.route, landed.area], ['abc123', '2026-06-02T00:00:00Z', 'remote', 'root']);
+  assert.deepEqual(landed.size, { additions: 12, deletions: 3, files: 2 });
+});
+
+test('a fix on a branch is not a change of its own, so only the item that made it lands', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const maker = finished(h, 'hobkin/abc');
+  const { id } = fileItem(h.root, 'api', { key: 'ship:rebase', kind: 'pr-fix', title: 'Rebase it', brief: 'Rebase it.' }, NOW);
+  updateItem(h.root, 'api', id, { branch: 'hobkin/abc' }, NOW);
+  await survey(h);
+
+  git(h.checkout, 'merge', '-q', '--no-ff', '--no-edit', 'hobkin/abc');
+  await surveyUnmerged(h.root, { now: NOW + 1000, gh: async () => '[]', reviews: h.reviews });
+
+  assert.equal(read(h, { id }).state, 'merged');
+  assert.equal(read(h, { id }).landed, undefined);
+  assert.equal(read(h, maker).landed.route, 'remote');
 });

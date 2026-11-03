@@ -22,9 +22,9 @@ import { withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, mergeItem, openDiff, requestReview } from './work/controls.mjs';
+import { answerOffer, askAgent, declineItem, markDone, mergeItem, openDiff, requestReview } from './work/controls.mjs';
 import { prView } from './work/reads.mjs';
-import { LandOffers } from './work/land-offer.mjs';
+import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { noteForCheck, stalled } from './checks.mjs';
 import { answerDecision, fileDecision, findDecision, lastCard, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
 import { canShowCard, cardChoices, cardDue, cardEvidence, cardQuestion } from './pending.mjs';
@@ -171,6 +171,7 @@ export class HobkinApplication {
           await app.tickWork();
           await app.tickHolds();
           app.tickCompaction();
+          retireOffers(app.runtime.directory, app.now());
           app.landOffers.next();
           // Not awaited: each holds a question on screen for as long as it stays there. The card goes first, because it stands for the whole pile.
           app.presentPending();
@@ -180,6 +181,8 @@ export class HobkinApplication {
       Object.assign(app, { askQuestion, askPending, showDone, showRow, presence });
       app.landOffers = new LandOffers({
         file: decision => fileDecision(app.runtime.directory, decision, app.now()),
+        offers: () => offerDecisions(app.runtime.directory, app.now()),
+        unread: draft => notSurveyed(app.runtime.directory, draft),
         now: app.now,
       });
       app.director = new WorkDirector({
@@ -304,6 +307,8 @@ export class HobkinApplication {
     }
     const indexNote = this.memoryIndex?.takeNote();
     if (indexNote) notices.push(indexNote);
+    if (this.answerTrouble) notices.push(this.answerTrouble);
+    this.answerTrouble = null;
     const scheduledReports = runs.filter(isVisibleScheduledReport)
       .sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? ''));
     for (const run of scheduledReports) {
@@ -595,14 +600,14 @@ export class HobkinApplication {
       grade: () => updateItem(root, slug, value, { grade: extra }),
       skip: () => skipProject(root, slug),
       drop: () => dropProject(root, slug),
-      done: () => updateItem(root, slug, value, { state: 'done', left: null }),
+      done: () => markDone(root, slug, value),
       run: () => pickNext(root, slug),
       later: () => skipInQueue(root, slug),
       back: () => putBackInQueue(root, slug),
       retry: () => retryItem(root, slug, value),
       diff: () => openDiff(root, slug, value),
       review: () => requestReview(root, slug, value),
-      merge: () => mergeItem(root, slug, value),
+      merge: () => mergeItem(root, slug, value, { ...extra, route: 'key' }),
       decline: () => declineItem(root, slug, value),
       ask: () => askAgent(root, slug, value, extra),
       pr: () => prView(root, slug, value),
@@ -617,18 +622,20 @@ export class HobkinApplication {
     return result;
   }
 
-  /** The asker hears first, so an answer that cannot reach it stays open for another try. */
-  decide(id, value) {
+  /** The asker hears first, so an answer that cannot reach it stays open for another try. A merge that fails is the same: it throws, and the reason goes on screen. */
+  async decide(id, value) {
     const root = this.runtime.directory;
     const { decision: { question, answerTo, at }, choice } = findDecision(root, id, value);
     const said = `The user was asked: ${question} They answered: ${choice.label}`;
-    if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said);
+    if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
     if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
     if (answerTo?.kind === 'pending') this.tackle(id, choice, answerTo);
+    const offered = answerTo?.kind === 'merge' ? await answerOffer(root, answerTo, value, this.now()) : null;
+    if (value === 'read' && ['merge', 'read'].includes(answerTo?.kind)) this.showDone?.(answerTo);
     answerDecision(root, id, value, this.now());
     recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
-    return { ok: true, message: `Answered: ${choice.label}.` };
+    return offered ?? { ok: true, message: `Answered: ${choice.label}.` };
   }
 
   /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */
@@ -647,8 +654,11 @@ export class HobkinApplication {
         markShown(root, id);
         await this.refresh();
       }
-    } catch {
-      // It stays in Decisions, and the tab says what went wrong if the user tries again.
+    } catch (error) {
+      // It stays in Decisions for another try. The question has left the screen, so what went wrong goes to Chat, and asking again at once would only repeat it.
+      markShown(root, next.id);
+      this.answerTrouble = { id: `notice:answer:${next.id}:${this.now()}`, role: 'notice', content: error.message, tone: 'critical', at: new Date(this.now()).toISOString() };
+      this.requestRefresh();
     } finally {
       this.presenting = false;
     }
