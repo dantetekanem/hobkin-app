@@ -342,8 +342,8 @@ test('status lists the local PRs waiting for review on chosen projects, oldest f
   const { json } = await hobkin(root);
 
   assert.deepEqual(json.ready, [
-    { slug: 'api', project: 'api', item: first.id, title: 'First', branch: 'hobkin/first', head: null, summary: 'The first.', left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
-    { slug: 'site', project: 'site', item: second.id, title: 'Second', branch: 'hobkin/second', head: null, summary: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
+    { slug: 'api', project: 'api', item: first.id, title: 'First', grade: 'P1', kind: 'fix', branch: 'hobkin/first', head: null, summary: 'The first.', about: 'The first.', proof: null, left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
+    { slug: 'site', project: 'site', item: second.id, title: 'Second', grade: 'P2', kind: 'fix', branch: 'hobkin/second', head: null, summary: null, about: null, proof: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
   ]);
 });
 

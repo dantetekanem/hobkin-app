@@ -605,14 +605,14 @@ test('done stays done when the branch holds nothing new, or is a fix on another 
   assert.deepEqual([read(h, nothing).state, read(h, fix).state, read(h, noBranch).state], ['done', 'done', 'done']);
 });
 
-test('only code writes what landed, what the user closed and what an offer holds', async t => {
+test('only code writes what landed, what the user closed, what an offer holds and which commit a review was asked for', async t => {
   const h = workspace(t);
   const item = finished(h, 'hobkin/abc');
 
-  await agentSays(h, { id: item.id, landed: { route: 'key' }, closedByUser: true, offerHeldUntil: 'x', pushbacks: [] });
+  await agentSays(h, { id: item.id, landed: { route: 'key' }, closedByUser: true, offerHeldUntil: 'x', pushbacks: [], reviewAskedFor: 'abc1234' });
 
-  const { landed, closedByUser, offerHeldUntil, pushbacks } = read(h, item);
-  assert.deepEqual([landed, closedByUser, offerHeldUntil, pushbacks], [undefined, undefined, undefined, undefined]);
+  const { landed, closedByUser, offerHeldUntil, pushbacks, reviewAskedFor } = read(h, item);
+  assert.deepEqual([landed, closedByUser, offerHeldUntil, pushbacks, reviewAskedFor], [undefined, undefined, undefined, undefined, undefined]);
 });
 
 test('a finished branch whose item says done shows as not landed, and merges', async t => {
