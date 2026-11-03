@@ -501,3 +501,19 @@ test('declining from the walk counts as well', async t => {
 
   assert.deepEqual(read(h, id).pushbacks, [{ at: iso(NOW), area: 'lib' }]);
 });
+
+test('asking for what is ready brings an offer now, inside the quiet gap, and says when there is none', () => {
+  const filed = [];
+  const clock = { at: 1000 * 3600000 };
+  const offer = { key: 'offer:api:a1', answerTo: { kind: 'merge', slug: 'api', item: 'a1' } };
+  const offers = new LandOffers({ file: decision => filed.push(decision), now: () => clock.at, offers: () => [offer] });
+  offers.next();
+  assert.equal(filed.length, 1);
+
+  assert.equal(offers.offerReady(), true);
+  assert.equal(filed.length, 2);
+
+  const none = new LandOffers({ file: decision => filed.push(decision), now: () => clock.at });
+  assert.equal(none.offerReady(), false);
+  assert.equal(filed.length, 2);
+});

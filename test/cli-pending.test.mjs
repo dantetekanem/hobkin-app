@@ -91,6 +91,13 @@ test('branches and reports to read share one row', () => {
   assert.equal(groupOf(result, 'read').fact, '50 lines in api, 1 report');
 });
 
+test('a launch in trouble stays on the card once its watch closes, until its fix is finished', () => {
+  const closed = { slug: 'finboard', project: 'finboard', item: 'abc', stage: 'closed', outcome: 'trouble', note: 'new error' };
+
+  assert.deepEqual(card({ launches: [closed] }).groups.map(({ name }) => name), ['wrong']);
+  assert.deepEqual(card({ launches: [{ ...closed, fixed: true }] }).groups, []);
+});
+
 test('trouble on a launch went wrong, and it says where and since when', () => {
   const liveAt = new Date(2026, 10, 2, 14, 2).toISOString();
   const result = pendingCard({ now: new Date(2026, 10, 2, 16, 0).getTime(), launches: [

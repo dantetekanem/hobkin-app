@@ -740,7 +740,7 @@ export class HobkinApplication {
 
   /** Done and Now live on a tab work mode hides, so with it off the main agent walks the user through instead. */
   tackle(id, { value, label }, answerTo) {
-    if (value === 'later' || (value === 'ready' && this.landOffers.offerReady?.())) return;
+    if (value === 'later' || (value === 'ready' && this.landOffers.offerReady())) return;
 
     const { trouble, walk } = answerTo;
     const target = value === 'wrong' ? trouble[0] : { tab: value === 'ready' ? 'done' : walk };

@@ -11,7 +11,7 @@ import { main } from '../src/cli/main.mjs';
 import { readPresentationState } from '../src/cli/view.mjs';
 import { setProfile } from '../src/cli/profile.mjs';
 import { fileDecision } from '../src/cli/decisions.mjs';
-import { chooseProject, recordLaunch } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, recordLaunch, updateItem } from '../src/cli/work/store.mjs';
 
 function fixture(t, isTTY = false) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-main-'));
@@ -594,6 +594,21 @@ test('hobkin pending prints what is waiting as JSON and changes nothing', async 
   assert.deepEqual(JSON.parse(h.output.text).groups.map(({ name, count, label }) => [name, count, label]), [['questions', 1, 'question']]);
   assert.equal(JSON.parse(h.output.text).total, 1);
   assert.deepEqual(files(), before);
+});
+
+test('hobkin pending drops a launch that went wrong once its fix has landed', async t => {
+  const h = fixture(t);
+  chooseProject(h.root, '/repos/api', 'important');
+  recordLaunch(h.root, 'api', { item: 'abc', stage: 'closed', outcome: 'trouble', note: 'new error' });
+  const fix = fileItem(h.root, 'api', { key: 'trouble:abc', kind: 'fix', title: 'Fix it', brief: 'Evidence and first change.', causedBy: 'abc' });
+
+  await main(['pending', '--home', h.root], h.output);
+  assert.equal(JSON.parse(h.output.text).total, 1);
+
+  updateItem(h.root, 'api', fix.id, { state: 'merged' });
+  h.output.text = '';
+  await main(['pending', '--home', h.root], h.output);
+  assert.equal(JSON.parse(h.output.text).total, 0);
 });
 
 test('hobkin pending counts a launch that went wrong', async t => {

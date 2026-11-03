@@ -7,10 +7,18 @@ import { readReportIds } from './telemetry.mjs';
 import { readLocalView } from './view.mjs';
 import { nameOf } from './work/names.mjs';
 import { attentionView, readyItems } from './work/reads.mjs';
-import { readLaunches, readProjects } from './work/store.mjs';
+import { readItems, readLaunches, readProjects } from './work/store.mjs';
 
-const launchesIn = root => readProjects(root)
-  .flatMap(project => readLaunches(root, project.slug).map(launch => ({ ...launch, slug: project.slug, project: nameOf(project) })));
+// The watch closes a launch the moment it goes wrong, so what ends the trouble for the user is the fix it filed.
+const FIX_OVER = ['merged', 'done', 'dropped', 'declined'];
+
+function launchesOf(root, project) {
+  const { slug } = project;
+  const fixes = readItems(root, slug).filter(({ causedBy, state }) => causedBy && FIX_OVER.includes(state));
+  return readLaunches(root, slug).map(launch => ({ ...launch, slug, project: nameOf(project), fixed: fixes.some(({ causedBy }) => causedBy === launch.item) }));
+}
+
+const launchesIn = root => readProjects(root).flatMap(project => launchesOf(root, project));
 
 /** What waits on the user right now, from what is on disk. It writes nothing, so another process can ask. A dashboard passes the reports it already holds. */
 export function readPending(requestedRoot, { now = Date.now(), reports } = {}) {

@@ -191,13 +191,29 @@ export class LandOffers {
     return drafts.length ? landDecision(drafts, drafts.length) : null;
   }
 
+  fileOffer(offer) {
+    this.waiting = this.waiting.filter(({ slug, id }) => slug !== offer.answerTo.slug || !offeredIn(offer.answerTo).some(({ item }) => item === id));
+    this.file(offer);
+    this.filedAt = this.now();
+  }
+
   next() {
     if (!this.file || this.now() - this.filedAt < QUIET_HOURS_MS) return;
     const [offer] = this.offers();
-    const decision = offer ?? this.plainQuestion();
-    if (!decision) return;
-    if (offer) this.waiting = this.waiting.filter(({ slug, id }) => slug !== offer.answerTo.slug || !offeredIn(offer.answerTo).some(({ item }) => item === id));
-    this.file(decision);
+    if (offer) {
+      this.fileOffer(offer);
+      return;
+    }
+    const question = this.plainQuestion();
+    if (!question) return;
+    this.file(question);
     this.filedAt = this.now();
+  }
+
+  /** The user asked for what is ready, so this comes now, whatever the quiet gap says. With nothing to offer it says so, and they go to Done instead. */
+  offerReady() {
+    const [offer] = this.file ? this.offers() : [];
+    if (offer) this.fileOffer(offer);
+    return Boolean(offer);
   }
 }

@@ -109,7 +109,7 @@ export function pendingCard({ ready = [], decisions = [], attention = [], propos
   const questions = [...open, ...attention.filter(({ kind }) => ASKS.includes(kind)), ...proposals];
   const yours = yoursRows(ready, attention);
   const wrong = [
-    ...launches.filter(({ outcome, stage }) => outcome === 'trouble' && stage !== 'closed').map(launch => launchTrouble(launch, now)),
+    ...launches.filter(({ outcome, fixed }) => outcome === 'trouble' && !fixed).map(launch => launchTrouble(launch, now)),
     ...urgent.map(reportTrouble),
   ];
   const groups = [
