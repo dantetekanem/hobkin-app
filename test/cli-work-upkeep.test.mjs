@@ -89,18 +89,34 @@ test('a brief names the newest events and says how many more there are', t => {
   assert.match(brief, /and 4 more/);
 });
 
-test('a repeat files nothing, whatever became of the first fix', t => {
+test('a repeat files nothing while the fix is under way, and a fix turned down stays turned down', t => {
   const { root, checkout, pass } = workspace(t);
   const slug = choose(root, checkout);
-  const events = shown('Send', 3);
-
-  pass({ events });
-  const { filed } = pass({ events, now: NOW + DAY });
-  assert.deepEqual(filed, []);
-
-  updateItem(root, slug, fixesOn(root, slug)[0].id, { state: 'declined' }, NOW);
-  assert.deepEqual(pass({ events, now: NOW + 2 * DAY }).filed, []);
+  pass({ events: shown('Send', 3) });
+  pass({ events: shown('Send', 5) });
   assert.equal(fixesOn(root, slug).length, 1);
+
+  const [{ id }] = fixesOn(root, slug);
+  updateItem(root, slug, id, { state: 'declined' }, NOW - 3 * HOUR);
+  pass({ events: shown('Send', 3) });
+
+  assert.equal(fixesOn(root, slug).length, 1);
+});
+
+test('a failure that comes back after its fix files a new one, counting only what happened since', t => {
+  const { root, checkout, pass } = workspace(t);
+  const slug = choose(root, checkout);
+  pass({ events: shown('Send', 3) });
+  const [{ id }] = fixesOn(root, slug);
+  updateItem(root, slug, id, { state: 'merged' }, NOW - 2 * HOUR);
+
+  pass({ events: shown('Send', 2) });
+  assert.equal(fixesOn(root, slug).length, 1, 'all but one of these came before the fix');
+
+  updateItem(root, slug, id, { state: 'merged' }, NOW - 10 * HOUR);
+  pass({ events: shown('Send', 4) });
+  assert.equal(fixesOn(root, slug).length, 2);
+  assert.notEqual(fixesOn(root, slug)[0].key, fixesOn(root, slug)[1].key);
 });
 
 test('filing starts nothing and takes no shortcut: the item waits behind the pile like new work', t => {

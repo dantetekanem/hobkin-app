@@ -67,9 +67,25 @@ const briefFor = (root, { key, what, count, events }) => [
   'Prove the fix with a test that fails now on this failure and passes after it.',
 ].join(' ');
 
+const AGAIN = ':again-';
+// A fix that landed may not have worked, so the failure can come back. One turned down stays turned down.
+const FIXED_STATES = ['merged', 'done'];
+
+/** The key to file this failure under, or nothing while a fix stands. It comes back only on what happened after its last fix ended. */
+function keyToFile(items, { key, events }) {
+  const fixes = items.filter(item => item.key === key || item.key.startsWith(`${key}${AGAIN}`));
+  if (!fixes.length) return key;
+  if (!fixes.every(({ state }) => FIXED_STATES.includes(state))) return null;
+
+  const fixedAt = Math.max(...fixes.map(({ updatedAt, at }) => Date.parse(updatedAt ?? at)));
+  const since = events.filter(({ at }) => Date.parse(at) > fixedAt);
+  return since.length >= REPEATS_AT ? `${key}${AGAIN}${fixes.length}` : null;
+}
+
 function fileFailure(root, slug, failure, now) {
-  const { key, name, what, count } = failure;
-  if (readItems(root, slug).some(item => item.key === key)) return [];
+  const { name, what, count } = failure;
+  const key = keyToFile(readItems(root, slug), failure);
+  if (!key) return [];
 
   const { id } = fileItem(root, slug, {
     key,

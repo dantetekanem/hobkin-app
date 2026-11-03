@@ -274,7 +274,8 @@ export class HobkinApplication {
       });
     const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted)].toSorted((left, right) => (right.at ?? '').localeCompare(left.at ?? ''));
     const notices = (this.snapshot.messages ?? []).filter(isOwnPost);
-    const alreadyPosted = notices.length;
+    // What was in Chat when this process opened is not news. One that scrolled away is worked out again on each refresh, so a count needs a memory of its own.
+    this.noticesCounted ??= new Set(notices.map(({ id }) => id));
     const noticeIds = new Set(notices.map(message => message.id));
     const noticedRunIds = new Set(this.noticeRunIds);
     const work = this.workView();
@@ -443,7 +444,10 @@ export class HobkinApplication {
       if (!active.has(id)) this.jobActivity.delete(id);
     }
     this.noticeRunIds = noticedRunIds;
-    for (const { id, tone } of notices.slice(alreadyPosted)) recordEvent(this.runtime.directory, 'notice_posted', { source: id.split(':')[1], tone });
+    for (const { id, tone } of notices.filter(({ id }) => !this.noticesCounted.has(id))) {
+      this.noticesCounted.add(id);
+      recordEvent(this.runtime.directory, 'notice_posted', { source: id.split(':')[1], tone });
+    }
     if (visible.error && visible.error !== this.snapshot.error) recordEvent(this.runtime.directory, 'error_shown', { from: this.runtime.mainFault ? 'main' : 'runner' });
     this.notePause(work.pause?.kind ?? null);
     this.snapshot = {

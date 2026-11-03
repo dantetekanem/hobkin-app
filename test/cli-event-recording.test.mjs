@@ -135,6 +135,19 @@ test('a run left running by a crash is recorded when the next owner finds it', a
   assert.deepEqual(h.ofType('run_finished').map(({ id, status }) => [id, status]), [['left', 'interrupted']]);
 });
 
+test('a notice that scrolled out of Chat is not counted again', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  writeMode(app.runtime.directory, { review: { at: new Date().toISOString(), message: 'The week.', stale: [] } });
+
+  await app.refresh();
+  app.snapshot = { ...app.snapshot, messages: [] };
+  await app.refresh();
+  await app.close();
+
+  assert.equal(h.ofType('notice_posted').filter(({ source }) => source === 'work-review').length, 1);
+});
+
 test('a notice posted to Chat records its tone and source once, and none of its words', async t => {
   const h = fixture(t);
   const app = await h.openApp();
