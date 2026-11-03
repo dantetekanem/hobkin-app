@@ -346,7 +346,7 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
   const closed = await closeWhatLanded({ root, repo, slug: project.slug, merged: item, target, landing, now });
   const others = closed - 1;
   const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
-  return reply(`Merged "${title}" into ${base}.${alongside} Nothing was pushed.`, { target });
+  return reply(`Merged "${title}" into ${base}.${alongside} Nothing was pushed.`, { target, route });
 }
 
 /**

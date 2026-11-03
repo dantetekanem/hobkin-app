@@ -16,6 +16,7 @@ import { surveyAndClose } from './closing.mjs';
 import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { agentName, WorkPanes } from './panes.mjs';
+import { watchPile } from './pairs.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
@@ -172,7 +173,8 @@ export class WorkDirector {
     this.watchChanges(mode);
 
     const current = readMode(this.root);
-    const { pause, budget, next } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
+    const { pause, budget, next, shipFirst } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
+    watchPile(this.root, shipFirst, this.now());
     if (['day', 'hour'].includes(pause?.kind)) this.holdDiscovery();
     this.tellPause(pause, current);
     if (pause?.kind === 'day') this.askForAllowance(current, budget);
@@ -339,6 +341,7 @@ export class WorkDirector {
       drop: this.command('drop <slug>'),
       allow: this.command('allow [tokens | no]'),
       resume: this.command('resume'),
+      ship: this.command('ship [on|off]'),
     };
   }
 

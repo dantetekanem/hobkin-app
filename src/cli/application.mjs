@@ -25,6 +25,7 @@ import { workStatus } from './work/commands.mjs';
 import { answerOffer, askAgent, declineItem, markDone, mergeItem, openDiff, requestReview } from './work/controls.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
+import { answerPair, fileFirstPair } from './work/pairs.mjs';
 import { noteForCheck, stalled } from './checks.mjs';
 import { answerDecision, fileDecision, findDecision, lastCard, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
 import { canShowCard, cardChoices, cardDue, cardEvidence, cardQuestion } from './pending.mjs';
@@ -287,6 +288,12 @@ export class HobkinApplication {
       noticeIds.add(toldId);
     }
     // These read as Hobkin speaking, because the user is meant to answer them.
+    const shipping = work.shipNotice;
+    const shippingId = shipping && `notice:work-ship:${shipping.at}`;
+    if (shipping && !noticeIds.has(shippingId)) {
+      notices.push({ id: shippingId, role: 'notice', content: shipping.line, tone: 'useful', at: shipping.at });
+      noticeIds.add(shippingId);
+    }
     const reviewed = work.review;
     const reviewedId = reviewed && `notice:work-review:${reviewed.at}`;
     if (reviewed && !noticeIds.has(reviewedId)) {
@@ -588,9 +595,14 @@ export class HobkinApplication {
 
   async workAction(action, slug, value, extra) {
     const root = this.runtime.directory;
+    const turnOn = folder => {
+      const mode = startWork(root, folder);
+      fileFirstPair(root, this.now());
+      return mode;
+    };
     const actions = {
-      toggle: () => (readMode(root).enabled ? writeMode(root, { enabled: false }) : startWork(root)),
-      start: () => startWork(root, slug),
+      toggle: () => (readMode(root).enabled ? writeMode(root, { enabled: false }) : turnOn()),
+      start: () => turnOn(slug),
       allow: () => answerAllowance(root, true),
       keep: () => answerAllowance(root, false),
       choose: () => chooseProject(root, slug, value),
@@ -633,9 +645,11 @@ export class HobkinApplication {
     if (answerTo?.kind === 'pending') this.tackle(id, choice, answerTo);
     const offered = answerTo?.kind === 'merge' ? await answerOffer(root, answerTo, value, this.now()) : null;
     if (value === 'read' && ['merge', 'read'].includes(answerTo?.kind)) this.showDone?.(answerTo);
+    if (answerTo?.kind === 'pair' && value === 'read') this.showDone?.();
+    const moved = answerTo?.kind === 'pair' ? await answerPair(root, value, answerTo.rows, this.now()) : null;
     answerDecision(root, id, value, this.now());
     recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
-    return offered ?? { ok: true, message: `Answered: ${choice.label}.` };
+    return offered ?? moved ?? { ok: true, message: `Answered: ${choice.label}.` };
   }
 
   /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */

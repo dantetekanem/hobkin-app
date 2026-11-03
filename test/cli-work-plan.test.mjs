@@ -616,13 +616,13 @@ test('a feature already at P3 has no lower to go, and still starts', t => {
   assert.equal(plan(root).next.title, 'feature');
 });
 
-test('a project with 50 waiting to merge still starts its top row, and nothing on it waits for a merge', t => {
+test('under the bar a project with plenty to merge still starts its top row', t => {
   const root = dataRoot(t);
   project(root, 'api');
   ranRecently(root, 'api');
   fileItem(root, 'api', item('feature', { kind: 'feature', impact: 'high', effort: 'small' }), now);
   writeState(root, 'api', { lastLensAt: null });
-  waitingToMerge(root, { api: 50 });
+  waitingToMerge(root, { api: 7 });
 
   const { entries, next, pause, waitingOn } = plan(root);
 

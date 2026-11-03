@@ -36,11 +36,12 @@ export function assertState(state, states) {
   if (state !== undefined && !states.includes(state)) throw Error(`state must be one of: ${states.join(', ')}`);
 }
 
-function nextAction({ mode, next, pause, waitingOn, entries, free, nextStartAt }, owner) {
+function nextAction({ mode, next, pause, waitingOn, entries, free, nextStartAt, shipFirst }, owner) {
   if (!mode.enabled) return `Work mode is off. hobkin work start${mode.folder ? '' : ' <folder>'} turns it on.`;
   if (!owner) return NEEDS_AN_OWNER;
   if (pause) return pause.line;
   if (waitingOn) return waitingOn;
+  if (shipFirst.holding) return [shipFirst.line, next && `${next.project}: ${next.title} starts next.`].filter(Boolean).join(' ');
   if (next) return `${next.project}: ${next.title} starts next.`;
   const top = entries.find(entry => !entry.skipped);
   if (!top) return 'Nothing is queued. The next look comes round by itself.';
@@ -265,7 +266,7 @@ export function weighedRows(root, now = Date.now()) {
 /** Work finished on a branch with no PR. `gap` says what stands between each one and landing, and the top is what to merge next. */
 export const readyItems = (root, most = MAX_READY_SENT) => weighedRows(root).slice(0, most).map(({ row }) => row);
 
-const ratedA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;
+export const ratedA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;
 const gapWords = {
   yours: 'only a person can do it',
   elsewhere: 'it is already on another branch',
@@ -275,16 +276,18 @@ const gapWords = {
   unlanded: 'its item says done, so it goes through the walk',
 };
 
-function ratingWords({ safety }) {
+export function ratingWords({ safety }) {
   if (!safety) return 'it has no grade';
   return safety.stale ? 'its grade is for an older commit' : `it is rated ${safety.grade} ${safety.rating}`;
 }
 
+/** The first thing a merge of this row would bring along that no review passed. */
+export const weakEarlierWork = (row, units) => stackedBeneath(row, units).find(unit => !ratedA(unit));
+
 function whyLeftOut(row, units) {
   if (row.gap !== 'land') return gapWords[row.gap];
   if (!ratedA(row)) return ratingWords(row);
-  const unit = units.find(({ branch }) => branch === row.branch);
-  const weak = unit && stackedBeneath(unit, units).find(earlier => !ratedA(earlier));
+  const weak = weakEarlierWork(row, units);
   return weak ? `it brings ${weak.branch}, and ${ratingWords(weak)}` : null;
 }
 

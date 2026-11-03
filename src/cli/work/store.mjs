@@ -198,7 +198,7 @@ export function pendingCancels(root) {
   return requests.filter(request => !request.answeredAt).map(request => request.run);
 }
 
-const localDay = now => new Date(now).toDateString();
+export const localDay = now => new Date(now).toDateString();
 const compactNumber = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 export const tokenLabel = tokens => compactNumber.format(tokens).toLowerCase();
 

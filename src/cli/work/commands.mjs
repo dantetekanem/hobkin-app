@@ -8,6 +8,7 @@ import {
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
 import { findProject, nameOf } from './names.mjs';
+import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
 import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
 import { reviewView } from './review.mjs';
@@ -53,7 +54,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   level <project> <low..max>           casual (low), important, critical, max
   priority <project> <P0..P3>          how often it runs, and its queue place
   prs <project> <off|draft|published>  local PR, draft PR or published PR
-  auto, reviews [on|off]               pick by itself; review what finishes
+  auto, reviews, ship [on|off]         pick alone; review; ship before new work
   harness <pi|claude|codex>, agents <1-${MAX_AGENTS}>  which agent works, how many at once
   tokens <number>                      the daily limit, from now on
   allow [number|no]                    answer a request, for today only
@@ -117,6 +118,13 @@ function watchSummary(root) {
   return { at, added: added.length, changed: changed.length, removed: removed.length, proposed: proposed.length };
 }
 
+/** Starting with a pile says so with the real count, and the first two are filed at once, so a start never floods agents. */
+function startWithPile(root, folder) {
+  const started = startMode(root, folder);
+  const line = fileFirstPair(root);
+  return line ? { ...started, message: `${started.message} ${line}` } : started;
+}
+
 /** Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows. */
 export function workStatus(root, outlook = {}) {
   const mode = readMode(root);
@@ -163,6 +171,8 @@ export function workStatus(root, outlook = {}) {
     pause: enabled ? pause : null,
     pauseNotice: enabled && pause ? mode.pauseNotice ?? null : null,
     review: mode.review ?? null,
+    shipFirst: plan.shipFirst,
+    shipNotice: mode.ship?.notice ?? null,
     waitingOn: plan.waitingOn,
     nextStartAt: plan.nextStartAt,
     allowanceRequest: enabled ? currentRequest(mode) : null,
@@ -240,7 +250,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'trust': return trustPattern(root, ...args);
     case 'watching': return watchingView(root);
     case 'start':
-    case 'on': return startMode(root, args[0]);
+    case 'on': return startWithPile(root, args[0]);
     case 'stop':
     case 'off': return stopMode(root);
     case 'pause': return pauseWork(root, args[0]);
@@ -249,6 +259,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'run': return triggerRow(root, ...args);
     case 'cancel': return cancelRuns(root, args[0]);
     case 'sync': return syncWork(root);
+    case 'ship': return setShipFirst(root, args[0]);
     case 'add': {
       const [what, reference, ...rest] = args;
       if (what === 'project') return addProject(root, reference, ...rest);

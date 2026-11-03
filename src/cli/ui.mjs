@@ -753,7 +753,7 @@ const workSituation = ({ work, runs, clock }) => {
   const running = runs.length ? `${count(runs.length, 'agent')} running.` : 'Nothing is running.';
   const lookNow = paused ? 'It looks again once the pause ends.' : `It looks${where ? ` in ${where}` : ''} now.`;
   const dueNow = discovery.status === 'finished' ? 'New repositories are proposed as they appear.' : lookNow;
-  const coming = nextInQueue(work, clock);
+  const coming = [work.shipFirst?.line, nextInQueue(work, clock)].filter(Boolean).join(' ');
   return {
     now: [paused ? `Paused. ${running}` : running, lastLookLine(discovery)].filter(Boolean).join(' ') + answers,
     next: coming || (scheduled ? '' : dueNow),

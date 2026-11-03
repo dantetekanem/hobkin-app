@@ -3,6 +3,9 @@ import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLi
 import { lookTime } from './chat.mjs';
 import { openLaunches, watchDue } from './launches.mjs';
 import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
+// `reads.mjs` imports this file too. Neither calls the other while loading, so the cycle is safe.
+import { readyItems } from './reads.mjs';
+import { shipFirst } from './ship.mjs';
 import { overReserve, readSubscription, usageWindows } from './usage.mjs';
 import {
   chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, paths, priorityOf, readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
@@ -57,7 +60,12 @@ const impactOf = item => item.impact ?? impactOfKind[item.kind];
 // What brings finished work closer to landing goes ahead of making more, because it is the shortest way to something shipped.
 const CLOSING_GRADE = 'P1';
 const closesASignalGap = ({ key }) => Boolean(key?.startsWith('signal:'));
-const closesAGap = item => item.kind === 'pr-fix' || item.reviewAsked || item.workNote || closesASignalGap(item);
+const movesFinishedWork = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
+const closesAGap = item => movesFinishedWork(item) || closesASignalGap(item);
+const stillRuns = item => item.state === 'doing' || item.urgent || item.kind === 'attention' || movesFinishedWork(item);
+
+/** What the pile holds back: anything that adds to it. A pick is the user's own word, and a watch looks after what already landed. */
+export const startsNewWork = ({ picked, focus, item }) => !picked && focus !== 'watch' && !(item && stillRuns(item));
 
 /** A project as the plan grades it, with how much of its finished work is waiting on a merge and whether it sees less than it wants to. */
 export const withPending = (root, project) => ({
@@ -68,7 +76,7 @@ export const withPending = (root, project) => ({
 
 const canStepDown = item => newWorkKinds.includes(item.kind) && !item.grade && !item.urgent && !item.max;
 
-/** New work steps down a grade on a project with plenty to merge, unless someone marked it by hand. This only ever moves a row: nothing waits for a merge. */
+/** New work steps down a grade on a project with plenty to merge, unless someone marked it by hand. This moves a row. What stops new work is the pile across every project, in `startsNewWork`. */
 const shippingFirst = ({ pending = 0 }, item) => pending >= SHIPPING_FIRST_AT && canStepDown(item);
 
 /** The same on a project that cannot see what it wants to, because more changes there are changes nobody can watch. This only ever moves a row too. */
@@ -310,7 +318,7 @@ function maxWait({ mode, now, running, budget, panes }) {
 }
 
 /** Only a row that can start holds another back. A skipped one stays where it is, and with auto-pick off only a pick ever starts, so waiting on anything else never ends. */
-const canStart = ({ autoPick }, row) => !row.skipped && (autoPick || row.picked);
+const canStart = ({ autoPick }, row) => !row.skipped && !row.held && (autoPick || row.picked);
 
 const needsItsStudy = (mode, entry, entries) => entry.unstudied && !entry.picked
   && entries.some(other => other.slug === entry.slug && other.kind === 'study' && canStart(mode, other));
@@ -332,6 +340,7 @@ function ownWait(entry, entries, context) {
   const here = running.filter(run => run.slug === entry.slug);
   if (entry.skipped) return 'skipped';
   if (entry.paused) return 'paused';
+  if (entry.held) return 'shipping first';
   const retry = retryWait(entry, now);
   if (retry) return retry;
   if (needsItsStudy(mode, entry, entries)) return 'needs its study';
@@ -350,7 +359,7 @@ function leftAlone({ root, now, running }) {
 
 /** One row for each project left alone: its top one that can go. A project whose top row is at the front already needs no lift. */
 function liftedRows(mode, entries, isLeftAlone) {
-  const canGo = entry => entry.slug && !entry.paused && !entry.skipped && !behindItsStartedItem(mode, entry, entries);
+  const canGo = entry => entry.slug && !entry.paused && !entry.skipped && !entry.held && !behindItsStartedItem(mode, entry, entries);
   const tops = entries.filter(canGo).filter((entry, index, rows) => rows.findIndex(row => row.slug === entry.slug) === index);
   return tops.filter(entry => isLeftAlone(entry) && !entry.picked && entry.grade !== 'P0');
 }
@@ -426,13 +435,17 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const context = { root, mode, now, running, budget, reading, panes };
   const history = costHistory(root);
   const projects = chosenProjects(root).map(project => withPending(root, project));
+  const shipping = shipFirst(readyItems(root, Infinity), mode, now);
   const sorted = [...discoveryEntry(context), ...projects.flatMap(project => projectEntries(context, project))]
-    .map(entry => ({
-      ...entry,
-      skipped: mode.queueSkipped.includes(entry.key),
-      picked: mode.queueNext.includes(entry.key),
-      estimate: estimateRun(history, { kind: entry.lane === 'do' ? 'do' : entry.kind, level: entry.level }),
-    }))
+    .map(entry => {
+      const row = {
+        ...entry,
+        skipped: mode.queueSkipped.includes(entry.key),
+        picked: mode.queueNext.includes(entry.key),
+        estimate: estimateRun(history, { kind: entry.lane === 'do' ? 'do' : entry.kind, level: entry.level }),
+      };
+      return { ...row, held: shipping.holding && startsNewWork(row) };
+    })
     .toSorted(byGrade);
   const ranked = inQueueOrder(mode, sorted, leftAlone(context));
   const entries = ranked.map(entry => {
@@ -453,7 +466,7 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   // A pick is the user's own word, so it does not wait out the gap between starts.
   const next = stop || free <= 0 || (spaced && !first?.picked) ? null : first ?? null;
   return {
-    mode, entries, next, pause, budget, subscription, agents, free, waitingOn,
+    mode, entries, next, pause, budget, subscription, agents, free, waitingOn, shipFirst: shipping,
     nextStartAt: spaced ? new Date(startsAt).toISOString() : null,
   };
 }
