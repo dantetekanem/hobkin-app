@@ -38,6 +38,25 @@ test('compacting holds the session so no turn can start under it, and the turn g
   assert.ok(main);
 });
 
+test('a question from the main conversation says it belongs to Chat', async t => {
+  const { root, config } = home(t);
+  const asked = [];
+  let ask;
+  const opening = mainFactory();
+  const createMain = options => {
+    ask = options.askQuestion;
+    return opening(options);
+  };
+  const runtime = await HobkinRuntime.open(root, config, { createMain, askQuestion: async request => { asked.push(request); return 'yes'; } });
+  t.after(() => runtime.close());
+  await runtime.connect();
+
+  const answer = await ask({ question: 'Apply it?', choices: [{ value: 'yes', label: 'Yes' }] });
+
+  assert.equal(answer, 'yes');
+  assert.deepEqual(asked, [{ question: 'Apply it?', choices: [{ value: 'yes', label: 'Yes' }], inChat: true }]);
+});
+
 test('a session in use is never compacted, because compact aborts what is running', async t => {
   const { root, config } = home(t);
   const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory() });

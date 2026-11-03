@@ -28,6 +28,7 @@ import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
 import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
 import { answerPickUp, filePickUp, retirePickUp } from './work/pick-up.mjs';
+import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { answerPair, fileFirstPair } from './work/pairs.mjs';
@@ -180,6 +181,7 @@ export class HobkinApplication {
         onActivity: (id, event) => app.observeActivity(id, event),
         onTick: async () => {
           await app.tickWork();
+          await app.tickRefreshed();
           await app.tickHolds();
           app.tickWakes();
           app.tickCompaction();
@@ -577,6 +579,21 @@ export class HobkinApplication {
     this.requestRefresh();
   }
 
+  /**
+   * A branch the user said to refresh and merge merges once its refresh has ended well, and what came of it is told like an action on a card:
+   * one line in Chat, and the main agent hears it. A problem here costs this tick its look, and the next tick looks again.
+   */
+  async tickRefreshed() {
+    const root = this.runtime.directory;
+    try {
+      const results = await mergeRefreshed(root, { now: this.now() });
+      for (const { told } of results) recordCardAction(root, told, this.now());
+      if (results.length) this.requestRefresh();
+    } catch {
+      // Nothing was used up: the word to merge stays on the item until a merge is tried.
+    }
+  }
+
   // Learning watches the product, so a problem in it can never stop a tick.
   async learn() {
     try {
@@ -701,6 +718,7 @@ export class HobkinApplication {
       decide: () => this.decide(slug, value),
       learning: () => this.answerLearning(slug, value),
       mergePr: () => mergePullRequest(root, slug, value, extra),
+      refreshMerge: () => refreshThenMerge(root, slug, value, { ...extra, now: this.now() }),
       open: () => openPullRequest(root, slug, value),
     };
     const result = await actions[action]();

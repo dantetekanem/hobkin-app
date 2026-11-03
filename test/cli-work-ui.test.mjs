@@ -440,11 +440,18 @@ const toDone = ui => {
   ui.input('\x1b[B');
 };
 const landing = (item, details = {}) => ({ slug: 'site', project: 'website', item, title: `Work ${item}`, branch: `hobkin/${item}`, gap: 'land', described: true, proved: true, ...details });
-const nothingRead = { read: 'none', readMs: 0 };
 const acting = () => {
   const actions = [];
   return { actions, workAction: async (...args) => { actions.push(args); return args[0] === 'pr' ? { description: 'Moves the site.\n\nProof: it passed.' } : { ok: true, message: `${args[0]} ok` }; } };
 };
+// An open card asks like a question: its choices in words, the selected one marked with an arrow.
+const selectedChoice = ui => screen(ui, 110, 50).split('\n').find(text => text.includes('→ '))?.trim() ?? '';
+const pick = (ui, label) => {
+  for (let moves = 0; moves < 8 && !selectedChoice(ui).includes(label); moves++) ui.input('\x1b[B');
+  assert.ok(selectedChoice(ui).includes(label), `the card offers "${label}"`);
+  ui.input('\r');
+};
+const offers = (ui, labels) => assert.match(screen(ui, 110, 50), new RegExp(labels.map(label => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^\\n]*\\n[\\s\\S]*?')));
 
 test('Now and Done are subtabs, the arrows move between them and Done counts what waits', () => {
   const ready = [landing('one'), landing('two', { gap: 'stacked' }), landing('three', { gap: 'closing' })];
@@ -508,41 +515,57 @@ test('agents at work, steps only the user can take and work already elsewhere si
   assert.match(text, /YOUR TURN\s+1/);
   assert.match(text, /ALREADY ELSEWHERE\s+1/);
   assert.match(text, /also on release\/now/);
-  assert.match(text, /x\s+done/);
-  assert.doesNotMatch(text, /m\s+merge/);
+  assert.match(text, /enter\s+open/);
 
   ui.input('m');
   ui.input('x');
+  ui.input('\r');
+  pick(ui, 'Mark it done');
   await ui.pending();
 
-  assert.deepEqual(actions, [['done', 'site', 'turn']]);
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['done', 'site', 'turn']]);
   ui.stop();
 });
 
 const safeA = { safety: { grade: 'safe', rating: 'A' } };
 
-test('m merges, x cancels and r asks for a review, each on a key named on screen, and the walk moves to the next row', async () => {
+test('a card takes no letters: Enter opens it, and it asks what to do with each choice in words', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one', safeA), landing('two', safeA), landing('three', safeA)];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
   toDone(ui);
-  assert.match(screen(ui), /m\s+merge\s+·\s+c\s+changes\s+·\s+x\s+cancel\s+·\s+r\s+review\s+·\s+d\s+diff\s+·\s+enter\s+read/);
+  assert.match(screen(ui), /enter\s+open/);
+  assert.doesNotMatch(screen(ui), /m\s+merge|x\s+cancel|r\s+review/);
 
-  ui.input('m');
+  for (const letter of 'mcxrdo') ui.input(letter);
   await ui.pending();
-  ui.input('x');
+  assert.deepEqual(actions, [], 'a stray letter does nothing to a card');
+
+  ui.input('\r');
   await ui.pending();
-  ui.input('r');
+  assert.match(screen(ui, 110, 50), /website: Work one\. What do you want to do\?/);
+  offers(ui, ['Merge it', 'Show the diff', 'Review it again', 'Cancel it', 'Ask for changes']);
+  assert.match(screen(ui, 110, 50), /↑↓\s+choose\s+·\s+enter\s+pick/);
+
+  pick(ui, 'Merge it');
+  await ui.pending();
+  assert.equal(ui.state().focus, 'work', 'an answer goes back to the list');
+  ui.input('\r');
+  pick(ui, 'Cancel it');
+  await ui.pending();
+  ui.input('\r');
+  pick(ui, 'Review it again');
   await ui.pending();
 
-  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead], ['decline', 'site', 'two'], ['review', 'site', 'three']]);
+  const answered = actions.filter(([action]) => action !== 'pr');
+  assert.deepEqual(answered.map(([action, , item]) => [action, item]), [['merge', 'one'], ['decline', 'two'], ['review', 'three']]);
   ui.stop();
 });
 
-test('a merge passes on how the row was read: not at all, its page, or its diff, with the time spent', async () => {
+test('a merge passes on how the card was read, its page or its diff, with the time spent', async () => {
   const { actions, workAction } = acting();
   const clock = { at: 1000 };
-  const ready = [landing('one', safeA), landing('two', safeA), landing('three', safeA)];
+  const ready = [landing('one', safeA), landing('two', safeA)];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => clock.at });
   toDone(ui);
 
@@ -553,55 +576,48 @@ test('a merge passes on how the row was read: not at all, its page, or its diff,
   ui.input('\r');
   await ui.pending();
   clock.at += 500;
-  ui.input('m');
-  await ui.pending();
+  pick(ui, 'Merge it');
   await ui.pending();
 
+  ui.input('\r');
+  await ui.pending();
   clock.at += 3000;
-  ui.input('d');
+  pick(ui, 'Show the diff');
   await ui.pending();
-  ui.input('m');
-  await ui.pending();
-  await ui.pending();
-  ui.input('\x1b');
-  ui.input('m');
+  assert.equal(ui.state().focus, 'card', 'reading the diff keeps the card open');
+  pick(ui, 'Merge it');
   await ui.pending();
 
   assert.deepEqual(actions.filter(([action]) => action === 'merge'), [
     ['merge', 'site', 'one', { read: 'page', readMs: 2500 }],
     ['merge', 'site', 'two', { read: 'diff', readMs: 3000 }],
-    ['merge', 'site', 'three', { read: 'page', readMs: 0 }],
   ]);
   ui.stop();
 });
 
-test('a done item with work on its branch shows under not landed, where m merges and x closes it', async () => {
+test('a done item with work on its branch shows under not landed, and its card merges it or closes it', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one', { ...safeA, gap: 'unlanded' }), landing('two', { ...safeA, gap: 'unlanded' })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => 1000 });
   toDone(ui);
 
-  const text = screen(ui, 110, 40);
-  assert.match(text, /NOT LANDED\s+2/);
-  assert.match(text, /m\s+merge\s+·\s+x\s+close\s+·\s+enter\s+read/);
-
+  assert.match(screen(ui, 110, 40), /NOT LANDED\s+2/);
   ui.input('\r');
   await ui.pending();
-  const page = screen(ui, 110, 40);
-  assert.match(page, /m\s+merge\s+·\s+x\s+close\s+·\s+d\s+diff/);
-  assert.doesNotMatch(page, /r\s+review/);
-  ui.input('\x1b');
+  offers(ui, ['Merge it', 'Show the diff', 'Close it']);
+  assert.doesNotMatch(screen(ui, 110, 50), /Review it|Ask for changes/, 'a done item has no run left to review or change it');
 
-  ui.input('m');
+  pick(ui, 'Merge it');
   await ui.pending();
-  ui.input('x');
+  ui.input('\r');
+  pick(ui, 'Close it');
   await ui.pending();
 
   assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['merge', 'site', 'one', { read: 'page', readMs: 0 }], ['done', 'site', 'two']]);
   ui.stop();
 });
 
-test('showDone can open straight on one row\'s page, and a row that has gone leaves the list open', async () => {
+test('showDone can open straight on one row\'s card, and a row that has gone leaves the list open', async () => {
   const { workAction } = acting();
   const ready = [landing('one'), landing('two')];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
@@ -610,7 +626,7 @@ test('showDone can open straight on one row\'s page, and a row that has gone lea
   await ui.pending();
 
   assert.equal(ui.state().view, 'work');
-  assert.equal(ui.state().focus, 'doneReading');
+  assert.equal(ui.state().focus, 'card');
   assert.match(screen(ui), /website: Work two/);
 
   ui.input('\x1b');
@@ -637,83 +653,106 @@ test('a row with a precedent says so in a few words, and where it came from', ()
   ui.stop();
 });
 
-test('a risky row takes a second m', async () => {
+test('a card rated risky offers its review first, and its merge says so', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one', { safety: { grade: 'risky', rating: 'D' } })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
   toDone(ui);
-
-  ui.input('m');
+  ui.input('\r');
   await ui.pending();
-  assert.deepEqual(actions, []);
-  assert.match(screen(ui), /Press m again/);
 
-  ui.input('m');
+  offers(ui, ['Review it again', 'Show the diff', 'Merge it anyway: it is rated risky', 'Cancel it']);
+  assert.match(selectedChoice(ui), /Review it again/, 'Enter on a card it cannot vouch for never merges it');
+
+  pick(ui, 'Merge it anyway: it is rated risky');
   await ui.pending();
-  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead]]);
+  assert.deepEqual(actions.filter(([action]) => action === 'merge').map(([action, , item]) => [action, item]), [['merge', 'one']]);
   ui.stop();
 });
 
-test('a row with no grade at its commit takes a second m too, and says r reviews it', async () => {
+test('a card with no grade at its commit offers a review first, and its merge says what it lacks', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one'), landing('two', { safety: { grade: 'safe', rating: 'A', stale: true } })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
   toDone(ui);
-
-  ui.input('m');
-  await ui.pending();
-  assert.deepEqual(actions, []);
-  assert.match(screen(ui), /No grade at this commit\. Press m again to merge Work one, or r for a review\./);
-
-  ui.input('m');
-  await ui.pending();
-  ui.input('m');
-  ui.input('m');
+  ui.input('\r');
   await ui.pending();
 
-  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead], ['merge', 'site', 'two', nothingRead]]);
+  offers(ui, ['Get it reviewed', 'Show the diff', 'Merge it anyway: no grade at this commit', 'Cancel it']);
+  ui.input('\r');
+  await ui.pending();
+  ui.input('\r');
+  await ui.pending();
+  offers(ui, ['Get it reviewed', 'Show the diff', 'Merge it anyway: no grade at this commit']);
+  pick(ui, 'Merge it anyway');
+  await ui.pending();
+
+  const answered = actions.filter(([action]) => action !== 'pr');
+  assert.deepEqual(answered.map(([action, , item]) => [action, item]), [['review', 'one'], ['merge', 'two']]);
   ui.stop();
 });
 
-test('a merge names the commit the row showed, so a branch that moved since is read again first', async () => {
+test('a merge names the commit the card showed, so a branch that moved since is read again first', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one', { ...safeA, head: 'abc1234' })];
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => 1000 });
   toDone(ui);
 
-  ui.input('m');
+  ui.input('\r');
+  pick(ui, 'Merge it');
   await ui.pending();
 
-  assert.deepEqual(actions, [['merge', 'site', 'one', { ...nothingRead, head: 'abc1234' }]]);
+  assert.deepEqual(actions.filter(([action]) => action === 'merge'), [['merge', 'site', 'one', { read: 'page', readMs: 0, head: 'abc1234' }]]);
   ui.stop();
 });
 
-test('c sends an agent back with the changes the user asks for, and Esc leaves the row alone', async () => {
+test('a card asks for changes in the words the user types, and Esc leaves it alone', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one'), landing('two')];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
   toDone(ui);
 
-  ui.input('c');
-  assert.match(screen(ui), /What should it change/);
+  ui.input('\r');
+  await ui.pending();
   ui.input('\x1b');
   assert.equal(ui.state().focus, 'work');
-  assert.deepEqual(actions, []);
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), []);
 
-  ui.input('c');
+  ui.input('\r');
+  pick(ui, 'Ask for changes');
   for (const letter of 'Rebase') ui.input(letter);
   ui.input('\r');
   await ui.pending();
 
-  assert.deepEqual(actions, [['ask', 'site', 'one', 'Rebase']]);
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['ask', 'site', 'one', 'Rebase']]);
   assert.equal(ui.state().focus, 'work');
   ui.stop();
 });
 
-test('Enter reads a row with its description, every key still works there, and the walk carries on to the next page', async () => {
+test('a card that conflicts offers an agent to rebase it, and no merge', async () => {
   const { actions, workAction } = acting();
-  const ready = [landing('one', { safety: { grade: 'safe', rating: 'A', reason: 'No accepted issue remains.' }, left: 'Deploy it.' }), landing('two')];
+  const ready = [landing('one', { ...safeA, conflict: true })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+  toDone(ui);
+  ui.input('\r');
+  await ui.pending();
+
+  offers(ui, ['Have an agent rebase it', 'Show the diff']);
+  assert.doesNotMatch(screen(ui, 110, 50), /Merge it/);
+  pick(ui, 'Have an agent rebase it');
+  await ui.pending();
+
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['ask', 'site', 'one', '']]);
+  ui.stop();
+});
+
+test('an open card shows its page with the description above its choices, and the page keys scroll that page', async () => {
+  const { actions, workAction } = acting();
+  const long = Array.from({ length: 60 }, (_, line) => `Line ${line} of what changed.`).join('\n');
+  const ready = [landing('one', { safety: { grade: 'safe', rating: 'A', reason: 'No accepted issue remains.' }, left: 'Deploy it.' }), landing('two')];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, {
+    workAction: async (...args) => (args[0] === 'pr' ? { description: `Moves the site.\n\n${long}\n\nProof: it passed.` } : workAction(...args)),
+  });
   toDone(ui);
 
   ui.input('\r');
@@ -722,24 +761,78 @@ test('Enter reads a row with its description, every key still works there, and t
   const text = screen(ui, 100, 40);
   assert.match(text, /Why: No accepted issue remains\./);
   assert.match(text, /Left for you: Deploy it\./);
-  assert.match(text, /Proof: it passed\./);
-  assert.match(text, /d\s+diff/);
-  assert.match(text, /r\s+review/);
+  assert.match(text, /Moves the site\./);
+  assert.match(text, /hobkin asks[\s\S]*website: Work one\. What do you want to do\?/);
+  assert.match(text, /pgup\/pgdn\s+read/);
 
-  ui.input('d');
-  ui.input('r');
-  await ui.pending();
-  ui.input('m');
-  await ui.pending();
-
-  const [[merge, site, one, { read }], ...others] = actions.filter(([action]) => action === 'merge');
-  assert.deepEqual([merge, site, one, read, others], ['merge', 'site', 'one', 'diff', []]);
-  assert.deepEqual(actions.filter(([action]) => ['diff', 'review'].includes(action)), [['diff', 'site', 'one'], ['review', 'site', 'one']]);
-  assert.match(screen(ui), /website: Work two/);
-  assert.equal(ui.state().focus, 'doneReading');
+  for (let page = 0; page < 10; page++) ui.input('\x1b[6~');
+  const scrolled = screen(ui, 100, 40);
+  assert.match(scrolled, /Proof: it passed\./);
+  assert.doesNotMatch(scrolled, /Moves the site\./);
+  assert.match(scrolled, /website: Work one\. What do you want to do\?/, 'the choices stay while the page scrolls');
 
   ui.input('\x1b');
   assert.equal(ui.state().focus, 'work');
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), []);
+  ui.stop();
+});
+
+test('a question nobody waits on stays out of the way of an open card', async () => {
+  const { workAction } = acting();
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready: [landing('one', safeA)] } }, { workAction });
+  toDone(ui);
+  ui.input('\r');
+  await ui.pending();
+
+  const answer = await ui.askQuestion({ question: 'From a routine?', choices: [{ value: 'yes', label: 'Yes' }], whenQuiet: true });
+
+  assert.equal(answer, undefined);
+  assert.equal(ui.state().focus, 'card');
+  assert.doesNotMatch(screen(ui, 110, 50), /From a routine\?/);
+  ui.stop();
+});
+
+test('what a card did is said in Chat, never in place of the keys, and what hobkin posts itself is not said twice', async () => {
+  const told = { did: 'said no', project: 'website', item: 'two', title: 'Work two', line: 'Said no to "Work two" on website.' };
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready: [landing('one', safeA), landing('two', safeA)] } }, {
+    workAction: async (...args) => {
+      if (args[0] === 'pr') return {};
+      if (args[0] === 'decline') return { ok: true, message: told.line, told };
+      return { ok: true, message: 'Merged "Work one" into main on website. Nothing was pushed.' };
+    },
+  });
+  toDone(ui);
+  ui.input('\r');
+  pick(ui, 'Merge it');
+  await ui.pending();
+  ui.input('\r');
+  pick(ui, 'Cancel it');
+  await ui.pending();
+
+  const done = screen(ui, 110, 40);
+  assert.doesNotMatch(done, /Merged "Work one"|Said no/);
+  assert.match(done, /enter\s+open\s+·\s+↑↓\s+select/);
+  ui.input('\x1b');
+  const chat = screen(ui, 110, 40);
+  assert.match(chat, /◇ system[\s\S]*Merged "Work one" into main on website\. Nothing was pushed\./);
+  assert.doesNotMatch(chat, /Said no/, 'hobkin posts what it records itself');
+  ui.stop();
+});
+
+test('a card whose answer fails says why in Chat', async () => {
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready: [landing('one', safeA)] } }, {
+    workAction: async (...args) => {
+      if (args[0] === 'pr') return {};
+      throw Error('"Work one" conflicts with main, so nothing changed.');
+    },
+  });
+  toDone(ui);
+  ui.input('\r');
+  pick(ui, 'Merge it');
+  await ui.pending();
+  ui.input('\x1b');
+
+  assert.match(screen(ui, 110, 40), /◇ system[\s\S]*"Work one" conflicts with main, so nothing changed\./);
   ui.stop();
 });
 
@@ -810,6 +903,21 @@ test('Decisions appears with what waits, one summary a line, and a number answer
   ui.stop();
 });
 
+test('Enter on a question in Decisions asks it the way a question on screen does', async () => {
+  const { actions, workAction } = acting();
+  const ui = createDashboard({ ...base, decisions: [asked('one')] }, { workAction });
+  toDecisions(ui);
+  assert.match(screen(ui, 110, 30), /enter\s+open/);
+
+  ui.input('\r');
+  assert.match(screen(ui, 110, 50), /hobkin asks[\s\S]*Should one go ahead, given what the bank said\?/);
+  pick(ui, 'Hold it');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['decide', 'one', 'no']]);
+  ui.stop();
+});
+
 test('the tab marks what the asker recommends and says why, and the choices keep their order', () => {
   const ui = createDashboard({ ...base, decisions: [asked('one', { recommended: 'no', why: 'Only you know the bank.', changed: 'They wrote again.' })] });
   for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
@@ -867,24 +975,28 @@ test('Decisions lists everything waiting in groups, with work mode off, and the 
   ui.stop();
 });
 
-test('a branch in Decisions opens its page and takes the keys it takes in Done, and Esc comes back to the list', async () => {
+test('a branch in Decisions opens its page with the same choices as in Done, and an answer comes back to the list on the next one', async () => {
   const { actions, workAction } = acting();
   const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one', safeA), landing('two', safeA), landing('three', safeA)] }) }, { workAction });
   toDecisions(ui);
-  assert.match(screen(ui), /m\s+merge\s+·\s+c\s+changes\s+·\s+x\s+cancel\s+·\s+r\s+review/);
+  assert.match(screen(ui), /enter\s+open/);
+  ui.input('r');
+  await ui.pending();
+  assert.deepEqual(actions, [], 'r does not review a card in Decisions');
 
   ui.input('\r');
   await ui.pending();
   assert.match(screen(ui), /Moves the site\./);
-  ui.input('m');
+  pick(ui, 'Merge it');
   await ui.pending();
-  const next = screen(ui, 110, 30);
-  assert.match(next, /website: Work two/, 'the walk carries on to the next page');
-  assert.doesNotMatch(next, /TO APPROVE/);
-
-  ui.input('\x1b');
+  const back = screen(ui, 110, 30);
   assert.equal(ui.state().focus, 'decisions');
-  ui.input('x');
+  assert.match(back, /TO APPROVE/);
+
+  ui.input('\r');
+  await ui.pending();
+  assert.match(screen(ui, 110, 30), /website: Work two\. What do you want to do\?/, 'the next card is the one selected');
+  pick(ui, 'Cancel it');
   await ui.pending();
 
   const [merge, ...rest] = actions.filter(([action]) => action !== 'pr');
@@ -919,42 +1031,43 @@ test('Decisions lists what to approve by priority, and the selected card says wh
   ui.stop();
 });
 
-test('a PR card merges on GitHub after a second m, at the head it showed, o opens it, and c asks for changes', async () => {
+test('a PR card merges on GitHub at the head it showed, opens the PR, and asks for changes, each a choice in words', async () => {
   const { actions, workAction } = acting();
   const pr = 'https://github.com/o/site/pull/9';
   const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one', { ...safeA, pr, head: 'abc1234' }), landing('two', { ...safeA, pr })] }) }, { workAction });
   toDecisions(ui);
-  assert.match(screen(ui), /m m\s+merge PR\s+·\s+c\s+changes\s+·\s+x\s+cancel\s+·\s+o\s+open/);
 
-  ui.input('o');
+  ui.input('\r');
   await ui.pending();
-  ui.input('m');
+  offers(ui, ['Merge the PR on GitHub', 'Show the diff', 'Open the PR in the browser', 'Review it again', 'Cancel it', 'Ask for changes']);
+  pick(ui, 'Open the PR in the browser');
   await ui.pending();
-  assert.deepEqual(actions, [['open', 'site', 'one']]);
-  assert.match(screen(ui), /Press m again to merge the PR for Work one on GitHub\./);
+  assert.equal(ui.state().focus, 'card', 'opening the PR keeps the card open');
+  pick(ui, 'Merge the PR on GitHub');
+  await ui.pending();
 
-  ui.input('m');
+  ui.input('\r');
   await ui.pending();
-  ui.input('c');
+  pick(ui, 'Ask for changes');
   for (const letter of 'Rename it') ui.input(letter);
   ui.input('\r');
   await ui.pending();
 
-  assert.deepEqual(actions, [['open', 'site', 'one'], ['mergePr', 'site', 'one', { head: 'abc1234' }], ['ask', 'site', 'two', 'Rename it']]);
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['open', 'site', 'one'], ['mergePr', 'site', 'one', { head: 'abc1234' }], ['ask', 'site', 'two', 'Rename it']]);
   ui.stop();
 });
 
-test('with work waiting on more than one project, Decisions says how much waits on each, the biggest pile first', () => {
+test('with work waiting on more than one project, Done says how much waits on each, the biggest pile first, and Decisions does not', () => {
   const other = (item, details = {}) => landing(item, { slug: 'api', project: 'finboard-api', ...details });
-  const ui = createDashboard({ ...base, waiting: waiting({
-    branches: [landing('one', safeA), other('two'), other('three', { grade: 'P0' }), other('four', { gap: 'unlanded' })],
-    yours: [{ ...step, slug: 'api', project: 'finboard-api' }],
-  }) });
-  toDecisions(ui);
+  const ready = [landing('one', safeA), other('two'), other('three', { grade: 'P0' }), other('four', { gap: 'unlanded' }), other('five', { gap: 'yours' }), other('six', { gap: 'closing' })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready }, waiting: waiting({ branches: ready.slice(0, 4), yours: [ready[4]] }) });
+  toDone(ui);
 
-  const text = screen(ui, 110, 60);
+  assert.match(screen(ui, 110, 60), /BY PROJECT\s+2\s*\n\s*finboard-api\s+2 to approve · 1 not landed · 1 yours · 1 P0\n\s*website\s+1 to approve\n/);
 
-  assert.match(text, /BY PROJECT\s+2\s*\n\s*finboard-api\s+2 to approve · 1 not landed · 1 yours · 1 P0\n\s*website\s+1 to approve\n/);
+  ui.input('\x1b[D');
+  assert.equal(ui.state().view, 'decisions');
+  assert.doesNotMatch(screen(ui, 110, 60), /BY PROJECT/);
   ui.stop();
 });
 
@@ -982,7 +1095,7 @@ test('Done puts what matters most first, and each row says its priority', () => 
   ui.stop();
 });
 
-test('a step only the user can take opens in place, and x marks it done once it is sorted', async () => {
+test('a step only the user can take opens in place, and its card marks it done once it is sorted', async () => {
   const { actions, workAction } = acting();
   const reason = 'Rotate the secret at Google, then check that the old one no longer signs in anywhere, and remove it from every host.';
   const ui = createDashboard({ ...base, waiting: waiting({ yours: [{ ...step, reason }] }) }, { workAction });
@@ -990,9 +1103,12 @@ test('a step only the user can take opens in place, and x marks it done once it 
 
   const text = screen(ui, 60, 30);
   assert.match(text, /every host\./, 'the whole step shows when selected, not one cut line');
-  assert.match(text, /x\s+done/);
+  assert.match(text, /enter\s+open/);
 
   ui.input('x');
+  ui.input('\r');
+  assert.match(screen(ui, 110, 50), /finboard: Rotate the OAuth secret\. What do you want to do\?/);
+  pick(ui, 'Mark it done');
   await ui.pending();
 
   assert.deepEqual(actions, [['done', 'finboard', 'oauth']]);

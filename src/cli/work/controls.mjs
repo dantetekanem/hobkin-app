@@ -40,7 +40,7 @@ const landings = {
 export const reply = (message, details = {}) => ({ ok: true, message, ...details });
 
 /** What an action on a card tells: `line` is the whole sentence for Chat, and the rest is what the main agent hears with the user's next message. */
-const toldOf = (project, { id, title, pr }, did, line) => ({
+export const toldOf = (project, { id, title, pr }, did, line) => ({
   did,
   project: nameOf(project),
   item: id,

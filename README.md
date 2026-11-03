@@ -83,13 +83,12 @@ In the Work Mode tab:
 - `s` skips a queue row or puts it back.
 - `Enter` on a queue row runs it next.
 
-The Done subtab walks through finished work, the safest and smallest first, each with its safety grade. Every key is named at the bottom of the screen:
+The Done subtab walks through finished work, the highest priority first, each with its safety grade. Enter opens a card's page, with the one risk its review named, where to look first and how to undo it, and below it the card asks what to do, each choice in words: the arrows choose and Enter picks.
 
-- `m` merges the branch on this machine and pushes nothing.
-- `w` sends an agent back with your note.
-- `n` says no, and hobkin learns from it.
-- `Enter` reads it, with the one risk its review named, where to look first and how to undo it, and from there `d` opens the diff and `r` asks for a review.
-- Under NOT LANDED, `x` closes a branch whose item says done, for good.
+- `Merge it` merges the branch on this machine and pushes nothing. A branch behind its base offers `Refresh and merge it`: an agent brings it up to date and runs its proof again, and hobkin merges it once that run ends well.
+- A card with no grade at its commit, or rated risky, offers its review first and says what its merge lacks.
+- `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type.
+- Under NOT LANDED, a card closes a branch whose item says done, for good.
 
 Whatever you do on a card, Chat says so in one line that names the project and the title, with the link for a PR. The main agent hears it with your next message. A PR you merge from its card closes at once and leaves the list.
 
@@ -99,7 +98,7 @@ With learning on, a change like one that already went well comes to you as an of
 
 A question from a routine or work mode waits 30 seconds on screen, then moves to the Decisions tab, so nothing stops for you. Each one has a one-line summary and numbered choices: press the number to answer. A routine that asks what you answered in the last 30 days gets your answer back and does not ask again.
 
-Decisions lists everything waiting on you, with work mode on or off: questions, finished branches, steps only you can take and reports with a call. Pick one and work on it there. A finished branch opens its page and takes the same keys as Done, and a step you have sorted takes `x`.
+Decisions lists everything waiting on you, with work mode on or off: questions, finished branches, steps only you can take and reports with a call. Pick one and work on it there. Enter opens a row, and it asks the way a question does: each thing it can do in words, the arrows to choose and Enter to pick. A finished branch opens its page with its choices below, the same as in Done, and letters do nothing there, so a key meant for another tab cannot act on it.
 
 When 8 or more things are waiting across your routines and work mode and you are at the screen, hobkin shows a short card, one row for each kind, and asks how you want to tackle them. It waits for an empty composer, stays out of a running turn, and stops nothing. `hobkin pending` prints the same thing as JSON.
 

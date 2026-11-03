@@ -2025,6 +2025,28 @@ test('r in a report replies the way m does, and the footer says so', async () =>
   ui.stop();
 });
 
+test('the main agent\'s question opens in Chat under the message it is about, and the answer goes back to where the user was', async () => {
+  const messages = [{ id: 'plan', role: 'assistant', content: 'Proposed refactor: stop saving empty reports.', at: '2026-11-03T22:20:32Z' }];
+  const ui = createDashboard({ ...snapshot, connection: 'connected', messages });
+  ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'reports');
+  const choices = [{ value: 'hold', label: 'Keep the plan only' }, { value: 'apply', label: 'Apply it' }];
+
+  const answer = ui.askQuestion({ question: 'Apply this refactor?', choices, inChat: true });
+
+  assert.equal(ui.state().view, 'conversation');
+  assert.match(screen(ui, 120, 40), /Proposed refactor: stop saving empty reports\.[\s\S]*Apply this refactor\?/);
+  ui.input('\r');
+  assert.equal(await answer, 'hold');
+  assert.equal(ui.state().view, 'reports');
+
+  const elsewhere = ui.askQuestion({ question: 'Stay here?', choices });
+  assert.equal(ui.state().view, 'reports', 'a question from anywhere else opens where the user is');
+  ui.input('\r');
+  assert.equal(await elsewhere, 'hold');
+  ui.stop();
+});
+
 test('r is an ordinary letter outside a report', () => {
   const ui = createDashboard({ ...snapshot, connection: 'connected' });
 
@@ -2112,6 +2134,24 @@ test('tips come and go on the clock, and mention checks that go unread', () => {
   assert.ok([...seen].some(tip => /Morning recap: 0 of 7 reports opened/.test(tip)));
   assert.ok([...seen].some(tip => /model or thinking effort/.test(tip)));
   ui.stop();
+});
+
+test('the tip that suggests Hex shows only to someone who does not have it', () => {
+  const period = 180000;
+  const tipsSeen = hexInstalled => {
+    let clock = period * 5;
+    const ui = createDashboard({ ...snapshot }, {}, { now: () => clock, hexInstalled });
+    const seen = new Set();
+    for (let turn = 0; turn < 80; turn++) {
+      clock = period * (turn + 5);
+      seen.add(screen(ui, 120, 40).match(/tip\s+(.*?)\s*$/m)?.[1]);
+    }
+    ui.stop();
+    return [...seen].filter(Boolean);
+  };
+
+  assert.ok(tipsSeen(false).some(tip => /Install Hex/.test(tip)));
+  assert.ok(!tipsSeen(true).some(tip => /Install Hex/.test(tip)));
 });
 
 test('/setup asks the agent to walk through setting up, the same way a typed message would', async () => {

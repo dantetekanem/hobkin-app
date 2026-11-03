@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import {
@@ -103,6 +104,8 @@ const selectTheme = {
   noMatch: text => palette.select.noMatch(text),
 };
 const OTHER_ROW = { value: 'other', label: 'Other: type your own answer' };
+// A card's own Other: what the user types goes to the agent as the changes to make.
+const CHANGES_ROW = { value: 'changes', label: 'Ask for changes: type them' };
 const FOCUS_GAINED = '\x1b[I';
 const FOCUS_LOST = '\x1b[O';
 // What a card always keeps around its own rows: one row of chat, the box's two edges and its question.
@@ -160,6 +163,7 @@ const RESTING_FACE_MS = 250;
 const MIN_ROWS_FOR_PINNED_DAY = 8;
 const MIN_ROWS_FOR_PREVIEW = 18;
 const PASTE_NOTICE_MS = 4000;
+const RESULT_SHOWN_MS = 10000;
 const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
@@ -193,8 +197,10 @@ const tips = [
   'Ask why a check stopped. Every check keeps a run log.',
   'Tell hobkin what matters. It remembers across chats.',
   '/clear hides the chat. /reset starts a fresh conversation.',
-  'Install Hex and talk to me when you need: https://anoma.ly/hex/',
 ];
+const hexTip = 'Install Hex and talk to me when you need: https://anoma.ly/hex/';
+// Hex is a Mac app, so finding it in an Applications folder means it is installed.
+const hexInstalled = () => ['/Applications', join(homedir(), 'Applications')].some(folder => existsSync(join(folder, 'Hex.app')));
 const learningTip = 'Type /learning so hobkin learns from how its work turns out.';
 const greetings = [
   name => `Welcome ${name}! Nice to see you again.`,
@@ -596,6 +602,8 @@ const authorLabel = message => {
   if (message.waiting) return muted(bold('◆ You'));
   if (message.role === 'user') return accent(bold('◆ You'));
   if (message.role === 'assistant') return assistantColor(bold('◆ hobkin'));
+  // What the user did from a card, or anything else this important, stands out from the conversation around it.
+  if (message.role === 'system') return highlight(bold('◇ system'));
   return muted(bold(`◇ ${clean(message.role)}`));
 };
 const messageLines = ({ message, at, latest, repeats }, inner, markdown) => {
@@ -837,9 +845,10 @@ const queueTally = ({ plan = [], queued = 0, allowanceRequest }) => {
   return `${urgent ? `${urgent} P0 · ` : ''}${queued} queued`;
 };
 // What git can say about a branch. Nothing is shown when it could not say, because unknown is not ready.
+// A branch behind its base is brought up to date before it merges, so that is what the row says it takes.
 const mergeState = ({ conflict, behind }) => {
   if (conflict) return caution('needs a rebase');
-  if (conflict === false) return positive(behind ? `ready to merge · ${behind} behind` : 'ready to merge');
+  if (conflict === false) return positive(behind ? `refresh and merge · ${behind} behind` : 'ready to merge');
   return '';
 };
 const MOST_DONE_ROWS = 5;
@@ -882,20 +891,53 @@ const landedFacts = entry => {
 };
 // A row carries the commit it showed, so a merge can refuse a branch that moved since.
 const doneRow = (entry, type, facts) => {
-  const { slug, project, item, title, grade, head = null, pr = null, safety } = entry;
+  const { slug, project, item, title, grade, head = null, pr = null, safety, conflict = null, behind = 0 } = entry;
   const priority = grade ? `${gradeLabel(grade)} ` : '';
   return {
     key: `${type}:${slug}:${item}`,
     type,
     slug,
+    project,
     id: item,
     title,
     head,
     pr,
+    conflict: Boolean(conflict),
+    behind,
     rated: Boolean(safety) && !safety.stale,
     risky: safety?.grade === 'risky' && !safety.stale,
     lines: [`${positive('●')} ${priority}${clean(project)}: ${clean(title)}`, `  ${facts}`],
   };
+};
+// A card whose grade cannot vouch for this commit still merges, but its words say what it lacks.
+const mergeWords = ({ pr, rated, risky, behind }) => {
+  const merge = behind > 0 ? `Refresh and merge ${pr ? 'the PR' : 'it'}` : pr ? 'Merge the PR on GitHub' : 'Merge it';
+  if (risky) return `${merge} anyway: it is rated risky`;
+  return rated ? merge : `${merge} anyway: no grade at this commit`;
+};
+const mergeValue = ({ pr, behind }) => {
+  if (behind > 0) return 'refreshMerge';
+  return pr ? 'mergePr' : 'merge';
+};
+const choice = (value, label) => ({ value, label });
+/**
+ * What an open card offers, in words. Enter takes the first, so a card its grade cannot vouch for offers its review first, and a card that
+ * conflicts offers an agent to rebase it and no merge at all.
+ */
+const cardChoices = card => {
+  const { type, pr, rated, risky, conflict } = card;
+  if (['yours', 'left'].includes(type)) return [choice('done', 'Mark it done')];
+  if (type === 'elsewhere') return [choice('done', 'Close it')];
+
+  const diff = choice('diff', 'Show the diff');
+  const merge = choice(mergeValue(card), mergeWords(card));
+  if (type === 'unlanded') return [merge, diff, choice('done', 'Close it')];
+
+  const opens = pr ? [choice('open', 'Open the PR in the browser')] : [];
+  const review = choice('review', rated ? 'Review it again' : 'Get it reviewed');
+  const cancel = choice('decline', 'Cancel it');
+  if (conflict) return [choice('rebase', 'Have an agent rebase it'), diff, ...opens, review, cancel];
+  return rated && !risky ? [merge, diff, ...opens, review, cancel] : [review, diff, ...opens, merge, cancel];
 };
 // The sort is stable, so rows of one priority keep the order that puts the easiest yes first.
 const urgencyOf = ({ grade }) => (grades.includes(grade) ? grades.indexOf(grade) : grades.length);
@@ -916,11 +958,13 @@ const landRows = (rows, type) => {
   return more > 0 ? [...shown, { lines: [muted(`  and ${more} more`)] }] : shown;
 };
 const inGaps = (ready, ...gaps) => ready.filter(({ gap = 'land' }) => gaps.includes(gap));
-const doneCount = ({ ready = [] }) => inGaps(ready, 'land', 'rebase', 'unlanded', 'yours', 'elsewhere').length;
+const waitingGaps = ['land', 'rebase', 'unlanded', 'yours', 'elsewhere'];
+const doneCount = ({ ready = [] }) => inGaps(ready, ...waitingGaps).length;
 const doneSections = ({ work: { ready = [], closing = [], watching = [] }, inner, clock }) => {
   const land = inGaps(ready, 'land', 'rebase').toSorted(byUrgency);
   const unlanded = inGaps(ready, 'unlanded');
   const sections = [
+    ['BY PROJECT', pileRows({ branches: inGaps(ready, ...waitingGaps) })],
     ['TO APPROVE', landRows(land, 'ready'), null, String(land.length)],
     ['NOT LANDED', landRows(unlanded, 'unlanded'), null, String(unlanded.length)],
     ['AGENT ON IT', closing.map(entry => closingRow(entry, inner))],
@@ -1053,6 +1097,7 @@ const questionRow = decision => ({
   key: `decision:${decision.id}`,
   type: 'decision',
   decision,
+  question: decision.question,
   choices: decision.choices,
   answer: value => ['decide', decision.id, value],
   lit: 1,
@@ -1064,6 +1109,7 @@ const learningRow = ({ id, title, question, at }) => {
   return {
     key: `learning:${id}`,
     type: 'learning',
+    question,
     choices: learningChoices,
     answer: value => ['learning', id, value],
     lit: 1,
@@ -1129,7 +1175,7 @@ const pileRows = ({ branches = [], yours = [] }) => {
   return sorted.map(pile => {
     const counts = PILE_KINDS.filter(([kind]) => pile[kind]).map(([kind, label]) => dim(`${pile[kind]} ${label}`));
     const urgent = pile.urgent ? [negative(`${pile.urgent} P0`)] : [];
-    return { render: () => [`${cell(bold(pile.name), width)}  ${[...counts, ...urgent].join(muted(' · '))}`] };
+    return { lines: [`${cell(bold(pile.name), width)}  ${[...counts, ...urgent].join(muted(' · '))}`] };
   });
 };
 // A step from a run that left it with no branch to show opens in place, since it has no page.
@@ -1137,6 +1183,7 @@ const stepRow = ({ project, slug, item, title, reason }) => ({
   key: `left:${slug}:${item}`,
   type: 'left',
   slug,
+  project,
   id: item,
   title,
   render: (open, inner) => {
@@ -1154,15 +1201,13 @@ const troubleRow = ({ key: trouble, fact, report }) => ({
 const callRow = ({ id, title, next }) => ({ key: `report:${id}`, type: 'report', report: id, render: () => [`${positive('●')} ${clean(title)}`, `  ${dim(clean(next))}`] });
 /**
  * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work by
- * priority, steps only they can take and reports with a call, under a tally of each project's pile. The selected row is `chosen` while it
- * is still listed, and the first row otherwise.
+ * priority, steps only they can take and reports with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
  */
 const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
   const { wrong = [], asks = [], proposals = [], branches = [], yours = [], reports = [] } = waiting ?? {};
   const branchesOf = type => branches.filter(entry => branchType(entry) === type).map(branchRow);
   const toApprove = branches.filter(entry => approvalTypes.includes(branchType(entry))).toSorted(byUrgency).map(branchRow);
   const groups = [
-    ['BY PROJECT', pileRows(waiting ?? {})],
     ['WENT WRONG', wrong.map(troubleRow)],
     ['QUESTIONS', [...decisions.map(questionRow), ...proposals.map(learningRow), ...asks.map(askRow)]],
     ['TO APPROVE', toApprove],
@@ -1171,7 +1216,6 @@ const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
     ['ALREADY ELSEWHERE', branchesOf('elsewhere')],
     ['TO READ', reports.map(callRow)],
   ].filter(([, rows]) => rows.length);
-  // The tally at the top is there to read, so only rows with a key can be selected.
   const keys = groups.flatMap(([, rows]) => rows.map(({ key: rowKey }) => rowKey)).filter(Boolean);
   const selectedKey = keys.includes(chosen) ? chosen : keys[0] ?? null;
   const sections = groups.map(([heading, rows]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) }))]);
@@ -1318,8 +1362,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let donePage = null;
   // How each row was read, which a merge passes on. Time adds up over visits to the page.
   const readings = new Map();
-  let notingOn = null;
-  let armedMerge = null;
+  // The open card, or the question row, asking what to do: the box of choices that holds the keys until it is answered or left.
+  let choosing = null;
   let decisionKey = null;
   let setupWaiting = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
@@ -1347,6 +1391,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const onChange = options.onChange ?? (() => {});
   const now = () => (options.now ?? Date.now)();
   const startedAt = now();
+  // Looked for once: the tip that suggests Hex has nothing to say to someone who has it.
+  const shownTips = (options.hexInstalled ?? hexInstalled()) ? tips : [...tips, hexTip];
   const record = (type, facts) => callbacks.event?.(type, facts);
   // Opening hobkin is the user being there too.
   let seenAt = startedAt;
@@ -1580,7 +1626,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       changed();
     } else toggleWorkFromChat(submitted);
   };
-  const takesImages = () => !askingWorkFolder && !notingOn;
+  const takesImages = () => !askingWorkFolder;
   const dropImages = dropped => {
     attachments = attachments.filter(image => !dropped.includes(image));
     images?.forgetPictures(dropped);
@@ -1644,10 +1690,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   editor.onSubmit = submitted => {
     // Editor clears before onSubmit; a command keeps the draft until it succeeds.
     editor.setText(submitted);
-    if (notingOn) {
-      sendNote(submitted.trim());
-      return;
-    }
     if (askingWorkFolder) {
       // A path starts with a slash, so this comes before command handling.
       if (submitted.trim() && !clearing) startWorkIn(submitted.trim());
@@ -1870,37 +1912,29 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return view === 'work' && !donePage ? [...header, ...workTabRows(inner, header.length)] : [...header, ''];
   };
 
-  // A list row says what it is in `type`, and a page's entry says it in `gap`.
-  const doneKeys = row => {
-    if (row?.type === 'unlanded' || row?.gap === 'unlanded') return [['m', 'merge'], ['x', 'close']];
-    const opensToLand = approvalTypes.includes(row?.type) || ['land', 'rebase'].includes(row?.gap);
-    if (!opensToLand) return [['x', 'done']];
-    const answers = [['c', 'changes'], ['x', 'cancel']];
-    return row.pr ? [['m m', 'merge PR'], ...answers, ['o', 'open']] : [['m', 'merge'], ...answers];
-  };
-  // An item that says done has no run left to review it.
-  const pageKeys = entry => [...doneKeys(entry), ['d', 'diff'], ...(entry.gap === 'unlanded' ? [] : [['r', 'review']]), ['↑↓', 'scroll'], ['esc', 'back']];
-  // A row's keys are the same in Work and in Decisions. Each type is listed in only one of them.
+  // A row's keys are the same in Work and in Decisions. Each type is listed in only one of them. A card takes no letters: it opens and asks.
+  const opens = [['enter', 'open']];
   const rowKeys = selected => ({
     proposal: [['y', 'take'], ['1 2 3 4', 'level'], ['n', 'skip']],
     project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
     allowance: [['y', 'raise'], ['n', 'keep paused']],
     run: [['enter', 'watch']],
-    ready: [...doneKeys(selected), ['r', 'review'], ['d', 'diff'], ['enter', 'read']],
-    pr: [...doneKeys(selected), ['r', 'review'], ['d', 'diff'], ['enter', 'read']],
-    yours: [...doneKeys(selected), ['enter', 'read']],
-    elsewhere: [...doneKeys(selected), ['enter', 'read']],
-    unlanded: [...doneKeys(selected), ['enter', 'read']],
-    left: [['x', 'done']],
+    ready: opens,
+    pr: opens,
+    yours: opens,
+    elsewhere: opens,
+    unlanded: opens,
+    left: opens,
+    decision: opens,
+    learning: opens,
     report: [['enter', 'read']],
     queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
   })[selected?.type] ?? [];
   const hintsFor = draft => {
     if (question?.rows) return [[`1-${question.choices.length}`, 'answer'], ['↑↓', 'choose'], ['esc', 'not now']];
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
+    if (choosing) return [['↑↓', 'choose'], ['enter', 'pick'], ...(donePage ? [['pgup/pgdn', 'read']] : []), ['esc', 'back']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
-    if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
-    if ((view === 'work' || view === 'decisions') && donePage) return pageKeys(donePage.entry);
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
     if (focus === 'decisions') {
       const selected = selectedDecisionRow();
@@ -1936,8 +1970,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else detail = muted('no routines');
     return `${muted('next check')}   ${detail}`;
   };
-  const activityText = (hints, frame) => {
-    if (notice) return toned(notice, noticeTone, frame);
+  // What just happened says itself on the tip row, so the keys stay in sight. Only a terminal with no room for that row shows it here instead.
+  const activityText = (hints, frame, { tipRowSaysIt }) => {
+    if (notice && !tipRowSaysIt) return toned(notice, noticeTone, frame);
     if (snapshot.error) return toned(snapshot.error, 'error', frame);
     if (question || focus !== 'composer') return hints;
     if (snapshot.context?.compacting && connected()) return highlight(`${frame} Compacting…`);
@@ -1967,11 +2002,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
     return accent(pickFrom(greetings, Math.floor(startedAt / 1000))(name));
   };
-  const tipLine = clock => {
+  const tipLine = (clock, frame) => {
+    if (notice) return toned(notice, noticeTone, frame);
     const greeting = greetingLine(clock);
     if (greeting) return greeting;
 
-    const tip = tipAt([...tips, ...(snapshot.learning ? [] : [learningTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
+    const tip = tipAt([...shownTips, ...(snapshot.learning ? [] : [learningTip]), ...ignoredTips(snapshot.reportAttention ?? [])], clock);
     return tip ? `${muted('tip')}  ${dim(tip)}` : '';
   };
   const drawnFace = clock => {
@@ -1991,7 +2027,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const paint = editor.focused && connected() ? assistantColor : muted;
     const prompted = referencedReport ? 'Ask about this report…' : 'Message hobkin…';
     const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
-      : notingOn ? 'What should it change? Empty closes what stops it merging'
       : connected() ? prompted : 'Waiting for the main conversation…';
     const empty = !editor.getExpandedText();
     const content = lines.map((value, index) => {
@@ -2002,12 +2037,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const names = attached.map((_, index) => `image ${index + 1}`).join(' · ');
     const pictures = names && `${accent('↳')} ${dim(names)}`;
     const preview = rows >= MIN_ROWS_FOR_PREVIEW ? previewRows(attached, inner - 4).map(value => `    ${value}`) : [];
-    const subject = askingWorkFolder ? 'Which folder should work mode start from?' : notingOn?.title ?? referencedReport?.title;
+    const subject = askingWorkFolder ? 'Which folder should work mode start from?' : referencedReport?.title;
     const reference = subject ? `${accent('↳')} ${dim(line(clean(subject), inner - 16 - visibleWidth(pictures)))}` : '';
     const top = [reference, pictures, above && muted(above)].filter(Boolean).join(muted(' · '));
     return ruled({ paint, top, bottom: below && muted(below), lines: [...preview, ...content], inner });
   };
-  const onOtherRow = () => question.selection.getSelectedItem() === OTHER_ROW;
+  const onOtherRow = (box = question) => [OTHER_ROW, CHANGES_ROW].includes(box.selection.getSelectedItem());
   /**
    * What a question is about is in the conversation above it, and a long question does not all fit its box, so the page keys read both. Up takes a
    * long question's text back to its start, then goes up the conversation. Down comes back to the newest message, then down the question's text.
@@ -2019,27 +2054,28 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else question.scroll = Math.max(0, question.scroll + (up ? -2 : 2));
   };
   // The row stays reserved, so moving onto Other never moves the list.
-  const typingRow = width => {
-    if (!question.other) return [];
-    if (!onOtherRow()) return [''];
+  const typingRow = (width, box = question) => {
+    if (!box.other) return [];
+    if (!onOtherRow(box)) return [''];
 
-    question.other.focused = hasFocus;
-    return question.other.render(width);
+    box.other.focused = hasFocus;
+    return box.other.render(width);
   };
-  const questionBox = (inner, height, headerLength) => {
+  // A question on screen and an open card's choices share this box, so a card asks the way a question does.
+  const questionBox = (inner, height, headerLength, box = question) => {
     // Every choice shows when there is room, on any size the terminal takes. The constructor is the only public way to set this, and it is once.
-    question.selection.maxVisible = Math.max(FEWEST_CHOICES_SHOWN, height - headerLength - ROWS_AROUND_CHOICES);
-    const choices = question.selection.render(inner - 4);
-    const typing = typingRow(inner - 4);
-    const label = question.selection.getSelectedItem()?.label ?? '';
+    box.selection.maxVisible = Math.max(FEWEST_CHOICES_SHOWN, height - headerLength - ROWS_AROUND_CHOICES);
+    const choices = box.selection.render(inner - 4);
+    const typing = typingRow(inner - 4, box);
+    const label = box.selection.getSelectedItem()?.label ?? '';
     // The list truncates long choices, so the selected one is also readable in full above it.
     const fullChoice = visibleWidth(clean(label)) > inner - 6 ? ['', ...wrapped(label, inner - 4).map(accent)] : [];
-    const text = [...wrapped(question.question, inner - 4).map(bold), ...fullChoice];
+    const text = [...wrapped(box.question, inner - 4).map(bold), ...fullChoice];
     const capacity = Math.max(1, Math.min(Math.floor((height - headerLength) / 2),
       height - headerLength - choices.length - typing.length - 11));
-    question.scroll = Math.min(question.scroll, Math.max(0, text.length - capacity));
-    question.overflows = text.length > capacity;
-    const visibleText = text.slice(question.scroll, question.scroll + capacity);
+    box.scroll = Math.min(box.scroll, Math.max(0, text.length - capacity));
+    box.overflows = text.length > capacity;
+    const visibleText = text.slice(box.scroll, box.scroll + capacity);
     return boxed({ paint: highlight, top: highlight(bold('hobkin asks')), lines: [...visibleText, '', ...choices, ...typing], inner });
   };
   // A short terminal gives up the status lines, then the row kept for typing, then the blank rows. Every group and every choice stays.
@@ -2055,7 +2091,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     editor.focused = hasFocus && focus === 'composer';
-    const hasComposer = !question && (view === 'conversation' || askingWorkFolder || Boolean(notingOn));
+    const hasComposer = !question && !choosing && (view === 'conversation' || askingWorkFolder);
     const faceFits = hasComposer && inner >= MIN_WIDTH_FOR_FACE && height >= MIN_ROWS_FOR_TIP_LINE;
     if (faceFits !== faceShown) {
       faceShown = faceFits;
@@ -2067,16 +2103,17 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     // Drop whole hints from the end rather than cutting one mid-word.
     let shown = hints.length;
     while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) > room) shown--;
-    const activity = activityText(keys(hints.slice(0, shown)), frame);
+    // The row stays reserved so a tip coming or going never moves anything. The pending card has no tip row.
+    const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock, frame)] : [];
+    const activity = activityText(keys(hints.slice(0, shown)), frame, { tipRowSaysIt: tipRows.length > 0 && !question?.rows });
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
     const memory = [workingNote(clock, frame), workNote, memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
-    // The row stays reserved so a tip coming or going never moves anything.
-    const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock)] : [];
     if (question?.rows) return cardLines(inner, height, headerLength, statusLines);
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
+    if (choosing) return [...questionBox(inner, height, headerLength, choosing), ...tipRows, ...statusLines];
     if (faceShown) {
       const [activityRow, ...rest] = statusLines;
       const face = drawnFace(clock);
@@ -2164,10 +2201,28 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     };
   };
 
+  // A setting changed on the Work tab says so on the tip row for a while.
   const runWorkAction = (...request) => {
     pending = Promise.resolve().then(() => callbacks.workAction(...request))
-      .then(result => { if (result?.ok) say(clean(result.message)); })
+      .then(result => { if (result?.ok) say(clean(result.message), 'info', { timeout: RESULT_SHOWN_MS }); })
       .catch(error => { fail('Work mode', error); })
+      .finally(changed);
+  };
+  const sayInChat = content => {
+    localMessages.push({ id: `card:${randomUUID()}`, role: 'system', content, at: new Date(now()).toISOString() });
+  };
+  /**
+   * What a card or a question did is said in Chat, where it stays, and never in place of the keys or the tips. What hobkin records, it posts
+   * there itself and tells the main agent, so only the rest, and anything that went wrong, is said from here.
+   */
+  const runCardAction = (...request) => {
+    pending = Promise.resolve().then(() => callbacks.workAction(...request))
+      .then(result => { if (result?.ok && !result.told) sayInChat(clean(result.message)); })
+      .catch(error => {
+        sayInChat(clean(error?.message ?? error));
+        record('error_shown', { from: 'Work mode' });
+        callbacks.moment?.({ event: 'error' });
+      })
       .finally(changed);
   };
   const workRows = () => currentWorkSections(columns - 4, now(), '').flatMap(([, entries]) => entries).filter(entry => entry.key);
@@ -2188,8 +2243,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (!entry) return;
     noteReading(selected, { read: readingOf(selected).read === 'diff' ? 'diff' : 'page' });
     donePage = { entry, description: null, opened: now() };
-    focus = 'doneReading';
     scroll = 0;
+    openCard(selectedDone());
     const opened = donePage;
     pending = Promise.resolve().then(() => callbacks.workAction('pr', selected.slug, selected.id))
       .then(found => { opened.description = found?.description ?? null; })
@@ -2205,102 +2260,91 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     focus = listFocus();
     scroll = 0;
   };
-  // Whatever was answered leaves the list, so the walk carries straight on to the next one.
+  // Leaving the box leaves the card, and the list comes back on the row the user was on.
+  const closeCard = () => {
+    choosing = null;
+    leaveReading();
+  };
+  // Whatever was answered leaves the list, so the list comes back with the next row selected, ready for Enter.
   const walkOn = selected => {
     const rows = listRows();
     const index = rows.findIndex(entry => entry.key === selected.key);
     const next = rows[index + 1] ?? rows[index - 1];
-    const wasReading = Boolean(donePage);
     selectInList(next?.key ?? null);
-    leaveReading();
-    if (wasReading && next) readRow(next);
+    closeCard();
   };
   const selectedDone = () => {
     if (!donePage) return selectedListRow();
     const { entry } = donePage;
     return listRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? doneRow(entry, branchType(entry), '');
   };
-  // A page whose row has left the list still has its item, so a second press means the same row.
-  const armKeyOf = ({ key: rowKey, slug, id }) => rowKey ?? `${slug}:${id}`;
+  /** Puts a box of choices on screen. `onPick` gets the value of the choice, and the typed words when `takesChanges` gave the box a row for them. */
+  const openChoices = ({ question: asked, choices, takesChanges = false, onPick }) => {
+    const selection = new SelectList(takesChanges ? [...choices, CHANGES_ROW] : choices, FEWEST_CHOICES_SHOWN, selectTheme);
+    const other = takesChanges ? new Input({ placeholder: 'Type the changes, then Enter', placeholderStyle: dim }) : null;
+    const box = { question: asked, choices, selection, other, scroll: 0 };
+    selection.onSelectionChange = () => { box.scroll = 0; };
+    selection.onSelect = item => {
+      if (item !== CHANGES_ROW) {
+        onPick(item.value);
+        return;
+      }
+
+      // No words are no answer, so Enter waits for some.
+      const typed = other.getValue().trim();
+      if (typed) onPick('changes', typed);
+    };
+    choosing = box;
+    focus = 'card';
+  };
   const pinnedTo = ({ head }) => (head ? { head } : {});
-  // Only a safe grade at the commit the row shows merges on one key. Anything else says what it lacks, and a second m is the user's word.
-  const mergeRow = selected => {
-    const sure = selected.rated && !selected.risky;
-    if (!sure && armedMerge !== armKeyOf(selected)) {
-      armedMerge = armKeyOf(selected);
-      const lacking = selected.risky ? 'Rated risky.' : 'No grade at this commit.';
-      const review = selected.risky ? '' : ', or r for a review';
-      say(`${lacking} Press m again to merge ${clean(selected.title)}${review}.`, 'warning', { timeout: 3000 });
+  // A merge carries how the card was read and the commit it showed, so a branch that moved since is read again first.
+  const cardRequest = (card, value, typed) => {
+    const { slug, id } = card;
+    if (['merge', 'refreshMerge'].includes(value)) return [value, slug, id, { ...readingOf(card), ...pinnedTo(card) }];
+    if (value === 'mergePr') return [value, slug, id, pinnedTo(card)];
+    if (value === 'rebase') return ['ask', slug, id, ''];
+    if (value === 'changes') return ['ask', slug, id, typed];
+    return [value, slug, id];
+  };
+  // Reading more keeps the card open. Anything else answers it.
+  const keepsCardOpen = ['diff', 'open'];
+  const answerCard = (card, value, typed) => {
+    if (value === 'diff') noteReading(card, { read: 'diff' });
+    if (!keepsCardOpen.includes(value)) walkOn(card);
+    runCardAction(...cardRequest(card, value, typed));
+  };
+  const openCard = card => openChoices({
+    question: `${clean(card.project ?? card.slug)}: ${clean(card.title)}. What do you want to do?`,
+    choices: cardChoices(card),
+    takesChanges: approvalTypes.includes(card.type),
+    onPick: (value, typed) => answerCard(card, value, typed),
+  });
+  // A question's answer selects the next row, as anything answered does, and says how long the question was read.
+  const answerAsked = (row, value, readSince) => {
+    if (row.decision && readSince !== null) record('decision_read', { id: row.decision.id, ms: now() - readSince });
+    walkOn(row);
+    runCardAction(...row.answer(value));
+  };
+  const readingSince = row => (row.decision && onDecision?.id === row.decision.id ? onDecision.since : null);
+  // A question in Decisions asks in the same box as one on screen, and its answer is the one its number gives.
+  const openAsked = row => {
+    const since = readingSince(row) ?? now();
+    openChoices({ question: row.question, choices: row.choices, onPick: value => answerAsked(row, value, since) });
+  };
+  // The open box takes the keys: the arrows choose, Enter picks, the page keys read the card's page, and Esc leaves it as it was.
+  const handleChoosingKey = data => {
+    if (key(data, 'escape')) {
+      closeCard();
       return;
     }
-    armedMerge = null;
-    walkOn(selected);
-    runWorkAction('merge', selected.slug, selected.id, { ...readingOf(selected), ...pinnedTo(selected) });
-  };
-  // A PR merges on its host, where it cannot be undone from here, so it always takes a second m.
-  const mergePullRequestRow = selected => {
-    if (armedMerge !== armKeyOf(selected)) {
-      armedMerge = armKeyOf(selected);
-      say(`Press m again to merge the PR for ${clean(selected.title)} on GitHub.`, 'warning', { timeout: 3000 });
+    if (key(data, 'pageUp') || key(data, 'pageDown')) {
+      scroll = Math.max(0, scroll + (key(data, 'pageDown') ? 8 : -8));
       return;
     }
-    armedMerge = null;
-    walkOn(selected);
-    runWorkAction('mergePr', selected.slug, selected.id, pinnedTo(selected));
-  };
-  const startNote = selected => {
-    notingOn = selected;
-    focus = 'composer';
-    say('');
-  };
-  const sendNote = text => {
-    const { slug, id } = notingOn;
-    const selected = notingOn;
-    notingOn = null;
-    editor.setText('');
-    focus = listFocus();
-    walkOn(selected);
-    runWorkAction('ask', slug, id, text);
-  };
-  const answerAndWalkOn = (selected, action) => {
-    walkOn(selected);
-    runWorkAction(action, selected.slug, selected.id);
-  };
-  // What a finished row waiting on a yes does with a key, on its row and on its page.
-  const handleDoneRowKey = (selected, data) => {
-    if (data === 'm' && selected.pr) mergePullRequestRow(selected);
-    else if (data === 'm') mergeRow(selected);
-    else if (data === 'c') startNote(selected);
-    else if (data === 'x') answerAndWalkOn(selected, 'decline');
-    else if (data === 'o' && selected.pr) runWorkAction('open', selected.slug, selected.id);
-    else return false;
-    return true;
-  };
-  const closeRow = selected => {
-    walkOn(selected);
-    runWorkAction('done', selected.slug, selected.id);
-  };
-  const handleUnlandedKey = (selected, data) => {
-    if (data === 'm') mergeRow(selected);
-    else if (data === 'x') closeRow(selected);
-    else return false;
-    return true;
-  };
-  const openRowDiff = selected => {
-    noteReading(selected, { read: 'diff' });
-    runWorkAction('diff', selected.slug, selected.id);
-  };
-  const handleReadingKey = data => {
-    const selected = selectedDone();
-    const { gap = 'land' } = donePage.entry;
-    const canMerge = ['land', 'rebase'].includes(gap);
-    if (key(data, 'escape')) leaveReading();
-    else if (data === 'd') openRowDiff(selected);
-    else if (data === 'r' && gap !== 'unlanded') runWorkAction('review', selected.slug, selected.id);
-    else if (gap === 'unlanded') return handleUnlandedKey(selected, data);
-    else if (data === 'x' && !canMerge) closeRow(selected);
-    else if (!canMerge || !handleDoneRowKey(selected, data)) return false;
-    return true;
+    const listKey = key(data, 'up') || key(data, 'down') || key(data, 'enter');
+    const target = onOtherRow(choosing) && !listKey ? choosing.other : choosing.selection;
+    target.handleInput(data);
   };
   const dropProjectTwice = selected => {
     if (armedDrop === selected.slug) {
@@ -2328,23 +2372,19 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const proposals = listRows().filter(entry => entry.type === 'proposal');
     const index = proposals.findIndex(entry => entry.key === selected.key);
     selectInList((proposals[index + 1] ?? proposals[index - 1])?.key ?? null);
-    runWorkAction(...request);
+    runCardAction(...request);
   };
-  // What a proposal, a token request, finished work or a step only the user can take does with a key, in Work and in Decisions alike.
+  // What a proposal or a token request does with a key, in Work and in Decisions alike. Finished work and a step only the user can take open on Enter, and ask.
   const actOnRow = (selected, data) => {
     const level = { 1: 'critical', 2: 'important', 3: 'casual' }[data];
     if (selected?.type === 'proposal' && data === 'y') answerProposal(selected, 'choose', selected.slug);
     else if (selected?.type === 'proposal' && data === '4') maxTwice(selected, () => answerProposal(selected, 'choose', selected.slug, 'max'));
     else if (selected?.type === 'proposal' && level) answerProposal(selected, 'choose', selected.slug, level);
     else if (selected?.type === 'proposal' && data === 'n') answerProposal(selected, 'skip', selected.slug);
-    else if (selected?.type === 'allowance' && data === 'y') runWorkAction('allow');
-    else if (selected?.type === 'allowance' && data === 'n') runWorkAction('keep');
+    else if (selected?.type === 'allowance' && data === 'y') runCardAction('allow');
+    else if (selected?.type === 'allowance' && data === 'n') runCardAction('keep');
     else if (doneRowTypes.includes(selected?.type) && key(data, 'enter')) readRow(selected);
-    else if (approvalTypes.includes(selected?.type) && data === 'r') answerAndWalkOn(selected, 'review');
-    else if (approvalTypes.includes(selected?.type) && data === 'd') openRowDiff(selected);
-    else if (approvalTypes.includes(selected?.type) && handleDoneRowKey(selected, data)) return true;
-    else if (selected?.type === 'unlanded' && handleUnlandedKey(selected, data)) return true;
-    else if (['yours', 'elsewhere', 'left'].includes(selected?.type) && data === 'x') closeRow(selected);
+    else if (selected?.type === 'left' && key(data, 'enter')) openCard(selected);
     else return false;
     return true;
   };
@@ -2376,7 +2416,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const openView = name => {
     record('tab_opened', { tab: name });
     askingWorkFolder = false;
-    notingOn = null;
+    choosing = null;
     donePage = null;
     typingFilter = false;
     view = name;
@@ -2401,10 +2441,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     reportFilter.setValue('');
     focus = 'detail';
   };
-  // Mid-sentence, mid-note, already walking what the card would offer, or on a terminal too small to show it.
-  const occupied = () => Boolean(question || editor.getExpandedText() || notingOn || askingWorkFolder || referencedReport
+  // Mid-sentence, deciding on a card, already walking what the card would offer, or on a terminal too small to show it.
+  const occupied = () => Boolean(question || editor.getExpandedText() || choosing || askingWorkFolder || referencedReport
     || view === 'decisions' || (view === 'work' && workTab === 'done') || columns < 60 || rows < 18);
-  // A number answers a question, Enter opens a report, and finished work takes the keys it takes in Done.
+  // A number answers a question and Enter asks it in a box, Enter opens a report, and finished work opens the way it does in Done.
   const handleDecisionKey = data => {
     const list = decisionRows();
     const selected = selectedDecisionRow();
@@ -2413,10 +2453,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (key(data, 'up') || key(data, 'down')) {
       decisionKey = list[Math.max(0, Math.min(list.length - 1, index + (key(data, 'down') ? 1 : -1)))]?.key ?? null;
     } else if (choice) {
-      decisionKey = (list[index + 1] ?? list[index - 1])?.key ?? null;
-      const asked = selected.decision;
-      if (asked && onDecision?.id === asked.id) record('decision_read', { id: asked.id, ms: now() - onDecision.since });
-      runWorkAction(...selected.answer(choice.value));
+      answerAsked(selected, choice.value, readingSince(selected));
+    } else if (selected?.choices && key(data, 'enter')) {
+      openAsked(selected);
     } else if (selected?.report && key(data, 'enter')) {
       showReport(selected.report);
     } else {
@@ -2579,10 +2618,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       if (question?.whenQuiet && !request.whenQuiet) question.finish(null, 'expired');
       if (stopped || question) return Promise.resolve(undefined);
       if (signal?.aborted) return Promise.resolve(null);
-      // A question nobody is waiting on stays out of the way of what the user is typing.
-      if (request.whenQuiet && editor.getExpandedText()) return Promise.resolve(undefined);
+      // A question nobody is waiting on stays out of the way of what the user is typing, and of the card they are deciding on.
+      if (request.whenQuiet && (editor.getExpandedText() || choosing)) return Promise.resolve(undefined);
       return new Promise(resolve => {
         const previous = { focus, view, scroll };
+        // What the main agent asks about is the message just above it in Chat, so the question opens there, and the answer comes back here.
+        if (request.inChat && view !== 'conversation') {
+          view = 'conversation';
+          scroll = 0;
+        }
         const selection = new SelectList(request.other ? [...request.choices, OTHER_ROW] : request.choices, FEWEST_CHOICES_SHOWN, selectTheme);
         const other = request.other ? new Input({ placeholder: 'Type here, then Enter', placeholderStyle: dim }) : null;
         const current = { ...request, other, selection, finish, previous, scroll: 0 };
@@ -2692,6 +2736,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return;
       }
+      if (choosing) {
+        handleChoosingKey(data);
+        changed();
+        return;
+      }
       if (data === 'k' && isJob()) {
         const runId = view.slice(4);
         say('Requesting cancellation…', 'progress');
@@ -2709,8 +2758,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         // The Decisions tab handled it.
       } else if (focus === 'workTabs' && handleWorkTabsKey(data)) {
         // The subtab row handled it.
-      } else if (focus === 'doneReading' && handleReadingKey(data)) {
-        // The page being read handled it.
       } else if (focus === 'reportTabs' && handleReportTabsKey(data)) {
         // The subtab row handled it.
       } else if ((key(data, 'm') || key(data, 'r')) && focus === 'detail') {
@@ -2735,11 +2782,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           say('');
           referencedReport = null;
           askingWorkFolder = false;
-          if (notingOn) {
-            notingOn = null;
-            editor.setText('');
-            focus = listFocus();
-          }
         } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
           // Tab finished the command.
         } else {
@@ -2803,7 +2845,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const maximum = Math.max(0, content.length - available);
       if (!question || followsTail()) scroll = Math.min(scroll, maximum);
       const displayScroll = Math.min(scroll, maximum);
-      const listMode = showsReportList() || view === 'work' || view === 'decisions';
+      // An open card's page scrolls like any page, and the list behind it keeps its place.
+      const listMode = !donePage && (showsReportList() || view === 'work' || view === 'decisions');
       if (listMode) {
         const [start, end] = selectedRange ?? ranges[selectedIndex()] ?? [0, 0];
         if (start < listTop) listTop = start;

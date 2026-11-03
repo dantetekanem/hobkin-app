@@ -149,7 +149,8 @@ export class HobkinRuntime {
       config: this.config,
       saved,
       fresh,
-      askQuestion: this.askQuestion,
+      // What the main conversation asks is about what it said in Chat, so its questions say where they belong.
+      askQuestion: this.askQuestion && ((request, signal) => this.askQuestion({ ...request, inChat: true }, signal)),
       triggerSchedule: (scheduleId, callId, signal) => this.triggerSchedule(scheduleId, `${this.main.sessionId}:${callId}`, signal),
       messageCheck: this.messageCheck,
     });
