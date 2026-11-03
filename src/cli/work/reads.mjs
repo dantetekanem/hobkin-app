@@ -190,12 +190,18 @@ const stackedBeneath = ({ branch }, units) => units.filter(unit => unit.heldBy?.
 // A card says what the work did in a few lines, so this is enough of a description or a proof to read at a glance.
 const LONGEST_ABOUT = 420;
 const LONGEST_PROOF = 260;
+// What it said first is all a card shows, so the rest of a long description is not read.
+const MOST_DESCRIPTION_READ = 8192;
 const oneLine = (text, most) => String(text).replace(/\s+/g, ' ').trim().slice(0, most);
 
 /** What the work did, in its own words: the first paragraph of its description past the title, the issue line and headings, or else its summary. */
 function aboutOf(file, summary) {
   try {
-    const paragraphs = readFileSync(file, 'utf8').slice(0, 8192).split(/\n\s*\n/).map(part => part.trim()).filter(Boolean);
+    const paragraphs = readFileSync(file, 'utf8')
+      .slice(0, MOST_DESCRIPTION_READ)
+      .split(/\n\s*\n/)
+      .map(part => part.trim())
+      .filter(Boolean);
     const body = paragraphs.slice(1).find(part => !/^(#|issue id:)/i.test(part));
     if (body) return oneLine(body, LONGEST_ABOUT);
   } catch {

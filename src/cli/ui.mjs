@@ -1089,17 +1089,27 @@ const cardDetails = ({ about, proof, pr, at }, inner, clock) => {
     .flatMap(text => wrapped(text, inner - 2))
     .map(value => `  ${dim(value)}`);
   const finished = timeOf(at);
-  const where = [pr && `PR ${clean(pr)}`, finished !== null && `finished ${relativeTime(finished, clock)}`].filter(Boolean).join(' · ');
+  const where = [
+    pr && `PR ${clean(pr)}`,
+    finished !== null && `finished ${relativeTime(finished, clock)}`,
+  ].filter(Boolean).join(' · ');
   return where ? [...told, `  ${muted(line(where, inner - 2))}`] : told;
 };
+// Only the card's heading and facts light up when selected, so what it opens to stays easy to read.
 const branchRow = entry => {
   const { lines, ...done } = doneRow(entry, branchType(entry), branchFacts(entry));
   const opens = approvalTypes.includes(done.type);
-  return { ...done, entry, lit: lines.length, render: (open, inner, clock) => (open && opens ? [...lines, ...cardDetails(entry, inner, clock)] : lines) };
+  return {
+    ...done,
+    entry,
+    lit: lines.length,
+    render: (open, inner, clock) => (open && opens ? [...lines, ...cardDetails(entry, inner, clock)] : lines),
+  };
 };
 const PILE_KINDS = [['approve', 'to approve'], ['unlanded', 'not landed'], ['yours', 'yours'], ['elsewhere', 'elsewhere']];
 const MOST_PILE_NAME = 24;
 const emptyPile = name => ({ name, total: 0, urgent: 0, approve: 0, unlanded: 0, yours: 0, elsewhere: 0 });
+const pileKindOf = entry => (approvalTypes.includes(branchType(entry)) ? 'approve' : branchType(entry));
 /** How much waits on each project, the biggest pile first. With one project the list below already says it, so it needs no tally. */
 const pileRows = ({ branches = [], yours = [] }) => {
   const piles = new Map();
@@ -1110,7 +1120,7 @@ const pileRows = ({ branches = [], yours = [] }) => {
     if (entry.grade === 'P0') pile.urgent += 1;
     piles.set(entry.slug, pile);
   };
-  for (const entry of branches) add(entry, approvalTypes.includes(branchType(entry)) ? 'approve' : branchType(entry));
+  for (const entry of branches) add(entry, pileKindOf(entry));
   for (const entry of yours) add(entry, 'yours');
   if (piles.size < 2) return [];
 
