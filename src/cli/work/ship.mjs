@@ -14,5 +14,6 @@ const newWorkToday = ({ ship }, now) => ship?.newWorkOn === localDay(now);
 export function shipFirst(rows, mode, now) {
   const pile = pileOf(rows).length;
   const holding = pile >= SHIP_FIRST_AT && !newWorkToday(mode, now);
-  return { pile, bar: SHIP_FIRST_AT, holding, line: holding ? `Shipping first: ${pile} finished and waiting. New work starts under ${SHIP_FIRST_AT}.` : null };
+  const line = holding ? `Shipping first: ${pile} finished and waiting. New work starts under ${SHIP_FIRST_AT}.` : null;
+  return { pile, bar: SHIP_FIRST_AT, holding, line };
 }

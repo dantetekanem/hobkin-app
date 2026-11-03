@@ -103,20 +103,25 @@ async function pushedAtOf({ repo, base, origin }, { pushedAt, mergedAt, sha }, n
   return await isMerged(repo, sha, `refs/remotes/origin/${base}`) ? iso(now) : null;
 }
 
+/** A pass stays a pass, and a project with no remote has nobody to ask. */
+async function ciNow(place, { sha, ci }, gh) {
+  if (!place.origin) return 'none';
+  return ci === 'passing' ? ci : ciOn(place, sha, gh);
+}
+
 /** All the waiting for one launch. It decides nothing, so a slow `gh` cannot leave a decision resting on what has changed since. */
 async function readLaunch(place, launch, title, { now, gh }) {
-  const { repo, origin } = place;
-  const { sha, stage, files, ci } = launch;
+  const { sha, stage, files } = launch;
   const revert = await revertOf(place, launch, title);
   if (stage === 'closed') return { revert };
 
   const pushedAt = await pushedAtOf(place, launch, now);
-  const touched = files ? [] : await filesOf(repo, sha);
+  const touched = files ? [] : await filesOf(place.repo, sha);
   return {
     revert,
     pushedAt,
     ...(touched.length ? { files: touched } : {}),
-    ...(pushedAt ? { ci: !origin ? 'none' : ci === 'passing' ? ci : await ciOn(place, sha, gh) } : {}),
+    ...(pushedAt ? { ci: await ciNow(place, launch, gh) } : {}),
   };
 }
 
@@ -195,7 +200,16 @@ function fileFix(root, slug, item, launch, why, now) {
 function recordTrouble(root, slug, launch, item, { why, severe = false, seen = {} }, now) {
   const at = iso(now);
   const stillOpen = launch.stage !== 'closed';
-  recordLaunch(root, slug, { item: item.id, ...seen, stage: 'closed', outcome: 'trouble', note: why, troubleAt: at, ...(stillOpen ? { closesAt: at } : {}), ...(severe ? { severe } : {}) }, now);
+  recordLaunch(root, slug, {
+    item: item.id,
+    ...seen,
+    stage: 'closed',
+    outcome: 'trouble',
+    note: why,
+    troubleAt: at,
+    ...(stillOpen ? { closesAt: at } : {}),
+    ...(severe ? { severe } : {}),
+  }, now);
   return fileFix(root, slug, item, launch, why, now);
 }
 
@@ -207,8 +221,13 @@ function troubleSeen({ item }, { revert }, items) {
 
 function moveLaunch(launch, reading, health, now) {
   const { pushedAt, ci, files } = reading;
-  const moved = { ...(pushedAt && launch.stage === 'merged' ? { stage: 'pushed', pushedAt } : {}), ...(files ? { files } : {}), ci };
-  const read = { ...launch, ...moved, ...(pushedAt && health ? { health } : {}) };
+  const read = {
+    ...launch,
+    ...(pushedAt && launch.stage === 'merged' ? { stage: 'pushed', pushedAt } : {}),
+    ...(files ? { files } : {}),
+    ci,
+    ...(pushedAt && health ? { health } : {}),
+  };
   const suspected = pushedAt && suspicious(read);
   return { ...read, suspectedAt: suspected ? launch.suspectedAt ?? iso(now) : null };
 }
@@ -277,7 +296,8 @@ export async function pulseLaunches(root, { now = Date.now(), gh = defaultGh, fe
     // A repository that cannot be read today is a gap too, and the rest still get their pulse.
     found.push(...await pulseProject(root, project, { now, gh, fetchPage }).catch(() => []));
   }
-  return { closed: found.flatMap(({ closed = [] }) => closed), trouble: found.flatMap(({ trouble = [] }) => trouble), filed: found.flatMap(({ filed = [] }) => filed) };
+  const allOf = field => found.flatMap(settled => settled[field] ?? []);
+  return { closed: allOf('closed'), trouble: allOf('trouble'), filed: allOf('filed') };
 }
 
 function assertSeen({ item, exercised, newErrors = [] }, open, slug) {

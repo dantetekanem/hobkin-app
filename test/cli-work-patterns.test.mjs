@@ -93,12 +93,16 @@ test('trouble resets the pattern, and what lands after starts again', () => {
 });
 
 test('a no or a sent-back branch takes one off the clean weight, down to zero', () => {
-  const pushedBack = { id: 'pushed', kind: 'fix', title: 'Another', state: 'declined', pushbacks: [{ at: daysAgo(1), area: 'app/models' }] };
+  const onePushback = { at: daysAgo(1), area: 'app/models' };
+  const pushedBack = { id: 'pushed', kind: 'fix', title: 'Another', state: 'declined', pushbacks: [onePushback] };
+  const pushedBackTwice = { ...pushedBack, pushbacks: [onePushback, onePushback] };
   const held = [landedItem('held', { days: 3 }), landedItem('held', { days: 3 }), landedItem('held', { days: 3 })];
-  const entries = [...held, { slug: 'api', item: pushedBack }];
 
-  assert.ok(Math.abs(records(entries).get(pattern).weight - 2) < 0.1);
-  assert.equal(records([held[0], { slug: 'api', item: { ...pushedBack, pushbacks: [{ at: daysAgo(1), area: 'app/models' }, { at: daysAgo(1), area: 'app/models' }] } }]).get(pattern).weight, 0);
+  const threeHeldOneNo = records([...held, { slug: 'api', item: pushedBack }]);
+  const oneHeldTwoNos = records([held[0], { slug: 'api', item: pushedBackTwice }]);
+
+  assert.ok(Math.abs(threeHeldOneNo.get(pattern).weight - 2) < 0.1);
+  assert.equal(oneHeldTwoNos.get(pattern).weight, 0);
 });
 
 test('severe trouble turns the pattern off until the user turns it back on', () => {

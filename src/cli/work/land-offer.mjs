@@ -42,7 +42,12 @@ function watchWords({ outcome, days }) {
 }
 
 function tallyWords({ merged, held, quiet, unexercised, watching }) {
-  const parts = [held && `${held} held`, quiet && `${quiet} quiet`, unexercised && `${unexercised} unexercised`, watching && `${watching} still in a watch`];
+  const parts = [
+    held && `${held} held`,
+    quiet && `${quiet} quiet`,
+    unexercised && `${unexercised} unexercised`,
+    watching && `${watching} still in a watch`,
+  ];
   return `${merged} merged like it: ${parts.filter(Boolean).join(', ')}.`;
 }
 
@@ -59,7 +64,12 @@ const blindLine = (project, signal) => (signal >= SEES_IT_WORKING ? null : `hobk
 
 const offerKey = (slug, item) => `offer:${slug}:${item}`;
 
-const offerChoices = (merge, read, no) => [{ value: 'later', label: 'Later' }, { value: 'merge', label: merge }, { value: 'read', label: read }, { value: 'no', label: no }];
+const offerChoices = (merge, read, no) => [
+  { value: 'later', label: 'Later' },
+  { value: 'merge', label: merge },
+  { value: 'read', label: read },
+  { value: 'no', label: no },
+];
 
 function singleOffer({ row: { slug, item: id, project, title }, item, unit, offer }, signal) {
   return {
@@ -110,7 +120,9 @@ function alike(entries) {
 /** Every item one merge decision covers, with the commit it was asked about. */
 export const offeredIn = ({ item, head, also = [] }) => [{ item, head }, ...also];
 
-const askedNow = root => new Set(openDecisions(root).flatMap(({ answerTo }) => (answerTo?.kind === 'merge' ? offeredIn(answerTo).map(({ item }) => `${answerTo.slug}:${item}`) : [])));
+const rowKeysIn = answerTo => offeredIn(answerTo).map(({ item }) => `${answerTo.slug}:${item}`);
+
+const askedNow = root => new Set(openDecisions(root).flatMap(({ answerTo }) => (answerTo?.kind === 'merge' ? rowKeysIn(answerTo) : [])));
 
 const isHeld = ({ offerHeldUntil }, now) => Date.parse(offerHeldUntil ?? '') > now;
 
@@ -120,7 +132,8 @@ const signalOf = (root, slug) => readJson(paths(root, slug).signals, {}).signal 
 export function offerDecisions(root, now = Date.now()) {
   if (!learningEnabled(root)) return [];
   const asked = askedNow(root);
-  const offered = weighedRows(root, now).filter(({ row, item, offer }) => offer?.offerable && !asked.has(`${row.slug}:${row.item}`) && !isHeld(item, now));
+  const isAsked = ({ slug, item }) => asked.has(`${slug}:${item}`);
+  const offered = weighedRows(root, now).filter(({ row, item, offer }) => offer?.offerable && !isAsked(row) && !isHeld(item, now));
   return alike(offered).map(group => {
     const signal = signalOf(root, group[0].row.slug);
     return group.length > 1 ? sharedOffer(group, signal) : singleOffer(group[0], signal);
@@ -144,6 +157,8 @@ export function notSurveyed(root, { slug, id }) {
   return !(readUnmerged(root).projects[slug]?.open ?? []).some(unit => unit.branch === branch);
 }
 
+const precedentRow = ({ merged, held, quiet, unexercised, watching, weight, slug }) => ({ merged, held, quiet, unexercised, watching, weight, from: slug });
+
 const offerRow = ({ row: { slug, project, item, title }, offer: { pattern, tier, spot, why, precedent } }) => ({
   slug,
   project,
@@ -153,7 +168,7 @@ const offerRow = ({ row: { slug, project, item, title }, offer: { pattern, tier,
   tier,
   spot,
   why,
-  precedent: precedent && { merged: precedent.merged, held: precedent.held, quiet: precedent.quiet, unexercised: precedent.unexercised, watching: precedent.watching, weight: precedent.weight, from: precedent.slug },
+  precedent: precedent && precedentRow(precedent),
 });
 
 /** `hobkin work offers`: what qualifies and why the rest does not, reading only. */

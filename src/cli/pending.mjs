@@ -33,7 +33,8 @@ function sinceWhen(at, now) {
   if (!at) return '';
   const date = new Date(at);
   const today = date.toDateString() === new Date(now).toDateString();
-  return ` since ${today ? `${pad(date.getHours())}:${pad(date.getMinutes())}` : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  const when = today ? `${pad(date.getHours())}:${pad(date.getMinutes())}` : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return ` since ${when}`;
 }
 
 const oldest = (dated, now) => age(now - Math.min(...dated.map(({ at }) => Date.parse(at))));
@@ -153,6 +154,10 @@ export const canShowCard = ({ presence: { seenAt, away, occupied }, busy, now })
 export function cardDue({ total, trouble, last, now }) {
   if (total < CARD_BAR) return false;
   if (!last) return true;
+
+  const quietIsOver = now - Date.parse(last.at) >= CARD_QUIET_MS;
+  const moreArrived = total >= last.total + CARD_MORE;
   const seen = new Set(last.trouble.map(({ key }) => key));
-  return now - Date.parse(last.at) >= CARD_QUIET_MS || total >= last.total + CARD_MORE || trouble.some(({ key }) => !seen.has(key));
+  const newTrouble = trouble.some(({ key }) => !seen.has(key));
+  return quietIsOver || moreArrived || newTrouble;
 }

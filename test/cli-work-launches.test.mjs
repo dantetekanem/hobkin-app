@@ -503,7 +503,10 @@ test('a watch run says what it saw, and what it can set stops there', async t =>
   const merged = land(h);
   await h.pulse(NOW + HOUR);
 
-  recordWatch(h.root, 'api', { launches: [{ item: merged.id, live: true, exercised: 12, note: 'Quiet so far.', stage: 'closed', outcome: 'held', sha: 'nonsense', closesAt: iso(NOW) }] }, NOW + 2 * HOUR);
+  const whatItSaw = { item: merged.id, live: true, exercised: 12, note: 'Quiet so far.' };
+  const whatOnlyCodeSets = { stage: 'closed', outcome: 'held', sha: 'nonsense', closesAt: iso(NOW) };
+
+  recordWatch(h.root, 'api', { launches: [{ ...whatItSaw, ...whatOnlyCodeSets }] }, NOW + 2 * HOUR);
 
   const { stage, liveAt, exercised, note, outcome, sha, closesAt } = launchOf(h, merged);
   assert.deepEqual([stage, liveAt, exercised, note, outcome, sha], ['live', iso(NOW + 2 * HOUR), 12, 'Quiet so far.', undefined, merged.sha]);
@@ -539,7 +542,16 @@ test('a new error from a watch run is trouble, severe when it says so', async t 
   const merged = land(h);
   await h.pulse(NOW + HOUR);
 
-  const { trouble } = recordWatch(h.root, 'api', { launches: [{ item: merged.id, live: true, exercised: 8, newErrors: ['NoMethodError in RefundsController#create'], severe: true, note: 'New since the merge.' }] }, NOW + 2 * HOUR);
+  const seen = {
+    item: merged.id,
+    live: true,
+    exercised: 8,
+    newErrors: ['NoMethodError in RefundsController#create'],
+    severe: true,
+    note: 'New since the merge.',
+  };
+
+  const { trouble } = recordWatch(h.root, 'api', { launches: [seen] }, NOW + 2 * HOUR);
 
   const launch = launchOf(h, merged);
   assert.deepEqual([launch.stage, launch.outcome, launch.severe, launch.exercised, launch.liveAt], ['closed', 'trouble', true, 8, iso(NOW + 2 * HOUR)]);

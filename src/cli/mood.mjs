@@ -115,6 +115,7 @@ function stalledBefore(run, runs) {
 }
 
 const runMoment = (run, runs) => ({ event: 'run', status: run.state, stalled: run.stalled, twice: stalledBefore(run, runs) });
+const turnMoment = ({ turn, agent }, ms) => ({ event: 'turn', status: turn?.state, stopReason: turn?.stopReason, text: agent?.content, ms });
 
 function whatHappened(before, now, turnMs) {
   const ended = now.runs.filter(run => before.running.includes(run.id) && run.state !== 'running');
@@ -124,7 +125,7 @@ function whatHappened(before, now, turnMs) {
   if (now.report && now.report.id !== before.report?.id) return { event: 'report', tone: now.report.tone };
   if (now.merged > before.merged) return { event: 'merged' };
   if (now.limit && !before.limit) return { event: 'limit' };
-  if (before.busy && !now.busy) return { event: 'turn', status: now.turn?.state, stopReason: now.turn?.stopReason, text: now.agent?.content, ms: turnMs };
+  if (before.busy && !now.busy) return turnMoment(now, turnMs);
   if (now.user && now.user.id !== before.user?.id) return { event: 'said', text: now.user.content };
   if (crowded(now) && !crowded(before)) return { event: 'crowded' };
   if (now.contextFull && !before.contextFull) return { event: 'context' };
@@ -181,7 +182,13 @@ export class Moods {
 
   show({ mood, cause }) {
     const lasting = mood === 'sleepy';
-    this.reaction = { mood, cause, lasting, yields: YIELDING.includes(mood), until: lasting ? Number.MAX_SAFE_INTEGER : this.now() + REACTION_MS };
+    this.reaction = {
+      mood,
+      cause,
+      lasting,
+      yields: YIELDING.includes(mood),
+      until: lasting ? Number.MAX_SAFE_INTEGER : this.now() + REACTION_MS,
+    };
     this.onChange();
   }
 

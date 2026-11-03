@@ -538,7 +538,13 @@ export class WorkDirector {
     const state = readState(this.root, slug);
     const now = new Date(this.now()).toISOString();
     const lens = { lastLookAt: now, lastLensAt: now, lensIndex: (state.lensIndex ?? 0) + 1, newCommits: 0 };
-    const stamped = { study: { lastLookAt: now }, ideas: { lastIdeasAt: now }, signals: { lastSignalsAt: now }, watch: { lastWatchAt: now } }[focus] ?? lens;
+    const stampedBy = {
+      study: { lastLookAt: now },
+      ideas: { lastIdeasAt: now },
+      signals: { lastSignalsAt: now },
+      watch: { lastWatchAt: now },
+    };
+    const stamped = stampedBy[focus] ?? lens;
     const earlier = Object.fromEntries(Object.keys(stamped).map(key => [key, state[key] ?? null]));
     writeState(this.root, slug, stamped);
     const ideas = focus === 'ideas' ? { ideas: ideasWanted(this.root, slug, { used: tokens.today, limit: tokens.limit }) } : {};

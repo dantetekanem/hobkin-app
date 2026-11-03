@@ -111,12 +111,16 @@ function waitingWords(waiting, oldestDays) {
   return ` ${waiting} waiting to merge, ${waiting === 1 ? '' : 'the oldest '}${age}.`;
 }
 
+function stalenessLines(stale) {
+  if (!stale.length) return ['No project is stale.'];
+  const each = stale.length === 1 ? 'This one is' : 'Each of these is';
+  return [...stale.map(staleLine), '', `${each} worth dropping, and dropping keeps its branches and PRs.`];
+}
+
 /** The Chat text for a week. It names the command and leaves the dropping to the user. */
 export function reviewMessage({ verdict, runs, finished, merged, tokens, projects, waiting, oldestDays, scoreboard: { lines: score = [] } = {} }) {
   const numbers = `${counted(runs, 'run')}, ${counted(finished, 'item')} finished, ${counted(merged, 'project')} merged something, ${tokenLabel(tokens)} tokens.`;
   const opening = `Weekly review: ${verdictLines[verdict]}. ${numbers}${waitingWords(waiting, oldestDays)}`;
-  const stale = projects.filter(row => row.stale);
-  const each = stale.length === 1 ? 'This one is' : 'Each of these is';
-  const staleness = stale.length ? [...stale.map(staleLine), '', `${each} worth dropping, and dropping keeps its branches and PRs.`] : ['No project is stale.'];
+  const staleness = stalenessLines(projects.filter(row => row.stale));
   return [opening, '', ...staleness, ...(score.length ? ['', ...score] : [])].join('\n');
 }

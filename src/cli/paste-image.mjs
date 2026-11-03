@@ -49,6 +49,17 @@ const predictors = [
   paeth,
 ];
 
+function compressedPixels(data) {
+  const chunks = [];
+  for (let offset = SIGNATURE_BYTES; offset < data.length;) {
+    const length = data.readUInt32BE(offset);
+    const holdsPixels = data.toString('latin1', offset + 4, offset + 8) === 'IDAT';
+    if (holdsPixels) chunks.push(data.subarray(offset + 8, offset + 8 + length));
+    offset += length + 12;
+  }
+  return Buffer.concat(chunks);
+}
+
 /** Pi's thumbnails are always 8-bit RGBA, and anything else gets no preview. */
 export const pngPixels = bytes => {
   const data = Buffer.from(bytes);
@@ -56,13 +67,7 @@ export const pngPixels = bytes => {
   if (depth !== 8 || kind !== 6 || interlace) return null;
 
   const [width, height] = [data.readUInt32BE(16), data.readUInt32BE(20)];
-  const compressed = [];
-  for (let offset = SIGNATURE_BYTES; offset < data.length;) {
-    const length = data.readUInt32BE(offset);
-    if (data.toString('latin1', offset + 4, offset + 8) === 'IDAT') compressed.push(data.subarray(offset + 8, offset + 8 + length));
-    offset += length + 12;
-  }
-  const lines = inflateSync(Buffer.concat(compressed));
+  const lines = inflateSync(compressedPixels(data));
   const stride = width * CHANNELS;
   const pixels = Buffer.alloc(height * stride);
   for (let y = 0; y < height; y++) {
@@ -108,7 +113,8 @@ export const previewRows = (images, width) => {
     used += image.columns + 1;
   }
   const height = Math.max(0, ...shown.map(({ preview }) => preview.length));
-  return Array.from({ length: height }, (_, y) => shown.map(({ preview, columns }) => preview[y] ?? ' '.repeat(columns)).join(' '));
+  const rowAt = y => shown.map(({ preview, columns }) => preview[y] ?? ' '.repeat(columns)).join(' ');
+  return Array.from({ length: height }, (_, y) => rowAt(y));
 };
 
 // The image is already safe to send by here, so a preview that fails only leaves the preview out.
@@ -118,7 +124,11 @@ const previewOf = async (resizeImage, { data, mimeType }) => {
     const small = await resizeImage(Buffer.from(picture.data, 'base64'), picture.mimeType, CELL_LIMITS);
     const image = small.mimeType === 'image/png' ? pngPixels(Buffer.from(small.data, 'base64')) : null;
     if (!image) return NO_PREVIEW;
-    return { preview: halfBlocks(image), columns: image.width, ...(picture.mimeType === 'image/png' ? { picture: picture.data } : {}) };
+    return {
+      preview: halfBlocks(image),
+      columns: image.width,
+      ...(picture.mimeType === 'image/png' ? { picture: picture.data } : {}),
+    };
   } catch {
     return NO_PREVIEW;
   }
@@ -165,7 +175,8 @@ export class PastedImages {
       file: this.save(sendable),
       mimeType: sendable.mimeType,
     };
-    return { image, ...(sendable.wasResized ? { notice: `Shrunk to ${sendable.width}×${sendable.height} to send.`, tone: 'info' } : {}) };
+    const shrunk = sendable.wasResized ? { notice: `Shrunk to ${sendable.width}×${sendable.height} to send.`, tone: 'info' } : {};
+    return { image, ...shrunk };
   }
 
   save({ data, mimeType }) {

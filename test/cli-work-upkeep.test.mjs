@@ -26,7 +26,8 @@ function workspace(t) {
 
 const choose = (root, path, at = NOW - 30 * DAY) => chooseProject(root, path, 'important', at).slug;
 const shown = (from, count, facts = {}) => Array.from({ length: count }, (_, index) => ({ at: hoursAgo(index + 1), type: 'error_shown', from, ...facts }));
-const failedRuns = (count, facts = {}) => Array.from({ length: count }, (_, index) => ({ at: hoursAgo(index + 1), type: 'run_finished', id: `run-${index}`, status: 'failed', ...facts }));
+const failedRun = (index, facts) => ({ at: hoursAgo(index + 1), type: 'run_finished', id: `run-${index}`, status: 'failed', ...facts });
+const failedRuns = (count, facts = {}) => Array.from({ length: count }, (_, index) => failedRun(index, facts));
 const namesOf = events => repeatedFailures(events).map(({ name }) => name);
 const fixesOn = (root, slug) => readItems(root, slug).filter(({ key }) => key.startsWith('harness:'));
 

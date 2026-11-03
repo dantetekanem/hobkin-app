@@ -282,7 +282,8 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
   // A PR's head is known locally when a run made it, and a merge from elsewhere leaves nothing else to tell what it touched.
-  const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(async pr => ({ ...pullUnit(pr), ...await pathsOf(repo, base, pr.headRefName) })));
+  const withPaths = async pr => ({ ...pullUnit(pr), ...await pathsOf(repo, base, pr.headRefName) });
+  const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(withPaths));
   return {
     survey: {
       open: [...openPulls, ...units],

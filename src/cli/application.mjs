@@ -691,7 +691,13 @@ export class HobkinApplication {
     } catch (error) {
       // It stays in Decisions for another try. The question has left the screen, so what went wrong goes to Chat, and asking again at once would only repeat it.
       markShown(root, next.id);
-      this.answerTrouble = { id: `notice:answer:${next.id}:${this.now()}`, role: 'notice', content: error.message, tone: 'critical', at: new Date(this.now()).toISOString() };
+      this.answerTrouble = {
+        id: `notice:answer:${next.id}:${this.now()}`,
+        role: 'notice',
+        content: error.message,
+        tone: 'critical',
+        at: new Date(this.now()).toISOString(),
+      };
       this.requestRefresh();
     } finally {
       this.presenting = false;

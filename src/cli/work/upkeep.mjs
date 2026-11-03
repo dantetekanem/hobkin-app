@@ -7,6 +7,7 @@ const DAY_MS = 86400000;
 // Once can be bad luck, and the same failure a third time in a day is hobkin's to fix.
 const REPEATS_AT = 3;
 const MOST_EVENTS_NAMED = 8;
+const OWN_CHECKOUT = fileURLToPath(new URL('../../../', import.meta.url));
 
 const times = count => `${count} ${count === 1 ? 'time' : 'times'}`;
 const iso = time => new Date(time).toISOString();
@@ -29,15 +30,26 @@ function classOf(event) {
   return status === 'failed' && !limited ? failedClasses[type]?.(event) : undefined;
 }
 
+function failureFrom(sightings) {
+  const [{ name, what }] = sightings;
+  return {
+    name,
+    what,
+    key: `harness:${name}`,
+    count: sightings.length,
+    events: sightings.map(({ event }) => event),
+  };
+}
+
 /** Each class seen often enough in these events, with the events that make it one. */
 export function repeatedFailures(events) {
-  const found = events.flatMap(event => {
+  const sightings = events.flatMap(event => {
     const failure = classOf(event);
     return failure ? [{ ...failure, event }] : [];
   });
-  return [...Map.groupBy(found, ({ name }) => name).values()]
+  return [...Map.groupBy(sightings, ({ name }) => name).values()]
     .filter(own => own.length >= REPEATS_AT)
-    .map(own => ({ name: own[0].name, what: own[0].what, key: `harness:${own[0].name}`, count: own.length, events: own.map(({ event }) => event) }));
+    .map(failureFrom);
 }
 
 const eventLine = ({ type, id, at, project, item }) => [type, id, `at ${at}`, project && `on ${project}`, item && `item ${item}`].filter(Boolean).join(' ');
@@ -59,7 +71,13 @@ function fileFailure(root, slug, failure, now) {
   const { key, name, what, count } = failure;
   if (readItems(root, slug).some(item => item.key === key)) return [];
 
-  const { id } = fileItem(root, slug, { key, kind: 'fix', title: `Stop the ${what}`, brief: briefFor(root, failure), impact: 'high' }, now);
+  const { id } = fileItem(root, slug, {
+    key,
+    kind: 'fix',
+    title: `Stop the ${what}`,
+    brief: briefFor(root, failure),
+    impact: 'high',
+  }, now);
   recordEvent(root, 'harness_filed', { name, count, project: slug, item: id }, now);
   return [{ key, id }];
 }
@@ -69,7 +87,8 @@ const chatLine = ({ what, count }) => `hobkin's own harness: ${what}, ${times(co
 /** A class is told once for good. Only the newest lines stay in the mode, so one that has scrolled out of Chat cannot come back. */
 function tellChat(root, failures, now) {
   const { harnessTold = [] } = readMode(root);
-  const lines = failures.filter(({ key }) => !harnessTold.includes(key)).map(failure => ({ key: failure.key, line: chatLine(failure), at: iso(now) }));
+  const untold = failures.filter(({ key }) => !harnessTold.includes(key));
+  const lines = untold.map(failure => ({ key: failure.key, line: chatLine(failure), at: iso(now) }));
   writeMode(root, { harnessLines: lines, harnessTold: [...harnessTold, ...lines.map(({ key }) => key)] });
   return lines;
 }
@@ -90,7 +109,7 @@ export const upkeepDue = ({ upkeepAt }, now) => !upkeepAt || now - Date.parse(up
  * hobkin looks after itself: a failure in its own harness is never a call, so what repeats goes on its own list. Code only, and it starts nothing.
  * A fix waits its turn like any other item and is not urgent, so shipping first holds it too. Each key is filed once and told once.
  */
-export function lookAfterHarness(root, { now = Date.now(), events = readEvents(root, { since: now - DAY_MS }), checkout = fileURLToPath(new URL('../../../', import.meta.url)) } = {}) {
+export function lookAfterHarness(root, { now = Date.now(), events = readEvents(root, { since: now - DAY_MS }), checkout = OWN_CHECKOUT } = {}) {
   const failures = repeatedFailures(events);
   const project = hobkinProject(root, checkout);
   const filed = project ? failures.flatMap(failure => fileFailure(root, project.slug, failure, now)) : [];

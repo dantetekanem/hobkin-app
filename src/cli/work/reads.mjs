@@ -225,7 +225,9 @@ function saysDoneButWaits(item, items, units) {
   return surveyed && !items.some(other => other.branch === branch && finishedOnBranch.includes(other.state));
 }
 
-const isWaiting = (item, items, units) => item.state === 'branch' || (item.kind === 'yours' && runnableStates.includes(item.state)) || saysDoneButWaits(item, items, units);
+const isOpenStep = ({ kind, state }) => kind === 'yours' && runnableStates.includes(state);
+
+const isWaiting = (item, items, units) => item.state === 'branch' || isOpenStep(item) || saysDoneButWaits(item, items, units);
 
 /** What has landed on every project and what came of it, by pattern. With learning off nothing is judged, so nothing should ask for this. */
 export function readTrackRecords(root, now = Date.now()) {
@@ -292,7 +294,15 @@ function whyLeftOut(row, units) {
 }
 
 const landingRow = ({ project, slug, item, title, head, safety, size }, why) => ({
-  project, slug, item, title, head, grade: safety && `${safety.grade} ${safety.rating}`, lines: (size?.additions ?? 0) + (size?.deletions ?? 0), files: size?.files ?? 0, ...(why ? { why } : {}),
+  project,
+  slug,
+  item,
+  title,
+  head,
+  grade: safety && `${safety.grade} ${safety.rating}`,
+  lines: (size?.additions ?? 0) + (size?.deletions ?? 0),
+  files: size?.files ?? 0,
+  ...(why ? { why } : {}),
 });
 
 /**

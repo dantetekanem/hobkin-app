@@ -57,8 +57,17 @@ export function recordRunFinished(root, run) {
     return;
   }
   const triage = reportTriage(run);
-  // Only a report with a `Next:` counts as a call, so the fact says that it has one and leaves its words out.
-  recordEvent(root, 'run_finished', { ...runFacts(run), status: run.status, ms, usd: run.cost?.usd, tokens: run.result?.tokens, triage: triage?.level, next: triage?.next ? true : undefined, limited });
+  recordEvent(root, 'run_finished', {
+    ...runFacts(run),
+    status: run.status,
+    ms,
+    usd: run.cost?.usd,
+    tokens: run.result?.tokens,
+    triage: triage?.level,
+    // Only a report with a `Next:` counts as a call, so this says it has one and leaves its words out.
+    next: triage?.next ? true : undefined,
+    limited,
+  });
 }
 
 function parseMonth(file) {

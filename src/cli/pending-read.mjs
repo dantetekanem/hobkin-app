@@ -15,7 +15,12 @@ const FIX_OVER = ['merged', 'done', 'dropped', 'declined'];
 function launchesOf(root, project) {
   const { slug } = project;
   const fixes = readItems(root, slug).filter(({ causedBy, state }) => causedBy && FIX_OVER.includes(state));
-  return readLaunches(root, slug).map(launch => ({ ...launch, slug, project: nameOf(project), fixed: fixes.some(({ causedBy }) => causedBy === launch.item) }));
+  return readLaunches(root, slug).map(launch => ({
+    ...launch,
+    slug,
+    project: nameOf(project),
+    fixed: fixes.some(({ causedBy }) => causedBy === launch.item),
+  }));
 }
 
 const launchesIn = root => readProjects(root).flatMap(project => launchesOf(root, project));

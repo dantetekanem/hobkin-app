@@ -439,7 +439,11 @@ export function trustPattern(root, pattern, word) {
   const { slug } = findProject(root, reference);
   const named = pattern.replace(reference, slug);
   setTrust(root, named, word === 'on');
-  return reply(word === 'on' ? `Offers can come for ${named} again. After trouble that means from its next clean merge.` : `No offers for ${named} until hobkin work trust ${named} on.`, { pattern: named });
+  const said = {
+    on: `Offers can come for ${named} again. After trouble that means from its next clean merge.`,
+    off: `No offers for ${named} until hobkin work trust ${named} on.`,
+  };
+  return reply(said[word], { pattern: named });
 }
 
 /** Asks `git` and `gh` now instead of at the next survey. Past a fetch they only read the repositories: all this changes is Hobkin's own record of its items. */

@@ -107,7 +107,8 @@ const keyOf = question => createHash('sha256').update(question.toLowerCase().rep
 
 /** The same question twice is the worst call hobkin can make, so what was answered lately is answered. */
 function recentAnswer(root, key, now) {
-  const answered = readAll(root).filter(decision => decision.key === key && decision.answeredAt && now - Date.parse(decision.answeredAt) < REMEMBERED_MS);
+  const isRemembered = ({ answeredAt }) => answeredAt && now - Date.parse(answeredAt) < REMEMBERED_MS;
+  const answered = readAll(root).filter(decision => decision.key === key && isRemembered(decision));
   return answered.toSorted((first, second) => first.answeredAt.localeCompare(second.answeredAt)).at(-1) ?? null;
 }
 

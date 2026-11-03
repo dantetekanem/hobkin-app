@@ -48,7 +48,8 @@ function reportBody({ report }) {
     const bytes = Buffer.alloc(MOST_READ_BYTES);
     const descriptor = openSync(report, 'r');
     try {
-      return bytes.subarray(0, readSync(descriptor, bytes, 0, MOST_READ_BYTES, 0)).toString('utf8');
+      const read = readSync(descriptor, bytes, 0, MOST_READ_BYTES, 0);
+      return bytes.subarray(0, read).toString('utf8');
     } finally {
       closeSync(descriptor);
     }
@@ -71,7 +72,9 @@ const withWhatItSaid = session => {
 /** What Chat has yet to hear. Each report is kept with the others now, so it stays readable whatever becomes of the session's folder. */
 export function sessionsToPost(root) {
   const sessions = endedSessions(root).filter(({ posted }) => !posted).map(withWhatItSaid);
-  for (const { name, body, said } of sessions) if (said) saveReport(root, reportId(name), body);
+  for (const { name, body, said } of sessions) {
+    if (said) saveReport(root, reportId(name), body);
+  }
   return sessions;
 }
 
@@ -86,24 +89,36 @@ export const sessionNotice = ({ name, title, said, endedAt }) => ({
 /** Marked only once the view holding the notice is saved, so a crash in between posts it again rather than never. Its id stops a second copy. */
 export const markPosted = (root, sessions) => sessions.forEach(({ name }) => append(folderOf(root), { name, posted: true }));
 
+const reportOf = ({ name, title, endedAt }, body) => ({
+  id: reportId(name),
+  title: title ?? name,
+  // Read as work done, which is what the Reports tab sorts by.
+  scheduleId: 'work.session',
+  at: endedAt,
+  body,
+  outcome: 'completed',
+});
+
 /** Sessions join Reports like any other run. Only one that wrote a report has anything to open. */
 export function sessionReports(root, deleted) {
   const reported = endedSessions(root).slice(-MOST_REPORTS).map(session => ({ session, body: readReport(root, reportId(session.name), null) }));
-  return reported.filter(({ session, body }) => body !== null && !deleted.has(reportId(session.name))).map(({ session: { name, title, endedAt }, body }) => ({
-    id: reportId(name),
-    title: title ?? name,
-    // Read as work done, which is what the Reports tab sorts by.
-    scheduleId: 'work.session',
-    at: endedAt,
-    body,
-    outcome: 'completed',
-  }));
+  return reported
+    .filter(({ session, body }) => body !== null && !deleted.has(reportId(session.name)))
+    .map(({ session, body }) => reportOf(session, body));
 }
+
+const toldToMainAgent = ({ name, title, said, report, endedAt }) => ({
+  name,
+  title: title ?? name,
+  endedAt,
+  said: said || 'It stopped without a report.',
+  report: said ? report : null,
+});
 
 /** What the main agent has yet to hear. `said` is what it can repeat, and `report` the file to open for the rest. */
 export function sessionsToTell(root) {
-  return endedSessions(root).filter(({ heard }) => !heard).slice(0, MOST_IN_A_NOTE).map(withWhatItSaid)
-    .map(({ name, title, said, report, endedAt }) => ({ name, title: title ?? name, endedAt, said: said || 'It stopped without a report.', report: said ? report : null }));
+  const unheard = endedSessions(root).filter(({ heard }) => !heard).slice(0, MOST_IN_A_NOTE);
+  return unheard.map(withWhatItSaid).map(toldToMainAgent);
 }
 
 export const markHeard = (root, sessions) => sessions.forEach(({ name }) => append(folderOf(root), { name, heard: true }));

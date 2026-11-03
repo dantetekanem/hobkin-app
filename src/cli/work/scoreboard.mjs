@@ -14,15 +14,24 @@ function listed(parts) {
   return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`;
 }
 
+const landedOn = (root, slug) => readItems(root, slug).flatMap(({ landed }) => (landed ? [{ ...landed, slug }] : []));
+
 /** Every project ever chosen, because one dropped since still merged what it merged. */
-export const landedRecords = root => readProjects(root).flatMap(({ slug }) => readItems(root, slug).flatMap(({ landed }) => (landed ? [{ ...landed, slug }] : [])));
+export const landedRecords = root => readProjects(root).flatMap(({ slug }) => landedOn(root, slug));
 
 // A branch brings along what it was built on, and all of it shares the merge's commit. A merge on the remote says nothing about what was read.
 function mergeTotals(landed) {
   const here = landed.filter(({ route }) => route !== 'remote');
   const merges = [...new Map(here.map(record => [`${record.slug}:${record.sha}`, record])).values()];
-  const readBy = way => merges.filter(({ read }) => read === way).length;
-  return { total: merges.length, opened: readBy('page') + readBy('diff'), page: readBy('page'), diff: readBy('diff'), remote: landed.length - here.length };
+  const page = merges.filter(({ read }) => read === 'page').length;
+  const diff = merges.filter(({ read }) => read === 'diff').length;
+  return {
+    total: merges.length,
+    opened: page + diff,
+    page,
+    diff,
+    remote: landed.length - here.length,
+  };
 }
 
 function broughtLine({ brought: { decisions, reports, requests }, acted }) {
@@ -66,13 +75,18 @@ export function scoreboard(events, landed) {
   const count = type => ofType(type).length;
   const notTheCard = type => ofType(type).filter(({ source }) => source !== CARD).length;
   const asking = ofType('run_finished').filter(({ next }) => next);
+  const requests = ofType('notice_posted').filter(({ source }) => REQUEST_SOURCES.includes(source));
   const reportsOpened = new Set(ofType('report_read', 'report_messaged').map(({ id }) => id));
   const timed = [...ofType('question_ended').filter(({ how }) => how === 'answered'), ...ofType('decision_read')];
   const merges = mergeTotals(landed);
 
   const board = {
     events: events.length,
-    brought: { decisions: notTheCard('decision_filed'), reports: asking.length, requests: ofType('notice_posted').filter(({ source }) => REQUEST_SOURCES.includes(source)).length },
+    brought: {
+      decisions: notTheCard('decision_filed'),
+      reports: asking.length,
+      requests: requests.length,
+    },
     acted: {
       answered: notTheCard('decision_answered'),
       opened: asking.filter(({ id }) => reportsOpened.has(id)).length,

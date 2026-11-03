@@ -34,7 +34,10 @@ const areaOfPath = path => {
 
 function linesByArea(files) {
   const lines = new Map();
-  for (const { path, lines: changed } of files) lines.set(areaOfPath(path), (lines.get(areaOfPath(path)) ?? 0) + changed);
+  for (const { path, lines: changed } of files) {
+    const area = areaOfPath(path);
+    lines.set(area, (lines.get(area) ?? 0) + changed);
+  }
   return lines;
 }
 
@@ -94,7 +97,12 @@ const applying = {
   landed(record, event) {
     const outcome = event.launch?.outcome ?? 'watching';
     const counted = OUTCOME_COUNTS.includes(outcome) ? { [outcome]: record[outcome] + 1 } : {};
-    return { ...weighed(record, event.at, outcomeWeights[outcome] ?? 0), ...counted, merged: record.merged + 1, latest: latestFrom(event) };
+    return {
+      ...weighed(record, event.at, outcomeWeights[outcome] ?? 0),
+      ...counted,
+      merged: record.merged + 1,
+      latest: latestFrom(event),
+    };
   },
   pushback: (record, { at }) => weighed(record, at, -1),
   trouble: (record, { at, severe }) => ({ ...blankRecord(record), troubleAt: at, severeAt: severe ? at : record.severeAt }),
@@ -102,11 +110,12 @@ const applying = {
 
 function landingEvents(slug, item, launch) {
   const { kind, landed } = item;
-  const at = Date.parse(landed.at);
-  const landing = { type: 'landed', at, slug, kind, area: landed.area, item, launch };
+  const change = { slug, kind, area: landed.area };
+  const landing = { ...change, type: 'landed', at: Date.parse(landed.at), item, launch };
   if (launch?.outcome !== 'trouble') return [landing];
   // Trouble resets what came before it, and it can come days after later changes landed.
-  return [landing, { type: 'trouble', at: Date.parse(launch.updatedAt ?? landed.at), slug, kind, area: landed.area, severe: Boolean(launch.severe) }];
+  const trouble = { ...change, type: 'trouble', at: Date.parse(launch.updatedAt ?? landed.at), severe: Boolean(launch.severe) };
+  return [landing, trouble];
 }
 
 function eventsOf({ slug, items, launches }) {
@@ -134,7 +143,9 @@ function finished(record, switched, now) {
  */
 export function trackRecords(projects, trust = [], now = Date.now()) {
   const records = new Map(trust.map(({ pattern }) => [pattern, blankRecord(partsOf(pattern))]));
-  const events = projects.flatMap(eventsOf).filter(({ area }) => area).toSorted((first, second) => first.at - second.at);
+  const events = projects.flatMap(eventsOf)
+    .filter(({ area }) => area)
+    .toSorted((first, second) => first.at - second.at);
   for (const event of events) {
     const pattern = patternOf(event);
     records.set(pattern, applying[event.type](records.get(pattern) ?? blankRecord(event), event));
@@ -153,7 +164,8 @@ const hasHistory = record => Boolean(record?.merged || record?.troubleAt);
 /** A project's own record speaks first, and any trouble there stands: a clean record elsewhere cannot wash it out. */
 function precedentFor(records, own, { slug, kind, area }) {
   if (hasHistory(own) || !TRAVELLING_AREAS.includes(area)) return own;
-  const others = [...records.values()].filter(record => record.slug !== slug && record.kind === kind && record.area === area && record.merged && !record.off);
+  const sameChangeElsewhere = record => record.slug !== slug && record.kind === kind && record.area === area;
+  const others = [...records.values()].filter(record => sameChangeElsewhere(record) && record.merged && !record.off);
   return others.toSorted((first, second) => second.weight - first.weight)[0] ?? own;
 }
 

@@ -27,7 +27,8 @@ const triedKey = ({ slug, item, step, head }) => `${slug}:${item}:${step}:${head
 function rowToMove(row, rows, units) {
   if (!ratedA(row)) return row;
   const weak = weakEarlierWork(row, units);
-  return weak ? rows.find(other => other.slug === row.slug && other.branch === weak.branch) ?? row : row;
+  if (!weak) return row;
+  return rows.find(other => other.slug === row.slug && other.branch === weak.branch) ?? row;
 }
 
 // Anything short of safe A at its commit takes a review, because a review run fixes what it finds and grades the result.
@@ -131,18 +132,24 @@ function sendToRebase(root, { slug, item }) {
 async function moveRow(root, row, now) {
   const { slug, item, head, step } = row;
   if (step === 'review') return requestReview(root, slug, item);
-  return step === 'rebase' ? sendToRebase(root, row) : mergeItem(root, slug, item, { route: KEY, head, now });
+  if (step === 'rebase') return sendToRebase(root, row);
+  return mergeItem(root, slug, item, { route: KEY, head, now });
 }
 
 // Whatever else a row has become, it either goes or says why it cannot.
-const alreadyMoved = (root, { slug, item }) => [undefined, 'merged', 'declined', 'dropped'].includes(readItems(root, slug).find(({ id }) => id === item)?.state);
+function alreadyMoved(root, { slug, item }) {
+  const { state } = readItems(root, slug).find(({ id }) => id === item) ?? {};
+  return [undefined, 'merged', 'declined', 'dropped'].includes(state);
+}
+
+const messageOf = ({ message }) => message;
 
 /** That yes is the user's word on exactly these two. One that cannot go stays where it is and says why, and the other still goes. They run in turn, because a merge can bring the other along. */
 async function movePair(root, rows, now) {
   const said = [];
   for (const row of rows) {
     if (alreadyMoved(root, row)) continue;
-    said.push(await moveRow(root, row, now).then(({ message }) => message, ({ message }) => message));
+    said.push(await moveRow(root, row, now).then(messageOf, messageOf));
   }
   const line = said.join(' ') || 'Both had already moved, so nothing changed.';
   const remembered = [...readMode(root).ship?.tried ?? [], ...rows.map(triedKey)];
@@ -174,7 +181,8 @@ export function setShipFirst(root, word, now = Date.now()) {
   if (!['on', 'off'].includes(word)) throw Error('Say ship on or ship off.');
   if (word === 'on') {
     writeShip(root, { newWorkOn: null, pairsAfter: null });
-    return reply(shipFirst(allRows(root), readMode(root), now).line ?? `Shipping first is on, and new work holds once ${shipping.bar} are finished and waiting. ${shipping.pile} are now.`);
+    const { line } = shipFirst(allRows(root), readMode(root), now);
+    return reply(line ?? `Shipping first is on, and new work holds once ${shipping.bar} are finished and waiting. ${shipping.pile} are now.`);
   }
   const open = openPair(root);
   if (open) answerDecision(root, open.id, 'new', now);

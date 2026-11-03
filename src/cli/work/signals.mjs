@@ -76,7 +76,12 @@ function checked({ type, deploy = null, logs = null, errors = null, health = nul
 
 export function recordSignals(root, slug, report, now = Date.now()) {
   const proved = checked(report);
-  const signals = { ...proved, signal: signalOf(proved), wants: wantedBy[proved.type], checkedAt: new Date(now).toISOString() };
+  const signals = {
+    ...proved,
+    signal: signalOf(proved),
+    wants: wantedBy[proved.type],
+    checkedAt: new Date(now).toISOString(),
+  };
   atomicJson(paths(root, slug).signals, signals);
   return signals;
 }
