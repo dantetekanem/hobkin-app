@@ -33,7 +33,7 @@ The request's `work` field holds the item, the project, `projectNotes` (what ear
 
 ## Steps
 
-If `work.item.reviewAsked` is true, the work is already on your branch and this run is its review, so go straight to step 8.
+If `work.item.reviewAsked` is true, the work is already on your branch and this run is its review, so go straight to step 8. However the review ends, the branch still holds that work, so record `branch`, or `pr` when the branch has an open PR, and never `done`.
 
 If `work.item.workNote` is set, the user read your branch and wrote that note. Do what it says on your branch, then carry on from step 6.
 
@@ -70,7 +70,7 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
 { "id": "<id>", "state": "branch", "summary": "What changed, in a sentence.", "proof": "What failed first, then what passes now.", "left": "Only what the section above allows." }
 ```
 
-Use `"state": "pr"` with `"pr": "<url>"` when you opened a PR. Use `"state": "done"` when the item needed no change to the code, or when you committed nothing, with what you found in `summary`. A repository with no remote ends at `branch`. Never merge.
+Use `"state": "pr"` with `"pr": "<url>"` when you opened a PR. Use `"state": "done"` when the item needed no change to the code, or when you committed nothing, with what you found in `summary`, unless this run is a review. A repository with no remote ends at `branch`. Never merge.
 
 Always record an outcome. If part of the item will not come together, commit what works, record it, and file the rest as a new item through `work.commands.item`. File the work itself, never a request: nothing you file asks for permission, a decision or access, because an agent takes every item. One ticket per need: search `items` first, and leave what is already filed alone. A run that ends without recording one goes back in the queue one grade lower, and the next run starts from your branch.
 

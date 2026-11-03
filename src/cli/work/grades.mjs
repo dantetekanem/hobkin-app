@@ -9,12 +9,19 @@ const REASON_LENGTH = 400;
 /** Where pi-auto-review keeps each review, one folder a session. */
 export const reviewsFolder = () => join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), 'auto-review');
 
+/** A review can start from one commit and read on to a later one, so its grade belongs to the last commit it read. */
+function reviewedHead({ reviewedRange, revision, preflight }) {
+  const head = typeof reviewedRange === 'string' ? reviewedRange.split(/\.{2,3}/).at(-1) : reviewedRange?.head;
+  return head || revision || preflight?.head;
+}
+
 function gradeIn(file) {
   try {
-    const { status, grades, preflight } = JSON.parse(readFileSync(file, 'utf8'));
+    const { status, grades, ...review } = JSON.parse(readFileSync(file, 'utf8'));
     const { grade, rating, reason = '' } = grades?.merge ?? {};
-    if (status !== 'complete' || !grade || !preflight?.head) return null;
-    return { head: preflight.head, grade, rating, reason: String(reason).slice(0, REASON_LENGTH) };
+    const head = reviewedHead(review);
+    if (status !== 'complete' || !grade || !head) return null;
+    return { head, grade, rating, reason: String(reason).slice(0, REASON_LENGTH) };
   } catch {
     // A review still being written, or one from another version, is no grade.
     return null;
