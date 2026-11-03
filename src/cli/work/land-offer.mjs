@@ -25,7 +25,7 @@ const landDecision = (drafts, count) => ({
   from: 'Work mode',
   question: questionFor(drafts),
   tldr: `${count} finished ${count === 1 ? 'branch' : 'branches'} can land`,
-  choices: [{ value: 'later', label: 'Later' }, { value: 'walk', label: 'Yes, open Done' }],
+  choices: [{ value: 'later', label: 'Later' }, { value: 'walk', label: 'Yes, show me' }],
   answerTo: { kind: 'land' },
 });
 
@@ -140,9 +140,13 @@ export function offerDecisions(root, now = Date.now()) {
   });
 }
 
-/** An offer whose work has left the list has nothing to ask, so it should not sit there adding to what is waiting. */
+/**
+ * An offer whose work has left the list has nothing to ask, so it should not sit there adding to what is waiting. The plain question only
+ * points at finished branches, which Decisions lists one by one, so once it has had its moment on screen it goes too.
+ */
 export function retireOffers(root, now = Date.now()) {
-  for (const { id, answerTo } of openDecisions(root)) {
+  for (const { id, answerTo, shown } of openDecisions(root)) {
+    if (answerTo?.kind === 'land' && shown) answerDecision(root, id, 'later', now);
     if (answerTo?.kind !== 'merge') continue;
     const items = readItems(root, answerTo.slug);
     const waiting = offeredIn(answerTo).some(({ item }) => items.find(entry => entry.id === item)?.state === 'branch');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { canShowCard, cardChoices, cardDue, cardEvidence, CARD_BAR, CARD_QUIET_MS, PRESENT_MS, pendingCard } from '../src/cli/pending.mjs';
+import { canShowCard, cardChoices, cardDue, cardEvidence, CARD_BAR, CARD_QUIET_MS, PRESENT_MS, pendingCard, waitingRows } from '../src/cli/pending.mjs';
 
 const NOW = Date.parse('2026-11-02T15:00:00Z');
 const HOUR_MS = 3600000;
@@ -167,11 +167,50 @@ test('rows come in one order, and an empty group has no row', () => {
   assert.equal(result.total, 4);
 });
 
-test('walking it all goes wherever the most of it can be walked', () => {
-  assert.equal(card({ ready: [branch('a')], decisions: [decision('one')] }).walk, 'done');
-  assert.equal(card({ decisions: [decision('one')] }).walk, 'decisions');
-  assert.equal(card({ reports: [report('call', 'Useful: Two.\n\nNext: Do it.')] }).walk, 'reports');
-  assert.equal(card({ attention: [{ kind: 'item', title: 'Rotate a key', slug: 'api', item: 'key' }] }).walk, 'chat');
+test('walking it all opens Decisions, which lists every kind of row', () => {
+  assert.equal(card({ ready: [branch('a')], decisions: [decision('one')] }).walk, 'decisions');
+  assert.equal(card({ reports: [report('call', 'Useful: Two.\n\nNext: Do it.')] }).walk, 'decisions');
+  assert.equal(card({ attention: [{ kind: 'item', title: 'Rotate a key', slug: 'api', item: 'key' }] }).walk, 'decisions');
+});
+
+test('each thing the card counts is one row to list, by the same rules', () => {
+  const given = {
+    ready: [
+      branch('good', { safety: safeA }),
+      branch('read'),
+      branch('done', { gap: 'unlanded' }),
+      branch('copy', { gap: 'elsewhere', landedOn: 'release' }),
+      branch('agent', { gap: 'closing' }),
+      branch('under', { gap: 'stacked' }),
+      branch('turn', { gap: 'yours', title: 'Turn on HTTPS' }),
+      branch('keys', { left: 'Rotate the keys', title: 'Rotate the keys' }),
+    ],
+    attention: [
+      { kind: 'item', title: 'Rotate the keys', slug: 'api', item: 'keys', reason: 'Rotate the keys' },
+      { kind: 'item', title: 'Move the DNS', slug: 'site', item: 'dns', reason: 'Point it at the new host.' },
+      { kind: 'allowance', title: "Raise today's tokens to 2M?", slug: null, item: null },
+      { kind: 'pause', title: 'site is paused by hand.', slug: 'site', item: null },
+    ],
+    proposals: [{ id: 'abc123', kind: 'refactor', scope: 'mail', at: ago(10) }],
+    launches: [{ slug: 'finboard', project: 'finboard', item: 'abc', outcome: 'trouble', note: 'new error' }],
+    reports: [
+      report('call', 'Useful: The bank wrote.\n\nNext: Reply by Friday.', { scheduleId: 'bank' }),
+      report('bad', 'Critical: The site is down.\n\nNext: Restart it.', { scheduleId: 'site' }),
+    ],
+  };
+
+  const rows = waitingRows({ now: NOW, ...given });
+
+  const items = list => list.map(({ item }) => item);
+  assert.deepEqual(items(rows.branches), ['good', 'read', 'done', 'copy']);
+  assert.deepEqual(items(rows.yours), ['turn', 'keys', 'dns']);
+  assert.equal(rows.yours[1].gap, 'land', 'a step on a finished branch keeps the branch, for its page');
+  assert.deepEqual(rows.asks.map(({ kind }) => kind), ['allowance']);
+  assert.deepEqual(rows.proposals.map(({ id }) => id), ['abc123']);
+  assert.deepEqual(rows.wrong.map(({ key }) => key), ['launch:finboard:abc', 'report:bad']);
+  assert.deepEqual(rows.reports.map(({ id }) => id), ['call']);
+  const listed = Object.values(rows).reduce((sum, list) => sum + list.length, 0);
+  assert.equal(listed, card(given).total, 'nothing the card counts is left out, and nothing is listed twice');
 });
 
 test('Not now comes first, and a choice with an empty group does not appear', () => {

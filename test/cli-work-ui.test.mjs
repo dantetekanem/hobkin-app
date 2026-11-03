@@ -796,6 +796,121 @@ test('with nothing to decide the tab goes away, and an empty one never opens', (
   ui.stop();
 });
 
+const waiting = (rows = {}) => ({ wrong: [], asks: [], proposals: [], branches: [], yours: [], reports: [], ...rows });
+const toDecisions = ui => {
+  for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
+};
+const step = { kind: 'item', project: 'finboard', slug: 'finboard', item: 'oauth', title: 'Rotate the OAuth secret', reason: 'Rotate it at Google.' };
+
+test('Decisions lists everything waiting in groups, with work mode off, and the tab counts all of it', () => {
+  const ui = createDashboard({ ...base, decisions: [asked('one')], waiting: waiting({
+    wrong: [{ key: 'launch:site:abc', tab: 'work', fact: 'website, new error since 14:02' }],
+    proposals: [{ id: 'abc123', title: 'Digest', question: 'Digest: blocked 6 of the last 8, over 8 days. Rethink it?', at: new Date().toISOString() }],
+    asks: [{ kind: 'proposal', slug: 'api', title: 'finboard-api', reason: 'Rails app with real money.' }],
+    branches: [landing('ship', { safety: { grade: 'safe', rating: 'A' } }), landing('said', { gap: 'unlanded' }), landing('kept', { gap: 'elsewhere', landedOn: 'release/now' })],
+    yours: [landing('turn', { gap: 'yours', title: 'Turn on HTTPS', summary: 'Settings, Pages.' }), step],
+    reports: [{ id: 'mail', title: 'Mail', at: new Date().toISOString(), level: 'useful', next: 'Reply by Friday.' }],
+  }) });
+  assert.match(screen(ui), /Decisions 10/);
+
+  toDecisions(ui);
+
+  const text = screen(ui, 110, 70);
+  const groups = [['WENT WRONG', 1], ['QUESTIONS', 3], ['NEXT TO LAND', 1], ['NOT LANDED', 1], ['YOUR TURN', 2], ['ALREADY ELSEWHERE', 1], ['TO READ', 1]];
+  for (const [heading, count] of groups) assert.match(text, new RegExp(`${heading} +${count}\\n`));
+  assert.match(text, /website, new error since 14:02/);
+  assert.match(text, /Decide one\s+Routine mail/);
+  assert.match(text, /Digest\s+Learning/);
+  assert.match(text, /finboard-api\n\s+Rails app with real money\./);
+  assert.match(text, /website: Work ship\n\s+safe A/);
+  assert.match(text, /website: Turn on HTTPS\n\s+Settings, Pages\./);
+  assert.match(text, /finboard: Rotate the OAuth secret\n\s+Rotate it at Google\./);
+  assert.match(text, /Mail\n\s+Reply by Friday\./);
+  ui.stop();
+});
+
+test('a branch in Decisions opens its page and takes the keys it takes in Done, and Esc comes back to the list', async () => {
+  const { actions, workAction } = acting();
+  const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one'), landing('two'), landing('three')] }) }, { workAction });
+  toDecisions(ui);
+  assert.match(screen(ui), /m\s+merge\s+·\s+w\s+send agent\s+·\s+n\s+no\s+·\s+enter\s+read/);
+
+  ui.input('\r');
+  await ui.pending();
+  assert.match(screen(ui), /Moves the site\./);
+  ui.input('m');
+  await ui.pending();
+  const next = screen(ui, 110, 30);
+  assert.match(next, /website: Work two/, 'the walk carries on to the next page');
+  assert.doesNotMatch(next, /NEXT TO LAND/);
+
+  ui.input('\x1b');
+  assert.equal(ui.state().focus, 'decisions');
+  ui.input('n');
+  await ui.pending();
+
+  const [merge, ...rest] = actions.filter(([action]) => action !== 'pr');
+  assert.deepEqual(merge.slice(0, 3), ['merge', 'site', 'one']);
+  assert.equal(merge[3].read, 'page');
+  assert.deepEqual(rest, [['decline', 'site', 'two']]);
+  ui.stop();
+});
+
+test('a step only the user can take opens in place, and x marks it done once it is sorted', async () => {
+  const { actions, workAction } = acting();
+  const reason = 'Rotate the secret at Google, then check that the old one no longer signs in anywhere, and remove it from every host.';
+  const ui = createDashboard({ ...base, waiting: waiting({ yours: [{ ...step, reason }] }) }, { workAction });
+  toDecisions(ui);
+
+  const text = screen(ui, 60, 30);
+  assert.match(text, /every host\./, 'the whole step shows when selected, not one cut line');
+  assert.match(text, /x\s+done/);
+
+  ui.input('x');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['done', 'finboard', 'oauth']]);
+  ui.stop();
+});
+
+test('a learning proposal takes a number, and a report with a call opens on Enter', async () => {
+  const { actions, workAction } = acting();
+  const at = new Date().toISOString();
+  const report = { id: 'mail', title: 'Mail', at, outcome: 'completed', body: 'Useful: The bank wrote.\n\nNext: Reply by Friday.' };
+  const ui = createDashboard({ ...base, reports: [report], waiting: waiting({
+    proposals: [{ id: 'abc123', title: 'Digest', question: 'Digest: blocked 6 of the last 8, over 8 days. Rethink it?', at }],
+    reports: [{ id: 'mail', title: 'Mail', at, level: 'useful', next: 'Reply by Friday.' }],
+  }) }, { workAction });
+  toDecisions(ui);
+  const text = screen(ui, 110, 30);
+  assert.match(text, /Rethink it\?/);
+  assert.match(text, /1 Yes, plan it/);
+  assert.match(text, /2 No, and never ask again/);
+
+  ui.input('1');
+  await ui.pending();
+  ui.input('\r');
+
+  assert.deepEqual(actions, [['learning', 'abc123', 'yes']]);
+  assert.deepEqual([ui.state().view, ui.state().focus], ['reports', 'detail']);
+  ui.stop();
+});
+
+test('with work mode off, hobkin opening Done walks in Decisions, straight on the row it names', async () => {
+  const { workAction } = acting();
+  const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('one'), landing('two')] }) }, { workAction });
+
+  ui.showDone({ slug: 'site', item: 'two' });
+  await ui.pending();
+
+  assert.equal(ui.state().view, 'decisions');
+  assert.match(screen(ui), /website: Work two/);
+  assert.match(screen(ui), /Moves the site\./);
+  ui.input('\x1b');
+  assert.equal(ui.state().focus, 'decisions');
+  ui.stop();
+});
+
 test('a background question leaves the screen by itself, and a question someone is waiting on takes its place', async () => {
   const ui = createDashboard(base);
   const choices = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize, setLearning } from '../src/cli/config.mjs';
-import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
+import { fileDecision, markShown, openDecisions } from '../src/cli/decisions.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { answerOffer, askAgent, declineItem, mergeItem } from '../src/cli/work/controls.mjs';
 import { LandOffers, notSurveyed, offerDecisions, offersView, retireOffers } from '../src/cli/work/land-offer.mjs';
@@ -406,6 +406,21 @@ test('an offer whose work has gone from the list answers itself, and an answer t
   assert.match(message, /already gone/);
   assert.equal(read(h, id).state, 'merged');
   assert.deepEqual(openDecisions(h.root), []);
+});
+
+test('the plain question goes once it has been on screen, because each branch it names waits in Decisions', t => {
+  const { root } = workspace(t);
+  const { filed, offers } = offering();
+  offers.add(draft('a1', 'Fix login'));
+  const { id } = fileDecision(root, filed[0], NOW);
+
+  retireOffers(root, NOW);
+  assert.deepEqual(openDecisions(root).map(decision => decision.id), [id], 'it is still on screen');
+
+  markShown(root, id);
+  retireOffers(root, NOW);
+
+  assert.deepEqual(openDecisions(root), []);
 });
 
 test('a spot check gets no offer and no precedent, and goes through the walk marked as one', async t => {

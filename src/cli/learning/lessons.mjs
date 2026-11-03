@@ -113,6 +113,15 @@ export function evidenceText({ code, seen, runs, days, usd }) {
   return `${factOf(code)} ${seen} of the last ${runs}, over ${days} ${days === 1 ? 'day' : 'days'}${cost}`;
 }
 
+const asks = {
+  rethink: 'Rethink it?',
+  refactor: 'Refactor it?',
+  ideas: 'Want new ideas built on it?',
+};
+
+/** What a proposal asks the user, the same in Chat and in Decisions. */
+export const proposalQuestion = proposal => `${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]}`;
+
 export const isLesson = lesson => Boolean(lesson) && typeof lesson.latest === 'string' && lessonLine(lesson) !== null;
 
 // Everything an agent could be shown from a proposal has to pass here. Its title goes only to the user.

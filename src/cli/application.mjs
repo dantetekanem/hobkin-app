@@ -30,13 +30,15 @@ import { answerPair, fileFirstPair } from './work/pairs.mjs';
 import { noteForCheck, stalled } from './checks.mjs';
 import { answerDecision, fileDecision, findDecision, lastCard, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
 import { canShowCard, cardChoices, cardDue, cardEvidence, cardQuestion } from './pending.mjs';
-import { readPending } from './pending-read.mjs';
+import { readPending, readWaiting } from './pending-read.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
 import { readingUsage } from './work/usage.mjs';
 import { atomicJson, learningEnabled, loadConfig, setLearning } from './config.mjs';
-import { Learner } from './learning/learner.mjs';
+import { runLearningCommand } from './learning/commands.mjs';
+import { Learner, proposalMessage } from './learning/learner.mjs';
+import { learningState } from './learning/store.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
 import { readLocalView } from './view.mjs';
@@ -464,6 +466,7 @@ export class HobkinApplication {
       reportAttention: this.telemetry.attention(runs, this.now()),
       work,
       decisions: openDecisions(this.runtime.directory),
+      waiting: this.waitingNow(visible.reports),
       connection: 'connected',
       busy: this.runtime.mainBusy,
       searching: searchingTool(this.runtime.mainTool),
@@ -648,6 +651,7 @@ export class HobkinApplication {
       ask: () => askAgent(root, slug, value, extra),
       pr: () => prView(root, slug, value),
       decide: () => this.decide(slug, value),
+      learning: () => this.answerLearning(slug, value),
     };
     const result = await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
@@ -754,15 +758,38 @@ export class HobkinApplication {
     else answerDecision(root, id, 'dismissed', this.now());
   }
 
-  /** Done and Now live on a tab work mode hides, so with it off the main agent walks the user through instead. */
+  /** Decisions lists everything the card counts, with work mode on or off. A launch in trouble lives on the Work tab, which work mode hides, so with it off the main agent takes that one. */
   tackle(id, { value, label }, answerTo) {
     if (value === 'later' || (value === 'ready' && this.landOffers.offerReady())) return;
 
     const { trouble, walk } = answerTo;
-    const target = value === 'wrong' ? trouble[0] : { tab: value === 'ready' ? 'done' : walk };
-    const hidden = ['done', 'work'].includes(target.tab) && !readMode(this.runtime.directory).enabled;
+    const target = value === 'wrong' ? trouble[0] : { tab: value === 'ready' ? 'decisions' : walk };
+    const hidden = target.tab === 'work' && !readMode(this.runtime.directory).enabled;
     if (target.tab === 'chat' || hidden) void this.askMain(id, label, answerTo).catch(() => {});
     else this.showRow?.(target);
+  }
+
+  /** Every row the card counts, for the Decisions tab. A problem reading them costs this refresh its rows and nothing else. */
+  waitingNow(reports) {
+    try {
+      return readWaiting(this.runtime.directory, { now: this.now(), reports });
+    } catch {
+      return this.snapshot.waiting ?? null;
+    }
+  }
+
+  /** The answer is the user's word, so it is recorded here and leaves Decisions at once. A yes also asks the main agent for the plan, as saying yes in Chat does, without holding the screen while it is busy. */
+  answerLearning(id, value) {
+    const root = this.runtime.directory;
+    const proposal = learningState(root).proposals.find(entry => entry.id === id);
+    if (!proposal) throw Error('That proposal was already answered.');
+    runLearningCommand(root, ['answer', id, value]);
+    if (value === 'no') return { ok: true, message: 'It will not come up again.' };
+
+    this.showRow?.({ tab: 'chat' });
+    const about = { id: `learning:${id}`, title: 'Learning proposal', at: proposal.at, body: `${proposalMessage(proposal)}\nProposal ID: ${id}` };
+    void this.send('Yes, plan it.', about).catch(() => {});
+    return { ok: true, message: 'The main agent writes the plan, and asks before changing anything.' };
   }
 
   askMain(id, text, { evidence }) {

@@ -17,6 +17,7 @@ import { retireOffers } from '../src/cli/work/land-offer.mjs';
 import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { branched, git, repository } from './helpers/work-fixture.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
+import { readActions, saveState } from '../src/cli/learning/store.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
 function fixture(t) {
@@ -1109,7 +1110,7 @@ test('a card dismissed still counts as shown, and one that never opened comes ba
   }
 });
 
-test('Start with the ready opens Done, and Walk it all opens where it can be walked', async t => {
+test('Start with the ready and Walk it all both open Decisions', async t => {
   const h = fixture(t);
   const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
   const { app, shown } = await cardApp(h, clock);
@@ -1125,7 +1126,7 @@ test('Start with the ready opens Done, and Walk it all opens where it can be wal
     await app.workAction('decide', card('decisions'), 'ready');
     await app.workAction('decide', card('decisions'), 'walk');
 
-    assert.deepEqual(shown, [{ tab: 'done' }, { tab: 'decisions' }]);
+    assert.deepEqual(shown, [{ tab: 'decisions' }, { tab: 'decisions' }]);
     assert.deepEqual(openDecisions(h.root), []);
   } finally {
     await app.close();
@@ -1172,7 +1173,7 @@ test('a typed answer reaches the main agent with the card as evidence, and Chat 
   }
 });
 
-test('with work mode off Done is hidden, so the main agent walks it', async t => {
+test('with work mode off the walk still opens Decisions, and no agent is asked', async t => {
   const h = fixture(t);
   const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
   atWork(h.root);
@@ -1183,8 +1184,55 @@ test('with work mode off Done is hidden, so the main agent walks it', async t =>
     await app.outgoing;
     await app.runtime.idle();
 
+    assert.deepEqual(shown, [{ tab: 'decisions' }]);
+    assert.equal(app.runtime.messages().find(message => message.role === 'user'), undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the view carries every row the card counts, for Decisions to list', async t => {
+  const h = fixture(t);
+  chooseProject(h.root, '/repos/api', 'important');
+  const { id } = fileItem(h.root, 'api', { key: 'keys', kind: 'fix', title: 'Rotate the keys', brief: 'The first change.' });
+  updateItem(h.root, 'api', id, { state: 'done', left: 'Rotate the keys at the provider.' });
+  const app = await h.openApp();
+  try {
+    const { waiting } = await app.refresh();
+
+    assert.deepEqual(waiting.yours.map(({ item, reason }) => [item, reason]), [[id, 'Rotate the keys at the provider.']]);
+    assert.deepEqual(waiting.branches, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a learning proposal answered in Decisions is recorded at once, and a yes asks the main agent for the plan', async t => {
+  const h = fixture(t);
+  setLearning(h.root, true);
+  const proposal = { id: 'abc123', scope: 'mail', kind: 'rethink', title: 'Mail', code: 'blocked', seen: 6, runs: 8, days: 8, latest: '2026-01-02T00:00:00.000Z', at: '2026-01-02T00:00:00.000Z' };
+  const shown = [];
+  const app = await h.openApp({ intervalMs: HOUR_MS, showRow: target => shown.push(target) });
+  try {
+    // Learning works its proposals out from runs as hobkin opens, and only again once something moves, so these go in after that pass.
+    await app.learn();
+    saveState(h.root, { lessons: [], proposals: [proposal, { ...proposal, id: 'def456', scope: 'news', title: 'News' }], pullRequests: {} });
+    const { waiting } = await app.refresh();
+    assert.deepEqual(waiting.proposals.map(({ id }) => id), ['abc123', 'def456']);
+    assert.match(waiting.proposals[0].question, /^Mail: .+\. Rethink it\?$/);
+
+    await app.workAction('learning', 'def456', 'no');
+    await app.workAction('learning', 'abc123', 'yes');
+    await app.outgoing;
+    await app.runtime.idle();
+
+    assert.deepEqual(readActions(h.root).answers.map(({ id, answer }) => [id, answer]), [['def456', 'no'], ['abc123', 'yes']]);
+    assert.deepEqual((await app.refresh()).waiting.proposals, []);
+    const sent = app.runtime.messages().find(message => message.role === 'user').content;
+    assert.match(sent, /Mail: .+\. Rethink it\?/);
+    assert.match(sent, /Yes, plan it\.$/);
     assert.deepEqual(shown, [{ tab: 'chat' }]);
-    assert.match(app.runtime.messages().find(message => message.role === 'user').content, /Walk it all$/);
+    await assert.rejects(app.workAction('learning', 'abc123', 'yes'), /already answered/);
   } finally {
     await app.close();
   }

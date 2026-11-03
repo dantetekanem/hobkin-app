@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { learningEnabled } from '../config.mjs';
 import { readItems, readProjects } from '../work/store.mjs';
 import { gatherEvidence, rejectsReport, stillOpen } from './judge.mjs';
-import { conclude, evidenceText, proposalLine, proposing, renderLessons } from './lessons.mjs';
+import { conclude, proposalLine, proposalQuestion, proposing, renderLessons } from './lessons.mjs';
 import { learningNote, NO_LEARNING, noteInContext } from './note.mjs';
 import { appendAction, learningState, readActions, readState, saveState } from './store.mjs';
 
@@ -17,12 +17,6 @@ const MAX_WAITING_PROPOSALS = 3;
 const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 const FINISHED_STATES = ['MERGED', 'CLOSED'];
 
-const asks = {
-  rethink: 'Rethink it?',
-  refactor: 'Refactor it?',
-  ideas: 'Want new ideas built on it?',
-};
-
 const shell = promisify(execFile);
 const askGitHubFor = async url => JSON.parse((await shell('gh', ['pr', 'view', url, '--json', 'state'], { timeout: GH_TIMEOUT_MS })).stdout).state;
 
@@ -30,7 +24,7 @@ const iso = time => new Date(time).toISOString();
 const sameDay = (at, now) => new Date(at).toDateString() === new Date(now).toDateString();
 const proposalId = ({ scope, conclusion, definition }) => createHash('sha256').update(`${scope}:${conclusion}:${definition ?? ''}`).digest('hex').slice(0, 6);
 
-export const proposalMessage = proposal => `**Learning:** ${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]} Say yes for a plan, or no and this will not come up again.`;
+export const proposalMessage = proposal => `**Learning:** ${proposalQuestion(proposal)} Say yes for a plan, or no and this will not come up again.`;
 
 const proposalOrder = (left, right) => proposing.indexOf(left.kind) - proposing.indexOf(right.kind)
   || right.seen - left.seen

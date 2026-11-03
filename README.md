@@ -97,6 +97,8 @@ With learning on, a change like one that already went well comes to you as an of
 
 A question from a routine or work mode waits 30 seconds on screen, then moves to the Decisions tab, so nothing stops for you. Each one has a one-line summary and numbered choices: press the number to answer. A routine that asks what you answered in the last 30 days gets your answer back and does not ask again.
 
+Decisions lists everything waiting on you, with work mode on or off: questions, finished branches, steps only you can take and reports with a call. Pick one and work on it there. A finished branch opens its page and takes the same keys as Done, and a step you have sorted takes `x`.
+
 When 8 or more things are waiting across your routines and work mode and you are at the screen, hobkin shows a short card, one row for each kind, and asks how you want to tackle them. It waits for an empty composer, stays out of a running turn, and stops nothing. `hobkin pending` prints the same thing as JSON.
 
 With 8 or more finished and waiting, hobkin starts no new work and brings the next two to move as one decision, so the queue gets healthy before it grows. Reviews, rebases, urgent work and your own picks still run, and `hobkin work ship off` lets new work start for the rest of the day.

@@ -67,9 +67,15 @@ const launchTrouble = ({ slug, project, item, note, liveAt, pushedAt, mergedAt }
 
 const reportTrouble = ({ id, title, triage }) => ({ key: `report:${id}`, tab: 'reports', report: id, fact: `${title}: ${triage.next}` });
 
+// A step can be in both places. The finished-work row comes first and stays, because it has the branch its page shows.
 function yoursRows(ready, attention) {
-  const steps = [...ready.filter(({ gap }) => gap === 'yours'), ...attention.filter(({ kind }) => kind === 'item')];
-  return [...new Map(steps.map(step => [`${step.slug}:${step.item}`, step])).values()];
+  const steps = [...ready.filter(({ gap, left }) => gap === 'yours' || left), ...attention.filter(({ kind }) => kind === 'item')];
+  const once = new Map();
+  for (const step of steps) {
+    const key = `${step.slug}:${step.item}`;
+    if (!once.has(key)) once.set(key, step);
+  }
+  return [...once.values()];
 }
 
 function readFact(branches, calls, now) {
@@ -91,40 +97,49 @@ function readyFact(rows) {
   return lines ? `safe A, about ${shortNumber(Math.round(lines / 10) * 10)} lines` : 'safe A';
 }
 
-function walkTab({ branches, yours, decisions, calls }) {
-  if (branches.length || yours.some(({ gap }) => gap)) return 'done';
-  if (decisions.length) return 'decisions';
-  return calls.length ? 'reports' : 'chat';
-}
-
 const row = (name, label, items, fact) => (items.length ? [{ name, count: items.length, label, fact: fact() }] : []);
 
-/** What waits on the user, across every routine and work mode, as the card's rows. Each fact is worked out from what is given, and nothing here reads or writes anything. */
-export function pendingCard({ ready = [], decisions = [], attention = [], proposals = [], launches = [], reports = [], read = new Set(), now }) {
+/**
+ * Everything the card counts, one row each, for the Decisions tab to list under the questions it already holds. A report that went wrong
+ * keeps what opens it, `asks` are work mode's questions and `proposals` learning's. Nothing here reads or writes anything.
+ */
+export function waitingRows({ ready = [], attention = [], proposals = [], launches = [], reports = [], read = new Set(), now }) {
   const calls = reportCalls(reports, read);
-  const urgent = calls.filter(({ triage }) => WENT_WRONG.includes(triage.level));
-  const toRead = calls.filter(({ triage }) => !WENT_WRONG.includes(triage.level));
-  const landable = ready.filter(isReady);
-  const branches = ready.filter(isToRead);
+  const wentWrong = ({ triage }) => WENT_WRONG.includes(triage.level);
+  return {
+    wrong: [
+      ...launches.filter(({ outcome, fixed }) => outcome === 'trouble' && !fixed).map(launch => launchTrouble(launch, now)),
+      ...calls.filter(wentWrong).map(reportTrouble),
+    ],
+    asks: attention.filter(({ kind }) => ASKS.includes(kind)),
+    proposals,
+    branches: ready.filter(entry => isReady(entry) || isToRead(entry)),
+    yours: yoursRows(ready, attention),
+    reports: calls.filter(call => !wentWrong(call)),
+  };
+}
+
+/** What waits on the user, across every routine and work mode, as the card's rows. Each fact is worked out from what is given, and nothing here reads or writes anything. */
+export function pendingCard({ decisions = [], now, ...given }) {
+  const { wrong, asks, proposals, branches, yours, reports } = waitingRows({ now, ...given });
+  const landable = branches.filter(isReady);
+  const branchesToRead = branches.filter(isToRead);
   const open = decisions.filter(({ answerTo }) => !NOT_QUESTIONS.includes(answerTo?.kind));
-  const questions = [...open, ...attention.filter(({ kind }) => ASKS.includes(kind)), ...proposals];
-  const yours = yoursRows(ready, attention);
-  const wrong = [
-    ...launches.filter(({ outcome, fixed }) => outcome === 'trouble' && !fixed).map(launch => launchTrouble(launch, now)),
-    ...urgent.map(reportTrouble),
-  ];
+  const questions = [...open, ...asks, ...proposals];
   const groups = [
     ...row('ready', 'ready', landable, () => readyFact(landable)),
-    ...row('read', 'to read', [...branches, ...toRead], () => readFact(branches, toRead, now)),
+    ...row('read', 'to read', [...branchesToRead, ...reports], () => readFact(branchesToRead, reports, now)),
     ...row('wrong', 'went wrong', wrong, () => wrong[0].fact),
     ...row('questions', questions.length === 1 ? 'question' : 'questions', questions, () => questionFact(questions, now)),
     ...row('yours', 'yours', yours, () => yours.slice(0, 2).map(({ title }) => title).join(', ')),
   ];
+  const total = groups.reduce((sum, { count }) => sum + count, 0);
   return {
-    total: groups.reduce((sum, { count }) => sum + count, 0),
+    total,
     groups,
     trouble: wrong.map(({ fact, ...target }) => target),
-    walk: walkTab({ branches: [...landable, ...branches], yours, decisions: open, calls }),
+    // Decisions lists all of it, with work mode on or off.
+    walk: total ? 'decisions' : 'chat',
   };
 }
 

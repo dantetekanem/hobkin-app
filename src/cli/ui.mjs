@@ -1026,20 +1026,102 @@ const maxLine = ({ maxRuns, projects = [] }) => {
   const inUse = maxRuns && (maxRuns.running || maxRuns.today || projects.some(project => project.state === 'chosen' && project.level === 'max'));
   return inUse ? `Max: ${maxRuns.running} of ${maxRuns.atOnce} running, ${maxRuns.today} of ${maxRuns.perDay} today. Claude's tokens count when each run ends.` : '';
 };
-/** Adds each section to `content`, and returns where the selected row landed. */
-const decisionRow = ({ tldr, from, question, choices, at, recommended, why, changed }, isSelected, inner, clock) => {
+// A question opens when it is selected, with why only the user can answer and its numbered choices.
+const questionLines = ({ tldr, from, question, choices, at, recommended, why, changed }, open, inner, clock) => {
   const when = timeOf(at) === null ? '' : ` · ${elapsed(timeOf(at), clock)}`;
   const heading = row(`${highlight('●')} ${bold(clean(tldr))}`, dim(`${clean(from)}${when}`), inner);
-  if (!isSelected) return [heading];
+  if (!open) return [heading];
   const asked = clean(question) === clean(tldr) ? [] : wrapped(question, inner - 2).map(value => `  ${dim(value)}`);
   const reasons = [why && `Why you: ${why}`, changed && `What changed: ${changed}`].filter(Boolean)
     .flatMap(reason => wrapped(reason, inner - 2)).map(value => `  ${dim(value)}`);
   const mark = value => (value === recommended ? `  ${positive('recommended')}` : '');
-  return [selectedRow(heading, inner), ...asked, ...reasons, ...choices.map(({ value, label }, index) => `  ${accent(String(index + 1))} ${clean(label)}${mark(value)}`)];
+  return [heading, ...asked, ...reasons, ...choices.map(({ value, label }, index) => `  ${accent(String(index + 1))} ${clean(label)}${mark(value)}`)];
 };
-const decisionLines = ({ decisions, selected, inner, clock }) => ({
-  content: decisions.flatMap(decision => [...decisionRow(decision, decision === selected, inner, clock), '']),
+// Only the heading of an open question is marked, so its choices stay easy to read.
+const questionRow = decision => ({
+  key: `decision:${decision.id}`,
+  type: 'decision',
+  decision,
+  choices: decision.choices,
+  answer: value => ['decide', decision.id, value],
+  lit: 1,
+  render: (open, inner, clock) => questionLines(decision, open, inner, clock),
 });
+const learningChoices = [{ value: 'yes', label: 'Yes, plan it' }, { value: 'no', label: 'No, and never ask again' }];
+const learningRow = ({ id, title, question, at }) => {
+  const asked = { tldr: title, from: 'Learning', question, choices: learningChoices, at };
+  return {
+    key: `learning:${id}`,
+    type: 'learning',
+    choices: learningChoices,
+    answer: value => ['learning', id, value],
+    lit: 1,
+    render: (open, inner, clock) => questionLines(asked, open, inner, clock),
+  };
+};
+const askRow = ({ kind, slug, title, reason }) => {
+  const why = (inner, paint) => (reason ? wrapped(reason, inner - 2).map(value => `  ${paint(value)}`) : []);
+  if (kind === 'allowance') return { key: 'allowance', type: 'allowance', render: (open, inner) => [`${gradeLabel('P0')}  ${bold(clean(title))}`, ...why(inner, dim)] };
+  return { key: `proposal:${slug}`, type: 'proposal', slug, name: title, render: (open, inner) => [`${muted('◇')} ${bold(clean(title))}`, ...why(inner, dim)] };
+};
+const branchType = ({ gap = 'land' }) => ({ unlanded: 'unlanded', elsewhere: 'elsewhere', yours: 'yours' }[gap] ?? 'ready');
+const branchFacts = entry => {
+  if (entry.gap === 'elsewhere') return dim(`also on ${clean(entry.landedOn)}`);
+  if (entry.gap === 'yours') return dim(clean(entry.summary ?? 'Only you can do this one.'));
+  if (entry.left) return caution(clean(`Left for you: ${entry.left}`));
+  return landedFacts(entry);
+};
+const branchRow = entry => {
+  const { lines, ...done } = doneRow(entry, branchType(entry), branchFacts(entry));
+  return { ...done, entry, render: () => lines };
+};
+// A step from a run that left it with no branch to show opens in place, since it has no page.
+const stepRow = ({ project, slug, item, title, reason }) => ({
+  key: `left:${slug}:${item}`,
+  type: 'left',
+  slug,
+  id: item,
+  title,
+  render: (open, inner) => {
+    const told = clean(reason ?? 'Only you can do this one.');
+    const facts = open ? wrapped(told, inner - 2) : [told];
+    return [`${positive('●')} ${clean(project ?? slug)}: ${clean(title)}`, ...facts.map(value => `  ${caution(value)}`)];
+  },
+});
+const troubleRow = ({ key: trouble, fact, report }) => ({
+  key: `trouble:${trouble}`,
+  type: report ? 'report' : 'trouble',
+  report: report ?? null,
+  render: () => [`${negative('▲')} ${clean(fact)}`],
+});
+const callRow = ({ id, title, next }) => ({ key: `report:${id}`, type: 'report', report: id, render: () => [`${positive('●')} ${clean(title)}`, `  ${dim(clean(next))}`] });
+/**
+ * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work, steps
+ * only they can take and reports with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
+ */
+const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
+  const { wrong = [], asks = [], proposals = [], branches = [], yours = [], reports = [] } = waiting ?? {};
+  const branchesOf = type => branches.filter(entry => branchType(entry) === type).map(branchRow);
+  const groups = [
+    ['WENT WRONG', wrong.map(troubleRow)],
+    ['QUESTIONS', [...decisions.map(questionRow), ...proposals.map(learningRow), ...asks.map(askRow)]],
+    ['NEXT TO LAND', branchesOf('ready')],
+    ['NOT LANDED', branchesOf('unlanded')],
+    ['YOUR TURN', yours.map(step => (step.kind === 'item' ? stepRow(step) : branchRow(step)))],
+    ['ALREADY ELSEWHERE', branchesOf('elsewhere')],
+    ['TO READ', reports.map(callRow)],
+  ].filter(([, rows]) => rows.length);
+  const keys = groups.flatMap(([, rows]) => rows.map(({ key: rowKey }) => rowKey));
+  const selectedKey = keys.includes(chosen) ? chosen : keys[0] ?? null;
+  const sections = groups.map(([heading, rows]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) }))]);
+  return { sections, selectedKey };
+};
+const decisionLines = ({ sections, selectedKey, inner }) => {
+  if (!sections.length) return { content: [dim('Nothing is waiting on you.')] };
+  const content = [];
+  const selected = sections.flatMap(([, rows]) => rows).find(({ key: rowKey }) => rowKey === selectedKey);
+  return { content, selectedRange: pushSections(content, { sections, selected, inner }) };
+};
 // The fact comes last, so on a narrow terminal the box edge cuts the fact and nothing else.
 const pendingRows = groups => {
   const countWidth = Math.max(...groups.map(({ count }) => String(count).length));
@@ -1049,6 +1131,7 @@ const pendingRows = groups => {
     return `${tone(glyph)} ${tone(bold(String(count).padStart(countWidth)))} ${label.padEnd(labelWidth)}  ${dim(clean(fact))}`;
   });
 };
+/** Adds each section to `content`, and returns where the selected row landed. A row with `lit` marks only its first lines. */
 const pushSections = (content, { sections, selected, inner }) => {
   let selectedRange;
   for (const [heading, rows, note, tally] of sections) {
@@ -1057,7 +1140,8 @@ const pushSections = (content, { sections, selected, inner }) => {
     rows.forEach((item, index) => {
       const isSelected = Boolean(item.key) && item.key === selected?.key;
       if (isSelected) selectedRange = [content.length, content.length + item.lines.length];
-      content.push(...item.lines.map(value => (isSelected ? selectedRow(value, inner) : value)));
+      const lit = item.lit ?? item.lines.length;
+      content.push(...item.lines.map((value, at) => (isSelected && at < lit ? selectedRow(value, inner) : value)));
       // Rows of several lines would otherwise run together.
       if (item.lines.length > 1 && index < rows.length - 1) content.push('');
     });
@@ -1175,7 +1259,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const readings = new Map();
   let notingOn = null;
   let armedMerge = null;
-  let decisionId = null;
+  let decisionKey = null;
   let setupWaiting = false;
   let hiddenMessages = new Set(snapshot.presentation?.hiddenMessageIds ?? []);
   const messageKey = message => message.id ?? JSON.stringify(message);
@@ -1244,7 +1328,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const workVisible = () => Boolean(snapshot.work?.enabled);
   const invalidSchedules = () => (snapshot.runs ?? []).filter(run => run.state === 'invalid');
   const decisions = () => snapshot.decisions ?? [];
-  const views = () => ['conversation', 'reports', 'schedules', ...(decisions().length ? ['decisions'] : []), ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
+  const waitingCount = () => Object.values(snapshot.waiting ?? {}).reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0);
+  // The tab lists the questions on record and every other row the card counts.
+  const decisionCount = () => decisions().length + waitingCount();
+  const views = () => ['conversation', 'reports', 'schedules', ...(decisionCount() ? ['decisions'] : []), ...(workVisible() ? ['work'] : []), ...liveJobs().map(run => `job:${run.id}`)];
   const jobViews = () => [...liveJobs(), ...workRuns()].map(run => `job:${run.id}`);
   const images = options.images ?? null;
   const faceColumns = () => (images ? IMAGE_FACE_COLUMNS : FACE_COLUMNS);
@@ -1273,7 +1360,23 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const answerable = rows.find(entry => answerableRows.includes(entry.type));
     return rows.find(entry => entry.key === workKey) ?? answerable ?? rows[0] ?? null;
   };
-  const selectedDecision = () => decisions().find(({ id }) => id === decisionId) ?? decisions()[0] ?? null;
+  const currentDecisions = (inner = columns - 4, clock = now()) => decisionSections({ decisions: decisions(), waiting: snapshot.waiting, chosen: decisionKey, inner, clock });
+  const decisionRows = () => currentDecisions().sections.flatMap(([, entries]) => entries);
+  const selectedDecisionRow = () => {
+    const { sections, selectedKey } = currentDecisions();
+    return sections.flatMap(([, entries]) => entries).find(entry => entry.key === selectedKey) ?? null;
+  };
+  // The question on record behind the selected row, if it is one.
+  const selectedDecision = () => selectedDecisionRow()?.decision ?? null;
+  // Done's walk works in Decisions too: these say which list a row, a page or a note goes back to.
+  const inDecisions = () => view === 'decisions';
+  const listRows = () => (inDecisions() ? decisionRows() : workRows());
+  const listFocus = () => (inDecisions() ? 'decisions' : 'work');
+  const selectedListRow = () => (inDecisions() ? selectedDecisionRow() : selectedWorkRow());
+  const selectInList = rowKey => {
+    if (inDecisions()) decisionKey = rowKey;
+    else workKey = rowKey;
+  };
   const isJob = () => view.startsWith('job:');
   const followsTail = () => view === 'conversation' || isJob();
   const isReportListFocus = value => value === 'reports' || value === 'reportTabs';
@@ -1688,7 +1791,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       { name: 'conversation', label: 'Chat' },
       { name: 'reports', label: 'Reports', count: String(allReports().length) },
       { name: 'schedules', label: 'Routines', count: String(scheduleCount) },
-      ...(decisions().length ? [{ name: 'decisions', label: 'Decisions', count: String(decisions().length) }] : []),
+      ...(decisionCount() ? [{ name: 'decisions', label: 'Decisions', count: String(decisionCount()) }] : []),
       ...(workVisible() ? [{
         name: 'work',
         label: 'Work Mode',
@@ -1713,14 +1816,32 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   // An item that says done has no run left to review it.
   const pageKeys = entry => [...doneKeys(entry), ['d', 'diff'], ...(entry.gap === 'unlanded' ? [] : [['r', 'review']]), ['↑↓', 'scroll'], ['esc', 'back']];
+  // A row's keys are the same in Work and in Decisions. Each type is listed in only one of them.
+  const rowKeys = selected => ({
+    proposal: [['y', 'take'], ['1 2 3 4', 'level'], ['n', 'skip']],
+    project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
+    allowance: [['y', 'raise'], ['n', 'keep paused']],
+    run: [['enter', 'watch']],
+    ready: [...doneKeys(selected), ['enter', 'read']],
+    yours: [...doneKeys(selected), ['enter', 'read']],
+    elsewhere: [...doneKeys(selected), ['enter', 'read']],
+    unlanded: [...doneKeys(selected), ['enter', 'read']],
+    left: [['x', 'done']],
+    report: [['enter', 'read']],
+    queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
+  })[selected?.type] ?? [];
   const hintsFor = draft => {
     if (question?.rows) return [[`1-${question.choices.length}`, 'answer'], ['↑↓', 'choose'], ['esc', 'not now']];
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
-    if (view === 'work' && donePage) return pageKeys(donePage.entry);
+    if ((view === 'work' || view === 'decisions') && donePage) return pageKeys(donePage.entry);
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
-    if (focus === 'decisions') return [[`1-${selectedDecision()?.choices.length ?? 2}`, 'answer'], ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
+    if (focus === 'decisions') {
+      const selected = selectedDecisionRow();
+      const answer = selected?.choices ? [[`1-${selected.choices.length}`, 'answer']] : [];
+      return [...answer, ...rowKeys(selected), ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
+    }
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
     const leaveList = ['esc', reportFilter.getValue() ? 'clear filter' : 'chat'];
@@ -1728,21 +1849,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['/', 'filter'], ['←→', 'views'], leaveList];
     if (focus === 'detail') return [['r m', 'reply'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
-    if (focus === 'work') {
-      const selected = selectedWorkRow();
-      const rowKeys = {
-        proposal: [['y', 'take'], ['1 2 3 4', 'level'], ['n', 'skip']],
-        project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
-        allowance: [['y', 'raise'], ['n', 'keep paused']],
-        run: [['enter', 'watch']],
-        ready: [...doneKeys(selected), ['enter', 'read']],
-        yours: [...doneKeys(selected), ['enter', 'read']],
-        elsewhere: [...doneKeys(selected), ['enter', 'read']],
-        unlanded: [...doneKeys(selected), ['enter', 'read']],
-        queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
-      };
-      return [...rowKeys[selected?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
-    }
+    if (focus === 'work') return [...rowKeys(selectedWorkRow()), ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
     if (attachments.length) return [['enter', 'send'], ['esc', 'drop image'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
@@ -1924,8 +2031,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }),
       };
     }
-    if (view === 'decisions') return decisionLines({ decisions: decisions(), selected: selectedDecision(), inner, clock });
-    if (view === 'work' && donePage) return doneReading({ ...donePage, inner });
+    if ((view === 'work' || view === 'decisions') && donePage) return doneReading({ ...donePage, inner });
+    if (view === 'decisions') return decisionLines({ ...currentDecisions(inner, clock), inner });
     if (view === 'work' && workTab === 'done') {
       const sections = currentWorkSections(inner, clock, frame);
       return doneLines({ sections, selected: focus === 'workTabs' ? null : selectedWorkRow(sections), inner });
@@ -2002,7 +2109,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const readingOf = ({ slug, id }) => readings.get(`${slug}:${id}`) ?? { read: 'none', readMs: 0 };
   const noteReading = (selected, change) => readings.set(`${selected.slug}:${selected.id}`, { ...readingOf(selected), ...change });
   const readRow = selected => {
-    const entry = rowFor(selected);
+    const entry = selected.entry ?? rowFor(selected);
     if (!entry) return;
     noteReading(selected, { read: readingOf(selected).read === 'diff' ? 'diff' : 'page' });
     donePage = { entry, description: null, opened: now() };
@@ -2020,23 +2127,23 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       noteReading({ slug, id }, { readMs: readingOf({ slug, id }).readMs + now() - opened });
     }
     donePage = null;
-    focus = 'work';
+    focus = listFocus();
     scroll = 0;
   };
   // Whatever was answered leaves the list, so the walk carries straight on to the next one.
   const walkOn = selected => {
-    const rows = workRows();
+    const rows = listRows();
     const index = rows.findIndex(entry => entry.key === selected.key);
     const next = rows[index + 1] ?? rows[index - 1];
     const wasReading = Boolean(donePage);
-    workKey = next?.key ?? null;
+    selectInList(next?.key ?? null);
     leaveReading();
     if (wasReading && next) readRow(next);
   };
   const selectedDone = () => {
-    if (!donePage) return selectedWorkRow();
+    if (!donePage) return selectedListRow();
     const { entry } = donePage;
-    return workRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? { key: null, slug: entry.slug, id: entry.item, title: entry.title };
+    return listRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? { key: null, slug: entry.slug, id: entry.item, title: entry.title };
   };
   const mergeRow = selected => {
     if (selected.risky && armedMerge !== selected.key) {
@@ -2058,7 +2165,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const selected = notingOn;
     notingOn = null;
     editor.setText('');
-    focus = 'work';
+    focus = listFocus();
     walkOn(selected);
     runWorkAction('ask', slug, id, text);
   };
@@ -2120,10 +2227,26 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   // A row that was answered leaves the list, so the next proposal is ready for the next key.
   const answerProposal = (selected, ...request) => {
-    const proposals = workRows().filter(entry => entry.type === 'proposal');
+    const proposals = listRows().filter(entry => entry.type === 'proposal');
     const index = proposals.findIndex(entry => entry.key === selected.key);
-    workKey = (proposals[index + 1] ?? proposals[index - 1])?.key ?? null;
+    selectInList((proposals[index + 1] ?? proposals[index - 1])?.key ?? null);
     runWorkAction(...request);
+  };
+  // What a proposal, a token request, finished work or a step only the user can take does with a key, in Work and in Decisions alike.
+  const actOnRow = (selected, data) => {
+    const level = { 1: 'critical', 2: 'important', 3: 'casual' }[data];
+    if (selected?.type === 'proposal' && data === 'y') answerProposal(selected, 'choose', selected.slug);
+    else if (selected?.type === 'proposal' && data === '4') maxTwice(selected, () => answerProposal(selected, 'choose', selected.slug, 'max'));
+    else if (selected?.type === 'proposal' && level) answerProposal(selected, 'choose', selected.slug, level);
+    else if (selected?.type === 'proposal' && data === 'n') answerProposal(selected, 'skip', selected.slug);
+    else if (selected?.type === 'allowance' && data === 'y') runWorkAction('allow');
+    else if (selected?.type === 'allowance' && data === 'n') runWorkAction('keep');
+    else if (doneRowTypes.includes(selected?.type) && key(data, 'enter')) readRow(selected);
+    else if (selected?.type === 'ready' && handleDoneRowKey(selected, data)) return true;
+    else if (selected?.type === 'unlanded' && handleUnlandedKey(selected, data)) return true;
+    else if (['yours', 'elsewhere', 'left'].includes(selected?.type) && data === 'x') closeRow(selected);
+    else return false;
+    return true;
   };
   const handleWorkKey = data => {
     if (key(data, 'up') || key(data, 'down')) {
@@ -2133,30 +2256,20 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const selected = selectedWorkRow();
     const level = { 1: 'critical', 2: 'important', 3: 'casual' }[data];
     const enter = key(data, 'enter');
-    if (selected?.type === 'proposal' && data === 'y') answerProposal(selected, 'choose', selected.slug);
-    else if (selected?.type === 'proposal' && data === '4') maxTwice(selected, () => answerProposal(selected, 'choose', selected.slug, 'max'));
-    else if (selected?.type === 'proposal' && level) answerProposal(selected, 'choose', selected.slug, level);
-    else if (selected?.type === 'proposal' && data === 'n') answerProposal(selected, 'skip', selected.slug);
-    else if (selected?.type === 'project' && data === '4') maxTwice(selected, () => runWorkAction('level', selected.slug, 'max'));
+    if (selected?.type === 'project' && data === '4') maxTwice(selected, () => runWorkAction('level', selected.slug, 'max'));
     else if (selected?.type === 'project' && level) runWorkAction('level', selected.slug, level);
     else if (selected?.type === 'project' && data === 'd') dropProjectTwice(selected);
     else if (selected?.type === 'project' && data === 'p') runWorkAction('priority', selected.slug, nextIn(grades, selected.priority));
     else if (selected?.type === 'project' && data === 'r') runWorkAction('prs', selected.slug, nextIn(prModes, selected.prMode ?? 'off'));
-    else if (selected?.type === 'allowance' && data === 'y') runWorkAction('allow');
-    else if (selected?.type === 'allowance' && data === 'n') runWorkAction('keep');
     else if (selected?.type === 'queue' && enter && !selected.skipped) runWorkAction('run', selected.queueKey);
     else if (selected?.type === 'queue' && data === 's') runWorkAction(selected.skipped ? 'back' : 'later', selected.queueKey);
     else if (selected?.type === 'queue' && selected.id && data === 'p') runWorkAction('grade', selected.slug, selected.id, nextIn(grades, selected.grade));
-    else if (doneRowTypes.includes(selected?.type) && enter) readRow(selected);
-    else if (selected?.type === 'ready' && handleDoneRowKey(selected, data)) return true;
-    else if (selected?.type === 'unlanded' && handleUnlandedKey(selected, data)) return true;
-    else if (['yours', 'elsewhere'].includes(selected?.type) && data === 'x') closeRow(selected);
     else if (selected?.type === 'queue' && selected.id && data === 'x') runWorkAction('done', selected.slug, selected.id);
-    else if (selected?.type === 'run' && key(data, 'enter')) {
+    else if (selected?.type === 'run' && enter) {
       view = `job:${selected.id}`;
       focus = 'job';
       scroll = 0;
-    } else return false;
+    } else return actOnRow(selected, data);
     return true;
   };
 
@@ -2191,19 +2304,23 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   // Mid-sentence, mid-note, already walking what the card would offer, or on a terminal too small to show it.
   const occupied = () => Boolean(question || editor.getExpandedText() || notingOn || askingWorkFolder || referencedReport
     || view === 'decisions' || (view === 'work' && workTab === 'done') || columns < 60 || rows < 18);
+  // A number answers a question, Enter opens a report, and finished work takes the keys it takes in Done.
   const handleDecisionKey = data => {
-    const list = decisions();
-    const selected = selectedDecision();
-    const choice = selected?.choices[Number(data) - 1];
+    const list = decisionRows();
+    const selected = selectedDecisionRow();
+    const index = list.findIndex(entry => entry.key === selected?.key);
+    const choice = selected?.choices?.[Number(data) - 1];
     if (key(data, 'up') || key(data, 'down')) {
-      const index = list.indexOf(selected) + (key(data, 'down') ? 1 : -1);
-      decisionId = list[Math.max(0, Math.min(list.length - 1, index))]?.id ?? null;
+      decisionKey = list[Math.max(0, Math.min(list.length - 1, index + (key(data, 'down') ? 1 : -1)))]?.key ?? null;
     } else if (choice) {
-      decisionId = (list[list.indexOf(selected) + 1] ?? list[list.indexOf(selected) - 1])?.id ?? null;
-      if (onDecision?.id === selected.id) record('decision_read', { id: selected.id, ms: now() - onDecision.since });
-      runWorkAction('decide', selected.id, choice.value);
+      decisionKey = (list[index + 1] ?? list[index - 1])?.key ?? null;
+      const asked = selected.decision;
+      if (asked && onDecision?.id === asked.id) record('decision_read', { id: asked.id, ms: now() - onDecision.since });
+      runWorkAction(...selected.answer(choice.value));
+    } else if (selected?.report && key(data, 'enter')) {
+      showReport(selected.report);
     } else {
-      return false;
+      return actOnRow(selected, data);
     }
     return true;
   };
@@ -2288,7 +2405,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       settleOutbox();
       for (const id of next.presentation?.hiddenMessageIds ?? []) hiddenMessages.add(id);
       const target = question?.previous ?? { view, focus, scroll };
-      if ((target.view === 'work' && !workVisible()) || (target.view === 'decisions' && !decisions().length)) {
+      if ((target.view === 'work' && !workVisible()) || (target.view === 'decisions' && !decisionCount())) {
         target.view = 'conversation';
         target.focus = 'composer';
       }
@@ -2322,11 +2439,20 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       documents.clear();
       chatRows.clear();
     },
-    /** `row` names one to open straight on its page, with `slug` and `item`. */
+    /** `row` names one to open straight on its page, with `slug` and `item`. Work mode off hides Done, and Decisions lists the same rows, so the walk happens there. */
     showDone(row) {
-      openView('work');
-      showWorkTab('done');
-      if (row) readRow({ slug: row.slug, id: row.item });
+      if (workVisible()) {
+        openView('work');
+        showWorkTab('done');
+        if (row) readRow({ slug: row.slug, id: row.item });
+      } else if (decisionCount()) {
+        openView('decisions');
+        const found = row && decisionRows().find(entry => entry.entry && entry.slug === row.slug && entry.id === row.item);
+        if (found) {
+          decisionKey = found.key;
+          readRow(found);
+        }
+      }
       changed();
     },
     /** Where the answer to a card leads. */
@@ -2510,7 +2636,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           if (notingOn) {
             notingOn = null;
             editor.setText('');
-            focus = 'work';
+            focus = listFocus();
           }
         } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
           // Tab finished the command.
@@ -2575,7 +2701,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const maximum = Math.max(0, content.length - available);
       if (!question || followsTail()) scroll = Math.min(scroll, maximum);
       const displayScroll = Math.min(scroll, maximum);
-      const listMode = showsReportList() || view === 'work';
+      const listMode = showsReportList() || view === 'work' || view === 'decisions';
       if (listMode) {
         const [start, end] = selectedRange ?? ranges[selectedIndex()] ?? [0, 0];
         if (start < listTop) listTop = start;
