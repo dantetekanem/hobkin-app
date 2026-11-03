@@ -28,8 +28,7 @@ Read, as JSON, with nothing running:
   pr, diff <project> <item>            a local PR; diff opens it in pi-coder
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
-  attention                            what is left for the user, and the answer
-  offers                               what can land on one key, and why not
+  attention, offers                    what is left for the user; what can land
 Change, printing ok and message. Project: name, slug or path. Item: id start.
   start [folder]                       same as on, and ends any pause
   stop                                 same as off: agents finish, none start
@@ -51,8 +50,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   priority <project> <P0..P3>          how often it runs, and its queue place
   prs <project> <off|draft|published>  local PR, draft PR or published PR
   auto, reviews [on|off]               pick by itself; review what finishes
-  harness <pi|claude|codex>            which agent works on projects
-  agents <1-${MAX_AGENTS}>                         how many run at once
+  harness <pi|claude|codex>, agents <1-${MAX_AGENTS}>  which agent works, how many at once
   tokens <number>                      the daily limit, from now on
   allow [number|no]                    answer a request, for today only
   reset                                forget what it found; it must be off
