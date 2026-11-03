@@ -808,7 +808,8 @@ export class WorkDirector {
       if (entry.handedOff) return null;
       const { tokens, cached } = paneKind === 'claude' ? claudeSessionUsage(harnessId, this.claudeProjects) : sessionUsage(sessionFile);
       recordEvent(this.root, 'run_tokens', { id, tokens, cached });
-      const facts = { slug, lane, kind, ...(level ? { level } : {}) };
+      // When it began goes with what it spent, so the forecast can time the next run like it.
+      const facts = { slug, lane, kind, startedAt, ...(level ? { level } : {}) };
       // Nothing can be read from a pane with no readable usage, so its run counts as what one like it costs, marked so nothing learns from it.
       // A run with no `cwd` never got as far as a place to work, so it spent nothing, however often it comes round.
       // It still leaves a mark, or its project stays left alone and takes every start. With no `level` it is no max run.

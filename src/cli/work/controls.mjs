@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
+import { forecastWork } from './forecast.mjs';
 import { offeredIn } from './land-offer.mjs';
 import { userTrouble } from './launches.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
@@ -44,8 +45,10 @@ function assertNotRunning(root, { slug }, { id, title }) {
 
 export function startMode(root, requested) {
   const { enabled, folder } = startWork(root, requested);
-  const next = ownerView(root).owner ? 'The owner picks it up on its next tick.' : NEEDS_AN_OWNER;
-  return reply(`Work mode is on, starting from ${shortPath(folder)}. ${next}`, { enabled, folder });
+  const view = ownerView(root);
+  const next = view.owner ? 'The owner picks it up on its next tick.' : NEEDS_AN_OWNER;
+  const { line } = forecastWork(root, planWork(root, view), view);
+  return reply(`Work mode is on, starting from ${shortPath(folder)}. ${next} ${line}`, { enabled, folder });
 }
 
 export function stopMode(root) {

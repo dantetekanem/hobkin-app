@@ -162,7 +162,7 @@ function studyEntry(project, unlocked) {
 }
 
 /** The lens that is due next on a project. New commits bring it forward and move it up, and start nothing by themselves. */
-function lensEntry(project, state, now, triggered) {
+export function lensEntry(project, state, now, triggered) {
   const { slug, level } = project;
   const every = lookEveryHours(project) * HOUR_MS / (state.newCommits ? 2 : 1);
   const elapsed = elapsedSince(state.lastLensAt, now);
@@ -186,7 +186,7 @@ function lensEntry(project, state, now, triggered) {
   };
 }
 
-function ideasEntry(project, state, { root, now, budget }) {
+export function ideasEntry(project, state, { root, now, budget }) {
   const { slug, level } = project;
   const every = lookEveryHours(project) * LOOKS_PER_IDEAS * HOUR_MS;
   if (elapsedSince(state.lastIdeasAt, now) < every || !ideasWanted(root, slug, budget)) return null;
@@ -208,7 +208,7 @@ function ideasEntry(project, state, { root, now, budget }) {
  * One look however many changes a project has out, and none under signal 2, because there would be nothing for it to read.
  * It starts nothing with the mode off, and what is due then goes ahead when the mode comes back. A trigger makes it due while anything is open.
  */
-function watchEntry(project, state, { root, now }, triggered) {
+export function watchEntry(project, state, { root, now }, triggered) {
   const { slug, level } = project;
   if (!canWatch(readSignals(root, slug))) return null;
   const launches = readLaunches(root, slug);
@@ -230,7 +230,7 @@ function watchEntry(project, state, { root, now }, triggered) {
 }
 
 /** Once on a studied project and again each month, because what a project shows changes as it does. A trigger makes it due. */
-function signalsEntry(project, state, { root, now }, triggered) {
+export function signalsEntry(project, state, { root, now }, triggered) {
   const { slug, level } = project;
   const signals = readSignals(root, slug);
   if (!triggered && !signalsDue(signals, state.lastSignalsAt, now)) return null;
@@ -277,7 +277,7 @@ function projectEntries(context, project) {
   return entries.map(entry => ({ ...entry, paused, unstudied: unstudied && entry.kind === 'item' }));
 }
 
-function discoveryEntry({ root, mode, now, running }) {
+export function discoveryEntry({ root, mode, now, running }) {
   if (!mode.folder || running.some(run => run.lane === 'discover')) return [];
   // A trigger is the user's own word, so it can still look again at a folder that is done.
   if (folderSearched(root, mode.folder) && !mode.queueNext.includes('discover')) return [];
@@ -318,7 +318,7 @@ function maxWait({ mode, now, running, budget, panes }) {
 }
 
 /** Only a row that can start holds another back. A skipped one stays where it is, and with auto-pick off only a pick ever starts, so waiting on anything else never ends. */
-const canStart = ({ autoPick }, row) => !row.skipped && !row.held && (autoPick || row.picked);
+export const canStart = ({ autoPick }, row) => !row.skipped && !row.held && (autoPick || row.picked);
 
 const needsItsStudy = (mode, entry, entries) => entry.unstudied && !entry.picked
   && entries.some(other => other.slug === entry.slug && other.kind === 'study' && canStart(mode, other));
@@ -328,10 +328,18 @@ const behindItsStartedItem = (mode, entry, entries) => entry.kind === 'item' && 
   && entries.some(other => other.slug === entry.slug && other.item?.state === 'doing' && canStart(mode, other));
 
 // With starts this quick, a row that fails every time would spend tokens on nothing all day. It waits longer after each try while everything else goes past it, and it always comes round.
-function retryWait({ item, picked }, now) {
-  if (!item?.attempts || picked) return null;
-  const at = Date.parse(item.updatedAt ?? item.at) + Math.min(item.attempts, MOST_TRIES_COUNTED) * WAIT_PER_TRY_MS;
+export const retryAt = ({ item, picked }) => (!item?.attempts || picked ? null
+  : Date.parse(item.updatedAt ?? item.at) + Math.min(item.attempts, MOST_TRIES_COUNTED) * WAIT_PER_TRY_MS);
+
+function retryWait(entry, now) {
+  const at = retryAt(entry);
   return at > now ? `tries again at ${lookTime(at, now)}` : null;
+}
+
+/** What the runs already going on a project hold back. Waiting keeps a run in the project's own folder. Small work is soon done, so it waits, and the rest takes a worktree. */
+export function waitsOnItsProject(entry, here) {
+  if (here.some(run => run.lane === entry.lane)) return entry.lane === 'do' ? 'one item at a time here' : 'a look is running here';
+  return here.length > 0 && entry.effort === 'small' && !entry.urgent && !entry.picked ? 'another run here' : null;
 }
 
 /** Why this entry cannot start now, leaving out what stops the whole plan and the budget. */
@@ -344,9 +352,8 @@ function ownWait(entry, entries, context) {
   const retry = retryWait(entry, now);
   if (retry) return retry;
   if (needsItsStudy(mode, entry, entries)) return 'needs its study';
-  if (here.some(run => run.lane === entry.lane)) return entry.lane === 'do' ? 'one item at a time here' : 'a look is running here';
-  // Waiting keeps a run in the project's own folder. Small work is soon done, so it waits, and the rest takes a worktree.
-  if (here.length && entry.effort === 'small' && !entry.urgent && !entry.picked) return 'another run here';
+  const busy = waitsOnItsProject(entry, here);
+  if (busy) return busy;
   if (behindItsStartedItem(mode, entry, entries)) return 'after its started item';
   return entry.level === 'max' ? maxWait(context) : null;
 }
@@ -381,7 +388,7 @@ function inQueueOrder(mode, entries, isLeftAlone) {
 export const rowWait = ({ waiting }, free) => waiting ?? (free > 0 ? null : 'a free worker');
 
 // Urgent work may pass the hour's share. A look is routine, however high it ranks.
-const skipsTheHour = entry => entry.grade === 'P0' && entry.kind !== 'look';
+export const skipsTheHour = entry => entry.grade === 'P0' && entry.kind !== 'look';
 
 function budgetWait(entry, budget) {
   if (!fitsDay(budget, entry.estimate.fresh)) return 'over today\'s budget';
@@ -420,7 +427,7 @@ function budgetPause(entries, budget, now) {
 }
 
 /** The gap lets a run show what it costs before the next begins. With nothing running that is already known, and a long queue cannot afford to sit idle. */
-function startGap({ startGapMs }, ready, running) {
+export function startGap({ startGapMs }, ready, running) {
   const share = running.length ? startGapMs / Math.ceil(ready / ROWS_PER_GAP_STEP) : 0;
   return Math.min(startGapMs, Math.max(SHORTEST_START_GAP_MS, share));
 }

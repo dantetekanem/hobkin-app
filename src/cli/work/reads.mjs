@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { learningEnabled } from '../config.mjs';
 import { lookTime } from './chat.mjs';
+import { forecastWork } from './forecast.mjs';
 import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
@@ -76,6 +77,7 @@ export function statusView(root) {
       hourShare: Math.round(budget.hourShare),
     },
     next: nextAction(plan, view.owner),
+    forecast: forecastWork(root, plan, view),
   };
 }
 

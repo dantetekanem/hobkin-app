@@ -1076,7 +1076,7 @@ const workLines = ({ work, runs, sections, selected, step, inner, clock, frame }
     .filter(text => stripTerminalSequences(text)).join(muted(' · '));
   const { now, next, scheduled } = workSituation({ work, runs, clock });
   const where = work.folder ? `, starting from ${shortPath(work.folder)}` : '';
-  const facts = [budgetLine(work), subscriptionLine(work), maxLine(work), watchLine(work, clock), startLine(work)].filter(Boolean);
+  const facts = [work.forecast?.line, budgetLine(work), subscriptionLine(work), maxLine(work), watchLine(work, clock), startLine(work)].filter(Boolean);
   const content = [
     row(muted(bold('WORK MODE')), status, inner),
     '',
@@ -1377,7 +1377,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     localMessages.push({
       id: `work:${randomUUID()}`,
       role: 'assistant',
-      content: enabled ? `Work mode on. ${happening} ${next || scheduled}` : `Work mode off. ${stoppedLine(workRuns().length)}`,
+      content: enabled ? [`Work mode on. ${happening}`, next || scheduled, snapshot.work?.forecast?.line].filter(Boolean).join(' ') : `Work mode off. ${stoppedLine(workRuns().length)}`,
       at: new Date(now()).toISOString(),
     });
   };
