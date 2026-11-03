@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Offer a menu of routine ideas in `/setup` when the user is not sure what to check. Its 14 ideas cover the day, the code, the week and the machine, from a morning brief and meeting follow-ups to an unblocker for stuck pull requests and a weekly wins list. Each says what it needs, and every one reads and reports, and sends, posts or pushes nothing unless the user names that action for it.
 - Keep no report when a scheduled check finds nothing new. Its run still counts for timing, holds and report attention, and its line in `checks/<id>/log.md` stays as the record, but nothing is saved or listed in Reports. A run the user asked for still keeps its report.
 - Keep score. The weekly review and `hobkin telemetry` show what hobkin brought, what the user did with it, how many answers came in under 3 seconds, how many merges had the page or diff opened, and what hobkin settled alone: recalled answers, checks with nothing new, watches closed clean and fixes filed on itself. All of it is counted from events and `landed` records, and with no events yet it says so.
 - Look after itself. Once a day, with no model and mode on or off, hobkin reads its own event stream. Errors on screen from one place, or runs failing in one way, 3 or more times in a day file a `fix` on hobkin's own project, with the counts, the events to look at and how to prove the fix. A repeat files nothing, nothing starts by itself and shipping first applies. If hobkin is not a chosen project, Chat gets one quiet line for each class instead, once.
