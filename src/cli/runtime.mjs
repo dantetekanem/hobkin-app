@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import lockfile from 'proper-lockfile';
@@ -9,12 +9,15 @@ import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite
 import { compactionDue } from './compaction.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
+import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 
 export const MAIN_BUSY = 'Main conversation is busy.';
 export const MAX_MESSAGE_BYTES = 65536;
+/** A chat past `MAX_SESSION_BYTES` will not reopen, and only images can grow one fast. This much stays free for words. */
+export const IMAGE_ROOM_BYTES = 32 * 1024 * 1024;
 const context = BACKGROUND_CONTEXT;
 const RuntimeDoc = defineDoc({
   kind: 'companion.v2.runtime',
@@ -245,8 +248,10 @@ export class HobkinRuntime {
   }
   /** Pi swaps an image for a placeholder on a model that cannot see one, so the user has to hear it here. A model that does not say is taken at its word. */
   get imageRefusal() {
-    const { provider, id, input } = this.main?.model ?? {};
-    return input && !input.includes('image') ? `${provider}/${id} cannot see images.` : null;
+    const { model, sessionFile } = this.main ?? {};
+    if (model?.input && !model.input.includes('image')) return `${model.provider}/${model.id} cannot see images.`;
+    const size = sessionFile ? statSync(sessionFile, { throwIfNoEntry: false })?.size ?? 0 : 0;
+    return size >= MAX_SESSION_BYTES - IMAGE_ROOM_BYTES ? 'This chat is full of images. /reset starts a fresh one.' : null;
   }
 
   /** At the force level new work waits for the chat, and carries on by itself once there is room. A chat that has stopped holds nothing up. */

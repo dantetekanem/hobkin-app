@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize, atomicJson, loadConfig, setLearning } from '../src/cli/config.mjs';
 import { HobkinApplication, readLocalView } from '../src/cli/application.mjs';
-import { HobkinRuntime, MAIN_BUSY } from '../src/cli/runtime.mjs';
+import { HobkinRuntime, IMAGE_ROOM_BYTES, MAIN_BUSY } from '../src/cli/runtime.mjs';
+import { MAX_SESSION_BYTES } from '../src/cli/migration/ownership.mjs';
 import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
@@ -1314,6 +1315,30 @@ test('a model that cannot see images refuses them at the paste and at the send',
   assert.deepEqual(await app.pasteImage(), { notice: 'fixture/text cannot see images.', tone: 'warning' });
   await assert.rejects(app.send('look', null, [image]), /fixture\/text cannot see images/);
   assert.equal(existsSync(image.file), true);
+});
+
+test('a chat close to its size limit refuses images and says how to go on, and still takes words', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ clipboard: clipboardWith(png(10, 10)) });
+  t.after(() => app.close());
+  const full = { notice: 'This chat is full of images. /reset starts a fresh one.', tone: 'warning' };
+  const { image } = await app.pasteImage();
+  const { sessionFile } = app.runtime.main;
+
+  truncateSync(sessionFile, MAX_SESSION_BYTES - IMAGE_ROOM_BYTES - 1);
+  assert.ok((await app.pasteImage()).image, 'one byte short of the line, images still go');
+
+  truncateSync(sessionFile, MAX_SESSION_BYTES - IMAGE_ROOM_BYTES);
+  assert.deepEqual(await app.pasteImage(), full);
+  await assert.rejects(app.send('look', null, [image]), /full of images/);
+  assert.equal(existsSync(image.file), true, 'what was attached already waits for a chat that can take it');
+
+  await app.send('just words');
+  await app.runtime.mainWork;
+  assert.equal(app.runtime.messages().at(-1).content[0].text, 'Reply: just words');
+
+  await app.reset();
+  assert.ok((await app.pasteImage()).image, '/reset does what the message says');
 });
 
 test('images nothing is waiting for go when hobkin opens and when it closes', async t => {

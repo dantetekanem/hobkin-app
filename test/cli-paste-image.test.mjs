@@ -43,6 +43,19 @@ test('a big image is shrunk to fit, and says so', async t => {
   assert.equal(readFileSync(image.file).readUInt32BE(16), 1568);
 });
 
+test('an image too heavy to keep as it is goes under 1 MiB of base64, at any cost in quality', async t => {
+  let seed = 1;
+  const noise = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return [seed & 255, (seed >> 8) & 255, (seed >> 16) & 255, 255];
+  };
+  const { pasted } = fixture(t, { getImage: async () => png(700, 700, noise) });
+
+  const { image } = await pasted.paste();
+
+  assert.ok(readFileSync(image.file, 'base64').length < 1024 * 1024);
+});
+
 test('an image over the paste limit is refused and leaves nothing behind', async t => {
   const { root, pasted } = fixture(t, { getImage: async () => Buffer.alloc(MAX_PASTE_BYTES + 1) });
 
