@@ -138,14 +138,15 @@ export function realFolder(path) {
 
 /**
  * Discovery searches only where the user said to start, so the first start needs a folder.
- * The daily clock is for looking again at projects that exist, so with nothing to show a start looks now, unless the look at this folder already finished.
+ * The daily clock is for looking again at projects that exist, so with nothing to show a start makes the look due now, unless the look at this folder already finished.
+ * Turning it on starts nothing by itself: the user sees the queue and picks what runs first, so auto-pick goes off. `autoPick` is `start --auto`, the old start.
  */
-export function startWork(root, requested) {
+export function startWork(root, requested, { autoPick = false } = {}) {
   const { folder: saved } = readMode(root);
   const folder = requested ? realFolder(requested) : saved;
   if (!folder) throw Error('Say which folder to start from.');
   const looksNow = requested || !hasWorkToShow(root);
-  return writeMode(root, { enabled: true, folder, pausedAt: null, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
+  return writeMode(root, { enabled: true, folder, pausedAt: null, autoPick, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
 }
 
 export function setHarness(root, harness) {
@@ -451,12 +452,19 @@ export function updateItem(root, slug, id, change, now = Date.now()) {
   return readItems(root, slug).find(existing => existing.id === id);
 }
 
-/** An item goes to the front of the queue with its count of tries back at zero. One already started stays started, so nothing else takes its tree. */
+/** A review or a fix on work already finished. It brings that work closer to landing, so it goes ahead of making more. */
+export const movesFinishedWork = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
+
+/**
+ * An item goes back in the queue with its count of tries back at zero. One already started stays started, so nothing else takes its tree.
+ * A pick jumps the queue and the gap between starts, so a plain retry only goes back in line, for auto-pick or the user to start. A review or a fix for finished work still goes first by itself.
+ */
 export function retryItem(root, slug, id, now = Date.now()) {
   const started = readItems(root, slug).some(item => item.id === id && item.state === 'doing');
   const fresh = { attempts: 0, lastError: null };
-  updateItem(root, slug, id, started ? fresh : { ...fresh, state: 'open' }, now);
-  return pickNext(root, `item:${slug}:${id}`);
+  const retried = updateItem(root, slug, id, started ? fresh : { ...fresh, state: 'open' }, now);
+  const key = `item:${slug}:${id}`;
+  return movesFinishedWork(retried) ? pickNext(root, key) : putBackInQueue(root, key);
 }
 
 /** What became of a change after it landed, one record for each merged item. A CLI call and the owner can write at once, as they can on items. */

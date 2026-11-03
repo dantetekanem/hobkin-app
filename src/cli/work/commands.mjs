@@ -5,18 +5,21 @@ import {
   addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
-import { forecastEachMinute } from './forecast.mjs';
+import { shortPath } from './chat.mjs';
+import { forecastEachMinute, forecastWork } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
 import { findProject, nameOf } from './names.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
-import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
+import {
+  assertState, attentionView, closingItems, itemCounts, itemsView, landingList, NEEDS_AN_OWNER, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView,
+} from './reads.mjs';
 import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
   agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
-  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, tokenLabel, updateItem, writeMode,
+  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
@@ -35,7 +38,7 @@ Read, as JSON, with nothing running:
   attention, offers                    what is left for the user; what can land
   watching, signals <project>          what landed; what a project can show
 Change, printing ok and message. Project: name, slug or path. Item: id start.
-  start [folder], stop                 on and end any pause; off: agents finish
+  start [folder] [--auto], stop       on, only picks run; off: agents finish
   pause, resume [project]              agents finish, none start; resume ends it
   trigger <project> [look|study|item]  run it next, inside limits (was run)
   cancel <project|run id|item>         ask the owner to cancel running work
@@ -44,7 +47,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   add item <project> <title> [--brief text]  add work by hand
   skip <project> [look|study|item]     skip a proposal or a row (was later)
   back <project> <look|study|item>     put a skipped row back
-  retry, ask <project> <item> [note]    run it first; ask carries your note
+  retry, ask <project> <item> [note]    tries reset; ask runs your note first
   done, merge, decline <project> <item>  close; merge locally; or say no
   trust <pattern> <on|off>             the user's switch for a pattern's offers
   trouble <project> <item> [severe] [why]  a merge went wrong: files the fix
@@ -117,9 +120,19 @@ function watchSummary(root) {
   return { at, added: added.length, changed: changed.length, removed: removed.length, proposed: proposed.length };
 }
 
-/** Starting with a pile says so with the real count, and the first two are filed at once, so a start never floods agents. */
-function startWithPile(root, folder) {
-  const started = startMode(root, folder);
+/** `start --auto` is the start work mode used to have, where the top of the queue starts by itself, so its reply counts what that brings. */
+function startWithAutoPick(root, requested) {
+  const { enabled, folder } = startWork(root, requested, { autoPick: true });
+  const view = ownerView(root);
+  const next = view.owner ? 'The owner picks it up on its next tick.' : NEEDS_AN_OWNER;
+  const { line } = forecastWork(root, planWork(root, view), view);
+  return reply(`Work mode is on, starting from ${shortPath(folder)}, and the top of the queue starts by itself. ${next} ${line}`, { enabled, folder });
+}
+
+/** Starting with a pile says so with the real count, and the first two are filed at once, so a start never floods agents. `--auto` goes before or after the folder. */
+function startWithPile(root, args) {
+  const folder = args.find(arg => arg !== '--auto');
+  const started = args.includes('--auto') ? startWithAutoPick(root, folder) : startMode(root, folder);
   const line = fileFirstPair(root);
   return line ? { ...started, message: `${started.message} ${line}` } : started;
 }
@@ -251,7 +264,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'trust': return trustPattern(root, ...args);
     case 'watching': return watchingView(root);
     case 'start':
-    case 'on': return startWithPile(root, args[0]);
+    case 'on': return startWithPile(root, args);
     case 'stop':
     case 'off': return stopMode(root);
     case 'pause': return pauseWork(root, args[0]);

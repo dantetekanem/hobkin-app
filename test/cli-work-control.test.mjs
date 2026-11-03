@@ -1037,7 +1037,7 @@ test('the old queue names still work, keys and all', async t => {
   assert.deepEqual(readMode(h.root).queueNext, ['discover']);
 });
 
-test('retry puts an open, started or old stuck item at the front with its tries at zero, by the start of its id', async t => {
+test('retry puts an open, started or old stuck item back in the queue with its tries at zero, by the start of its id', async t => {
   const h = owned(t);
   studied(h, 'api');
   const tried = fileItem(h.root, 'api', item('Tried'), h.clock);
@@ -1054,7 +1054,7 @@ test('retry puts an open, started or old stuck item at the front with its tries 
     ['Stuck one', 'open', 0, null],
     ['Started', 'doing', 0, null],
   ]);
-  assert.deepEqual(readMode(h.root).queueNext, [tried, stuck, started].map(({ id }) => `item:api:${id}`));
+  assert.deepEqual(readMode(h.root).queueNext, []);
 });
 
 test('retry sends a finished branch back to open, with the branch kept', async t => {
@@ -1066,7 +1066,7 @@ test('retry sends a finished branch back to open, with the branch kept', async t
   await success(h.root, 'retry', 'api', finished.id);
 
   assert.deepEqual(readItems(h.root, 'api').map(({ state, branch, attempts }) => [state, branch, attempts]), [['open', 'hobkin/finished', 0]]);
-  assert.deepEqual(readMode(h.root).queueNext, [`item:api:${finished.id}`]);
+  assert.deepEqual(readMode(h.root).queueNext, []);
 });
 
 test('retry takes a cancelled item off the end of the queue', async t => {
@@ -1077,7 +1077,7 @@ test('retry takes a cancelled item off the end of the queue', async t => {
 
   await success(h.root, 'retry', 'api', filed.id);
 
-  assert.deepEqual([readMode(h.root).queueNext, readMode(h.root).queueSkipped], [[`item:api:${filed.id}`], []]);
+  assert.deepEqual([readMode(h.root).queueNext, readMode(h.root).queueSkipped], [[], []]);
 });
 
 test('retry refuses what is finished, and what is running now', async t => {

@@ -8,7 +8,8 @@ import { readyItems } from './reads.mjs';
 import { shipFirst } from './ship.mjs';
 import { overReserve, readSubscription, usageWindows } from './usage.mjs';
 import {
-  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, paths, priorityOf, readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
+  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf,
+  readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
 
@@ -60,7 +61,6 @@ const impactOf = item => item.impact ?? impactOfKind[item.kind];
 // What brings finished work closer to landing goes ahead of making more, because it is the shortest way to something shipped.
 const CLOSING_GRADE = 'P1';
 const closesASignalGap = ({ key }) => Boolean(key?.startsWith('signal:'));
-const movesFinishedWork = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
 const closesAGap = item => movesFinishedWork(item) || closesASignalGap(item);
 const stillRuns = item => item.state === 'doing' || item.urgent || item.kind === 'attention' || movesFinishedWork(item);
 

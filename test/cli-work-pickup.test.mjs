@@ -3,13 +3,16 @@ import { test } from 'node:test';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
-import { chooseProject, fileItem, readItems, updateItem } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, readMode, retryItem, skipInQueue, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
+import { director, studied } from './helpers/work-director.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const brief = 'Evidence, who benefits, the first change, the proof.';
+const item = (title, details = {}) => ({ key: title, kind: 'fix', title, brief, impact: 'high', effort: 'small', ...details });
 
 // Backups.
 
@@ -86,4 +89,84 @@ test('a backup outside hobkin\'s branches is not where the work it copies landed
   const [unit] = readUnmerged(h.root).projects.api.open;
   assert.deepEqual([unit.branch, unit.landedOn], ['hobkin/abc-fix', null]);
   assert.equal(readyItems(h.root).find(row => row.item === work.id).gap, 'land');
+});
+
+// Picking what runs.
+
+test('turning work mode on starts nothing by itself, and only what the user picks runs', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  writeMode(h.root, { enabled: false, folder: h.base });
+
+  const { message } = await runWorkCommand(h.root, ['start']);
+  await h.ticks(2);
+
+  assert.deepEqual([readMode(h.root).enabled, readMode(h.root).autoPick], [true, false]);
+  assert.match(message, /only picks start/);
+  assert.deepEqual(h.calls, []);
+
+  await runWorkCommand(h.root, ['trigger', 'api', filed.id]);
+  await h.tick();
+
+  assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['Fix login']);
+});
+
+test('start --auto is the old start, where the top of the queue starts by itself', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  fileItem(h.root, 'api', item('Fix login'), h.clock);
+  writeMode(h.root, { enabled: false, autoPick: false });
+
+  const { message } = await runWorkCommand(h.root, ['start', '--auto', h.base]);
+  await h.tick();
+
+  assert.deepEqual([readMode(h.root).folder, readMode(h.root).autoPick], [h.base, true]);
+  assert.doesNotMatch(message, /only picks start/);
+  assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['Fix login']);
+});
+
+test('a retry puts an item back in the queue, and only a review or a fix for finished work goes to the front by itself', t => {
+  const h = workspace(t);
+  const plain = filedAs(h, 'plain', { attempts: 3, lastError: 'The tests would not start.' });
+  const review = filedAs(h, 'review', { reviewAsked: true });
+  const note = filedAs(h, 'note', { workNote: 'Keep the old flag.' });
+  const fix = filedAs(h, 'ship:rebase', {}, 'pr-fix');
+  skipInQueue(h.root, `item:api:${plain.id}`);
+
+  for (const { id } of [plain, review, note, fix]) retryItem(h.root, 'api', id, NOW);
+
+  assert.deepEqual([read(h, plain).state, read(h, plain).attempts, read(h, plain).lastError], ['open', 0, null]);
+  assert.deepEqual(readMode(h.root).queueSkipped, []);
+  assert.deepEqual(readMode(h.root).queueNext, [review, note, fix].map(({ id }) => `item:api:${id}`));
+});
+
+test('with auto-pick off a plain retry waits for a pick', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  updateItem(h.root, 'api', filed.id, { attempts: 2, lastError: 'The tests would not start.' }, h.clock);
+  writeMode(h.root, { autoPick: false });
+
+  await runWorkCommand(h.root, ['retry', 'api', filed.id]);
+  await h.ticks(2);
+
+  assert.deepEqual(h.calls, []);
+  assert.equal(read(h, filed).attempts, 0);
+});
+
+test('with auto-pick off a finished branch still gets its review next by itself', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  writeMode(h.root, { autoPick: false });
+  h.agent = () => updateItem(h.root, 'api', filed.id, { state: 'branch', branch: 'hobkin/login' });
+  await runWorkCommand(h.root, ['trigger', 'api', filed.id]);
+
+  await h.tick();
+  // Whether a finished branch earns its review reads git as its run settles.
+  await h.director.closing;
+  await h.tick();
+
+  assert.deepEqual(h.calls.map(call => h.work(call).item.reviewAsked), [undefined, true]);
 });

@@ -440,7 +440,7 @@ test('a retry forgets the last failure and starts its tries again', t => {
 
   const [retried] = readItems(root, 'api');
   assert.deepEqual([retried.state, retried.attempts, retried.lastError], ['open', 0, null]);
-  assert.deepEqual(readMode(root).queueNext, [`item:api:${filed.id}`]);
+  assert.deepEqual(readMode(root).queueNext, []);
 });
 
 test('a project\'s priority comes from its level until the user sets one', () => {

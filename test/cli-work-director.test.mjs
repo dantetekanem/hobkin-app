@@ -267,11 +267,11 @@ test('cancelling a discovery does not start it again', async t => {
   assert.equal(readDiscovery(h.root).status, 'cancelled');
 });
 
-test('turning work mode on with nothing to show looks at once, whatever the clock says', async t => {
+test('turning work mode on with auto-pick and nothing to show looks at once, whatever the clock says', async t => {
   const h = fixture(t);
   writeMode(h.root, { enabled: false, folder: '/repos', lastDiscoveryAt: hoursAgo(h, 22.6) });
 
-  startWork(h.root);
+  startWork(h.root, undefined, { autoPick: true });
   await h.tick();
 
   assert.deepEqual(h.purposes(), ['work-discover']);
@@ -333,7 +333,7 @@ test('once there are projects, repeat looks keep to the daily clock', async t =>
   assert.deepEqual(h.calls, []);
 
   writeMode(h.root, { enabled: false });
-  startWork(h.root);
+  startWork(h.root, undefined, { autoPick: true });
   await h.tick();
   assert.deepEqual(h.calls, [], 'turning it off and on again does not pay for another look');
 });
@@ -352,7 +352,7 @@ test('turning work mode off stops a discovery, and turning it on again carries o
   assert.equal(readDiscovery(h.root).status, 'cancelled');
 
   h.agent = async () => {};
-  startWork(h.root);
+  startWork(h.root, undefined, { autoPick: true });
   await h.tick();
 
   assert.equal(h.calls.length, 2);
@@ -366,7 +366,7 @@ test('a new folder named during a discovery still gets its own look', async t =>
   await h.director.tick();
   while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 20));
 
-  startWork(h.root, h.base);
+  startWork(h.root, h.base, { autoPick: true });
   finish.resolve();
   await h.settled();
   await h.tick();
@@ -646,7 +646,7 @@ test('stopping work mode during a look tells what it has so far, and starting ag
   assert.match(readDiscovery(h.root).message, /billing/);
 
   h.agent = () => noteDiscovery(h.root, { finishedFolders: ['site'] });
-  startWork(h.root);
+  startWork(h.root, undefined, { autoPick: true });
   await h.tick();
 
   assert.equal(h.calls.length, 2);
