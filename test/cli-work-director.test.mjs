@@ -12,6 +12,7 @@ import { firstGuess } from '../src/cli/work/budget.mjs';
 import { askAgent, requestReview } from '../src/cli/work/controls.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
+import { recordSignals } from '../src/cli/work/signals.mjs';
 import {
   answerAllowance, chooseProject, fileItem, noteDiscovery, paths, pickNext, prFile, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery, recordTokens,
   setProjectPrMode, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
@@ -119,9 +120,13 @@ function fixture(t, agent = async () => {}, earlier = null) {
   return h;
 }
 
+// These tests count starts tick by tick, and a project's first signals look would be one more of them.
+const signalsKnown = (root, slug) => recordSignals(root, slug, { type: 'tool', deploy: { command: 'git tag', saw: 'v1.0.0' } });
+
 const study = root => (request) => {
   if (request.purpose === 'work-look' && !existsSync(paths(root, 'api').project)) {
     writeFileSync(paths(root, 'api').project, '# What it is\n\nAn API.\n');
+    signalsKnown(root, 'api');
   }
 };
 
@@ -752,7 +757,7 @@ const studied = (h, name) => {
   const slug = name;
   mkdirSync(paths(h.root, slug).directory, { recursive: true });
   writeFileSync(paths(h.root, slug).project, '# What it is\n');
-  writeState(h.root, slug, { lastLensAt: new Date(h.clock).toISOString() });
+  writeState(h.root, slug, { lastLensAt: new Date(h.clock).toISOString(), lastSignalsAt: new Date(h.clock).toISOString() });
 };
 const ideaRuns = h => h.calls.filter(call => h.work(call).focus === 'ideas').map(call => h.work(call));
 const onProject = (h, level = 'important') => {
@@ -1059,6 +1064,7 @@ test('a project gets one do at a time, and small work waits for what is running 
 const doesItsJob = h => request => {
   const { project: { slug }, item: done } = h.work(request);
   writeFileSync(paths(h.root, slug).project, '# What it is\n');
+  signalsKnown(h.root, slug);
   if (done) updateItem(h.root, slug, done.id, { state: 'pr', pr: 'https://example.com/1' });
 };
 

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { learningEnabled } from '../config.mjs';
 import { lookTime } from './chat.mjs';
+import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
@@ -13,6 +14,7 @@ const projectStates = ['chosen', 'proposed', 'skipped', 'dropped'];
 // Work that is over asks nothing more of the user, whatever its run left.
 const overStates = ['merged', 'dropped'];
 const SECOND_MS = 1000;
+const SHORT_SHA = 7;
 // What the tab and an agent asking need, and a long list would otherwise fill the status.
 const MAX_READY_SENT = 50;
 
@@ -182,7 +184,7 @@ function gapOf(item, unit, items) {
 const stackedBeneath = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
 
 function readyRow(root, project, item, items, openUnits = []) {
-  const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null } = item;
+  const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null, launch = null } = item;
   const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
   const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null, sha = null } = unit;
   return {
@@ -201,6 +203,7 @@ function readyRow(root, project, item, items, openUnits = []) {
     safety,
     quality: quality && { rating: quality.rating, reason: quality.reason, stale: quality.head !== unit.sha },
     notices,
+    launch,
     onlyDocs,
     landedOn,
     gap: gapOf(item, unit, items),
@@ -315,10 +318,27 @@ export function closingItems(root) {
     .map(item => ({ slug: project.slug, project: nameOf(project), item: item.id, title: item.title, branch: item.branch ?? null, doing: closingWords(item) })));
 }
 
+/** What landed and is still being watched: how far it got, since when, and what is known so far. */
+export function watchingView(root) {
+  return chosenProjects(root).flatMap(project => {
+    const items = readItems(root, project.slug);
+    return openLaunches(readLaunches(root, project.slug)).map(launch => ({
+      slug: project.slug,
+      project: nameOf(project),
+      item: launch.item,
+      title: items.find(({ id }) => id === launch.item)?.title ?? null,
+      sha: launch.sha?.slice(0, SHORT_SHA) ?? null,
+      stage: launch.stage,
+      since: launchSince(launch),
+      known: knownSoFar(launch),
+    }));
+  });
+}
+
 /** One item as a review reads it. `description` is what its run wrote for its branch, if it wrote anything. */
 export function prView(root, reference, id) {
   const project = findProject(root, reference);
-  const { id: item, title, state, branch = null, summary = null, proof = null, left = null } = findItem(root, project, id);
+  const { id: item, title, state, branch = null, summary = null, proof = null, left = null, launch = null } = findItem(root, project, id);
   const file = prFile(root, project.slug, item);
   return {
     project: nameOf(project),
@@ -329,6 +349,7 @@ export function prView(root, reference, id) {
     summary,
     proof,
     left,
+    launch,
     description: existsSync(file) ? readFileSync(file, 'utf8') : null,
   };
 }

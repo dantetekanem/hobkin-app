@@ -318,6 +318,7 @@ test('pr reads a local PR with its description, and an item names that file once
     summary: 'Login works.',
     proof: 'The test passes.',
     left: 'Deploy it.',
+    launch: null,
     description: '# Fix login\n\nWhat changed.\n',
   });
   assert.equal((await row()).prFile, file);
@@ -341,8 +342,8 @@ test('status lists the local PRs waiting for review on chosen projects, oldest f
   const { json } = await hobkin(root);
 
   assert.deepEqual(json.ready, [
-    { slug: 'api', project: 'api', item: first.id, title: 'First', branch: 'hobkin/first', summary: 'The first.', left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
-    { slug: 'site', project: 'site', item: second.id, title: 'Second', branch: 'hobkin/second', summary: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
+    { slug: 'api', project: 'api', item: first.id, title: 'First', branch: 'hobkin/first', summary: 'The first.', left: 'Deploy it.', at: '2026-01-01T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
+    { slug: 'site', project: 'site', item: second.id, title: 'Second', branch: 'hobkin/second', summary: null, left: null, at: '2026-01-02T00:00:00.000Z', behind: null, conflict: null, size: null, safety: null, quality: null, notices: null, launch: null, onlyDocs: false, landedOn: null, gap: 'land', holds: 0, described: false, proved: false, like: null },
   ]);
 });
 

@@ -14,6 +14,8 @@ export const firstGuess = {
   study: { fresh: 300000, cached: 2000000 },
   look: { fresh: 300000, cached: 2000000 },
   ideas: { fresh: 200000, cached: 1000000 },
+  signals: { fresh: 200000, cached: 1000000 },
+  watch: { fresh: 200000, cached: 1000000 },
   do: { fresh: 1000000, cached: 2500000 },
 };
 

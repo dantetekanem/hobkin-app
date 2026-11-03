@@ -2,13 +2,16 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  addItem, addProject, answerAllow, askAgent, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
 import { offersView } from './land-offer.mjs';
+import { assertLaunch, recordWatch } from './launches.mjs';
+import { findProject, nameOf } from './names.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
-import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView } from './reads.mjs';
+import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
 import { reviewView } from './review.mjs';
+import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
   agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
   readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, tokenLabel, updateItem, writeMode,
@@ -21,14 +24,14 @@ const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the
 Read, as JSON, with nothing running:
   status                               on or off, pauses, tokens, limits, next
   projects [--state state]             chosen, proposed, skipped or dropped
-  running                              each agent, its pane and how long
-  queue                                the plan, each row's grade and its wait
+  running, queue                       agents and panes; the plan and its waits
   items [project] [--state state]      state, grade, branch, PR, what is left
   ready                                what can land by real grades; why the rest cannot
   pr, diff <project> <item>            a local PR; diff opens it in pi-coder
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
   attention, offers                    what is left for the user; what can land
+  watching, signals <project>          what landed; what a project can show
 Change, printing ok and message. Project: name, slug or path. Item: id start.
   start [folder]                       same as on, and ends any pause
   stop                                 same as off: agents finish, none start
@@ -43,6 +46,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   retry, ask <project> <item> [note]    run it first; ask carries your note
   done, merge, decline <project> <item>  close; merge locally; or say no
   trust <pattern> <on|off>             the user's switch for a pattern's offers
+  trouble <project> <item> [severe] [why]  a merge went wrong: files the fix
   drop <project> [item]                stop work on it; branches and PRs stay
   grade <project> <item> <P0..P3|auto> set an item's grade; auto clears it
   max <project> <item>                 make one item max: Claude Opus at max
@@ -55,7 +59,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   allow [number|no]                    answer a request, for today only
   reset                                forget what it found; it must be off
 Used by agents inside a run:
-  item <project>                       JSON on stdin: file or update an item
+  item, signals, watch <project>       JSON on stdin: an item; what a look found
   propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
 `;
@@ -75,10 +79,30 @@ function reviewsFrom(word) {
   return word === 'on';
 }
 
-async function readJson(input) {
+async function readText(input) {
   let text = '';
   for await (const chunk of input) text += chunk;
-  return JSON.parse(text);
+  return text;
+}
+
+const readJson = async input => JSON.parse(await readText(input));
+
+/** With nothing piped this only reads. A terminal has no end to read to, so it is not read at all. */
+async function signalsCommand(root, reference, input) {
+  const project = findProject(root, reference);
+  const report = input && !input.isTTY ? await readText(input) : '';
+  if (!report.trim()) return readSignals(root, project.slug) ?? { signal: null, wants: null, checkedAt: null };
+
+  const signals = recordSignals(root, project.slug, JSON.parse(report));
+  const { signal, wants } = signals;
+  return reply(`${nameOf(project)} is at signal ${signal} and wants ${wants}.`, { signal, wants, gaps: signalGaps(signals) });
+}
+
+async function watchCommand(root, reference, input) {
+  const project = findProject(root, reference);
+  const { recorded, trouble } = recordWatch(root, project.slug, await readJson(input));
+  const said = trouble.length ? `${trouble.length} went wrong, and an urgent fix is filed for each.` : 'Nothing went wrong.';
+  return reply(`Recorded ${recorded} on ${nameOf(project)}. ${said}`, { recorded, trouble });
 }
 
 const planRow = ({ key, kind, lane, slug, project, level, grade, item, title, why, estimate, waiting, skipped, picked }, free) => ({
@@ -111,6 +135,7 @@ export function workStatus(root, outlook = {}) {
       nextLookAt: project.state === 'chosen' ? nextLookAt(root, project) : null,
       lookError,
       folderNote,
+      signal: readSignals(root, project.slug)?.signal ?? null,
     };
   });
   const { enabled, folder, harness, autoPick } = mode;
@@ -152,6 +177,7 @@ export function workStatus(root, outlook = {}) {
     projects,
     ready: readyItems(root),
     closing: closingItems(root),
+    watching: watchingView(root),
   };
 }
 
@@ -212,6 +238,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'attention': return attentionView(root);
     case 'offers': return offersView(root);
     case 'trust': return trustPattern(root, ...args);
+    case 'watching': return watchingView(root);
     case 'start':
     case 'on': return startMode(root, args[0]);
     case 'stop':
@@ -272,9 +299,13 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       const { max, grade, reviewAsked, workNote, landed, closedByUser, offerHeldUntil, pushbacks, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
+      if (item.launch) assertLaunch(item.launch);
       return updateItem(root, args[0], item.id, await trueOutcome(root, args[0], item));
     }
     case 'tree': return treeFor(root, args[0]);
+    case 'signals': return signalsCommand(root, args[0], input);
+    case 'watch': return watchCommand(root, args[0], input);
+    case 'trouble': return callTrouble(root, ...args);
     default: throw new WrongCommand(HELP);
   }
 }

@@ -1,3 +1,4 @@
+import { pulseLaunches } from './launches.mjs';
 import { readyItems } from './reads.mjs';
 import { fileItem, readItems, updateItem } from './store.mjs';
 import { surveyUnmerged } from './unmerged.mjs';
@@ -31,9 +32,10 @@ export function fillGaps(root, now = Date.now()) {
   });
 }
 
-/** The survey, then what it showed needs closing. Both write only hobkin's own records. */
+/** The survey, what it showed needs closing, then the pulse on what has landed. These write only hobkin's own records. */
 export async function surveyAndClose(root, options = {}) {
   const survey = await surveyUnmerged(root, options);
   const filled = fillGaps(root, options.now);
-  return { ...survey, filed: [...survey.filed, ...filled] };
+  const pulse = await pulseLaunches(root, options);
+  return { ...survey, filed: [...survey.filed, ...filled], pulse };
 }

@@ -13,10 +13,12 @@ import { reportTriage } from '../reports.mjs';
 import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
+import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { agentName, WorkPanes } from './panes.mjs';
 import { ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
+import { readSignals } from './signals.mjs';
 import {
   answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
   prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates, takeHanded, writeHanded,
@@ -107,8 +109,8 @@ const notTheWork = run => Boolean(run?.result?.usageLimit);
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, claudeProjects, follow = followInBackground }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, claudeProjects, follow });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, claudeProjects, follow = followInBackground }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, fetch, claudeProjects, follow });
     this.active = new Map();
     this.lastStartAt = null;
   }
@@ -254,7 +256,7 @@ export class WorkDirector {
   surveyWork() {
     if (this.surveying || elapsedSince(readUnmerged(this.root).at, this.now()) < SURVEY_EVERY_MS) return;
     if (!chosenProjects(this.root).length) return;
-    this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
+    this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.fetch ? { fetch: this.fetch } : {}) })
       .catch(() => {})
       .finally(() => { this.surveying = null; });
   }
@@ -504,12 +506,21 @@ export class WorkDirector {
     });
   }
 
+  // A focus that records through a command of its own gets that command, and what it needs to read.
+  describeLook(project, focus) {
+    const { slug } = project;
+    const described = this.describe(project);
+    const reads = { signals: () => readSignals(this.root, slug), watch: () => watchBrief(this.root, slug) }[focus];
+    if (!reads) return described;
+    return { ...described, [focus]: reads(), commands: { ...described.commands, [focus]: this.command(`${focus} ${slug}`) } };
+  }
+
   startLook(project, focus, tokens, cost = {}) {
     const { slug, level } = project;
     const state = readState(this.root, slug);
     const now = new Date(this.now()).toISOString();
     const lens = { lastLookAt: now, lastLensAt: now, lensIndex: (state.lensIndex ?? 0) + 1, newCommits: 0 };
-    const stamped = { study: { lastLookAt: now }, ideas: { lastIdeasAt: now } }[focus] ?? lens;
+    const stamped = { study: { lastLookAt: now }, ideas: { lastIdeasAt: now }, signals: { lastSignalsAt: now }, watch: { lastWatchAt: now } }[focus] ?? lens;
     const earlier = Object.fromEntries(Object.keys(stamped).map(key => [key, state[key] ?? null]));
     writeState(this.root, slug, stamped);
     const ideas = focus === 'ideas' ? { ideas: ideasWanted(this.root, slug, { used: tokens.today, limit: tokens.limit }) } : {};
@@ -528,7 +539,7 @@ export class WorkDirector {
       effort: this.settingsFor(level).lookEffort,
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: entry => this.place(entry, { project, tree, writes: looksThatWrite.includes(focus) }),
-      work: place => ({ lane: 'look', focus, tokens, place, ...ideas, ...this.describe(project) }),
+      work: place => ({ lane: 'look', focus, tokens, place, ...ideas, ...this.describeLook(project, focus) }),
       settle: run => this.settleLook(slug, run, earlier),
     });
   }

@@ -1,9 +1,11 @@
 import { existsSync } from 'node:fs';
 import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLine } from './budget.mjs';
 import { lookTime } from './chat.mjs';
+import { openLaunches, watchDue } from './launches.mjs';
+import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
 import { overReserve, readSubscription, usageWindows } from './usage.mjs';
 import {
-  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, paths, priorityOf, readDiscovery, readItems, readMode, readState, runnableStates, tokenEvents,
+  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, paths, priorityOf, readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
 
@@ -44,7 +46,7 @@ const lensWorth = { security: 3, bugs: 3, updates: 2, improvements: 2, features:
 // How many grades below its project a row sits.
 const impactSteps = { high: 0, medium: 1, low: 2 };
 const IDEAS_STEPS = 2;
-const entryOrder = ['discover', 'study', 'item', 'look', 'ideas'];
+const entryOrder = ['discover', 'study', 'watch', 'item', 'signals', 'look', 'ideas'];
 
 const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
 const plainList = parts => parts.filter(Boolean).join(', ');
@@ -54,16 +56,23 @@ const bestGrade = candidates => grades.find(grade => candidates.includes(grade))
 const impactOf = item => item.impact ?? impactOfKind[item.kind];
 // What brings finished work closer to landing goes ahead of making more, because it is the shortest way to something shipped.
 const CLOSING_GRADE = 'P1';
-const closesAGap = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
+const closesASignalGap = ({ key }) => Boolean(key?.startsWith('signal:'));
+const closesAGap = item => item.kind === 'pr-fix' || item.reviewAsked || item.workNote || closesASignalGap(item);
 
-/** A project as the plan grades it, with how much of its finished work is waiting on a merge. */
-export const withPending = (root, project) => ({ ...project, pending: pendingMerges(root, project.slug).length });
+/** A project as the plan grades it, with how much of its finished work is waiting on a merge and whether it sees less than it wants to. */
+export const withPending = (root, project) => ({
+  ...project,
+  pending: pendingMerges(root, project.slug).length,
+  underSignal: belowWanted(readSignals(root, project.slug)),
+});
+
+const canStepDown = item => newWorkKinds.includes(item.kind) && !item.grade && !item.urgent && !item.max;
 
 /** New work steps down a grade on a project with plenty to merge, unless someone marked it by hand. This only ever moves a row: nothing waits for a merge. */
-const shippingFirst = ({ pending = 0 }, item) => {
-  const markedByHand = item.grade || item.urgent || item.max;
-  return pending >= SHIPPING_FIRST_AT && newWorkKinds.includes(item.kind) && !markedByHand;
-};
+const shippingFirst = ({ pending = 0 }, item) => pending >= SHIPPING_FIRST_AT && canStepDown(item);
+
+/** The same on a project that cannot see what it wants to, because more changes there are changes nobody can watch. This only ever moves a row too. */
+const seeingFirst = ({ underSignal }, item) => Boolean(underSignal) && canStepDown(item) && !closesASignalGap(item);
 
 /**
  * The user's grade wins. Urgent and attention work go first, and everything else follows its project down by its impact.
@@ -72,7 +81,7 @@ const shippingFirst = ({ pending = 0 }, item) => {
 export function itemGrade(project, item) {
   if (item.grade) return item.grade;
   const first = item.urgent || item.kind === 'attention';
-  const steps = impactSteps[impactOf(item)] + (shippingFirst(project, item) ? 1 : 0);
+  const steps = impactSteps[impactOf(item)] + (shippingFirst(project, item) ? 1 : 0) + (seeingFirst(project, item) ? 1 : 0);
   const ranked = first ? 'P0' : gradeBelow(item.max ? 'P0' : priorityOf(project), steps);
   const graded = closesAGap(item) ? bestGrade([ranked, CLOSING_GRADE]) : ranked;
   return gradeBelow(graded, item.attempts ?? 0);
@@ -117,6 +126,7 @@ function itemEntry(project, item) {
       started && 'started',
       item.urgent && 'urgent',
       shippingFirst(project, item) && 'shipping first',
+      seeingFirst(project, item) && 'seeing first',
       levelWord(level),
       `${impact} impact`,
       effort,
@@ -186,6 +196,50 @@ function ideasEntry(project, state, { root, now, budget }) {
   };
 }
 
+/**
+ * One look however many changes a project has out, and none under signal 2, because there would be nothing for it to read.
+ * It starts nothing with the mode off, and what is due then goes ahead when the mode comes back. A trigger makes it due while anything is open.
+ */
+function watchEntry(project, state, { root, now }, triggered) {
+  const { slug, level } = project;
+  if (!canWatch(readSignals(root, slug))) return null;
+  const launches = readLaunches(root, slug);
+  const { due, suspected } = watchDue(launches, state.lastWatchAt, now);
+  if (!due && !(triggered && openLaunches(launches).length)) return null;
+  return {
+    ...ofProject(project),
+    key: `watch:${slug}`,
+    kind: 'watch',
+    lane: 'look',
+    focus: 'watch',
+    grade: suspected ? 'P0' : priorityOf(project),
+    title: 'watch look',
+    effort: 'small',
+    urgent: suspected,
+    score: levelWorth[level] * impactWorth.high / effortCost.medium,
+    why: suspected ? 'trouble suspected' : 'due',
+  };
+}
+
+/** Once on a studied project and again each month, because what a project shows changes as it does. A trigger makes it due. */
+function signalsEntry(project, state, { root, now }, triggered) {
+  const { slug, level } = project;
+  const signals = readSignals(root, slug);
+  if (!triggered && !signalsDue(signals, state.lastSignalsAt, now)) return null;
+  return {
+    ...ofProject(project),
+    key: `signals:${slug}`,
+    kind: 'signals',
+    lane: 'look',
+    focus: 'signals',
+    grade: priorityOf(project),
+    title: 'signals look',
+    effort: 'small',
+    score: levelWorth[level] * impactWorth.medium / effortCost.medium,
+    why: signals ? 'a month old' : 'what it can show is not known yet',
+  };
+}
+
 /** A project has one look due at most: its study until that is done, then a lens, then ideas. A trigger makes a look due, and nothing else about it changes. */
 function lookEntry(context, project, state, studied, items) {
   const triggered = kind => context.mode.queueNext.includes(`${kind}:${project.slug}`);
@@ -205,8 +259,11 @@ function projectEntries(context, project) {
     .filter(item => runnableStates.includes(item.state) && doableKinds.includes(item.kind))
     .filter(item => !running.some(run => run.slug === slug && run.item === item.id))
     .map(item => itemEntry(project, item));
+  const triggered = kind => context.mode.queueNext.includes(`${kind}:${slug}`);
   const look = lookEntry(context, project, state, studied, items);
-  const entries = look ? [...items, look] : items;
+  const watch = watchEntry(project, state, context, triggered('watch'));
+  const signals = studied ? signalsEntry(project, state, context, triggered('signals')) : null;
+  const entries = [...items, ...[look, watch, signals].filter(Boolean)];
   // A study that keeps failing must never hold a project's items, so they wait for its first try and no longer.
   const unstudied = !studied && !state.lastLookAt;
   return entries.map(entry => ({ ...entry, paused, unstudied: unstudied && entry.kind === 'item' }));

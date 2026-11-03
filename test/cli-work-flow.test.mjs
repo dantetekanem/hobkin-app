@@ -488,7 +488,7 @@ test('another process sees a real run and cancels it through the owner, and know
   chooseProject(h.root, repository(h.folder, 'billing'), 'critical');
   mkdirSync(paths(h.root, 'billing').directory, { recursive: true });
   writeFileSync(paths(h.root, 'billing').project, '# What it is\n');
-  writeState(h.root, 'billing', { lastLookAt: now, lastLensAt: now, lastIdeasAt: now });
+  writeState(h.root, 'billing', { lastLookAt: now, lastLensAt: now, lastIdeasAt: now, lastSignalsAt: now });
   const filed = fileItem(h.root, 'billing', billing.first[0]);
   writeMode(h.root, { enabled: true, folder: h.folder, lastDiscoveryAt: now });
   const started = Promise.withResolvers();

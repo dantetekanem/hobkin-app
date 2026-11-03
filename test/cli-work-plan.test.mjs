@@ -30,7 +30,7 @@ function project(root, slug, level = 'important') {
   chooseProject(root, `/repos/${slug}`, level, now);
   mkdirSync(paths(root, slug).directory, { recursive: true });
   writeFileSync(paths(root, slug).project, '# What it is\n');
-  writeState(root, slug, { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString() });
+  writeState(root, slug, { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString(), lastSignalsAt: new Date(now).toISOString() });
 }
 
 const plan = (root, options = {}) => planWork(root, { now, ...options });

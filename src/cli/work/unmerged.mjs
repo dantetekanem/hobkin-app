@@ -60,7 +60,7 @@ export function unmergedNow(root) {
   return { at, open, perProject, pending };
 }
 
-function ciState(checks = []) {
+export function ciState(checks = []) {
   const results = checks.map(check => check.conclusion || check.state || check.status);
   if (!results.length) return 'none';
   if (results.some(result => /FAIL|ERROR|CANCEL|TIMED_OUT/i.test(result))) return 'failing';

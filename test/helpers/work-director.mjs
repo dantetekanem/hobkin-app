@@ -45,7 +45,15 @@ export function director(t) {
   mkdirSync(root);
   t.after(() => rmSync(base, { recursive: true, force: true }));
 
-  const h = { base, root, clock: Date.parse('2026-06-01T12:00:00Z'), calls: [], agent: async () => {}, gh: async () => { throw Error('This repository has no remote.'); } };
+  const h = {
+    base,
+    root,
+    clock: Date.parse('2026-06-01T12:00:00Z'),
+    calls: [],
+    agent: async () => {},
+    gh: async () => { throw Error('This repository has no remote.'); },
+    fetch: async () => { throw Error('No test reaches the network.'); },
+  };
   h.runtime = new MemoryRuntime();
   h.runner = new HobkinRunner({ runtime: h.runtime, root, config, now: () => new Date(h.clock) });
   writeMode(root, { enabled: true, startGapMs: 0, lastDiscoveryAt: new Date(h.clock).toISOString() });
@@ -57,6 +65,7 @@ export function director(t) {
     runtime: h.runtime,
     now: () => h.clock,
     gh: async (...args) => h.gh(...args),
+    fetch: async (...args) => h.fetch(...args),
     claudeProjects: join(base, 'claude-projects'),
     runHarness: async (request, options) => {
       h.calls.push(request);
@@ -92,6 +101,6 @@ export function studied(h, name, level = 'important') {
   mkdirSync(paths(h.root, name).directory, { recursive: true });
   writeFileSync(paths(h.root, name).project, '# What it is\n');
   const now = new Date(h.clock).toISOString();
-  writeState(h.root, name, { lastLookAt: now, lastLensAt: now, lastIdeasAt: now });
+  writeState(h.root, name, { lastLookAt: now, lastLensAt: now, lastIdeasAt: now, lastSignalsAt: now });
   return checkout;
 }

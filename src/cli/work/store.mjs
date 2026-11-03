@@ -430,7 +430,7 @@ export const dropProject = (root, slug, now = Date.now()) => answerProject(root,
 export const readItems = (root, slug) => fold(parseEvents(paths(root, slug).items), event => event.id);
 
 export function fileItem(root, slug, item, now = Date.now()) {
-  const { key, kind, title, brief, urgent = false, impact, effort, reopen } = item;
+  const { key, kind, title, brief, urgent = false, impact, effort, reopen, causedBy } = item;
   assertItem(item);
 
   const known = readItems(root, slug).find(existing => existing.key === key);
@@ -438,7 +438,7 @@ export function fileItem(root, slug, item, now = Date.now()) {
 
   const id = known?.id ?? createHash('sha256').update(key).digest('hex').slice(0, 6);
   const filed = { id, key, kind, title, brief, urgent, state: 'open', attempts: 0, at: new Date(now).toISOString() };
-  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}) };
+  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}), ...(causedBy ? { causedBy } : {}) };
   appendEvent(paths(root, slug).items, reopen ? { ...sized, reopen } : sized);
   return readItems(root, slug).find(existing => existing.id === id);
 }

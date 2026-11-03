@@ -5,6 +5,7 @@ import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
 import { offeredIn } from './land-offer.mjs';
+import { userTrouble } from './launches.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
 import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
@@ -16,8 +17,8 @@ import {
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
 import { changeFacts, landedRecord, landingTip, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
-const QUEUE_KEY = /^(item|look|study|ideas):([^:]+)(?::(.+))?$/;
-const LOOKS = ['look', 'study', 'ideas'];
+const QUEUE_KEY = /^(item|look|study|ideas|signals|watch):([^:]+)(?::(.+))?$/;
+const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch'];
 // A finished branch can go round again. Its item goes back to `open`, and the next run picks up from that branch.
 const statesThatRun = [...runnableStates, 'branch'];
 // `done` here is an older record of finished work, and Done lists it as not landed.
@@ -441,17 +442,29 @@ export function trustPattern(root, pattern, word) {
   return reply(word === 'on' ? `Offers can come for ${named} again. After trouble that means from its next clean merge.` : `No offers for ${named} until hobkin work trust ${named} on.`, { pattern: named });
 }
 
-/** Asks `git` and `gh` now instead of at the next survey. They only read the repositories: all this changes is Hobkin's own record of its items. */
+/** Asks `git` and `gh` now instead of at the next survey. Past a fetch they only read the repositories: all this changes is Hobkin's own record of its items. */
 export async function syncWork(root) {
-  const { settled, filed } = await surveyAndClose(root);
+  const { settled, filed, pulse } = await surveyAndClose(root);
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
   const found = [
     merged && `${merged} merged`,
     back && `${back} back to a local branch, because a PR was closed`,
     filed.length && `${filed.length} ${filed.length === 1 ? 'branch' : 'branches'} to get ready to merge`,
+    pulse.trouble.length && `${pulse.trouble.length} went wrong after landing`,
   ].filter(Boolean).join(', and ');
   return reply(`Checked every project. ${found || 'Nothing was merged or closed'}.`, { settled, filed });
+}
+
+/** The user's word that a merge went wrong. It takes no proof: it closes the launch as `trouble` and files the fix, and `severe` is for data loss or an outage. */
+export function callTrouble(root, reference, id, ...words) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  const severe = words[0] === 'severe';
+  const why = words.slice(severe ? 1 : 0).join(' ').trim();
+  const fix = userTrouble(root, project.slug, item, { severe, ...(why ? { why } : {}) });
+  const next = fix ? `"${fix.title}" is at the front of the queue.` : 'A fix for it is already filed.';
+  return reply(`Recorded trouble on "${item.title}". ${next} Nothing was rolled back.`, { fix: fix?.id ?? null });
 }
 
 export function dropWork(root, reference, id) {
