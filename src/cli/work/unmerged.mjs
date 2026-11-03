@@ -29,6 +29,12 @@ const MOST_COMMITS_BACK = 40;
 const MOST_PATHS = 400;
 // What a run left uncommitted, saved beside its own branch. It is that item's, for its next run to use, and no change of its own.
 const KEPT_BRANCH = /-kept-\d{8}-\d{6}$/;
+// A copy a run saved of a branch before it rewrote it, named for what came next: `-before-` and an item's id, or `-before-rebase-` and a commit or a date.
+// Its work is on the branch it copies, or has landed from there, so a backup is no unit and gets no item or fix, and holding work says nothing about where that work went.
+const BACKUP_BRANCH = /-before-(?:rebase-)?[0-9a-f]{6,40}$/;
+// The survey's own items: one for a branch nothing named, and work to get a branch merged.
+const SURVEY_KEY = /^(?:branch|ship):/;
+const BACKUP_REASON = 'Its branch is only a backup of another branch, so there is no work of its own here.';
 
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -181,7 +187,7 @@ async function holdersOf(repo, sha) {
 
 async function usersBranches(repo, base) {
   const newestFirst = lines(await gitOrNothing(repo, 'for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads'));
-  const theirs = newestFirst.filter(name => name !== base && !notTheUsers.some(prefix => name.startsWith(prefix)));
+  const theirs = newestFirst.filter(name => name !== base && !notTheUsers.some(prefix => name.startsWith(prefix)) && !BACKUP_BRANCH.test(name));
   return theirs.slice(0, MOST_BRANCHES_CHECKED);
 }
 
@@ -294,7 +300,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const ownPulls = pulls.filter(pr => pr.headRefName?.startsWith(BRANCH_PREFIX));
   // A closed PR leaves its branch as the record of the work, so only an open or merged one speaks for that branch.
   const withPull = new Set(ownPulls.filter(pr => pr.state !== 'CLOSED').map(pr => pr.headRefName));
-  const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name));
+  const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
   const others = await usersBranches(repo, base);
   const units = await Promise.all(bare.map(branch => branchUnit({ repo, base, tip, branch, grades, finished, others, previous })));
   const landed = await mergedHere({ repo, base, units, previous });
@@ -442,9 +448,21 @@ function adoptStrayBranches(root, slug, { survey }, now) {
   });
 }
 
+const filedForABackup = ({ key, state, branch }) => SURVEY_KEY.test(key) && closableStates.includes(state) && BACKUP_BRANCH.test(branch ?? '');
+
+/** What the survey filed for a backup before it knew one, closed with its branch kept. What the user or an agent filed stays theirs, whatever its branch. */
+function retireBackupWork(root, slug, now) {
+  const forBackups = readItems(root, slug).filter(filedForABackup);
+  return forBackups.map(({ id, title, branch }) => {
+    updateItem(root, slug, id, { state: 'dropped', reason: BACKUP_REASON }, now);
+    return { slug, id, title, branch };
+  });
+}
+
 /**
  * Only projects still being worked on count. Work that has landed closes its item here, and `settled` names them. Work that cannot merge gets an item, and `filed`
- * names those. A branch nothing named gets an item, and `adopted` names those. This writes only Hobkin's own records, and it never writes to a repository.
+ * names those. A branch nothing named gets an item, and `adopted` names those. What was filed for a backup is dropped, and `retired` names those.
+ * This writes only hobkin's own records, and it never writes to a repository.
  */
 export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder() } = {}) {
   const previous = readUnmerged(root).projects;
@@ -453,8 +471,11 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
   const settled = [];
   const filed = [];
   const adopted = [];
+  const retired = [];
   for (const { slug, path } of chosenProjects(root)) {
     const { clone, lookTree, doTree } = paths(root, slug);
+    // A name alone says a branch is a backup, so this reads nothing from the repository. It goes first, so no item for a backup counts as finished work below.
+    retired.push(...retireBackupWork(root, slug, now));
     try {
       const finished = new Set(readItems(root, slug).filter(item => item.state === 'branch' && item.branch).map(item => item.branch));
       const found = await surveyProject({ repo: path ?? clone, trees: { look: lookTree, do: doTree }, previous: previous[slug], now, gh, grades, finished });
@@ -469,5 +490,5 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
   }
   const survey = { at: new Date(now).toISOString(), projects };
   atomicJson(surveyPath(root), survey);
-  return { ...survey, settled, filed, adopted };
+  return { ...survey, settled, filed, adopted, retired };
 }
