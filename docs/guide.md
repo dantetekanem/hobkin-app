@@ -203,6 +203,37 @@ A limit pauses work mode, and nothing is lost: running agents finish, items stay
 
 Hobkin finds merged work by itself. A survey every half hour, also while work mode is off, closes an item as `merged` when its PR merged or the default branch holds its branch, and `hobkin work sync` does it now. Only a merge closes an item: after a PR closed without merging, the item goes back to its local branch, in state `branch`, for your review. The survey only reads your repositories and costs no tokens, and the tab shows what is still unmerged.
 
+A merge is where watching starts. Each one opens a launch, which goes `merged`, `pushed` once origin holds it, `live`, and closed. A repository with no remote counts as pushed when merged, and a change of markdown alone closes at once. A merge you have not pushed is not watched, so no clock runs on it.
+
+A pulse runs with the survey, every half hour, mode on or off, with no model and no tokens. It fetches origin, which changes no branch and no file, reads CI on the commit with `gh run list --commit`, makes one GET of the project's proved health URL with a 10 second limit, and looks for reverts. It runs `git`, `gh` and that GET and nothing else, and never a command an agent wrote, because a project's own text could reach one. A `gh` or network failure is a gap and never a clean result: the launch stays open until it can be read or its limit comes.
+
+A watch look is a look with the focus `watch`, one per project however many changes it covers. It comes an hour after a push and then every 12 hours at the project's priority, and at once at P0 when the pulse sees CI fail or the health URL answer badly. It subtracts the error classes seen before the merge from those seen after, says whether the touched paths were exercised and by how many requests, and writes a summary, because Kamal logs roll over at about 10 MB. It never deploys, rolls back or flips a flag. With the mode off none starts, and what is due goes ahead when it comes back on.
+
+A launch closes on the later of 48 hours live and exposure seen, and after 7 days at most. WATCHING on the Done subtab has a row for each open one, with its stage, how long and what is known so far, and `hobkin work watching` prints the same.
+
+| Outcome | Means |
+| --- | --- |
+| `held` | Exposure seen and nothing new. A revert in the 14 days after the merge still turns it to `trouble`. |
+| `quiet` | The project cannot show exposure, and nothing went wrong. |
+| `unexercised` | No exposure within 7 days, or a gap or failing check that never cleared. |
+| `trouble` | A new error, a revert, a fix naming it, or your word. |
+
+On trouble hobkin files an urgent `fix` naming the merge, whose run fixes forward or prepares a revert branch, and the look's report opens with `Critical:` so Chat hears at once. `hobkin work trouble <project> <item> [severe] [why]` is your word for the same thing, and `severe` is for data loss or an outage. A repeat files nothing.
+
+Each review also records how to undo the change, the one thing most likely to go wrong and where to look first, and the page Enter opens on Done shows them. `undo` is `code` when a rollback or revert undoes it, `one-way` for drops, renames, type changes, emails, charges and external writes, `forward-fix` for data backfills, `two-phase` for serialized formats and job payloads, and `permanent` for published packages and app store builds. Agents use a flag only if rollback cannot undo the harm, a real named audience exists for partial exposure, or a flaky dependency needs a kill switch. Every flag gets an expiry when it is made, and when its watch closes clean hobkin files the removal as a `chore`, which you merge like any other branch.
+
+Each project gets `work/<slug>/signals.json`, written by a `signals` look once it is studied and again every 30 days. The look runs each command before recording it, and hobkin works out the number from what was proved, each step needing the ones below it:
+
+| Signal | hobkin can |
+| --- | --- |
+| 0 | not tell what is live |
+| 1 | see when a change goes live: deploy, CI, release |
+| 2 | see it working: request or run outcomes |
+| 3 | prove it is up with a real page or smoke test, not `/up` alone |
+| 4 | see new errors grouped and tagged by release |
+
+`service` and `app` projects want 4, `site` wants 3, and `package` and `tool` want 1. Under what it wants, the look files what closes the gap with keys like `signal:logs`. Those rank as closing work does, at P1 or better, and features and improvements there step down one grade, unless you marked them by hand. Nothing waits on it. A project under signal 2 gets no watch look, and its launches close as `quiet` 48 hours after the push. A project row shows `signal 2`, and `hobkin work signals <project>` prints the record.
+
 Once a week, in code with no tokens, Chat gets a review: whether work mode is running and progressing, with real numbers, and which projects look stale and are worth dropping, with the exact `hobkin work drop <slug>`. It never drops anything itself, and `hobkin work review` prints it at any time.
 
 Once a day, while work mode is on, a watcher looks through your folder and the folders of projects one level down, with a few read-only `git` calls per repository, no tokens and no fetch. New repositories and ones that came back to life are proposed the usual way, from their git facts alone, saying they were not looked at in depth. It leaves out folders your work directions rule out, and a skipped project comes back only with clear new activity, and only once. New commits in a project you took bring its next look forward, and start nothing by themselves.
@@ -222,6 +253,8 @@ Work mode and checks run only while the dashboard is open, so nothing new starts
 | `hobkin work ready` | What can land now by real grades, each pinned to its commit, and why the rest cannot |
 | `hobkin work pr <project> <item>`, `diff <project> <item>`, `review` | A local PR, its diff in pi-coder, or the weekly review |
 | `hobkin work merge <project> <item>`, `decline`, `ask <project> <item> [note]` | Merge it locally and push nothing, say no, or send an agent back |
+| `hobkin work watching`, `signals <project>` | What landed and is still being watched, and what a project can show |
+| `hobkin work trouble <project> <item> [severe] [why]` | Says a merge went wrong and files the urgent fix |
 | `hobkin work reviews [on\|off]` | Whether each finished branch gets a review |
 | `hobkin work start [folder]`, `stop` | The same as `on` and `off`, and `/work` in the dashboard |
 | `hobkin work pause [project]`, `resume [project]` | Stops new work, everywhere or on one project. Work mode stays on and running agents finish |

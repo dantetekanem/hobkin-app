@@ -42,6 +42,8 @@ These read saved state. They start nothing and call no model:
 | `hobkin work offers` | What could land on one key, and why the rest cannot. It changes nothing. |
 | `hobkin work trust <pattern> on\|off` | The user's own switch for a pattern's offers, and the only way back on after severe trouble. |
 | `hobkin work review` | The weekly review: whether work mode is running and progressing, and which projects look stale. |
+| `hobkin work watching` | What landed and is still being watched: its stage, how long and what is known so far. |
+| `hobkin work signals <project>` | What a project can show once a change ships, as a signal from 0 to 4. |
 | `hobkin work help` | Every work mode command. A project is its name, slug or path. |
 
 These change things. Use them only when the user asked:
@@ -49,6 +51,7 @@ These change things. Use them only when the user asked:
 | Command | Effect |
 | --- | --- |
 | `hobkin work add item <project> <title>`, `trigger`, `pause`, `cancel`, `priority`, `prs`, `grade`, `sync`, ... | Each prints `ok` and a `message`. See `hobkin work help`. |
+| `hobkin work trouble <project> <item> [severe] [why]` | Records that a merge went wrong and files an urgent fix. Nothing is rolled back. |
 | `hobkin reports delete ID...` | Deletes reports everywhere. Run receipts stay, so nothing replays. |
 | `hobkin init` | Creates a workspace. |
 | `hobkin patterns-submit`, `upgrade-apply` | Model spend and migrations, with their own confirmation steps. |

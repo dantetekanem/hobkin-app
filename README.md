@@ -88,8 +88,10 @@ The Done subtab walks through finished work, the safest and smallest first, each
 - `m` merges the branch on this machine and pushes nothing.
 - `w` sends an agent back with your note.
 - `n` says no, and hobkin learns from it.
-- `Enter` reads it, and from there `d` opens the diff and `r` asks for a review.
+- `Enter` reads it, with the one risk its review named, where to look first and how to undo it, and from there `d` opens the diff and `r` asks for a review.
 - Under NOT LANDED, `x` closes a branch whose item says done, for good.
+
+Once you merge and push, hobkin watches what happens next. A check every half hour, with no model, sees whether origin has the change, whether CI passed and whether a revert landed, and a look reads the project's logs and errors. WATCHING on the Done subtab shows each change as it goes. When one goes wrong, hobkin files an urgent fix, and `hobkin work trouble <project> <item>` says so yourself. Agents never deploy, roll back or revert your default branch.
 
 With learning on, a change like one that already went well comes to you as an offer in Decisions, with what happened last time and the one risk to look at: Later, Merge it, Read it or Not this one. hobkin still merges only on your word.
 
