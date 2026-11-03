@@ -1384,6 +1384,43 @@ test('page keys still read a question too long for its box, in Chat too', async 
   await answer;
 });
 
+test('the wheel reads the conversation behind a question, and over the box a question too long for it', async () => {
+  const plan = Array.from({ length: 30 }, (_, index) => `Plan line ${index}`).join('\n\n');
+  const ui = createDashboard({ ...snapshot, messages: [{ id: 'plan', role: 'assistant', content: plan }] });
+  const short = new AbortController();
+  const fits = ui.askQuestion({ question: 'Go ahead?', choices: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }] }, short.signal);
+  assert.doesNotMatch(screen(ui, 80, 24), /Plan line 0\b/);
+
+  for (let i = 0; i < 40; i++) { ui.handleMouse({ type: 'wheel', x: 10, y: 5, wheelDelta: -3 }); screen(ui, 80, 24); }
+
+  assert.match(screen(ui, 80, 24), /Plan line 0\b/);
+  short.abort();
+  await fits;
+
+  const long = new AbortController();
+  const tooLong = ui.askQuestion({ question: `Go ahead? ${'long question '.repeat(30)}QUESTIONEND`, choices: [{ value: 'yes', label: 'Yes' }] }, long.signal);
+  assert.doesNotMatch(screen(ui, 60, 18), /QUESTIONEND/);
+
+  for (let i = 0; i < 20; i++) { ui.handleMouse({ type: 'wheel', x: 10, y: 16, wheelDelta: 3 }); screen(ui, 60, 18); }
+
+  assert.match(screen(ui, 60, 18), /QUESTIONEND/);
+  long.abort();
+  await tooLong;
+});
+
+test('page up reads the conversation behind a question too long for its box, once its own text is at the top', async () => {
+  const plan = Array.from({ length: 30 }, (_, index) => `Plan line ${index}`).join('\n\n');
+  const ui = createDashboard({ ...snapshot, messages: [{ id: 'plan', role: 'assistant', content: plan }] });
+  const abort = new AbortController();
+  const answer = ui.askQuestion({ question: `Go ahead? ${'long question '.repeat(30)}QUESTIONEND`, choices: [{ value: 'yes', label: 'Yes' }] }, abort.signal);
+
+  for (let i = 0; i < 30; i++) { ui.input('\x1b[5~'); screen(ui, 60, 18); }
+
+  assert.match(screen(ui, 60, 18), /Plan line 0\b/);
+  abort.abort();
+  await answer;
+});
+
 test('/reset waits for backend acceptance and retains draft and chat on failure or unavailable callback', async () => {
   for (const reset of [undefined, () => { throw Error('busy'); }]) {
     const ui = createDashboard(snapshot, { reset });

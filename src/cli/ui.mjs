@@ -1943,6 +1943,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return ruled({ paint, top, bottom: below && muted(below), lines: [...preview, ...content], inner });
   };
   const onOtherRow = () => question.selection.getSelectedItem() === OTHER_ROW;
+  /**
+   * What a question is about is in the conversation above it, and a long question does not all fit its box, so the page keys read both. Up takes a
+   * long question's text back to its start, then goes up the conversation. Down comes back to the newest message, then down the question's text.
+   */
+  const pageAroundQuestion = up => {
+    const conversation = followsTail();
+    if (up && conversation && !(question.overflows && question.scroll > 0)) scroll += 8;
+    else if (!up && conversation && scroll > 0) scroll = Math.max(0, scroll - 8);
+    else question.scroll = Math.max(0, question.scroll + (up ? -2 : 2));
+  };
   // The row stays reserved, so moving onto Other never moves the list.
   const typingRow = width => {
     if (!question.other) return [];
@@ -2533,7 +2543,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     },
     handleMouse(event) {
       if (['press', 'wheel'].includes(event.type)) sawUser();
-      if (question) return;
+      // A question takes no clicks, but the wheel still reads: what it is about above it, and its own text when that is too long for the box.
+      if (question && event.type !== 'wheel') return;
+      if (question && event.y >= contentBounds.bottom) {
+        if (question.overflows) question.scroll = Math.max(0, question.scroll + (event.wheelDelta ?? 0));
+        changed();
+        return { handled: true };
+      }
       if (event.type === 'press' || event.type === 'click') {
         const tab = event.button === 'left' ? tabAt(event) : null;
         if (!tab) return;
@@ -2576,12 +2592,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         const tooSmall = (options.tui?.terminal.columns ?? columns) < 60 || (options.tui?.terminal.rows ?? rows) < 18;
         const paging = !tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'));
         if (key(data, 'escape')) question.finish(null);
-        else if (paging && followsTail() && !question.overflows) {
-          // What a question is about is in the conversation above it, and on a small terminal it does not all fit.
-          scroll = Math.max(0, scroll + (key(data, 'pageUp') ? 8 : -8));
-        } else if (paging) {
-          question.scroll = Math.max(0, question.scroll + (key(data, 'pageDown') ? 2 : -2));
-        } else if (!tooSmall) {
+        else if (paging) pageAroundQuestion(key(data, 'pageUp'));
+        else if (!tooSmall) {
           // Only the Other row takes typing, so what the user was writing as a question opened never becomes an answer.
           const listKey = key(data, 'up') || key(data, 'down') || key(data, 'enter');
           const target = onOtherRow() && !listKey ? question.other : question.selection;
