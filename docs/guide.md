@@ -300,7 +300,9 @@ The next pair comes once both of the last one have moved: landed, declined, grad
 
 ### Hearing back from agents
 
-When a `hobkin session` ends, Chat gets one line with its title and what happened, from the first lines of its report, and the report joins Reports, so Enter opens it and `r` replies to it. A session that stopped without a report says so. Its follower runs in a process of its own, so a session that ends with hobkin closed is told at the next open, once. The main agent hears of it with your next message, so it never answers as if it does not know.
+When a `hobkin session` ends, Chat gets one line with its title and what happened, from the first lines of its report, and the report joins Reports, so Enter opens it and `r` replies to it. A session that stopped without a report says so. Its follower runs in a process of its own, so a session that ends with hobkin closed is told at the next open, once. The main agent hears of it with your next message, so it never answers as if it does not know. When it starts a session with `--wake`, because it means to carry on afterwards, it gets a turn of its own as soon as the session ends instead, and never needs to check for the report on a timer.
+
+The main agent can also schedule commands of its own, such as one that watches CI. Runs that succeed stay out of Chat. When one fails, hobkin gives the main agent a turn right away, once for that failure, and it fixes the command or cancels it and says in a line what it did. A wait is written so that it does not fail, so a failure always means something is broken.
 
 A finished work run gets one quiet line from its `Useful:` report, and a look with nothing new stays silent. A row of these lines folds into one that shows the newest and counts the rest, which wait in Reports, so a busy day cannot push your conversation out of Chat's 100 messages. Session endings stay on their own lines, because each was asked for. `Critical:` lines work as they always did.
 

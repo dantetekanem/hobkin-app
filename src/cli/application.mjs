@@ -18,7 +18,8 @@ import { compactionDue, nextRunIn } from './compaction.mjs';
 import { editReport } from './report-editor.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
-import { markHeard, markPosted, sessionNotice, sessionReports, sessionsToPost, sessionsToTell } from './session-log.mjs';
+import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
+import { failureKey, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
@@ -101,6 +102,9 @@ export class HobkinApplication {
   sending = 0;
   // Holds this process has nothing more to do for: one try each, and the next start picks up a turn that was cut off.
   handledHolds = new Set();
+  // Scheduled failures already told, and when this process opened. The scheduler stamps its messages by the wall clock, so this does too.
+  failuresTold = new Set();
+  openedAt = Date.now();
   pendingLookedAt = -Infinity;
 
   observeActivity(id, event) {
@@ -174,6 +178,7 @@ export class HobkinApplication {
         onTick: async () => {
           await app.tickWork();
           await app.tickHolds();
+          app.tickWakes();
           app.tickCompaction();
           retireOffers(app.runtime.directory, app.now());
           app.landOffers.next();
@@ -372,7 +377,8 @@ export class HobkinApplication {
         .filter(message => ['user', 'assistant', 'custom'].includes(message.role) && message.customType !== CHROME_NOTE)
         // `display: false` is how an extension says a note is for the agent and not for the user.
         .filter(message => message.display !== false)
-        .filter(message => !isHoldBrief(textOf(message)))
+        .filter(message => !isHoldBrief(textOf(message)) && !isWakeBrief(textOf(message)))
+        .filter(message => !isQuietScheduledRun(message))
         .slice(-100)
         .map(chatMessage),
       ...notices,
@@ -618,6 +624,34 @@ export class HobkinApplication {
       void this.runtime.send(holdBrief(this.runtime.directory, schedule, runs, turn), turn.id).catch(() => {});
       return;
     }
+  }
+
+  /**
+   * A session the agent started with `--wake` ended, or a command it scheduled failed. Each is told once, as soon as the agent is free, and
+   * nothing waits for the turn. A failure counts only from this open on, because one from before it was told by the hobkin that saw it.
+   */
+  tickWakes() {
+    if (!this.canStartHoldTurn()) return;
+    const root = this.runtime.directory;
+    const sessions = sessionsToWake(root);
+    if (sessions.length) {
+      markWoken(root, sessions);
+      markHeard(root, sessions);
+      void this.runtime.send(sessionsBrief(sessions)).catch(() => {});
+      return;
+    }
+    const failures = this.untoldFailures();
+    if (!failures.length) return;
+    for (const failure of failures) this.failuresTold.add(failureKey(failure));
+    void this.runtime.send(scheduledBrief(failures)).catch(() => {});
+  }
+
+  untoldFailures() {
+    const failures = this.runtime.messages()
+      .filter(message => message.timestamp >= this.openedAt)
+      .map(scheduledFailure)
+      .filter(failure => failure && !this.failuresTold.has(failureKey(failure)));
+    return failures.filter((failure, index) => failures.findIndex(other => failureKey(other) === failureKey(failure)) === index);
   }
 
   async workAction(action, slug, value, extra) {

@@ -64,11 +64,13 @@ function assertNotABurst(root, now) {
 
 /**
  * Hands massive work to a full Pi session the user can watch. Nothing waits for it, and `follow` closes its pane when it ends.
- * `keep` is for a whole conversation the user means to carry on in, which stays open until they close it.
+ * `keep` is for a whole conversation the user means to carry on in, which stays open until they close it. `wake` gives the main
+ * agent a turn as soon as the session ends, so it can carry on without checking for the report on a timer.
  */
-export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, keep = false, approved = false, follow = () => {}, env = process.env, panes = new WorkPanes({ tab: SESSION_TAB }), now = Date.now() }) {
+export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, keep = false, wake = false, approved = false, follow = () => {}, env = process.env, panes = new WorkPanes({ tab: SESSION_TAB }), now = Date.now() }) {
   requireHerdr(env);
   if (!brief.trim()) throw Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.');
+  if (keep && wake) throw Error('--wake is for work that ends, and a session with --keep stays open, so leave one of them out.');
   if (!approved) assertNotABurst(root, now);
   const name = sessionName(title);
   const report = keep ? null : join(handoffs(root), `${name}.report.md`);
@@ -76,7 +78,7 @@ export async function startSession({ root, title = 'session', cwd = process.cwd(
   if (keep) return started;
 
   const session = { ...started, report };
-  recordSessionStart(root, { name, title, report }, now);
+  recordSessionStart(root, { name, title, report, ...(wake ? { wake } : {}) }, now);
   follow(session);
   return session;
 }

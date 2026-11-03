@@ -1,0 +1,36 @@
+// Turns hobkin starts for the main agent by itself. The user did not write them and Chat does not show them: the agent's answer is what they see.
+const OPENING = '<hobkin-wake>';
+const MOST_TOLD = 5;
+const LONGEST_OUTPUT = 600;
+
+export const isWakeBrief = text => text.startsWith(`${OPENING}\n`);
+
+const brief = details => `${OPENING}\n${JSON.stringify(details).replaceAll('</', '<\\/')}\n</hobkin-wake>`;
+
+/** Sessions the agent asked with `--wake` to hear about, told as the next message would have told them. */
+export const sessionsBrief = sessions => brief({ sessions });
+
+/** Commands the agent scheduled that failed, for it to fix or cancel. */
+export const scheduledBrief = failures => brief({ scheduled: failures.slice(0, MOST_TOLD) });
+
+const isScheduledRun = message => message?.role === 'custom' && message.customType === 'scheduled-task' && Boolean(message.details?.result);
+
+/** A scheduled run that finished cleanly tells the user nothing, because the agent speaks when what it waited for comes. */
+export const isQuietScheduledRun = message => isScheduledRun(message) && message.details.result.ok === true;
+
+/** A scheduled command that failed, from the scheduler's own message: which task, what it ran and how it ended. Anything else is null. */
+export function scheduledFailure(message) {
+  if (!isScheduledRun(message) || message.details.result.ok !== false || !message.details.task?.id) return null;
+  const { task, result } = message.details;
+  return {
+    taskId: task.id,
+    name: task.name ?? null,
+    command: result.command ?? null,
+    exitCode: result.code ?? null,
+    killed: Boolean(result.killed),
+    output: String(result.stderr || result.stdout || '').slice(-LONGEST_OUTPUT),
+  };
+}
+
+/** The same command failing the same way is one failure, however often it runs. A changed command that fails is a new one. */
+export const failureKey = ({ taskId, command, exitCode, killed }) => JSON.stringify([taskId, command, exitCode, killed]);

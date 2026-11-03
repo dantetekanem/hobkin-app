@@ -20,7 +20,7 @@ function append(folder, event) {
 }
 
 /** The title has to outlive the command that started the session, and its follower only knows the name. */
-export const recordSessionStart = (root, { name, title, report }, now = Date.now()) => append(folderOf(root), { name, title, report, startedAt: new Date(now).toISOString() });
+export const recordSessionStart = (root, { name, title, report, wake }, now = Date.now()) => append(folderOf(root), { name, title, report, ...(wake ? { wake } : {}), startedAt: new Date(now).toISOString() });
 
 /** Written by the follower, which runs in a process of its own and can outlive hobkin. A session's report sits beside this log. */
 export const recordSessionEnd = ({ name, report }, now = Date.now()) => append(dirname(report), { name, report, endedAt: new Date(now).toISOString() });
@@ -122,3 +122,11 @@ export function sessionsToTell(root) {
 }
 
 export const markHeard = (root, sessions) => sessions.forEach(({ name }) => append(folderOf(root), { name, heard: true }));
+
+/** Sessions started with `--wake` that have ended, whose starter has not had its turn about them yet. */
+export function sessionsToWake(root) {
+  const due = endedSessions(root).filter(({ wake, woken }) => wake && !woken).slice(0, MOST_IN_A_NOTE);
+  return due.map(withWhatItSaid).map(toldToMainAgent);
+}
+
+export const markWoken = (root, sessions) => sessions.forEach(({ name }) => append(folderOf(root), { name, woken: true }));

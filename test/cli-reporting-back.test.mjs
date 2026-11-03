@@ -32,9 +32,9 @@ const handoffs = root => join(root, 'runtime', 'handoffs');
 const reportOf = (root, name) => join(handoffs(root), `${name}.report.md`);
 
 /** A session as `hobkin session` leaves it: a line when it starts, and the follower's line when it ends. */
-function endSession(root, name, title, text) {
+function endSession(root, name, title, text, start = {}) {
   const report = reportOf(root, name);
-  recordSessionStart(root, { name, title, report });
+  recordSessionStart(root, { name, title, report, ...start });
   mkdirSync(handoffs(root), { recursive: true });
   if (text !== null) writeFileSync(report, text);
   recordSessionEnd({ name, report });
@@ -148,6 +148,96 @@ test('the main agent hears of a finished session with the next message, once', a
     assert.doesNotMatch(second, /Land finboard/);
     const shown = (await app.refresh()).messages.filter(({ role }) => role === 'user').map(({ content }) => content);
     assert.deepEqual(shown, ['how did that go?', 'and now?']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('--wake goes on the record, and only for a session that ends', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-back-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const exec = async (_command, args) => JSON.stringify({ result: { tabs: [], root_pane: { pane_id: 'w1:p9' } }, args });
+  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
+  const start = options => startSession({ root, title: 'Prepare teams', cwd: root, brief: 'Go.', env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }, panes, ...options });
+
+  await start({ wake: true });
+
+  const [line] = readFileSync(join(handoffs(root), 'sessions.jsonl'), 'utf8').trim().split('\n').map(text => JSON.parse(text));
+  assert.equal(line.wake, true);
+  await assert.rejects(start({ wake: true, keep: true }), /--wake/);
+});
+
+test('a session started with --wake gives the main agent a turn as soon as it ends, and the next message does not tell it again', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    endSession(h.root, 'hobkin-prep-1', 'Prepare teams', 'Prepared 2.7.0 on release-prep/2.7.0.', { wake: true });
+    endSession(h.root, 'hobkin-land-3', 'Land finboard', 'Merged 3 branches.');
+    const sent = t.mock.method(app.runtime, 'send');
+
+    await app.tickWakes();
+    await app.runtime.idle();
+    await app.tickWakes();
+    await app.send('anything else?');
+
+    const [woken, next, ...rest] = sent.mock.calls.map(({ arguments: [text] }) => text);
+    assert.deepEqual(rest, []);
+    assert.match(woken, /^<hobkin-wake>\n/);
+    assert.match(woken, /Prepared 2\.7\.0/);
+    assert.match(woken, /hobkin-prep-1\.report\.md/);
+    assert.doesNotMatch(woken, /Land finboard/, 'only a session started with --wake wakes it');
+    assert.match(next, /Land finboard/);
+    assert.doesNotMatch(next, /Prepare teams/);
+    const shown = (await app.refresh()).messages.filter(({ role }) => role === 'user').map(({ content }) => content);
+    assert.deepEqual(shown, ['anything else?']);
+  } finally {
+    await app.close();
+  }
+});
+
+const mainSession = h => h.fake.sessions.get(h.fake.opened.at(-1));
+
+/** One run of a command the main agent scheduled, as the scheduler posts it into the conversation. */
+function scheduledRun(h, code, task = { id: 'task_wait', name: 'Wait for the report' }, command = "test -s '/tmp/prep.report.md'") {
+  return mainSession(h).sendCustomMessage({
+    customType: 'scheduled-task',
+    content: `Scheduled command ${task.id} finished with exit code ${code}: ${command}`,
+    display: true,
+    details: { task, result: { ok: code === 0, code, killed: false, command, stdout: '', stderr: code ? 'not there yet' : '' } },
+  }, { triggerTurn: false });
+}
+
+test('a scheduled command that fails wakes the main agent once to fix it, and a run that worked stays out of Chat', async t => {
+  const h = fixture(t);
+  let app = await h.openApp();
+  try {
+    const sent = t.mock.method(app.runtime, 'send');
+    await scheduledRun(h, 1);
+    await scheduledRun(h, 1);
+    await scheduledRun(h, 0, { id: 'task_ci', name: 'Watch CI' }, 'gh run view 1');
+
+    await app.tickWakes();
+    await app.runtime.idle();
+    await app.tickWakes();
+
+    const woken = sent.mock.calls.map(({ arguments: [text] }) => text);
+    assert.equal(woken.length, 1, 'the same failure is told once');
+    assert.match(woken[0], /^<hobkin-wake>\n/);
+    assert.match(woken[0], /task_wait/);
+    assert.match(woken[0], /not there yet/);
+    assert.doesNotMatch(woken[0], /task_ci/);
+    const lines = (await app.refresh()).messages.filter(({ role }) => role === 'custom').map(({ content }) => content);
+    assert.ok(lines.some(line => /task_wait finished with exit code 1/.test(line)), 'a failure stays in sight');
+    assert.equal(lines.some(line => /exit code 0/.test(line)), false, 'a run that worked says nothing');
+  } finally {
+    await app.close();
+  }
+
+  app = await h.openApp();
+  try {
+    const sent = t.mock.method(app.runtime, 'send');
+    await app.tickWakes();
+    assert.equal(sent.mock.callCount(), 0, 'a failure from before this open was told already');
   } finally {
     await app.close();
   }
