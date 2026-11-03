@@ -5,7 +5,7 @@ import {
   addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
-import { forecastWork } from './forecast.mjs';
+import { forecastEachMinute } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
 import { findProject, nameOf } from './names.mjs';
@@ -175,7 +175,7 @@ export function workStatus(root, outlook = {}) {
     shipNotice: mode.ship?.notice ?? null,
     waitingOn: plan.waitingOn,
     nextStartAt: plan.nextStartAt,
-    forecast: forecastWork(root, plan, { running: outlook.running ?? [] }),
+    forecast: forecastEachMinute(root, plan, { running: outlook.running ?? [] }),
     allowanceRequest: enabled ? currentRequest(mode) : null,
     subscription,
     unmerged,

@@ -28,7 +28,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
-| `hobkin work status` | Work mode in short, as JSON: on or off, any pause and why, tokens, limits and what is next. |
+| `hobkin work status` | Work mode in short, as JSON: on or off, any pause and why, tokens, limits and what is next. `forecast` says about how many jobs it would start in the next 8 hours if on, by priority, and what holds the number down. |
 | `hobkin work projects`, `items [project]` | Each project with its level, state and counts, or each item with its `grade`, `state`, `branch`, `attempts`, `lastError`, `summary`, `proof` and `left`. `--state` narrows them. |
 | `hobkin work running`, `queue`, `attention` | Each agent, the plan in order, and what is waiting on the user. |
 | `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |

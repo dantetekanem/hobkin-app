@@ -328,8 +328,10 @@ const behindItsStartedItem = (mode, entry, entries) => entry.kind === 'item' && 
   && entries.some(other => other.slug === entry.slug && other.item?.state === 'doing' && canStart(mode, other));
 
 // With starts this quick, a row that fails every time would spend tokens on nothing all day. It waits longer after each try while everything else goes past it, and it always comes round.
-export const retryAt = ({ item, picked }) => (!item?.attempts || picked ? null
-  : Date.parse(item.updatedAt ?? item.at) + Math.min(item.attempts, MOST_TRIES_COUNTED) * WAIT_PER_TRY_MS);
+export function retryAt({ item, picked }) {
+  if (!item?.attempts || picked) return null;
+  return Date.parse(item.updatedAt ?? item.at) + Math.min(item.attempts, MOST_TRIES_COUNTED) * WAIT_PER_TRY_MS;
+}
 
 function retryWait(entry, now) {
   const at = retryAt(entry);

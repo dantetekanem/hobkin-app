@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { main } from '../src/cli/main.mjs';
-import { forecastWork } from '../src/cli/work/forecast.mjs';
+import { forecastEachMinute, forecastWork } from '../src/cli/work/forecast.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import { SHIP_FIRST_AT } from '../src/cli/work/ship.mjs';
 import { chooseProject, fileItem, paths, recordTokens, tokenEvents, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
@@ -37,6 +37,14 @@ function project(root, slug, level = 'important', time = now) {
 
 const forecast = root => forecastWork(root, planWork(root, { now }), { now });
 
+/** Three items that each took this long, a day ago, so the forecast times the next ones by them. */
+function itemsTook(root, length) {
+  for (let index = 0; index < 3; index++) {
+    const ended = now - 30 * HOUR + index * 3 * HOUR;
+    recordTokens(root, { slug: 'api', lane: 'do', kind: 'do', tokens: 1000, startedAt: at(ended - length) }, ended);
+  }
+}
+
 test('what is ready now and the looks that come due later both count, by grade', t => {
   const root = dataRoot(t);
   project(root, 'api');
@@ -58,10 +66,7 @@ test('runs take as long as the last ones like them did, and two agents fit only 
     project(root, slug);
     for (let index = 0; index < 5; index++) fileItem(root, slug, item(`${slug} fix ${index}`), now);
   }
-  for (let index = 0; index < 3; index++) {
-    const ended = now - 30 * HOUR + index * 3 * HOUR;
-    recordTokens(root, { slug: 'api', lane: 'do', kind: 'do', tokens: 1000, startedAt: at(ended - 2 * HOUR) }, ended);
-  }
+  itemsTook(root, 2 * HOUR);
 
   const { jobs, grades, limit, line } = forecast(root);
 
@@ -136,11 +141,12 @@ test('a usage limit holds every start until it ends', t => {
     project(root, slug, 'casual');
     fileItem(root, slug, item(`${slug} fix`), now);
   }
+  itemsTook(root, 2 * HOUR);
   writeMode(root, { usagePause: { at: at(now), until: at(now + 7.75 * HOUR), reason: 'The provider said stop.' } });
 
   const { jobs, limit, until, line } = forecast(root);
 
-  assert.equal(jobs, 2, 'a quarter hour is left for two starts five minutes apart');
+  assert.equal(jobs, 2, 'the quarter hour after it ends has two starts five minutes apart, and both agents stay busy');
   assert.deepEqual([limit, until], ['usage', at(now + 7.75 * HOUR)]);
   assert.match(line, /Paused by a usage limit until 19:45 today\.$/);
 });
@@ -158,16 +164,31 @@ test('shipping first holds new work and its looks, and what still runs at the ba
   const { jobs, grades, limit, line } = forecast(root);
 
   assert.deepEqual([jobs, grades.P0, limit], [1, 1, 'ship']);
-  assert.equal(line, 'Next 8h: about 1 job · 1 P0 · 2 agents at a time. Shipping first holds new work.');
+  assert.equal(line, 'Next 8h: about 1 job · 1 P0 · 2 agents at a time.', 'the shipping first line beside it already says why');
 });
 
-test('with the mode off it says what turning it on would start, which ends a pause by hand', t => {
+test('with the mode off it counts what turning it on would start, which ends a pause by hand', t => {
   const root = dataRoot(t);
   project(root, 'api', 'casual');
   fileItem(root, 'api', item('Fix login'), now);
   writeMode(root, { enabled: false, pausedAt: at(now) });
 
-  assert.equal(forecast(root).line, 'Turned on, next 8h: about 1 job · 1 P2 · 2 agents at a time.');
+  assert.equal(forecast(root).line, 'Next 8h: about 1 job · 1 P2 · 2 agents at a time.');
+});
+
+test('the status works it out once a minute, and a change it counts shows at once', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('Fix login'), now);
+  const second = now + 1000;
+
+  const first = forecastEachMinute(root, planWork(root, { now }), { now });
+  const again = forecastEachMinute(root, planWork(root, { now: second }), { now: second });
+  writeMode(root, { pausedAt: at(second) });
+  const paused = forecastEachMinute(root, planWork(root, { now: second }), { now: second });
+
+  assert.equal(again, first, 'the same minute and the same queue reuse the answer');
+  assert.deepEqual([first.limit, paused.limit], [null, 'hand']);
 });
 
 test('a run that ends says when it began, so the next ones like it can be timed', async t => {

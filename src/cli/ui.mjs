@@ -1374,10 +1374,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   // The notice row is short beside the face, so what stopped and what stays goes in the conversation.
   const announceWork = enabled => {
     const { now: happening, next, scheduled } = workSituation({ work: snapshot.work ?? {}, runs: workRuns(), clock: now() });
+    const turnedOn = [`Work mode on. ${happening}`, next || scheduled, snapshot.work?.forecast?.line].filter(Boolean).join(' ');
     localMessages.push({
       id: `work:${randomUUID()}`,
       role: 'assistant',
-      content: enabled ? [`Work mode on. ${happening}`, next || scheduled, snapshot.work?.forecast?.line].filter(Boolean).join(' ') : `Work mode off. ${stoppedLine(workRuns().length)}`,
+      content: enabled ? turnedOn : `Work mode off. ${stoppedLine(workRuns().length)}`,
       at: new Date(now()).toISOString(),
     });
   };
