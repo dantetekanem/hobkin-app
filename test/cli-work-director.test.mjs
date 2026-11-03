@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { initialize, setLearning } from '../src/cli/config.mjs';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
+import { lastUpkeep } from '../src/cli/work/upkeep.mjs';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { firstGuess } from '../src/cli/work/budget.mjs';
 import { askAgent, requestReview } from '../src/cli/work/controls.mjs';
@@ -598,7 +599,8 @@ test('once a day, mode on or off and with no model, repeated harness failures re
   for (const ago of [1, 2, 3]) recordEvent(h.root, 'error_shown', { from: 'Send' }, h.clock - ago * HOUR);
 
   await h.tick();
-  const { upkeepAt, harnessLines } = readMode(h.root);
+  const { harnessLines } = readMode(h.root);
+  const upkeepAt = lastUpkeep(h.root);
   assert.equal(upkeepAt, new Date(h.clock).toISOString());
   assert.deepEqual(harnessLines.map(({ key }) => key), ['harness:error:send']);
   assert.ok(h.changes > 0);
@@ -606,12 +608,12 @@ test('once a day, mode on or off and with no model, repeated harness failures re
   for (let count = 0; count < 3; count += 1) recordEvent(h.root, 'error_shown', { from: 'Kill' }, h.clock);
   h.clock += HOUR;
   await h.tick();
-  assert.equal(readMode(h.root).upkeepAt, upkeepAt, 'once a day');
+  assert.equal(lastUpkeep(h.root), upkeepAt, 'once a day');
   assert.deepEqual(readMode(h.root).harnessLines.map(({ key }) => key), ['harness:error:send']);
 
   h.clock += 24 * HOUR;
   await h.tick();
-  assert.notEqual(readMode(h.root).upkeepAt, upkeepAt);
+  assert.notEqual(lastUpkeep(h.root), upkeepAt);
   assert.deepEqual(h.calls, [], 'it never starts a run');
 });
 
@@ -623,7 +625,7 @@ test('a pass that cannot read its events leaves the tick alone, and the next day
 
   await assert.doesNotReject(h.tick());
 
-  assert.equal(readMode(h.root).upkeepAt, new Date(h.clock).toISOString());
+  assert.equal(lastUpkeep(h.root), new Date(h.clock).toISOString());
 });
 
 test('stopping work mode during a look tells what it has so far, and starting again carries on', async t => {

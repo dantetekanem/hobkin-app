@@ -1,7 +1,9 @@
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { atomicJson } from '../config.mjs';
 import { eventsFolder, readEvents, recordEvent } from '../events.mjs';
 import { hobkinCommand } from './chat.mjs';
-import { chosenProjects, fileItem, readItems, readMode, realFolder, slugOf, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, readItems, readJson, readMode, realFolder, slugOf, writeMode } from './store.mjs';
 
 const DAY_MS = 86400000;
 // Once can be bad luck, and the same failure a third time in a day is hobkin's to fix.
@@ -102,10 +104,11 @@ const chatLine = ({ what, count }) => `hobkin's own harness: ${what}, ${times(co
 
 /** A class is told once for good. Only the newest lines stay in the mode, so one that has scrolled out of Chat cannot come back. */
 function tellChat(root, failures, now) {
-  const { harnessTold = [] } = readMode(root);
+  const { harnessTold = [], harnessLines = [] } = readMode(root);
   const untold = failures.filter(({ key }) => !harnessTold.includes(key));
   const lines = untold.map(failure => ({ key: failure.key, line: chatLine(failure), at: iso(now) }));
-  writeMode(root, { harnessLines: lines, harnessTold: [...harnessTold, ...lines.map(({ key }) => key)] });
+  // With nothing to say or clear this stays silent, because a first start must leave `work/` empty for import.
+  if (lines.length || harnessLines.length) writeMode(root, { harnessLines: lines, harnessTold: [...harnessTold, ...lines.map(({ key }) => key)] });
   return lines;
 }
 
@@ -119,7 +122,15 @@ const folderOf = path => {
 
 const hobkinProject = (root, checkout) => chosenProjects(root).find(({ path }) => path && folderOf(path) === folderOf(checkout));
 
-export const upkeepDue = ({ upkeepAt }, now) => !upkeepAt || now - Date.parse(upkeepAt) >= DAY_MS;
+// This stays out of `work/`, because import reads anything there as a folder someone has used, and a first start must not look like that.
+const clockPath = root => join(root, 'runtime', 'upkeep.json');
+export const lastUpkeep = root => readJson(clockPath(root), {}).at ?? null;
+export const stampUpkeep = (root, now) => atomicJson(clockPath(root), { at: iso(now) });
+
+export const upkeepDue = (root, now) => {
+  const at = lastUpkeep(root);
+  return !at || now - Date.parse(at) >= DAY_MS;
+};
 
 /**
  * hobkin looks after itself: a failure in its own harness is never a call, so what repeats goes on its own list. Code only, and it starts nothing.

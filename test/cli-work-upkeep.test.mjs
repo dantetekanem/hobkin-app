@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { startsNewWork } from '../src/cli/work/plan.mjs';
 import { chooseProject, dropProject, readItems, readMode, updateItem } from '../src/cli/work/store.mjs';
-import { lookAfterHarness, repeatedFailures, upkeepDue } from '../src/cli/work/upkeep.mjs';
+import { lookAfterHarness, repeatedFailures, stampUpkeep, upkeepDue } from '../src/cli/work/upkeep.mjs';
 
 const HOUR = 3600000;
 const DAY = 24 * HOUR;
@@ -219,8 +219,13 @@ test('with no events named, the pass reads the last day from disk and no further
   assert.match(fixesOn(root, slug)[0].brief, /3 times/);
 });
 
-test('the pass is due on a first look, then once a day', () => {
-  assert.equal(upkeepDue({}, NOW), true);
-  assert.equal(upkeepDue({ upkeepAt: iso(NOW - DAY + 1) }, NOW), false);
-  assert.equal(upkeepDue({ upkeepAt: iso(NOW - DAY) }, NOW), true);
+test('the pass is due on a first look, then once a day', t => {
+  const { root } = workspace(t);
+  mkdirSync(join(root, 'runtime'));
+
+  assert.equal(upkeepDue(root, NOW), true);
+  stampUpkeep(root, NOW - DAY + 1);
+  assert.equal(upkeepDue(root, NOW), false);
+  stampUpkeep(root, NOW - DAY);
+  assert.equal(upkeepDue(root, NOW), true);
 });

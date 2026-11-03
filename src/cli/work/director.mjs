@@ -27,7 +27,7 @@ import {
 } from './store.mjs';
 import { changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
-import { lookAfterHarness, upkeepDue } from './upkeep.mjs';
+import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 
@@ -166,7 +166,7 @@ export class WorkDirector {
 
     const mode = readMode(this.root);
     this.reviewWeek(mode);
-    this.lookAfterItself(mode);
+    this.lookAfterItself();
     if (!mode.enabled) {
       this.stopLook();
       return;
@@ -206,10 +206,10 @@ export class WorkDirector {
   }
 
   // Code only, with no model, mode on or off. The clock goes first, because a problem here costs one day's pass and must never stop a tick.
-  lookAfterItself(mode) {
+  lookAfterItself() {
     const now = this.now();
-    if (!upkeepDue(mode, now)) return;
-    writeMode(this.root, { upkeepAt: new Date(now).toISOString() });
+    if (!upkeepDue(this.root, now)) return;
+    stampUpkeep(this.root, now);
     try {
       lookAfterHarness(this.root, { now });
       this.onChange();
