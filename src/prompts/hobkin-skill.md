@@ -39,6 +39,8 @@ These read saved state. They start nothing and call no model:
 | `hobkin work merge <project> <item>` | Merges a finished branch on this machine and pushes nothing, only on the user's word. |
 | `hobkin work decline <project> <item>` | Says no to it, on the user's word. Its branch stays. |
 | `hobkin work ask <project> <item> <note>` | Sends an agent back to that branch with the user's note. |
+| `hobkin work offers` | What could land on one key, and why the rest cannot. It changes nothing. |
+| `hobkin work trust <pattern> on\|off` | The user's own switch for a pattern's offers, and the only way back on after severe trouble. |
 | `hobkin work review` | The weekly review: whether work mode is running and progressing, and which projects look stale. |
 | `hobkin work help` | Every work mode command. A project is its name, slug or path. |
 

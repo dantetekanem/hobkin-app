@@ -89,6 +89,9 @@ The Done subtab walks through finished work, the safest and smallest first, each
 - `w` sends an agent back with your note.
 - `n` says no, and hobkin learns from it.
 - `Enter` reads it, and from there `d` opens the diff and `r` asks for a review.
+- Under NOT LANDED, `x` closes a branch whose item says done, for good.
+
+With learning on, a change like one that already went well comes to you as an offer in Decisions, with what happened last time and the one risk to look at: Later, Merge it, Read it or Not this one. hobkin still merges only on your word.
 
 A question from a routine or work mode waits 30 seconds on screen, then moves to the Decisions tab, so nothing stops for you. Each one has a one-line summary and numbered choices: press the number to answer. A routine that asks what you answered in the last 30 days gets your answer back and does not ask again.
 
