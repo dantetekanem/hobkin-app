@@ -671,6 +671,19 @@ test('Decisions appears with what waits, one summary a line, and a number answer
   ui.stop();
 });
 
+test('the tab marks what the asker recommends and says why, and the choices keep their order', () => {
+  const ui = createDashboard({ ...base, decisions: [asked('one', { recommended: 'no', why: 'Only you know the bank.', changed: 'They wrote again.' })] });
+  for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
+
+  const text = screen(ui, 110, 30);
+
+  assert.match(text, /1 Go ahead\s*\n/);
+  assert.match(text, /2 Hold it\s+recommended/);
+  assert.match(text, /Only you know the bank\./);
+  assert.match(text, /They wrote again\./);
+  ui.stop();
+});
+
 test('with nothing to decide the tab goes away, and an empty one never opens', () => {
   const ui = createDashboard({ ...base, decisions: [asked('one')] });
   for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');

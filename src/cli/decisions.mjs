@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { recordEvent } from './events.mjs';
@@ -9,25 +9,30 @@ export const QUESTION_WAIT_MS = 30000;
 const LONGEST_TLDR = 100;
 const LONGEST_QUESTION = 1000;
 const LONGEST_LABEL = 80;
+const LONGEST_REASON = 300;
 const FEWEST_CHOICES = 2;
 const MOST_CHOICES = 6;
+const DAY_MS = 86400000;
+const REMEMBERED_MS = 30 * DAY_MS;
 
 const logPath = root => join(root, 'decisions.jsonl');
 
 const firstSentence = text => /^.*?[.?!](?=\s|$)/.exec(text)?.[0] ?? text;
 const shortChoice = ({ value, label }) => ({ value, label: String(label).slice(0, LONGEST_LABEL) });
+const shortReason = text => text?.trim().slice(0, LONGEST_REASON) || null;
 const tldrFrom = ({ tldr, question }) => (tldr?.trim() || firstSentence(question.trim())).slice(0, LONGEST_TLDR);
 
 function append(root, event) {
   appendFileSync(logPath(root), `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
 
-function assertDecision({ question, choices }) {
+function assertDecision({ question, choices, recommended }) {
   if (typeof question !== 'string' || !question.trim()) throw Error('A decision needs a question.');
   const values = new Set((choices ?? []).map(choice => choice?.value));
   const complete = (choices ?? []).every(choice => choice?.value && choice?.label);
   const fits = choices?.length >= FEWEST_CHOICES && choices.length <= MOST_CHOICES;
   if (!complete || !fits || values.size !== choices.length) throw Error(`A decision needs ${FEWEST_CHOICES} to ${MOST_CHOICES} distinct choices, each with a value and a label.`);
+  if (recommended && !values.has(recommended)) throw Error('`recommended` has to be the value of one of its choices.');
 }
 
 function readAll(root) {
@@ -47,9 +52,15 @@ function readAll(root) {
 /** What still waits for the user, oldest first. */
 export const openDecisions = root => readAll(root).filter(({ answer }) => answer === undefined);
 
+/** The last card, which is how a restart knows what was already shown. */
+export function lastCard(root) {
+  const card = readAll(root).findLast(({ answerTo }) => answerTo?.kind === 'pending');
+  return card ? { at: card.at, total: card.answerTo.total, trouble: card.answerTo.trouble } : null;
+}
+
 /** Nothing waits for the answer: the asker carries on, and the answer reaches it later. A `key` keeps one open question from becoming several. */
-export function fileDecision(root, { key = null, from, question, tldr, choices, answerTo = null }, now = Date.now()) {
-  assertDecision({ question, choices });
+export function fileDecision(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null }, now = Date.now()) {
+  assertDecision({ question, choices, recommended });
   const known = key && openDecisions(root).find(decision => decision.key === key);
   const id = known?.id ?? randomUUID();
   append(root, {
@@ -60,6 +71,9 @@ export function fileDecision(root, { key = null, from, question, tldr, choices, 
     tldr: tldrFrom({ tldr, question }),
     choices: choices.map(shortChoice),
     answerTo,
+    recommended,
+    why: shortReason(why),
+    changed: shortReason(changed),
     at: known?.at ?? new Date(now).toISOString(),
     shown: known?.shown ?? false,
   });
@@ -89,11 +103,35 @@ const whereTo = ([kind, ...names]) => {
   throw Error('Say who is asking: routine <id>, or work <project> <item>.');
 };
 
-/** `hobkin decide`, for a run in another process. The question comes as JSON on stdin, and the run carries on as soon as this returns. */
-export async function runDecideCommand(root, args, input) {
+const keyOf = question => createHash('sha256').update(question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()).digest('hex').slice(0, 16);
+
+/** The same question twice is the worst call hobkin can make, so what was answered lately is answered. */
+function recentAnswer(root, key, now) {
+  const answered = readAll(root).filter(decision => decision.key === key && decision.answeredAt && now - Date.parse(decision.answeredAt) < REMEMBERED_MS);
+  return answered.toSorted((first, second) => first.answeredAt.localeCompare(second.answeredAt)).at(-1) ?? null;
+}
+
+function earlierAnswer({ answer, answeredAt, choices }) {
+  const label = choices.find(choice => choice.value === answer)?.label ?? answer;
+  return {
+    ok: true,
+    answer,
+    label,
+    answeredAt,
+    message: `The user answered this on ${answeredAt.slice(0, 10)}: ${label}. Nothing was filed, so carry on with that answer. If something changed, file it again with \`changed\` saying what.`,
+  };
+}
+
+/** `hobkin decide`, for a run in another process. The question comes as JSON on stdin, and the run carries on as soon as this returns. A routine gets back what was already answered. Work runs never do, because their one use of this is deleting what git cannot restore. */
+export async function runDecideCommand(root, args, input, now = Date.now()) {
   let text = '';
   for await (const chunk of input) text += chunk;
-  const { question, tldr, choices, key } = JSON.parse(text);
-  const { id } = fileDecision(root, { key, question, tldr, choices, ...whereTo(args) });
+  const { key, changed, ...asked } = JSON.parse(text);
+  const asker = whereTo(args);
+  assertDecision(asked);
+  const scopedKey = [...args, key || keyOf(asked.question)].join(':');
+  const earlier = asker.answerTo.kind === 'routine' && !changed?.trim() ? recentAnswer(root, scopedKey, now) : null;
+  if (earlier) return earlierAnswer(earlier);
+  const { id } = fileDecision(root, { ...asked, ...asker, key: scopedKey, changed }, now);
   return { ok: true, id, message: 'Filed in Decisions. Carry on: the answer reaches you later.' };
 }

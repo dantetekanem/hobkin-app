@@ -998,12 +998,15 @@ const maxLine = ({ maxRuns, projects = [] }) => {
   return inUse ? `Max: ${maxRuns.running} of ${maxRuns.atOnce} running, ${maxRuns.today} of ${maxRuns.perDay} today. Claude's tokens count when each run ends.` : '';
 };
 /** Adds each section to `content`, and returns where the selected row landed. */
-const decisionRow = ({ tldr, from, question, choices, at }, isSelected, inner, clock) => {
+const decisionRow = ({ tldr, from, question, choices, at, recommended, why, changed }, isSelected, inner, clock) => {
   const when = timeOf(at) === null ? '' : ` · ${elapsed(timeOf(at), clock)}`;
   const heading = row(`${highlight('●')} ${bold(clean(tldr))}`, dim(`${clean(from)}${when}`), inner);
   if (!isSelected) return [heading];
   const asked = clean(question) === clean(tldr) ? [] : wrapped(question, inner - 2).map(value => `  ${dim(value)}`);
-  return [selectedRow(heading, inner), ...asked, ...choices.map(({ label }, index) => `  ${accent(String(index + 1))} ${clean(label)}`)];
+  const reasons = [why && `Why you: ${why}`, changed && `What changed: ${changed}`].filter(Boolean)
+    .flatMap(reason => wrapped(reason, inner - 2)).map(value => `  ${dim(value)}`);
+  const mark = value => (value === recommended ? `  ${positive('recommended')}` : '');
+  return [selectedRow(heading, inner), ...asked, ...reasons, ...choices.map(({ value, label }, index) => `  ${accent(String(index + 1))} ${clean(label)}${mark(value)}`)];
 };
 const decisionLines = ({ decisions, selected, inner, clock }) => ({
   content: decisions.flatMap(decision => [...decisionRow(decision, decision === selected, inner, clock), '']),

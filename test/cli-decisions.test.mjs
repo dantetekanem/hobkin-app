@@ -95,3 +95,83 @@ test('hobkin decide files from another process and says who to tell', async t =>
   ]);
   await assert.rejects(runDecideCommand(root, [], input()), /Say who is asking/);
 });
+
+const DAY_MS = 86400000;
+const asked = (fields = {}) => Readable.from([JSON.stringify({ question: 'Keep the old invoices?', choices: yesNo, ...fields })]);
+
+test('a question carries what the asker recommends and why only the user can answer', t => {
+  const root = home(t);
+  fileDecision(root, { from: 'Routine mail', question: 'Ok?', choices: yesNo, recommended: 'no', why: 'It is your money.', changed: 'The bank wrote back.' });
+
+  const [{ recommended, why, changed }] = openDecisions(root);
+  assert.deepEqual({ recommended, why, changed }, { recommended: 'no', why: 'It is your money.', changed: 'The bank wrote back.' });
+  assert.throws(() => fileDecision(root, { question: 'Ok?', choices: yesNo, recommended: 'perhaps' }), /one of its choices/);
+});
+
+test('a missing key comes from the question, so the same words asked twice are one open decision', async t => {
+  const root = home(t);
+
+  await runDecideCommand(root, ['routine', 'mail'], asked());
+  await runDecideCommand(root, ['routine', 'mail'], asked({ question: '  keep the OLD invoices? ' }));
+
+  assert.equal(openDecisions(root).length, 1);
+});
+
+test('one key from two askers is two questions', async t => {
+  const root = home(t);
+
+  await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices' }));
+  await runDecideCommand(root, ['routine', 'bank'], asked({ key: 'invoices' }));
+
+  assert.equal(openDecisions(root).length, 2);
+});
+
+test('a routine that asks what was answered in the last 30 days files nothing and gets that answer with its date', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices' }), at);
+  answerDecision(root, id, 'no', at);
+
+  const again = await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices', question: 'Those invoices, keep them?' }), at + 29 * DAY_MS);
+
+  assert.deepEqual(openDecisions(root), []);
+  assert.equal(again.answer, 'no');
+  assert.equal(again.label, 'No');
+  assert.equal(again.answeredAt, '2026-10-20T10:00:00.000Z');
+  assert.match(again.message, /2026-10-20.*No/);
+});
+
+test('an answer older than 30 days is no answer, and the question is filed', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, ['routine', 'mail'], asked(), at);
+  answerDecision(root, id, 'no', at);
+
+  const again = await runDecideCommand(root, ['routine', 'mail'], asked(), at + 31 * DAY_MS);
+
+  assert.equal(again.answer, undefined);
+  assert.equal(openDecisions(root).length, 1);
+});
+
+test('changed files an answered question again and says what is new', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, ['routine', 'mail'], asked(), at);
+  answerDecision(root, id, 'no', at);
+
+  await runDecideCommand(root, ['routine', 'mail'], asked({ changed: 'The accountant asked for them.' }), at + DAY_MS);
+
+  assert.deepEqual(openDecisions(root).map(({ changed }) => changed), ['The accountant asked for them.']);
+});
+
+test('a work run always files, because its one use of decide is deleting what git cannot restore', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, ['work', 'api', 'abc'], asked(), at);
+  answerDecision(root, id, 'no', at);
+
+  const again = await runDecideCommand(root, ['work', 'api', 'abc'], asked(), at + DAY_MS);
+
+  assert.equal(again.answer, undefined);
+  assert.equal(openDecisions(root).length, 1);
+});
