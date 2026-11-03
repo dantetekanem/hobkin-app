@@ -54,6 +54,12 @@ test('work arguments keep their order and the home option still applies', () => 
   assert.equal(options.root, '/tmp/home');
 });
 
+test('work start takes --auto from a shell, before or after the folder', () => {
+  assert.deepEqual(parseArguments(['work', 'start', '--auto', '/repos']).args, ['start', '--auto', '/repos']);
+  assert.deepEqual(parseArguments(['work', 'start', '/repos', '--auto']).args, ['start', '/repos', '--auto']);
+  assert.throws(() => parseArguments(['status', '--auto']), /Unknown or incomplete option: --auto/);
+});
+
 test('work on needs a folder the first time, and off sets the mode a running owner picks up', async t => {
   const root = dataRoot(t);
 

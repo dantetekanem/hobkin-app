@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { answerDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, readItems, readMode, retryItem, skipInQueue, updateItem, writeMode } from '../src/cli/work/store.mjs';
@@ -139,6 +140,39 @@ test('a retry puts an item back in the queue, and only a review or a fix for fin
   assert.deepEqual([read(h, plain).state, read(h, plain).attempts, read(h, plain).lastError], ['open', 0, null]);
   assert.deepEqual(readMode(h.root).queueSkipped, []);
   assert.deepEqual(readMode(h.root).queueNext, [review, note, fix].map(({ id }) => `item:api:${id}`));
+});
+
+test('hobkin work start leaves what to pick up first in Decisions, and start --auto asks nothing', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  fileItem(h.root, 'api', item('Fix login'), h.clock);
+  writeMode(h.root, { enabled: false, folder: h.base });
+
+  const { message } = await runWorkCommand(h.root, ['start']);
+
+  const pickUp = openDecisions(h.root).find(({ key }) => key === 'pickup');
+  assert.match(pickUp.question, /Fix login/);
+  assert.match(message, /What to start first waits in Decisions\./);
+
+  answerDecision(h.root, pickUp.id, 'later');
+  const auto = await runWorkCommand(h.root, ['start', '--auto']);
+
+  assert.equal(openDecisions(h.root).some(({ key }) => key === 'pickup'), false);
+  assert.doesNotMatch(auto.message, /waits in Decisions/);
+});
+
+test('a retry says where it went: back in line, or to the front for a review or a note', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  const plain = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  const noted = fileItem(h.root, 'api', item('Fix logout'), h.clock);
+  updateItem(h.root, 'api', noted.id, { workNote: 'Keep the old flag.' }, h.clock);
+
+  const back = await runWorkCommand(h.root, ['retry', 'api', plain.id]);
+  const front = await runWorkCommand(h.root, ['retry', 'api', noted.id]);
+
+  assert.match(back.message, /back in the queue with its tries at zero/);
+  assert.match(front.message, /front of the queue with its tries at zero/);
 });
 
 test('with auto-pick off a plain retry waits for a pick', async t => {

@@ -26,7 +26,7 @@ import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
 import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
-import { answerPickUp, filePickUp } from './work/pick-up.mjs';
+import { answerPickUp, filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { answerPair, fileFirstPair } from './work/pairs.mjs';
@@ -183,6 +183,7 @@ export class HobkinApplication {
           app.tickWakes();
           app.tickCompaction();
           retireOffers(app.runtime.directory, app.now());
+          retirePickUp(app.runtime.directory, app.now());
           app.landOffers.next();
           // Not awaited: each holds a question on screen for as long as it stays there. The card goes first, because it stands for the whole pile.
           app.presentPending();

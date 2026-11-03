@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDecisions } from '../src/cli/decisions.mjs';
-import { answerPickUp, filePickUp } from '../src/cli/work/pick-up.mjs';
+import { answerPickUp, filePickUp, retirePickUp } from '../src/cli/work/pick-up.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import { chooseProject, fileItem, paths, readMode, recordTokens, writeMode, writeState } from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
@@ -98,6 +98,26 @@ test('with auto-pick on the queue runs as it did, so nothing is asked', t => {
   writeMode(root, { enabled: true, autoPick: true });
 
   assert.equal(filePickUp(root, now), false);
+  assert.equal(pickUp(root), undefined);
+});
+
+test('a pick-up closes by itself once it no longer holds: auto-pick on, or the mode off', t => {
+  const root = dataRoot(t);
+  projectWithFixes(root, 'api', ['First fix']);
+  writeMode(root, { enabled: true, autoPick: false });
+  filePickUp(root, now);
+
+  retirePickUp(root, now);
+  assert.ok(pickUp(root), 'it holds while the mode is on and auto-pick is off');
+
+  writeMode(root, { autoPick: true });
+  retirePickUp(root, now);
+  assert.equal(pickUp(root), undefined);
+
+  writeMode(root, { autoPick: false });
+  filePickUp(root, now);
+  writeMode(root, { enabled: false });
+  retirePickUp(root, now);
   assert.equal(pickUp(root), undefined);
 });
 

@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { openDecisions } from '../src/cli/decisions.mjs';
 import { main } from '../src/cli/main.mjs';
 import { setProfile } from '../src/cli/profile.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
@@ -17,6 +18,7 @@ import { fakePi } from './helpers/pi-session.mjs';
 
 const HOUR = 3600000;
 const LEFT = '\x1b[D';
+const DOWN = '\x1b[B';
 const ENTER = '\r';
 const ESCAPE = '\x1b';
 const shell = promisify(exec);
@@ -163,10 +165,13 @@ async function openHobkin(h, { agent = async () => 'Useful: Done.', chat = async
 
 const tabRow = text => text.split('\n')[0];
 
-/** `/work` starts nothing by itself, so a test that watches the work happen turns auto-pick on once the mode is on, as `hobkin work auto on` does. */
-async function autoPickOn(h, hobkin) {
-  await hobkin.settled(() => readMode(h.root).enabled);
-  writeMode(h.root, { autoPick: true });
+/** `/work` starts nothing by itself and asks what to pick up, so a test that watches the work happen lets the whole queue run, the last choice, as the user would. */
+async function letTheQueueRun(h, hobkin) {
+  await hobkin.until(/nothing new starts by itself/);
+  const { choices } = openDecisions(h.root).find(({ key }) => key === 'pickup');
+  for (let step = 1; step < choices.length; step++) hobkin.press(DOWN);
+  hobkin.press(ENTER);
+  await hobkin.settled(() => readMode(h.root).autoPick);
 }
 
 const gated = () => {
@@ -249,7 +254,7 @@ test('from /work to a PR: told what it looks at, asked in Chat, answered in Chat
   assert.equal(hobkin.state().view, 'conversation');
   assert.match(tabRow(hobkin.screen()), /Work Mode/);
   assert.equal(readMode(h.root).enabled, true);
-  await autoPickOn(h, hobkin);
+  await letTheQueueRun(h, hobkin);
 
   // Looking: the tab says where it is and what it found, and a proposal shows as soon as it exists.
   await looked.promise;
@@ -330,7 +335,7 @@ test('the folder question comes from /work, and Hobkin stays in Chat', async t =
   assert.equal(readMode(h.root).enabled, false);
 
   hobkin.send(h.folder);
-  await autoPickOn(h, hobkin);
+  await letTheQueueRun(h, hobkin);
   await hobkin.until(/nothing to propose: Looked through nothing, because the folder is empty/);
 
   assert.equal(readMode(h.root).folder, h.folder);
@@ -349,7 +354,7 @@ test('a look that finds nothing says so with the reason in Chat and in the tab, 
   t.after(() => hobkin.close());
 
   hobkin.send('/work');
-  await autoPickOn(h, hobkin);
+  await letTheQueueRun(h, hobkin);
   await hobkin.until(/nothing to propose: Looked through 1 repository/);
   assert.doesNotMatch(hobkin.screen(), /looks again/);
   hobkin.press(LEFT);
@@ -364,7 +369,7 @@ test('a look that fails says so with the reason in Chat and in the tab, with the
   t.after(() => hobkin.close());
 
   hobkin.send('/work');
-  await autoPickOn(h, hobkin);
+  await letTheQueueRun(h, hobkin);
   await hobkin.until(/could not finish looking in .*Provider is down/);
   hobkin.press(LEFT);
   await hobkin.until(/The last look failed: Provider is down/);
@@ -386,7 +391,7 @@ test('a run that stops early is carried on, and giving up reaches Chat with its 
   t.after(() => hobkin.close());
 
   hobkin.send('/work');
-  await autoPickOn(h, hobkin);
+  await letTheQueueRun(h, hobkin);
   await hobkin.until(/before it finished: Continuing read-only project discovery/, { timeout: 15000 });
 
   assert.equal(runs, 3);
@@ -465,7 +470,7 @@ test('reopening Hobkin keeps what was asked, what was picked and the mode, and a
   };
   let hobkin = await openHobkin(h, { agent });
   hobkin.send('/work');
-  await autoPickOn(h, hobkin);
+  await letTheQueueRun(h, hobkin);
   await hobkin.until(/proposes 1 project/);
   await hobkin.close();
 

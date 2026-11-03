@@ -14,7 +14,7 @@ import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
+  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
   retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
@@ -47,12 +47,14 @@ function assertNotRunning(root, { slug }, { id, title }) {
   if (running) throw Error(`"${title}" is already running. hobkin work cancel ${id} stops it.`);
 }
 
-export function startMode(root, requested) {
-  const { enabled, folder } = startWork(root, requested);
+/** `autoPick` is `start --auto`, the start work mode used to have, where the top of the queue starts by itself. */
+export function startMode(root, requested, { autoPick = false } = {}) {
+  const { enabled, folder } = startWork(root, requested, { autoPick });
   const view = ownerView(root);
   const next = view.owner ? 'The owner picks it up on its next tick.' : NEEDS_AN_OWNER;
   const { line } = forecastWork(root, planWork(root, view), view);
-  return reply(`Work mode is on, starting from ${shortPath(folder)}. ${next} ${line}`, { enabled, folder });
+  const itself = autoPick ? ', and the top of the queue starts by itself' : '';
+  return reply(`Work mode is on, starting from ${shortPath(folder)}${itself}. ${next} ${line}`, { enabled, folder });
 }
 
 export function stopMode(root) {
@@ -235,7 +237,8 @@ export function retryNow(root, reference, id) {
   assertNotRunning(root, project, item);
   if (!statesThatRun.includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to retry.`);
   retryItem(root, project.slug, item.id);
-  return reply(`"${item.title}" goes to the front of the queue with its tries at zero.`);
+  if (movesFinishedWork(item)) return reply(`"${item.title}" goes to the front of the queue with its tries at zero.`);
+  return reply(`"${item.title}" goes back in the queue with its tries at zero. Enter on its row, or hobkin work trigger, starts it now.`);
 }
 
 export function setLevel(root, reference, word) {
@@ -487,16 +490,18 @@ export function trustPattern(root, pattern, word) {
 
 /** Asks `git` and `gh` now instead of at the next survey. Past a fetch they only read the repositories: all this changes is Hobkin's own record of its items. */
 export async function syncWork(root) {
-  const { settled, filed, pulse } = await surveyAndClose(root);
+  const { settled, filed, retired, reviewing, pulse } = await surveyAndClose(root);
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
   const found = [
     merged && `${merged} merged`,
     back && `${back} back to a local branch, because a PR was closed`,
     filed.length && `${filed.length} ${filed.length === 1 ? 'branch' : 'branches'} to get ready to merge`,
+    retired.length && `${retired.length} dropped as ${retired.length === 1 ? 'a backup of another branch' : 'backups of other branches'}`,
+    reviewing.length && `${reviewing.length} sent for a review`,
     pulse.trouble.length && `${pulse.trouble.length} went wrong after landing`,
   ].filter(Boolean).join(', and ');
-  return reply(`Checked every project. ${found || 'Nothing was merged or closed'}.`, { settled, filed });
+  return reply(`Checked every project. ${found || 'Nothing was merged or closed'}.`, { settled, filed, retired, reviewing });
 }
 
 /** The user's word that a merge went wrong. It takes no proof: it closes the launch as `trouble` and files the fix, and `severe` is for data loss or an outage. */

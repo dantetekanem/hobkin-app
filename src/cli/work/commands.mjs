@@ -5,21 +5,19 @@ import {
   addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
-import { shortPath } from './chat.mjs';
-import { forecastEachMinute, forecastWork } from './forecast.mjs';
+import { forecastEachMinute } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
 import { findProject, nameOf } from './names.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
+import { filePickUp } from './pick-up.mjs';
 import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
-import {
-  assertState, attentionView, closingItems, itemCounts, itemsView, landingList, NEEDS_AN_OWNER, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView,
-} from './reads.mjs';
+import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
 import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
   agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
-  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, startWork, tokenLabel, updateItem, writeMode,
+  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
@@ -120,21 +118,16 @@ function watchSummary(root) {
   return { at, added: added.length, changed: changed.length, removed: removed.length, proposed: proposed.length };
 }
 
-/** `start --auto` is the start work mode used to have, where the top of the queue starts by itself, so its reply counts what that brings. */
-function startWithAutoPick(root, requested) {
-  const { enabled, folder } = startWork(root, requested, { autoPick: true });
-  const view = ownerView(root);
-  const next = view.owner ? 'The owner picks it up on its next tick.' : NEEDS_AN_OWNER;
-  const { line } = forecastWork(root, planWork(root, view), view);
-  return reply(`Work mode is on, starting from ${shortPath(folder)}, and the top of the queue starts by itself. ${next} ${line}`, { enabled, folder });
-}
-
-/** Starting with a pile says so with the real count, and the first two are filed at once, so a start never floods agents. `--auto` goes before or after the folder. */
+/**
+ * Starting with a pile says so with the real count, and the first two are filed at once, so a start never floods agents. Without `--auto`, which goes
+ * before or after the folder, nothing new starts by itself, and what to pick up first waits in Decisions.
+ */
 function startWithPile(root, args) {
   const folder = args.find(arg => arg !== '--auto');
-  const started = args.includes('--auto') ? startWithAutoPick(root, folder) : startMode(root, folder);
-  const line = fileFirstPair(root);
-  return line ? { ...started, message: `${started.message} ${line}` } : started;
+  const started = startMode(root, folder, { autoPick: args.includes('--auto') });
+  const pile = fileFirstPair(root);
+  const pickUp = filePickUp(root) ? 'What to start first waits in Decisions.' : null;
+  return { ...started, message: [started.message, pile, pickUp].filter(Boolean).join(' ') };
 }
 
 /** Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows. */

@@ -67,7 +67,7 @@ Set your own timezone and `cwd`. hobkin picks the file up by itself, and `hobkin
 
 Type `/work` in Chat to turn it on or off. The first time, hobkin asks which folder to start from. It looks through the repositories there and proposes projects. Nothing starts until you take one: answer in Chat, or press `y` or `n` on its row in the Work Mode tab.
 
-Agents study each project you take and file items for what they find. All items go in one queue, graded P0 to P3, with P0 first. When a worker is free and the daily token budget allows it, the top of the queue starts by itself.
+Agents study each project you take and file items for what they find. All items go in one queue, graded P0 to P3, with P0 first. Turning work mode on starts nothing new by itself: hobkin offers the next few rows, and you start those, the first one, or let the whole queue run, so it starts by itself whenever a worker is free and the daily token budget allows it.
 
 Every change happens on a `hobkin/*` branch, and git can bring it all back, so nothing waits for permission. Agents never commit to your default branch or merge into it. Deploying, publishing and deleting what git cannot bring back stay with you.
 

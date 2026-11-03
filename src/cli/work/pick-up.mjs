@@ -1,4 +1,4 @@
-import { fileDecision } from '../decisions.mjs';
+import { answerDecision, fileDecision, openDecisions } from '../decisions.mjs';
 import { reply } from './controls.mjs';
 import { planWork } from './plan.mjs';
 import { ownerView, pickNext, readMode, writeMode } from './store.mjs';
@@ -57,6 +57,15 @@ export function filePickUp(root, now = Date.now()) {
     answerTo: { kind: KEY, keys: rows.map(({ key }) => key) },
   }, now);
   return true;
+}
+
+/** A pick-up says nothing new starts by itself, so once auto-pick is on or the mode is off it no longer holds, and it closes as not now. */
+export function retirePickUp(root, now = Date.now()) {
+  const { enabled, autoPick } = readMode(root);
+  if (enabled && !autoPick) return;
+  for (const { id, answerTo } of openDecisions(root)) {
+    if (answerTo?.kind === KEY) answerDecision(root, id, 'later', now);
+  }
 }
 
 /** Carries out the answer, and only code calls this: the keys come from the decision hobkin filed. */

@@ -1194,6 +1194,26 @@ test('sync closes what was merged, says so and lists it, and changes nothing in 
   assert.match((await success(h.root, 'sync')).message, /Nothing was merged or closed/);
 });
 
+test('sync says what it dropped as backups and which finished branches it sent for a review', async t => {
+  const h = owned(t);
+  fakeGh(t, h, []);
+  const checkout = studied(h, 'api');
+  branched(checkout, 'hobkin/login');
+  git(checkout, 'branch', 'hobkin/login-before-c289e6', 'hobkin/login');
+  const finished = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  updateItem(h.root, 'api', finished.id, { state: 'branch', branch: 'hobkin/login', proof: 'It failed, then it passed.' }, h.clock);
+  // A branch with no description or proof gets its describe agent first, and its review on a later pass.
+  mkdirSync(dirname(prFile(h.root, 'api', finished.id)), { recursive: true });
+  writeFileSync(prFile(h.root, 'api', finished.id), '# Fix login\n\nLogins work again.\n');
+  const stray = fileItem(h.root, 'api', { ...item('Copy of login'), key: 'branch:hobkin/login-before-c289e6', kind: 'chore' }, h.clock);
+  updateItem(h.root, 'api', stray.id, { state: 'branch', branch: 'hobkin/login-before-c289e6' }, h.clock);
+
+  const { message } = await success(h.root, 'sync');
+
+  assert.match(message, /1 dropped as a backup of another branch/);
+  assert.match(message, /1 sent for a review/);
+});
+
 test('sync says when a closed PR sent an item back to its local branch', async t => {
   const h = owned(t);
   const pr = 'https://example.com/pull/1';
