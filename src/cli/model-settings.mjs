@@ -12,6 +12,13 @@ function syncConfig(config, settings) {
   }
 }
 
+/** `models.json` can change while hobkin runs, and hobkin may run for days. A file that cannot be read again leaves the catalog as it was. */
+async function currentCatalog(modelRuntime) {
+  const runtime = await modelRuntime();
+  await Promise.resolve(runtime?.refresh?.({ allowNetwork: false })).catch(() => {});
+  return runtime;
+}
+
 /**
  * The receipt behind the model_settings tool, shared by the in-process and the launcher session.
  * `binding()` reports the active main model and effort; `modelRuntime()` lists the installed models;
@@ -19,7 +26,7 @@ function syncConfig(config, settings) {
  */
 export async function runModelSettings({ root, config, request, binding, modelRuntime, apply }) {
   if (request.action === 'inspect') {
-    const runtime = await modelRuntime();
+    const runtime = await currentCatalog(modelRuntime);
     const models = await runtime?.getAvailable?.() ?? [];
     const details = {
       action: 'inspect',
@@ -38,7 +45,7 @@ export async function runModelSettings({ root, config, request, binding, modelRu
       scheduleId: request.routineId,
       model: request.model,
       effort: request.effort,
-    }, { modelRuntime: await modelRuntime(), applyCurrent: apply });
+    }, { modelRuntime: await currentCatalog(modelRuntime), applyCurrent: apply });
   } catch (error) {
     result = {
       scope: request.scope,

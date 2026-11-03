@@ -193,7 +193,11 @@ When calls pile up and the user is there, hobkin shows a short card and asks how
 
 One row per group, five at most, each with a count, a label and one fact, each in its own color: green ready, amber read, red trouble, blue questions, dim yours. An empty group has no row. The bar is 8 calls. After a card it stays quiet for 4 hours, unless 5 more arrive or something went wrong. Typing an answer sends it to the main agent with the card attached, so "drop the old finboard branches" works.
 
-### 8. The scoreboard
+### 8. hobkin looks after itself
+
+A failure in hobkin's own harness is never a call. On 2026-11-02 the main agent reported that a model switch was rejected, and the user had to ask why and then say fix it. The cause was a catalog read once at startup. The main agent's rule is now to find the cause and fix what can be changed back in the same turn. Once events are in, a code pass reads a day of error events, and a class that repeats files a `fix` on the hobkin project with the counts, so the next failure of its kind is already being worked on.
+
+### 9. The scoreboard
 
 The weekly review and `hobkin telemetry` show what hobkin brought, what the user acted on, how much was answered in under 3 seconds, how many merges had the page or diff opened, and what hobkin settled alone. The fight is working when calls fall and the share read stays up.
 
@@ -230,7 +234,8 @@ Each step ships alone with its CHANGELOG, guide and README lines.
 2. The record tells the truth, then patterns and offers.
 3. Launches, the watch and signals.
 4. Decisions recall, routine prompts, `Next:` and the pending card.
-5. The scoreboard, and a last read of every prompt against this file.
+5. Ship first and agents reporting back.
+6. hobkin looking after itself, the scoreboard, and a last read of every prompt against this file.
 
 ## Left for the user
 

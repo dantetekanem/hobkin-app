@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Find a model added to `models.json` while hobkin runs, with no restart. The catalog was read once at startup, so a new model was refused as not installed. The main agent also fixes its own tools, settings and catalog in the same turn instead of reporting the failure and waiting.
 - Land and deploy in bulk only from a list the user said yes to. `hobkin work ready` prints what can land by real grades, each pinned to its commit, and why the rest cannot, including a branch rated A that brings earlier work rated lower. The main agent brings that list, what it left out and its numbered steps before anything starts, and answers from what it checked rather than from what it told an agent to do. `hobkin session` refuses a fourth session in 30 minutes unless the user approved the list.
 - Keep test runs away from the user's Herdr. A test run inherits `HERDR_ENV`, so a test that opened hobkin could open real panes and close real ones.
 - Move `working` and its timer from the tab row down beside `memory`, so a running turn no longer takes room from the tabs.

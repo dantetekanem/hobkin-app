@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
+import { runModelSettings } from '../src/cli/model-settings.mjs';
 import { readSettings, updateSettings } from '../src/cli/settings.mjs';
 
 const model = { provider: 'openai-codex', id: 'gpt-6-luna', reasoning: true, thinkingLevelMap: { xhigh: 'xhigh' } };
@@ -238,4 +239,54 @@ test('a schedule on an unknown model keeps its effort free, since nothing can be
   const result = await updateSettings(root, { scope: 'routines', effort: 'xhigh' }, { modelRuntime });
 
   assert.equal(result.persisted.status, 'complete');
+});
+
+function catalogThatChanges() {
+  const installed = [];
+  return {
+    installed,
+    runtime: {
+      getModel: (provider, id) => installed.find(entry => entry.provider === provider && entry.id === id),
+      getAvailable: async () => installed,
+      refresh: async options => {
+        assert.deepEqual(options, { allowNetwork: false });
+        installed.push(model);
+      },
+    },
+  };
+}
+
+test('a model added to models.json while hobkin runs is found, with no restart', async t => {
+  const root = fixture(t);
+  const { runtime } = catalogThatChanges();
+
+  const result = await runModelSettings({
+    root,
+    config: loadConfig(root),
+    request: { action: 'update', scope: 'background', model: `${model.provider}/${model.id}` },
+    binding: async () => ({}),
+    modelRuntime: async () => runtime,
+    apply: async () => ({}),
+  });
+
+  assert.equal(result.persisted.status, 'complete');
+  assert.equal(readSettings(root, 'background').background.model, `${model.provider}/${model.id}`);
+});
+
+test('inspecting lists what models.json holds now', async t => {
+  const root = fixture(t);
+  const { runtime } = catalogThatChanges();
+
+  const { availableModels } = await runModelSettings({ root, config: loadConfig(root), request: { action: 'inspect', scope: 'background' }, binding: async () => ({}), modelRuntime: async () => runtime });
+
+  assert.deepEqual(availableModels, [`${model.provider}/${model.id}`]);
+});
+
+test('a catalog that cannot be read again keeps the one it has', async t => {
+  const root = fixture(t);
+  const runtime = { ...modelRuntime, getAvailable: async () => [model], refresh: async () => { throw Error('models.json is broken'); } };
+
+  const { availableModels } = await runModelSettings({ root, config: loadConfig(root), request: { action: 'inspect', scope: 'background' }, binding: async () => ({}), modelRuntime: async () => runtime });
+
+  assert.deepEqual(availableModels, [`${model.provider}/${model.id}`]);
 });
