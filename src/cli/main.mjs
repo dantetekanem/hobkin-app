@@ -133,7 +133,7 @@ async function connected(options, snapshot, dependencies) {
       onChange: view => dashboard.update(view),
       askQuestion: (request, signal) => dashboard.askQuestion(request, signal),
       askPending: request => dashboard.askPending(request),
-      showDone: () => dashboard.showDone?.(),
+      showDone: row => dashboard.showDone?.(row),
       showRow: target => dashboard.showRow?.(target),
       presence: () => dashboard.presence?.(),
     }).then(opened => {

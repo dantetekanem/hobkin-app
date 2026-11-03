@@ -440,6 +440,7 @@ const toDone = ui => {
   ui.input('\x1b[B');
 };
 const landing = (item, details = {}) => ({ slug: 'site', project: 'website', item, title: `Work ${item}`, branch: `hobkin/${item}`, gap: 'land', described: true, proved: true, ...details });
+const nothingRead = { read: 'none', readMs: 0 };
 const acting = () => {
   const actions = [];
   return { actions, workAction: async (...args) => { actions.push(args); return args[0] === 'pr' ? { description: 'Moves the site.\n\nProof: it passed.' } : { ok: true, message: `${args[0]} ok` }; } };
@@ -530,7 +531,105 @@ test('m merges and n says no, each on a key named on screen, and the walk moves 
   ui.input('n');
   await ui.pending();
 
-  assert.deepEqual(actions, [['merge', 'site', 'one'], ['decline', 'site', 'two']]);
+  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead], ['decline', 'site', 'two']]);
+  ui.stop();
+});
+
+test('a merge passes on how the row was read: not at all, its page, or its diff, with the time spent', async () => {
+  const { actions, workAction } = acting();
+  const clock = { at: 1000 };
+  const ready = [landing('one'), landing('two'), landing('three')];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => clock.at });
+  toDone(ui);
+
+  ui.input('\r');
+  await ui.pending();
+  clock.at += 2000;
+  ui.input('\x1b');
+  ui.input('\r');
+  await ui.pending();
+  clock.at += 500;
+  ui.input('m');
+  await ui.pending();
+  await ui.pending();
+
+  clock.at += 3000;
+  ui.input('d');
+  await ui.pending();
+  ui.input('m');
+  await ui.pending();
+  await ui.pending();
+  ui.input('\x1b');
+  ui.input('m');
+  await ui.pending();
+
+  assert.deepEqual(actions.filter(([action]) => action === 'merge'), [
+    ['merge', 'site', 'one', { read: 'page', readMs: 2500 }],
+    ['merge', 'site', 'two', { read: 'diff', readMs: 3000 }],
+    ['merge', 'site', 'three', { read: 'page', readMs: 0 }],
+  ]);
+  ui.stop();
+});
+
+test('a done item with work on its branch shows under not landed, where m merges and x closes it', async () => {
+  const { actions, workAction } = acting();
+  const ready = [landing('one', { gap: 'unlanded' }), landing('two', { gap: 'unlanded' })];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction }, { now: () => 1000 });
+  toDone(ui);
+
+  const text = screen(ui, 110, 40);
+  assert.match(text, /NOT LANDED\s+2/);
+  assert.match(text, /m\s+merge\s+·\s+x\s+close\s+·\s+enter\s+read/);
+
+  ui.input('\r');
+  await ui.pending();
+  const page = screen(ui, 110, 40);
+  assert.match(page, /m\s+merge\s+·\s+x\s+close\s+·\s+d\s+diff/);
+  assert.doesNotMatch(page, /r\s+review/);
+  ui.input('\x1b');
+
+  ui.input('m');
+  await ui.pending();
+  ui.input('x');
+  await ui.pending();
+
+  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['merge', 'site', 'one', { read: 'page', readMs: 0 }], ['done', 'site', 'two']]);
+  ui.stop();
+});
+
+test('showDone can open straight on one row\'s page, and a row that has gone leaves the list open', async () => {
+  const { workAction } = acting();
+  const ready = [landing('one'), landing('two')];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
+
+  ui.showDone({ slug: 'site', item: 'two' });
+  await ui.pending();
+
+  assert.equal(ui.state().view, 'work');
+  assert.equal(ui.state().focus, 'doneReading');
+  assert.match(screen(ui), /website: Work two/);
+
+  ui.input('\x1b');
+  ui.showDone({ slug: 'site', item: 'gone' });
+
+  assert.equal(ui.state().focus, 'work');
+  ui.stop();
+});
+
+test('a row with a precedent says so in a few words, and where it came from', () => {
+  const ready = [
+    landing('one', { like: { merged: 3, watching: 0 } }),
+    landing('two', { like: { merged: 1, watching: 1 } }),
+    landing('three', { like: { merged: 4, watching: 2, from: 'finboard' } }),
+  ];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } });
+  toDone(ui);
+
+  const text = screen(ui, 110, 40);
+
+  assert.match(text, /like 3 merged(?!,| on)/);
+  assert.match(text, /like 1 merged, still in its watch/);
+  assert.match(text, /like 4 merged on finboard, 2 still in a watch/);
   ui.stop();
 });
 
@@ -547,7 +646,7 @@ test('a risky row takes a second m', async () => {
 
   ui.input('m');
   await ui.pending();
-  assert.deepEqual(actions, [['merge', 'site', 'one']]);
+  assert.deepEqual(actions, [['merge', 'site', 'one', nothingRead]]);
   ui.stop();
 });
 
@@ -595,7 +694,9 @@ test('Enter reads a row with its description, every key still works there, and t
   ui.input('m');
   await ui.pending();
 
-  assert.deepEqual(actions.filter(([action]) => action !== 'pr'), [['diff', 'site', 'one'], ['review', 'site', 'one'], ['merge', 'site', 'one']]);
+  const [[merge, site, one, { read }], ...others] = actions.filter(([action]) => action === 'merge');
+  assert.deepEqual([merge, site, one, read, others], ['merge', 'site', 'one', 'diff', []]);
+  assert.deepEqual(actions.filter(([action]) => ['diff', 'review'].includes(action)), [['diff', 'site', 'one'], ['review', 'site', 'one']]);
   assert.match(screen(ui), /website: Work two/);
   assert.equal(ui.state().focus, 'doneReading');
 

@@ -163,7 +163,7 @@ const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
 const workTabs = [{ name: 'now', label: 'Now' }, { name: 'done', label: 'Done' }];
-const doneRowTypes = ['ready', 'yours', 'elsewhere'];
+const doneRowTypes = ['ready', 'yours', 'elsewhere', 'unlanded'];
 const localCommands = [
   ['/help', 'what hobkin can do'],
   ['/setup', 'get hobkin ready'],
@@ -857,11 +857,18 @@ const sizeWords = ({ size }) => {
   const changed = size.additions + size.deletions;
   return `${changed} ${changed === 1 ? 'line' : 'lines'} · ${count(size.files, 'file')}`;
 };
+const likeWords = ({ like }) => {
+  if (!like) return '';
+  const { merged, watching, from } = like;
+  const watched = merged === 1 ? ', still in its watch' : `, ${watching} still in a watch`;
+  return `like ${merged} merged${from ? ` on ${clean(from)}` : ''}${watching ? watched : ''}`;
+};
 const landedFacts = entry => {
   const { holds, onlyDocs, described, proved } = entry;
   const facts = [
     sizeWords(entry) && dim(sizeWords(entry)),
     onlyDocs && dim('docs only'),
+    likeWords(entry) && dim(likeWords(entry)),
     holds && dim(`holds ${holds} earlier ${holds === 1 ? 'branch' : 'branches'}`),
     described === false && caution('no description'),
     proved === false && caution('no proof'),
@@ -884,17 +891,19 @@ const closingRow = ({ project, title, doing }, inner) => ({
   lines: [row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(clean(doing)), inner)],
 });
 // Five at a time, so the list reads as a short job. Each row answered brings up the next.
-const landRows = rows => {
-  const shown = rows.slice(0, MOST_DONE_ROWS).map(entry => doneRow(entry, 'ready', landedFacts(entry)));
+const landRows = (rows, type) => {
+  const shown = rows.slice(0, MOST_DONE_ROWS).map(entry => doneRow(entry, type, landedFacts(entry)));
   const more = rows.length - shown.length;
   return more > 0 ? [...shown, { lines: [muted(`  and ${more} more`)] }] : shown;
 };
 const inGaps = (ready, ...gaps) => ready.filter(({ gap = 'land' }) => gaps.includes(gap));
-const doneCount = ({ ready = [] }) => inGaps(ready, 'land', 'rebase', 'yours', 'elsewhere').length;
+const doneCount = ({ ready = [] }) => inGaps(ready, 'land', 'rebase', 'unlanded', 'yours', 'elsewhere').length;
 const doneSections = ({ work: { ready = [], closing = [] }, inner }) => {
   const land = inGaps(ready, 'land', 'rebase');
+  const unlanded = inGaps(ready, 'unlanded');
   const sections = [
-    ['NEXT TO LAND', landRows(land), null, String(land.length)],
+    ['NEXT TO LAND', landRows(land, 'ready'), null, String(land.length)],
+    ['NOT LANDED', landRows(unlanded, 'unlanded'), null, String(unlanded.length)],
     ['AGENT ON IT', closing.map(entry => closingRow(entry, inner))],
     ['YOUR TURN', inGaps(ready, 'yours').map(entry => doneRow(entry, 'yours', dim(clean(entry.summary ?? 'Only you can do this one.'))))],
     ['ALREADY ELSEWHERE', inGaps(ready, 'elsewhere').map(entry => doneRow(entry, 'elsewhere', dim(`also on ${clean(entry.landedOn)}`)))],
@@ -1146,6 +1155,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let askingWorkFolder = false;
   let workTab = 'now';
   let donePage = null;
+  // How each row was read, which a merge passes on. Time adds up over visits to the page.
+  const readings = new Map();
   let notingOn = null;
   let armedMerge = null;
   let decisionId = null;
@@ -1674,15 +1685,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
 
   const doneKeys = row => {
+    if (row?.type === 'unlanded' || row?.gap === 'unlanded') return [['m', 'merge'], ['x', 'close']];
     const opensToLand = row?.type === 'ready' || ['land', 'rebase'].includes(row?.gap);
     return opensToLand ? [['m', 'merge'], ['w', 'send agent'], ['n', 'no']] : [['x', 'done']];
   };
+  // An item that says done has no run left to review it.
+  const pageKeys = entry => [...doneKeys(entry), ['d', 'diff'], ...(entry.gap === 'unlanded' ? [] : [['r', 'review']]), ['↑↓', 'scroll'], ['esc', 'back']];
   const hintsFor = draft => {
     if (question?.rows) return [[`1-${question.choices.length}`, 'answer'], ['↑↓', 'choose'], ['esc', 'not now']];
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (notingOn) return [['enter', 'send the agent'], ['esc', 'cancel']];
-    if (view === 'work' && donePage) return [...doneKeys(donePage.entry), ['d', 'diff'], ['r', 'review'], ['↑↓', 'scroll'], ['esc', 'back']];
+    if (view === 'work' && donePage) return pageKeys(donePage.entry);
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
     if (focus === 'decisions') return [[`1-${selectedDecision()?.choices.length ?? 2}`, 'answer'], ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
@@ -1702,6 +1716,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         ready: [...doneKeys(selected), ['enter', 'read']],
         yours: [...doneKeys(selected), ['enter', 'read']],
         elsewhere: [...doneKeys(selected), ['enter', 'read']],
+        unlanded: [...doneKeys(selected), ['enter', 'read']],
         queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
       };
       return [...rowKeys[selected?.type] ?? [], ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
@@ -1962,10 +1977,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     workKey = rows[Math.min(rows.length - 1, index + delta)]?.key ?? null;
   };
   const rowFor = ({ slug, id }) => (snapshot.work?.ready ?? []).find(entry => entry.slug === slug && entry.item === id);
+  const readingOf = ({ slug, id }) => readings.get(`${slug}:${id}`) ?? { read: 'none', readMs: 0 };
+  const noteReading = (selected, change) => readings.set(`${selected.slug}:${selected.id}`, { ...readingOf(selected), ...change });
   const readRow = selected => {
     const entry = rowFor(selected);
     if (!entry) return;
-    donePage = { entry, description: null };
+    noteReading(selected, { read: readingOf(selected).read === 'diff' ? 'diff' : 'page' });
+    donePage = { entry, description: null, opened: now() };
     focus = 'doneReading';
     scroll = 0;
     const opened = donePage;
@@ -1975,6 +1993,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       .finally(changed);
   };
   const leaveReading = () => {
+    if (donePage) {
+      const { entry: { slug, item: id }, opened } = donePage;
+      noteReading({ slug, id }, { readMs: readingOf({ slug, id }).readMs + now() - opened });
+    }
     donePage = null;
     focus = 'work';
     scroll = 0;
@@ -2002,7 +2024,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }
     armedMerge = null;
     walkOn(selected);
-    runWorkAction('merge', selected.slug, selected.id);
+    runWorkAction('merge', selected.slug, selected.id, readingOf(selected));
   };
   const startNote = selected => {
     notingOn = selected;
@@ -2031,12 +2053,24 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     walkOn(selected);
     runWorkAction('done', selected.slug, selected.id);
   };
+  const handleUnlandedKey = (selected, data) => {
+    if (data === 'm') mergeRow(selected);
+    else if (data === 'x') closeRow(selected);
+    else return false;
+    return true;
+  };
+  const openRowDiff = selected => {
+    noteReading(selected, { read: 'diff' });
+    runWorkAction('diff', selected.slug, selected.id);
+  };
   const handleReadingKey = data => {
     const selected = selectedDone();
-    const canMerge = ['land', 'rebase'].includes(donePage.entry.gap ?? 'land');
+    const { gap = 'land' } = donePage.entry;
+    const canMerge = ['land', 'rebase'].includes(gap);
     if (key(data, 'escape')) leaveReading();
-    else if (data === 'd') runWorkAction('diff', selected.slug, selected.id);
-    else if (data === 'r') runWorkAction('review', selected.slug, selected.id);
+    else if (data === 'd') openRowDiff(selected);
+    else if (data === 'r' && gap !== 'unlanded') runWorkAction('review', selected.slug, selected.id);
+    else if (gap === 'unlanded') return handleUnlandedKey(selected, data);
     else if (data === 'x' && !canMerge) closeRow(selected);
     else if (!canMerge || !handleDoneRowKey(selected, data)) return false;
     return true;
@@ -2093,6 +2127,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else if (selected?.type === 'queue' && selected.id && data === 'p') runWorkAction('grade', selected.slug, selected.id, nextIn(grades, selected.grade));
     else if (doneRowTypes.includes(selected?.type) && enter) readRow(selected);
     else if (selected?.type === 'ready' && handleDoneRowKey(selected, data)) return true;
+    else if (selected?.type === 'unlanded' && handleUnlandedKey(selected, data)) return true;
     else if (['yours', 'elsewhere'].includes(selected?.type) && data === 'x') closeRow(selected);
     else if (selected?.type === 'queue' && selected.id && data === 'x') runWorkAction('done', selected.slug, selected.id);
     else if (selected?.type === 'run' && key(data, 'enter')) {
@@ -2264,9 +2299,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       documents.clear();
       chatRows.clear();
     },
-    showDone() {
+    /** `row` names one to open straight on its page, with `slug` and `item`. */
+    showDone(row) {
       openView('work');
       showWorkTab('done');
+      if (row) readRow({ slug: row.slug, id: row.item });
       changed();
     },
     /** Where the answer to a card leads. */
