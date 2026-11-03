@@ -54,7 +54,7 @@ hobkin also cannot see itself. It does not record how a decision was answered, w
 - hobkin never merges by itself. Every merge is the user's word, and saying yes to an offer is that word. Keeping the key is what these sample sizes allow.
 - Merges stay on this machine. Pushing stays the user's.
 - Agents never deploy, roll back, flip a flag in production or revert the default branch. They prepare branches and say what to do.
-- Nothing waits. No run stops for a call, and a limit only moves a row.
+- Nothing waits. No run stops for a call, and a limit only moves a row. The one exception is the user's own: new work waits while finished work piles up. See Ship first.
 - A PR closed without merging is a fact to keep, never a no.
 - With learning off nothing is judged: no track records and no precedent offers. The plain `can land` question stays.
 - With work mode off the code checks go on, and no model run starts.
@@ -201,6 +201,33 @@ A failure in hobkin's own harness is never a call. On 2026-11-02 the main agent 
 
 The weekly review and `hobkin telemetry` show what hobkin brought, what the user acted on, how much was answered in under 3 seconds, how many merges had the page or diff opened, and what hobkin settled alone. The fight is working when calls fall and the share read stays up.
 
+### 10. Ship first
+
+The user's words, on 2026-11-02: "the harness need to know when a lot is done and adding more work isnt the best to get things shipped, so it should propose reviewing 2 by 2 in order to get the queue in a healthy state first". That day 46 items sat finished on branches, 21 ungraded and 12 with a stale grade, about 14,000 lines. This overrides the older note that nothing should wait on a merge, and it only orders what starts.
+
+The pile is every row in Done's order with the gap `land`, `rebase` or `unlanded`, so a stacked branch counts once. The bar is 8 across projects, above the per-project rule, which stays. While the pile is at or over the bar, `startsNewWork` holds new items, lens looks, `ideas`, `signals` looks, studies and discovery, each with the wait `shipping first`. A started item, what closes a gap, `urgent` and `attention` items, `watch` looks, the user's picks and routines still run. A held row is treated as one that cannot start, so closing work is never left waiting on a held study.
+
+Two by two: one decision, key `pair`, one open at a time, from the top of the pile. A row with an open offer stays out.
+
+| Row | Next step |
+|---|---|
+| conflict | its rebase, through `workNote` |
+| safe A at its commit, bringing nothing weaker | land, through `mergeItem` with `route: 'pair'` and its `head` |
+| anything else | a review, because a review run fixes what it finds and grades the result |
+| safe A on top of work no review passed | that earlier branch takes the row's place, for its review |
+
+Choices, harmless first because Enter takes it: `later` holds pairs for two hours, `go` carries out the steps, `read` opens Done, `new` lets new work start until the end of the day and stays quiet about pairs. `hobkin work ship off` is `new`, and it closes the open pair.
+
+A row out for its review is not in `readyItems`, so it leaves the pile until it comes back. With a pile just over the bar, new work can start while a pair is in review. A row moved once no agent is on it after a yes, or once it left the list. After `read` a pair that never moved comes back in two hours, because nothing else would bring it. A project dropped or paused cannot hold the next pair. A yes remembers each row at its commit and step, so a failed merge or a review that changed nothing is not brought again until the commit changes, and the pair behind it comes up instead.
+
+### 11. Agents report back
+
+Nobody read what a background agent finished with. A session's report sat in `runtime/handoffs/`, its pane closed, and a work run's `Useful:` line stayed out of Chat.
+
+`hobkin session` writes its title to `runtime/handoffs/sessions.jsonl` as it starts, and the follower, in its own process, appends the ending there. The owner posts each ending to Chat and copies its report into Reports, then marks it `posted` after the view is saved. A crash in between finds the notice by its id, and a lost view does not post it again. The main agent's note carries `sessions` until a message reaches it, then `heard`.
+
+A work run's `Useful:` line is one quiet notice. Consecutive quiet notices fold into one that keeps the newest and counts the rest, so each run of them takes one of Chat's 100 places and the conversation cannot be pushed out. Reports holds every one. Session endings do not fold: each was asked for, and `hobkin session` already limits how many start.
+
 ## Contract
 
 Agents cannot set anything marked code. Everything is append-only, as `items.jsonl` is.
@@ -214,8 +241,10 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | `work/<slug>/launches.jsonl` | code and `hobkin work watch` | folded by `item`: `{ item, sha, stage, mergedAt, pushedAt, liveAt, closesAt, outcome, exercised, severe, note, ci, health }` |
 | `work/<slug>/signals.json` | `hobkin work signals` | `{ type, signal, wants, deploy, logs, errors, health, flags, rollback, checkedAt }` |
 | decision `recommended`, `why`, `changed` | `hobkin decide` | as above |
-| decision `answerTo.kind` | code | `merge` with `slug`, `item` and `head`; `read`; `pending` |
+| decision `answerTo.kind` | code | `merge` with `slug`, `item` and `head`; `read`; `pending`; `pair` with `rows` of `{ slug, item, head, step }` |
 | events | `recordEvent(root, type, facts)` in `src/cli/events.mjs` | facts only, never text |
+| `work/mode.json` `ship` | code | `{ said, notice, newWorkOn, pairsAfter, last, tried }` |
+| `runtime/handoffs/sessions.jsonl` | `hobkin session`, its follower and the owner | folded by `name`: `{ name, title, report, startedAt, endedAt, posted, heard }` |
 
 | Module | Owns |
 |---|---|
@@ -224,6 +253,9 @@ Agents cannot set anything marked code. Everything is append-only, as `items.jso
 | `src/cli/work/signals.mjs` | reading, checking and ranking signals |
 | `src/cli/pending.mjs` | pure: what is waiting, as card rows, and when the card is due |
 | `src/cli/pending-read.mjs` | gathering from disk what the card needs, with no writes, for the dashboard and `hobkin pending` |
+| `src/cli/work/ship.mjs` | pure: the pile and whether it holds new work |
+| `src/cli/work/pairs.mjs` | bringing the next two, and carrying out the answer |
+| `src/cli/session-log.mjs` | session endings: recording, posting and telling the main agent |
 
 Commands: `hobkin work offers`, `watching`, `watch <slug>` and `signals <slug>` (JSON on stdin from a run), `trouble`, `trust`.
 

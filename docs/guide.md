@@ -264,9 +264,29 @@ Work mode and checks run only while the dashboard is open, so nothing new starts
 | `hobkin work priority <project> <P0..P3>`, `prs <project> <off\|draft\|published>` | Sets a project's priority or PRs |
 | `hobkin work grade <project> <item> <P0..P3\|auto>` | Sets one item's grade, and `auto` hands it back |
 | `hobkin work sync` | Closes what has merged, now |
+| `hobkin work ship [on\|off]` | Prints the pile, or lets new work start until the end of the day, and `on` ends that |
 | `hobkin work skip`, `back`, `retry`, `level`, `drop`, `done` | Steers a project or an item |
 
 Reads print short JSON and need nothing running. Changes print `ok` and a `message` that says what happens next, and a failure exits non-zero. Name a project by its name, slug or path and an item by the start of its id. An ambiguous name fails and lists the matches. Older names such as `on`, `run`, `later` and `choose` still work. None of this gets past the worker ceiling or the limits above.
+
+### Shipping first
+
+More work is the wrong answer to a pile of finished work. With 8 or more finished and waiting, counted across projects the way the Done tab counts them, new items, first studies, lens looks, ideas, `signals` looks and discovery wait, and the queue says `shipping first`. What closes a gap still runs: fixes for a branch, reviews and your notes. So do an item already started, urgent and attention items, watch looks, your own picks with Enter or `hobkin work trigger`, and routines. Running agents finish, nothing is cancelled, tokens and workers work as they always do, and under 8 the queue carries on by itself. `hobkin work status` and the Work tab's Next line give the real count, and so does the reply to `/work` or `hobkin work start`.
+
+While the pile stands, hobkin brings the next two as one decision, the top two in Done's order, leaving out anything with an open offer. It says what each one is, what yes does to it and how many are left:
+
+- **Later** holds pairs for two hours.
+- **Do these two** merges what is rated safe A at its current commit, on this machine and pushing nothing, and asks a review for anything else, about $2 and 14 minutes of a worker each. A conflict gets its rebase instead. A branch rated A that would bring earlier work no review passed sends that earlier work for its review first. One that cannot go stays where it is and says why in Chat, and the other still goes.
+- **Read them first** opens Done.
+- **Start new work anyway** lets new work start until the end of the day, and hobkin says nothing about pairs until then. `hobkin work ship off` does the same, and `hobkin work ship on` ends it.
+
+The next pair comes once both of the last one have moved: landed, declined, graded or dropped. A row that a yes already took at a commit is not brought again at that commit, so a review that changed nothing is not paid for twice.
+
+### Hearing back from agents
+
+When a `hobkin session` ends, Chat gets one line with its title and what happened, from the first lines of its report, and the report joins Reports, so Enter opens it and `r` replies to it. A session that stopped without a report says so. Its follower runs in a process of its own, so a session that ends with hobkin closed is told at the next open, once. The main agent hears of it with your next message, so it never answers as if it does not know.
+
+A finished work run gets one quiet line from its `Useful:` report, and a look with nothing new stays silent. A row of these lines folds into one that shows the newest and counts the rest, which wait in Reports, so a busy day cannot push your conversation out of Chat's 100 messages. Session endings stay on their own lines, because each was asked for. `Critical:` lines work as they always did.
 
 ## Learning
 
