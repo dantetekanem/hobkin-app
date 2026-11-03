@@ -44,7 +44,21 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
 5. Make the smallest change that finishes the item, with no changes on the side. A reviewer should take it in at a sitting. If the item turns out larger, finish its first step and put the rest of the plan in the description.
 6. Run your proof again, then the project's tests and linters. Follow the project's own `AGENTS.md`.
 7. Commit in the project's style.
-8. Run no code review unless `work.item.reviewAsked` is true: no `agentic_code_review`, no `/code-review` and no other review agent. hobkin asks for a review as a run of its own once work is finished, and that mark is how you know. When it is true, review your branch with the review tooling you have, `agentic_code_review` first, because its merge grade is what the user decides from. That review is part of the work, so the direction against spawning agents does not apply to it. Then read each of these skills that fits the diff and go through the branch with it: `security-expert` when it touches login, access, tokens or user input, `test-expert` when it changes behaviour, and `database-engineer` when it touches a schema, a migration, SQL or a transaction. Fix what all of this finds that is real, commit that, then run the review tooling once more, so the grade belongs to your last commit. If you have no review tooling, say so in `proof`: that is a gap, never a clean result. When you record the outcome, add `"quality": { "rating": "A to F", "reason": "The one thing that most affects it, in a sentence.", "head": "<git rev-parse HEAD>" }`, rating how well the change is built and proved against those skills, and `"notices": "Who notices this change, and what signal shows it worked, in a sentence."`. Say plainly if nobody would.
+8. Run no code review unless `work.item.reviewAsked` is true: no `agentic_code_review`, no `/code-review` and no other review agent. hobkin asks for a review as a run of its own once work is finished, and that mark is how you know. When it is true, review your branch with the review tooling you have, `agentic_code_review` first, because its merge grade is what the user decides from. That review is part of the work, so the direction against spawning agents does not apply to it. Then read each of these skills that fits the diff and go through the branch with it: `security-expert` when it touches login, access, tokens or user input, `test-expert` when it changes behaviour, and `database-engineer` when it touches a schema, a migration, SQL or a transaction. Fix what all of this finds that is real, commit that, then run the review tooling once more, so the grade belongs to your last commit. If you have no review tooling, say so in `proof`: that is a gap, never a clean result. When you record the outcome, add `"quality": { "rating": "A to F", "reason": "The one thing that most affects it, in a sentence.", "head": "<git rev-parse HEAD>" }`, rating how well the change is built and proved against those skills, `"notices": "Who notices this change, and what signal shows it worked, in a sentence."` and the `launch` below. Say plainly if nobody would notice.
+
+    ```json
+    "launch": { "undo": "code", "how": "The exact step that undoes it, such as kamal rollback.", "risk": "The one thing most likely to go wrong, in a sentence.", "lookAt": "path:line", "flag": { "name": "new_checkout", "expires": "2027-01-31" } }
+    ```
+
+    `risk` names one specific thing: the branch, query or path that could fail, never a category such as "regressions". `lookAt` is the first place a reader should look. Leave `flag` out when there is none. `hobkin work item` refuses any other `undo`:
+
+    | `undo` | Means |
+    |---|---|
+    | `code` | a rollback or revert undoes it |
+    | `one-way` | drops, renames, type changes, emails, charges, external writes |
+    | `forward-fix` | data backfills |
+    | `two-phase` | serialized formats and job payloads |
+    | `permanent` | published packages and app store builds |
 9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. This is the description of your branch whatever `work.landing` says.
 10. Land it as `work.landing` says:
     - `off`: stop here. Your branch and that description are a local PR for the user to review. Push nothing and open no PR.
@@ -59,6 +73,10 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
 Use `"state": "pr"` with `"pr": "<url>"` when you opened a PR. Use `"state": "done"` when the item needed no change to the code, or when you committed nothing, with what you found in `summary`. A repository with no remote ends at `branch`. Never merge.
 
 Always record an outcome. If part of the item will not come together, commit what works, record it, and file the rest as a new item through `work.commands.item`. File the work itself, never a request: nothing you file asks for permission, a decision or access, because an agent takes every item. One ticket per need: search `items` first, and leave what is already filed alone. A run that ends without recording one goes back in the queue one grade lower, and the next run starts from your branch.
+
+## Flags
+
+Use a flag only if rollback cannot undo the harm, a real named audience exists for partial exposure, or a flaky dependency needs a kill switch. Skip it if a rollback takes a minute. Never flag schema changes, libraries or static sites. Use the project's own tool, or an env var or YAML in the repository. Every flag gets an expiry when it is made, and the review records both in `launch.flag`. When its watch closes, hobkin files the removal as a `chore`, and the user merges it like any other branch. You never flip a flag in production.
 
 ## A `pr-fix` item
 

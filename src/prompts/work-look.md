@@ -48,6 +48,53 @@ Design up to `work.ideas` ideas for where this project could go next. Fewer is f
 
 Start from `projectNotes` and `items`, then the direction of the user's recent commits. A good idea moves the project the way it is already heading, or removes something the user keeps working around. Think it through before filing it: what changes for the people who use this, the smallest version worth building, and what it would touch. File each one as a `feature` or `improvement` with a key like `idea:csv-import`. Skip ideas that are already in `items`, including declined ones.
 
+## When the focus is `watch`
+
+Changes have landed, and you say what became of them. Change nothing: you never deploy, roll back or flip a flag, and you file no work here, because hobkin does.
+
+`work.watch.launches` lists each open launch with its `item`, `title`, `sha`, `files`, `stage`, `since`, `mergedAt`, what the pulse read as `ci` and `health`, and `review`, which names the risk and where to look first. `work.watch.signals` says how this project shows what is live, with the commands an earlier look proved. Run those and other commands that only read.
+
+For each launch, work out:
+
+1. Whether it is live, from `deploy`. Pushed is not live, so say only what you saw.
+2. What is new. List the error classes seen before `mergedAt` and those seen since, and subtract. Compare the sets, never the rates: a new class counts at one occurrence, and a class that was already there does not count however often it comes.
+3. Whether the touched paths were exercised, and by how many requests. Say what you counted. Zero failures in 100 requests only rules out rates above about 3%, so a small number is a small number.
+
+Kamal logs roll over at about 10 MB, so `note` is the record of what you saw. Pipe one JSON object to `work.commands.watch`, with one entry for each launch:
+
+```json
+{ "launches": [{ "item": "<id>", "live": true, "exercised": 40, "newErrors": [], "note": "What you read, and what it showed, in a sentence or two." }] }
+```
+
+`newErrors` holds only classes that are new since the merge. Add `"severe": true` for data loss or an outage. A new error records trouble by itself: hobkin files the urgent fix, which fixes forward or prepares a revert branch. What you cannot read is a gap to say in `note`, never a clean result, so leave out `exercised` rather than guess.
+
+Open your report with `Critical:` on trouble, naming the change and the error. Open it with `Nothing new.` when nothing is wrong, even when the news is good.
+
+## When the focus is `signals`
+
+Work out what this project can show once a change ships, and record what you proved. `work.signals` is the last record, if there is one.
+
+Run each command before you record it, and record only what you ran. A command that failed counts as not run, and what you did not run stays out. Run only what reads: nothing that deploys, restarts, rolls back, flips a flag or changes data.
+
+| Field | What to prove |
+|---|---|
+| `deploy` | What is live, or when a change went live: a deploy tool's version or history, the CI run that ships it, the latest release. |
+| `logs` | Request or run outcomes you can read: status codes by path, or a job's runs. |
+| `errors` | New errors in a tracker. Add `"grouped": true` if it groups them and `"release": true` if it tags them by release. |
+| `health` | `url` with the `status` it answered. Add `"page": true` only for a real page you read, because `/up` alone only shows the process is up. A smoke test goes in `smoke`. |
+
+`deploy`, `logs`, `errors` and `smoke` each hold `command`, what you ran, and `saw`, the line that shows it worked. `flags` and `rollback` are words, never proof: say what the project uses, or leave them out, and never run them.
+
+Set `type`, which sets what is wanted: `service` and `app` want 4, `site` wants 3, `package` and `tool` want 1. Then pipe one JSON object to `work.commands.signals`:
+
+```json
+{ "type": "service", "deploy": { "command": "kamal app version", "saw": "abc1234" }, "logs": { "command": "...", "saw": "..." }, "health": { "url": "https://example.com/pricing", "status": 200, "page": true }, "rollback": "kamal rollback" }
+```
+
+hobkin works out the signal from that and prints it, with `gaps`, the keys that would take this project up to what it wants: `signal:deploy`, `signal:logs`, `signal:probe` and `signal:errors`. File one `chore` for each with that key, in the same way as any item. They go ahead of new work, and nothing waits for them.
+
+For a Kamal project, the brief names what needs no install: kamal-proxy already logs every request as JSON, the `post-deploy` hook can mark a release, and `KAMAL_VERSION` names it. For grouped errors it names Sentry's free tier, Solid Errors and Bugsink.
+
 ## File what you find
 
 Work mode moves in small steps. File small, finished, reviewable changes that make the project a bit better and more alive each time, not rewrites. A large idea becomes its first small step: something worth having even if the rest never happens, with the rest of the plan in its brief. Hobkin ranks every project's work together from what you file, and small work with a visible benefit goes first, so be honest about both sizes below.
