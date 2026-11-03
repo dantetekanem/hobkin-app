@@ -683,8 +683,9 @@ const reportListLines = ({ reports, total, selectedId, filtered, inner, clock })
   return { content, ranges };
 };
 const prWords = { off: 'no PRs', draft: 'draft PRs', published: 'PRs' };
-const projectStatus = ({ prMode, open, prs, branches, left, unmerged, nextLookAt }, clock) => {
+const projectStatus = ({ prMode, signal, open, prs, branches, left, unmerged, nextLookAt }, clock) => {
   const facts = [
+    Number.isInteger(signal) ? `signal ${signal}` : '',
     open ? count(open, 'item') : '',
     prs ? count(prs, 'PR') : '',
     branches ? `${branches} ${branches === 1 ? 'branch' : 'branches'}` : '',
@@ -890,6 +891,12 @@ const doneRow = (entry, type, facts) => {
 const closingRow = ({ project, title, doing }, inner) => ({
   lines: [row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(clean(doing)), inner)],
 });
+const watchRow = ({ project, title, stage, since, known }, inner, clock) => ({
+  lines: [
+    row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(`${clean(stage)} ${relativeTime(timeOf(since), clock)}`), inner),
+    `  ${dim(line(clean(known), inner - 2))}`,
+  ],
+});
 // Five at a time, so the list reads as a short job. Each row answered brings up the next.
 const landRows = (rows, type) => {
   const shown = rows.slice(0, MOST_DONE_ROWS).map(entry => doneRow(entry, type, landedFacts(entry)));
@@ -898,21 +905,28 @@ const landRows = (rows, type) => {
 };
 const inGaps = (ready, ...gaps) => ready.filter(({ gap = 'land' }) => gaps.includes(gap));
 const doneCount = ({ ready = [] }) => inGaps(ready, 'land', 'rebase', 'unlanded', 'yours', 'elsewhere').length;
-const doneSections = ({ work: { ready = [], closing = [] }, inner }) => {
+const doneSections = ({ work: { ready = [], closing = [], watching = [] }, inner, clock }) => {
   const land = inGaps(ready, 'land', 'rebase');
   const unlanded = inGaps(ready, 'unlanded');
   const sections = [
     ['NEXT TO LAND', landRows(land, 'ready'), null, String(land.length)],
     ['NOT LANDED', landRows(unlanded, 'unlanded'), null, String(unlanded.length)],
     ['AGENT ON IT', closing.map(entry => closingRow(entry, inner))],
+    ['WATCHING', watching.map(entry => watchRow(entry, inner, clock))],
     ['YOUR TURN', inGaps(ready, 'yours').map(entry => doneRow(entry, 'yours', dim(clean(entry.summary ?? 'Only you can do this one.'))))],
     ['ALREADY ELSEWHERE', inGaps(ready, 'elsewhere').map(entry => doneRow(entry, 'elsewhere', dim(`also on ${clean(entry.landedOn)}`)))],
   ];
   return sections.filter(([, rows]) => rows.length);
 };
+const launchWords = ({ risk, lookAt, undo, how, flag } = {}) => [
+  risk && `Risk: ${clean(risk)}`,
+  lookAt && `Look first: ${clean(lookAt)}`,
+  undo && `Undo: ${clean([undo, how].filter(Boolean).join(', '))}`,
+  flag && `Flag: ${clean(flag.name)}, expires ${clean(flag.expires)}`,
+];
 const doneReading = ({ entry, description, inner }) => {
-  const { project, title, safety, quality, notices, left, summary } = entry;
-  const grounds = [safety?.reason && `Why: ${safety.reason}`, quality?.reason && `Quality: ${quality.reason}`, notices && `Who notices: ${notices}`];
+  const { project, title, safety, quality, notices, left, summary, launch } = entry;
+  const grounds = [safety?.reason && `Why: ${safety.reason}`, quality?.reason && `Quality: ${quality.reason}`, notices && `Who notices: ${notices}`, ...launchWords(launch ?? {})];
   const reason = grounds.filter(Boolean).flatMap(text => wrapped(text, inner)).map(dim);
   const leftFor = left ? ['', ...wrapped(`Left for you: ${left}`, inner).map(caution)] : [];
   const said = description ?? summary ?? 'This branch has no description yet.';
@@ -1250,7 +1264,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const moodNow = clock => faceNow(clock).mood;
   const currentWorkSections = (inner, clock, frame) => {
     const work = snapshot.work ?? {};
-    return workTab === 'done' ? doneSections({ work, inner }) : workSections({ work, runs: workRuns(), inner, clock, frame });
+    return workTab === 'done' ? doneSections({ work, inner, clock }) : workSections({ work, runs: workRuns(), inner, clock, frame });
   };
   const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
     const rows = sections.flatMap(([, entries]) => entries).filter(entry => entry.key);
