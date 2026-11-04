@@ -112,7 +112,7 @@ function mainPrompts(root, config) {
       routines: routinesFolder(root),
       main: config.main,
       background: config.background,
-      learningAnswer: hobkinCommand(root, 'learning answer <id> yes|no'),
+      learningAnswer: hobkinCommand(root, 'learning answer <id> yes|later|no'),
       profile: hobkinCommand(root, 'profile'),
     }, null, 2)));
 }

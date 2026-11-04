@@ -3,7 +3,10 @@ import { resolveDataRoot } from '../migration/admission.mjs';
 import { evidenceText, lessonLine, MAX_TOKENS, renderLessons, requestTokens } from './lessons.mjs';
 import { appendAction, learningState, readActions, readState } from './store.mjs';
 
-const USAGE = 'Usage: hobkin learning [on | off | clear <id> | clear all | answer <id> yes|no]';
+const USAGE = 'Usage: hobkin learning [on | off | clear <id> | clear all | answer <id> yes|later|no]';
+const ANSWERS = ['yes', 'later', 'no'];
+// A no to work is a no for its whole repo, so the scope `work.<repo>.<kind>` is kept as the repo it names.
+const repoOf = scope => (/^work\.[^.]+\./.test(scope) ? scope.split('.').slice(0, 2).join('.') : null);
 
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const plain = text => String(text ?? '').replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ');
@@ -48,20 +51,22 @@ function clear(root, target) {
   return { cleared: lesson.id, scope: lesson.scope };
 }
 
-function answer(root, id, choice) {
-  if (!['yes', 'no'].includes(choice)) throw Error(USAGE);
-  const earlier = readActions(root).answers.find(item => item.id === id);
+/** A yes or a no is the last word. Later only puts the question off, so the answer given when it comes back counts. */
+function answer(root, id, choice, now) {
+  if (!ANSWERS.includes(choice)) throw Error(USAGE);
+  const earlier = readActions(root).answers.find(item => item.id === id && item.answer !== 'later');
   if (earlier) return { id, answer: earlier.answer };
 
   const proposal = learningState(root).proposals.find(item => item.id === id);
   if (!proposal) throw Error(`No proposal has the ID ${id}. Run hobkin learning to see them.`);
   const { scope, kind, definition } = proposal;
-  appendAction(root, { type: 'answer', id, answer: choice, scope, kind, definition });
+  const repo = choice === 'no' ? repoOf(scope) : null;
+  appendAction(root, { type: 'answer', id, answer: choice, scope, kind, definition, ...(repo ? { repo } : {}), at: new Date(now).toISOString() });
   return { id, answer: choice };
 }
 
 /** These take no lock: a setting or an appended action is all they write, and the owner picks both up on its next tick. */
-export function runLearningCommand(requestedRoot, [action, target, choice, ...extra]) {
+export function runLearningCommand(requestedRoot, [action, target, choice, ...extra], { now = Date.now() } = {}) {
   const root = resolveDataRoot(requestedRoot);
   if (extra.length) throw Error(USAGE);
   if (action === undefined) return learningView(root);
@@ -70,6 +75,6 @@ export function runLearningCommand(requestedRoot, [action, target, choice, ...ex
     return setLearning(root, action === 'on');
   }
   if (action === 'clear' && target && !choice) return clear(root, target);
-  if (action === 'answer' && target) return answer(root, target, choice);
+  if (action === 'answer' && target) return answer(root, target, choice, now);
   throw Error(USAGE);
 }

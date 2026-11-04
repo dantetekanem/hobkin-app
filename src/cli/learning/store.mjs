@@ -84,11 +84,13 @@ export function learningState(root) {
   const state = readState(root);
   const { clears, answers } = readActions(root);
   const stands = ({ scope, latest }) => Date.parse(latest) > clearedAt(clears, scope);
-  const answered = new Set(answers.map(({ id }) => id));
+  // A later hides a proposal only until the learner raises it again, which gives it a newer time.
+  const answered = ({ id, at }) => answers.some(answer => answer.id === id
+    && (answer.answer !== 'later' || Date.parse(answer.at) >= Date.parse(at)));
   return {
     ...state,
     lessons: state.lessons.filter(stands),
-    proposals: state.proposals.filter(proposal => stands(proposal) && !answered.has(proposal.id)),
+    proposals: state.proposals.filter(proposal => stands(proposal) && !answered(proposal)),
   };
 }
 

@@ -95,7 +95,7 @@ test('a conclusion becomes one short proposal in Chat, with its evidence, and no
   const post = h.learner.takePost();
 
   assert.equal(post.role, 'assistant');
-  assert.equal(post.content, '**Learning:** Site audit: nothing new 9 of the last 9, over 9 days, about $0.40 a run. Refactor it? Say yes for a plan, or no and this will not come up again.');
+  assert.equal(post.content, '**Learning:** Site audit: nothing new 9 of the last 9, over 9 days, about $0.40 a run. Refactor it? Say yes for a plan, later to be asked again in a week, or no and this will not come up again.');
   assert.equal(h.learner.takePost(), null, 'said once');
 });
 
@@ -279,6 +279,59 @@ test('a work scope has no hold, so a plan never stands in the way of its proposa
 
   assert.equal(learningState(h.root).proposals[0].scope, 'work.api.fix');
   assert.equal(learningState(h.root).proposals[0].kind, 'refactor');
+});
+
+test('asked later, a proposal waits a week and then comes back, is asked again and can be answered again', t => {
+  const h = home(t);
+  const runs = nineQuiet();
+  h.settle(runs);
+  const [{ id }] = learningState(h.root).proposals;
+  const asked = h.learner.takePost();
+
+  assert.deepEqual(runLearningCommand(h.root, ['answer', id, 'later'], { now: h.clock.now }), { id, answer: 'later' });
+  h.learner.moved = null;
+  h.settle(runs);
+  assert.deepEqual(learningState(h.root).proposals, [], 'it waits');
+
+  h.clock.now += 8 * DAY;
+  h.learner.moved = null;
+  h.settle(runs);
+  assert.deepEqual(learningState(h.root).proposals.map(proposal => proposal.id), [id], 'a week on, it comes back');
+
+  const askedAgain = h.learner.takePost();
+  assert.equal(askedAgain.content, asked.content, 'Chat asks it again');
+  assert.notEqual(askedAgain.id, asked.id, 'as a new message, not one Chat already has');
+  assert.deepEqual(runLearningCommand(h.root, ['answer', id, 'no'], { now: h.clock.now }), { id, answer: 'no' }, 'and later was not the last word');
+});
+
+test('no to a work proposal is no to every proposal for that repo, and other repos still get theirs', async t => {
+  const h = home(t);
+  chooseProject(h.root, '/repos/api');
+  chooseProject(h.root, '/repos/web');
+  const stuck = (slug, kind, from) => {
+    for (let number = 1; number <= 3; number++) {
+      h.clock.now = start + (from + number) * DAY;
+      const { id } = fileItem(h.root, slug, { key: `${slug}-${kind}-${number}`, kind, title: 'Fix', brief: 'Why.' }, h.clock.now);
+      updateItem(h.root, slug, id, { state: 'stuck' }, h.clock.now);
+    }
+  };
+  stuck('api', 'fix', 0);
+  h.clock.now = start + 5 * DAY;
+  h.settle([]);
+  await h.learner.asking;
+  const [{ id }] = learningState(h.root).proposals;
+
+  runLearningCommand(h.root, ['answer', id, 'no'], { now: h.clock.now });
+  stuck('api', 'feature', 5);
+  stuck('web', 'fix', 5);
+  h.clock.now = start + 10 * DAY;
+  h.learner.moved = null;
+  h.settle([]);
+  await h.learner.asking;
+
+  const scopes = learningState(h.root).proposals.map(({ scope }) => scope);
+  assert.deepEqual(scopes.filter(scope => scope.startsWith('work.api.')), []);
+  assert.ok(scopes.includes('work.web.fix'), scopes.join(', '));
 });
 
 test('what the main agent hears stays within the cap, proposals and the answer command included', t => {
@@ -492,7 +545,7 @@ test('a bad command says how to use it and changes nothing', t => {
 test('a chat proposal never shows the store a title it was not given', () => {
   const message = proposalMessage({ title: 'Price watch', kind: 'ideas', code: 'used', seen: 8, runs: 10, days: 9 });
 
-  assert.equal(message, '**Learning:** Price watch: used 8 of the last 10, over 9 days. Want new ideas built on it? Say yes for a plan, or no and this will not come up again.');
+  assert.equal(message, '**Learning:** Price watch: used 8 of the last 10, over 9 days. Want new ideas built on it? Say yes for a plan, later to be asked again in a week, or no and this will not come up again.');
   assert.doesNotMatch(learningNote({ lines: [] }), /title/);
 });
 

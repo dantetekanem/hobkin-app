@@ -231,7 +231,7 @@ test('from /learning to lessons in every session: a proposal in Chat, an answer 
   // The next message carries what was learned and what is waiting, and the user never sees it.
   answering = async text => {
     const [id] = JSON.parse(noteOf(text)).proposals[0].split(' ');
-    await shell(hobkin.answerCommand().replace('<id>', id).replace('yes|no', 'no'));
+    await shell(hobkin.answerCommand().replace('<id>', id).replace('yes|later|no', 'no'));
     return 'Left it alone.';
   };
   hobkin.send('no, leave it as it is');

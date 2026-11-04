@@ -14,6 +14,8 @@ const PULL_REQUEST_EVERY_MS = 6 * HOUR_MS;
 const MAX_PULL_REQUESTS_A_PASS = 5;
 const GH_TIMEOUT_MS = 15000;
 const MAX_WAITING_PROPOSALS = 3;
+// Asked later, a proposal waits this long before it comes back.
+const LATER_MS = 7 * 24 * HOUR_MS;
 const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 const FINISHED_STATES = ['MERGED', 'CLOSED'];
 
@@ -23,8 +25,12 @@ const askGitHubFor = async url => JSON.parse((await shell('gh', ['pr', 'view', u
 const iso = time => new Date(time).toISOString();
 const sameDay = (at, now) => new Date(at).toDateString() === new Date(now).toDateString();
 const proposalId = ({ scope, conclusion, definition }) => createHash('sha256').update(`${scope}:${conclusion}:${definition ?? ''}`).digest('hex').slice(0, 6);
+// When the user last asked to hear about a proposal later, or never.
+const putOffAt = (answers, id) => answers
+  .filter(answer => answer.id === id && answer.answer === 'later')
+  .reduce((last, answer) => Math.max(last, Date.parse(answer.at)), -Infinity);
 
-export const proposalMessage = proposal => `**Learning:** ${proposalQuestion(proposal)} Say yes for a plan, or no and this will not come up again.`;
+export const proposalMessage = proposal => `**Learning:** ${proposalQuestion(proposal)} Say yes for a plan, later to be asked again in a week, or no and this will not come up again.`;
 
 const proposalOrder = (left, right) => proposing.indexOf(left.kind) - proposing.indexOf(right.kind)
   || right.seen - left.seen
@@ -103,30 +109,47 @@ export class Learner {
     return changed || Boolean(this.post);
   }
 
-  // A no holds for good. A yes holds until the schedule changes, because then a new failure is a new question.
+  /**
+   * A no holds for good, and a no to work holds for its whole repo. A yes holds until the schedule changes, because then a new failure is a new
+   * question. Later puts a question off for a week, after which it comes back to be answered.
+   */
   proposalsFrom(learned, saved, { answers }) {
-    const answered = ({ scope, conclusion, definition }) => answers.some(answer => answer.scope === scope
-      && answer.kind === conclusion
-      && (answer.answer === 'no' || answer.definition === definition));
-    const firstRaisedAt = id => saved.proposals.find(known => known.id === id)?.at ?? iso(this.now());
+    const holds = (answer, { scope, conclusion, definition }) => {
+      if (answer.answer === 'no' && answer.repo) return scope.startsWith(`${answer.repo}.`);
+      if (answer.scope !== scope || answer.kind !== conclusion) return false;
+      if (answer.answer === 'later') return this.now() < Date.parse(answer.at) + LATER_MS;
+      return answer.answer === 'no' || answer.definition === definition;
+    };
+    const answered = item => answers.some(answer => holds(answer, item));
+    // Back from a later, a proposal is raised anew, so the later stops hiding it.
+    const raisedAt = id => {
+      const known = saved.proposals.find(item => item.id === id)?.at;
+      return known && Date.parse(known) > putOffAt(answers, id) ? known : iso(this.now());
+    };
 
     return learned
       .filter(item => proposing.includes(item.conclusion) && !answered(item))
       .map(item => {
         const id = proposalId(item);
-        return { ...keptLesson(item), id, kind: item.conclusion, definition: item.definition, at: firstRaisedAt(id) };
+        return { ...keptLesson(item), id, kind: item.conclusion, definition: item.definition, at: raisedAt(id) };
       })
       .toSorted(proposalOrder);
   }
 
-  // One a day and a few at a time, because a backlog of history must not arrive as a wall of questions.
-  nextPost(proposals, { posted }) {
+  /**
+   * One a day and a few at a time, because a backlog of history must not arrive as a wall of questions. One back from a later is asked
+   * again, under a new notice so Chat does not take it for the first one.
+   */
+  nextPost(proposals, { posted, answers }) {
     const now = this.now();
-    const told = new Set(posted.map(({ id }) => id));
-    const next = proposals.find(({ id }) => !told.has(id));
-    const waiting = proposals.filter(({ id }) => told.has(id)).length;
+    const told = ({ id }) => posted.some(post => post.id === id && Date.parse(post.at) > putOffAt(answers, id));
+    const next = proposals.find(proposal => !told(proposal));
+    const waiting = proposals.filter(told).length;
     if (!next || waiting >= MAX_WAITING_PROPOSALS || posted.some(({ at }) => sameDay(at, now))) return null;
-    return { proposal: next.id, id: `notice:learning:${next.id}`, role: 'assistant', content: proposalMessage(next), at: iso(now) };
+
+    const again = putOffAt(answers, next.id) > -Infinity;
+    const id = again ? `notice:learning:${next.id}:${now}` : `notice:learning:${next.id}`;
+    return { proposal: next.id, id, role: 'assistant', content: proposalMessage(next), at: iso(now) };
   }
 
   /** A proposal counts as told only once Chat has it, so a close in between cannot lose it. One that cannot be marked waits. */

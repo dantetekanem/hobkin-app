@@ -1138,7 +1138,14 @@ test('a learning proposal takes a number, and a report with a call opens on Ente
   const text = screen(ui, 110, 30);
   assert.match(text, /Rethink it\?/);
   assert.match(text, /1 Yes, plan it/);
-  assert.match(text, /2 No, and never ask again/);
+  assert.match(text, /2 No, but ask me later/);
+  assert.match(text, /3 No, never again\s*\n/);
+
+  ui.update({ ...base, reports: [report], waiting: waiting({
+    proposals: [{ id: 'abc123', title: 'Digest', question: 'Digest: blocked 6 of the last 8, over 8 days. Rethink it?', at, scope: 'work.finboard.improvement' }],
+    reports: [{ id: 'mail', title: 'Mail', at, level: 'useful', next: 'Reply by Friday.' }],
+  }) });
+  assert.match(screen(ui, 110, 30), /3 No, never again for this repo/, 'a no to work holds for its whole repo, and says so');
 
   ui.input('1');
   await ui.pending();

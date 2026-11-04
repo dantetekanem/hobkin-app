@@ -1110,14 +1110,20 @@ const questionRow = decision => ({
   lit: 1,
   render: (open, inner, clock) => questionLines(decision, open, inner, clock),
 });
-const learningChoices = [{ value: 'yes', label: 'Yes, plan it' }, { value: 'no', label: 'No, and never ask again' }];
-const learningRow = ({ id, title, question, at }) => {
-  const asked = { tldr: title, from: 'Learning', question, choices: learningChoices, at };
+// Later puts the question off for a week. A no to work holds for its whole repo, so its words say so.
+const learningChoicesFor = scope => [
+  { value: 'yes', label: 'Yes, plan it' },
+  { value: 'later', label: 'No, but ask me later' },
+  { value: 'no', label: String(scope ?? '').startsWith('work.') ? 'No, never again for this repo' : 'No, never again' },
+];
+const learningRow = ({ id, title, question, at, scope }) => {
+  const choices = learningChoicesFor(scope);
+  const asked = { tldr: title, from: 'Learning', question, choices, at };
   return {
     key: `learning:${id}`,
     type: 'learning',
     question,
-    choices: learningChoices,
+    choices,
     answer: value => ['learning', id, value],
     lit: 1,
     render: (open, inner, clock) => questionLines(asked, open, inner, clock),

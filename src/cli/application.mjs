@@ -926,8 +926,12 @@ export class HobkinApplication {
     const root = this.runtime.directory;
     const proposal = learningState(root).proposals.find(entry => entry.id === id);
     if (!proposal) throw Error('That proposal was already answered.');
-    runLearningCommand(root, ['answer', id, value]);
-    if (value === 'no') return { ok: true, message: 'It will not come up again.' };
+    runLearningCommand(root, ['answer', id, value], { now: this.now() });
+    if (value === 'later') return { ok: true, message: `"${proposal.title}" comes up again in a week.` };
+    if (value === 'no') {
+      const repo = /^work\.([^.]+)\./.exec(proposal.scope)?.[1];
+      return { ok: true, message: repo ? `No more learning proposals for ${repo}.` : `"${proposal.title}" will not come up again.` };
+    }
 
     this.showRow?.({ tab: 'chat' });
     const about = { id: `learning:${id}`, title: 'Learning proposal', at: proposal.at, body: `${proposalMessage(proposal)}\nProposal ID: ${id}` };

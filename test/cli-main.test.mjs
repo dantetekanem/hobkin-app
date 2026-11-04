@@ -658,5 +658,5 @@ test('the usage names hobkin learning', async t => {
 
   await main(['--help'], h.output);
 
-  assert.match(h.output.text, /learning \[on \| off \| clear <id> \| clear all \| answer <id> yes\|no\]/);
+  assert.match(h.output.text, /learning \[on \| off \| clear <id> \| clear all \| answer <id> yes\|later\|no\]/);
 });
