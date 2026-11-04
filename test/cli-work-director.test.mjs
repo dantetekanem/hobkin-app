@@ -1262,6 +1262,28 @@ test('the next hobkin picks a finished agent up and settles it as if it had neve
   assert.equal(next.director.running().length, 0);
 });
 
+test('the next hobkin follows a handed agent by its pane, so one still at work stays running', async t => {
+  const first = fixture(t);
+  await agentInAPane(first);
+  first.director.handOff();
+  await first.runner.stop();
+  await first.director.closing;
+
+  const next = reopened(t, first);
+  const asked = [];
+  next.director.panes.awaitHanded = async ({ pane, signal }) => {
+    asked.push(pane);
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    return { status: 'interrupted', cost: null, error: 'Stopped.' };
+  };
+  await next.director.tick();
+  while (!asked.length) await new Promise(resolve => setTimeout(resolve, 5));
+
+  assert.deepEqual(asked, ['w1:p9'], 'its pane, not the name its agent goes by');
+  assert.equal(next.director.running().length, 1, 'it is running again here');
+  await next.runner.stop();
+});
+
 test('an agent that ended with no report goes back in the queue, and is picked up only once', async t => {
   const first = fixture(t);
   await agentInAPane(first);

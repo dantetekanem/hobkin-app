@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- Pick up an agent left working at a quit. Quitting with Let them finish wrote the agent down, but the next hobkin asked Herdr for it by the name the agent goes by instead of its pane, was told no such pane, and settled the run as interrupted while the agent kept working, with nobody following it. It now follows the agent by its pane, so the run shows as running and settles when the agent ends.
 - Talk about a decision. `r` on any row in Decisions opens Chat about it, the way `r` does on a report, and the main agent gets what the row says with the message. It answers and changes nothing by itself.
 - Stop keeping dead cards. An item an agent once called done while its branch still had work to merge sat under NOT LANDED, and every action on its card refused it, so asking to refresh and merge did nothing. The survey now makes such an item finished work again, every half hour, and refresh and merge takes one straight away. An item the user closed stays closed.
 - Start a work agent once its pane's shell is ready. A new pane whose shell was still starting made Herdr answer that the pane is not an available shell, and the run failed with that as its report. hobkin now asks again until the shell is ready, up to a minute, as it already did when the shell refused a long first line.

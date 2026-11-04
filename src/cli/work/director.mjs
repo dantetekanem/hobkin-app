@@ -769,9 +769,10 @@ export class WorkDirector {
     }
   }
 
-  async followHanded({ pane, report, sessionFile }, signal) {
+  // A run's `pane` is the name its agent goes by, and only the pane's id answers whether it is still there.
+  async followHanded({ paneId, report, sessionFile }, signal) {
     const panes = this.panes ?? new WorkPanes();
-    return withSessionCost(await panes.awaitHanded({ pane, report, signal }), sessionFile);
+    return withSessionCost(await panes.awaitHanded({ pane: paneId, report, signal }), sessionFile);
   }
 
   async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal, paneKind, bound, onStarted }) {
