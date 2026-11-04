@@ -2066,6 +2066,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     lastMood = mood;
     return images ? images.lines(mood, clock) : faceLines(mood, clock, { ...palette.face, octants: supportsOctants() });
   };
+  // While the main agent works, the row above the input says what it is doing, where its next message will show.
+  const workingRow = (inner, clock, frame) => {
+    const label = `${highlight(frame)} ${assistantColor(bold('hobkin'))} ${dim(`is ${snapshot.doing ?? 'thinking'}…`)}`;
+    const since = busySince === null ? '' : muted(elapsed(busySince, clock));
+    return row(label, since, inner);
+  };
   const besideFace = (face, rows, width) => {
     const blank = ' '.repeat(faceColumns());
     return rows.map((value, index) => `${face[index] ?? blank}${' '.repeat(FACE_GAP)}${line(value, width)}`);
@@ -2163,15 +2169,17 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (question?.rows) return cardLines(inner, height, headerLength, statusLines);
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
     if (choosing) return [...questionBox(inner, height, headerLength, choosing), ...tipRows, ...statusLines];
+    const working = hasComposer && view === 'conversation' && snapshot.connection === 'connected' && snapshot.busy
+      ? [workingRow(inner, clock, frame)] : [];
     if (faceShown) {
       const [activityRow, ...rest] = statusLines;
       const face = drawnFace(clock);
       // A mood's speed is known once its frames have loaded.
       animate();
       const beside = [...composerLines(room), ...tipRows, activityRow];
-      return [...besideFace(face, beside, room), ...rest];
+      return [...working, ...besideFace(face, beside, room), ...rest];
     }
-    if (hasComposer) return [...composerLines(inner), ...tipRows, ...statusLines];
+    if (hasComposer) return [...working, ...composerLines(inner), ...tipRows, ...statusLines];
     return [tipRows[0] ?? '', ...statusLines];
   };
   const renderContent = (inner, available, clock, frame) => {

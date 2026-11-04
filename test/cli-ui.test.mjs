@@ -915,6 +915,24 @@ test('only visible chat entries have author blocks', () => {
   assert.match(rendered[0], /● connected/);
 });
 
+test('while the main agent works, the row above the input says what it is doing and for how long', () => {
+  const messages = [{ role: 'user', content: 'Question' }];
+  let now = Date.parse('2026-10-29T18:08:00Z');
+  const ui = createDashboard({ ...snapshot, messages, busy: true, doing: 'researching', connection: 'connected' }, {}, { now: () => now });
+  now += 15000;
+
+  const rendered = screen(ui, 80, 24).split('\n');
+  const working = rendered.findIndex(value => /hobkin is researching… +15s\s*$/.test(value));
+  assert.ok(working > 0, rendered.join('\n'));
+  assert.match(rendered[working + 1], /─{20,}\s*$/, 'the input starts on the next row');
+
+  ui.update({ ...snapshot, messages, busy: true, connection: 'connected' });
+  assert.match(screen(ui, 80, 24), /hobkin is thinking…/, 'before it says anything, it is thinking');
+
+  ui.update({ ...snapshot, messages, busy: false, connection: 'connected' });
+  assert.doesNotMatch(screen(ui, 80, 24), /hobkin is /, 'and the row goes when the turn ends');
+});
+
 test('busy or live-job activity animates only while work runs and never after stop', async () => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const busy = { ...snapshot, connection: 'connected', busy: true };

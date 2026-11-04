@@ -501,6 +501,7 @@ export class HobkinApplication {
       busy: this.runtime.mainBusy,
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
+      doing: this.runtime.mainDoing ?? null,
       learning: learningEnabled(this.runtime.directory),
       userName: callName(readProfile(this.runtime.directory)),
       main: {

@@ -7,6 +7,7 @@ import { createModels } from '@earendil-works/pi-ai';
 import { createRegistry, defineDoc, Harness } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { compactionDue } from './compaction.mjs';
+import { doingAfter } from './doing.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
@@ -173,6 +174,7 @@ export class HobkinRuntime {
     try {
       unsubscribe = main.subscribe(event => {
         if (event.type === 'tool_execution_start') this.mainTool = event.toolName;
+        this.mainDoing = doingAfter(this.mainDoing, event);
         if (event.type === 'compaction_start') {
           this.compactingSince = Date.now();
           recordEvent(this.directory, 'compaction_started', { reason: event.reason });
@@ -563,6 +565,7 @@ export class HobkinRuntime {
     }).finally(() => {
       if (this.mainTurn === turn) this.mainTurn = null;
       this.mainTool = null;
+      this.mainDoing = null;
       release();
     });
     return accepted.promise;

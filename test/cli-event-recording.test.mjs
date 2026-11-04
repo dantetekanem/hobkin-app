@@ -284,6 +284,22 @@ test('the tool a turn is on reaches the face, and goes when the turn ends', asyn
   await app.close();
 });
 
+test('what a turn is doing reaches the screen in a word, and goes when the turn ends', async t => {
+  const h = fixture(t);
+  const { app, tell } = await appWithVoice(h);
+
+  tell({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'Hm.' } });
+  assert.equal((await app.refresh()).doing, 'thinking');
+  tell({ type: 'tool_execution_start', toolName: 'read', args: { path: 'notes.md' } });
+  assert.equal((await app.refresh()).doing, 'researching');
+
+  await app.send('go on');
+  await app.runtime.idle();
+  await app.refreshing;
+  assert.equal((await app.refresh()).doing, null);
+  await app.close();
+});
+
 test('a stopped main chat reaches the screen as an error from main, with none of its text', async t => {
   const h = fixture(t);
   const app = await h.openApp();
