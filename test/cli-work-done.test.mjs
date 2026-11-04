@@ -16,6 +16,7 @@ import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
+const proved = { proof: 'It failed, then it passed.' };
 
 function workspace(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-done-')));
@@ -152,20 +153,19 @@ test('work already on another branch of the user says where, whether copied or m
   assert.match(landingList(h.root).leftOut.find(({ item }) => item === merged.id).why, /already on release\/now/);
 });
 
-test('a bulk landing holds only what a review rated safe A at its current commit, and says why the rest stays out', async t => {
+test('a bulk landing takes work with proof whatever its grade, leaves out what a review rated below safe at this commit, and says why', async t => {
   const h = workspace(t);
-  branched(h.checkout, 'hobkin/good', 'good.txt', 'good\n');
-  branched(h.checkout, 'hobkin/medium', 'medium.txt', 'medium\n');
-  branched(h.checkout, 'hobkin/changed', 'changed.txt', 'changed\n');
-  branched(h.checkout, 'hobkin/never', 'never.txt', 'never\n');
-  branched(h.checkout, 'hobkin/prep', 'prep.txt', 'prep\n');
-  const good = finished(h, 'hobkin/good');
-  finished(h, 'hobkin/medium');
-  finished(h, 'hobkin/changed');
-  finished(h, 'hobkin/never', { summary: 'Rated safe A by the author.' });
-  finished(h, 'hobkin/prep', { title: 'Prepare HTTPS enforcement for the blog' });
+  for (const name of ['good', 'medium', 'risky', 'changed', 'never', 'unproved', 'prep']) branched(h.checkout, `hobkin/${name}`, `${name}.txt`, `${name}\n`);
+  const good = finished(h, 'hobkin/good', proved);
+  finished(h, 'hobkin/medium', proved);
+  finished(h, 'hobkin/risky', proved);
+  const changed = finished(h, 'hobkin/changed', proved);
+  const never = finished(h, 'hobkin/never', { ...proved, summary: 'Rated safe A by the author.' });
+  finished(h, 'hobkin/unproved');
+  finished(h, 'hobkin/prep', { ...proved, title: 'Prepare HTTPS enforcement for the blog' });
   reviewed(h, tipOf(h, 'hobkin/good'));
   reviewed(h, tipOf(h, 'hobkin/medium'), 'medium', 'B');
+  reviewed(h, tipOf(h, 'hobkin/risky'), 'risky', 'D');
   reviewed(h, tipOf(h, 'hobkin/changed'));
   reviewed(h, tipOf(h, 'hobkin/prep'));
   git(h.checkout, 'switch', '-q', 'hobkin/changed');
@@ -175,23 +175,40 @@ test('a bulk landing holds only what a review rated safe A at its current commit
   await survey(h);
   const { landable, leftOut } = landingList(h.root);
 
-  assert.deepEqual(landable.map(({ item, head }) => [item, head]), [[good.id, tipOf(h, 'hobkin/good')]]);
+  assert.deepEqual(landable.map(({ item, head, grade }) => [item, head, grade]), [
+    [good.id, tipOf(h, 'hobkin/good'), 'safe A'],
+    [never.id, tipOf(h, 'hobkin/never'), null],
+    [changed.id, tipOf(h, 'hobkin/changed'), 'safe A on an older commit'],
+  ]);
   const why = Object.fromEntries(leftOut.map(({ title, why: reason }) => [title, reason]));
   assert.match(why['work 1'], /rated medium B/);
-  assert.match(why['work 2'], /older commit/);
-  assert.match(why['work 3'], /no grade/);
+  assert.match(why['work 2'], /rated risky D/);
+  assert.match(why['work 5'], /no proof/);
   assert.match(why['Prepare HTTPS enforcement for the blog'], /only a person/);
 });
 
-test('a branch rated A stays out when it brings along earlier work that is not', async t => {
+test('work the last survey did not read stays out, because nothing pins it to a commit', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'abc.txt', 'abc\n');
+  const item = finished(h, 'hobkin/abc', proved);
+
+  const { why } = landingList(h.root).leftOut.find(row => row.item === item.id);
+  assert.match(why, /survey did not read/);
+
+  await survey(h);
+
+  assert.deepEqual(landingList(h.root).landable.map(row => row.item), [item.id]);
+});
+
+test('a branch stays out when it brings along earlier work a review rated below safe', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
   git(h.checkout, 'switch', '-q', 'hobkin/under');
   git(h.checkout, 'switch', '-q', '-c', 'hobkin/over');
   commit(h.checkout, 'over.txt', 'over\n');
   git(h.checkout, 'switch', '-q', 'main');
-  finished(h, 'hobkin/under');
-  const over = finished(h, 'hobkin/over');
+  finished(h, 'hobkin/under', proved);
+  const over = finished(h, 'hobkin/over', proved);
   reviewed(h, tipOf(h, 'hobkin/under'), 'medium', 'C');
   reviewed(h, tipOf(h, 'hobkin/over'));
 
@@ -202,7 +219,7 @@ test('a branch rated A stays out when it brings along earlier work that is not',
   assert.match(leftOut.find(({ item }) => item === over.id).why, /brings .*medium C/);
 });
 
-test('every branch on top of unrated work stays out, however many share it', async t => {
+test('branches on top of unrated work can land, and every one on top of work a review held back stays out', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
   git(h.checkout, 'switch', '-q', 'hobkin/under');
@@ -213,14 +230,19 @@ test('every branch on top of unrated work stays out, however many share it', asy
   commit(h.checkout, 'right.txt', 'right\n');
   git(h.checkout, 'switch', '-q', 'main');
   finished(h, 'hobkin/under');
-  finished(h, 'hobkin/left');
-  finished(h, 'hobkin/right');
+  const left = finished(h, 'hobkin/left', proved);
+  const right = finished(h, 'hobkin/right', proved);
   reviewed(h, tipOf(h, 'hobkin/left'));
   reviewed(h, tipOf(h, 'hobkin/right'));
+  const landable = () => landingList(h.root).landable.map(row => row.item).toSorted();
 
   await survey(h);
+  assert.deepEqual(landable(), [left.id, right.id].toSorted());
 
-  assert.deepEqual(landingList(h.root).landable, []);
+  reviewed(h, tipOf(h, 'hobkin/under'), 'risky', 'D');
+  await survey(h);
+
+  assert.deepEqual(landable(), []);
 });
 
 test('an open PR is on the landing list at the head its host reports, with that commit\'s grade and the same protections', async t => {
@@ -231,11 +253,12 @@ test('an open PR is on the landing list at the head its host reports, with that 
   git(h.checkout, 'switch', '-q', '-c', 'hobkin/5-fix');
   commit(h.checkout, 'five.txt', 'five\n');
   git(h.checkout, 'switch', '-q', 'main');
-  const published = number => finished(h, `hobkin/${number}-fix`, { state: 'pr', pr: `https://example.com/pull/${number}` });
+  const published = number => finished(h, `hobkin/${number}-fix`, { ...proved, state: 'pr', pr: `https://example.com/pull/${number}` });
   const [good, moved, conflicted, unseen, stacked] = [1, 2, 3, 4, 5].map(published);
   const sameBranch = finished(h, 'hobkin/1-fix');
   finished(h, 'hobkin/base');
   for (const number of [1, 2, 3, 5]) reviewed(h, tipOf(h, `hobkin/${number}-fix`));
+  reviewed(h, tipOf(h, 'hobkin/base'), 'risky', 'D');
   git(h.checkout, 'switch', '-q', 'hobkin/2-fix');
   commit(h.checkout, 'more.txt', 'more\n');
   git(h.checkout, 'switch', '-q', 'main');
@@ -245,9 +268,11 @@ test('an open PR is on the landing list at the head its host reports, with that 
   await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify(pulls), reviews: h.reviews });
   const { landable, leftOut } = landingList(h.root);
 
-  assert.deepEqual(landable.map(({ item, head, grade, pr }) => [item, head, grade, pr]), [[good.id, tipOf(h, 'hobkin/1-fix'), 'safe A', 'https://example.com/pull/1']]);
+  assert.deepEqual(landable.map(({ item, head, grade, pr }) => [item, head, grade, pr]), [
+    [good.id, tipOf(h, 'hobkin/1-fix'), 'safe A', 'https://example.com/pull/1'],
+    [moved.id, tipOf(h, 'hobkin/2-fix'), 'safe A on an older commit', 'https://example.com/pull/2'],
+  ]);
   const why = Object.fromEntries(leftOut.map(({ item, why: reason }) => [item, reason]));
-  assert.match(why[moved.id], /older commit/);
   assert.equal(unit(h, 'hobkin/3-fix').conflict, true);
   assert.match(why[conflicted.id], /agent is still working on it/, 'a conflict gets its rebase, and stays out until then');
   assert.match(why[unseen.id], /no open PR/);
@@ -264,7 +289,7 @@ test('a local branch that prepares a release on top of a PR is not where the PR 
   git(h.checkout, 'switch', '-q', '-c', 'release-prep/1.0.0-ab12');
   commit(h.checkout, 'VERSION', '1.0.0\n');
   git(h.checkout, 'switch', '-q', 'main');
-  const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  const published = finished(h, 'hobkin/8-fix', { ...proved, state: 'pr', pr: 'https://example.com/pull/8' });
   reviewed(h, tipOf(h, 'hobkin/8-fix'));
 
   await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([pull(8, { headRefOid: tipOf(h, 'hobkin/8-fix') })]), reviews: h.reviews });

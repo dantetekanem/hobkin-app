@@ -1194,9 +1194,10 @@ test('sync closes what was merged, says so and lists it, and changes nothing in 
   assert.match((await success(h.root, 'sync')).message, /Nothing was merged or closed/);
 });
 
-test('sync says what it dropped as backups, and asking hobkin something never starts a review', async t => {
+test('sync says what it dropped as backups, and asking hobkin something never starts a review, even with reviews on', async t => {
   const h = owned(t);
   fakeGh(t, h, []);
+  writeMode(h.root, { reviewOnFinish: true });
   const checkout = studied(h, 'api');
   branched(checkout, 'hobkin/login');
   git(checkout, 'branch', 'hobkin/login-before-c289e6', 'hobkin/login');

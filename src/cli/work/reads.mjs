@@ -299,7 +299,9 @@ export function weighedRows(root, now = Date.now()) {
 /** Work finished on a branch with no PR. `gap` says what stands between each one and landing, and the top is what to merge next. */
 export const readyItems = (root, most = MAX_READY_SENT) => weighedRows(root).slice(0, most).map(({ row }) => row);
 
-export const ratedA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;
+/** A grade is information, never a gate: only a review that rated this very commit below safe holds work back. No grade, or one for an older commit, does not. */
+export const heldByItsGrade = ({ safety }) => Boolean(safety) && !safety.stale && safety.grade !== 'safe';
+
 const gapWords = {
   yours: 'only a person can do it',
   elsewhere: 'it is already on another branch',
@@ -314,15 +316,24 @@ export function ratingWords({ safety }) {
   return safety.stale ? 'its grade is for an older commit' : `it is rated ${safety.grade} ${safety.rating}`;
 }
 
-/** The first thing a merge of this row would bring along that no review passed. */
-export const weakEarlierWork = (row, units) => stackedBeneath(row, units).find(unit => !ratedA(unit));
+/** The first thing a merge of this row would bring along that a review held back. */
+export const weakEarlierWork = (row, units) => stackedBeneath(row, units).find(heldByItsGrade);
 
+/** Work lands on its proof, at the commit the survey read. A row the survey never read has no commit to pin a yes to. */
 function whyLeftOut(row, units) {
   if (row.gap === 'elsewhere' && row.landedOn) return `it is already on ${row.landedOn}`;
   if (row.gap !== 'land') return gapWords[row.gap];
-  if (!ratedA(row)) return ratingWords(row);
+  if (heldByItsGrade(row)) return ratingWords(row);
+  if (!row.head) return 'the last survey did not read its branch, and hobkin work sync reads it';
+  if (row.proved === false) return 'it has no proof';
   const weak = weakEarlierWork(row, units);
   return weak ? `it brings ${weak.branch}, and ${ratingWords(weak)}` : null;
+}
+
+function gradeOf(safety) {
+  if (!safety) return null;
+  const grade = `${safety.grade} ${safety.rating}`;
+  return safety.stale ? `${grade} on an older commit` : grade;
 }
 
 const landingRow = ({ project, slug, item, title, head, safety, size, pr }, why) => ({
@@ -331,7 +342,7 @@ const landingRow = ({ project, slug, item, title, head, safety, size, pr }, why)
   item,
   title,
   head,
-  grade: safety && `${safety.grade} ${safety.rating}`,
+  grade: gradeOf(safety),
   lines: (size?.additions ?? 0) + (size?.deletions ?? 0),
   files: size?.files ?? 0,
   ...(pr ? { pr } : {}),
@@ -384,9 +395,9 @@ function landingRows(root) {
 }
 
 /**
- * The only evidence for landing work in bulk: a grade comes from the review of that exact commit, as the survey read it, and never from what an item
- * says about itself. What cannot go says why, so a plan can show what it left out. A PR row carries its `pr`, because it lands on its host and not
- * here. `surveyedAt` says how old this is, and `hobkin work sync` brings it up to date.
+ * The only evidence for landing work in bulk: work goes on its proof, pinned to the commit the survey read, and a grade is what the review of that
+ * exact commit found, never what an item says about itself. What cannot go says why, so a plan can show what it left out. A PR row carries its `pr`,
+ * because it lands on its host and not here. `surveyedAt` says how old this is, and `hobkin work sync` brings it up to date.
  */
 export function landingList(root) {
   const { at, projects } = readUnmerged(root);

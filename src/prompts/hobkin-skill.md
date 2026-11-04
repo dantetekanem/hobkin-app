@@ -69,10 +69,10 @@ These read saved state. They start nothing and call no model:
 | `hobkin work projects`, `items [project]` | Each project with its level, state and counts, or each item with its `grade`, `state`, `branch`, `attempts`, `lastError`, `summary`, `proof` and `left`. `--state` narrows them. |
 | `hobkin work running`, `queue`, `attention` | Each agent, the plan in order, and what is waiting on the user. |
 | `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |
-| `hobkin work ready` | What can land now by real grades, each pinned to its commit, and why the rest cannot. Grades come from reviews of that exact commit, so never take one from an item's summary. |
+| `hobkin work ready` | What can land now, each pinned to its commit, and why the rest cannot. Work with proof lands with or without a grade, and only a review that rated its commit below safe holds it back. Grades come from reviews of that exact commit, so never take one from an item's summary. |
 | `hobkin work pr <project> <item>` | A local PR: a local `hobkin/*` branch and its saved description, for the user to review. |
 | `hobkin work diff <project> <item>` | Opens that branch's diff in pi-coder, in a Herdr pane in front of the user. Outside Herdr it says what to type in Pi. |
-| `hobkin work review <project> <item>` | Asks for a code review of that branch. A finished branch gets one by itself unless `hobkin work reviews off`. |
+| `hobkin work review <project> <item>` | Asks for a code review of that branch, about $2 and 14 minutes of a worker. Reviews run only when asked for, and `hobkin work reviews on` gives each finished branch one by itself. |
 | `hobkin work merge <project> <item>` | Merges a finished branch on this machine and pushes nothing, only on the user's word. |
 | `hobkin work decline <project> <item>` | Says no to it, on the user's word. Its branch stays. |
 | `hobkin work ask <project> <item> <note>` | Sends an agent back to that branch with the user's note. |

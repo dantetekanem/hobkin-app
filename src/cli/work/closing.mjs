@@ -50,14 +50,14 @@ const beingWorkedOn = (root, { slug, item, branch }, running) => running.some(ru
   || readItems(root, slug).some(other => other.branch === branch && runnableStates.includes(other.state));
 
 /**
- * A branch earns its review as its run ends, so one that missed that moment gets it here: one finished before reviews existed, one the survey adopted,
- * one a closed PR left, or one whose run a restart cut short. The item keeps the commit it was asked for, so a review that ends with no grade is not
- * asked again until the branch moves. These are the writes `hobkin work review` makes, so each review goes to the front of the queue.
+ * With reviews on, a branch earns its review as its run ends, so one that missed that moment gets it here: one finished before reviews existed, one the
+ * survey adopted, one a closed PR left, or one whose run a restart cut short. The item keeps the commit it was asked for, so a review that ends with no
+ * grade is not asked again until the branch moves. These are the writes `hobkin work review` makes, so each review goes to the front of the queue.
  */
 function askReviews(root, now = Date.now()) {
-  // With the mode off nothing new starts, and with reviews off one runs only when the user asks.
+  // With the mode off nothing new starts, and a review runs by itself only once the user turns reviews on. A home with no setting is off.
   const { enabled, reviewOnFinish } = readMode(root);
-  if (!enabled || reviewOnFinish === false) return [];
+  if (!enabled || reviewOnFinish !== true) return [];
 
   const { running } = ownerView(root);
   const asked = [];

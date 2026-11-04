@@ -1,6 +1,6 @@
 import { answerDecision, fileDecision, openDecisions } from '../decisions.mjs';
 import { mergeItem, reply, requestReview } from './controls.mjs';
-import { ratedA, ratingWords, readyItems, weakEarlierWork } from './reads.mjs';
+import { heldByItsGrade, ratingWords, readyItems, weakEarlierWork } from './reads.mjs';
 import { pileOf, shipFirst } from './ship.mjs';
 import { localDay, readItems, readMode, readProject, retryItem, runnableStates, updateItem, writeMode } from './store.mjs';
 import { readUnmerged } from './unmerged.mjs';
@@ -11,7 +11,7 @@ const LONGEST_TITLE = 70;
 const QUIET_MS = 2 * 3600000;
 const MOST_REMEMBERED = 200;
 const REBASE_NOTE = 'This branch conflicts with the default branch. Rebase it so both sides\' intent survives, and add nothing else.';
-const yesDoes = { land: 'yes merges it here and pushes nothing', rebase: 'yes sends an agent to rebase it', review: 'yes reviews it' };
+const yesDoes = { land: 'Yes merges it here and pushes nothing', rebase: 'Yes sends an agent to rebase it', review: 'Yes reviews it' };
 
 // Titles come from agents, and these reach the terminal.
 const plain = text => String(text).replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
@@ -23,18 +23,24 @@ const writeShip = (root, change) => writeMode(root, { ship: { ...readMode(root).
 const rowKey = ({ slug, item }) => `${slug}:${item}`;
 const triedKey = ({ slug, item, step, head }) => `${slug}:${item}:${step}:${head}`;
 
-/** Merging a branch brings what it was built on, so what no review passed gets its review before a yes can land it. */
+/** Merging a branch brings what it was built on, so earlier work a review held back takes the row's place, for its review, before a yes can land it. */
 function rowToMove(row, rows, units) {
-  if (!ratedA(row)) return row;
+  if (heldByItsGrade(row)) return row;
   const weak = weakEarlierWork(row, units);
   if (!weak) return row;
   return rows.find(other => other.slug === row.slug && other.branch === weak.branch) ?? row;
 }
 
-// Anything short of safe A at its commit takes a review, because a review run fixes what it finds and grades the result.
+/**
+ * A grade is information, so work with proof lands whatever its grade, at the commit the survey read. Only what a review rated below safe at this
+ * commit, or brings with it, takes a review, because a review run fixes what it finds and grades the result. Work with no proof, or no commit the
+ * survey read, has nothing for a yes to stand on, so no pair brings it.
+ */
 function stepOf(row, units) {
   if (row.conflict) return 'rebase';
-  return ratedA(row) && !weakEarlierWork(row, units) ? 'land' : 'review';
+  if (heldByItsGrade(row) || weakEarlierWork(row, units)) return 'review';
+  if (!row.head || row.proved === false) return null;
+  return 'land';
 }
 
 const moveFrom = (row, units) => ({ row, slug: row.slug, item: row.item, head: row.head, step: stepOf(row, units) });
@@ -49,6 +55,7 @@ function nextMoves(root, rows, { ship = {} }) {
     .filter(row => !offered.has(`offer:${rowKey(row)}`))
     .map(row => rowToMove(row, rows, unitsOf(row)))
     .map(row => moveFrom(row, unitsOf(row)))
+    .filter(({ step }) => step)
     .filter(move => !tried.has(triedKey(move)))
     .filter((move, index, all) => all.findIndex(other => rowKey(other) === rowKey(move)) === index);
   return moves.slice(0, PAIR_SIZE);
@@ -56,7 +63,7 @@ function nextMoves(root, rows, { ship = {} }) {
 
 function moveLine({ row, step }) {
   const rating = row.conflict ? 'it conflicts with the default branch' : ratingWords(row);
-  return `${plain(row.project)}: ${shortTitle(plain(row.title))}. ${rating[0].toUpperCase()}${rating.slice(1)}, so ${yesDoes[step]}.`;
+  return `${plain(row.project)}: ${shortTitle(plain(row.title))}. ${rating[0].toUpperCase()}${rating.slice(1)}. ${yesDoes[step]}.`;
 }
 
 function pairDecision(moves, left) {

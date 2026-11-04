@@ -7,7 +7,7 @@ const HOUR_MS = 3600000;
 const ago = hours => new Date(NOW - hours * HOUR_MS).toISOString();
 const safeA = { grade: 'safe', rating: 'A' };
 const size = lines => ({ additions: lines, deletions: 0, files: 1 });
-const branch = (item, fields = {}) => ({ slug: 'api', project: 'api', item, title: `Fix ${item}`, gap: 'land', conflict: false, size: size(10), ...fields });
+const branch = (item, fields = {}) => ({ slug: 'api', project: 'api', item, title: `Fix ${item}`, gap: 'land', conflict: false, size: size(10), proved: false, ...fields });
 const report = (id, body, fields = {}) => ({ id, title: 'Mail', scheduleId: 'mail', at: ago(1), outcome: 'completed', body, ...fields });
 const decision = (id, fields = {}) => ({ id, from: 'Routine mail', tldr: `Question ${id}`, at: ago(2), answerTo: { kind: 'routine', id: 'mail' }, ...fields });
 const card = input => pendingCard({ now: NOW, ...input });
@@ -17,10 +17,14 @@ test('nothing waiting is an empty card with no rows at all', () => {
   assert.deepEqual(card({}), { total: 0, groups: [], trouble: [], walk: 'chat' });
 });
 
-test('a safe A branch with nothing in its way is ready, and the fact adds up its lines', () => {
-  const result = card({ ready: [branch('a', { safety: safeA, size: size(84) }), branch('b', { safety: safeA, size: size(37) })] });
+test('a branch with proof and nothing in its way is ready, graded or not, and the fact adds up its lines', () => {
+  const result = card({ ready: [
+    branch('rated', { safety: safeA, proved: true, size: size(84) }),
+    branch('ungraded', { proved: true, size: size(26) }),
+    branch('stale', { safety: { ...safeA, stale: true }, proved: true, size: size(11) }),
+  ] });
 
-  assert.deepEqual(groupOf(result, 'ready'), { name: 'ready', count: 2, label: 'ready', fact: 'safe A, about 120 lines' });
+  assert.deepEqual(groupOf(result, 'ready'), { name: 'ready', count: 3, label: 'ready', fact: 'with proof, about 120 lines' });
 });
 
 test('an offer makes a branch ready, whatever else the row says', () => {
@@ -29,12 +33,12 @@ test('an offer makes a branch ready, whatever else the row says', () => {
   assert.equal(groupOf(result, 'ready').count, 1);
 });
 
-test('a stale grade, a poor build, a conflict or a step left for the user is not ready', () => {
+test('no proof, a poor build, a conflict or a grade below safe at this commit is not ready', () => {
   const result = card({ ready: [
-    branch('stale', { safety: { ...safeA, stale: true } }),
-    branch('poor', { safety: safeA, quality: { rating: 'C' } }),
-    branch('conflict', { safety: safeA, gap: 'rebase', conflict: true }),
-    branch('medium', { safety: { grade: 'medium', rating: 'B' } }),
+    branch('unproved', { safety: safeA }),
+    branch('poor', { safety: safeA, proved: true, quality: { rating: 'C' } }),
+    branch('conflict', { safety: safeA, proved: true, gap: 'rebase', conflict: true }),
+    branch('medium', { safety: { grade: 'medium', rating: 'B' }, proved: true }),
   ] });
 
   assert.equal(groupOf(result, 'ready'), undefined);
@@ -158,7 +162,7 @@ test('steps only the user can take are counted once, from either place', () => {
 
 test('rows come in one order, and an empty group has no row', () => {
   const result = card({
-    ready: [branch('good', { safety: safeA }), branch('read')],
+    ready: [branch('good', { proved: true }), branch('read')],
     decisions: [decision('one')],
     attention: [{ kind: 'item', title: 'Rotate a key', slug: 'api', item: 'key' }],
   });
@@ -217,7 +221,7 @@ test('Not now comes first, and a choice with an empty group does not appear', ()
   const values = result => cardChoices(result).map(({ value }) => value);
 
   assert.deepEqual(values(card({ ready: [branch('a')] })), ['later', 'walk']);
-  assert.deepEqual(cardChoices(card({ ready: [branch('a', { safety: safeA })], launches: [{ slug: 'api', project: 'api', item: 'b', outcome: 'trouble' }] })), [
+  assert.deepEqual(cardChoices(card({ ready: [branch('a', { proved: true })], launches: [{ slug: 'api', project: 'api', item: 'b', outcome: 'trouble' }] })), [
     { value: 'later', label: 'Not now' },
     { value: 'ready', label: 'Start with the 1 ready' },
     { value: 'wrong', label: 'Just what went wrong' },
@@ -226,9 +230,9 @@ test('Not now comes first, and a choice with an empty group does not appear', ()
 });
 
 test('the evidence for the main agent is the rows in plain words', () => {
-  const result = card({ ready: [branch('a', { safety: safeA, size: size(120) })], decisions: [decision('one')] });
+  const result = card({ ready: [branch('a', { proved: true, size: size(120) })], decisions: [decision('one')] });
 
-  assert.equal(cardEvidence(result), '2 waiting.\n1 ready: safe A, about 120 lines\n1 question: oldest 2 hours');
+  assert.equal(cardEvidence(result), '2 waiting.\n1 ready: with proof, about 120 lines\n1 question: oldest 2 hours');
 });
 
 const free = { seenAt: NOW - 1000, away: false, occupied: false };

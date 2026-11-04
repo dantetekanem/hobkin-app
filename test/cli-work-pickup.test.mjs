@@ -189,11 +189,11 @@ test('with auto-pick off a plain retry waits for a pick', async t => {
   assert.equal(read(h, filed).attempts, 0);
 });
 
-test('with auto-pick off a finished branch still gets its review next by itself', async t => {
+test('with reviews on and auto-pick off, a finished branch still gets its review next by itself', async t => {
   const h = director(t);
   studied(h, 'api', 'critical');
   const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
-  writeMode(h.root, { autoPick: false });
+  writeMode(h.root, { autoPick: false, reviewOnFinish: true });
   h.agent = () => updateItem(h.root, 'api', filed.id, { state: 'branch', branch: 'hobkin/login' });
   await runWorkCommand(h.root, ['trigger', 'api', filed.id]);
 

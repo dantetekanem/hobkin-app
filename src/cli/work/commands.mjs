@@ -29,7 +29,7 @@ Read, as JSON, with nothing running:
   projects [--state state]             chosen, proposed, skipped or dropped
   running, queue                       agents and panes; the plan and its waits
   items [project] [--state state]      state, grade, branch, PR, what is left
-  ready                                what can land by real grades, and why not
+  ready                                what can land at its commit, and why not
   pr, diff <project> <item>            a local PR; diff opens it in pi-coder
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
@@ -79,6 +79,10 @@ function reviewsFrom(word) {
   if (!['on', 'off'].includes(word)) throw Error('Say reviews on or reviews off.');
   return word === 'on';
 }
+
+const reviewsLine = on => (on
+  ? 'Each finished branch gets a review by itself, about $2 and 14 minutes of a worker each.'
+  : 'A review runs only when asked for: Get it reviewed on a card, or hobkin work review <project> <item>.');
 
 async function readText(input) {
   let text = '';
@@ -301,9 +305,13 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return reply(autoPick ? 'Auto-pick is on. The top of the queue starts by itself.' : 'Auto-pick is off. Work mode stays on, and only what is triggered runs.');
     }
     case 'reviews': {
-      if (!args[0]) return { reviewOnFinish: readMode(root).reviewOnFinish !== false };
+      // Off unless the user turns them on, because each review costs a whole run.
+      if (!args[0]) {
+        const reviewOnFinish = readMode(root).reviewOnFinish === true;
+        return { reviewOnFinish, line: reviewsLine(reviewOnFinish) };
+      }
       const { reviewOnFinish } = writeMode(root, { reviewOnFinish: reviewsFrom(args[0]) });
-      return reply(reviewOnFinish ? 'Each finished branch gets a review, for its safety grade.' : 'Reviews run only when asked for.');
+      return reply(reviewsLine(reviewOnFinish));
     }
     case 'allow': return answerAllow(root, args[0]);
     case 'progress': return noteDiscovery(root, await readJson(input));

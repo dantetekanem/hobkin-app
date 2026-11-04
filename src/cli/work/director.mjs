@@ -630,7 +630,7 @@ export class WorkDirector {
   // Cancelling one is the user's own stop, so it stays in sight at the end of the queue instead of starting again on the next tick.
   // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
   // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
-  // A grade is how the user tells what can ship, so a finished branch earns one by itself: the review is its next run, ahead of new work.
+  // A review costs a whole run, so a finished branch gets one by itself only once the user turns reviews on: then it is its next run, ahead of new work.
   async itemFinished(slug, item) {
     const { id, title, kind, state, branch, reviewAsked, workNote } = item;
     if (reviewAsked || workNote) updateItem(this.root, slug, id, { reviewAsked: false, workNote: null }, this.now());
@@ -645,10 +645,10 @@ export class WorkDirector {
     this.onDraftDone({ slug, id, title, project: nameOf(project) });
   }
 
-  // With the mode off nothing new starts, and that holds for a review too.
+  // With the mode off nothing new starts, and that holds for a review too. A home with no setting is off.
   async earnsAReview(project, branch) {
     const { enabled, reviewOnFinish } = readMode(this.root);
-    if (!enabled || reviewOnFinish === false) return false;
+    if (!enabled || reviewOnFinish !== true) return false;
     const repo = project.path ?? paths(this.root, project.slug).clone;
     return !await changesOnlyDocs(repo, await defaultBranch(repo), branch);
   }

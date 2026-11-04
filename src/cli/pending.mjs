@@ -1,4 +1,5 @@
 import { reportTriage } from './reports.mjs';
+import { heldByItsGrade } from './work/reads.mjs';
 
 const MINUTE_MS = 60000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -40,9 +41,10 @@ function sinceWhen(at, now) {
 const oldest = (dated, now) => age(now - Math.min(...dated.map(({ at }) => Date.parse(at))));
 const linesIn = rows => rows.reduce((sum, { size }) => sum + (size?.additions ?? 0) + (size?.deletions ?? 0), 0);
 
-const safeA = ({ safety }) => safety?.grade === 'safe' && safety.rating === 'A' && !safety.stale;
 const wellBuilt = ({ quality }) => !quality || (!quality.stale && ['A', 'B'].includes(quality.rating));
-const isReady = row => row.gap === 'land' && !row.left && Boolean(row.offer || (safeA(row) && wellBuilt(row)));
+// A grade is information: work with its proof is ready graded or not, unless a review rated this commit below safe.
+const landsOnItsProof = row => row.proved !== false && !heldByItsGrade(row) && wellBuilt(row);
+const isReady = row => row.gap === 'land' && !row.left && (Boolean(row.offer) || landsOnItsProof(row));
 const isToRead = row => TO_READ.includes(row.gap) && !row.left && !isReady(row);
 
 /** Each routine's newest report speaks for it, so one that says the same thing every day is one call, and a later report with no call ends it. */
@@ -94,7 +96,7 @@ function questionFact(questions, now) {
 
 function readyFact(rows) {
   const lines = linesIn(rows);
-  return lines ? `safe A, about ${shortNumber(Math.round(lines / 10) * 10)} lines` : 'safe A';
+  return lines ? `with proof, about ${shortNumber(Math.round(lines / 10) * 10)} lines` : 'with proof';
 }
 
 const row = (name, label, items, fact) => (items.length ? [{ name, count: items.length, label, fact: fact() }] : []);

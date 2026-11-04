@@ -670,7 +670,7 @@ test('a card rated risky offers its review first, and its merge says so', async 
   ui.stop();
 });
 
-test('a card with no grade at its commit offers a review first, and its merge says what it lacks', async () => {
+test('a card with no grade at its commit offers its merge first, plainly, and its review further down', async () => {
   const { actions, workAction } = acting();
   const ready = [landing('one'), landing('two', { safety: { grade: 'safe', rating: 'A', stale: true } })];
   const ui = createDashboard({ ...base, work: { enabled: true, projects: [], ready } }, { workAction });
@@ -678,17 +678,18 @@ test('a card with no grade at its commit offers a review first, and its merge sa
   ui.input('\r');
   await ui.pending();
 
-  offers(ui, ['Get it reviewed', 'Show the diff', 'Merge it anyway: no grade at this commit', 'Cancel it']);
+  offers(ui, ['Merge it', 'Show the diff', 'Get it reviewed', 'Cancel it']);
+  assert.doesNotMatch(screen(ui, 110, 50), /anyway/);
   ui.input('\r');
   await ui.pending();
   ui.input('\r');
   await ui.pending();
-  offers(ui, ['Get it reviewed', 'Show the diff', 'Merge it anyway: no grade at this commit']);
-  pick(ui, 'Merge it anyway');
+  offers(ui, ['Merge it', 'Show the diff', 'Get it reviewed']);
+  pick(ui, 'Get it reviewed');
   await ui.pending();
 
   const answered = actions.filter(([action]) => action !== 'pr');
-  assert.deepEqual(answered.map(([action, , item]) => [action, item]), [['review', 'one'], ['merge', 'two']]);
+  assert.deepEqual(answered.map(([action, , item]) => [action, item]), [['merge', 'one'], ['review', 'two']]);
   ui.stop();
 });
 

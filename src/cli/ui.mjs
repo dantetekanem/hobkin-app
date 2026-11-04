@@ -911,11 +911,10 @@ const doneRow = (entry, type, facts) => {
     lines: [`${positive('●')} ${priority}${clean(project)}: ${clean(title)}`, `  ${facts}`],
   };
 };
-// A card whose grade cannot vouch for this commit still merges, but its words say what it lacks.
-const mergeWords = ({ pr, rated, risky, behind }) => {
+// A grade is information, so a merge says nothing of a missing one. Only a review that rated this commit risky is worth a word on the merge.
+const mergeWords = ({ pr, risky, behind }) => {
   const merge = behind > 0 ? `Refresh and merge ${pr ? 'the PR' : 'it'}` : pr ? 'Merge the PR on GitHub' : 'Merge it';
-  if (risky) return `${merge} anyway: it is rated risky`;
-  return rated ? merge : `${merge} anyway: no grade at this commit`;
+  return risky ? `${merge} anyway: it is rated risky` : merge;
 };
 const mergeValue = ({ pr, behind }) => {
   if (behind > 0) return 'refreshMerge';
@@ -923,8 +922,8 @@ const mergeValue = ({ pr, behind }) => {
 };
 const choice = (value, label) => ({ value, label });
 /**
- * What an open card offers, in words. Enter takes the first, so a card its grade cannot vouch for offers its review first, and a card that
- * conflicts offers an agent to rebase it and no merge at all.
+ * What an open card offers, in words. Enter takes the first, so only a card rated risky at this commit offers its review first, and a card that
+ * conflicts offers an agent to rebase it and no merge at all. A card with no grade merges first, with its review further down.
  */
 const cardChoices = card => {
   const { type, pr, rated, risky, conflict } = card;
@@ -939,7 +938,7 @@ const cardChoices = card => {
   const review = choice('review', rated ? 'Review it again' : 'Get it reviewed');
   const cancel = choice('decline', 'Cancel it');
   if (conflict) return [choice('rebase', 'Have an agent rebase it'), diff, ...opens, review, cancel];
-  return rated && !risky ? [merge, diff, ...opens, review, cancel] : [review, diff, ...opens, merge, cancel];
+  return risky ? [review, diff, ...opens, merge, cancel] : [merge, diff, ...opens, review, cancel];
 };
 // The sort is stable, so rows of one priority keep the order that puts the easiest yes first.
 const urgencyOf = ({ grade }) => (grades.includes(grade) ? grades.indexOf(grade) : grades.length);

@@ -11,13 +11,15 @@ import { planWork, startsNewWork } from '../src/cli/work/plan.mjs';
 import { readyItems, statusView } from '../src/cli/work/reads.mjs';
 import { pileOf, SHIP_FIRST_AT, shipFirst } from '../src/cli/work/ship.mjs';
 import { chooseProject, fileItem, paths, pickNext, readItems, readMode, recordTokens, setProjectPaused, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
-import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
+import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
 
 const HOUR = 3600000;
 const now = new Date(2026, 5, 1, 12).getTime();
 const brief = 'Evidence, who benefits, the first change, the proof.';
 const item = (key, details = {}) => ({ key, kind: 'fix', title: key, brief, ...details });
+const proved = { proof: 'It failed, then it passed.' };
+const unproved = {};
 
 function dataRoot(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-ship-')));
@@ -36,13 +38,35 @@ function project(root, slug) {
   recordTokens(root, { slug, lane: 'do', tokens: 1 }, now - HOUR);
 }
 
-/** Finished rows on a project, as the survey and Done see them. */
-function finishedOn(root, slug, count, first = 0) {
-  return Array.from({ length: count }, (_row, index) => {
-    const branch = `hobkin/${first + index}`;
-    const { id } = fileItem(root, slug, item(`finished on ${branch}`), now);
-    return updateItem(root, slug, id, { state: 'branch', branch }, now);
+/** Rows as the last survey read them, each at a commit of its own, beside whatever else it read. */
+function surveyed(root, slug, rows, unit = {}) {
+  const { projects } = readUnmerged(root);
+  const named = new Set(rows.map(({ branch }) => branch));
+  const kept = (projects[slug]?.open ?? []).filter(({ branch }) => !named.has(branch));
+  const read = rows.map(({ branch }) => ({
+    kind: 'branch',
+    branch,
+    sha: `sha-${branch}`,
+    conflict: false,
+    size: { additions: 1, deletions: 0, files: 1 },
+    ...unit,
+  }));
+
+  writeJson(join(root, 'work', 'unmerged.json'), {
+    at: new Date(now).toISOString(),
+    projects: { ...projects, [slug]: { lastMergeAt: null, trees: 0, ...projects[slug], open: [...kept, ...read] } },
   });
+}
+
+/** Finished rows on a project, as the survey and Done see them, each with its proof unless a test says otherwise. */
+function finishedOn(root, slug, count, change = proved) {
+  const rows = Array.from({ length: count }, (_row, index) => {
+    const branch = `hobkin/${index}`;
+    const { id } = fileItem(root, slug, item(`finished on ${branch}`), now);
+    return updateItem(root, slug, id, { state: 'branch', branch, ...change }, now);
+  });
+  surveyed(root, slug, rows);
+  return rows;
 }
 
 const plan = (root, options = {}) => planWork(root, { now, ...options });
@@ -200,7 +224,7 @@ function reviewed(h, head, grade = 'safe', rating = 'A') {
 function realBranch(h, name) {
   branched(h.checkout, name, `${name.replaceAll('/', '-')}.txt`, `${name}\n`);
   const { id } = fileItem(h.root, 'api', item(`Finish ${name}`), now);
-  return updateItem(h.root, 'api', id, { state: 'branch', branch: name }, now);
+  return updateItem(h.root, 'api', id, { state: 'branch', branch: name, ...proved }, now);
 }
 
 const tipOf = (h, name) => git(h.checkout, 'rev-parse', name);
@@ -214,12 +238,22 @@ async function answered(root, value, at = now) {
   return result;
 }
 
-/** One real branch rated safe A, then a pile of rows with no grade behind it. */
+/** One real branch rated safe A, then a pile of proved rows with no grade behind it. */
 async function pileWithOneRated(h, rest = SHIP_FIRST_AT) {
   const rated = realBranch(h, 'hobkin/rated');
   reviewed(h, tipOf(h, 'hobkin/rated'));
   await survey(h);
   return { rated, rows: finishedOn(h.root, 'api', rest) };
+}
+
+/** Two real proved branches, one rated safe A and one with no grade, on a pile with no proof, which no yes can merge. */
+async function twoRealOnAPile(h) {
+  const rated = realBranch(h, 'hobkin/rated');
+  const ungraded = realBranch(h, 'hobkin/ungraded');
+  reviewed(h, tipOf(h, 'hobkin/rated'));
+  await survey(h);
+  finishedOn(h.root, 'api', SHIP_FIRST_AT, unproved);
+  return { rated, ungraded };
 }
 
 test('a pair is the top two in Done order, says what yes does to each and how many are left, with the harmless choice first', async t => {
@@ -231,7 +265,7 @@ test('a pair is the top two in Done order, says what yes does to each and how ma
   const { question, tldr, choices, answerTo } = pair(h.root);
   assert.deepEqual(choices.map(({ value }) => value), ['later', 'go', 'read', 'new']);
   assert.deepEqual(choices.map(({ label }) => label), ['Later', 'Do these two', 'Read them first', 'Start new work anyway']);
-  assert.deepEqual(answerTo.rows.map(({ item: id, step }) => [id, step]), [[rated.id, 'land'], [rows[0].id, 'review']]);
+  assert.deepEqual(answerTo.rows.map(({ item: id, step }) => [id, step]), [[rated.id, 'land'], [rows[0].id, 'land']]);
   assert.equal(answerTo.rows[0].head, tipOf(h, 'hobkin/rated'));
   assert.match(question, /Finish hobkin\/rated/);
   assert.match(question, /finished on hobkin\/0/);
@@ -251,6 +285,18 @@ test('a row with an open offer stays out of the pair, and only one pair is open'
   assert.equal(openDecisions(h.root).filter(({ key }) => key === 'pair').length, 1);
 });
 
+test('a row the survey has not read stays out of a pair, because no commit pins a yes to it', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  const rows = finishedOn(root, 'api', SHIP_FIRST_AT);
+  const unread = fileItem(root, 'api', item('Not read yet'), now);
+  updateItem(root, 'api', unread.id, { state: 'branch', branch: 'hobkin/unread', ...proved }, now);
+
+  bringPair(root, now);
+
+  assert.deepEqual(pair(root).answerTo.rows.map(({ item: id }) => id), [rows[0].id, rows[1].id]);
+});
+
 test('under the bar no pair is brought', t => {
   const root = dataRoot(t);
   project(root, 'api');
@@ -261,27 +307,40 @@ test('under the bar no pair is brought', t => {
   assert.equal(pair(root), undefined);
 });
 
-test('go merges what is rated safe A here, pushes nothing, and asks a review for the rest', async t => {
+test('go merges work with proof here, graded or not, and pushes nothing', async t => {
   const h = workspace(t);
-  const { rated, rows } = await pileWithOneRated(h);
+  const { rated, ungraded } = await twoRealOnAPile(h);
   bringPair(h.root, now);
+  assert.deepEqual(pair(h.root).answerTo.rows.map(({ item: id, step }) => [id, step]), [[rated.id, 'land'], [ungraded.id, 'land']]);
 
   const { message } = await answered(h.root, 'go');
 
-  assert.equal(stateOf(h, rated).state, 'merged');
-  assert.equal(stateOf(h, rows[0]).reviewAsked, true);
-  assert.equal(stateOf(h, rows[0]).state, 'open');
-  assert.ok(readMode(h.root).queueNext.includes(`item:api:${rows[0].id}`));
-  assert.equal(git(h.checkout, 'rev-parse', 'main'), tipOf(h, 'hobkin/rated'));
+  assert.deepEqual([stateOf(h, rated).state, stateOf(h, ungraded).state], ['merged', 'merged']);
+  const onMain = git(h.checkout, 'ls-tree', '--name-only', 'main').split('\n');
+  assert.ok(['hobkin-rated.txt', 'hobkin-ungraded.txt'].every(file => onMain.includes(file)));
   assert.match(message, /Nothing was pushed/);
+});
+
+test('a row a review rated below safe at its commit gets a review on the user\'s yes', async t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  const rows = finishedOn(root, 'api', SHIP_FIRST_AT);
+  surveyed(root, 'api', rows, { safety: { grade: 'medium', rating: 'B' } });
+  bringPair(root, now);
+  assert.deepEqual(pair(root).answerTo.rows.map(({ step }) => step), ['review', 'review']);
+
+  await answered(root, 'go');
+
+  const [first] = readItems(root, 'api');
+  assert.deepEqual([first.state, first.reviewAsked], ['open', true]);
+  assert.ok(readMode(root).queueNext.includes(`item:api:${first.id}`));
 });
 
 test('a row with a conflict gets its rebase on the user\'s yes', async t => {
   const root = dataRoot(t);
   project(root, 'api');
   const rows = finishedOn(root, 'api', SHIP_FIRST_AT);
-  const open = rows.map(({ branch }) => ({ kind: 'branch', branch, sha: `sha-${branch}`, conflict: true, size: { additions: 1, deletions: 0, files: 1 } }));
-  writeJson(join(root, 'work', 'unmerged.json'), { at: new Date(now).toISOString(), projects: { api: { open, lastMergeAt: null, trees: 0 } } });
+  surveyed(root, 'api', rows, { conflict: true });
   bringPair(root, now);
   assert.deepEqual(pair(root).answerTo.rows.map(({ step }) => step), ['rebase', 'rebase']);
 
@@ -295,14 +354,14 @@ test('a row with a conflict gets its rebase on the user\'s yes', async t => {
 
 test('a merge that fails leaves that one in place, says why, and the other still goes', async t => {
   const h = workspace(t);
-  const { rated, rows } = await pileWithOneRated(h);
+  const { rated, ungraded } = await twoRealOnAPile(h);
   writeFileSync(join(h.checkout, 'hobkin-rated.txt'), 'mine, not committed\n');
   bringPair(h.root, now);
 
   const { message } = await answered(h.root, 'go');
 
   assert.equal(stateOf(h, rated).state, 'branch');
-  assert.equal(stateOf(h, rows[0]).reviewAsked, true);
+  assert.equal(stateOf(h, ungraded).state, 'merged');
   assert.match(message, /uncommitted/);
   assert.match(readMode(h.root).ship.notice.line, /uncommitted/);
 });
@@ -321,7 +380,7 @@ test('a branch that moved after the pair was filed does not merge', async t => {
   assert.match(message, /moved/);
 });
 
-test('a branch rated A on weaker earlier work never merges that work: the earlier branch goes for its review', async t => {
+test('a branch on earlier work a review held back never merges that work: the earlier branch goes for its review', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
   git(h.checkout, 'switch', '-q', 'hobkin/under');
@@ -330,10 +389,11 @@ test('a branch rated A on weaker earlier work never merges that work: the earlie
   git(h.checkout, 'switch', '-q', 'main');
   const place = (name, title) => {
     const { id } = fileItem(h.root, 'api', item(title), now);
-    return updateItem(h.root, 'api', id, { state: 'branch', branch: name }, now);
+    return updateItem(h.root, 'api', id, { state: 'branch', branch: name, ...proved }, now);
   };
   const under = place('hobkin/under', 'Under');
   place('hobkin/over', 'Over');
+  reviewed(h, tipOf(h, 'hobkin/under'), 'medium', 'C');
   reviewed(h, tipOf(h, 'hobkin/over'));
   await survey(h);
   finishedOn(h.root, 'api', SHIP_FIRST_AT);
@@ -359,19 +419,22 @@ test('later holds pairs for two hours, then the same two come back', async t => 
 });
 
 test('the next pair comes once both of the last one have moved', async t => {
-  const h = workspace(t);
-  const { rated, rows } = await pileWithOneRated(h, SHIP_FIRST_AT + 2);
-  bringPair(h.root, now);
-  await answered(h.root, 'go');
-  assert.equal(stateOf(h, rated).state, 'merged');
+  const root = dataRoot(t);
+  project(root, 'api');
+  const rows = finishedOn(root, 'api', SHIP_FIRST_AT + 2);
+  surveyed(root, 'api', rows, { safety: { grade: 'risky', rating: 'D' } });
+  bringPair(root, now);
+  await answered(root, 'go');
+  const backFromItsReview = ({ id }) => updateItem(root, 'api', id, { state: 'branch', reviewAsked: false }, now);
 
-  bringPair(h.root, now + 1);
-  assert.equal(pair(h.root), undefined, 'one of the two is still in its review');
+  backFromItsReview(rows[0]);
+  bringPair(root, now + 1);
+  assert.equal(pair(root), undefined, 'one of the two is still in its review');
 
-  updateItem(h.root, 'api', rows[0].id, { state: 'branch', reviewAsked: false }, now);
-  bringPair(h.root, now + 2);
+  backFromItsReview(rows[1]);
+  bringPair(root, now + 2);
 
-  assert.deepEqual(pair(h.root).answerTo.rows.map(({ item: id }) => id), [rows[1].id, rows[2].id], 'a row a pair just took is not brought again at that commit');
+  assert.deepEqual(pair(root).answerTo.rows.map(({ item: id }) => id), [rows[2].id, rows[3].id], 'a row a pair just took is not brought again at that commit');
 });
 
 test('a row whose merge failed does not stop the next pair, and is not brought again at that commit', async t => {
@@ -380,7 +443,7 @@ test('a row whose merge failed does not stop the next pair, and is not brought a
   writeFileSync(join(h.checkout, 'hobkin-rated.txt'), 'mine, not committed\n');
   bringPair(h.root, now);
   await answered(h.root, 'go');
-  updateItem(h.root, 'api', rows[0].id, { state: 'declined', reviewAsked: false }, now);
+  updateItem(h.root, 'api', rows[0].id, { state: 'declined' }, now);
 
   bringPair(h.root, now + 1);
 

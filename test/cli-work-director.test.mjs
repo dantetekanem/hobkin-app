@@ -1252,7 +1252,6 @@ test('the next hobkin picks a finished agent up and settles it as if it had neve
   const next = reopened(t, first);
   const offered = [];
   next.director.onDraftDone = draft => offered.push(draft);
-  writeMode(next.root, { reviewOnFinish: false });
 
   await next.tick();
   await next.settled();
@@ -1287,10 +1286,24 @@ test('with no agent in a pane there is nothing to hand off', async t => {
   assert.equal(existsSync(join(h.root, 'work', 'handed.json')), false);
 });
 
-test('a finished branch gets its review next by itself, and only then can it land', async t => {
+test('by default a finished branch gets no review and goes straight to landing', async t => {
   const h = fixture(t);
   const offered = await offeredDrafts(h);
   const [{ id }] = readItems(h.root, 'api');
+  h.agent = endsOnABranch(h);
+
+  await h.tick();
+  await h.settled();
+
+  assert.equal(readItems(h.root, 'api')[0].state, 'branch');
+  assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
+});
+
+test('with reviews on, a finished branch gets its review next by itself, and only then can it land', async t => {
+  const h = fixture(t);
+  const offered = await offeredDrafts(h);
+  const [{ id }] = readItems(h.root, 'api');
+  writeMode(h.root, { reviewOnFinish: true });
   h.agent = endsOnABranch(h);
 
   await h.tick();
@@ -1308,23 +1321,11 @@ test('a finished branch gets its review next by itself, and only then can it lan
   assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
 });
 
-test('with reviews off, a finished branch goes straight to landing', async t => {
-  const h = fixture(t);
-  const offered = await offeredDrafts(h);
-  writeMode(h.root, { reviewOnFinish: false });
-  h.agent = endsOnABranch(h);
-
-  await h.tick();
-  await h.settled();
-
-  assert.equal(readItems(h.root, 'api')[0].state, 'branch');
-  assert.equal(offered.length, 1);
-});
-
-test('a note from the user is carried to its run, then cleared, and the new commits get their review', async t => {
+test('with reviews on, a note from the user is carried to its run, then cleared, and the new commits get their review', async t => {
   const h = fixture(t);
   await offeredDrafts(h);
   const [{ id }] = readItems(h.root, 'api');
+  writeMode(h.root, { reviewOnFinish: true });
   updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
   askAgent(h.root, 'api', id, 'Keep the old flag.');
   h.agent = endsOnABranch(h);

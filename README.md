@@ -86,7 +86,7 @@ In the Work Mode tab:
 The Done subtab walks through finished work, the highest priority first, each with its safety grade. Enter opens a card's page, with the one risk its review named, where to look first and how to undo it, and below it the card asks what to do, each choice in words: the arrows choose and Enter picks.
 
 - `Merge it` merges the branch on this machine and pushes nothing. A branch behind its base offers `Refresh and merge it`: an agent brings it up to date and runs its proof again, and hobkin merges it once that run ends well.
-- A card with no grade at its commit, or rated risky, offers its review first and says what its merge lacks.
+- A card offers its merge first, graded or not, and `Get it reviewed` further down. Only a card rated risky at its commit offers its review first, and its merge says so. A review runs only when you ask for one.
 - `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type.
 - Under NOT LANDED, a card closes a branch whose item says done, for good.
 

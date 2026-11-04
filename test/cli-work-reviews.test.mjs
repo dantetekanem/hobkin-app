@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
+import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode, writeOwnerView } from '../src/cli/work/store.mjs';
@@ -13,13 +14,14 @@ import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const HOUR = 3600000;
 const NOW = Date.parse('2026-06-01T12:00:00Z');
+const reviewsOn = { reviewOnFinish: true };
 
-function workspace(t) {
+function workspace(t, mode = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-reviews-')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const root = join(base, 'home');
   initialize(root, { cwd: base });
-  writeMode(root, { enabled: true });
+  writeMode(root, { enabled: true, ...mode });
   const checkout = repository(base, 'api');
   chooseProject(root, checkout, 'important', NOW);
   return { base, root, checkout, reviews: join(base, 'auto-review') };
@@ -59,6 +61,7 @@ const askedFor = (h, item) => {
   const { state, reviewAsked, reviewAskedFor } = read(h, item);
   return [state, reviewAsked, reviewAskedFor];
 };
+const reviewsSetting = async h => (await runWorkCommand(h.root, ['reviews'])).reviewOnFinish;
 
 // Which commit a grade belongs to.
 
@@ -100,10 +103,10 @@ test('with no range a review goes to the revision it names, and only then to the
   assert.deepEqual([...grades.keys()].toSorted(), ['bbb222', 'ccc333']);
 });
 
-// Asking for the reviews that never came.
+// With reviews on, asking for the reviews that never came.
 
 test('finished work with no grade for its commit gets its review, two a pass and the top of the list first', async t => {
-  const h = workspace(t);
+  const h = workspace(t, reviewsOn);
   const ungraded = finished(h, 'ungraded', { text: 'x\n' });
   const stale = finished(h, 'stale', { text: 'x\n' });
   reviewed(h, 'stale', { preflight: { head: tipOf(h, 'hobkin/stale') } });
@@ -124,7 +127,7 @@ test('finished work with no grade for its commit gets its review, two a pass and
 });
 
 test('a review that ends with no grade is not asked again for the same commit, but a new commit is', async t => {
-  const h = workspace(t);
+  const h = workspace(t, reviewsOn);
   const item = finished(h, 'abc');
   await pass(h);
   // The review ended with no grade, and left no quality to say it ran.
@@ -140,7 +143,7 @@ test('a review that ends with no grade is not asked again for the same commit, b
 });
 
 test('a review that ran on a commit and left its quality but no grade is not asked again for it', async t => {
-  const h = workspace(t);
+  const h = workspace(t, reviewsOn);
   const item = finished(h, 'abc');
   // What a review asked as the run ended leaves when no review tooling graded it.
   updateItem(h.root, 'api', item.id, { reviewAsked: false, quality: { rating: 'B', reason: 'Tests cover it.', head: tipOf(h, 'hobkin/abc') } }, NOW);
@@ -154,25 +157,29 @@ test('a review that ran on a commit and left its quality but no grade is not ask
   assert.deepEqual(askedFor(h, item), ['open', true, tipOf(h, 'hobkin/abc')]);
 });
 
-test('a review is asked only with work mode on and reviews on', async t => {
+test('reviews are off in a home with no setting, so the survey asks one only once the user turns them on, with work mode on', async t => {
   const h = workspace(t);
   const item = finished(h, 'abc');
-  writeMode(h.root, { enabled: false });
+  assert.equal(await reviewsSetting(h), false);
+
   await pass(h);
-  writeMode(h.root, { enabled: true, reviewOnFinish: false });
+  writeMode(h.root, { reviewOnFinish: false });
+  await pass(h);
+  writeMode(h.root, { enabled: false, reviewOnFinish: true });
   await pass(h);
 
   assert.deepEqual(askedFor(h, item), ['branch', undefined, undefined]);
   assert.deepEqual(readMode(h.root).queueNext, []);
 
-  writeMode(h.root, { reviewOnFinish: true });
+  writeMode(h.root, { enabled: true });
   await pass(h);
 
+  assert.equal(await reviewsSetting(h), true);
   assert.deepEqual(askedFor(h, item), ['open', true, tipOf(h, 'hobkin/abc')]);
 });
 
 test('a branch with its grade, of docs alone, only a person can land, or that a run or another agent holds is left alone', async t => {
-  const h = workspace(t);
+  const h = workspace(t, reviewsOn);
   finished(h, 'graded');
   reviewed(h, 'graded', { preflight: { head: tipOf(h, 'hobkin/graded') } });
   finished(h, 'docs', { file: 'GUIDE.md', text: '# Guide\n' });
