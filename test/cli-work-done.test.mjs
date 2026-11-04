@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
-import { fillGaps } from '../src/cli/work/closing.mjs';
+import { fillGaps, surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readWaiting } from '../src/cli/pending-read.mjs';
 import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openPullRequest, requestReview } from '../src/cli/work/controls.mjs';
@@ -716,6 +716,20 @@ test('a finished branch whose item says done shows as not landed, and merges', a
 
   assert.equal(read(h, item).state, 'merged');
   assert.equal(tipOf(h, 'main'), tipOf(h, 'hobkin/abc'));
+});
+
+test('a closing pass gives an item that says done its finished state back while its branch waits to merge, and one the user closed stays closed', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  branched(h.checkout, 'hobkin/closed', 'other.txt', 'other\n');
+  const said = finished(h, 'hobkin/abc', { state: 'done' });
+  const closed = finished(h, 'hobkin/closed', { state: 'done', closedByUser: true });
+
+  await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: false });
+
+  assert.equal(read(h, said).state, 'branch', 'it is finished work again, which every card action takes');
+  assert.equal(read(h, closed).state, 'done');
+  assert.equal(row(h, closed), undefined);
 });
 
 test('a user closing it keeps it closed, and the branch stays', async t => {

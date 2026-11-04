@@ -119,7 +119,7 @@ test('finished work with no grade for its commit gets its review, two a pass and
   assert.deepEqual(askedFor(h, ungraded), ['open', true, tipOf(h, 'hobkin/ungraded')]);
   assert.deepEqual(askedFor(h, stale), ['open', true, tipOf(h, 'hobkin/stale')]);
   assert.deepEqual(readMode(h.root).queueNext, [`item:api:${ungraded.id}`, `item:api:${stale.id}`]);
-  assert.deepEqual(askedFor(h, done), ['done', undefined, undefined], 'the third waits for the next pass');
+  assert.deepEqual(askedFor(h, done), ['branch', undefined, undefined], 'the third waits for the next pass, as the finished work it is');
 
   await pass(h);
 

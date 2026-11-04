@@ -1,7 +1,7 @@
 import { pulseLaunches } from './launches.mjs';
-import { readyItems, weighedRows } from './reads.mjs';
-import { fileItem, ownerView, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
-import { surveyUnmerged } from './unmerged.mjs';
+import { readyItems, saysDoneButWaits, weighedRows } from './reads.mjs';
+import { chosenProjects, fileItem, ownerView, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
+import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
 
 // The rows the user sees next. Filling in any more would pay for work they may never ship.
 const NEXT_ROWS = 5;
@@ -75,8 +75,25 @@ function askReviews(root, now = Date.now()) {
  * The survey, what it showed needs closing, the reviews it showed were missed, then the pulse on what has landed. These write only hobkin's own
  * records. `reviews: false` is a sync someone asked for: asking hobkin something must never start a review, so those wait for work mode's own survey.
  */
+/**
+ * An item an agent once called done while its branch still waits to merge is finished work, as `done` has meant no change was needed
+ * ever since. Left as it was, every card action refused it and it sat in the list for good, so it gets the state a card can act on.
+ * One the user closed stays closed.
+ */
+function restoreWaitingWork(root, now = Date.now()) {
+  const { projects } = readUnmerged(root);
+  return chosenProjects(root).flatMap(({ slug }) => {
+    const items = readItems(root, slug);
+    const units = projects[slug]?.open ?? [];
+    return items
+      .filter(item => saysDoneButWaits(item, items, units))
+      .map(item => updateItem(root, slug, item.id, { state: 'branch' }, now));
+  });
+}
+
 export async function surveyAndClose(root, options = {}) {
   const survey = await surveyUnmerged(root, options);
+  restoreWaitingWork(root, options.now);
   const filled = fillGaps(root, options.now);
   // After the gaps, so a branch an agent is describing keeps that one agent, and gets its review on a pass after that is done.
   const reviewing = options.reviews === false ? [] : askReviews(root, options.now);

@@ -90,7 +90,7 @@ Every card still opens by itself, the highest priority first, each with its safe
 - `Merge it` merges the branch on this machine and pushes nothing. A branch behind its base offers `Refresh and merge it`: an agent brings it up to date and runs its proof again, and hobkin merges it once that run ends well.
 - A card offers its merge first, graded or not, and `Get it reviewed` further down. Only a card rated risky at its commit offers its review first, and its merge says so. A review runs only when you ask for one.
 - `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type.
-- Under NOT LANDED, a card closes a branch whose item says done, for good.
+- Under NOT LANDED, an older item that says done with work still on its branch waits until the next survey makes it finished work again. Its card can close it for good.
 
 Whatever you do on a card, Chat says so in one line that names the project and the title, with the link for a PR. The main agent hears it with your next message. A group's yes gets the same line for each card, then one line that sums it up. A PR you merge from its card closes at once and leaves the list.
 

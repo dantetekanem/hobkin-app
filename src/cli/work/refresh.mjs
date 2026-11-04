@@ -33,7 +33,9 @@ function handOff(project, item, why) {
 export function refreshThenMerge(root, reference, id, { read = 'none', readMs = 0, now = Date.now() } = {}) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
-  if (!FINISHED.includes(item.state) || !item.branch) throw Error(`"${item.title}" is ${item.state}, so there is no branch to refresh.`);
+  // Work an agent once called done while its branch still waits is finished work too. One the user closed stays closed.
+  const waits = FINISHED.includes(item.state) || (item.state === 'done' && !item.closedByUser);
+  if (!waits || !item.branch) throw Error(`"${item.title}" is ${item.state}, so there is no branch to refresh.`);
   if (ownerView(root).running.some(run => run.slug === project.slug && run.item === item.id)) {
     throw Error(`"${item.title}" is already running. hobkin work cancel ${item.id} stops it.`);
   }

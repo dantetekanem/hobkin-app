@@ -249,7 +249,7 @@ function readyRow(root, project, item, items, openUnits = []) {
  * An item that says `done` with work still on its branch, which an agent recorded before `done` meant no change was needed. The survey lists a branch only while it
  * holds commits the default branch lacks. A fix's work is its maker's, and a branch another item stands for is already on the list.
  */
-function saysDoneButWaits(item, items, units) {
+export function saysDoneButWaits(item, items, units) {
   const { state, kind, branch, closedByUser } = item;
   if (state !== 'done' || !branch || closedByUser || [SHIP_KIND, 'yours'].includes(kind)) return false;
   const surveyed = units.some(unit => unit.kind === 'branch' && unit.branch === branch);

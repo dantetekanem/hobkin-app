@@ -140,3 +140,16 @@ test('only finished work can be refreshed', t => {
 
   assert.throws(() => refreshThenMerge(h.root, 'api', id, { now: NOW }), /"Not started" is open, so there is no branch to refresh\./);
 });
+
+test('refresh and merge takes work an agent once called done while its branch still waits, and one the user closed it refuses', t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/said', 'said.txt', 'said\n');
+  const said = finished(h, 'hobkin/said', { state: 'done' });
+  const closed = finished(h, 'hobkin/closed', { state: 'done', closedByUser: true });
+
+  refreshThenMerge(h.root, 'api', said.id, { now: NOW });
+
+  assert.equal(read(h, said).state, 'open');
+  assert.ok(read(h, said).mergeWhenFresh, 'it merges once the refresh ends well');
+  assert.throws(() => refreshThenMerge(h.root, 'api', closed.id, { now: NOW }), /is done, so there is no branch to refresh/);
+});
