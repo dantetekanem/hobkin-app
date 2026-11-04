@@ -1661,6 +1661,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     onChange();
   };
   const connected = () => snapshot.connection === 'connected' && typeof callbacks.send === 'function';
+  // hobkin opens the main conversation as it starts, and says so until it can take a message.
+  const connecting = () => snapshot.connection === 'connecting';
   // Spinners and elapsed time only need frames while the main turn, compaction or a job is running.
   const animate = () => {
     const live = snapshot.connection === 'connected';
@@ -2066,6 +2068,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (focus === 'detail') return [['r m', 'reply'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') return [...rowKeys(selectedWorkRow()), ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
+    // While the main conversation connects the input takes nothing, so only the keys that still work are offered.
+    if (connecting()) return [['←→', 'views'], ['ctrl+q', 'quit']];
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
     if (attachments.length) return [['enter', 'send'], ['esc', 'drop image'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
@@ -2093,7 +2097,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (snapshot.error) return toned(snapshot.error, 'error', frame);
     if (question || focus !== 'composer') return hints;
     if (snapshot.context?.compacting && connected()) return highlight(`${frame} Compacting…`);
-    if (!connected()) return toned('Offline — send unavailable', 'warning', frame);
     return hints;
   };
   const sessionBar = inner => {
@@ -2146,7 +2149,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const paint = editor.focused && connected() ? assistantColor : muted;
     const prompted = referencedReport ? 'Ask about this report…' : 'Message hobkin…';
     const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
-      : connected() ? prompted : 'Waiting for the main conversation…';
+      : connected() ? prompted : 'Connecting…';
     const empty = !editor.getExpandedText();
     const content = lines.map((value, index) => {
       const prompt = index ? '    ' : `  ${connected() ? highlight('❯') : muted('❯')} `;
@@ -2209,7 +2212,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return [...box, ...statusLines.slice(0, Math.max(0, room - 3))];
   };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
-    editor.focused = hasFocus && focus === 'composer';
+    // Grey and with no cursor while the main conversation connects, since the input takes nothing until then.
+    editor.focused = hasFocus && focus === 'composer' && !connecting();
     const hasComposer = !question && !choosing && (view === 'conversation' || askingWorkFolder);
     const faceFits = hasComposer && inner >= MIN_WIDTH_FOR_FACE && height >= MIN_ROWS_FOR_TIP_LINE;
     if (faceFits !== faceShown) {
@@ -2957,6 +2961,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           say('');
           referencedReport = null;
           askingWorkFolder = false;
+        } else if (connecting()) {
+          // Nothing typed could be sent or run yet, so the input takes nothing until the main conversation connects.
         } else if (key(data, 'tab') && !askingWorkFolder && completeCommand()) {
           // Tab finished the command.
         } else {

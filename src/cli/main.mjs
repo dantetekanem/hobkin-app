@@ -108,7 +108,7 @@ async function connected(options, snapshot, dependencies) {
     if (signIn) await signIn({ launcher: snapshot.config.launcher });
 
     const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
-    dashboard = start(snapshot, {
+    dashboard = start({ ...snapshot, connection: 'connecting' }, {
       onQuit: quit,
       send: (text, report, images) => {
         if (!app) throw Error('Main conversation is still connecting.');

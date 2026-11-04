@@ -101,8 +101,28 @@ test('invalid schedules remain discoverable and scrollable at every supported la
   assert.match(screen(ui, 60, 18), /Morning recap/);
 });
 
-test('offline input is disabled, editing shortcuts stay in composer and draft survives Escape and failed send', async () => {
-  const ui = createDashboard(snapshot);
+test('while it connects the input is grey, says Connecting… and takes nothing, and once connected a draft survives Escape and a failed send', async () => {
+  const ui = createDashboard({ ...snapshot, connection: 'connecting' });
+  ui.input('q');
+  ui.input('🌍');
+  assert.equal(ui.state().draft, '', 'nothing can be typed before the main conversation connects');
+  const connecting = ui.render(80, 24).join('\n');
+  assert.match(stripTerminalSequences(connecting), /❯\s+Connecting…/);
+  assert.match(stripTerminalSequences(connecting), /○ connecting/);
+  assert.doesNotMatch(stripTerminalSequences(connecting), /Offline|send unavailable|enter send/i);
+  assert.ok(!connecting.includes(CURSOR_MARKER), 'and it shows no cursor');
+  ui.input('\x1b[C');
+  assert.equal(ui.state().view, 'reports', 'the views still turn');
+  ui.input('\x1b[D');
+
+  let sent = 0;
+  ui.update({ ...snapshot, connection: 'connected' });
+  ui.setHandlers({
+    send: async () => {
+      sent++;
+      throw Error('failed');
+    },
+  });
   ui.input('q');
   ui.input('🌍');
   ui.input('\x1b[D');
@@ -113,15 +133,6 @@ test('offline input is disabled, editing shortcuts stay in composer and draft su
   assert.ok(ui.render(80, 24).join('\n').includes(`q好🌍${CURSOR_MARKER}`));
   ui.input('\x1b');
   assert.equal(ui.state().draft, 'q好🌍');
-  assert.match(screen(ui, 80, 24), /Offline.*send unavailable/i);
-  let sent = 0;
-  ui.update({ ...snapshot, connection: 'connected' });
-  ui.setHandlers({
-    send: async () => {
-      sent++;
-      throw Error('failed');
-    },
-  });
   ui.input('\r');
   await ui.pending();
   assert.equal(sent, 1);

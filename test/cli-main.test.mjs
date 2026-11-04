@@ -343,7 +343,7 @@ test('dashboard paints before connection, wires sends and restores terminal on s
     input: { isTTY: true },
     startDashboard: (view, handlers, options) => {
       painted = true;
-      assert.equal(view.connection, 'offline');
+      assert.equal(view.connection, 'connecting', 'it says it is connecting until the main conversation can take a message');
       assert.equal(typeof handlers.send, 'function');
       assert.equal(options.theme.cwd, view.config.main.cwd);
       return { update() {}, askQuestion: request => request.choices[0].value, stop() { stopped = true; } };
