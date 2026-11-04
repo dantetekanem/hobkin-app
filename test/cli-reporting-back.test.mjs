@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
-import { openDecisions } from '../src/cli/decisions.mjs';
+import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
+import { createMemoryExtension } from '../src/cli/memory.mjs';
+import { openPiSession } from '../src/cli/pi-session.mjs';
 import { saveReport } from '../src/cli/reports.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { recordSessionEnd, recordSessionStart } from '../src/cli/session-log.mjs';
@@ -520,6 +522,63 @@ test('the main agent hears what the user did from a card with the next message, 
     const sent = t.mock.method(app.runtime, 'send');
     await app.send('and now?');
     assert.equal(noteOf(sent.mock.calls[0].arguments[0]).userDid, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+const decidedPart = root => {
+  let handler;
+  createMemoryExtension(root)({ on: (_event, run) => { handler = run; } });
+  const prompt = handler({ systemPrompt: '' }).systemPrompt;
+  return prompt.slice(prompt.indexOf('## What the user decided lately'));
+};
+
+test('what the user decided lately comes from their own answers on every turn, and a card still reaches the work note once', async t => {
+  const h = fixture(t);
+  pile(h.root, 1);
+  const [{ id: item }] = readItems(h.root, 'api');
+  let askTool;
+  const app = await h.openApp({
+    askQuestion: async () => 'wait',
+    createMain: options => openPiSession(options, {
+      ...h.fake.dependencies,
+      createSession: session => {
+        askTool = session.customTools.find(tool => tool.name === 'ask_question');
+        return h.fake.dependencies.createSession(session);
+      },
+    }),
+  });
+  try {
+    const { id } = fileDecision(h.root, {
+      from: 'Routine gym-check',
+      question: 'Cancel the gym membership?',
+      choices: [{ value: 'keep', label: 'Keep it' }, { value: 'cancel', label: 'Cancel it' }],
+      answerTo: { kind: 'routine', id: 'gym-check' },
+    });
+    await app.workAction('decide', id, 'keep');
+    await pause(5);
+    await app.workAction('decline', 'api', item);
+    await pause(5);
+    await askTool.execute('q', {
+      question: 'Restore the backup now or wait for Monday?',
+      choices: [{ value: 'now', label: 'Restore now' }, { value: 'wait', label: 'Wait for Monday' }],
+    });
+
+    const part = decidedPart(h.root);
+    const places = ['Wait for Monday', 'Row 0', 'Keep it'].map(words => part.indexOf(words));
+    assert.ok(places.every(place => place > 0), part);
+    assert.deepEqual(places, places.toSorted((left, right) => left - right), 'newest first');
+    for (const shown of [item, id]) assert.ok(!part.includes(shown), shown);
+
+    const sent = t.mock.method(app.runtime, 'send');
+    await app.send('what did I just do?');
+    await app.send('anything else?');
+    const [heard, heardAgain] = sent.mock.calls.map(({ arguments: [text] }) => noteOf(text).userDid);
+    assert.deepEqual(heard.map(({ did, title }) => [did, title]), [['said no', 'Row 0']]);
+    assert.equal(heardAgain, undefined);
+    assert.ok(decidedPart(h.root).includes('Row 0'), 'the part keeps it after the note has said it');
   } finally {
     await app.close();
   }

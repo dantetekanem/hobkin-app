@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { recordEvent } from './events.mjs';
+import { readEvents, recordEvent } from './events.mjs';
 
 /** How long a question from a routine or work mode stays on screen before it joins the Decisions tab. */
 export const QUESTION_WAIT_MS = 30000;
@@ -52,6 +52,18 @@ function readAll(root) {
 
 /** What still waits for the user, oldest first. */
 export const openDecisions = root => readAll(root).filter(({ answer }) => answer === undefined);
+
+/**
+ * What the user answered since `since`. hobkin closes a question itself once it no longer holds, and that is no answer of theirs. Only the
+ * user's own answer goes on record as `decision_answered`, which is also how the day's wins count them, and events go back six months.
+ */
+export function answeredByUser(root, since = 0) {
+  const answeredIds = new Set(readEvents(root, { since })
+    .filter(({ type }) => type === 'decision_answered')
+    .map(({ id }) => id));
+
+  return readAll(root).filter(({ id, answer }) => answer !== undefined && answeredIds.has(id));
+}
 
 /** The last card, which is how a restart knows what was already shown. */
 export function lastCard(root) {

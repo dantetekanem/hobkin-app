@@ -7,6 +7,8 @@ const LOG = 'card-actions.jsonl';
 const MOST_IN_A_NOTE = 10;
 
 const folderOf = root => join(root, 'work');
+// A record made already heard, as the line that sums up a group is, was only ever for Chat.
+const forChatAlone = ({ at, heard }) => Boolean(at && heard);
 
 function append(root, event) {
   mkdirSync(folderOf(root), { recursive: true, mode: 0o700 });
@@ -20,7 +22,9 @@ function readLog(root) {
   for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) {
     try {
       const event = JSON.parse(line);
-      actions.set(event.id, { ...actions.get(event.id), ...event });
+      const action = { ...actions.get(event.id), ...event };
+      if (forChatAlone(event)) action.chatOnly = true;
+      actions.set(event.id, action);
     } catch {
       // A line cut short by a crash costs that line and nothing else.
     }
@@ -46,3 +50,7 @@ export const markCardActionsPosted = (root, actions) => actions.forEach(({ id })
 export const cardActionsToTell = root => readLog(root).filter(({ heard }) => !heard).slice(0, MOST_IN_A_NOTE);
 
 export const markCardActionsHeard = (root, actions) => actions.forEach(({ id }) => append(root, { id, heard: true }));
+
+/** What the main agent hears of, from `since` on, oldest first, whether or not it has heard it yet. */
+export const cardActionsSince = (root, since) => readLog(root)
+  .filter(action => !action.chatOnly && Date.parse(action.at) >= since);

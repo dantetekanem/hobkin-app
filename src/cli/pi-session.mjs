@@ -83,7 +83,7 @@ export async function openPiSession(
     expected,
     file,
     fresh,
-    customTools: [createQuestionTool(askQuestion), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root)],
+    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root)],
     modelSettings: { root, config },
   }, dependencies);
 }

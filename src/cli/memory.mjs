@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
+import { decidedSection, readDecided } from './decided.mjs';
 import { directionsSection, readDirections } from './directions.mjs';
 import { writePrivate } from './reports.mjs';
 
@@ -81,9 +82,17 @@ export function createMemoryTool(root) {
 
 export const memorySection = items => `## Current memory\n\n${items.length ? bulletList(items) : 'Memory is empty.'}`;
 
-/** Read each turn so a change or a hand edit applies without a restart. */
+/**
+ * Read each turn so a change or a hand edit applies without a restart. What the user decided goes in the system prompt, which Pi never keeps in
+ * the conversation, so no compaction can retell it and it costs only its bytes in each request.
+ */
 export const createMemoryExtension = root => pi => {
-  pi.on('before_agent_start', event => ({
-    systemPrompt: `${event.systemPrompt}\n\n${directionsSection(readDirections(root))}\n\n${memorySection(readMemory(root))}`,
-  }));
+  pi.on('before_agent_start', event => {
+    const sections = [
+      directionsSection(readDirections(root)),
+      memorySection(readMemory(root)),
+      decidedSection(readDecided(root)),
+    ];
+    return { systemPrompt: [event.systemPrompt, ...sections].join('\n\n') };
+  });
 };

@@ -8,10 +8,12 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { BRIDGE, callBridge, serveBridge } from '../src/cli/bridge.mjs';
+import { readDecided } from '../src/cli/decided.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '../src/cli/hobkin-tools.mjs';
 import hobkin from '../src/cli/hobkin-extension.mjs';
 import { createMemoryTool, readMemory } from '../src/cli/memory.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
+import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
 const model = {
@@ -92,6 +94,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
     },
     memory: () => readMemory(root),
     directions: () => 'Keep reports short.',
+    decided: () => readDecided(root),
   };
   const statuses = [];
   const dialogs = [];
@@ -185,6 +188,26 @@ test('the current memory is added to every turn’s system prompt through the ho
   writeFileSync(join(root, 'memory.md'), '');
   await session.prompt('Second.', { preflightResult() {} });
   assert.match(requests.at(-1), /## Current memory\\n\\nMemory is empty\./);
+});
+
+test('what the user decided lately ends every turn’s system prompt through the host, so a new answer applies at once', async t => {
+  const { session, root } = await fixture(t);
+  const requests = [];
+  scriptedModel(session, [], requests);
+  await session.prompt('First.', { preflightResult() {} });
+  assert.match(requests[0], /## What the user decided lately\\n\\n.+\\n\\nNothing in the last 14 days\./);
+
+  recordCardAction(root, {
+    did: 'said no',
+    project: 'api',
+    item: 'item-7f3a',
+    title: 'Fix the login timeout',
+    line: 'Said no to "Fix the login timeout" on api.',
+  });
+  await session.prompt('Second.', { preflightResult() {} });
+  const part = requests.at(-1).slice(requests.at(-1).indexOf('## What the user decided lately'));
+  assert.match(part, /for \\"Fix the login timeout\\" on api, they said no\./);
+  assert.ok(!part.includes('item-7f3a'));
 });
 
 test('outside an RPC host the tools refuse to ask anyone, and a missing answer is an error', async () => {

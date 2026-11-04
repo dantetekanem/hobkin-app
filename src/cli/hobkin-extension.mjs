@@ -1,4 +1,5 @@
 import { BRIDGE, callBridge } from './bridge.mjs';
+import { decidedSection } from './decided.mjs';
 import { directionsSection } from './directions.mjs';
 import { createMemoryTool, memorySection } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
@@ -17,9 +18,14 @@ export default function hobkin(pi) {
       execute: (id, params, signal, _update, ctx) => callBridge(ctx, { op: 'tool', name: tool.name, id, params }, signal),
     });
   }
-  pi.on('before_agent_start', async (event, ctx) => ({
-    systemPrompt: `${event.systemPrompt}\n\n${directionsSection(await callBridge(ctx, { op: 'directions' }))}\n\n${memorySection(await callBridge(ctx, { op: 'memory' }))}`,
-  }));
+  pi.on('before_agent_start', async (event, ctx) => {
+    const sections = [
+      directionsSection(await callBridge(ctx, { op: 'directions' })),
+      memorySection(await callBridge(ctx, { op: 'memory' })),
+      decidedSection(await callBridge(ctx, { op: 'decided' })),
+    ];
+    return { systemPrompt: [event.systemPrompt, ...sections].join('\n\n') };
+  });
   // Session start runs before Pi reads its input, so this one record is a status update, never a dialog.
   pi.on('session_start', (_event, ctx) => {
     const names = tools.map(tool => tool.name);

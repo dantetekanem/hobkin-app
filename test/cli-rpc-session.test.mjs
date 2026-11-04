@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { closePiSession, openImportedPiSession, openPiSession } from '../src/cli/pi-session.mjs';
+import { readAnswers } from '../src/cli/questions.mjs';
 import { extensionPath } from '../src/cli/rpc-session.mjs';
 import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { dialog, fakePiRpc } from './helpers/fake-rpc-pi.mjs';
@@ -416,6 +417,11 @@ test('bridge requests run the real Hobkin tools in Hobkin with the child’s own
   assert.equal(answered.answer.ok, true);
   assert.deepEqual(answered.answer.result.details, { status: 'answered', answer: { value: 'b', label: 'B' } });
   assert.deepEqual(asked[0].request, { ...question, other: true, inChat: true });
+  assert.deepEqual(readAnswers(h.root).map(({ question: which, chose }) => [which, chose]), [['Which?', 'B']]);
+  const decided = (await bridge(h.fake, { op: 'decided' })).answer;
+  assert.equal(decided.ok, true);
+  assert.equal(decided.result.length, 1);
+  assert.match(decided.result[0], /"Which\?".*"B"/);
 
   const scheduled = await bridge(h.fake, { op: 'tool', name: 'run_routine', id: 'call-2', params: { routineId: 'daily-check' } });
   assert.deepEqual(scheduled.answer.result.details, { status: 'admitted', routineId: 'daily-check' });

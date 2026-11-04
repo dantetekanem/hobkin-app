@@ -9,11 +9,15 @@ import { promisify } from 'node:util';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize, setLearning } from '../src/cli/config.mjs';
+import { writeAnswersView } from '../src/cli/decided.mjs';
+import { answerDecision, fileDecision } from '../src/cli/decisions.mjs';
+import { recordEvent } from '../src/cli/events.mjs';
 import { importHome } from '../src/cli/import.mjs';
 import { runLearningCommand } from '../src/cli/learning/commands.mjs';
 import { injectedLessons, saveState, writeLessonsView } from '../src/cli/learning/store.mjs';
 import { main } from '../src/cli/main.mjs';
 import { indexStatus, MemoryIndex } from '../src/cli/memory-index.mjs';
+import { createQuestionTool } from '../src/cli/questions.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -124,6 +128,26 @@ const remember = (root, lessons) => saveState(root, { lessons, proposals: [], pu
 const configFile = root => join(root, 'runtime/.qmd/index.yml');
 const collections = root => JSON.parse(readFileSync(configFile(root), 'utf8')).collections;
 const lessonsFile = root => join(root, 'runtime/lessons.md');
+const answersFile = root => join(root, 'runtime/answers.md');
+const digestChoices = [{ value: 'keep', label: 'Keep the feed' }, { value: 'drop', label: 'Drop the feed' }];
+
+/** As the Decisions tab answers a question: the answer, and the fact that the user gave it. */
+function answeredInDecisions(root, question, value = 'keep') {
+  const { id } = fileDecision(root, {
+    from: 'Routine news-digest',
+    question,
+    choices: digestChoices,
+    answerTo: { kind: 'routine', id: 'news-digest' },
+  });
+  answerDecision(root, id, value);
+  recordEvent(root, 'decision_answered', { id, source: 'routine', ms: 1 });
+  return id;
+}
+
+const projectDirections = (root, text) => {
+  mkdirSync(join(root, 'work/api'), { recursive: true });
+  writeFileSync(join(root, 'work/api/directions.md'), text);
+};
 const alive = pid => {
   try {
     return process.kill(pid, 0);
@@ -179,7 +203,8 @@ test('the collections are written once, and a restart finds them after qmd has r
   await settled(() => qmd.ended('status') === 1, 'the first pass finish');
   await first.stop();
 
-  assert.deepEqual(Object.keys(collections(root)), ['memory', 'directions', 'checks', 'notes', 'lessons']);
+  assert.deepEqual(Object.keys(collections(root)), ['memory', 'directions', 'checks', 'notes', 'work', 'lessons', 'answers']);
+  assert.deepEqual([collections(root).work.path, collections(root).work.pattern], [join(root, 'work'), '*/directions.md']);
   const { hobkin } = JSON.parse(readFileSync(configFile(root), 'utf8'));
   const rewritten = `hobkin: ${hobkin}\ncollections:\n  memory:\n    path: ${root}\nmodels:\n  embed: hf:some/model\n`;
   writeFileSync(configFile(root), rewritten);
@@ -262,19 +287,54 @@ test('every kind of file it covers starts a pass, and a report or a log does not
 
   writeFileSync(join(root, 'reports/one.md'), 'A report.\n');
   writeFileSync(join(root, 'checks/news-digest/log.md'), '- A run\n');
+  mkdirSync(join(root, 'work/api/trees/item-1'), { recursive: true });
+  writeFileSync(join(root, 'work/api/project.md'), 'What agents learned.\n');
+  writeFileSync(join(root, 'work/api/trees/item-1/directions.md'), 'A file in a checkout.\n');
   await pause(100);
-  assert.equal(qmd.started('update'), 1, 'reports and logs are not indexed');
+  assert.equal(qmd.started('update'), 1, 'reports, logs and what work mode keeps for itself are not indexed');
 
   const changes = [
     () => writeFileSync(join(root, 'AGENTS.md'), '# Be brief\n'),
     () => writeFileSync(join(root, 'checks/news-digest/memory.md'), 'The feed moved.\n'),
     () => writeFileSync(join(root, 'notes/old/plan.md'), 'The plan.\n'),
     () => setLearning(root, true),
+    () => writeFileSync(join(root, 'work/api/directions.md'), 'Keep PRs small.\n'),
+    () => answeredInDecisions(root, 'Keep the feed?'),
+    () => createQuestionTool(async () => 'keep', root).execute('q', { question: 'Keep the feed?', choices: digestChoices }),
   ];
   for (const [position, change] of changes.entries()) {
-    change();
+    await change();
     await settled(() => qmd.ended('status') === position + 2, `a pass for change ${position}`);
   }
+});
+
+test('the answers view holds what the user answered in Decisions and to the main agent, newest first, and nothing hobkin closed or any id', async t => {
+  const { root } = fixture(t);
+  const offer = {
+    from: 'Work mode',
+    choices: [{ value: 'later', label: 'Not now' }, { value: 'merge', label: 'Merge it' }],
+    answerTo: { kind: 'merge' },
+  };
+  const { id: closed } = fileDecision(root, { ...offer, question: 'Merge the zebra branch?' });
+  answerDecision(root, closed, 'later');
+  fileDecision(root, { ...offer, question: 'Merge the yak branch?' });
+  const answered = answeredInDecisions(root, 'The kestrel feed moved to a new address. Keep following it there?');
+  await pause(5);
+  const when = { question: 'When should the digest run?', choices: digestChoices };
+  await createQuestionTool(async () => ({ typed: 'Only on weekdays' }), root).execute('q', when);
+
+  writeAnswersView(root);
+
+  const text = readFileSync(answersFile(root), 'utf8');
+  assert.ok(text.indexOf('When should the digest run?') < text.indexOf('Keep following it there?'), text);
+  for (const words of ['Only on weekdays', 'The kestrel feed moved to a new address.', 'Keep the feed', 'Routine news-digest']) assert.ok(text.includes(words), words);
+  for (const unwanted of ['zebra', 'yak', answered, closed]) assert.ok(!text.includes(unwanted), unwanted);
+  assert.equal(statSync(answersFile(root)).mode & 0o777, 0o600);
+
+  rmSync(join(root, 'decisions.jsonl'));
+  rmSync(join(root, 'answers.jsonl'));
+  writeAnswersView(root);
+  assert.equal(existsSync(answersFile(root)), false, 'with nothing to show the file goes, because qmd keeps the last text of an empty file');
 });
 
 test('nothing starts while a pass runs, and what changed meanwhile gets the next pass', async t => {
@@ -727,12 +787,18 @@ test('the installed qmd finds a memory line and a lesson with the command agents
   writeFileSync(join(root, 'reports/one.md'), 'A pelican in a report.\n');
   mkdirSync(join(root, 'notes'));
   writeFileSync(join(root, 'notes/taste.md'), '# Taste\n\nLikes pumpernickel.\n');
+  answeredInDecisions(root, 'Should the digest follow the osprey cam?');
+  projectDirections(root, 'Ask before touching the marmot importer.\n');
+  mkdirSync(join(root, 'work/api/trees/item-1'), { recursive: true });
+  writeFileSync(join(root, 'work/api/trees/item-1/directions.md'), 'A pelican in a checkout.\n');
 
   const notes = [];
   const index = open(t, root, { quietMs: 0, onNote: () => notes.push(index.takeNote()) });
-  await settledIndex(root, () => /^Index 5 files/.test(indexStatus(root)), 'the real pass finish');
+  await settledIndex(root, () => /^Index 7 files/.test(indexStatus(root)), 'the real pass finish');
 
   assert.deepEqual(notes, []);
+  assert.match(await asAgent(root, 'qmd search "osprey" -c answers'), /qmd:\/\/answers\/answers\.md/);
+  assert.match(await asAgent(root, 'qmd search "marmot" -c work'), /qmd:\/\/work\/api\/directions\.md/);
   assert.match(await asAgent(root, 'qmd search "zanzibar"'), /zanzibar invoice is late/);
   assert.match(await asAgent(root, 'qmd search "site-audit"'), /site-audit blocked x5/);
   assert.match(await asAgent(root, 'qmd search "kestrel"'), /qmd:\/\/checks\/news-digest\/memory\.md/);

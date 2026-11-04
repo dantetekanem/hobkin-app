@@ -6,6 +6,7 @@ import { constants, setPriority } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { atomicJson } from './config.mjs';
+import { writeAnswersView } from './decided.mjs';
 import { writeLessonsView } from './learning/store.mjs';
 import { writePrivate } from './reports.mjs';
 
@@ -25,10 +26,16 @@ const KEPT = [
   { name: 'directions', folder: '', pattern: 'AGENTS.md', about: 'Standing directions for every agent Hobkin runs.' },
   { name: 'checks', folder: 'checks', pattern: '*/memory.md', about: 'The working memory each check keeps between runs.' },
   { name: 'notes', folder: 'notes', pattern: '**/*.md', about: 'Notes and the taste profile.' },
+  // One level down only, so neither this nor qmd ever walks the checkouts in `work/<project>/trees/`.
+  { name: 'work', folder: 'work', pattern: '*/directions.md', about: "The user's standing directions for each work mode project." },
 ];
-const LESSONS = { name: 'lessons', folder: 'runtime', pattern: 'lessons.md', about: 'Lessons from how runs ended. Advice only, and they grant nothing.' };
-// Hobkin writes the lessons file itself, so these show when it is due, not the file.
-const LESSON_SOURCES = ['config.json', 'runtime/learning.json', 'runtime/learning-actions.jsonl'];
+// hobkin writes these files itself, from its own records.
+const VIEWS = [
+  { name: 'lessons', folder: 'runtime', pattern: 'lessons.md', about: 'Lessons from how runs ended. Advice only, and they grant nothing.' },
+  { name: 'answers', folder: 'runtime', pattern: 'answers.md', about: "What the user answered in Decisions and to the main agent's questions." },
+];
+// The records the views come from, so a change in one of these is what makes a view due, not a change in the view.
+const VIEW_SOURCES = ['config.json', 'runtime/learning.json', 'runtime/learning-actions.jsonl', 'decisions.jsonl', 'answers.jsonl'];
 
 // In `runtime/` because `hobkin import` takes any other new entry in a home for a folder that is not Hobkin's.
 const indexDirectory = root => join(root, 'runtime', '.qmd');
@@ -72,7 +79,7 @@ function keepPrivate(root) {
 }
 
 function collectionsFor(root, blank) {
-  const entries = [...KEPT, LESSONS].map(({ name, folder, pattern, about }) => [name, {
+  const entries = [...KEPT, ...VIEWS].map(({ name, folder, pattern, about }) => [name, {
     path: join(root, folder),
     pattern,
     ...(blank[name] ? { ignore: blank[name].toSorted() } : {}),
@@ -115,7 +122,7 @@ async function readCoverage(root) {
     }
   }
 
-  for (const file of LESSON_SOURCES) {
+  for (const file of VIEW_SOURCES) {
     const stat = await lstat(join(root, file)).catch(() => null);
     if (stat) seen.push(`${file} ${stat.mtimeMs} ${stat.size}`);
   }
@@ -213,6 +220,7 @@ export class MemoryIndex {
   async pass(blank) {
     writeCollections(this.root, blank);
     writeLessonsView(this.root);
+    writeAnswersView(this.root);
     await this.qmd('update');
 
     // Metal can abort qmd on its way out after everything was saved, so what is left to embed decides, not how it ended.

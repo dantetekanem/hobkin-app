@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createQuestionTool } from '../src/cli/questions.mjs';
+import { createQuestionTool, readAnswers } from '../src/cli/questions.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
@@ -48,6 +48,29 @@ test('the tool offers Other, and what the user types comes back as their answer'
   assert.deepEqual(details, { status: 'answered', typed: 'Neither, ask me tomorrow' });
   assert.deepEqual(JSON.parse(content[0].text), details);
   await assert.rejects(createQuestionTool(async () => ({ typed: '' })).execute('q', question), /choice/i);
+});
+
+test('each answer is kept privately: the question, the label chosen or the words typed, and when, and no answer keeps nothing', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-answers-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const ask = answer => createQuestionTool(async () => answer, root).execute('q', question);
+
+  await ask('enable');
+  await ask({ typed: 'Neither, ask me tomorrow' });
+  await ask(null);
+  await createQuestionTool(undefined, root).execute('q', question);
+  await assert.rejects(ask('forged'), /choice/i);
+
+  const answers = readAnswers(root);
+  assert.deepEqual(answers.map(({ at, ...kept }) => kept), [
+    { question: 'What should happen?', chose: 'Enable this schedule' },
+    { question: 'What should happen?', typed: 'Neither, ask me tomorrow' },
+  ]);
+  assert.ok(answers.every(({ at }) => Number.isFinite(Date.parse(at))));
+  assert.equal(statSync(join(root, 'answers.jsonl')).mode & 0o077, 0);
+
+  const unkept = await createQuestionTool(async () => 'keep', join(root, 'gone')).execute('q', question);
+  assert.deepEqual(unkept.details, { status: 'answered', answer: question.choices[0] }, 'the answer reaches the agent even when it cannot be kept');
 });
 
 test('real SDK registers the main question tool and application delivers selection and cancellation to it', async t => {
@@ -107,6 +130,7 @@ test('real SDK registers the main question tool and application delivers selecti
   ui.input('\x1b[B');
   ui.input('\r');
   assert.deepEqual((await answered).details, { status: 'answered', answer: question.choices[1] });
+  assert.deepEqual(readAnswers(root).map(({ question: asked, chose }) => [asked, chose]), [['What should happen?', 'Enable this schedule']]);
   assert.equal(ui.state().draft, 'saved draft');
   const abort = new AbortController();
   const cancelled = tool.execute('choice-two', question, abort.signal);
@@ -115,7 +139,9 @@ test('real SDK registers the main question tool and application delivers selecti
   models.hasConfiguredAuth = () => false;
   models.checkAuth = async () => ({ available: true });
   let toolId = 0;
+  const requests = [];
   app.runtime.main.agent.streamFunction = (_model, context) => {
+    requests.push(JSON.stringify(context));
     const answered = context.messages.at(-1).role === 'toolResult';
     const message = {
       role: 'assistant',
@@ -155,7 +181,13 @@ test('real SDK registers the main question tool and application delivers selecti
   await app.runtime.cancel('cancel-question');
   assert.equal((await app.runtime.state()).runs['cancel-question'].status, 'interrupted');
   assert.equal(ui.state().focus, 'composer');
+  const nextTurn = requests.at(-1).slice(requests.at(-1).indexOf('## What the user decided lately'));
+  for (const label of ['Keep paused', 'Enable this schedule']) assert.ok(nextTurn.includes(label), `the next turn carries ${label}`);
   const closed = tool.execute('choice-three', question);
   ui.stop();
   assert.equal((await closed).details.status, 'cancelled');
+  assert.equal(readAnswers(root).length, 2, 'a cancelled question keeps nothing');
+  const events = join(root, 'runtime', 'events');
+  const written = readdirSync(events).map(name => readFileSync(join(events, name), 'utf8')).join('');
+  assert.doesNotMatch(written, /What should happen|Keep paused|Enable this schedule/, 'events hold facts and none of the words');
 });

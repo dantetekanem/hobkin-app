@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BRIDGE, serveBridge } from './bridge.mjs';
+import { readDecided } from './decided.mjs';
 import { readDirections } from './directions.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
@@ -58,8 +59,8 @@ class PiRpcSession {
   autoCompactionEnabled = true;
   hello = null;
 
-  constructor({ askQuestion, tools, memory, directions, graceMs }) {
-    Object.assign(this, { askQuestion, tools, memory, directions, graceMs });
+  constructor({ askQuestion, tools, memory, directions, decided, graceMs }) {
+    Object.assign(this, { askQuestion, tools, memory, directions, decided, graceMs });
     this.listeners = new Set();
     this.calls = new Set();
     this.waiters = new Set();
@@ -312,9 +313,10 @@ export async function openRpcSession(
     tools: {},
     memory: () => readMemory(root),
     directions: () => readDirections(root),
+    decided: () => readDecided(root),
   });
   session.tools = {
-    ask_question: createQuestionTool(askQuestion),
+    ask_question: createQuestionTool(askQuestion, root),
     run_routine: createScheduleTool(triggerSchedule),
     message_check: createCheckMessageTool(messageCheck),
     hobkin_memory: createMemoryTool(root),
