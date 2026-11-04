@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { chooseProject, fileItem, readItems, updateItem } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, paths, readItems, updateItem } from '../src/cli/work/store.mjs';
 import { ghWithin, readUnmerged, surveyUnmerged, unmergedNow } from '../src/cli/work/unmerged.mjs';
 import { branched, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
 
@@ -310,6 +310,18 @@ test('an item can name a PR on any head, and the survey still counts only hobkin
 
   assert.equal(read(h, byHand).state, 'merged');
   assert.deepEqual(projects.api, { open: [], lastMergeAt: null, trees: 0 });
+});
+
+test('the survey counts every tree hobkin holds for a project, whatever made it, and none outside its trees', async t => {
+  const h = workspace(t);
+  const { trees } = paths(h.root, 'api');
+  const held = ['look', 'do', 'abc123-fix-the-login', 'def456-speed-up-the-csv-export', 'release-review-61e7f1'];
+  for (const name of held) git(h.checkout, 'worktree', 'add', '-q', '--detach', join(trees, name));
+  git(h.checkout, 'worktree', 'add', '-q', '--detach', join(dirname(h.checkout), 'elsewhere'));
+
+  const { projects } = await surveyWithNoGh(h);
+
+  assert.equal(projects.api.trees, held.length);
 });
 
 test('what is open now is only a count, for each project and in all', async t => {

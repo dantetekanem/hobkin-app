@@ -326,7 +326,7 @@ export const canStart = ({ autoPick }, row) => !row.skipped && !row.held && (aut
 const needsItsStudy = (mode, entry, entries) => entry.unstudied && !entry.picked
   && entries.some(other => other.slug === entry.slug && other.kind === 'study' && canStart(mode, other));
 
-// A started item's uncommitted work goes on its own branch before anything else takes the tree, so nothing is lost when one that cannot start is passed.
+// A started item goes before the rest of its project, so work already begun ends first. One that cannot start holds nothing back, and its own tree keeps its work meanwhile.
 const behindItsStartedItem = (mode, entry, entries) => entry.kind === 'item' && entry.item.state !== 'doing'
   && entries.some(other => other.slug === entry.slug && other.item?.state === 'doing' && canStart(mode, other));
 

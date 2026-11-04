@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -13,7 +13,7 @@ import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
-import { surveyAndClose } from './closing.mjs';
+import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { agentName, WorkPanes } from './panes.mjs';
@@ -22,11 +22,11 @@ import { ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
-  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, landing, levels, nextDiscoveryAt, paths, pendingCancels,
+  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
   prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates, takeHanded, writeHanded,
-  sessionError, sessionUsage, skipInQueue, slugOf, tokenLabel, updateItem, writeMode, writeOwnerView, writeState,
+  sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
-import { changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from './tree.mjs';
+import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
@@ -66,7 +66,6 @@ const SURVEY_EVERY_MS = HOUR_MS / 2;
 const MAX_DISCOVERY_CONTINUATIONS = 2;
 const MAX_NOTES_BYTES = 16384;
 const MAX_ITEMS_SENT = 40;
-const MAX_BRANCH_NAME = 40;
 const MAX_REASON_LENGTH = 500;
 // These looks run tests, which write files, so they never run in the project's own folder.
 const looksThatWrite = ['study', 'bugs', 'improvements'];
@@ -80,13 +79,6 @@ const CLONE_TIMEOUT_MS = 10 * 60000;
 const MOST_FOLDER_LINES = 10;
 // hobkin runs from its own folder, so a run switching that folder's branch would change the code hobkin runs, mid-session.
 const HOBKIN_FOLDER = fileURLToPath(new URL('../../..', import.meta.url));
-const realPlace = folder => {
-  try {
-    return realpathSync(folder);
-  } catch {
-    return folder;
-  }
-};
 
 // Pi loads the user's global rules into every run, and those rules ask for permission first. This line is that permission.
 const authorization = 'The user has already authorized everything this run needs, so nothing needs asking and no run is ever blocked. '
@@ -301,10 +293,13 @@ export class WorkDirector {
     });
   }
 
+  // After the survey, so what it found merged lets go of its tree on the same pass. A tree that cannot go yet is asked about again next time.
   surveyWork() {
     if (this.surveying || elapsedSince(readUnmerged(this.root).at, this.now()) < SURVEY_EVERY_MS) return;
     if (!chosenProjects(this.root).length) return;
     this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.fetch ? { fetch: this.fetch } : {}) })
+      .catch(() => {})
+      .then(() => retireClosedTrees(this.root, { running: this.running() }))
       .catch(() => {})
       .finally(() => { this.surveying = null; });
   }
@@ -424,18 +419,23 @@ export class WorkDirector {
    */
   async place(entry, { project, tree, branch, resume, writes = false }) {
     const repo = await this.repositoryFor(project);
+    // An item cut short in the one tree every item shared before still has its work there, on its branch, and git lets no other tree take that branch.
+    const { oldDoTree } = paths(this.root, project.slug);
+    const leftInOldTree = resume && await currentBranch(oldDoTree) === branch;
+    const workTree = leftInOldTree ? oldDoTree : tree;
+
     const sharing = this.running().some(run => run !== entry && run.slug === project.slug);
     const writing = branch ? 'this item rebases' : 'this look runs tests';
     let reason = writes ? writing : sharing ? 'another agent is in this repository' : null;
     if (!reason && realPlace(repo) === realPlace(this.ownFolder)) reason = 'hobkin runs from this folder';
-    if (!reason && resume && await currentBranch(tree) === branch) reason = 'its work is there';
+    if (!reason && resume && await currentBranch(workTree) === branch) reason = 'its work is there';
     if (!reason) {
       const { refused, base } = await enterFolder({ repo, branch });
       if (!refused) return { cwd: repo, folder: { repo, branch, base } };
       reason = refused;
     }
-    await prepareTree({ repo, tree, branch, resume });
-    return { cwd: tree, tree, note: `Worktree: ${reason}` };
+    await prepareTree({ repo, tree: workTree, branch, resume });
+    return { cwd: workTree, tree: workTree, note: `Worktree: ${reason}` };
   }
 
   // An item still in the queue has no outcome yet, whoever put it there, and the next run carries on from what this one left.
@@ -642,11 +642,12 @@ export class WorkDirector {
   startDo(project, item, cost = {}) {
     const { slug } = project;
     const level = item.max ? 'max' : project.level;
-    const branch = item.branch ?? `hobkin/${item.id}-${slugOf(item.title).slice(0, MAX_BRANCH_NAME)}`;
+    const branch = item.branch ?? `${BRANCH_PREFIX}${workName(item)}`;
     const resume = Boolean(item.branch);
     updateItem(this.root, slug, item.id, { state: 'doing', branch }, this.now());
 
-    const tree = paths(this.root, slug).doTree;
+    // A fix on another item's branch is an item of its own, so it gets a tree of its own too.
+    const tree = itemTree(this.root, slug, item);
     const description = prFile(this.root, slug, item.ships ?? item.id);
     mkdirSync(dirname(description), { recursive: true, mode: 0o700 });
     this.start({

@@ -2,12 +2,12 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
-import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged } from './tree.mjs';
+import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged, realPlace } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
 export const SHIP_KIND = 'pr-fix';
@@ -283,9 +283,11 @@ async function mergedHere({ repo, base, units, previous }) {
   return gone.filter((_unit, index) => landed[index]).map(unit => unit.branch);
 }
 
-async function treesHeld(repo, { look, do: doing }) {
+/** Every tree in the project's trees folder that git still counts as one, whoever made it. */
+async function treesHeld(repo, trees) {
+  const inside = `worktree ${realPlace(trees)}${sep}`;
   const listed = (await gitOrNothing(repo, 'worktree', 'list', '--porcelain')).split('\n');
-  return listed.filter(line => line === `worktree ${look}` || line === `worktree ${doing}`).length;
+  return listed.filter(line => line.startsWith(inside)).length;
 }
 
 /** Read-only `git` and `gh`, and no model. A PR and its branch are one piece of work, and so is a worktree holding that branch. */
@@ -499,12 +501,12 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
   const adopted = [];
   const retired = [];
   for (const { slug, path } of chosenProjects(root)) {
-    const { clone, lookTree, doTree } = paths(root, slug);
+    const { clone, trees } = paths(root, slug);
     // A name alone says a branch is a backup, so this reads nothing from the repository. It goes first, so no item for a backup counts as finished work below.
     retired.push(...retireBackupWork(root, slug, now));
     try {
       const finished = new Set(readItems(root, slug).filter(item => item.state === 'branch' && item.branch).map(item => item.branch));
-      const found = await surveyProject({ repo: path ?? clone, trees: { look: lookTree, do: doTree }, previous: previous[slug], now, gh, grades, finished });
+      const found = await surveyProject({ repo: path ?? clone, trees, previous: previous[slug], now, gh, grades, finished });
       projects[slug] = found.survey;
       settled.push(...settleItems(root, slug, found, now));
       filed.push(...fileShipWork(root, slug, found, now));

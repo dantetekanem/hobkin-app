@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, renameSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -125,7 +125,40 @@ export async function releaseTree(tree, { finished = false } = {}) {
   if (await currentBranch(tree)) await gitOrNothing(tree, 'switch', '--quiet', '--detach');
 }
 
+/** Whether git already holds everything in a tree: nothing uncommitted or untracked, nothing stopped half way, and its commit on a branch, here or on a remote. */
+async function nothingToLose(tree) {
+  if (await git(tree, 'status', '--porcelain')) return false;
+  if (await inProgress(tree)) return false;
+  const holder = await git(tree, 'for-each-ref', '--count=1', '--contains', 'HEAD', '--format=%(refname)', 'refs/heads', 'refs/remotes');
+  return holder !== '';
+}
+
+/**
+ * Takes a tree away for good once nothing in it could be lost. Ignored files, such as an install, go with it. Something to lose, a question git
+ * cannot answer or a refusal from git, such as for a locked tree, leaves it exactly as it is. Only a linked worktree has a `.git` file, so the
+ * project's own folder is never taken. Returns whether it went.
+ */
+export async function retireTree({ repo, tree }) {
+  if (!statSync(join(tree, '.git'), { throwIfNoEntry: false })?.isFile()) return false;
+  try {
+    if (!await nothingToLose(tree)) return false;
+    await git(repo, 'worktree', 'remove', tree);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const currentBranch = repo => gitOrNothing(repo, 'branch', '--show-current');
+
+/** A folder by its real path, the way git names it, so two names for one folder compare as one. A folder that is gone keeps the name it was given. */
+export function realPlace(folder) {
+  try {
+    return realpathSync(folder);
+  } catch {
+    return folder;
+  }
+}
 
 /** The branch everything starts from, read from what is already here, with no network. */
 export async function defaultBranch(repo) {

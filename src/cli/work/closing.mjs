@@ -1,10 +1,14 @@
+import { existsSync } from 'node:fs';
 import { pulseLaunches } from './launches.mjs';
 import { readyItems, saysDoneButWaits, weighedRows } from './reads.mjs';
-import { chosenProjects, fileItem, ownerView, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
+import { chosenProjects, fileItem, itemTree, ownerView, paths, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
+import { realPlace, retireTree } from './tree.mjs';
 import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
 
 // The rows the user sees next. Filling in any more would pay for work they may never ship.
 const NEXT_ROWS = 5;
+// No run comes for an item in one of these, so its tree holds nothing a run still needs.
+const CLOSED = ['merged', 'done', 'declined', 'dropped'];
 // Each review is a whole run, so a pass asks for a few and the next survey asks for more.
 const REVIEWS_A_PASS = 2;
 // A `done` item whose branch still holds work is finished work an older run misnamed, so it lands like the rest.
@@ -99,4 +103,35 @@ export async function surveyAndClose(root, options = {}) {
   const reviewing = options.reviews === false ? [] : askReviews(root, options.now);
   const pulse = await pulseLaunches(root, options);
   return { ...survey, filed: [...survey.filed, ...filled], reviewing, pulse };
+}
+
+/** A project's trees that no run needs any more: each closed item's, and the one every item shared before, once no do run could carry on there. */
+function treesNoRunNeeds(root, slug, running) {
+  const here = running.filter(run => run.slug === slug);
+  const inUse = new Set(here.flatMap(run => [run.cwd, run.tree]).filter(Boolean).map(realPlace));
+  const isRunning = item => here.some(run => run.item === item.id);
+
+  const closedTrees = readItems(root, slug)
+    .filter(item => CLOSED.includes(item.state) && !isRunning(item))
+    .map(item => itemTree(root, slug, item));
+  // An item cut short in the old tree carries on there, and a do run getting ready has not said yet where it works.
+  const doRunGoing = here.some(run => run.lane === 'do');
+  const candidates = doRunGoing ? closedTrees : [...closedTrees, paths(root, slug).oldDoTree];
+
+  return candidates.filter(tree => existsSync(tree) && !inUse.has(realPlace(tree)));
+}
+
+/**
+ * Takes away every project's trees that no run needs any more, each only when nothing in it could be lost, so one holding work stays and is asked
+ * about again next time. Unlike the survey this writes to the repository, because git's record of a tree goes with it. `running` is what the owner has going.
+ */
+export async function retireClosedTrees(root, { running = [] } = {}) {
+  const retired = [];
+  for (const { slug, path } of chosenProjects(root)) {
+    const repo = path ?? paths(root, slug).clone;
+    for (const tree of treesNoRunNeeds(root, slug, running)) {
+      if (await retireTree({ repo, tree })) retired.push({ slug, tree });
+    }
+  }
+  return retired;
 }

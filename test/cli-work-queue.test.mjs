@@ -7,7 +7,8 @@ import { validateBinding } from '../src/cli/schedules.mjs';
 import { runWorkCommand, workStatus } from '../src/cli/work/commands.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import {
-  chooseProject, fileItem, paths, pendingCancels, pickNext, putBackInQueue, readItems, readMode, readProject, readState, recordTokens, requestCancel, retryItem, skipInQueue, updateItem, writeMode, writeState,
+  chooseProject, fileItem, itemTree, paths, pendingCancels, pickNext, putBackInQueue, readItems, readMode, readProject, readState, recordTokens, requestCancel, retryItem, skipInQueue, updateItem, writeMode,
+  writeState,
 } from '../src/cli/work/store.mjs';
 import { prepareTree } from '../src/cli/work/tree.mjs';
 import { unmergedNow } from '../src/cli/work/unmerged.mjs';
@@ -197,7 +198,7 @@ test('a clean folder runs on a branch in place, and comes back with the work lef
   assert.equal(git(checkout, 'branch', '--show-current'), 'main');
   assert.equal(existsSync(join(checkout, 'new.txt')), false);
   assert.equal(git(checkout, 'log', '-1', '--format=%s', during.branch), 'agent work');
-  assert.equal(existsSync(paths(h.root, 'api').doTree), false, 'no worktree was needed');
+  assert.equal(existsSync(paths(h.root, 'api').trees), false, 'no worktree was needed');
 });
 
 test('a dirty folder falls back to a worktree, says so, and nothing in the folder changes', async t => {
@@ -206,13 +207,13 @@ test('a dirty folder falls back to a worktree, says so, and nothing in the folde
   writeFileSync(join(checkout, 'app.txt'), 'half-finished\n');
   writeFileSync(join(checkout, 'notes.txt'), 'mine\n');
   const before = git(checkout, 'status', '--porcelain=v1', '--branch');
-  fileItem(h.root, 'api', item('fix'), h.clock);
+  const filed = fileItem(h.root, 'api', item('fix'), h.clock);
   const release = Promise.withResolvers();
   h.agent = () => release.promise;
 
   await h.startedRun();
 
-  assert.equal(h.calls[0].cwd, paths(h.root, 'api').doTree);
+  assert.equal(h.calls[0].cwd, itemTree(h.root, 'api', filed));
   assert.equal(h.work(h.calls[0]).place, 'tree');
   assert.match(h.director.running()[0].note, /uncommitted changes/);
   release.resolve();
@@ -225,11 +226,11 @@ test('a user on another branch keeps it, and the run takes a worktree', async t 
   const h = director(t);
   const checkout = studied(h, 'api');
   git(checkout, 'switch', '-qc', 'my-work');
-  fileItem(h.root, 'api', item('fix'), h.clock);
+  const filed = fileItem(h.root, 'api', item('fix'), h.clock);
 
   await h.tick();
 
-  assert.equal(h.calls[0].cwd, paths(h.root, 'api').doTree);
+  assert.equal(h.calls[0].cwd, itemTree(h.root, 'api', filed));
   assert.equal(git(checkout, 'branch', '--show-current'), 'my-work');
 });
 
@@ -293,7 +294,7 @@ test('a pr-fix item always runs in a worktree, because a rebase must never be le
 
   await h.startedRun();
 
-  assert.deepEqual([h.calls[0].cwd, h.work(h.calls[0]).place], [paths(h.root, 'api').doTree, 'tree']);
+  assert.deepEqual([h.calls[0].cwd, h.work(h.calls[0]).place], [itemTree(h.root, 'api', filed), 'tree']);
   assert.equal(git(h.calls[0].cwd, 'branch', '--show-current'), 'hobkin/old');
   assert.equal(git(checkout, 'branch', '--show-current'), 'main');
   assert.match(h.director.running()[0].note, /this item rebases/);
@@ -388,8 +389,7 @@ test('a run in a worktree gives up its branch when it ends, so the user can chec
   const h = director(t);
   const checkout = studied(h, 'api');
   dirtyFolder(checkout);
-  fileItem(h.root, 'api', item('fix'), h.clock);
-  const tree = paths(h.root, 'api').doTree;
+  const tree = itemTree(h.root, 'api', fileItem(h.root, 'api', item('fix'), h.clock));
   let during;
   h.agent = request => { during = git(request.cwd, 'branch', '--show-current'); };
 
@@ -409,7 +409,7 @@ test('a finished run leaves no branch held: what it left uncommitted goes on a s
   const checkout = studied(h, 'api');
   dirtyFolder(checkout);
   const filed = fileItem(h.root, 'api', item('fix'), h.clock);
-  const tree = paths(h.root, 'api').doTree;
+  const tree = itemTree(h.root, 'api', filed);
   let branch;
   h.agent = request => {
     branch = git(request.cwd, 'branch', '--show-current');
@@ -434,7 +434,7 @@ for (const [ending, record] of Object.entries({
     const checkout = studied(h, 'api');
     dirtyFolder(checkout);
     const filed = fileItem(h.root, 'api', item('fix'), h.clock);
-    const tree = paths(h.root, 'api').doTree;
+    const tree = itemTree(h.root, 'api', filed);
     let branch;
     h.agent = request => {
       branch = git(request.cwd, 'branch', '--show-current');
@@ -457,25 +457,26 @@ for (const [ending, record] of Object.entries({
   });
 }
 
-test('with auto-pick off a pick passes a started item nobody picked, and what that item left stays on a side branch of its own', async t => {
+test('with auto-pick off a pick passes a started item nobody picked, and that item\'s own tree keeps what it left, as it left it', async t => {
   const h = director(t);
   const checkout = studied(h, 'api');
   dirtyFolder(checkout);
-  const tree = paths(h.root, 'api').doTree;
-  await prepareTree({ repo: checkout, tree, branch: 'hobkin/started' });
-  const tip = git(tree, 'rev-parse', 'HEAD');
-  writeFileSync(join(tree, 'half.txt'), 'half done\n');
   const started = fileItem(h.root, 'api', item('started'), h.clock);
-  updateItem(h.root, 'api', started.id, { state: 'doing', branch: 'hobkin/started' }, h.clock);
+  const branch = `hobkin/${started.id}-started`;
+  const tree = itemTree(h.root, 'api', started);
+  await prepareTree({ repo: checkout, tree, branch });
+  writeFileSync(join(tree, 'half.txt'), 'half done\n');
+  updateItem(h.root, 'api', started.id, { state: 'doing', branch }, h.clock);
   const picked = fileItem(h.root, 'api', item('picked'), h.clock);
   writeMode(h.root, { autoPick: false });
   pickNext(h.root, `item:api:${picked.id}`);
 
   await h.tick();
 
-  assert.deepEqual(h.calls.map(call => [h.work(call).item.title, call.cwd]), [['picked', tree]]);
-  assert.equal(git(checkout, 'show', `${keptFrom(checkout, 'hobkin/started')[0]}:half.txt`), 'half done');
-  assert.equal(git(checkout, 'rev-parse', 'hobkin/started'), tip);
+  assert.deepEqual(h.calls.map(call => [h.work(call).item.title, call.cwd]), [['picked', itemTree(h.root, 'api', picked)]]);
+  assert.equal(git(tree, 'branch', '--show-current'), branch);
+  assert.equal(readFileSync(join(tree, 'half.txt'), 'utf8'), 'half done\n');
+  assert.deepEqual(keptFrom(checkout, branch), []);
 });
 
 test('a tree that cannot be released does not hide how the run ended', async t => {
@@ -591,7 +592,7 @@ test('a diverged default branch sends the run to a worktree from origin, and the
   git(checkout, 'add', '.');
   git(checkout, 'commit', '-qm', 'local');
   const before = git(checkout, 'rev-parse', 'HEAD');
-  fileItem(h.root, 'api', item('fix'), h.clock);
+  const filed = fileItem(h.root, 'api', item('fix'), h.clock);
   let during;
   h.agent = request => {
     during = { cwd: request.cwd, upstream: existsSync(join(request.cwd, 'upstream.txt')), mine: existsSync(join(request.cwd, 'mine.txt')) };
@@ -599,7 +600,7 @@ test('a diverged default branch sends the run to a worktree from origin, and the
 
   await h.tick();
 
-  assert.deepEqual(during, { cwd: paths(h.root, 'api').doTree, upstream: true, mine: false });
+  assert.deepEqual(during, { cwd: itemTree(h.root, 'api', filed), upstream: true, mine: false });
   assert.equal(h.work(h.calls[0]).place, 'tree');
   assert.equal(git(checkout, 'rev-parse', 'HEAD'), before);
   assert.equal(git(checkout, 'branch', '--show-current'), 'main');

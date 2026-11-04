@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { gitOrNothing, gitWithin, prepareTree, releaseTree } from '../src/cli/work/tree.mjs';
+import { gitOrNothing, gitWithin, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 const WORK_KEPT = 'Work in progress kept by Hobkin';
@@ -28,7 +28,7 @@ function repository(t, { remote = true } = {}) {
     git(checkout, 'fetch', '-q', 'origin');
     git(checkout, 'remote', 'set-head', 'origin', 'main');
   }
-  return { base, checkout, tree: join(base, 'trees/do') };
+  return { base, checkout, tree: join(base, 'trees/work') };
 }
 
 const movedAside = tree => readdirSync(dirname(tree)).filter(name => name.startsWith(`${basename(tree)}-moved-`)).map(name => join(dirname(tree), name));
@@ -619,4 +619,81 @@ test('a tree removed by hand is rebuilt', async t => {
   await prepareTree({ repo: checkout, tree, branch: 'hobkin/two' });
 
   assert.equal(git(tree, 'branch', '--show-current'), 'hobkin/two');
+});
+
+test('a tree with nothing in it git could not bring back goes, ignored files and all, and its branch stays', async t => {
+  const { checkout, tree } = repository(t);
+  await prepareTree({ repo: checkout, tree, branch: 'hobkin/one' });
+  leave(tree, '.gitignore', 'node_modules\n');
+  git(tree, 'add', '.gitignore');
+  git(tree, 'commit', '-qm', 'agent work');
+  const tip = git(tree, 'rev-parse', 'HEAD');
+  leave(tree, 'node_modules/dep/index.js');
+  await releaseTree(tree, { finished: true });
+
+  assert.equal(await retireTree({ repo: checkout, tree }), true);
+
+  assert.equal(existsSync(tree), false);
+  assert.deepEqual(worktrees(checkout), [checkout]);
+  assert.equal(git(checkout, 'rev-parse', 'hobkin/one'), tip);
+});
+
+test('a tree on its branch goes too, and lets go of that branch', async t => {
+  const { checkout, tree } = repository(t);
+  await prepareTree({ repo: checkout, tree, branch: 'hobkin/one' });
+
+  assert.equal(await retireTree({ repo: checkout, tree }), true);
+
+  git(checkout, 'switch', '-q', 'hobkin/one');
+  assert.equal(git(checkout, 'branch', '--show-current'), 'hobkin/one');
+});
+
+for (const [left, leaveIt] of Object.entries({
+  'a change never committed': tree => leave(tree, 'app.txt', 'changed\n'),
+  'a file never added': tree => leave(tree, 'notes.txt'),
+  'a commit on no branch': tree => {
+    leave(tree, 'app.txt', 'committed while detached\n');
+    git(tree, 'commit', '-qam', 'on no branch');
+  },
+})) {
+  test(`a tree holding ${left} stays exactly as it is`, async t => {
+    const { checkout, tree } = repository(t);
+    await prepareTree({ repo: checkout, tree });
+    leaveIt(tree);
+    const statusAndHead = () => ({ status: git(tree, 'status', '--porcelain'), head: git(tree, 'rev-parse', 'HEAD') });
+    const before = statusAndHead();
+
+    assert.equal(await retireTree({ repo: checkout, tree }), false);
+
+    assert.deepEqual(statusAndHead(), before);
+    assert.deepEqual(worktrees(checkout), [checkout, tree]);
+  });
+}
+
+test('a tree in the middle of a rebase stays, because the rebase still holds its branch', async t => {
+  const { checkout, tree } = repository(t);
+  await prepareTree({ repo: checkout, tree, branch: 'hobkin/one' });
+  writeFileSync(join(tree, 'app.txt'), 'the agent changed this\n');
+  git(tree, 'commit', '-qam', 'agent work');
+  writeFileSync(join(checkout, 'app.txt'), 'the default branch changed this\n');
+  git(checkout, 'commit', '-qam', 'main moves');
+  assert.throws(() => git(tree, 'rebase', 'main'));
+  git(tree, 'checkout', '--ours', 'app.txt');
+  git(tree, 'add', 'app.txt');
+  assert.equal(git(tree, 'status', '--porcelain'), '', 'nothing shows but the rebase itself');
+
+  assert.equal(await retireTree({ repo: checkout, tree }), false);
+
+  assert.deepEqual(worktrees(checkout), [checkout, tree]);
+});
+
+test('a folder that is gone, or is no tree at all, is nothing to take away', async t => {
+  const { base, checkout, tree } = repository(t);
+  mkdirSync(tree, { recursive: true });
+
+  const gone = await retireTree({ repo: checkout, tree: join(base, 'never-made') });
+  const plain = await retireTree({ repo: checkout, tree });
+
+  assert.deepEqual([gone, plain], [false, false]);
+  assert.equal(existsSync(tree), true);
 });

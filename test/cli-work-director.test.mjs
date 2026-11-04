@@ -15,8 +15,8 @@ import { WorkDirector } from '../src/cli/work/director.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import { recordSignals } from '../src/cli/work/signals.mjs';
 import {
-  answerAllowance, chooseProject, fileItem, noteDiscovery, paths, pickNext, prFile, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery, recordTokens,
-  setProjectPrMode, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
+  answerAllowance, chooseProject, fileItem, itemTree, noteDiscovery, paths, pickNext, prFile, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery,
+  recordTokens, setProjectPrMode, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { readUnmerged } from '../src/cli/work/unmerged.mjs';
 import { withOrigin, writeJson } from './helpers/work-fixture.mjs';
@@ -1592,11 +1592,11 @@ test('a folder that cannot be used only sends the run to a worktree', async t =>
   chooseProject(h.root, checkout);
   studied(h, 'api');
   writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
-  fileItem(h.root, 'api', item);
+  const filed = fileItem(h.root, 'api', item);
 
   await h.tick();
 
-  assert.deepEqual(doRuns(h).map(call => [call.cwd, h.work(call).place]), [[paths(h.root, 'api').doTree, 'tree']]);
+  assert.deepEqual(doRuns(h).map(call => [call.cwd, h.work(call).place]), [[itemTree(h.root, 'api', filed), 'tree']]);
 });
 
 test('a do run that records its PR leaves the item alone', async t => {

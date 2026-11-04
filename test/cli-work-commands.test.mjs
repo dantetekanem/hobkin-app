@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { main, parseArguments } from '../src/cli/main.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import {
-  chooseProject, fileItem, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readProjects, writeMode, writeOwnerView, writeState,
+  chooseProject, fileItem, itemTree, noteDiscovery, paths, proposeProject, readDiscovery, readItems, readMode, readProjects, writeMode, writeOwnerView, writeState,
 } from '../src/cli/work/store.mjs';
 import { prepareTree } from '../src/cli/work/tree.mjs';
 
@@ -251,11 +251,11 @@ test('a reset forgets what work mode found, moves everything it held aside, dele
   proposeProject(root, { name: 'api', path: repo, level: 'important', why: 'It ships.', found: 'Recent commits.' });
   chooseProject(root, 'api');
   noteDiscovery(root, { rootFolders: ['api'], finishedFolders: [] });
-  const { directory, directions, doTree, lookTree } = paths(root, 'api');
+  const { directory, directions, lookTree } = paths(root, 'api');
+  const tree = itemTree(root, 'api', fileItem(root, 'api', item));
   await prepareTree({ repo, tree: lookTree });
-  await prepareTree({ repo, tree: doTree, branch: 'hobkin/abc-fix' });
-  writeFileSync(join(doTree, 'half-done.txt'), 'hours of uncommitted work');
-  fileItem(root, 'api', item);
+  await prepareTree({ repo, tree, branch: 'hobkin/abc-fix' });
+  writeFileSync(join(tree, 'half-done.txt'), 'hours of uncommitted work');
   writeFileSync(directions, 'Never touch billing.');
   mkdirSync(join(root, 'checks', 'work.discover'), { recursive: true });
   writeFileSync(join(root, 'checks', 'work.discover', 'memory.md'), 'Halfway through.');
@@ -282,7 +282,7 @@ test('a reset forgets what work mode found, moves everything it held aside, dele
   assert.ok(existsSync(join(moved, 'projects.jsonl')), 'the old picks can still be read');
   assert.equal(readFileSync(join(moved, 'api', 'prs', 'abc123.md'), 'utf8'), '# Fix the importer', 'a local PR is work, and git does not hold its description');
   assert.equal(readFileSync(join(moved, 'api', 'trees', 'do-moved-1', 'kept.txt'), 'utf8'), 'work from a broken tree', 'a tree moved aside may hold work');
-  assert.equal(readFileSync(join(moved, 'api', 'trees', 'do', 'half-done.txt'), 'utf8'), 'hours of uncommitted work', 'git holds none of this');
+  assert.equal(readFileSync(join(moved, 'api', 'trees', basename(tree), 'half-done.txt'), 'utf8'), 'hours of uncommitted work', 'git holds none of this');
   assert.equal(readFileSync(join(moved, 'api', 'directions.md'), 'utf8'), 'Never touch billing.');
   assert.match(readFileSync(join(moved, 'api', 'items.jsonl'), 'utf8'), /Update rack/);
   assert.equal(readFileSync(join(moved, 'work.discover', 'memory.md'), 'utf8'), 'Halfway through.');
@@ -296,10 +296,10 @@ test('a reset takes a clone of Hobkin\'s own with it, and the branches that are 
   mkdirSync(join(root, 'runtime'));
   proposeProject(root, { name: 'api', remote: 'https://example.com/api.git', level: 'important' });
   chooseProject(root, 'api');
-  const { clone, doTree } = paths(root, 'api');
+  const { clone } = paths(root, 'api');
   execFileSync('git', ['init', '--quiet', '--initial-branch=main', clone]);
   execFileSync('git', ['-C', clone, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'first']);
-  await prepareTree({ repo: clone, tree: doTree, branch: 'hobkin/only-here' });
+  await prepareTree({ repo: clone, tree: itemTree(root, 'api', { id: 'abc123', title: 'Only here' }), branch: 'hobkin/only-here' });
 
   const { forgot, kept } = await runWorkCommand(root, ['reset']);
 

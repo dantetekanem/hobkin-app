@@ -32,6 +32,7 @@ export const MAX_AGENTS = 8;
 
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;
+const MAX_BRANCH_NAME = 40;
 const DEFAULT_DAILY_TOKENS = 100000000;
 const DEFAULT_AGENTS = 2;
 const HOUR_MS = 3600000;
@@ -65,13 +66,20 @@ export const paths = (root, slug) => {
     state: join(directory, 'state.json'),
     prs: join(directory, 'prs'),
     trees,
+    // A project runs one look at a time, so its looks share one tree.
     lookTree: join(trees, 'look'),
-    doTree: join(trees, 'do'),
+    // Every item's runs shared this tree before each item had one of its own.
+    oldDoTree: join(trees, 'do'),
     clone: join(directory, 'repo'),
   };
 };
 
 export const slugOf = name => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_NAME_LENGTH);
+
+/** What an item's work is called. Its branch is `hobkin/` and this, and its tree is this, so no two items of a project share either. */
+export const workName = ({ id, title }) => `${id}-${slugOf(title).slice(0, MAX_BRANCH_NAME)}`;
+
+export const itemTree = (root, slug, item) => join(paths(root, slug).trees, workName(item));
 
 export function readJson(file, fallback) {
   try {
@@ -456,7 +464,7 @@ export function updateItem(root, slug, id, change, now = Date.now()) {
 export const movesFinishedWork = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
 
 /**
- * An item goes back in the queue with its count of tries back at zero. One already started stays started, so nothing else takes its tree.
+ * An item goes back in the queue with its count of tries back at zero. One already started stays started, so it still goes before the rest of its project.
  * A pick jumps the queue and the gap between starts, so a plain retry only goes back in line, for auto-pick or the user to start. A review or a fix for finished work still goes first by itself.
  */
 export function retryItem(root, slug, id, now = Date.now()) {

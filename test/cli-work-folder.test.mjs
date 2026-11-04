@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from '../src/cli/work/tree.mjs';
+import { enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
 import { git, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 function folder(t) {
@@ -339,6 +339,15 @@ test('the project\'s own folder is never released, whatever branch it is on and 
 
   await releaseTree(repo);
   await releaseTree(repo, { finished: true });
+
+  assert.equal(everything(repo), before);
+});
+
+test('the project\'s own folder is never taken away, however clean it is', async t => {
+  const { repo } = folder(t);
+  const before = everything(repo);
+
+  assert.equal(await retireTree({ repo, tree: repo }), false);
 
   assert.equal(everything(repo), before);
 });
