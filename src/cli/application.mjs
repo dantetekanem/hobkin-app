@@ -9,6 +9,9 @@ import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
+import { RemoteSender, uploadNotice } from './telemetry/sender.mjs';
+import { feedbackQuestion } from './feedback/draft.mjs';
+import { crashToOffer, discardDraft, sendApproved } from './feedback/outbox.mjs';
 import { recordEvent } from './events.mjs';
 import { memoryBytes } from './memory.mjs';
 import { callName, readProfile } from './profile.mjs';
@@ -129,7 +132,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, askPending, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard } = {}) {
+  static async open(root, { createMain, askQuestion, askPending, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -176,6 +179,8 @@ export class HobkinApplication {
       });
       app.ledger = UsageLedger.open(app.runtime.directory, app.config.initializedAt);
       app.telemetry = Telemetry.open(app.runtime.directory, app.now());
+      // Before the first tick and before `app_opened`, so upload begins with this start and never sends what came before.
+      app.remote = new RemoteSender({ root: app.runtime.directory, fetch, now: app.now });
       app.learner = new Learner({ root: app.runtime.directory, telemetry: app.telemetry, now: app.now });
       app.runner = new HobkinRunner({
         runtime: app.runtime,
@@ -194,6 +199,7 @@ export class HobkinApplication {
           retireOffers(app.runtime.directory, app.now());
           retirePickUp(app.runtime.directory, app.now());
           app.tickInbox();
+          app.remote.tick();
           app.landOffers.next();
           // Not awaited: each holds a question on screen for as long as it stays there. The card goes first, because it stands for the whole pile.
           app.presentPending();
@@ -235,6 +241,7 @@ export class HobkinApplication {
       await app.refresh();
       app.openedAt = app.now();
       recordEvent(app.runtime.directory, 'app_opened');
+      app.offering = app.offerCrash();
       return app;
     } catch (error) {
       await app.close();
@@ -357,6 +364,12 @@ export class HobkinApplication {
     if (!this.templatesLooked) {
       this.templatesLooked = true;
       const told = this.templateLine();
+      if (told) notices.push(told);
+    }
+    // Usage upload is on by default, so the first start that sends says so, once, with how to stop it.
+    if (!this.uploadLooked) {
+      this.uploadLooked = true;
+      const told = uploadNotice(this.runtime.directory, this.now());
       if (told) notices.push(told);
     }
     const yesterday = this.yesterdayWins();
@@ -932,6 +945,31 @@ export class HobkinApplication {
       return content && { id: `notice:wins:${at.slice(0, 10)}`, role: 'notice', content, tone: 'useful', at };
     } catch {
       return null;
+    }
+  }
+
+  /** A crash draft from an earlier run is offered once a start, with its exact bytes, and only a yes sends it. */
+  async offerCrash() {
+    const root = this.runtime.directory;
+    try {
+      const draft = crashToOffer(root);
+      if (!draft || !this.askQuestion) return;
+      const intro = "hobkin stopped on an uncaught error last time and wrote this crash report. Send it to hobkin's developers?";
+      const answer = await this.askQuestion({ ...feedbackQuestion(draft, { intro }), whenQuiet: true });
+      if (answer === 'keep') discardDraft(root, draft.id);
+      if (answer !== 'send') return;
+
+      const sent = await sendApproved(root, draft, this.remote.options);
+      this.answerTrouble = {
+        id: `notice:feedback:${draft.id}`,
+        role: 'notice',
+        content: sent.message,
+        tone: sent.ok ? 'useful' : 'critical',
+        at: new Date(this.now()).toISOString(),
+      };
+      this.requestRefresh();
+    } catch {
+      // The draft stays as it was, and the next start offers it again.
     }
   }
 

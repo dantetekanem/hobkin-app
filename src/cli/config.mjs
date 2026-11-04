@@ -59,6 +59,25 @@ export const learningEnabled = root => settingOn(root, 'learning');
 
 export const setLearning = (root, enabled) => setSetting(root, 'learning', enabled);
 
+/** On unless the user turned it off. A configuration hobkin cannot read sends nothing. */
+function settingNotOff(root, name) {
+  try {
+    return loadConfig(root)[name]?.enabled !== false;
+  } catch {
+    return false;
+  }
+}
+
+/** Feedback goes only on the user's yes to each report. Off stops what waits in the outbox too. */
+export const feedbackEnabled = root => settingNotOff(root, 'feedback');
+
+export const setFeedback = (root, enabled) => setSetting(root, 'feedback', enabled);
+
+/** Usage events go by themselves, from a machine enrolled with hobkin's server, until the user turns this off. */
+export const telemetryUploadEnabled = root => settingNotOff(root, 'telemetryUpload');
+
+export const setTelemetryUpload = (root, enabled) => setSetting(root, 'telemetryUpload', enabled);
+
 export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   if (
     config.version !== 2

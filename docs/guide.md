@@ -350,11 +350,27 @@ From the same evidence Hobkin concludes which checks work, which do not, and whi
 
 ## Telemetry
 
-hobkin keeps a record of what happens in it, in `runtime/events/` in the data folder, one file a month with the newest six kept: when it opens and closes, each turn and run, what reaches Chat, each question and decision and how it ended, reports read, the Done walk, each mood with its cause, tabs, work mode pausing, compaction and errors on screen. It holds facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids, never a message, a report or anything an agent or a person wrote. hobkin reads it once a day for failures in its own harness and once a week for the review, and none of it leaves your machine.
+hobkin keeps a record of what happens in it, in `runtime/events/` in the data folder, one file a month with the newest six kept: when it opens and closes, each turn and run, what reaches Chat, each question and decision and how it ended, reports read, the Done walk, each mood with its cause, tabs, work mode pausing, compaction and errors on screen. It holds facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids, never a message, a report or anything an agent or a person wrote. hobkin reads it once a day for failures in its own harness and once a week for the review. The stream itself never leaves your machine; [usage upload](#usage-upload) says what does.
 
 Wins keep the cadence in sight. The top of Decisions says what got done today, as work merged and decisions made, and how many days in a row something got done. Every merge counts, and so does every question or card you answered, except the card that asks how to tackle the pile. On the first look of a new day, Chat says what got done yesterday. `hobkin wins [--days n]` prints each day as JSON, 7 days by default.
 
 `hobkin telemetry [--days n]` prints a rollup as JSON, 30 days by default: events by type and day, runs by routine and by project, mean durations, what reached you beside what you did with it, and the same scoreboard the weekly review shows.
+
+### Usage upload
+
+On a machine enrolled with hobkin's server, hobkin also sends usage events there, and this is on by default. Enrolling is explicit provisioning, which writes `runtime/remote.json` in the data folder with mode 0600. hobkin only reads that file, and without it nothing is sent.
+
+Each event is built fresh from the stream, from a fixed list the server publishes: the event's name, fixed words such as `completed` or `urgent`, counts and durations, a new random id, and ids that only this data folder can link back to its own runs, reports and decisions. The raw lines, the rollup, messages, names, paths, routine ids, projects and items stay here. Upload begins at the first start that can send, and nothing recorded before it ever goes. Events go about once a minute, at most 100 to a batch, and a batch the server cannot take yet goes again later with the same bytes. Chat says so once, the first time.
+
+`hobkin telemetry upload status` says whether it is on, where events go, what waits and what went last. `hobkin telemetry upload off` stops it and drops what waits, and `on` starts again from that moment.
+
+## Feedback
+
+`/feedback` in Chat sends a report to hobkin's developers, such as `/feedback the reports list froze`. Start with `idea` or `template` for those, as in `/feedback idea: pin a report`. hobkin takes out emails, tokens and keys, credentials in URLs and paths in home folders, then shows the exact JSON and its SHA-256. Nothing goes without your yes, and the yes covers only those bytes, so changed words make a new draft. Redaction is best effort, so read it before you send. A report holds your words, its kind, the time and the hobkin, Node, platform and architecture it came from. No chat, memory, file or log goes with it.
+
+When the dashboard stops on an uncaught error, hobkin writes a crash report on this machine with the error's class and the stack frames inside hobkin, never its message. The next start offers it the same way, and `Don't send` deletes it. It never goes by itself.
+
+A report that cannot go yet waits in `feedback/outbox/` and is tried again for up to seven days. A sent one moves to `feedback/sent/` with the server's receipt. `hobkin feedback list` shows them all, `hobkin feedback delete <id>` deletes one here and on the server, and `hobkin feedback off` stops sending, even what waits, until `hobkin feedback on`.
 
 ## Memory search
 

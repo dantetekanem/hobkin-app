@@ -341,7 +341,7 @@ test('Tab on a bare slash walks every command and comes back round', () => {
 
   ui.input('/');
 
-  assert.deepEqual(Array.from({ length: 7 }, tab), ['/help', '/setup', '/clear', '/reset', '/work', '/learning', '/help']);
+  assert.deepEqual(Array.from({ length: 8 }, tab), ['/help', '/setup', '/clear', '/reset', '/work', '/learning', '/feedback', '/help']);
 });
 
 test('Ctrl+C clears what is typed and does not quit', () => {

@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "facts_are_optional": true,
+  "missing_means": "unknown, not zero",
+  "events": {
+    "app_opened": [],
+    "app_closed": [
+      "ms"
+    ],
+    "session_started": [
+      "session_id"
+    ],
+    "session_finished": [
+      "session_id",
+      "ms",
+      "status"
+    ],
+    "turn_started": [
+      "run_id"
+    ],
+    "turn_finished": [
+      "run_id",
+      "status",
+      "ms",
+      "limited",
+      "stop_reason"
+    ],
+    "run_started": [
+      "run_id",
+      "kind",
+      "lane",
+      "template_id",
+      "template_version",
+      "customized"
+    ],
+    "run_finished": [
+      "run_id",
+      "kind",
+      "lane",
+      "template_id",
+      "template_version",
+      "customized",
+      "status",
+      "ms",
+      "usd",
+      "tokens",
+      "limited",
+      "triage",
+      "next"
+    ],
+    "run_tokens": [
+      "run_id",
+      "tokens",
+      "cached"
+    ],
+    "decision_filed": [
+      "decision_id",
+      "source"
+    ],
+    "decision_answered": [
+      "decision_id",
+      "source",
+      "ms"
+    ],
+    "decision_recalled": [
+      "template_id",
+      "template_version",
+      "customized"
+    ],
+    "report_read": [
+      "report_id",
+      "ms"
+    ],
+    "report_messaged": [
+      "report_id"
+    ],
+    "question_shown": [],
+    "question_ended": [
+      "how",
+      "ms"
+    ],
+    "notice_posted": [
+      "source",
+      "tone"
+    ],
+    "error_shown": [
+      "from"
+    ],
+    "work_paused": [
+      "pause"
+    ],
+    "work_resumed": [
+      "pause"
+    ],
+    "launch_closed": [
+      "outcome"
+    ],
+    "harness_filed": [
+      "count"
+    ],
+    "done_page": [
+      "ms"
+    ],
+    "done_diff": [],
+    "done_merged": [],
+    "done_declined": [],
+    "done_sent_back": [],
+    "tab_opened": [
+      "tab"
+    ],
+    "compaction_started": [
+      "reason"
+    ],
+    "compaction_finished": [
+      "reason",
+      "status",
+      "ms"
+    ],
+    "crash_occurred": [
+      "component",
+      "category",
+      "fatal"
+    ]
+  },
+  "enums": {
+    "status": [
+      "succeeded",
+      "completed",
+      "failed",
+      "blocked",
+      "interrupted",
+      "cancelled"
+    ],
+    "kind": [
+      "main",
+      "routine",
+      "work",
+      "check",
+      "learning",
+      "unknown"
+    ],
+    "lane": [
+      "code",
+      "research",
+      "review",
+      "plan",
+      "execute",
+      "unknown"
+    ],
+    "source": [
+      "main",
+      "routine",
+      "work",
+      "check",
+      "system",
+      "unknown"
+    ],
+    "triage": [
+      "quiet",
+      "info",
+      "watch",
+      "act",
+      "urgent",
+      "unknown"
+    ],
+    "stop_reason": [
+      "stop",
+      "length",
+      "tool_use",
+      "error",
+      "aborted",
+      "unknown"
+    ],
+    "how": [
+      "answered",
+      "dismissed",
+      "expired",
+      "cancelled"
+    ],
+    "tone": [
+      "info",
+      "success",
+      "warning",
+      "error",
+      "quiet",
+      "urgent",
+      "neutral"
+    ],
+    "from": [
+      "refresh",
+      "main",
+      "runner",
+      "unknown"
+    ],
+    "pause": [
+      "user",
+      "limit",
+      "budget",
+      "manual",
+      "automatic",
+      "unknown"
+    ],
+    "outcome": [
+      "merged",
+      "declined",
+      "closed",
+      "failed",
+      "blocked",
+      "interrupted",
+      "cancelled",
+      "unknown"
+    ],
+    "tab": [
+      "main",
+      "routines",
+      "work",
+      "reports",
+      "decisions",
+      "settings",
+      "unknown"
+    ],
+    "reason": [
+      "manual",
+      "automatic",
+      "threshold",
+      "overflow",
+      "unknown"
+    ],
+    "component": [
+      "cli",
+      "main",
+      "runner",
+      "worker",
+      "ui",
+      "unknown"
+    ],
+    "category": [
+      "uncaught_exception",
+      "unhandled_rejection",
+      "out_of_memory",
+      "startup",
+      "unknown"
+    ]
+  },
+  "boolean_fields": [
+    "limited",
+    "next",
+    "customized",
+    "fatal"
+  ],
+  "integer_ranges": {
+    "ms": [
+      0,
+      604800000
+    ],
+    "tokens": [
+      0,
+      1000000000
+    ],
+    "cached": [
+      0,
+      1000000000
+    ],
+    "count": [
+      0,
+      1000000
+    ],
+    "template_version": [
+      1,
+      2147483647
+    ]
+  },
+  "usd_range": [
+    0,
+    1000000
+  ],
+  "identifiers": "All *_id fields are UUIDs. New transport IDs only, except template_id is the known published catalog UUID.",
+  "template_attribution": "template_id and template_version must occur together; omit both when provenance is unknown. customized distinguishes overrides.",
+  "enum_fallback": "Map to unknown only where that enum explicitly permits it; otherwise omit. Never pass raw local values or free text."
+}

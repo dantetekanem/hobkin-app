@@ -8,6 +8,7 @@ import {
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
+import { feedbackQuestion } from './feedback/draft.mjs';
 import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
 import { shownMood } from './mood.mjs';
 import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
@@ -182,6 +183,7 @@ const localCommands = [
   ['/reset', 'start a fresh main context'],
   ['/work', 'work mode'],
   ['/learning', 'learn from outcomes'],
+  ['/feedback', 'report a bug or an idea'],
 ];
 const settingCommands = {
   '/learning': {
@@ -1810,6 +1812,28 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       fail('Stop', error);
     }).finally(changed);
   };
+  // A report is drafted here, and only a yes to the exact bytes on screen sends it. Changing the words makes a new draft.
+  const askToSendFeedback = (submitted, words) => {
+    if (!words) {
+      say('Type /feedback and what happened. Start with idea or template for those.', 'info');
+      changed();
+      return;
+    }
+    pending = Promise.resolve().then(() => {
+      if (typeof callbacks.draftFeedback !== 'function') throw Error('Feedback unavailable');
+      return callbacks.draftFeedback(words);
+    }).then(async draft => {
+      const answer = await controller.askQuestion({ ...feedbackQuestion(draft), inChat: true });
+      if (answer !== 'send') {
+        say('Nothing was sent.', 'info', { timeout: 3000 });
+        return;
+      }
+      if (editor.getExpandedText() === submitted) editor.setText('');
+      const sent = await callbacks.sendFeedback(draft);
+      say(sent.message, sent.ok ? 'success' : 'warning');
+    }).catch(error => { fail('Feedback', error); })
+      .finally(changed);
+  };
   // Whatever someone is already typing comes first, and /setup is still there for them.
   const sendWaitingSetup = () => {
     if (!setupWaiting || !connected()) return;
@@ -1830,6 +1854,12 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       editor.addToHistory(submitted);
       if (['on', 'off'].includes(named)) setWorkFromChat(submitted, named === 'on');
       else startWorkIn(named);
+      return;
+    }
+    const feedback = submitted.match(/^\/feedback(?:\s+([\s\S]*))?$/);
+    if (feedback && !clearing) {
+      editor.addToHistory(submitted);
+      askToSendFeedback(submitted, feedback[1]?.trim() ?? '');
       return;
     }
     if (submitted.startsWith('/')) {

@@ -26,3 +26,4 @@
 /test/*
 !/test/*.mjs
 !/test/helpers/
+!/test/fixtures/

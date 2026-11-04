@@ -122,6 +122,15 @@ Your other agent sessions, such as Pi or Claude Code in another project, can han
 
 These commands write files on your machine and send nothing anywhere.
 
+## What leaves your machine
+
+Your model provider, and the tools you connect, see what agents work on. Beyond that, hobkin sends two things to its own server, and only from a machine enrolled with it. Enrolling is explicit provisioning, which writes `runtime/remote.json`. Without that file nothing is sent.
+
+- **Usage events, on by default.** Which parts of hobkin were used, and how runs, questions, decisions and crashes ended, as fixed words, counts and durations with fresh random ids. Never a message, a report, a name, a path or a local id. Chat says so the first time. `hobkin telemetry upload off` stops it, and `hobkin telemetry upload status` says what goes and where.
+- **Feedback, only when you send it.** `/feedback` in Chat drafts a report, shows its exact JSON and SHA-256, and sends it only on your yes. Emails, tokens, keys, credentials in URLs and home paths come out first. That is best effort, so read it before you say yes. After a crash, the next start offers a crash report the same way. `hobkin feedback list` shows what you sent, `hobkin feedback delete <id>` deletes one here and on the server, and `hobkin feedback off` stops sending, even what waits.
+
+The local event stream, your chats, reports and memory stay on your machine.
+
 ## Where to go next
 
 - `hobkin work help` lists every work mode command.
