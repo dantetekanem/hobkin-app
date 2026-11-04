@@ -2056,7 +2056,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (focus === 'decisions') {
       const selected = selectedDecisionRow();
       const answer = selected?.choices ? [[`1-${selected.choices.length}`, 'answer']] : [];
-      return [...answer, ...rowKeys(selected), ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
+      const reply = selected ? [['r', 'reply']] : [];
+      return [...answer, ...rowKeys(selected), ...reply, ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
     }
     if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
@@ -2148,7 +2149,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const [above, ...lines] = editor.render(inner - 4);
     const below = lines.pop();
     const paint = editor.focused && connected() ? assistantColor : muted;
-    const prompted = referencedReport ? 'Ask about this report…' : 'Message hobkin…';
+    const prompted = !referencedReport ? 'Message hobkin…' : referencedReport.kind === 'decision' ? 'Ask about this decision…' : 'Ask about this report…';
     const placeholder = askingWorkFolder ? 'A path, like ~/Projects'
       : connected() ? prompted : 'Connecting…';
     const empty = !editor.getExpandedText();
@@ -2623,6 +2624,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const occupied = () => Boolean(question || editor.getExpandedText() || choosing || askingWorkFolder || referencedReport
     || view === 'decisions' || (view === 'work' && workTab === 'done') || columns < 60 || rows < 18);
   // A number answers a question and Enter asks it in a box, Enter opens a report, and finished work opens the way it does in Done.
+  /** A row in Decisions can be talked over in Chat, as a report can: r opens Chat about it, and the main agent gets what the row says. */
+  const replyAbout = row => {
+    const lines = (row.lines ?? []).map(value => clean(value).trim()).filter(Boolean);
+    const title = (lines[0] ?? 'Decision').replace(/^[^\p{L}\p{N}]+/u, '');
+    referencedReport = { id: `decision:${row.key}`, kind: 'decision', title, at: new Date(now()).toISOString(), body: lines.join('\n') };
+    view = 'conversation';
+    focus = 'composer';
+    scroll = 0;
+  };
   const handleDecisionKey = data => {
     const list = decisionRows();
     const selected = selectedDecisionRow();
@@ -2636,6 +2646,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       openAsked(selected);
     } else if (selected?.report && key(data, 'enter')) {
       showReport(selected.report);
+    } else if (selected && (data === 'r' || data === 'R')) {
+      replyAbout(selected);
     } else {
       return actOnRow(selected, data);
     }

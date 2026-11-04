@@ -961,6 +961,25 @@ const toDecisions = ui => {
 };
 const step = { kind: 'item', project: 'finboard', slug: 'finboard', item: 'oauth', title: 'Rotate the OAuth secret', reason: 'Rotate it at Google.' };
 
+test('r on a row in Decisions opens Chat about it, and the message carries what the row says', async () => {
+  const sent = [];
+  const at = new Date().toISOString();
+  const ui = createDashboard({ ...base, connection: 'connected', waiting: waiting({ yours: [step] }) }, { send: async (text, about) => { sent.push({ text, about }); } });
+  toDecisions(ui);
+  assert.match(screen(ui), /r reply/);
+
+  ui.input('r');
+
+  assert.equal(ui.state().view, 'conversation');
+  assert.match(screen(ui), /↳ .*Rotate the OAuth secret/);
+  for (const letter of 'why?') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+  assert.equal(sent[0].text, 'why?');
+  assert.match(sent[0].about.body, /Rotate the OAuth secret/);
+  assert.ok(Date.parse(sent[0].about.at) >= Date.parse(at));
+});
+
 test('Decisions lists everything waiting in groups, with work mode off, and the tab counts all of it', () => {
   const ui = createDashboard({ ...base, decisions: [asked('one')], waiting: waiting({
     wrong: [{ key: 'launch:site:abc', tab: 'work', fact: 'website, new error since 14:02' }],
@@ -996,6 +1015,9 @@ test('a branch in Decisions opens its page with the same choices as in Done, and
   ui.input('r');
   await ui.pending();
   assert.deepEqual(actions, [], 'r does not review a card in Decisions');
+  assert.equal(ui.state().view, 'conversation', 'it opens Chat about the card instead');
+  ui.input('\x1b');
+  toDecisions(ui);
 
   ui.input('\r');
   await ui.pending();

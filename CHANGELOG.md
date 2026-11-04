@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- Talk about a decision. `r` on any row in Decisions opens Chat about it, the way `r` does on a report, and the main agent gets what the row says with the message. It answers and changes nothing by itself.
 - Stop keeping dead cards. An item an agent once called done while its branch still had work to merge sat under NOT LANDED, and every action on its card refused it, so asking to refresh and merge did nothing. The survey now makes such an item finished work again, every half hour, and refresh and merge takes one straight away. An item the user closed stays closed.
 - Start a work agent once its pane's shell is ready. A new pane whose shell was still starting made Herdr answer that the pane is not an available shell, and the run failed with that as its report. hobkin now asks again until the shell is ready, up to a minute, as it already did when the shell refused a long first line.
 - Say compacting once. While the main chat compacted, the row above the input said hobkin is compacting and the hints row said Compacting… as well. Now only the row above the input says it, between turns too.

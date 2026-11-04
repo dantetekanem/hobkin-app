@@ -142,6 +142,7 @@ Decisions lists everything waiting on you, with work mode on or off, and appears
 - Each card still opens by itself. Each says its priority, project, grades and size, and the selected one opens to what the work did, its proof, its PR and when it finished. Enter opens its page with its choices below it, as in Done, and Page Up and Page Down read the page. A PR merged from its card closes its item at once and leaves the list, and a card sent for a review leaves it until it comes back to approve with its grade.
 - A step only you can take opens in place with all it says, and its card marks it done once you have sorted it.
 - Enter on a report opens it in Reports.
+- `r` on any row opens Chat about it, as `r` does on a report: the input says what it is about, and the main agent gets what the row says with your message. It answers nothing and changes nothing by itself.
 
 A routine never asks the same thing twice. If you answered a question in the last 30 days, `hobkin decide` files nothing and hands the run your answer with its date, and the run carries on. Each question has a `key`, which comes from its words when the agent gives none. The agent can ask again only by saying what `changed`, and the tab shows that too. Work runs never get an earlier answer, because their one use of a question is deleting what git cannot restore.
 
