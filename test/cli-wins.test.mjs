@@ -45,6 +45,18 @@ test('wins count what merged and what the user decided today, and how many days 
   assert.equal(streak, 3, 'today, yesterday and the day before');
 });
 
+test('a group\'s yes counts each card it answered, and the line that sums them up is no decision of its own', t => {
+  const root = dataRoot(t);
+  for (const item of ['a', 'b']) {
+    recordCardAction(root, { did: 'merged it locally', project: 'site', item, title: item, line: `Merged "${item}" into main on site.` }, NOW - HOUR);
+  }
+  recordCardAction(root, { did: 'summed up a group', line: 'Merged all 2 here, with nothing pushed.', heard: true }, NOW - HOUR);
+
+  const { today } = winsNow(root, NOW);
+
+  assert.equal(today.decided, 2);
+});
+
 test('with nothing done yet today, the streak still counts up to yesterday', t => {
   const root = dataRoot(t);
   merged(root, site(root), 'Two', daysAgo(1));

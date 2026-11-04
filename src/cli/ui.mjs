@@ -15,6 +15,7 @@ import { IMAGE_ONLY_TEXT, MAX_IMAGES, previewRows } from './paste-image.mjs';
 import { readerText } from './reports.mjs';
 import { followPiTheme } from './theme.mjs';
 import { lookTime, shortPath } from './work/chat.mjs';
+import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle } from './work/groups.mjs';
 import { byPriority, byRank, foldersLeft, grades, prModes, tokenLabel } from './work/store.mjs';
 
 // The caller supplies already-loaded arrays; render never reads history or starts work.
@@ -166,6 +167,7 @@ const PASTE_NOTICE_MS = 4000;
 const RESULT_SHOWN_MS = 10000;
 const QUICK_ANSWER_MS = 3000;
 const MAX_REPOSITORIES_SHOWN = 8;
+const MOST_PAGE_STEP = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
 const workTabs = [{ name: 'now', label: 'Now' }, { name: 'done', label: 'Done' }];
@@ -878,7 +880,7 @@ const likeWords = ({ like }) => {
   const watched = merged === 1 ? ', still in its watch' : `, ${watching} still in a watch`;
   return `like ${merged} merged${from ? ` on ${clean(from)}` : ''}${watching ? watched : ''}`;
 };
-const landedFacts = entry => {
+const landedFacts = (entry, stateWords = mergeState) => {
   const { holds, onlyDocs, described, proved, unread } = entry;
   const facts = [
     unread && caution(clean(unread)),
@@ -889,8 +891,15 @@ const landedFacts = entry => {
     described === false && caution('no description'),
     proved === false && caution('no proof'),
   ];
-  return [safetyWords(entry), qualityWords(entry), mergeState(entry), ...facts].filter(Boolean).join(muted(' · '));
+  return [safetyWords(entry), qualityWords(entry), stateWords(entry), ...facts].filter(Boolean).join(muted(' · '));
 };
+// A group's heading says whether its rows merge as they are, so a row in one keeps only what stands in its way, and not knowing is in its way.
+const groupedState = ({ conflict, behind, unread }) => {
+  if (conflict === null && !unread) return caution('not checked for conflicts yet');
+  if (conflict) return caution('needs a rebase');
+  return behind > 0 ? dim(`${behind} behind`) : '';
+};
+const groupedFacts = entry => (entry.left ? caution(clean(`Left for you: ${entry.left}`)) : landedFacts(entry, groupedState));
 // A row carries the commit it showed, so a merge can refuse a branch that moved since.
 const doneRow = (entry, type, facts) => {
   const { slug, project, item, title, grade, head = null, pr = null, safety, conflict = null, behind = 0 } = entry;
@@ -908,7 +917,7 @@ const doneRow = (entry, type, facts) => {
     behind,
     rated: Boolean(safety) && !safety.stale,
     risky: safety?.grade === 'risky' && !safety.stale,
-    lines: [`${positive('●')} ${priority}${clean(project)}: ${clean(title)}`, `  ${facts}`],
+    lines: [`${positive('●')} ${priority}${clean(project)}: ${clean(shownTitle(title))}`, `  ${facts}`],
   };
 };
 // A grade is information, so a merge says nothing of a missing one. Only a review that rated this commit risky is worth a word on the merge.
@@ -944,11 +953,11 @@ const cardChoices = card => {
 const urgencyOf = ({ grade }) => (grades.includes(grade) ? grades.indexOf(grade) : grades.length);
 const byUrgency = (first, second) => urgencyOf(first) - urgencyOf(second);
 const closingRow = ({ project, title, doing }, inner) => ({
-  lines: [row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(clean(doing)), inner)],
+  lines: [row(`${muted('◐')} ${clean(project)}: ${clean(shownTitle(title))}`, dim(clean(doing)), inner)],
 });
 const watchRow = ({ project, title, stage, since, known }, inner, clock) => ({
   lines: [
-    row(`${muted('◐')} ${clean(project)}: ${clean(title)}`, dim(`${clean(stage)} ${relativeTime(timeOf(since), clock)}`), inner),
+    row(`${muted('◐')} ${clean(project)}: ${clean(shownTitle(title))}`, dim(`${clean(stage)} ${relativeTime(timeOf(since), clock)}`), inner),
     `  ${dim(line(clean(known), inner - 2))}`,
   ],
 });
@@ -958,15 +967,63 @@ const landRows = (rows, type) => {
   const more = rows.length - shown.length;
   return more > 0 ? [...shown, { lines: [muted(`  and ${more} more`)] }] : shown;
 };
+// The second line stays while a group's yes is carried out, so the list never jumps. Enter does nothing until it ends.
+const groupRow = ({ name, rows: entries }, running) => {
+  const words = groupWords[name];
+  const going = running.get(name);
+  const action = going ? `${caution('◐')} ${dim(words.underWay(going))}` : `${highlight('▸')} ${bold(words.action(entries.length))}`;
+  const lines = [action, `  ${dim(words.why(entries.length))}`];
+  return {
+    key: `group:${name}`,
+    type: 'group',
+    name,
+    entries,
+    running: Boolean(going),
+    lit: 1,
+    lines,
+    render: () => lines,
+  };
+};
+/** What to approve, in the groups one yes can finish, each led by its action. Done and Decisions list the same groups, and `card` draws each row. */
+const approvalSections = (entries, card, running) => approvalGroups(entries).map(group => [
+  groupWords[group.name].heading,
+  [...(group.name === 'needs' ? [] : [groupRow(group, running)]), ...group.rows.map(entry => card(entry))],
+  null,
+  String(group.rows.length),
+]);
+// The yes covers what this page lists, so every title comes first and in full, numbered in the order they go, and what the yes does comes after.
+const groupReading = ({ name, entries, inner }) => {
+  const plan = groupPlan(name, entries);
+  const numberWidth = String(entries.length).length;
+  const stepLines = ({ number, title, note }) => {
+    const mark = `${String(number).padStart(numberWidth)}. `;
+    const room = inner - 2 - mark.length;
+    const lines = wrapped(title, room);
+    const last = lines.at(-1) ?? '';
+    const tail = ` · ${note}`;
+    const noteFits = visibleWidth(last) + visibleWidth(tail) <= room;
+    const noted = noteFits ? [...lines.slice(0, -1), `${last}${dim(tail)}`] : [...lines, dim(note)];
+    return noted.map((value, index) => `  ${index ? ' '.repeat(mark.length) : mark}${value}`);
+  };
+  return {
+    content: [
+      ...wrapped(`${plan.name}, in this order`, inner).map(bold),
+      '',
+      ...plan.projects.flatMap(({ project, steps }) => [bold(clean(project)), ...steps.flatMap(stepLines)]),
+      '',
+      ...wrapped(plan.about, inner).map(dim),
+    ],
+  };
+};
 const inGaps = (ready, ...gaps) => ready.filter(({ gap = 'land' }) => gaps.includes(gap));
 const waitingGaps = ['land', 'rebase', 'unlanded', 'yours', 'elsewhere'];
 const doneCount = ({ ready = [] }) => inGaps(ready, ...waitingGaps).length;
-const doneSections = ({ work: { ready = [], closing = [], watching = [] }, inner, clock }) => {
+const doneSections = ({ work: { ready = [], closing = [], watching = [] }, inner, clock, running = new Map() }) => {
   const land = inGaps(ready, 'land', 'rebase').toSorted(byUrgency);
   const unlanded = inGaps(ready, 'unlanded');
   const sections = [
     ['BY PROJECT', pileRows({ branches: inGaps(ready, ...waitingGaps) })],
-    ['TO APPROVE', landRows(land, 'ready'), null, String(land.length)],
+    ...approvalSections(land, entry => doneRow(entry, 'ready', groupedFacts(entry)), running),
     ['NOT LANDED', landRows(unlanded, 'unlanded'), null, String(unlanded.length)],
     ['AGENT ON IT', closing.map(entry => closingRow(entry, inner))],
     ['WATCHING', watching.map(entry => watchRow(entry, inner, clock))],
@@ -989,7 +1046,7 @@ const doneReading = ({ entry, description, inner }) => {
   const said = description ?? summary ?? 'This branch has no description yet.';
   return {
     content: [
-      ...wrapped(`${clean(project)}: ${clean(title)}`, inner).map(bold),
+      ...wrapped(`${clean(project)}: ${clean(shownTitle(title))}`, inner).map(bold),
       landedFacts(entry),
       ...reason,
       ...leftFor,
@@ -1154,8 +1211,8 @@ const cardDetails = ({ about, proof, pr, at }, inner, clock) => {
   return where ? [...told, `  ${muted(line(where, inner - 2))}`] : told;
 };
 // Only the card's heading and facts light up when selected, so what it opens to stays easy to read.
-const branchRow = entry => {
-  const { lines, ...done } = doneRow(entry, branchType(entry), branchFacts(entry));
+const branchRow = (entry, facts = branchFacts(entry)) => {
+  const { lines, ...done } = doneRow(entry, branchType(entry), facts);
   const opens = approvalTypes.includes(done.type);
   return {
     ...done,
@@ -1201,7 +1258,7 @@ const stepRow = ({ project, slug, item, title, reason }) => ({
   render: (open, inner) => {
     const told = clean(reason ?? 'Only you can do this one.');
     const facts = open ? wrapped(told, inner - 2) : [told];
-    return [`${positive('●')} ${clean(project ?? slug)}: ${clean(title)}`, ...facts.map(value => `  ${caution(value)}`)];
+    return [`${positive('●')} ${clean(project ?? slug)}: ${clean(shownTitle(title))}`, ...facts.map(value => `  ${caution(value)}`)];
   },
 });
 const troubleRow = ({ key: trouble, fact, report }) => ({
@@ -1212,17 +1269,17 @@ const troubleRow = ({ key: trouble, fact, report }) => ({
 });
 const callRow = ({ id, title, next }) => ({ key: `report:${id}`, type: 'report', report: id, render: () => [`${positive('●')} ${clean(title)}`, `  ${dim(clean(next))}`] });
 /**
- * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work by
- * priority, steps only they can take and reports with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
+ * Everything that waits on the user, one row for each thing the card counts, in groups: what went wrong, questions, finished work in the groups
+ * one yes can finish, steps only they can take and reports with a call. The selected row is `chosen` while it is still listed, and the first row otherwise.
  */
-const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
+const decisionSections = ({ decisions, waiting, chosen, inner, clock, running = new Map() }) => {
   const { wrong = [], asks = [], proposals = [], branches = [], yours = [], reports = [] } = waiting ?? {};
-  const branchesOf = type => branches.filter(entry => branchType(entry) === type).map(branchRow);
-  const toApprove = branches.filter(entry => approvalTypes.includes(branchType(entry))).toSorted(byUrgency).map(branchRow);
+  const branchesOf = type => branches.filter(entry => branchType(entry) === type).map(entry => branchRow(entry));
+  const toApprove = branches.filter(entry => approvalTypes.includes(branchType(entry))).toSorted(byUrgency);
   const groups = [
     ['WENT WRONG', wrong.map(troubleRow)],
     ['QUESTIONS', [...decisions.map(questionRow), ...proposals.map(learningRow), ...asks.map(askRow)]],
-    ['TO APPROVE', toApprove],
+    ...approvalSections(toApprove, entry => branchRow(entry, groupedFacts(entry)), running),
     ['NOT LANDED', branchesOf('unlanded')],
     ['YOUR TURN', yours.map(step => (step.kind === 'item' ? stepRow(step) : branchRow(step)))],
     ['ALREADY ELSEWHERE', branchesOf('elsewhere')],
@@ -1230,7 +1287,7 @@ const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
   ].filter(([, rows]) => rows.length);
   const keys = groups.flatMap(([, rows]) => rows.map(({ key: rowKey }) => rowKey)).filter(Boolean);
   const selectedKey = keys.includes(chosen) ? chosen : keys[0] ?? null;
-  const sections = groups.map(([heading, rows]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) }))]);
+  const sections = groups.map(([heading, rows, ...rest]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) })), ...rest]);
   return { sections, selectedKey };
 };
 // What got done today and the days in a row, so walking the list keeps a cadence.
@@ -1356,6 +1413,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let view = 'conversation';
   let scroll = 0;
   let listTop = 0;
+  // The rows a page showed when last drawn, so a page key never steps past a line nobody saw.
+  let pageRows = MOST_PAGE_STEP + 1;
   let rows = 24;
   let columns = 80;
   let contentBounds = { top: 0, bottom: 0 };
@@ -1383,6 +1442,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let askingWorkFolder = false;
   let workTab = 'now';
   let donePage = null;
+  // A group asking for its yes, with exactly the rows its page lists, and the groups whose yes is being carried out, with how many rows each.
+  let groupPage = null;
+  const runningGroups = new Map();
+  const onPage = () => Boolean(donePage || groupPage);
   // How each row was read, which a merge passes on. Time adds up over visits to the page.
   const readings = new Map();
   // The open card, or the question row, asking what to do: the box of choices that holds the keys until it is answered or left.
@@ -1492,14 +1555,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const moodNow = clock => faceNow(clock).mood;
   const currentWorkSections = (inner, clock, frame) => {
     const work = snapshot.work ?? {};
-    return workTab === 'done' ? doneSections({ work, inner, clock }) : workSections({ work, runs: workRuns(), inner, clock, frame });
+    return workTab === 'done' ? doneSections({ work, inner, clock, running: runningGroups }) : workSections({ work, runs: workRuns(), inner, clock, frame });
   };
   const selectedWorkRow = (sections = currentWorkSections(columns - 4, now(), '')) => {
     const rows = sections.flatMap(([, entries]) => entries).filter(entry => entry.key);
     const answerable = rows.find(entry => answerableRows.includes(entry.type));
     return rows.find(entry => entry.key === workKey) ?? answerable ?? rows[0] ?? null;
   };
-  const currentDecisions = (inner = columns - 4, clock = now()) => decisionSections({ decisions: decisions(), waiting: snapshot.waiting, chosen: decisionKey, inner, clock });
+  const currentDecisions = (inner = columns - 4, clock = now()) => decisionSections({ decisions: decisions(), waiting: snapshot.waiting, chosen: decisionKey, inner, clock, running: runningGroups });
   const decisionRows = () => currentDecisions().sections.flatMap(([, entries]) => entries).filter(entry => entry.key);
   const selectedDecisionRow = () => {
     const { sections, selectedKey } = currentDecisions();
@@ -1959,7 +2022,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const invalid = invalidSchedules().length;
     if (invalid) header.push(warning(`▲ ${invalid} invalid routine${invalid === 1 ? '' : 's'} · see Routines`));
     if (showsReportList()) return [...header, ...reportTabRows(inner, header.length)];
-    return view === 'work' && !donePage ? [...header, ...workTabRows(inner, header.length)] : [...header, ''];
+    return view === 'work' && !onPage() ? [...header, ...workTabRows(inner, header.length)] : [...header, ''];
   };
 
   // A row's keys are the same in Work and in Decisions. Each type is listed in only one of them. A card takes no letters: it opens and asks.
@@ -1969,6 +2032,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
     allowance: [['y', 'raise'], ['n', 'keep paused']],
     run: [['enter', 'watch']],
+    group: selected?.running ? [] : opens,
     ready: opens,
     pr: opens,
     yours: opens,
@@ -1983,7 +2047,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const hintsFor = draft => {
     if (question?.rows) return [[`1-${question.choices.length}`, 'answer'], ['↑↓', 'choose'], ['esc', 'not now']];
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
-    if (choosing) return [['↑↓', 'choose'], ['enter', 'pick'], ...(donePage ? [['pgup/pgdn', 'read']] : []), ['esc', 'back']];
+    if (choosing) return [['↑↓', 'choose'], ['enter', 'pick'], ...(onPage() ? [['pgup/pgdn', 'read']] : []), ['esc', 'back']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
     if (focus === 'decisions') {
@@ -2200,6 +2264,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }),
       };
     }
+    if ((view === 'work' || view === 'decisions') && groupPage) return groupReading({ ...groupPage, inner });
     if ((view === 'work' || view === 'decisions') && donePage) return doneReading({ ...donePage, inner });
     if (view === 'decisions') return decisionLines({ ...currentDecisions(inner, clock), inner, wins: snapshot.wins });
     if (view === 'work' && workTab === 'done') {
@@ -2324,14 +2389,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   // Leaving the box leaves the card, and the list comes back on the row the user was on.
   const closeCard = () => {
     choosing = null;
+    groupPage = null;
     leaveReading();
   };
-  // Whatever was answered leaves the list, so the list comes back with the next row selected, ready for Enter.
-  const walkOn = selected => {
+  // Whatever was answered leaves the list, so the list comes back on the next row that stays, ready for Enter.
+  const walkOn = (selected, leaves = entry => entry.key === selected.key) => {
     const rows = listRows();
     const index = rows.findIndex(entry => entry.key === selected.key);
-    const next = rows[index + 1] ?? rows[index - 1];
-    selectInList(next?.key ?? null);
+    const after = rows.slice(index + 1).find(entry => !leaves(entry));
+    const before = rows.slice(0, Math.max(0, index)).findLast(entry => !leaves(entry));
+    selectInList((after ?? before)?.key ?? null);
     closeCard();
   };
   const selectedDone = () => {
@@ -2382,11 +2449,44 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     runCardAction(...cardRequest(card, value, typed));
   };
   const openCard = card => openChoices({
-    question: `${clean(card.project ?? card.slug)}: ${clean(card.title)}. What do you want to do?`,
+    question: `${clean(card.project ?? card.slug)}: ${clean(shownTitle(card.title))}. What do you want to do?`,
     choices: cardChoices(card),
     takesChanges: approvalTypes.includes(card.type),
     onPick: (value, typed) => answerCard(card, value, typed),
   });
+  // Each row goes the way its own card would, at the commit the card showed, with how it was read.
+  const groupRequest = entries => entries.map(entry => ({
+    slug: entry.slug,
+    item: entry.item,
+    how: landingWay(entry),
+    ...pinnedTo(entry),
+    ...readingOf({ slug: entry.slug, id: entry.item }),
+  }));
+  /** The yes carries out exactly what the group's page listed, even if the list has changed since, and the list comes back past the group. */
+  const answerGroup = (group, { name, entries }) => {
+    const listed = entry => entries.some(({ slug, item }) => slug === entry.slug && item === entry.id);
+    walkOn(group, entry => entry.key === group.key || listed(entry));
+    runningGroups.set(name, entries.length);
+    runCardAction('group', groupRequest(entries));
+    pending = pending.finally(() => {
+      runningGroups.delete(name);
+      changed();
+    });
+  };
+  // A group asks the way a card does: its page lists every row its yes carries out, and its one choice is that yes.
+  const openGroup = group => {
+    if (runningGroups.has(group.name)) return;
+    const words = groupWords[group.name];
+    const page = { name: group.name, entries: group.entries };
+    const count = page.entries.length;
+    groupPage = page;
+    scroll = 0;
+    openChoices({
+      question: words.question(count),
+      choices: [choice('go', words.action(count))],
+      onPick: () => answerGroup(group, page),
+    });
+  };
   // A question's answer selects the next row, as anything answered does, and says how long the question was read.
   const answerAsked = (row, value, readSince) => {
     if (row.decision && readSince !== null) record('decision_read', { id: row.decision.id, ms: now() - readSince });
@@ -2406,7 +2506,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return;
     }
     if (key(data, 'pageUp') || key(data, 'pageDown')) {
-      scroll = Math.max(0, scroll + (key(data, 'pageDown') ? 8 : -8));
+      const step = Math.max(1, Math.min(MOST_PAGE_STEP, pageRows - 1));
+      scroll = Math.max(0, scroll + (key(data, 'pageDown') ? step : -step));
       return;
     }
     const listKey = key(data, 'up') || key(data, 'down') || key(data, 'enter');
@@ -2450,6 +2551,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else if (selected?.type === 'proposal' && data === 'n') answerProposal(selected, 'skip', selected.slug);
     else if (selected?.type === 'allowance' && data === 'y') runCardAction('allow');
     else if (selected?.type === 'allowance' && data === 'n') runCardAction('keep');
+    else if (selected?.type === 'group' && key(data, 'enter')) openGroup(selected);
     else if (doneRowTypes.includes(selected?.type) && key(data, 'enter')) readRow(selected);
     else if (selected?.type === 'left' && key(data, 'enter')) openCard(selected);
     else return false;
@@ -2485,6 +2587,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     askingWorkFolder = false;
     choosing = null;
     donePage = null;
+    groupPage = null;
     typingFilter = false;
     view = name;
     if (view === 'conversation') {
@@ -2536,6 +2639,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     workTab = name;
     workKey = null;
     donePage = null;
+    groupPage = null;
     scroll = 0;
   };
   const handleWorkTabsKey = data => {
@@ -2910,6 +3014,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const header = renderHeader(inner, frame);
       const footer = renderFooter(inner, height, header.length, clock, frame);
       const available = Math.max(1, height - header.length - footer.length);
+      pageRows = available;
       contentBounds = { top: header.length, bottom: height - footer.length };
 
       const { content, ranges = [], days = [], marks, selectedRange } = renderContent(inner, available, clock, frame);
@@ -2919,7 +3024,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       if (!question || followsTail()) scroll = Math.min(scroll, maximum);
       const displayScroll = Math.min(scroll, maximum);
       // An open card's page scrolls like any page, and the list behind it keeps its place.
-      const listMode = !donePage && (showsReportList() || view === 'work' || view === 'decisions');
+      const listMode = !onPage() && (showsReportList() || view === 'work' || view === 'decisions');
       if (listMode) {
         const [start, end] = selectedRange ?? ranges[selectedIndex()] ?? [0, 0];
         if (start < listTop) listTop = start;

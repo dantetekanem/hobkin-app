@@ -221,6 +221,26 @@ test('in the Done walk, what the user did with a branch is recorded, and what fa
   assert.doesNotMatch(h.written(), /private note/);
 });
 
+test('a group answered at once records each merge as a card\'s merge does, and nothing for a row that did not merge', async t => {
+  const h = fixture(t);
+  const checkout = repository(h.root, 'api');
+  const { slug } = chooseProject(h.root, checkout, 'important');
+  const file = title => {
+    const { id } = fileItem(h.root, slug, { key: title, kind: 'fix', title, brief: 'Evidence and first change.' });
+    branched(checkout, `hobkin/${title}`);
+    updateItem(h.root, slug, id, { state: 'branch', branch: `hobkin/${title}`, proof: 'It passed.' });
+    return id;
+  };
+  const app = await h.openApp();
+
+  const merged = file('one');
+  const moved = file('two');
+  await app.workAction('group', [{ slug, item: merged, how: 'merge' }, { slug, item: moved, head: 'an older commit', how: 'merge' }]);
+  await app.close();
+
+  assert.deepEqual(h.ofType('done_merged').map(event => [event.project, event.item]), [[slug, merged]]);
+});
+
 test('work mode pausing and resuming records the kind of pause', async t => {
   const h = fixture(t);
   const app = await h.openApp();

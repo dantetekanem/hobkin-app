@@ -83,14 +83,16 @@ In the Work Mode tab:
 - `s` skips a queue row or puts it back.
 - `Enter` on a queue row runs it next.
 
-The Done subtab walks through finished work, the highest priority first, each with its safety grade. Enter opens a card's page, with the one risk its review named, where to look first and how to undo it, and below it the card asks what to do, each choice in words: the arrows choose and Enter picks.
+The Done subtab lists finished work in three groups, and Decisions lists the same ones. READY TO MERGE is what one yes can land: it has proof, no conflict and no grade against its commit, and it brings no other branch along. REFRESH THEN MERGE is the same work behind its base. NEEDS YOU is the rest, and each card says what is in its way. A group starts with its action, such as `Merge all 9`. Enter opens a page with every title it will carry out, by project and in order, and one more Enter does exactly those, each at the commit its card showed. One that cannot go says why in Chat, and the rest still go.
+
+Every card still opens by itself, the highest priority first, each with its safety grade. Enter opens a card's page, with the one risk its review named, where to look first and how to undo it, and below it the card asks what to do, each choice in words: the arrows choose and Enter picks.
 
 - `Merge it` merges the branch on this machine and pushes nothing. A branch behind its base offers `Refresh and merge it`: an agent brings it up to date and runs its proof again, and hobkin merges it once that run ends well.
 - A card offers its merge first, graded or not, and `Get it reviewed` further down. Only a card rated risky at its commit offers its review first, and its merge says so. A review runs only when you ask for one.
 - `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type.
 - Under NOT LANDED, a card closes a branch whose item says done, for good.
 
-Whatever you do on a card, Chat says so in one line that names the project and the title, with the link for a PR. The main agent hears it with your next message. A PR you merge from its card closes at once and leaves the list.
+Whatever you do on a card, Chat says so in one line that names the project and the title, with the link for a PR. The main agent hears it with your next message. A group's yes gets the same line for each card, then one line that sums it up. A PR you merge from its card closes at once and leaves the list.
 
 Once you merge and push, hobkin watches what happens next. A check every half hour, with no model, sees whether origin has the change, whether CI passed and whether a revert landed, and a look reads the project's logs and errors. WATCHING on the Done subtab shows each change as it goes. When one goes wrong, hobkin files an urgent fix, and `hobkin work trouble <project> <item>` says so yourself. Agents never deploy, roll back or revert your default branch.
 

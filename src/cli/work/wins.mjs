@@ -39,7 +39,10 @@ function winsByDay(root, since) {
   for (const { at, type, source } of readEvents(root, { since })) {
     if (type === 'decision_answered' && source !== CARD) add(at, 'decided');
   }
-  for (const { at } of allCardActions(root)) add(at, 'decided');
+  // Each card a group's yes answered is counted, so the line that sums the group up is no decision of its own.
+  for (const { at, item } of allCardActions(root)) {
+    if (item) add(at, 'decided');
+  }
   return days;
 }
 

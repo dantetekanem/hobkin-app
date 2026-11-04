@@ -544,6 +544,37 @@ test('the main agent hears ten things the user did at a time, and the rest with 
   }
 });
 
+test('a group answered at once says each row in Chat and one line that sums it up, and the main agent hears each row once', async t => {
+  const h = fixture(t);
+  pile(h.root, 3);
+  const rows = readItems(h.root, 'api').map(({ id }, index) => {
+    updateItem(h.root, 'api', id, { state: 'pr', pr: `https://example.com/pull/${index}` });
+    return { slug: 'api', item: id, head: `abc${index}`, how: 'mergePr' };
+  });
+  const gh = async ([, verb, url]) => {
+    if (verb === 'merge' && url.endsWith('/1')) throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.' });
+    return '';
+  };
+  const app = await h.openApp();
+  try {
+    await app.workAction('group', rows, { gh });
+    const lines = systemLines(await app.refresh()).map(({ content }) => content);
+
+    assert.equal(lines.length, 4);
+    assert.match(lines[0], /^Merged the PR for "Row 0" on api/);
+    assert.equal(lines[1], '"Row 1" on api did not merge: Head branch was modified.');
+    assert.match(lines[2], /^Merged the PR for "Row 2" on api/);
+    assert.match(lines[3], /^Merged 2 of 3\b/);
+
+    const sent = t.mock.method(app.runtime, 'send');
+    await app.send('what happened?');
+    const heard = noteOf(sent.mock.calls[0].arguments[0]).userDid.map(({ did, title }) => [did, title]);
+    assert.deepEqual(heard, [['merged the PR', 'Row 0'], ['could not merge it', 'Row 1'], ['merged the PR', 'Row 2']]);
+  } finally {
+    await app.close();
+  }
+});
+
 test('a deleted session report stays deleted', async t => {
   const h = fixture(t);
   saveReport(h.root, 'session:hobkin-gone', 'Gone.');

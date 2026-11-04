@@ -28,6 +28,7 @@ import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
 import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
+import { mergeGroup } from './work/merge-group.mjs';
 import { answerPickUp, filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
 import { answerSubscriptionPause } from './work/subscription.mjs';
@@ -756,14 +757,19 @@ export class HobkinApplication {
       mergePr: () => mergePullRequest(root, slug, value, extra),
       refreshMerge: () => refreshThenMerge(root, slug, value, { ...extra, now: this.now() }),
       open: () => openPullRequest(root, slug, value),
+      // A group's one yes comes as its rows, in the order they go, in place of a project.
+      group: () => mergeGroup(root, slug, { ...value, now: this.now() }),
     };
     const result = await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
-    if (result?.told) {
-      recordCardAction(root, result.told, this.now());
-      this.moods.react({ event: 'card', did: result.told.did });
+    for (const { action: walked, slug: project, item } of result?.walked ?? []) {
+      if (WALK_EVENTS[walked]) recordEvent(root, WALK_EVENTS[walked], { project, item });
     }
-    if (result?.handOff) this.handOff(result.handOff);
+    for (const told of [result?.told ?? []].flat()) {
+      recordCardAction(root, told, this.now());
+      this.moods.react({ event: 'card', did: told.did });
+    }
+    for (const job of [result?.handOff ?? []].flat()) this.handOff(job);
     await this.director.tick();
     // A refresh already under way read the state before this change, and the screen must show the change.
     await this.refreshing?.catch(() => {});
