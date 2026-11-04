@@ -660,3 +660,14 @@ test('the usage names hobkin learning', async t => {
 
   assert.match(h.output.text, /learning \[on \| off \| clear <id> \| clear all \| answer <id> yes\|later\|no\]/);
 });
+
+test('version, --version and -v print the version in package.json, and the usage starts with it', async t => {
+  const h = fixture(t);
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+  for (const args of [['version'], ['--version'], ['-v']]) assert.equal(await main(args, h.output), 0);
+  assert.equal(h.output.text, `hobkin ${version}\n`.repeat(3));
+
+  await main(['--help'], h.output);
+  assert.match(h.output.text, new RegExp(`hobkin ${version.replaceAll('.', '\\.')}\\nUsage: hobkin`));
+});

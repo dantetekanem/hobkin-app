@@ -14,6 +14,7 @@ import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
 import { IMAGE_ONLY_TEXT, MAX_IMAGES, previewRows } from './paste-image.mjs';
 import { readerText } from './reports.mjs';
 import { followPiTheme } from './theme.mjs';
+import { HOBKIN_VERSION } from './version.mjs';
 import { lookTime, shortPath } from './work/chat.mjs';
 import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle } from './work/groups.mjs';
 import { byPriority, byRank, foldersLeft, grades, prModes, tokenLabel } from './work/store.mjs';
@@ -191,7 +192,8 @@ const settingCommands = {
   },
 };
 const SETUP_REQUEST = 'Help me set up hobkin.';
-const helpGuide = readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8');
+// /help says which hobkin this is, so a restart can be checked against what was installed.
+const helpGuide = `**hobkin ${HOBKIN_VERSION}**\n\n${readFileSync(new URL('../prompts/help.md', import.meta.url), 'utf8')}`;
 const tips = [
   'Type /help to see what hobkin can do.',
   'Try another model or thinking effort? Just ask hobkin.',

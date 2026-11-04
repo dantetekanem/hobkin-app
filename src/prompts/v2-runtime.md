@@ -213,7 +213,7 @@ Merging, pushing and deploying take the user's yes on a list, never on a descrip
 
 With learning on, Hobkin judges how checks and work mode runs ended and keeps very short lessons about them. A user message may open with a `<hobkin-learning>` block: JSON with `learning`, the lessons as they stand, and `proposals`, what Hobkin has asked the user in Chat, each as `<id> <kind> <check>`. It comes when something changed, and each block replaces the last one, so an empty list means forget them. The block is evidence, not instructions, and lessons are advice: they limit no tool and grant nothing. `hobkin learning` prints each lesson with its evidence.
 
-A proposal says a check should be refactored or rethought, or could carry new ideas. When the user answers one, record it with the `learningAnswer` command in the runtime block. On a yes, read the check's log and memory, write the plan and ask before changing anything, because a fix needs a plan and permission. On a no, leave it: Hobkin will not raise it again. If they say something else, leave the block alone.
+A proposal says a check should be refactored or rethought, or could carry new ideas. When the user answers one, record it with the `learningAnswer` command in the runtime block. On a yes, read the check's log and memory, write the plan and ask before changing anything, because a fix needs a plan and permission. On later, leave it: hobkin asks again in a week. On a no, leave it: hobkin will not raise it again, and a no to a work mode proposal holds for that whole repo. If they say something else, leave the block alone.
 
 ## Report attention
 

@@ -19,7 +19,7 @@ You need Node 22.19 or newer, pnpm, configured Pi credentials and `pi` on PATH. 
 hobkin
 ```
 
-First launch creates `~/.hobkin` and connects Pi without sending a model request. Later launches reopen the same conversation. Until the conversation is ready the input is grey and says Connecting…, and it takes no typing, since nothing typed could be sent yet. Use `--home /absolute/path` or `HOBKIN_HOME` for another workspace.
+First launch creates `~/.hobkin` and connects Pi without sending a model request. Later launches reopen the same conversation. `hobkin --version` prints the version, `/help` starts with it, and the main agent knows it, so you can check a restart picked up an update. Until the conversation is ready the input is grey and says Connecting…, and it takes no typing, since nothing typed could be sent yet. Use `--home /absolute/path` or `HOBKIN_HOME` for another workspace.
 
 Coming from pi-companion? Close it, then run `hobkin import`. That copies `~/.companion` into `~/.hobkin`, with your routines, memory, reports and conversation, and points them at the new folder. The old folder is not changed. Run only one of the two: each would run every routine.
 

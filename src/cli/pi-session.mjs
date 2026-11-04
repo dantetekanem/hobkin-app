@@ -14,6 +14,7 @@ import { compactAtForceLevel } from './compaction.mjs';
 import { extensionPaths } from './pi-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 import { hobkinCommand } from './work/chat.mjs';
+import { HOBKIN_VERSION } from './version.mjs';
 
 /** Caller holds the conversation reservation until the SDK and its compaction/retries settle. */
 export async function withPiCancellation(session, signal, operation) {
@@ -114,6 +115,7 @@ function mainPrompts(root, config) {
       background: config.background,
       learningAnswer: hobkinCommand(root, 'learning answer <id> yes|later|no'),
       profile: hobkinCommand(root, 'profile'),
+      version: HOBKIN_VERSION,
     }, null, 2)));
 }
 
