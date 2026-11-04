@@ -26,6 +26,12 @@ const QUEUE_KEY = /^(item|look|study|ideas|signals|watch):([^:]+)(?::(.+))?$/;
 const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch'];
 // A finished branch can go round again. Its item goes back to `open`, and the next run picks up from that branch.
 const statesThatRun = [...runnableStates, 'branch'];
+// A look's pace in the words people use: every hour, every 12 hours, every day, every 3 days, every week.
+const everyWords = hours => {
+  if (hours % 168 === 0) return hours === 168 ? 'every week' : `every ${hours / 168} weeks`;
+  if (hours % 24 === 0) return hours === 24 ? 'every day' : `every ${hours / 24} days`;
+  return hours === 1 ? 'every hour' : `every ${hours} hours`;
+};
 // `done` here is an older record of finished work, and Done lists it as not landed.
 const statesThatMerge = ['branch', 'done'];
 const OFFER_HOLD_MS = 24 * 3600000;
@@ -305,7 +311,7 @@ export function setLevel(root, reference, word) {
 export function setPriority(root, reference, word) {
   const project = findProject(root, reference);
   const changed = setProjectPriority(root, project.slug, word);
-  return reply(`${nameOf(project)} is now ${changed.priority}, with a look every ${lookEveryHours(changed)} hours. Its work takes its new place in the queue on the next tick.`);
+  return reply(`${nameOf(project)} is now ${changed.priority}, with a look ${everyWords(lookEveryHours(changed))}. Its work takes its new place in the queue on the next tick.`);
 }
 
 export function setPrMode(root, reference, word) {
