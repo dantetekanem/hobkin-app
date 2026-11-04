@@ -2,6 +2,7 @@
 
 ## 2026-11-04
 
+- Name `/feedback` in `/help`, and say there that Esc stops hobkin while it works.
 - Send feedback and usage events to hobkin's server, from a machine enrolled with it. `/feedback` in Chat shows the exact redacted JSON and its SHA-256 and sends only on a yes, a crash leaves a draft that the next start offers, and `hobkin feedback [list | on | off | delete <id>]` lists, stops or takes back what was sent. Usage events go by themselves and are on by default: fixed words, counts and fresh ids built from the local stream, never text, names, paths or local ids, and Chat says so once. `hobkin telemetry upload [on | off | status]` sets it, and plain `hobkin telemetry` is still the local rollup.
 - Keep a refresh and merge out of Decisions once it is asked for. With work mode off, it goes to the main agent to start a session, but nothing marked the item, so its card stayed in Decisions as if the user had not answered. It now waits under AGENT ON IT as refreshing it, then merging it, and its card comes back only if nothing comes of it in three hours.
 
