@@ -11,7 +11,7 @@ import { grantChrome } from './chrome.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { compactAtForceLevel } from './compaction.mjs';
-import { extensionPaths } from './pi-extensions.mjs';
+import { extensionPaths, LEFT_OUT_OF_THE_MAIN_CHAT } from './pi-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 import { hobkinCommand } from './work/chat.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
@@ -268,6 +268,7 @@ async function openConversation(
     additionalExtensionPaths: await extensionPaths(config.main.cwd, {
       agentDir: effectiveAgentDir,
       builtIns: builtIns.map(({ name }) => name),
+      leaveOut: LEFT_OUT_OF_THE_MAIN_CHAT,
     }),
     extensionFactories: [...builtIns, createMemoryExtension(root)],
     appendSystemPrompt,

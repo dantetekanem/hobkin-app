@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
+import { extensionPaths, LEFT_OUT_OF_THE_MAIN_CHAT } from '../src/cli/pi-extensions.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 function request(t, harness = 'pi') {
@@ -495,4 +496,20 @@ test('every job that loads tools leaves pi-emote behind, and the user\'s Pi sett
     assert.deepEqual(job.extensions.filter(path => path.includes('pi-emote')), []);
   }
   assert.equal(toolFree.extensions, undefined, 'a tool-free job already loads no extensions');
+});
+
+test('the main chat leaves out the packages that would stop its compaction or keep a second memory, and other runs keep them', async t => {
+  const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-agent-'));
+  t.after(() => rmSync(agentDir, { recursive: true, force: true }));
+  for (const name of ['pi-memory', 'pi-cache-compact-preserved-messages', 'pi-other']) {
+    mkdirSync(join(agentDir, 'extensions', name), { recursive: true });
+    writeFileSync(join(agentDir, 'extensions', name, 'index.ts'), 'export default function () {}\n');
+  }
+  const named = paths => paths.map(path => path.split('/').at(-2)).toSorted();
+
+  const mainChat = await extensionPaths(agentDir, { agentDir, builtIns: [], leaveOut: LEFT_OUT_OF_THE_MAIN_CHAT });
+  const otherRun = await extensionPaths(agentDir, { agentDir, builtIns: [] });
+
+  assert.deepEqual(named(mainChat), ['pi-other']);
+  assert.deepEqual(named(otherRun), ['pi-cache-compact-preserved-messages', 'pi-memory', 'pi-other']);
 });
