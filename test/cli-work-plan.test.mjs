@@ -180,10 +180,10 @@ test('an item that keeps failing cannot hold the front of the queue, so a health
   assert.deepEqual(plan(root).entries.map(({ title, grade }) => [title, grade]), [['healthy fix', 'P2'], ['always fails', 'P3']]);
 });
 
-test('a P0 item that failed leaves the P0 band: a project left alone goes ahead of it, and it no longer skips the hourly share', t => {
+test('a P0 item that failed leaves the P0 band: a project of its priority left alone goes ahead of it, and it no longer skips the hourly share', t => {
   const root = dataRoot(t);
   project(root, 'billing', 'critical');
-  project(root, 'site', 'casual');
+  project(root, 'site', 'critical');
   const failing = fileItem(root, 'billing', item('main is broken', { urgent: true, effort: 'small' }), now);
   updateItem(root, 'billing', failing.id, { attempts: 1 }, now - HOUR);
   fileItem(root, 'site', item('tidy', { impact: 'low', effort: 'small' }), now);
@@ -192,7 +192,7 @@ test('a P0 item that failed leaves the P0 band: a project left alone goes ahead 
 
   const { entries } = plan(root);
 
-  assert.deepEqual(entries.map(({ title, grade }) => [title, grade]), [['tidy', 'P3'], ['main is broken', 'P1']]);
+  assert.deepEqual(entries.map(({ title, grade }) => [title, grade]), [['tidy', 'P2'], ['main is broken', 'P1']]);
   assert.equal(entries[1].waiting, 'over this hour\'s share');
 });
 
@@ -226,7 +226,21 @@ test('within a grade and a number of tries the project\'s priority comes first, 
   assert.deepEqual(titles(plan(root).entries), ['quick tweak', 'big rewrite', 'small win']);
 });
 
-test('the queue runs the user\'s picks, then P0, then a row for each project left alone, then the rest, then what was skipped', t => {
+test('work runs by its project\'s priority, so a P0 project\'s chore goes ahead of a P1 project\'s fix, and a P3 project left alone waits its turn', t => {
+  const root = dataRoot(t);
+  project(root, 'billing', 'critical');
+  project(root, 'tool', 'important');
+  project(root, 'toy', 'casual');
+  setProjectPriority(root, 'toy', 'P3');
+  ranRecently(root, 'billing', 'tool');
+  fileItem(root, 'tool', item('tool fix', { impact: 'high' }), now);
+  fileItem(root, 'billing', item('billing chore', { impact: 'low' }), now);
+  fileItem(root, 'toy', item('toy chore', { impact: 'low' }), now);
+
+  assert.deepEqual(plan(root).entries.map(({ title, grade }) => [title, grade]), [['billing chore', 'P2'], ['tool fix', 'P1'], ['toy chore', 'P3']]);
+});
+
+test('the queue runs the user\'s picks, then P0, then each project priority in turn with a project left alone first within it, then what was skipped', t => {
   const root = dataRoot(t);
   project(root, 'billing', 'critical');
   project(root, 'tool', 'important');
@@ -241,12 +255,12 @@ test('the queue runs the user\'s picks, then P0, then a row for each project lef
   pickNext(root, `item:tool:${picked.id}`);
   skipInQueue(root, `item:tool:${skipped.id}`);
 
-  assert.deepEqual(titles(plan(root).entries), ['picked', 'first', 'alone', 'routine', 'alone too', 'skipped']);
+  assert.deepEqual(titles(plan(root).entries), ['picked', 'first', 'routine', 'alone', 'alone too', 'skipped']);
 });
 
-test('a project with no run for a day, or none ever, puts its top row up, and that row says why', t => {
+test('a project with no run for a day, or none ever, puts its top row up among its own priority, and that row says why', t => {
   const root = dataRoot(t);
-  project(root, 'busy');
+  project(root, 'busy', 'casual');
   project(root, 'quiet', 'casual');
   project(root, 'new', 'casual');
   ranRecently(root, 'busy');
@@ -290,7 +304,7 @@ test('a P0 row needs no lift, and a project whose top row is picked gets none', 
 
 test('a paused project stays where it is, and a skipped row hands its place to the next one', t => {
   const root = dataRoot(t);
-  project(root, 'busy');
+  project(root, 'busy', 'casual');
   project(root, 'paused', 'casual');
   project(root, 'skipping', 'casual');
   ranRecently(root, 'busy');
@@ -306,7 +320,7 @@ test('a paused project stays where it is, and a skipped row hands its place to t
 
 test('a project left alone puts up the row that can start, and not one waiting behind its started item', t => {
   const root = dataRoot(t);
-  project(root, 'busy');
+  project(root, 'busy', 'casual');
   project(root, 'site', 'casual');
   ranRecently(root, 'busy');
   fileItem(root, 'busy', item('busy fix', { impact: 'high' }), now);
@@ -795,7 +809,7 @@ test('with auto-pick off a started item that was picked still goes first, and wh
 
 test('a project left alone puts up the row behind a skipped started item, because that row can go', t => {
   const root = dataRoot(t);
-  project(root, 'busy');
+  project(root, 'busy', 'casual');
   project(root, 'site', 'casual');
   ranRecently(root, 'busy');
   fileItem(root, 'busy', item('busy fix', { impact: 'high' }), now);
@@ -923,15 +937,17 @@ test('with nothing running a free worker does not sit out the gap, because no co
   assert.ok(plan(root, { lastStartAt: now - 30000 }).next);
 });
 
-test('a long queue shortens the gap, so the work spreads out across the day instead of waiting', t => {
+test('while a run is going the whole gap holds however long the queue, and a pick waits it out too', t => {
   const root = dataRoot(t);
   project(root, 'api');
   project(root, 'site');
-  for (let index = 0; index < 60; index++) fileItem(root, 'api', { ...item(`fix ${index}`), key: `fix:${index}` }, now);
+  const filed = Array.from({ length: 60 }, (_row, index) => fileItem(root, 'api', { ...item(`fix ${index}`), key: `fix:${index}` }, now));
   const running = [{ slug: 'site', lane: 'look' }];
 
-  assert.ok(plan(root, { running, lastStartAt: now - 60000 }).next, 'a sixth of the gap for sixty rows');
-  assert.equal(plan(root, { running, lastStartAt: now - 20000 }).next, null, 'and never under the shortest gap');
+  assert.equal(plan(root, { running, lastStartAt: now - 4 * 60000 }).next, null, 'sixty rows do not shorten it');
+  pickNext(root, `item:api:${filed[59].id}`);
+  assert.equal(plan(root, { running, lastStartAt: now - 4 * 60000 }).next, null, 'nor does a pick');
+  assert.equal(plan(root, { running, lastStartAt: now - 5 * 60000 }).next.title, 'fix 59', 'and once it is over the pick goes first');
 });
 
 test('a row that keeps failing waits its own turn longer, and everything else goes past it', t => {

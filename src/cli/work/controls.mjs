@@ -144,8 +144,10 @@ export function addItem(root, reference, title, brief) {
   const details = { slug, id: filed.id };
   if (before?.state === filed.state) return reply(`Already filed on ${nameOf(project)} as ${filed.id}, ${filed.state}. Nothing changed.`, details);
 
+  // What the user adds by hand is their own word, so it goes first, in the order they add it.
+  if (project.state === 'chosen') pickNext(root, `item:${slug}:${filed.id}`);
   const next = project.state === 'chosen'
-    ? `It takes its place in the queue, and hobkin work trigger ${slug} ${filed.id} runs it next.`
+    ? 'It goes first in the queue, after anything picked before it.'
     : `Nothing runs until ${nameOf(project)} is taken.`;
   return reply(`Added "${title}" to ${nameOf(project)} as ${filed.id}. ${next}`, details);
 }

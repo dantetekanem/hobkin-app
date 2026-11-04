@@ -673,6 +673,8 @@ test('add item files work by hand, from a title of plain words', async t => {
   assert.deepEqual([plain.id, first.title, first.brief, first.state], [first.id, 'Fix the login', 'Fix the login', 'open']);
   assert.deepEqual([briefed.id, second.title, second.brief], [second.id, 'Tidy the docs', '-- only the README']);
   assert.equal((await hobkin(root, 'queue')).json.some(row => row.item === first.id), true);
+  assert.deepEqual(readMode(root).queueNext, [`item:api:${first.id}`, `item:api:${second.id}`], 'what the user adds goes first, in the order they added it');
+  assert.match(plain.message, /goes first/);
 });
 
 test('adding the same title twice files one item, and a dropped one comes back', async t => {
@@ -699,7 +701,7 @@ test('add item needs a title and a known project', async t => {
   assert.deepEqual(readItems(root, 'api'), []);
 });
 
-test('trigger puts an item first by the start of its id, ahead of the plan and the gap between starts', async t => {
+test('trigger puts an item first by the start of its id, ahead of the plan, and it waits out the gap between starts like any start', async t => {
   const h = owned(t);
   studied(h, 'top', 'critical');
   studied(h, 'low', 'casual');
@@ -709,6 +711,10 @@ test('trigger puts an item first by the start of its id, ahead of the plan and t
   h.director.lastStartAt = h.clock - 1000;
 
   const { key } = await success(h.root, 'trigger', 'low', low.id.slice(0, 4));
+  await h.tick();
+  assert.deepEqual(h.calls, [], 'a pick waits out the gap too');
+
+  h.clock += 300000;
   await h.tick();
 
   assert.equal(key, `item:low:${low.id}`);

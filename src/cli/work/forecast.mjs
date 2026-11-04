@@ -124,7 +124,7 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
 
     const busy = active.filter(run => run.until > at);
     const hour = { hourShare: hourShareOf(day.limit), hourUsed: spentInTheHourTo(spends, at), reserved: 0 };
-    const paced = busy.length >= agents || at - lastStart < startGap(mode, due.length, busy);
+    const paced = busy.length >= agents || at - lastStart < startGap(mode, busy);
     const next = paced ? null : due.find(row => !refused(row, busy, day, hour));
     if (!next) {
       why = paced ? 'pace' : refused(due[0], busy, day, hour);

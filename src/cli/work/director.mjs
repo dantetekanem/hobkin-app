@@ -126,7 +126,8 @@ export class WorkDirector {
   constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, claudeProjects, follow = followInBackground, ownFolder = HOBKIN_FOLDER }) {
     Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, fetch, claudeProjects, follow, ownFolder });
     this.active = new Map();
-    this.lastStartAt = null;
+    // When the last run started survives a restart, so a new owner keeps the gap instead of starting two at once.
+    this.lastStartAt = Date.parse(readMode(root).lastStartAt) || null;
   }
 
   running() { return [...this.active.values()]; }
@@ -175,6 +176,7 @@ export class WorkDirector {
     this.publish();
     // Work merges whether the mode is on or not, and finding that costs no tokens.
     this.surveyWork();
+    this.dropFinishedPicks();
 
     const mode = readMode(this.root);
     this.reviewWeek(mode);
@@ -233,10 +235,24 @@ export class WorkDirector {
     }
   }
 
+  /** A pick whose item finished another way, by a merge, a done or a drop, would sit in the list for good, so it leaves it. One that waits on the user keeps its place. */
+  dropFinishedPicks() {
+    const { queueNext } = readMode(this.root);
+    const stillWanted = key => {
+      const [kind, slug, id] = key.split(':');
+      if (kind !== 'item') return true;
+      const state = readItems(this.root, slug).find(item => item.id === id)?.state;
+      return [...runnableStates, 'waiting'].includes(state);
+    };
+    const kept = queueNext.filter(stillWanted);
+    if (kept.length < queueNext.length) writeMode(this.root, { queueNext: kept });
+  }
+
   /** One start per tick, and the plan keeps them spaced out, so each run shows what it costs before the next one begins. */
   begin(entry, { used, limit }, mode) {
     this.lastStartAt = this.now();
-    if (entry.picked) writeMode(this.root, { queueNext: mode.queueNext.filter(key => key !== entry.key) });
+    const lastStartAt = new Date(this.lastStartAt).toISOString();
+    writeMode(this.root, entry.picked ? { lastStartAt, queueNext: mode.queueNext.filter(key => key !== entry.key) } : { lastStartAt });
     const tokens = { today: used, limit };
     const cost = { estimate: entry.estimate, kind: entry.lane === 'do' ? 'do' : entry.kind };
     if (entry.lane === 'discover') return this.startDiscovery(mode.folder, tokens, cost);

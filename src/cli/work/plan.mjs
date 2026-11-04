@@ -18,7 +18,6 @@ const STUDY_RETRY_MS = HOUR_MS / 4;
 const LOOKS_PER_IDEAS = 8;
 const LEFT_ALONE_MS = 24 * HOUR_MS;
 const SHORTEST_START_GAP_MS = 30000;
-const ROWS_PER_GAP_STEP = 10;
 const WAIT_PER_TRY_MS = 10 * 60000;
 const MOST_TRIES_COUNTED = 6;
 const MOST_IDEAS = 3;
@@ -300,6 +299,10 @@ export function discoveryEntry({ root, mode, now, running }) {
   }];
 }
 
+// A row runs among its project's priority, and each failed try moves it down one, so work that keeps failing cannot hold a band.
+// Discovery has no project, so its own grade stands in.
+const bandOf = entry => gradeBelow(entry.priority ?? entry.grade, entry.item?.attempts ?? 0);
+
 // At P3 an item that keeps failing has no lower to go, so it comes round behind the others there.
 // The sort is stable, so work of equal worth keeps the order it was filed in.
 const byGrade = (left, right) => gradeRank(left.grade) - gradeRank(right.grade)
@@ -366,22 +369,28 @@ function leftAlone({ root, now, running }) {
   return ({ slug }) => !ranLately.has(slug) && !running.some(run => run.slug === slug);
 }
 
-/** One row for each project left alone: its top one that can go. A project whose top row is at the front already needs no lift. */
+/** One row for each project left alone: its top one that can go. A P0 row is at the front already, and the rest are lifted only among their own priority. */
 function liftedRows(mode, entries, isLeftAlone) {
   const canGo = entry => entry.slug && !entry.paused && !entry.skipped && !entry.held && !behindItsStartedItem(mode, entry, entries);
   const tops = entries.filter(canGo).filter((entry, index, rows) => rows.findIndex(row => row.slug === entry.slug) === index);
   return tops.filter(entry => isLeftAlone(entry) && !entry.picked && entry.grade !== 'P0');
 }
 
-/** The user's picks go first in the order they were made, then P0, then one row for each project left alone, and what they skipped stays in sight at the end. */
+/**
+ * The user's picks go first in the order they were made, then P0 rows, then each project priority in turn, so a P2 or P3 project never
+ * jumps a P1 one. Within a priority, a project left alone for a day goes first. What the user skipped stays in sight at the end.
+ */
 function inQueueOrder(mode, entries, isLeftAlone) {
   const lifted = liftedRows(mode, entries, isLeftAlone);
   const rest = entries.filter(entry => !entry.picked && !entry.skipped && !lifted.includes(entry));
+  const inBand = band => entry => entry.grade !== 'P0' && bandOf(entry) === band;
   return [
     ...mode.queueNext.flatMap(key => entries.filter(entry => entry.key === key)),
     ...rest.filter(entry => entry.grade === 'P0'),
-    ...lifted.map(entry => ({ ...entry, why: plainList(['left alone', entry.why]) })),
-    ...rest.filter(entry => entry.grade !== 'P0'),
+    ...grades.flatMap(band => [
+      ...lifted.filter(inBand(band)).map(entry => ({ ...entry, why: plainList(['left alone', entry.why]) })),
+      ...rest.filter(inBand(band)),
+    ]),
     ...entries.filter(entry => entry.skipped && !entry.picked),
   ];
 }
@@ -430,11 +439,8 @@ function budgetPause(entries, budget, now) {
   return { kind: 'hour', line: hourLine(budget, smallest, now) };
 }
 
-/** The gap lets a run show what it costs before the next begins. With nothing running that is already known, and a long queue cannot afford to sit idle. */
-export function startGap({ startGapMs }, ready, running) {
-  const share = running.length ? startGapMs / Math.ceil(ready / ROWS_PER_GAP_STEP) : 0;
-  return Math.min(startGapMs, Math.max(SHORTEST_START_GAP_MS, share));
-}
+/** While a run is going each start waits the whole gap, however long the queue, so work spreads out instead of racing. With nothing running only a breath. */
+export const startGap = ({ startGapMs }, running) => (running.length ? startGapMs : Math.min(startGapMs, SHORTEST_START_GAP_MS));
 
 /**
  * One ranked list of everything that could run next. Pure code over what is on disk, so it spends no tokens and anyone can ask.
@@ -467,15 +473,14 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const subscription = { known: Boolean(reading), windows: usageWindows(reading, now), ahead: aheadOfPace(reading, now) };
   const agents = subscription.known && mode.harness === 'pi' ? mode.agents : 1;
   const free = agents - running.length - checks;
-  const ready = entries.filter(entry => !entry.waiting).length;
-  const startsAt = lastStartAt === null ? null : lastStartAt + startGap(mode, ready, running);
+  const startsAt = lastStartAt === null ? null : lastStartAt + startGap(mode, running);
   const stop = hardStop(context);
   const pause = stop ?? budgetPause(entries.filter(entry => !entry.skipped), budget, now);
   const spaced = startsAt !== null && startsAt > now;
   const waitingOn = checks && free <= 0 ? 'Scheduled checks are running, so nothing new starts until they finish.' : null;
   const first = entries.find(entry => !entry.waiting && (mode.autoPick || entry.picked));
-  // A pick is the user's own word, so it does not wait out the gap between starts.
-  const next = stop || free <= 0 || (spaced && !first?.picked) ? null : first ?? null;
+  // A pick goes first, and it waits out the gap like any start, because two at once is the race the gap is there to stop.
+  const next = stop || free <= 0 || spaced ? null : first ?? null;
   return {
     mode, entries, next, pause, budget, subscription, agents, free, waitingOn, shipFirst: shipping,
     nextStartAt: spaced ? new Date(startsAt).toISOString() : null,

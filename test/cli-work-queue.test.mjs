@@ -12,6 +12,7 @@ import {
 import { prepareTree } from '../src/cli/work/tree.mjs';
 import { unmergedNow } from '../src/cli/work/unmerged.mjs';
 import { director, HOUR, studied } from './helpers/work-director.mjs';
+import { WorkDirector } from '../src/cli/work/director.mjs';
 import { branched, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 const brief = 'Evidence, who benefits, the first change, the proof.';
@@ -734,7 +735,7 @@ test('the survey runs on its own clock, not on every tick', async t => {
 
 // The queue the user can steer.
 
-test('run now puts a row first, even ahead of what the plan would pick, and skips the gap between starts', async t => {
+test('run now puts a row first, even ahead of what the plan would pick, once the gap between starts is over', async t => {
   const h = director(t);
   studied(h, 'top', 'critical');
   studied(h, 'low', 'casual');
@@ -745,8 +746,35 @@ test('run now puts a row first, even ahead of what the plan would pick, and skip
   pickNext(h.root, `item:low:${low.id}`);
 
   await h.tick();
+  assert.deepEqual(h.calls, [], 'a pick waits out the gap too');
+  h.clock += 300000;
+  await h.tick();
 
   assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['low fix']);
+  assert.deepEqual(readMode(h.root).queueNext, []);
+});
+
+test('when the last run started survives a restart, so a new owner keeps the gap', async t => {
+  const h = director(t);
+  studied(h, 'api');
+  fileItem(h.root, 'api', item('fix'), h.clock);
+
+  await h.tick();
+  const reopened = new WorkDirector({ root: h.root, config: {}, runner: h.runner, runtime: h.runtime, now: () => h.clock });
+
+  assert.equal(h.calls.length, 1);
+  assert.equal(reopened.lastStartAt, h.clock);
+});
+
+test('a pick whose item finished another way leaves the pick list', async t => {
+  const h = director(t);
+  studied(h, 'api');
+  const filed = fileItem(h.root, 'api', item('fix'), h.clock);
+  pickNext(h.root, `item:api:${filed.id}`);
+  updateItem(h.root, 'api', filed.id, { state: 'done' }, h.clock);
+
+  await h.tick();
+
   assert.deepEqual(readMode(h.root).queueNext, []);
 });
 
