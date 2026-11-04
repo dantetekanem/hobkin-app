@@ -286,6 +286,18 @@ test('a file the run stopped tracking does not keep the folder from going back w
   assert.equal(readFileSync(join(repo, 'config', 'master.key'), 'utf8'), 'the key\n');
 });
 
+test('a default branch checked out in another copy keeps the folder on its branch, and says where that copy is', async t => {
+  const { base: scratch, repo } = folder(t);
+  const { base } = await enterFolder({ repo, branch: 'hobkin/one' });
+  const other = join(scratch, 'other');
+  git(repo, 'worktree', 'add', '-q', other, 'main');
+
+  const left = await leaveFolder({ repo, branch: 'hobkin/one', base });
+
+  assert.deepEqual(left, { stays: `main is checked out in another copy of it, at ${other}` });
+  assert.equal(git(repo, 'branch', '--show-current'), 'hobkin/one');
+});
+
 test('a file the run stopped tracking that changed since keeps the folder on its branch, and says which file', async t => {
   const { repo } = folder(t);
   const base = await stopsTracking(repo, 'config/master.key', 'the key\n');

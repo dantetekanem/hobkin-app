@@ -262,7 +262,9 @@ export async function leaveFolder({ repo, branch, base }) {
   try {
     await git(repo, 'switch', '--quiet', ...(inTheWay.length ? ['--overwrite-ignore'] : ['--no-overwrite-ignore']), base);
     return null;
-  } catch {
-    return { stays: `git would not switch it back to ${base}` };
+  } catch (error) {
+    // Git checks a branch out in one place at a time, so another copy holding the default branch keeps this folder where it is.
+    const elsewhere = /already used by worktree at '(.+)'/.exec(error.stderr ?? '')?.[1];
+    return { stays: elsewhere ? `${base} is checked out in another copy of it, at ${elsewhere}` : `git would not switch it back to ${base}` };
   }
 }
