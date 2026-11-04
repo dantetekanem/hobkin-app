@@ -362,7 +362,7 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
   const repo = project.path ?? paths(root, project.slug).clone;
   const base = await defaultBranch(repo);
   const tip = await landingTip(repo, base);
-  if (!tip) throw Error(`${nameOf(project)} has no ${base} to merge into.`);
+  if (!tip) throw Error(`"${title}" did not merge: ${nameOf(project)} has no ${base || 'default branch'} to merge into.`);
   assertSameHead(title, head, await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`));
   if (await isMerged(repo, branch, tip)) throw Error(`"${title}" holds nothing ${base} lacks, so nothing changed.`);
 

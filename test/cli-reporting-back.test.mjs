@@ -360,13 +360,17 @@ test('a session line is not folded away by the runs around it', async t => {
   }
 });
 
-/** A chosen project with a pile of finished rows and nothing else to do. */
+/** A chosen project with a pile of finished rows, each proved and read by the last survey, and nothing else to do. */
 function pile(root, count) {
   chooseProject(root, '/repos/api', 'important');
+  const open = [];
   for (let index = 0; index < count; index++) {
+    const branch = `hobkin/${index}`;
     const { id } = fileItem(root, 'api', { key: `row ${index}`, kind: 'fix', title: `Row ${index}`, brief: 'The first change.' });
-    updateItem(root, 'api', id, { state: 'branch', branch: `hobkin/${index}` });
+    updateItem(root, 'api', id, { state: 'branch', branch, proof: 'It failed, then it passed.' });
+    open.push({ kind: 'branch', branch, sha: `sha-${index}`, conflict: false, size: { additions: 1, deletions: 0, files: 1 } });
   }
+  atomicJson(join(root, 'work', 'unmerged.json'), { at: new Date().toISOString(), projects: { api: { lastMergeAt: null, trees: 0, open } } });
 }
 
 test('/work with a pile says the count, and the first pair waits in Decisions before anything starts', async t => {
