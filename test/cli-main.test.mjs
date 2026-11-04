@@ -490,6 +490,7 @@ test('interactive dashboard cancellation delegates outcomes to the connected app
         if (runId === 'error') throw Error('Cancellation unavailable.');
         return runId === 'live-job';
       },
+      interrupt: async () => ['not read yet'],
       async close() {},
     }),
   });
@@ -500,6 +501,7 @@ test('interactive dashboard cancellation delegates outcomes to the connected app
   assert.equal(await handlers.kill('stale-job'), false);
   await assert.rejects(handlers.kill('error'), /Cancellation unavailable/);
   assert.deepEqual(requested, ['live-job', 'stale-job', 'error']);
+  assert.deepEqual(await handlers.interrupt(), ['not read yet']);
   h.signals.emit('SIGTERM');
   assert.equal(await work, 0);
 });

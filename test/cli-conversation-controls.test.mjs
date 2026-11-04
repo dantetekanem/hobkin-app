@@ -194,3 +194,23 @@ test('reset aborts the owned stream, discards queued steering and rejects input 
   call.finish();
   await h.runtime.idle();
 });
+
+test('a stop ends the owned turn at once, keeps the conversation and hands back the steering Pi had not read', async t => {
+  const h = await fixture(t);
+  await h.runtime.send('Old request', 'old');
+  await h.nextCall();
+  await h.runtime.send('Queued correction', 'queued');
+
+  assert.deepEqual(await h.runtime.interrupt(), ['Queued correction']);
+
+  const { runs } = await h.runtime.state();
+  assert.deepEqual([runs.old.status, runs.queued.status], ['interrupted', 'interrupted']);
+  assert.equal(h.runtime.mainBusy, false);
+  assert.equal(await h.runtime.interrupt(), null, 'with no turn running there is nothing to stop');
+
+  await h.runtime.send('New request', 'new');
+  const call = await h.nextCall();
+  assert.deepEqual(text(call.messages), ['Old request', 'New request'], 'the same conversation goes on, without the correction');
+  call.finish();
+  await h.runtime.idle();
+});

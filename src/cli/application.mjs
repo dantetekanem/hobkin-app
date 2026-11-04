@@ -69,8 +69,10 @@ const turnFailure = ({ stopReason, errorMessage }) => {
 const imagesIn = message => (Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image').length;
 // Every refresh hashes the whole chat, and an image would be most of what it hashes.
 const withoutImageData = (_, value) => (value?.type === 'image' ? { ...value, data: '' } : value);
+// What the user typed, and the report it was about, without the notes hobkin sends ahead of it.
+const typedPart = text => splitReportReference(withoutLearningNote(withoutWorkNote(text)));
 const chatMessage = (message, index, shown) => {
-  const { text, about } = splitReportReference(withoutLearningNote(withoutWorkNote(textOf(message))));
+  const { text, about } = typedPart(textOf(message));
   const endedTheChat = index === shown.length - 1;
   const images = imagesIn(message);
   return {
@@ -584,6 +586,22 @@ export class HobkinApplication {
   dropImages(images) { this.pastedImages.remove(images); }
 
   kill(runId) { return this.runner.kill(runId); }
+
+  /**
+   * The user's Esc. Chat says so in one system line, and the main agent hears it with the next message, the way it hears what the user
+   * did from a card. What the agent never read goes back to the user as they typed it. Null when no turn was running.
+   */
+  async interrupt() {
+    const unsent = await this.runtime.interrupt();
+    if (!unsent) return null;
+
+    recordCardAction(this.runtime.directory, { did: 'stopped your turn', line: 'You stopped hobkin.' }, this.now());
+    // A refresh already under way read the state before the stop, and the screen must show it.
+    await this.refreshing?.catch(() => {});
+    await this.refresh();
+
+    return unsent.map(text => typedPart(text).text);
+  }
 
   workView() {
     const discovering = this.director.running().some(run => run.lane === 'discover');

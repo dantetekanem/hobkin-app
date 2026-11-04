@@ -524,6 +524,35 @@ test('the main agent hears what the user did from a card with the next message, 
   }
 });
 
+test('a stop says so in Chat once, and the main agent hears it with the next message', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    const control = h.fake.controls.get(app.runtime.main.sessionId);
+    control.gate = Promise.withResolvers();
+    const { id } = await app.send('Look through every report');
+    const queuedWithNote = '<hobkin-work>\n{"commands":{}}\n</hobkin-work>\n\nand the old ones';
+    app.runtime.main.clearQueue = () => ({ steering: [queuedWithNote], followUp: [] });
+
+    assert.deepEqual(await app.interrupt(), ['and the old ones'], 'what never reached the agent goes back as the user typed it');
+
+    assert.equal((await app.runtime.state()).runs[id].status, 'interrupted');
+    assert.equal(app.snapshot.busy, false);
+    assert.deepEqual(systemLines(app.snapshot).map(({ content }) => content), ['You stopped hobkin.']);
+    assert.equal(await app.interrupt(), null, 'with nothing running, nothing stops and nothing is said');
+
+    // The fake Pi stays aborted until it is told to take turns again.
+    Object.assign(control, { gate: null, aborted: false });
+    const sent = t.mock.method(app.runtime, 'send');
+    await app.send('do something else');
+
+    assert.deepEqual(noteOf(sent.mock.calls[0].arguments[0]).userDid.map(({ did }) => did), ['stopped your turn']);
+    assert.equal(systemLines(await app.refresh()).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test('the main agent hears ten things the user did at a time, and the rest with the next message', async t => {
   const h = fixture(t);
   for (let index = 0; index < 12; index++) {

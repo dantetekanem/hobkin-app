@@ -303,13 +303,7 @@ export class HobkinRuntime {
     this.resetting = true;
     this.notify();
     try {
-      if (ownedTurn) {
-        await Promise.allSettled([...ownedTurn.steering]);
-        await previous.clearQueue?.();
-        this.active.get(ownedTurn.id)?.controller.abort();
-        await previous.abort();
-        await this.mainWork;
-      }
+      if (ownedTurn) await this.stopTurn(ownedTurn);
       const main = await this.connectMain(true);
       this.connecting = Promise.resolve(main);
       return { sessionId: main.sessionId, sessionFile: main.sessionFile };
@@ -317,6 +311,30 @@ export class HobkinRuntime {
       this.resetting = false;
       this.notify();
     }
+  }
+
+  /**
+   * The user's stop, the way Esc stops Pi: what waits in Pi's queue comes out, and the turn ends at once. What it already said stays
+   * in the conversation. Returns what the user sent that the agent never read, or null when no turn was running.
+   */
+  async interrupt() {
+    const turn = this.mainTurn;
+    if (!turn || turn.session !== this.main) return null;
+    // A turn whose run has ended is only settling, and a reset or an earlier stop is already ending this one.
+    if (!this.active.has(turn.id) || this.resetting || turn.stopping) return null;
+
+    turn.stopping = true;
+    return this.stopTurn(turn);
+  }
+
+  // A steering message still being handed over gets into Pi's queue first, so nothing slips past the stop.
+  async stopTurn(turn) {
+    await Promise.allSettled([...turn.steering]);
+    const { steering = [], followUp = [] } = (await turn.session.clearQueue?.()) ?? {};
+    this.active.get(turn.id)?.controller.abort();
+    await turn.session.abort();
+    await this.mainWork;
+    return [...steering, ...followUp];
   }
 
   async admit(request) {

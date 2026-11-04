@@ -1743,6 +1743,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     } else toggleWorkFromChat(submitted);
   };
   const takesImages = () => !askingWorkFolder;
+  // hobkin's own compaction between turns holds the chat as well, and is no turn to stop.
+  const turnRunning = () => Boolean(snapshot.busy) && (snapshot.runs ?? []).some(run => run.kind === 'main' && run.state === 'running');
+  // Esc in the input stops the main agent's turn. The folder question belongs to the input, so it takes Esc first.
+  const stoppable = () => connected() && typeof callbacks.interrupt === 'function' && turnRunning() && !askingWorkFolder;
   const dropImages = dropped => {
     attachments = attachments.filter(image => !dropped.includes(image));
     images?.forgetPictures(dropped);
@@ -1795,6 +1799,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     }).finally(() => {
       changed();
     });
+  };
+  // What the agent had not read yet comes back ahead of the draft, as in Pi. Chat says the stop itself, once it has landed.
+  const stopAgent = () => {
+    pending = Promise.resolve().then(() => callbacks.interrupt()).then(unsent => {
+      if (!unsent?.length) return;
+      const draft = editor.getExpandedText();
+      editor.setText([...unsent, draft].filter(text => text.trim()).join('\n\n'));
+    }, error => {
+      fail('Stop', error);
+    }).finally(changed);
   };
   // Whatever someone is already typing comes first, and /setup is still there for them.
   const sendWaitingSetup = () => {
@@ -2074,8 +2088,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (connecting()) return [['←→', 'views'], ['ctrl+q', 'quit']];
     const commands = draft.startsWith('/') ? localCommands.filter(([name]) => name.startsWith(draft)) : [];
     if (commands.length) return commands;
-    if (attachments.length) return [['enter', 'send'], ['esc', 'drop image'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
-    if (referencedReport) return [['enter', 'send'], ['esc', 'drop report'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
+    // While Esc stops the agent it drops nothing, so the keys leave it out.
+    const esc = what => (stoppable() ? [] : [['esc', what]]);
+    if (attachments.length) return [['enter', 'send'], ...esc('drop image'), ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
+    if (referencedReport) return [['enter', 'send'], ...esc('drop report'), ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
     if (draft) return [['enter', 'send'], ['ctrl+j', 'newline'], ['ctrl+c', 'clear']];
     return [['enter', 'send'], ['↑', 'history'], ['←→', 'views'], ['/', 'commands'], ['ctrl+q', 'quit']];
   };
@@ -2134,12 +2150,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     lastMood = mood;
     return images ? images.lines(mood, clock) : faceLines(mood, clock, { ...palette.face, octants: supportsOctants() });
   };
-  // While the main agent works, the row above the input says what it is doing, where its next message will show.
+  // While the main agent works, the row above the input says what it is doing, where its next message will show, and how to stop it.
   const workingRow = (inner, clock, frame) => {
     const doing = snapshot.context?.compacting ? 'compacting' : snapshot.doing ?? 'thinking';
     const label = `${highlight(frame)} ${assistantColor(bold('hobkin'))} ${dim(`is ${doing}…`)}`;
-    const since = busySince === null ? '' : muted(elapsed(busySince, clock));
-    return row(label, since, inner);
+    const since = busySince === null ? '' : elapsed(busySince, clock);
+    const withHint = [stoppable() ? 'esc to stop' : '', since].filter(Boolean).join(' · ');
+    // The hint gives way before the words do, so the row stays one line. Two columns part the sides.
+    const hintFits = visibleWidth(label) + 2 + visibleWidth(withHint) <= inner;
+    const right = hintFits ? withHint : since;
+    return row(label, right && muted(right), inner);
   };
   const besideFace = (face, rows, width) => {
     const blank = ' '.repeat(faceColumns());
@@ -2968,7 +2988,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       } else if (followsTail() && (key(data, 'pageUp') || key(data, 'pageDown'))) {
         scroll = Math.max(0, scroll + (key(data, 'pageUp') ? 8 : -8));
       } else if (focus === 'composer') {
-        if (key(data, 'escape') && attachments.length && takesImages()) {
+        if (key(data, 'escape') && stoppable()) {
+          stopAgent();
+        } else if (key(data, 'escape') && attachments.length && takesImages()) {
           say('');
           dropImages([attachments.at(-1)]);
         } else if (key(data, 'escape')) {

@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- Stop the main agent with Esc. A turn could only be stopped by `/reset` or by quitting. Now Esc in Chat stops it at once, as Esc does in Pi, and the row above the input says `esc to stop`. The draft stays, a message the agent had not read yet comes back to the input, Chat says `You stopped hobkin.` and the main agent hears it with the next message. With no turn running, or a question open, Esc does what it did before.
 - Pick up an agent left working at a quit. Quitting with Let them finish wrote the agent down, but the next hobkin asked Herdr for it by the name the agent goes by instead of its pane, was told no such pane, and settled the run as interrupted while the agent kept working, with nobody following it. It now follows the agent by its pane, so the run shows as running and settles when the agent ends.
 - Talk about a decision. `r` on any row in Decisions opens Chat about it, the way `r` does on a report, and the main agent gets what the row says with the message. It answers and changes nothing by itself.
 - Stop keeping dead cards. An item an agent once called done while its branch still had work to merge sat under NOT LANDED, and every action on its card refused it, so asking to refresh and merge did nothing. The survey now makes such an item finished work again, every half hour, and refresh and merge takes one straight away. An item the user closed stays closed.

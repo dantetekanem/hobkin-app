@@ -2912,6 +2912,58 @@ test('Esc removes the newest image first, and the hints name the key', async () 
   assert.equal(ui.state().draft, 'words');
 });
 
+const working = { ...liveChat, busy: true, runs: [{ id: 'turn', kind: 'main', title: 'Conversation', state: 'running' }] };
+
+test('Esc while the main agent works stops it, and the draft and its image stay', async () => {
+  let stops = 0;
+  const { ui, calls, paste } = composerWith({ interrupt: async () => { stops++; return []; } }, working);
+  await paste();
+  ui.input('half a thought');
+
+  ui.input(ESCAPE);
+  await ui.pending();
+
+  assert.equal(stops, 1);
+  assert.equal(ui.state().draft, 'half a thought');
+  assert.match(screen(ui, 80, 24), /↳ image 1/);
+  assert.deepEqual(calls.dropped, []);
+
+  ui.update(liveChat);
+  ui.input(ESCAPE);
+
+  assert.equal(stops, 1, 'once the turn has ended, Esc means what it did before');
+  assert.deepEqual(calls.dropped, ['/runtime/pasted/first.png']);
+});
+
+test('what the agent had not read yet comes back to the input when Esc stops it', async () => {
+  const ui = createDashboard(working, { send: async () => {}, interrupt: async () => ['also check the logs'] });
+  ui.input('and the tests');
+
+  ui.input(ESCAPE);
+  await ui.pending();
+
+  assert.equal(ui.state().draft, 'also check the logs\n\nand the tests');
+});
+
+test('a question on screen and the folder question take Esc before the agent does', async () => {
+  let stops = 0;
+  const ui = createDashboard(working, { send: async () => {}, interrupt: async () => { stops++; return []; } });
+
+  const answer = ui.askQuestion(abc);
+  ui.input(ESCAPE);
+  assert.equal(await answer, null);
+
+  ui.input('/work');
+  ui.input('\r');
+  ui.input(ESCAPE);
+  assert.doesNotMatch(screen(ui, 80, 24), /Which folder/);
+  assert.equal(stops, 0);
+
+  ui.input(ESCAPE);
+  await ui.pending();
+  assert.equal(stops, 1, 'and the next Esc stops the agent');
+});
+
 test('Ctrl+C clears the images with the draft', async () => {
   const { ui, calls, paste } = composerWith();
   await paste();
