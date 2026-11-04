@@ -115,6 +115,24 @@ function fakeHerdr({ onPrompt = () => {}, statuses = () => 'working', focused = 
 }
 
 const panesWith = (herdr, options = {}) => new WorkPanes({ workspace: 'w1', exec: herdr.exec, pollMs: 1, idleGraceMs: 0, leftAloneMs: 0, helperQuietMs: 0, ...options });
+
+/** Herdr refusing an agent start the way it does while a new pane's shell is still getting to its prompt. */
+const refusal = code => Object.assign(Error('herdr failed'), { stderr: `{"error":{"code":"${code}","message":"agent target pane w1:p9 is not an available shell"}}` });
+
+test('a new pane whose shell is not at its prompt yet gets its agent once it is, and one that never gets there still fails', async () => {
+  let refusals = 2;
+  const exec = async (_command, args) => {
+    if (args[1] === 'start' && refusals-- > 0) throw refusal(refusals % 2 ? 'agent_pane_unavailable' : 'agent_start_input_failed');
+    return JSON.stringify({ result: { agent: { agent_status: 'idle' } } });
+  };
+  const started = await new WorkPanes({ workspace: 'w1', exec, pollMs: 1, startTimeoutMs: 5000 }).startAgent('work-do-api', 'pi', 'w1:p9', []);
+
+  assert.equal(started.agent.agent_status, 'idle');
+  assert.equal(refusals, -1, 'it asked again until the shell was ready');
+
+  const never = new WorkPanes({ workspace: 'w1', exec: async () => { throw refusal('agent_pane_unavailable'); }, pollMs: 1, startTimeoutMs: 20 });
+  await assert.rejects(never.startAgent('work-do-api', 'pi', 'w1:p9', []), /not an available shell/);
+});
 const run = (base, overrides = {}) => ({
   name: 'work-do-api',
   kind: 'pi',

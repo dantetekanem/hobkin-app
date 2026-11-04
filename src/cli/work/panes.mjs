@@ -155,14 +155,17 @@ export class WorkPanes {
     return pane.pane_id;
   }
 
-  // Until a new pane's shell shows its prompt, Herdr refuses any line over 1024 bytes, and a start line with long paths can reach that.
+  /**
+   * Until a new pane's shell shows its prompt, Herdr refuses any line over 1024 bytes, and a start line with long paths can reach that.
+   * While the shell is still starting, something it runs on the way can hold the pane, and Herdr calls it not an available shell. Both pass.
+   */
   async startAgent(name, kind, pane, args) {
     const giveUpAt = Date.now() + this.startTimeoutMs;
     for (;;) {
       try {
         return await this.herdr('agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', String(START_TIMEOUT_MS), '--', ...args);
       } catch (error) {
-        const shellStarting = String(error.stderr ?? error.message).includes('agent_start_input_failed');
+        const shellStarting = /agent_start_input_failed|agent_pane_unavailable/.test(String(error.stderr ?? error.message));
         if (!shellStarting || Date.now() >= giveUpAt) throw error;
         await delay(this.pollMs);
       }
