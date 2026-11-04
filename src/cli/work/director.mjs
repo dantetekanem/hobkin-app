@@ -11,7 +11,7 @@ import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mj
 import { followInBackground } from '../session.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
-import { hourShareOf } from './budget.mjs';
+import { hourShareOf, withStart } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { declineStopped, toldStop } from './controls.mjs';
@@ -19,7 +19,7 @@ import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { agentName, WorkPanes } from './panes.mjs';
 import { watchPile } from './pairs.mjs';
-import { ideasWanted, planWork } from './plan.mjs';
+import { countsAgainst, ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
@@ -256,11 +256,16 @@ export class WorkDirector {
     if (kept.length < queueNext.length) writeMode(this.root, { queueNext: kept });
   }
 
-  /** One start per tick, and the plan keeps them spaced out, so each run shows what it costs before the next one begins. */
+  /** One start per tick, and the plan keeps them spaced out, so each run shows what it costs before the next one begins. What starts by itself spends its priority's runs. */
   begin(entry, { used, limit }, mode) {
     this.lastStartAt = this.now();
     const lastStartAt = new Date(this.lastStartAt).toISOString();
-    writeMode(this.root, entry.picked ? { lastStartAt, queueNext: mode.queueNext.filter(key => key !== entry.key) } : { lastStartAt });
+    const priority = countsAgainst(entry);
+    writeMode(this.root, {
+      lastStartAt,
+      ...(entry.picked ? { queueNext: mode.queueNext.filter(key => key !== entry.key) } : {}),
+      ...(priority ? { countedStarts: withStart(mode.countedStarts, priority, this.lastStartAt) } : {}),
+    });
     const tokens = { today: used, limit };
     const cost = { estimate: entry.estimate, kind: entry.lane === 'do' ? 'do' : entry.kind };
     if (entry.lane === 'discover') return this.startDiscovery(mode.folder, tokens, cost);

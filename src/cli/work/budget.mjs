@@ -7,6 +7,17 @@ const HOUR_MS = 3600000;
 const HOURS_OF_WORK = 12;
 const RECENT_RUNS = 12;
 const ENOUGH_RUNS = 3;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * The runs each priority starts by itself in any window this long, all its projects together, so a queue that never empties spreads over the days.
+ * P0 starts whenever it is needed. A pick is the user's own word and closing work only lands what exists, so neither counts here.
+ */
+export const startBudgets = {
+  P1: { runs: 4, withinMs: DAY_MS, period: 'today' },
+  P2: { runs: 1, withinMs: DAY_MS, period: 'today' },
+  P3: { runs: 1, withinMs: 7 * DAY_MS, period: 'this week' },
+};
 
 /** What a run costs before Hobkin has seen enough like it: a little over the worst of real sessions, in fresh and cached tokens. */
 export const firstGuess = {
@@ -84,6 +95,34 @@ function hourFreesAt({ hourEvents, hourShare, hourUsed }, fresh, now) {
 export const dayLine = ({ used, limit }) => `Paused for today: ${tokenLabel(used)} of the ${tokenLabel(limit)} daily limit used. Resumes tomorrow.`;
 
 export const hourShareOf = limit => limit / HOURS_OF_WORK;
+
+/** A start counts while it is inside its priority's window. One for a priority with no budget never counts. */
+const stillCounts = now => ({ at, priority }) => {
+  const withinMs = startBudgets[priority]?.withinMs ?? 0;
+  return now - Date.parse(at) < withinMs;
+};
+
+function spentWords(priority, { runs, period }) {
+  const had = runs === 1 ? 'its run' : `its ${runs} runs`;
+  return `${priority} has had ${had} ${period}`;
+}
+
+/** The priorities that have had all their runs inside their window at `now`, each with the words a row of theirs waits on. */
+export function outOfStarts(starts, now) {
+  const counting = starts.filter(stillCounts(now));
+  const spent = {};
+  for (const [priority, budget] of Object.entries(startBudgets)) {
+    const had = counting.filter(start => start.priority === priority).length;
+    if (had >= budget.runs) spent[priority] = spentWords(priority, budget);
+  }
+  return spent;
+}
+
+/** The starts that still count once this one is added, so the list is never longer than its windows. */
+export function withStart(starts, priority, now) {
+  const start = { at: new Date(now).toISOString(), priority };
+  return [...starts, start].filter(stillCounts(now));
+}
 
 /** Always the limit that was really hit, with its real numbers. A daily figure alone reads as the day being gone. */
 export function hourLine(budget, fresh, now) {

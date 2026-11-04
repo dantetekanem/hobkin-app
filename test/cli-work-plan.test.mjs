@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { budgetFor, estimateRun, costHistory, firstGuess } from '../src/cli/work/budget.mjs';
 import { workStatus } from '../src/cli/work/commands.mjs';
-import { ideasWanted, itemGrade, planWork } from '../src/cli/work/plan.mjs';
+import { countsAgainst, ideasWanted, itemGrade, planWork } from '../src/cli/work/plan.mjs';
 import { itemsView, queueView, searchView } from '../src/cli/work/reads.mjs';
 import {
   chooseProject, fileItem, lenses, nextLookAt, paths, pickNext, readProject, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
@@ -459,9 +459,9 @@ test('a study that is not done yet waits before it tries again', t => {
 const dueSlugs = root => plan(root).entries.map(entry => entry.slug);
 const lastLookedAt = (root, slug, hoursAgo) => writeState(root, slug, { lastLensAt: new Date(now - hoursAgo * HOUR).toISOString() });
 
-test('priority decides how often a project is looked at, so P0 runs far more than P3', t => {
+test('priority decides how often a project is looked at: P0 every hour, P1 every day, P2 every 3 days and P3 every week', t => {
   const root = dataRoot(t);
-  const hoursBetweenLooks = { P0: 1, P1: 3, P2: 8, P3: 24 };
+  const hoursBetweenLooks = { P0: 1, P1: 24, P2: 72, P3: 168 };
 
   for (const [priority, hours] of Object.entries(hoursBetweenLooks)) {
     const slug = `at-${priority.toLowerCase()}`;
@@ -522,7 +522,7 @@ test('new ideas come every eighth look, so they follow the priority too', t => {
 
   assert.deepEqual(plan(root).entries.map(entry => [entry.slug, entry.kind]), [['first', 'ideas']]);
 
-  writeState(root, 'last', { lastIdeasAt: new Date(now - 192 * HOUR).toISOString() });
+  writeState(root, 'last', { lastIdeasAt: new Date(now - 8 * 168 * HOUR).toISOString() });
   assert.deepEqual(dueSlugs(root).toSorted(), ['first', 'last']);
 });
 
@@ -531,7 +531,7 @@ test('the next look a project shows follows its priority', t => {
   project(root, 'api');
   setProjectPriority(root, 'api', 'P3');
 
-  assert.equal(nextLookAt(root, readProject(root, 'api')), new Date(now + 24 * HOUR).toISOString());
+  assert.equal(nextLookAt(root, readProject(root, 'api')), new Date(now + 168 * HOUR).toISOString());
 });
 
 test('the longer a look is overdue, the higher it ranks', t => {
@@ -550,8 +550,8 @@ test('new commits bring a look forward and up the plan, and start nothing by the
   const root = dataRoot(t);
   project(root, 'moved');
   project(root, 'still');
-  writeState(root, 'moved', { lastLensAt: new Date(now - 2 * HOUR).toISOString(), newCommits: 4 });
-  writeState(root, 'still', { lastLensAt: new Date(now - 2 * HOUR).toISOString() });
+  writeState(root, 'moved', { lastLensAt: new Date(now - 13 * HOUR).toISOString(), newCommits: 4 });
+  writeState(root, 'still', { lastLensAt: new Date(now - 13 * HOUR).toISOString() });
 
   const { entries } = plan(root);
 
@@ -966,6 +966,118 @@ test('a row that keeps failing waits its own turn longer, and everything else go
   assert.equal(planWork(root, { now: now + 21 * 60000 }).entries.find(entry => entry.title === 'failing').waiting, null, 'it always comes round');
   pickNext(root, `item:api:${failing.id}`);
   assert.equal(plan(root).next.title, 'failing', 'and a pick is the user\'s own word');
+});
+
+// What starts by itself is paced by its priority, over a rolling window.
+
+/** Runs that started by themselves and spent their priority's runs, each so many hours ago. */
+const startedBefore = (root, ...starts) => writeMode(root, {
+  countedStarts: starts.map(([priority, hoursAgo]) => ({ at: new Date(now - hoursAgo * HOUR).toISOString(), priority })),
+});
+const waits = root => Object.fromEntries(plan(root).entries.map(({ title, waiting }) => [title, waiting]));
+
+test('P1 starts 4 runs by itself in any 24 hours, all its projects together, and then a P2 row goes while P1 says why it waits', t => {
+  const root = dataRoot(t);
+  project(root, 'tool');
+  project(root, 'web');
+  project(root, 'site', 'casual');
+  ranRecently(root, 'tool', 'web', 'site');
+  fileItem(root, 'tool', item('tool fix', { impact: 'high' }), now);
+  fileItem(root, 'web', item('web fix', { impact: 'high' }), now);
+  fileItem(root, 'site', item('site fix', { impact: 'high' }), now);
+
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 23]);
+  assert.equal(plan(root).next.title, 'tool fix', 'three leave a place');
+
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 5], ['P1', 23]);
+  assert.equal(plan(root).next.title, 'site fix');
+  assert.deepEqual(waits(root), {
+    'tool fix': 'P1 has had its 4 runs today',
+    'web fix': 'P1 has had its 4 runs today',
+    'site fix': null,
+  });
+});
+
+test('a start older than its window frees a place: P1 and P2 count the last 24 hours and P3 the last 7 days', t => {
+  const root = dataRoot(t);
+  project(root, 'tool');
+  project(root, 'site', 'casual');
+  project(root, 'toy', 'casual');
+  setProjectPriority(root, 'toy', 'P3');
+  ranRecently(root, 'tool', 'site', 'toy');
+  fileItem(root, 'tool', item('tool fix', { impact: 'high' }), now);
+  fileItem(root, 'site', item('site fix', { impact: 'high' }), now);
+  fileItem(root, 'toy', item('toy fix', { impact: 'high' }), now);
+
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 3], ['P1', 23.9], ['P2', 23.9], ['P3', 167.9]);
+  assert.deepEqual(waits(root), {
+    'tool fix': 'P1 has had its 4 runs today',
+    'site fix': 'P2 has had its run today',
+    'toy fix': 'P3 has had its run this week',
+  });
+
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 3], ['P1', 24], ['P2', 24], ['P3', 168]);
+  assert.deepEqual(waits(root), { 'tool fix': null, 'site fix': null, 'toy fix': null });
+});
+
+test('discovery spends the runs of its own grade, so the daily look at P3 waits out P3\'s week, and one carrying on where it stopped spends none', t => {
+  const root = dataRoot(t);
+  project(root, 'site', 'casual');
+  writeMode(root, { folder: '/repos', lastDiscoveryAt: new Date(now - 25 * HOUR).toISOString() });
+  startedBefore(root, ['P3', 24]);
+
+  assert.deepEqual(waits(root), { 'find projects': 'P3 has had its run this week' });
+  for (const status of ['continuing', 'interrupted']) {
+    recordDiscovery(root, { status, folder: '/repos', startedAt: new Date(now - HOUR).toISOString() });
+    assert.deepEqual(waits(root), { 'find projects': null }, status);
+  }
+});
+
+test('the user\'s picks, closing work and P0 start whatever P1 has had, and with auto-pick off nothing waits on it', t => {
+  const root = dataRoot(t);
+  project(root, 'tool');
+  project(root, 'web');
+  project(root, 'billing', 'critical');
+  ranRecently(root, 'tool', 'web', 'billing');
+  const picked = fileItem(root, 'tool', item('picked', { impact: 'low' }), now);
+  fileItem(root, 'tool', item('new work', { impact: 'high' }), now);
+  fileItem(root, 'tool', item('main is broken', { urgent: true }), now);
+  fileItem(root, 'tool', { key: 'token', kind: 'attention', title: 'Rotate the token', brief }, now);
+  fileItem(root, 'tool', item('Rebase hobkin/abc onto main', { kind: 'pr-fix' }), now);
+  const noted = fileItem(root, 'tool', item('noted', { impact: 'low' }), now);
+  updateItem(root, 'tool', noted.id, { workNote: 'Close whatever stops this merging.' }, now);
+  const started = fileItem(root, 'web', item('started', { impact: 'low' }), now);
+  updateItem(root, 'web', started.id, { state: 'doing', branch: 'hobkin/started' }, now);
+  fileItem(root, 'billing', item('billing fix', { impact: 'high' }), now);
+  pickNext(root, `item:tool:${picked.id}`);
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 3], ['P1', 4]);
+
+  assert.deepEqual(waits(root), {
+    picked: null,
+    'main is broken': null,
+    'Rotate the token': null,
+    'Rebase hobkin/abc onto main': null,
+    noted: null,
+    started: null,
+    'billing fix': null,
+    'new work': 'P1 has had its 4 runs today',
+  });
+  assert.equal(countsAgainst({ kind: 'watch', focus: 'watch', priority: 'P1' }), null, 'a watch looks after what already landed');
+
+  writeMode(root, { autoPick: false });
+  assert.equal(waits(root)['new work'], null);
+});
+
+test('a study its priority cannot start yet holds back no urgent item, because urgent work is never paced', t => {
+  const root = dataRoot(t);
+  chooseProject(root, '/repos/api', 'important', now);
+  fileItem(root, 'api', item('main is broken', { urgent: true }), now);
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 3], ['P1', 4]);
+
+  const { next, entries } = plan(root);
+
+  assert.equal(next.title, 'main is broken');
+  assert.deepEqual(entries.map(({ kind, waiting }) => [kind, waiting]), [['study', 'P1 has had its 4 runs today'], ['item', null]]);
 });
 
 test('with no reading of the subscription, one agent runs at a time, because the token limit alone cannot protect it', t => {

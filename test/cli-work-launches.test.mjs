@@ -806,7 +806,8 @@ test('a watch look runs with what it needs, stamps its own clock and leaves the 
   h.merged = 0;
   watchable(h);
   const merged = land(h, { file: 'cashback.rb', launch: { undo: 'code', risk: 'The refund branch.', lookAt: 'cashback.rb:1' } });
-  writeState(h.root, 'api', { lensIndex: 3 });
+  // A P1 lens comes a day after the last one, so this one is due six hours on.
+  writeState(h.root, 'api', { lensIndex: 3, lastLensAt: iso(NOW - 18 * HOUR) });
 
   await h.tick();
   assert.deepEqual(h.calls, [], 'the first pulse only opens the launch');

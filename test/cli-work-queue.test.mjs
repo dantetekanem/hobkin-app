@@ -767,6 +767,54 @@ test('when the last run started survives a restart, so a new owner keeps the gap
   assert.equal(reopened.lastStartAt, h.clock);
 });
 
+/** An agent that finishes its item, so the next start takes another. */
+const finishes = h => request => {
+  const { project, item: { id } } = h.work(request);
+  updateItem(h.root, project.slug, id, { state: 'done' }, h.clock);
+};
+
+test('what starts by itself spends its priority\'s runs: after 4 P1 starts in a day a P2 row goes, and a day on P1 starts again', async t => {
+  const h = director(t);
+  studied(h, 'tool');
+  studied(h, 'site', 'casual');
+  for (let index = 0; index < 6; index++) fileItem(h.root, 'tool', item(`tool fix ${index}`), h.clock);
+  fileItem(h.root, 'site', item('site fix'), h.clock);
+  fileItem(h.root, 'site', item('site fix again'), h.clock);
+  h.agent = finishes(h);
+
+  await h.ticks(6);
+
+  assert.deepEqual(h.calls.map(call => h.work(call).project.slug), ['tool', 'tool', 'tool', 'tool', 'site']);
+  assert.deepEqual(readMode(h.root).countedStarts.map(({ priority }) => priority), ['P1', 'P1', 'P1', 'P1', 'P2']);
+  assert.deepEqual(planWork(h.root, { now: h.clock }).entries.map(({ title, waiting }) => [title, waiting]), [
+    ['tool fix 4', 'P1 has had its 4 runs today'],
+    ['tool fix 5', 'P1 has had its 4 runs today'],
+    ['site fix again', 'P2 has had its run today'],
+  ]);
+
+  h.clock += 24 * HOUR;
+  await h.tick();
+
+  assert.deepEqual(h.calls.slice(5).map(call => h.work(call).project.slug), ['tool']);
+});
+
+test('a pick and urgent work start whatever their priority has had, and neither spends its runs', async t => {
+  const h = director(t);
+  studied(h, 'tool');
+  const picked = fileItem(h.root, 'tool', item('picked'), h.clock);
+  fileItem(h.root, 'tool', item('main is broken', { urgent: true }), h.clock);
+  fileItem(h.root, 'tool', item('new work'), h.clock);
+  const spent = [1, 2, 3, 4].map(hours => ({ at: new Date(h.clock - hours * HOUR).toISOString(), priority: 'P1' }));
+  writeMode(h.root, { countedStarts: spent });
+  pickNext(h.root, `item:tool:${picked.id}`);
+  h.agent = finishes(h);
+
+  await h.ticks(3);
+
+  assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['picked', 'main is broken']);
+  assert.deepEqual(readMode(h.root).countedStarts, spent);
+});
+
 test('a pick whose item finished another way leaves the pick list', async t => {
   const h = director(t);
   studied(h, 'api');

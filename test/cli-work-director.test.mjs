@@ -16,7 +16,7 @@ import { planWork } from '../src/cli/work/plan.mjs';
 import { recordSignals } from '../src/cli/work/signals.mjs';
 import {
   answerAllowance, chooseProject, fileItem, itemTree, noteDiscovery, paths, pickNext, prFile, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery,
-  recordTokens, setProjectPrMode, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
+  recordTokens, setProjectPrMode, setProjectPriority, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { readUnmerged } from '../src/cli/work/unmerged.mjs';
 import { withOrigin, writeJson } from './helpers/work-fixture.mjs';
@@ -1110,6 +1110,8 @@ test('level sets model and effort', async t => {
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'billing'), 'critical');
   chooseProject(h.root, repository(h.base, 'site'), 'casual');
+  // At P2 its item would wait a day behind its study. The level alone sets the model and the effort.
+  setProjectPriority(h.root, 'site', 'P0');
   fileItem(h.root, 'billing', item);
   fileItem(h.root, 'site', item);
   await h.ticks(8);
@@ -1126,6 +1128,8 @@ test('a run lands the way its project says, whatever its level, and stays a loca
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'billing'), 'casual');
   chooseProject(h.root, repository(h.base, 'site'), 'critical');
+  // At P2 its item would wait a day behind its study, and how work lands has nothing to do with that.
+  setProjectPriority(h.root, 'billing', 'P0');
   setProjectPrMode(h.root, 'billing', 'published');
   fileItem(h.root, 'billing', item);
   fileItem(h.root, 'site', item);
@@ -1529,6 +1533,8 @@ test('closing Hobkin on a quiet run keeps its item to resume, with nothing again
 test('an item keeps coming round however many runs fail, each one knowing why the last did', async t => {
   const h = fixture(t);
   await readyToDo(h);
+  // At P1 four runs a day is all it gets, and six tries in six hours is what this is about.
+  setProjectPriority(h.root, 'api', 'P0');
   h.result = { status: 'failed', cost: null, error: 'The tests would not start.\nAnd a second line.' };
 
   for (let run = 0; run < 6; run++) {

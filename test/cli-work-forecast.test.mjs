@@ -8,7 +8,7 @@ import { main } from '../src/cli/main.mjs';
 import { forecastEachMinute, forecastWork } from '../src/cli/work/forecast.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import { SHIP_FIRST_AT } from '../src/cli/work/ship.mjs';
-import { chooseProject, fileItem, paths, recordTokens, tokenEvents, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, paths, pickNext, recordTokens, setProjectPriority, tokenEvents, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
 import { director, studied } from './helpers/work-director.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
@@ -27,7 +27,7 @@ function dataRoot(t) {
   return root;
 }
 
-/** A project past its study that has just had a look, so its next comes round at its own pace: 3 hours at P1, 8 at P2. */
+/** A project past its study that has just had a look, so its next comes round at its own pace: an hour at P0, a day at P1, 3 days at P2. */
 function project(root, slug, level = 'important', time = now) {
   chooseProject(root, `/repos/${slug}`, level, time);
   mkdirSync(paths(root, slug).directory, { recursive: true });
@@ -47,30 +47,29 @@ function itemsTook(root, length) {
 
 test('what is ready now and the looks that come due later both count, by grade', t => {
   const root = dataRoot(t);
-  project(root, 'api');
+  project(root, 'api', 'important', now - 20 * HOUR);
+  writeState(root, 'api', { lastSignalsAt: at(now) });
   fileItem(root, 'api', item('Fix login'), now);
-  fileItem(root, 'api', item('Fix logout'), now);
   fileItem(root, 'api', item('Tidy the copy', { impact: 'medium' }), now);
-  fileItem(root, 'api', item('Rename a file', { impact: 'low' }), now);
 
   const { jobs, grades, limit, line } = forecast(root);
 
-  assert.deepEqual(grades, { P0: 0, P1: 4, P2: 1, P3: 1 }, 'four items, and P1 looks at 15:00 and 18:00');
-  assert.deepEqual([jobs, limit], [6, null]);
-  assert.equal(line, 'Next 8h: about 6 jobs · 4 P1 · 1 P2 · 1 P3 · 2 agents at a time.');
+  assert.deepEqual(grades, { P0: 0, P1: 2, P2: 1, P3: 0 }, 'two items, and a P1 look at 16:00, a day after the last');
+  assert.deepEqual([jobs, limit], [3, null]);
+  assert.equal(line, 'Next 8h: about 3 jobs · 2 P1 · 1 P2 · 2 agents at a time.');
 });
 
 test('runs take as long as the last ones like them did, and two agents fit only so many', t => {
   const root = dataRoot(t);
   for (const slug of ['api', 'web']) {
-    project(root, slug);
+    project(root, slug, 'critical');
     for (let index = 0; index < 5; index++) fileItem(root, slug, item(`${slug} fix ${index}`), now);
   }
   itemsTook(root, 2 * HOUR);
 
   const { jobs, grades, limit, line } = forecast(root);
 
-  assert.deepEqual([jobs, grades.P1, limit], [8, 8, 'pace'], 'four two-hour runs for each agent, and no room left for a look');
+  assert.deepEqual([jobs, grades.P0, limit], [8, 8, 'pace'], 'four two-hour runs for each agent, and no room left for the hourly looks');
   assert.match(line, /More is due than fits\.$/);
 });
 
@@ -78,20 +77,20 @@ test('the hourly share stops it when the hours are full', t => {
   const root = dataRoot(t);
   for (const slug of ['api', 'web', 'docs', 'site']) {
     project(root, slug, 'casual');
-    for (let index = 0; index < 5; index++) fileItem(root, slug, item(`${slug} fix ${index}`), now);
+    for (let index = 0; index < 5; index++) pickNext(root, `item:${slug}:${fileItem(root, slug, item(`${slug} fix ${index}`), now).id}`);
   }
   writeMode(root, { dailyTokens: 24000000 });
 
   const { jobs, limit, line } = forecast(root);
 
-  assert.deepEqual([jobs, limit], [16, 'hour'], 'two runs of a million fit each hour');
+  assert.deepEqual([jobs, limit], [16, 'hour'], 'two runs of a million fit each hour, and picks spend no priority\'s runs');
   assert.match(line, /The hourly share caps it\.$/);
 });
 
 test('the daily budget stops it near what it can pay for', t => {
   const root = dataRoot(t);
   for (const slug of ['api', 'web', 'docs']) {
-    project(root, slug, 'casual');
+    project(root, slug);
     fileItem(root, slug, item(`${slug} fix`), now);
     fileItem(root, slug, item(`${slug} fix again`), now);
   }
@@ -107,7 +106,7 @@ test('a day with its budget used up starts again at midnight', t => {
   const root = dataRoot(t);
   const late = new Date(2026, 5, 1, 20).getTime();
   for (const slug of ['api', 'web']) {
-    project(root, slug, 'casual', late);
+    project(root, slug, 'important', late);
     fileItem(root, slug, item(`${slug} fix`), late);
   }
   writeMode(root, { dailyTokens: 10000000 });
@@ -138,7 +137,7 @@ test('paused by hand, nothing starts, and it says what ends that', t => {
 test('a usage limit holds every start until it ends', t => {
   const root = dataRoot(t);
   for (const slug of ['api', 'web', 'docs']) {
-    project(root, slug, 'casual');
+    project(root, slug);
     fileItem(root, slug, item(`${slug} fix`), now);
   }
   itemsTook(root, 2 * HOUR);
@@ -174,6 +173,57 @@ test('with the mode off it counts what turning it on would start, which ends a p
   writeMode(root, { enabled: false, pausedAt: at(now) });
 
   assert.equal(forecast(root).line, 'Next 8h: about 1 job · 1 P2 · 2 agents at a time.');
+});
+
+const countedAgo = (priority, hours) => ({ at: at(now - hours * HOUR), priority });
+
+test('a pile of 21 projects starts only the runs each priority has, and says that is what caps it', t => {
+  const root = dataRoot(t);
+  const pile = [...Array(14).fill('important'), ...Array(7).fill('casual')];
+  for (const [index, level] of pile.entries()) {
+    project(root, `project-${index}`, level);
+    for (let count = 0; count < 3; count++) fileItem(root, `project-${index}`, item(`fix ${count}`), now);
+  }
+  setProjectPriority(root, 'project-20', 'P3');
+
+  const { jobs, grades, limit, line } = forecast(root);
+
+  assert.deepEqual(grades, { P0: 0, P1: 4, P2: 1, P3: 1 }, 'of 63 rows, four P1 starts, one P2 and one P3');
+  assert.deepEqual([jobs, limit], [6, 'priority']);
+  assert.equal(line, 'Next 8h: about 6 jobs · 4 P1 · 1 P2 · 1 P3 · 2 agents at a time. The pace by priority caps it.');
+});
+
+test('runs a priority has had stop counting as they pass their window, inside the 8 hours too', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  for (let index = 0; index < 6; index++) fileItem(root, 'api', item(`fix ${index}`), now);
+  writeMode(root, { countedStarts: [23, 22, 2, 1].map(hours => countedAgo('P1', hours)) });
+
+  const { jobs, grades, limit } = forecast(root);
+
+  assert.deepEqual([jobs, grades.P1, limit], [2, 2, 'priority'], 'places free at 13:00 and 14:00, and the next two not before tomorrow');
+});
+
+test('with each priority\'s runs had, the plan starts only what is never paced, and the forecast counts the same', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  project(root, 'site', 'casual');
+  fileItem(root, 'api', item('New work'), now);
+  fileItem(root, 'api', item('Urgent fix', { urgent: true }), now);
+  fileItem(root, 'site', item('Site work'), now);
+  writeMode(root, { countedStarts: [...[1, 2, 3, 4].map(hours => countedAgo('P1', hours)), countedAgo('P2', 1)] });
+
+  const plan = planWork(root, { now });
+  const { jobs, grades, limit, line } = forecastWork(root, plan, { now });
+
+  assert.equal(plan.next.title, 'Urgent fix');
+  assert.deepEqual(plan.entries.map(({ title, waiting }) => [title, waiting]), [
+    ['Urgent fix', null],
+    ['New work', 'P1 has had its 4 runs today'],
+    ['Site work', 'P2 has had its run today'],
+  ]);
+  assert.deepEqual([jobs, grades.P0, limit], [1, 1, 'priority']);
+  assert.equal(line, 'Next 8h: about 1 job · 1 P0 · 2 agents at a time. The pace by priority caps it.');
 });
 
 test('the status works it out once a minute, and a change it counts shows at once', t => {

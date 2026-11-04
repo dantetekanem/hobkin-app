@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLine } from './budget.mjs';
+import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLine, outOfStarts, startBudgets } from './budget.mjs';
 import { lookTime } from './chat.mjs';
 import { openLaunches, watchDue } from './launches.mjs';
 import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
@@ -28,6 +28,8 @@ const SHIPPING_FIRST_AT = PLENTY_OPEN_ITEMS;
 const newWorkKinds = ['feature', 'improvement'];
 // A look that ended one of these ways has had its say, so an empty tab is not a reason to look again today.
 const lookOutcomes = ['finished', 'failed', 'unfinished', 'cancelled'];
+// A look that ended one of these ways carries on from its notes as the same look.
+const outcomesThatCarryOn = ['continuing', 'interrupted'];
 
 // Opus at max effort is the dearest run there is and shares a subscription with the user's own Claude work, so these stay few.
 export const MAX_RUNS_AT_ONCE = 1;
@@ -65,6 +67,24 @@ const stillRuns = item => item.state === 'doing' || item.urgent || item.kind ===
 
 /** What the pile holds back: anything that adds to it. A pick is the user's own word, and a watch looks after what already landed. */
 export const startsNewWork = ({ picked, focus, item }) => !picked && focus !== 'watch' && !(item && stillRuns(item));
+
+/**
+ * The priority whose runs a row spends when it starts by itself: its project's, or its own grade with no project, as for discovery. P0 spends none,
+ * and neither does a look for projects carrying on from where it stopped, because it is the run already counted, as a started item is.
+ */
+export function countsAgainst(row) {
+  if (!startsNewWork(row) || row.carriesOn) return null;
+  const priority = row.priority ?? row.grade;
+  return startBudgets[priority] ? priority : null;
+}
+
+/** Why a row waits for its priority's window to move on. Only auto-pick starts anything by itself, so with it off nothing waits here. */
+export function startBudgetWait({ mode, spent }, row) {
+  if (!mode.autoPick) return null;
+  const priority = countsAgainst(row);
+  if (!priority) return null;
+  return spent[priority] ?? null;
+}
 
 /** A project as the plan grades it, with how much of its finished work is waiting on a merge and whether it sees less than it wants to. */
 export const withPending = (root, project) => ({
@@ -296,6 +316,7 @@ export function discoveryEntry({ root, mode, now, running }) {
     effort: 'small',
     score: first ? FIRST_DISCOVERY_WORTH : REPEAT_DISCOVERY_WORTH,
     why: first ? 'nothing to work on yet' : 'daily look',
+    carriesOn: folder === mode.folder && outcomesThatCarryOn.includes(status),
   }];
 }
 
@@ -323,8 +344,13 @@ function maxWait({ mode, now, running, budget, panes }) {
 /** Only a row that can start holds another back. A skipped one stays where it is, and with auto-pick off only a pick ever starts, so waiting on anything else never ends. */
 export const canStart = ({ autoPick }, row) => !row.skipped && !row.held && (autoPick || row.picked);
 
-const needsItsStudy = (mode, entry, entries) => entry.unstudied && !entry.picked
-  && entries.some(other => other.slug === entry.slug && other.kind === 'study' && canStart(mode, other));
+// A study holds its project's items only while it can start. One its priority cannot start yet would hold back work that is never paced, such as an urgent fix.
+function needsItsStudy(context, entry, entries) {
+  if (!entry.unstudied || entry.picked) return false;
+  const studyThatCanStart = other => other.slug === entry.slug && other.kind === 'study'
+    && canStart(context.mode, other) && !startBudgetWait(context, other);
+  return entries.some(studyThatCanStart);
+}
 
 // A started item goes before the rest of its project, so work already begun ends first. One that cannot start holds nothing back, and its own tree keeps its work meanwhile.
 const behindItsStartedItem = (mode, entry, entries) => entry.kind === 'item' && entry.item.state !== 'doing'
@@ -354,9 +380,11 @@ function ownWait(entry, entries, context) {
   if (entry.skipped) return 'skipped';
   if (entry.paused) return 'paused';
   if (entry.held) return 'shipping first';
+  const paced = startBudgetWait(context, entry);
+  if (paced) return paced;
   const retry = retryWait(entry, now);
   if (retry) return retry;
-  if (needsItsStudy(mode, entry, entries)) return 'needs its study';
+  if (needsItsStudy(context, entry, entries)) return 'needs its study';
   const busy = waitsOnItsProject(entry, here);
   if (busy) return busy;
   if (behindItsStartedItem(mode, entry, entries)) return 'after its started item';
@@ -449,7 +477,7 @@ export const startGap = ({ startGapMs }, running) => (running.length ? startGapM
 export function planWork(root, { mode = readMode(root), now = Date.now(), running = [], checks = 0, lastStartAt = null, panes = true } = {}) {
   const budget = budgetFor(root, mode, now, running);
   const reading = readSubscription(root);
-  const context = { root, mode, now, running, budget, reading, panes };
+  const context = { root, mode, now, running, budget, reading, panes, spent: outOfStarts(mode.countedStarts, now) };
   const history = costHistory(root);
   const projects = chosenProjects(root).map(project => withPending(root, project));
   const shipping = shipFirst(readyItems(root, Infinity), mode, now);

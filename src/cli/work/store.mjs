@@ -12,8 +12,8 @@ export const levels = {
   casual: { rank: 2, priority: 'P2', lookEffort: 'low', doEffort: 'medium', model: 'background' },
 };
 export const grades = ['P0', 'P1', 'P2', 'P3'];
-// Each look takes one of seven lenses in turn, so these bring every lens round in 7 hours at P0, within a day at P1, in about two days at P2 and in a week at P3.
-const hoursBetweenLooks = { P0: 1, P1: 3, P2: 8, P3: 24 };
+// Each look takes one of seven lenses in turn, so these bring every lens round in 7 hours at P0, a week at P1, three weeks at P2 and seven weeks at P3.
+const hoursBetweenLooks = { P0: 1, P1: 24, P2: 72, P3: 168 };
 export const prModes = ['off', 'draft', 'published'];
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 export const workHarnesses = ['pi', 'claude', 'codex'];
@@ -118,10 +118,11 @@ function fold(events, identify) {
   return [...folded.values()];
 }
 
+/** `countedStarts` is what started by itself and spends its priority's runs, as `{ at, priority }`, kept only while its window lasts. */
 export function readMode(root) {
   const defaults = {
     version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS,
-    startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [],
+    startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [], countedStarts: [],
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
   const { pool, ...saved } = readJson(modePath(root), {});

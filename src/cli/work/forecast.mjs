@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
-import { costHistory, estimateRun, fitsDay, fitsHour, hourShareOf } from './budget.mjs';
+import { costHistory, estimateRun, fitsDay, fitsHour, hourShareOf, outOfStarts, withStart } from './budget.mjs';
 import { lookTime } from './chat.mjs';
 import {
-  canStart, discoveryEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, retryAt, signalsEntry, skipsTheHour, startGap, startsNewWork, waitsOnItsProject, watchEntry,
+  canStart, countsAgainst, discoveryEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, retryAt, signalsEntry, skipsTheHour, startBudgetWait, startGap,
+  startsNewWork, waitsOnItsProject, watchEntry,
 } from './plan.mjs';
 import { chosenProjects, dailyLimit, grades, lookEveryHours, paths, readState, tokenEvents } from './store.mjs';
 
@@ -75,13 +76,14 @@ function laterLooks(root, { mode, budget, entries }, projects, { start, end, run
   });
 }
 
-/** Why a row cannot start this minute, or null when it can. */
-function refused(row, busy, day, hour) {
+/** Why a row cannot start this minute, or null when it can. A priority that has had its runs holds its rows whatever the hour has left. */
+function refused(row, { mode, busy, day, hour, spent }) {
   const maxRunning = busy.filter(run => run.level === 'max').length;
   const maxFull = row.level === 'max' && (maxRunning >= MAX_RUNS_AT_ONCE || day.maxRuns >= MAX_RUNS_A_DAY);
   const projectBusy = waitsOnItsProject(row, busy.filter(run => run.slug === row.slug));
   if (maxFull || projectBusy) return 'pace';
   if (!fitsDay(day, row.estimate.fresh)) return 'day';
+  if (startBudgetWait({ mode, spent }, row)) return 'priority';
   if (skipsTheHour(row) || fitsHour(hour, row.estimate.fresh)) return null;
   return 'hour';
 }
@@ -90,7 +92,13 @@ const spentInTheHourTo = (spends, at) => spends
   .filter(spend => spend.at > at - HOUR_MS && spend.at <= at)
   .reduce((sum, spend) => sum + spend.fresh, 0);
 
-/** A minute at a time, as the owner's ticks go: the top row that can start does, while an agent is free, the gap between starts has passed and the budget allows it. */
+// What held the most minutes back. A tie goes to the agents' pace and then the hour, as it did before priorities had runs to spend.
+const mostHeld = held => ['pace', 'hour', 'priority'].reduce((most, kind) => (held[kind] > held[most] ? kind : most));
+
+/**
+ * A minute at a time, as the owner's ticks go: the top row that can start does, while an agent is free, the gap between starts has passed and the budget allows it.
+ * A row that starts by itself spends its priority's runs, and a run had long enough ago gives its place back, inside the window too.
+ */
 function play({ plan: { mode, budget, agents }, queue, from, start, end, running, lengthOf, nextLook }) {
   const active = running.map(run => ({
     ...run,
@@ -110,8 +118,9 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
   // The budget is today's, so a stop that ends after midnight starts the next day with all of it.
   let midnight = nextMidnight(from);
   let lastStart = -Infinity;
+  let counted = mode.countedStarts;
   let why = null;
-  const held = { hour: 0, pace: 0 };
+  const held = { hour: 0, pace: 0, priority: 0 };
   const started = [];
 
   for (let at = start; at < end; at += MINUTE_MS) {
@@ -124,10 +133,11 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
 
     const busy = active.filter(run => run.until > at);
     const hour = { hourShare: hourShareOf(day.limit), hourUsed: spentInTheHourTo(spends, at), reserved: 0 };
+    const limits = { mode, busy, day, hour, spent: outOfStarts(counted, at) };
     const paced = busy.length >= agents || at - lastStart < startGap(mode, busy);
-    const next = paced ? null : due.find(row => !refused(row, busy, day, hour));
+    const next = paced ? null : due.find(row => !refused(row, limits));
     if (!next) {
-      why = paced ? 'pace' : refused(due[0], busy, day, hour);
+      why = paced ? 'pace' : refused(due[0], limits);
       held[why] = (held[why] ?? 0) + 1;
       continue;
     }
@@ -135,6 +145,8 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
     queue.splice(queue.indexOf(next), 1);
     started.push(next);
     lastStart = at;
+    const priority = countsAgainst(next);
+    if (priority) counted = withStart(counted, priority, at);
     day.used += next.estimate.fresh;
     if (next.level === 'max') day.maxRuns += 1;
     spends.push({ at, fresh: next.estimate.fresh });
@@ -151,7 +163,7 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
   const left = queue.some(row => row.at <= end - HOUR_MS);
   if (!left) return { started, limit: null };
   if (why === 'day') return { started, limit: 'day' };
-  return { started, limit: held.hour > held.pace ? 'hour' : 'pace' };
+  return { started, limit: mostHeld(held) };
 }
 
 // Turning work mode on ends a pause by hand, so with it off only a limit that ends by itself holds anything.
@@ -186,6 +198,7 @@ function forecastLine({ jobs, grades: byGrade, agents, limit, until }, now) {
     chosen: `Paused to protect the subscription${when}, as you chose.`,
     day: 'The daily budget caps it.',
     hour: 'The hourly share caps it.',
+    priority: 'The pace by priority caps it.',
     pace: 'More is due than fits.',
     picks: 'Auto-pick is off, so only picks start.',
   }[limit];
