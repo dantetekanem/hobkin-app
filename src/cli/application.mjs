@@ -31,6 +31,7 @@ import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullReque
 import { answerPickUp, filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
 import { answerSubscriptionPause } from './work/subscription.mjs';
+import { winsNow, yesterdayLine } from './work/wins.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { answerPair, fileFirstPair } from './work/pairs.mjs';
@@ -348,6 +349,8 @@ export class HobkinApplication {
       const told = this.templateLine();
       if (told) notices.push(told);
     }
+    const yesterday = this.yesterdayWins();
+    if (yesterday && !noticeIds.has(yesterday.id)) notices.push(yesterday);
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
     const handedLines = handedOver.map(entry => inboxNotice(entry, this.now()));
@@ -492,6 +495,7 @@ export class HobkinApplication {
       work,
       decisions: openDecisions(this.runtime.directory),
       waiting: this.waitingNow(visible.reports),
+      wins: this.winsToday(),
       connection: 'connected',
       busy: this.runtime.mainBusy,
       searching: searchingTool(this.runtime.mainTool),
@@ -870,6 +874,26 @@ export class HobkinApplication {
     const hidden = target.tab === 'work' && !readMode(this.runtime.directory).enabled;
     if (target.tab === 'chat' || hidden) void this.askMain(id, label, answerTo).catch(() => {});
     else this.showRow?.(target);
+  }
+
+  /** Today's wins and the days in a row, for the Decisions tab. A problem counting them costs this refresh the line and nothing else. */
+  winsToday() {
+    try {
+      return winsNow(this.runtime.directory, this.now());
+    } catch {
+      return this.snapshot.wins ?? null;
+    }
+  }
+
+  /** What got done yesterday, as one line in Chat on the first look of a new day. */
+  yesterdayWins() {
+    try {
+      const content = yesterdayLine(this.runtime.directory, this.now());
+      const at = new Date(this.now()).toISOString();
+      return content && { id: `notice:wins:${at.slice(0, 10)}`, role: 'notice', content, tone: 'useful', at };
+    } catch {
+      return null;
+    }
   }
 
   /** What an update brought in routine templates, as one line in Chat. Trouble reading them costs the line and nothing else. */

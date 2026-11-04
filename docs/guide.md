@@ -342,6 +342,8 @@ From the same evidence Hobkin concludes which checks work, which do not, and whi
 
 hobkin keeps a record of what happens in it, in `runtime/events/` in the data folder, one file a month with the newest six kept: when it opens and closes, each turn and run, what reaches Chat, each question and decision and how it ended, reports read, the Done walk, each mood with its cause, tabs, work mode pausing, compaction and errors on screen. It holds facts only: ids, counts, durations, statuses, tones, moods, routine ids, project slugs and item ids, never a message, a report or anything an agent or a person wrote. hobkin reads it once a day for failures in its own harness and once a week for the review, and none of it leaves your machine.
 
+Wins keep the cadence in sight. The top of Decisions says what got done today, as work merged and decisions made, and how many days in a row something got done. Every merge counts, and so does every question or card you answered, except the card that asks how to tackle the pile. On the first look of a new day, Chat says what got done yesterday. `hobkin wins [--days n]` prints each day as JSON, 7 days by default.
+
 `hobkin telemetry [--days n]` prints a rollup as JSON, 30 days by default: events by type and day, runs by routine and by project, mean durations, what reached you beside what you did with it, and the same scoreboard the weekly review shows.
 
 ## Memory search

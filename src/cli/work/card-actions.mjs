@@ -33,6 +33,9 @@ export const recordCardAction = (root, told, now = Date.now()) => append(root, {
 
 export const cardActionsToPost = root => readLog(root).filter(({ posted }) => !posted);
 
+/** Everything the user did from a card, oldest first, for counting what got done. */
+export const allCardActions = root => readLog(root);
+
 /** A system line, because it says back what the user did, in full. */
 export const cardActionNotice = ({ id, line, at }) => ({ id: `notice:card:${id}`, role: 'system', content: line, at });
 

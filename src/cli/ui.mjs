@@ -1226,9 +1226,18 @@ const decisionSections = ({ decisions, waiting, chosen, inner, clock }) => {
   const sections = groups.map(([heading, rows]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) }))]);
   return { sections, selectedKey };
 };
-const decisionLines = ({ sections, selectedKey, inner }) => {
-  if (!sections.length) return { content: [dim('Nothing is waiting on you.')] };
-  const content = [];
+// What got done today and the days in a row, so walking the list keeps a cadence.
+const winsLine = wins => {
+  if (!wins) return [];
+  const { today, streak } = wins;
+  const done = [today.merged && `${today.merged} merged`, today.decided && `${today.decided} decided`].filter(Boolean).join(' · ');
+  const run = streak > 1 ? `${streak} days in a row` : '';
+  const told = [done ? `Today: ${done}` : 'Nothing done yet today', run].filter(Boolean).join(' · ');
+  return [(done ? positive : dim)(told), ''];
+};
+const decisionLines = ({ sections, selectedKey, inner, wins }) => {
+  if (!sections.length) return { content: [...winsLine(wins), dim('Nothing is waiting on you.')] };
+  const content = [...winsLine(wins)];
   const selected = sections.flatMap(([, rows]) => rows).find(({ key: rowKey }) => rowKey === selectedKey);
   return { content, selectedRange: pushSections(content, { sections, selected, inner }) };
 };
@@ -2149,7 +2158,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       };
     }
     if ((view === 'work' || view === 'decisions') && donePage) return doneReading({ ...donePage, inner });
-    if (view === 'decisions') return decisionLines({ ...currentDecisions(inner, clock), inner });
+    if (view === 'decisions') return decisionLines({ ...currentDecisions(inner, clock), inner, wins: snapshot.wins });
     if (view === 'work' && workTab === 'done') {
       const sections = currentWorkSections(inner, clock, frame);
       return doneLines({ sections, selected: focus === 'workTabs' ? null : selectedWorkRow(sections), inner });
