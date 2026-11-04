@@ -1698,12 +1698,13 @@ test('Schedules groups live background jobs, sorts active schedules first and ke
   assert.equal(ui.state().view, 'conversation');
 });
 
-test('report list caps selection at the latest 25, keeps the total and opens its final item', () => {
+test('the report list keeps every report a page at a time, fits each size and opens the item past a page', () => {
   let now = Date.parse('2026-10-28T00:02:00Z');
   const reports = Array.from({ length: 80 }, (_, i) => ({ id: String(i), title: `Report ${i}`, at: new Date(now - i * 60000).toISOString(), body: `Detail ${i}` }));
   const ui = createDashboard({ ...snapshot, reports }, {}, { now: () => now });
   ui.input('\x1b[C');
   for (const [width, height] of [[120, 40], [80, 24], [60, 18]]) {
+    ui.input('\x1b[5~');
     for (let i = 0; i < 24; i++) ui.input('\x1b[B');
     assert.equal(ui.state().selectedId, '24');
     const rendered = ui.render(width, height).join('\n');
@@ -1711,13 +1712,13 @@ test('report list caps selection at the latest 25, keeps the total and opens its
     assert.match(rendered, /\x1b\[38;2;255;121;198m\x1b\[1mReport 24/);
     assert.ok(rendered.split('\n').every(value => visibleWidth(value) <= width));
     ui.input('\x1b[B');
-    assert.equal(ui.state().selectedId, '24');
+    assert.equal(ui.state().selectedId, '25');
     ui.input('\r');
-    assert.match(screen(ui, width, height), /Detail 24/);
+    assert.match(screen(ui, width, height), /Detail 25/);
     ui.input('\x1b');
   }
   ui.input('\r');
-  assert.match(screen(ui, 120, 40), /24 minutes ago/);
+  assert.match(screen(ui, 120, 40), /25 minutes ago/);
   now += 86400000;
   assert.match(screen(ui, 120, 40), /1 day ago/);
 });
@@ -2460,13 +2461,35 @@ test('keys that mean something else on the list are plain letters in the filter'
   assert.match(screen(ui, 120, 40), /\/ kmr\//);
 });
 
+test('reports come 25 to a page, the arrows and the page keys turn pages, and the heading says which page', () => {
+  const reports = Array.from({ length: 40 }, (_, index) => ({
+    id: `r${index}`, title: `Report number ${index}`, at: new Date(Date.parse('2026-10-27T09:00:00.000Z') - index * 60000).toISOString(), body: 'Body', outcome: 'completed',
+  }));
+  const ui = createDashboard({ ...snapshot, reports });
+  openReports(ui);
+  assert.match(screen(ui, 120, 40), /page 1 of 2 · 40 reports/);
+  assert.match(screen(ui, 120, 40), /pgup\/pgdn\s+pages/);
+  assert.doesNotMatch(screen(ui, 120, 40), /Report number 25\b/);
+
+  ui.input('\x1b[6~');
+  assert.match(screen(ui, 120, 40), /page 2 of 2 · 40 reports/);
+  assert.equal(ui.state().selectedId, 'r25');
+  ui.input('\x1b[5~');
+  assert.equal(ui.state().selectedId, 'r0');
+
+  for (let row = 0; row < 25; row++) ui.input('\x1b[B');
+  assert.equal(ui.state().selectedId, 'r25', 'down past the last row turns the page');
+  ui.input('\x1b[A');
+  assert.equal(ui.state().selectedId, 'r24', 'and up past the first row turns it back');
+});
+
 test('the filter finds reports past the 25 the list shows', () => {
   const reports = Array.from({ length: 40 }, (_, index) => ({
     id: `r${index}`, title: `Report number ${index}`, at: '2026-10-27T09:00:00.000Z', body: 'Body', outcome: 'completed',
   }));
   const ui = createDashboard({ ...snapshot, reports });
   openReports(ui);
-  assert.match(screen(ui, 120, 40), /latest 25 of 40/);
+  assert.match(screen(ui, 120, 40), /page 1 of 2 · 40 reports/);
   assert.doesNotMatch(screen(ui, 120, 40), /Report number 39/);
   ui.input('/');
   typing(ui, 'number 39');

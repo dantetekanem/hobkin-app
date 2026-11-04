@@ -412,7 +412,8 @@ export class HobkinApplication {
     const visible = {
       version: 1,
       savedAt: new Date().toISOString(),
-      reports: [...reports, ...this.snapshot.history.reports.filter(report => !deleted.has(report.id))].slice(0, 200),
+      // Every report is listed. The tab shows them a page at a time, so nothing needs cutting here.
+      reports: [...reports, ...this.snapshot.history.reports.filter(report => !deleted.has(report.id))],
       messages,
       context: this.runtime.contextInfo(),
       runs: [

@@ -321,6 +321,26 @@ test('a busy day of finished runs never pushes the conversation out of Chat', as
   }
 });
 
+test('Reports lists every report, however many there are', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    await app.runtime.change(state => {
+      for (let index = 0; index < 230; index++) {
+        const finishedAt = new Date(Date.parse('2026-01-02T09:00:00.000Z') + index * 60000).toISOString();
+        const { work, ...routineRun } = backgroundRun(`run-${index}`, { scheduleId: 'digest', title: `Digest ${index}`, finishedAt });
+        state.runs[`run-${index}`] = routineRun;
+      }
+    });
+
+    const { reports } = await app.refresh();
+
+    assert.ok(reports.length >= 230, `${reports.length} reports listed`);
+  } finally {
+    await app.close();
+  }
+});
+
 test('a session line is not folded away by the runs around it', async t => {
   const h = fixture(t);
   const app = await h.openApp();

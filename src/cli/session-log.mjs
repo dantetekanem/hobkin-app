@@ -6,8 +6,6 @@ const LOG = 'sessions.jsonl';
 const MOST_READ_BYTES = 1048576;
 const LONGEST_LINE = 280;
 const LINES_SAID = 2;
-// The Reports list holds 200, so older sessions have no place in it.
-const MOST_REPORTS = 200;
 // Well under what a message can carry, and the rest go with the next one.
 const MOST_IN_A_NOTE = 10;
 
@@ -101,7 +99,7 @@ const reportOf = ({ name, title, endedAt }, body) => ({
 
 /** Sessions join Reports like any other run. Only one that wrote a report has anything to open. */
 export function sessionReports(root, deleted) {
-  const reported = endedSessions(root).slice(-MOST_REPORTS).map(session => ({ session, body: readReport(root, reportId(session.name), null) }));
+  const reported = endedSessions(root).map(session => ({ session, body: readReport(root, reportId(session.name), null) }));
   return reported
     .filter(({ session, body }) => body !== null && !deleted.has(reportId(session.name)))
     .map(({ session, body }) => reportOf(session, body));

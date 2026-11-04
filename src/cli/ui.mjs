@@ -663,7 +663,9 @@ const welcomeLines = (inner, available, isNew) => {
   const topPadding = Math.max(0, Math.floor((available - welcome.length) / 2));
   return [...Array(topPadding).fill(''), ...welcome.map(value => centered(value, inner))];
 };
-const reportListLines = ({ reports, total, selectedId, filtered, inner, clock }) => {
+const REPORTS_PER_PAGE = 25;
+const pageWords = ({ page, pages, total }) => (pages > 1 ? `page ${page + 1} of ${pages} · ${count(total, 'report')}` : count(total, 'report'));
+const reportListLines = ({ reports, total, page = 0, pages = 1, selectedId, filtered, inner, clock }) => {
   const content = [];
   const ranges = [];
   let day;
@@ -679,8 +681,7 @@ const reportListLines = ({ reports, total, selectedId, filtered, inner, clock })
     const start = content.length;
     if (startsDay) {
       const label = dayHeading(at, clock);
-      const shown = reports.length < total ? `latest ${reports.length} of ${total}` : count(reports.length, 'report');
-      content.push(index ? label : row(label, muted(shown), inner), '');
+      content.push(index ? label : row(label, muted(pageWords({ page, pages, total })), inner), '');
     }
     const isSelected = report.id === selectedId;
     const title = clean(report.title);
@@ -1343,6 +1344,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let reportKind = reportKinds[0].name;
   const reportFilter = new Input({ prompt: '' });
   let typingFilter = false;
+  // Reports come a page at a time, the newest first, and the page starts over when the kind or the filter changes.
+  let reportPage = 0;
   let focus = 'composer';
   let view = 'conversation';
   let scroll = 0;
@@ -1441,7 +1444,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     return allReports().filter(report => (kind === 'all' || reportKindOf(report) === kind)
       && clean(report.title).toLowerCase().includes(searchText));
   };
-  const reports = () => reportsOfKind(reportKind).slice(0, 25);
+  const reportPages = () => Math.max(1, Math.ceil(reportsOfKind(reportKind).length / REPORTS_PER_PAGE));
+  const reports = () => {
+    reportPage = Math.min(reportPage, reportPages() - 1);
+    const first = reportPage * REPORTS_PER_PAGE;
+    return reportsOfKind(reportKind).slice(first, first + REPORTS_PER_PAGE);
+  };
+  const turnReportPage = delta => {
+    reportPage = Math.max(0, Math.min(reportPages() - 1, reportPage + delta));
+  };
   const liveJobs = () => snapshot.connection === 'connected' ? (snapshot.runs ?? []).filter(run =>
     run.state === 'running' && run.kind === 'background' && !run.work
     && typeof run.scheduleId === 'string' && run.scheduleId.trim()) : [];
@@ -1506,19 +1517,37 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const keepSelectionListed = () => {
     if (!completedReport && !reports().some(report => report.id === selectedId)) selectedId = reports()[0]?.id ?? null;
   };
+  // Past the last row of a page the next page opens on its first row, and before the first row the page before opens on its last.
   const moveReportSelection = delta => {
     const list = reports();
+    const target = selectedIndex() + delta;
     completedReport = null;
-    selectedId = list[Math.max(0, Math.min(list.length - 1, selectedIndex() + delta))]?.id ?? null;
+    scroll = 0;
+    if (target >= list.length && reportPage < reportPages() - 1) {
+      turnReportPage(1);
+      selectedId = reports()[0]?.id ?? null;
+    } else if (target < 0 && reportPage > 0) {
+      turnReportPage(-1);
+      selectedId = reports().at(-1)?.id ?? null;
+    } else {
+      selectedId = list[Math.max(0, Math.min(list.length - 1, target))]?.id ?? null;
+    }
+  };
+  const showReportPage = delta => {
+    turnReportPage(delta);
+    completedReport = null;
+    selectedId = reports()[0]?.id ?? null;
     scroll = 0;
   };
   const clearFilter = () => {
     reportFilter.setValue('');
     typingFilter = false;
+    reportPage = 0;
     keepSelectionListed();
   };
   const showReportKind = kind => {
     reportKind = kind;
+    reportPage = 0;
     keepSelectionListed();
     scroll = 0;
   };
@@ -1959,7 +1988,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
     const leaveList = ['esc', reportFilter.getValue() ? 'clear filter' : 'chat'];
     if (focus === 'reportTabs') return [['←→', 'subtabs'], ['↓', 'reports'], ['/', 'filter'], leaveList];
-    if (focus === 'reports') return [['↑↓', 'select'], ['enter', 'read'], ['/', 'filter'], ['←→', 'views'], leaveList];
+    if (focus === 'reports') {
+      const pages = reportPages() > 1 ? [['pgup/pgdn', 'pages']] : [];
+      return [['↑↓', 'select'], ...pages, ['enter', 'read'], ['/', 'filter'], ['←→', 'views'], leaveList];
+    }
     if (focus === 'detail') return [['r m', 'reply'], ['↑↓ pgup/pgdn', 'scroll'], ['esc', 'back'], ['←→', 'views']];
     if (focus === 'schedules') return [['↑↓ pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (focus === 'work') return [...rowKeys(selectedWorkRow()), ['↑↓', 'select'], ['←→', 'views'], ['esc', 'chat']];
@@ -2204,6 +2236,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       return reportListLines({
         reports: reports(),
         total: reportsOfKind(reportKind).length,
+        page: reportPage,
+        pages: reportPages(),
         selectedId: focus === 'reportTabs' ? null : selectedId,
         filtered: Boolean(filterText()),
         inner,
@@ -2453,6 +2487,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     selectedId = id;
     reportKind = reportKinds[0].name;
     reportFilter.setValue('');
+    // Back from the report, the list is on the page that holds it.
+    reportPage = Math.floor(Math.max(0, reportsOfKind(reportKind).findIndex(report => report.id === id)) / REPORTS_PER_PAGE);
     focus = 'detail';
   };
   // Mid-sentence, deciding on a card, already walking what the card would offer, or on a terminal too small to show it.
@@ -2520,6 +2556,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       typingFilter = false;
     } else {
       reportFilter.handleInput(data);
+      reportPage = 0;
       keepSelectionListed();
       scroll = 0;
     }
@@ -2816,8 +2853,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           focus = watchingWork ? 'work' : 'composer';
         }
         scroll = 0;
-      } else if (view === 'reports' && focus === 'reports' && key(data, 'up') && !selectedIndex()) {
+      } else if (view === 'reports' && focus === 'reports' && key(data, 'up') && !selectedIndex() && !reportPage) {
         focus = 'reportTabs';
+      } else if (view === 'reports' && focus === 'reports' && (key(data, 'pageUp') || key(data, 'pageDown'))) {
+        showReportPage(key(data, 'pageDown') ? 1 : -1);
       } else if (view === 'reports' && focus === 'reports' && (key(data, 'up') || key(data, 'down'))) {
         moveReportSelection(key(data, 'down') ? 1 : -1);
       } else if (view === 'reports' && focus === 'reports' && key(data, 'enter')) {

@@ -108,7 +108,7 @@ export async function submitPatterns(root, { hash, confirmation, run = runHarnes
       savedAt: new Date().toISOString(),
       messages: view.messages,
       runs: view.runs,
-      reports: [report, ...view.reports.filter(item => item.id !== id && item.id !== 'patterns-offer')].slice(0, 200),
+      reports: [report, ...view.reports.filter(item => item.id !== id && item.id !== 'patterns-offer')],
     });
     return receipt;
   } finally {

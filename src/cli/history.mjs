@@ -47,7 +47,8 @@ function visibleHistory(history, reports, limit) {
 }
 
 /** Local historical evidence only. Never feeds archives to a model or changes read/accounting state. */
-export function loadImportedHistory(requestedRoot, { limit = 200 } = {}) {
+// As many as the imported file may hold, so the Reports tab shows every imported report a page at a time.
+export function loadImportedHistory(requestedRoot, { limit = 10000 } = {}) {
   if (!Number.isInteger(limit) || limit < 0 || limit > 10000) throw Error('History limit must be between 0 and 10000.');
   const root = assertRuntimeAdmission(requestedRoot);
   const history = {
