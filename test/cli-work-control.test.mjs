@@ -897,6 +897,48 @@ test('cancel leaves a request, and the owner stops the run on its next tick the 
   assert.equal(h.calls.length, 2);
 });
 
+test('cancel --decline records the no once the run has ended, over what the run recorded on its way out, and it never runs again', async t => {
+  const h = owned(t);
+  studied(h, 'api');
+  const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  const ending = Promise.withResolvers();
+  h.agent = request => untilAborted(request).then(() => ending.promise);
+  await h.startedRun();
+
+  const { message } = await success(h.root, 'cancel', 'api', '--decline');
+
+  assert.match(message, /requested/i);
+  assert.match(message, /"Fix login" on api as not approved, so it will not run again/);
+  await h.director.tick();
+  while (!h.calls[0].signal.aborted) await wait(10);
+  assert.equal(readItems(h.root, 'api')[0].state, 'doing', 'the no waits for the run to end');
+
+  updateItem(h.root, 'api', filed.id, { state: 'branch' });
+  ending.resolve();
+  await h.settled();
+
+  const [declined] = readItems(h.root, 'api');
+  assert.equal(declined.state, 'declined');
+  assert.equal(declined.pushbacks.length, 1, 'learning reads it as the user\'s no');
+  assert.match(declined.branch, /^hobkin\//, 'its branch stays');
+  await h.ticks(2);
+  assert.equal(h.calls.length, 1);
+});
+
+test('cancel --decline needs an item to say no to, and asks for nothing without one', async t => {
+  const h = owned(t);
+  writeMode(h.root, { folder: h.base, lastDiscoveryAt: null });
+  h.agent = untilAborted;
+  await h.startedRun();
+
+  const { message } = await failure(h.root, 'cancel', 'discover', '--decline');
+
+  assert.match(message, /Nothing running on discover has an item to say no to/);
+  assert.equal(existsSync(join(h.root, 'work', 'cancels.jsonl')), false);
+  await success(h.root, 'cancel', 'discover');
+  await h.tick();
+});
+
 test('cancel reaches a run by its id or its item, and leaves the others alone', async t => {
   const h = owned(t);
   studied(h, 'api');

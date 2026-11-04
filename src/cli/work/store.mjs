@@ -198,13 +198,19 @@ export function ownerView(root, now = Date.now()) {
   return { running: [], ...(owner ? readJson(ownerPath(root), {}) : {}), owner };
 }
 
-/** Commands take no lock and cannot reach a run, so they leave a request here and the owner answers it on its next tick. */
-export const requestCancel = (root, run, now = Date.now()) => appendEvent(cancelsPath(root), { run, at: new Date(now).toISOString() });
+/** Commands take no lock and cannot reach a run, so they leave a request here and the owner answers it on its next tick. `decline` is the user's no to the run's item. */
+export function requestCancel(root, run, now = Date.now(), { decline = false } = {}) {
+  const request = { run, at: new Date(now).toISOString() };
+  appendEvent(cancelsPath(root), decline ? { ...request, decline } : request);
+}
+
 export const answerCancel = (root, run, now = Date.now()) => appendEvent(cancelsPath(root), { run, answeredAt: new Date(now).toISOString() });
 
 export function pendingCancels(root) {
   const requests = fold(parseEvents(cancelsPath(root)), event => event.run);
-  return requests.filter(request => !request.answeredAt).map(request => request.run);
+  return requests
+    .filter(request => !request.answeredAt)
+    .map(({ run, decline = false }) => ({ run, decline }));
 }
 
 export const localDay = now => new Date(now).toDateString();

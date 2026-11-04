@@ -41,7 +41,7 @@ export function parseArguments(args) {
     else if (flag === '--wake' && options.command === 'session') options.wake = true;
     else if (flag === '--approved' && options.command === 'session') options.approved = true;
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
-    else if (flag === '--auto' && options.command === 'work') options.args.push(flag);
+    else if (['--auto', '--decline'].includes(flag) && options.command === 'work') options.args.push(flag);
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else if (flag === '--version' || flag === '-v') options.command = 'version';
     else if (['reports', 'work', 'import', 'learning', 'profile', 'decide', 'remind', 'remember', 'skill', 'routines', 'schedules'].includes(options.command) && !flag.startsWith('-')) options.args.push(flag);

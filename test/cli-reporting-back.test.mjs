@@ -13,8 +13,9 @@ import { startSession } from '../src/cli/session.mjs';
 import { recordSessionEnd, recordSessionStart } from '../src/cli/session-log.mjs';
 import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { foldFinishedLines, finishedLine } from '../src/cli/work/chat.mjs';
-import { chooseProject, fileItem, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, paths, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
+import { repository } from './helpers/work-fixture.mjs';
 import { WorkPanes } from '../src/cli/work/panes.mjs';
 
 function fixture(t) {
@@ -548,6 +549,72 @@ test('a stop says so in Chat once, and the main agent hears it with the next mes
 
     assert.deepEqual(noteOf(sent.mock.calls[0].arguments[0]).userDid.map(({ did }) => did), ['stopped your turn']);
     assert.equal(systemLines(await app.refresh()).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+/** A real repository with one item to do and work mode on, so hobkin's own director starts an agent on it. */
+function workingOn(t, root) {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-back-repo-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  chooseProject(root, repository(base, 'api'), 'important');
+  const now = new Date().toISOString();
+  mkdirSync(paths(root, 'api').directory, { recursive: true });
+  writeFileSync(paths(root, 'api').project, '# What it is\n');
+  writeState(root, 'api', { lastLookAt: now, lastLensAt: now, lastIdeasAt: now, lastSignalsAt: now });
+  atomicJson(join(root, 'work', 'unmerged.json'), { at: now, projects: {} });
+  writeMode(root, { enabled: true, startGapMs: 0, lastDiscoveryAt: now });
+  return fileItem(root, 'api', { key: 'fix login', kind: 'fix', title: 'Fix login', brief: 'The first change.' });
+}
+
+const untilStopped = request => new Promise(resolve => {
+  const stop = () => resolve({ status: 'interrupted', error: 'Harness cancelled.' });
+  if (request.signal.aborted) stop();
+  else request.signal.addEventListener('abort', stop, { once: true });
+});
+
+/** The item's agent at work, once hobkin has started `count` agents. */
+async function agentAtWork(app, started, count) {
+  while (started.length < count) await new Promise(resolve => setTimeout(resolve, 10));
+  return app.director.running().find(({ lane }) => lane === 'do');
+}
+
+async function runsEnded(app) {
+  await Promise.all([...app.runner.jobs.values()]);
+  await app.director.closing;
+}
+
+test('an agent stopped from the screen says how in Chat, and the main agent hears it with the next message', async t => {
+  const h = fixture(t);
+  const filed = workingOn(t, h.root);
+  const key = `item:api:${filed.id}`;
+  const started = [];
+  const runHarness = request => {
+    started.push(request);
+    return untilStopped(request);
+  };
+  const app = await h.openApp({ runHarness });
+  try {
+    await app.workAction('stop', (await agentAtWork(app, started, 1)).id, 'later');
+    await runsEnded(app);
+    assert.deepEqual(readMode(h.root).queueSkipped, [key], 'stopped for now, it waits at the end of the queue');
+
+    await app.workAction('back', key);
+    await app.workAction('stop', (await agentAtWork(app, started, 2)).id, 'decline');
+    await runsEnded(app);
+
+    assert.equal(readItems(h.root, 'api')[0].state, 'declined');
+    assert.deepEqual(systemLines(await app.refresh()).map(({ content }) => content), [
+      'Stopped "Fix login" on api for now; it waits at the end of the queue.',
+      'Stopped "Fix login" on api: not approved, so it will not run again.',
+    ]);
+    const sent = t.mock.method(app.runtime, 'send');
+    await app.send('i stopped it');
+    assert.deepEqual(noteOf(sent.mock.calls[0].arguments[0]).userDid.map(({ did, title }) => [did, title]), [
+      ['stopped it for now', 'Fix login'],
+      ['stopped it: not approved', 'Fix login'],
+    ]);
   } finally {
     await app.close();
   }

@@ -14,6 +14,7 @@ import { reportTriage } from '../reports.mjs';
 import { hourShareOf } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
+import { declineStopped, toldStop } from './controls.mjs';
 import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { agentName, WorkPanes } from './panes.mjs';
@@ -148,11 +149,26 @@ export class WorkDirector {
     this.runner.kill(id).catch(() => {});
   }
 
-  // A request is answered before the kill, so one that fails cannot stop every tick after it. This is `k` from another process, and a run that already ended has nothing to do.
+  // A no waits for its run to end, so nothing the run records on its way out can stand over it. A run that already ended has nothing to stop.
+  stopRun(id, { decline = false } = {}) {
+    const run = this.running().find(entry => entry.id === id);
+    if (run?.item && decline) run.declined = true;
+    this.killRun(id);
+    return run ?? null;
+  }
+
+  /** `k` on an agent, once the user has picked how it stops. What they picked is told, so the main agent hears it with their next message. */
+  stopFromScreen(id, how) {
+    const decline = how === 'decline';
+    const run = this.stopRun(id, { decline });
+    return toldStop(this.root, run, { decline });
+  }
+
+  // A request is answered before the kill, so one that fails cannot stop every tick after it. This is `k` from another process.
   answerCancels() {
-    for (const run of pendingCancels(this.root)) {
+    for (const { run, decline } of pendingCancels(this.root)) {
       answerCancel(this.root, run, this.now());
-      this.killRun(run);
+      this.stopRun(run, { decline });
     }
   }
 
@@ -678,6 +694,7 @@ export class WorkDirector {
   // Closing Hobkin keeps the item, so it resumes, and so does anything that was not the item's doing.
   // A pane closed by hand, or a folder moved under a run, only ended that run: the item stays in the plan.
   // Cancelling one is the user's own stop, so it stays in sight at the end of the queue instead of starting again on the next tick.
+  // Stopping one as not approved is the user's no, and it stands however the run ended and over whatever the run recorded on its way out.
   // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
   // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
   // A review costs a whole run, so a finished branch gets one by itself only once the user turns reviews on: then it is its next run, ahead of new work.
@@ -703,7 +720,8 @@ export class WorkDirector {
     return !await changesOnlyDocs(repo, await defaultBranch(repo), branch);
   }
 
-  settleItem(slug, id, run, { moved = false, stalled = false } = {}) {
+  settleItem(slug, id, run, { moved = false, stalled = false, declined = false } = {}) {
+    if (declined) return declineStopped(this.root, slug, id, this.now());
     const interrupted = run?.status === 'interrupted';
     if ((interrupted && this.runner.stopped) || notTheWork(run)) return;
     const item = readItems(this.root, slug).find(entry => entry.id === id);

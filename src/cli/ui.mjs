@@ -570,7 +570,7 @@ const jobActivityLines = ({ run, blocks, inner, clock, frame, markdown }) => {
     }
   }
   const pane = run?.work?.pane;
-  const silence = pane ? `This agent runs in pane ${pane} of the Work Mode tab in Herdr. Watch it there, or press k to cancel it.`
+  const silence = pane ? `This agent runs in pane ${pane} of the Work Mode tab in Herdr. Watch it there, or press k to stop it.`
     : 'No parent activity received yet.';
   if (!blocks.length) content.push(...wrapped(silence, inner).map(dim));
   return content;
@@ -2048,7 +2048,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     proposal: [['y', 'take'], ['1 2 3 4', 'level'], ['n', 'skip']],
     project: [['p', 'priority'], ['r', 'PRs'], ['1 2 3 4', 'level'], ['d d', 'drop']],
     allowance: [['y', 'raise'], ['n', 'keep paused']],
-    run: [['enter', 'watch']],
+    run: [['enter', 'watch'], ['k', 'stop']],
     group: selected?.running ? [] : opens,
     ready: opens,
     pr: opens,
@@ -2073,7 +2073,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       const reply = selected ? [['r', 'reply']] : [];
       return [...answer, ...rowKeys(selected), ...reply, ['↑↓', 'next one'], ['←→', 'views'], ['esc', 'chat']];
     }
-    if (isJob()) return [['k', 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
+    if (isJob()) return [['k', workRunOnScreen() ? 'stop' : 'cancel job'], ['pgup/pgdn', 'scroll'], ['←→', 'views'], ['esc', 'chat']];
     if (typingFilter && focus === 'reports') return [['enter', 'read'], ['↑↓', 'select'], ['esc', 'clear']];
     const leaveList = ['esc', reportFilter.getValue() ? 'clear filter' : 'chat'];
     if (focus === 'reportTabs') return [['←→', 'subtabs'], ['↓', 'reports'], ['/', 'filter'], leaveList];
@@ -2410,10 +2410,10 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       noteReading({ slug, id }, { readMs: readingOf({ slug, id }).readMs + now() - opened });
     }
     donePage = null;
-    focus = listFocus();
+    focus = isJob() ? 'job' : listFocus();
     scroll = 0;
   };
-  // Leaving the box leaves the card, and the list comes back on the row the user was on.
+  // Leaving the box leaves the card, and the list comes back on the row the user was on. Asked from an agent's view, it goes back to the agent.
   const closeCard = () => {
     choosing = null;
     groupPage = null;
@@ -2437,11 +2437,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const answeredAfter = ms => {
     if (ms < QUICK_ANSWER_MS) callbacks.moment?.({ event: 'quick answer' });
   };
-  /** Puts a box of choices on screen. `onPick` gets the value of the choice, and the typed words when `takesChanges` gave the box a row for them. */
-  const openChoices = ({ question: asked, choices, takesChanges = false, onPick }) => {
+  /**
+   * Puts a box of choices on screen. `onPick` gets the value of the choice, and the typed words when `takesChanges` gave the box a row for them.
+   * `run` is the running agent the box asks about, so the box goes when the agent does.
+   */
+  const openChoices = ({ question: asked, choices, takesChanges = false, run = null, onPick }) => {
     const selection = new SelectList(takesChanges ? [...choices, CHANGES_ROW] : choices, FEWEST_CHOICES_SHOWN, selectTheme);
     const other = takesChanges ? new Input({ placeholder: 'Type the changes, then Enter', placeholderStyle: dim }) : null;
-    const box = { question: asked, choices, selection, other, scroll: 0 };
+    const box = { question: asked, choices, selection, other, scroll: 0, run };
     const openedAt = now();
     selection.onSelectionChange = () => { box.scroll = 0; };
     selection.onSelect = item => {
@@ -2584,6 +2587,21 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     else return false;
     return true;
   };
+  // Only an item can be not approved, so a look is only ever stopped for now. What the user picks is told in Chat, and the main agent hears it.
+  const askToStop = run => openChoices({
+    question: `${clean(jobTitle(run))} is running. What do you want to do?`,
+    choices: [
+      ...(run.work?.item ? [choice('decline', 'Stop it: not approved')] : []),
+      choice('later', 'Stop it for now'),
+      choice('keep', 'Keep it running'),
+    ],
+    run: run.id,
+    onPick: value => {
+      closeCard();
+      if (value !== 'keep') runCardAction('stop', run.id, value);
+    },
+  });
+  const workRunOnScreen = () => workRuns().find(run => `job:${run.id}` === view);
   const handleWorkKey = data => {
     if (key(data, 'up') || key(data, 'down')) {
       moveWorkSelection(key(data, 'down') ? 1 : -1);
@@ -2605,7 +2623,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       view = `job:${selected.id}`;
       focus = 'job';
       scroll = 0;
-    } else return actOnRow(selected, data);
+    } else if (selected?.type === 'run' && data === 'k') askToStop(workRuns().find(run => run.id === selected.id));
+    else return actOnRow(selected, data);
     return true;
   };
 
@@ -2755,6 +2774,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       }
       settleOutbox();
       for (const id of next.presentation?.hiddenMessageIds ?? []) hiddenMessages.add(id);
+      // An agent that has ended has nothing left to stop.
+      if (choosing?.run && !workRuns().some(run => run.id === choosing.run)) closeCard();
       const target = question?.previous ?? { view, focus, scroll };
       if ((target.view === 'work' && !workVisible()) || (target.view === 'decisions' && !decisionCount())) {
         target.view = 'conversation';
@@ -2954,7 +2975,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return;
       }
-      if (data === 'k' && isJob()) {
+      if (data === 'k' && workRunOnScreen()) {
+        askToStop(workRunOnScreen());
+      } else if (data === 'k' && isJob()) {
         const runId = view.slice(4);
         say('Requesting cancellation…', 'progress');
         pending = Promise.resolve().then(() => {

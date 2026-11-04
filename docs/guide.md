@@ -41,7 +41,7 @@ Chat opens ready to type. Reports holds every completed check, newest first, 25 
 - **/** in Reports filters by title as you type, ignoring case. The arrows move through the matches and **Enter** opens one. The filter stays while you read or change subtabs, until **Esc** clears it.
 - **m** inside a report moves to the composer with that report attached, so you can ask about it and carry on in Chat. **Escape** in the composer drops the report and keeps your draft.
 - **Escape** leaves a report or returns to Chat without losing the draft.
-- **k** cancels the selected running check. Jobs have no automatic execution deadline.
+- **k** cancels the selected running check. On a work agent it first asks how to stop it, as [Work mode](#work-mode) says. Jobs have no automatic execution deadline.
 - **Ctrl+C** clears the input. With nothing to clear, press it twice to quit. **Ctrl+Q** quits straight away.
 
 Type `/` to see local commands, and press Tab to finish one, or to walk through them when several fit. `/help` shows a short guide in Chat. `/clear` hides visible chat without deleting history or changing model context. `/reset` starts a fresh conversation and resets the displayed cost estimate; old transcripts, usage history and background work remain. `/learning` turns [learning](#learning) on or off. Pi's editor shortcuts and configured editor keybindings work in the composer.
@@ -222,7 +222,7 @@ Turning work mode on, with `/work` or `hobkin work start`, starts nothing new by
 
 Two agents run at once by default, and `hobkin work agents <number>` changes it, up to a ceiling of 8. Starts go one at a time and spread out. With nothing running the next one starts within 30 seconds, and while a run is going each start waits the whole 5 minutes, however long the queue, so work never races. Your picks wait out that gap too, and a restart remembers when the last run started. A row that keeps failing waits 10 minutes more after each try, up to an hour, while everything else goes past it. Routines take priority: they never wait on work mode, and a running check takes a worker's place.
 
-Run `/work` again to stop. The tab goes away, a look in progress stops and carries on from its notes next time, project agents finish, nothing new starts, and projects, items and branches stay. In the tab, Enter on a running agent's row opens that agent, and `k` there cancels it. A cancelled item goes to the end of the queue, skipped, until `s` or `hobkin work back` puts it back.
+Run `/work` again to stop. The tab goes away, a look in progress stops and carries on from its notes next time, project agents finish, nothing new starts, and projects, items and branches stay. In the tab, Enter on a running agent's row opens that agent. `k` on that row, or in the agent's view, asks how to stop it, in words. `Stop it: not approved` stops the run and, once it has ended, records your no the way `Cancel it` on a card does: the item keeps its branch, learning reads it, and it does not run again, whatever the run recorded on its way out. `Stop it for now` sends the item to the end of the queue, skipped, until `s` or `hobkin work back` puts it back. `Keep it running` and Esc leave it alone, and a look offers only stopping for now or keeping it. Chat says what stopped in one system line, by project and title, and the main agent hears it with your next message.
 
 Work mode watches its tokens. The Work Mode tab shows fresh tokens used today against a daily limit, 100 million by default, with cache reads beside them, as in `6m/100m tokens · 49m cached`. Only fresh tokens count against a limit. Running agents count as they go, from their session files. Set the limit for good with `hobkin work tokens <number>`. Any rolling hour can use at most a 12th of it, then new work waits for the hour to move on. Past half the limit a project gets one idea at most.
 
@@ -295,7 +295,7 @@ Work mode and checks run only while the dashboard is open, so nothing new starts
 | `hobkin work pause [project]`, `resume [project]` | Stops new work, everywhere or on one project. Work mode stays on and running agents finish |
 | `hobkin work add project <path> [level]`, `add item <project> <title>` | Adds by hand |
 | `hobkin work trigger <project> [look\|study\|item]` | Runs it next, inside the worker ceiling and the budget |
-| `hobkin work cancel <project\|run id\|item>` | Asks for what `k` does, and the dashboard does it on its next tick |
+| `hobkin work cancel <project\|run id\|item> [--decline]` | Asks for what `k` does, and the dashboard does it on its next tick. `--decline` is `Stop it: not approved` |
 | `hobkin work priority <project> <P0..P3>`, `prs <project> <off\|draft\|published>` | Sets a project's priority or PRs |
 | `hobkin work grade <project> <item> <P0..P3\|auto>` | Sets one item's grade, and `auto` hands it back |
 | `hobkin work sync` | Closes what has merged, now |

@@ -1486,6 +1486,73 @@ test('Enter on a running row opens its live view, and Escape comes back to Work'
   ui.stop();
 });
 
+const atWork = { ...running, work: { slug: 'site', lane: 'do', item: 'abc123' } };
+
+test('k on an agent at work asks in words how to stop it, and only the answer stops it', async () => {
+  const { actions, workAction } = acting();
+  const killed = [];
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] }, runs: [atWork], jobActivity: {} }, {
+    workAction,
+    kill: async id => { killed.push(id); return true; },
+  });
+  ui.input('\x1b[D');
+  ui.input('\r');
+
+  ui.input('k');
+  assert.match(screen(ui, 110, 50), /website: Update Astro is running\. What do you want to do\?/);
+  offers(ui, ['Stop it: not approved', 'Stop it for now', 'Keep it running']);
+  pick(ui, 'Stop it: not approved');
+  await ui.pending();
+  assert.deepEqual([ui.state().view, ui.state().focus], ['job:work:site:do:1', 'job'], 'an answer goes back to the agent');
+
+  ui.input('k');
+  pick(ui, 'Stop it for now');
+  await ui.pending();
+  ui.input('k');
+  pick(ui, 'Keep it running');
+  ui.input('k');
+  ui.input('\x1b');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['stop', 'work:site:do:1', 'decline'], ['stop', 'work:site:do:1', 'later']]);
+  assert.deepEqual(killed, []);
+  assert.deepEqual([ui.state().view, ui.state().focus], ['job:work:site:do:1', 'job']);
+  ui.stop();
+});
+
+test('a look has no item to say no to, so k on its row offers only to stop it for now or keep it running', async () => {
+  const { actions, workAction } = acting();
+  const look = { ...running, id: 'work:site:look:1', title: 'website: study', scheduleId: 'work.site.look', work: { slug: 'site', lane: 'look' } };
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] }, runs: [look] }, { workAction });
+  ui.input('\x1b[D');
+
+  ui.input('k');
+
+  assert.match(screen(ui, 110, 50), /website: study is running\. What do you want to do\?/);
+  offers(ui, ['Stop it for now', 'Keep it running']);
+  assert.doesNotMatch(screen(ui, 110, 50), /not approved/);
+  pick(ui, 'Stop it for now');
+  await ui.pending();
+  assert.deepEqual(actions, [['stop', 'work:site:look:1', 'later']]);
+  assert.equal(ui.state().focus, 'work', 'an answer goes back to the list');
+  ui.stop();
+});
+
+test('an agent that ends while k asks about it takes the question with it', () => {
+  const ui = createDashboard({ ...base, work: { enabled: true, projects: [] }, runs: [atWork], jobActivity: {} }, { workAction: async () => {} });
+  ui.input('\x1b[D');
+  ui.input('\r');
+  ui.input('k');
+
+  ui.update({ ...base, work: { enabled: true, projects: [] }, runs: [], jobActivity: {} });
+
+  assert.deepEqual([ui.state().view, ui.state().focus], ['conversation', 'composer']);
+  assert.doesNotMatch(screen(ui, 110, 50), /What do you want to do\?/);
+  ui.input('h');
+  assert.equal(ui.state().draft, 'h', 'the keys are the input\'s again');
+  ui.stop();
+});
+
 test('/work off and /work on say what they mean, and only change what needs changing', async () => {
   const actions = [];
   const ui = createDashboard({ ...base, work: { enabled: true, folder: '/repos', projects: [] } }, {

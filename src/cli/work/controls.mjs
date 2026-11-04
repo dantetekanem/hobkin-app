@@ -217,18 +217,53 @@ export function triggerRow(root, reference, target) {
   return reply(`Queued ${row.label} to run next. ${next}`, { key: row.key });
 }
 
-/** The same as `k` on a job, from another process: the owner reads the request on its next tick and kills the run. */
-export function cancelRuns(root, reference) {
+// A run names its project by slug and its item by id, and the user knows them by name and title.
+function runningItem(root, { slug, item: id }) {
+  const project = slug ? readProject(root, slug) : null;
+  const item = project && id ? readItems(root, slug).find(entry => entry.id === id) : null;
+  return { project, item: item ?? null };
+}
+
+/**
+ * The same as `k` on a job, from another process: the owner reads the request on its next tick and kills the run. `decline` is `Stop it: not approved`,
+ * and a project runs one item at a time, so it has at most one item to say no to.
+ */
+export function cancelRuns(root, reference, { decline = false } = {}) {
   if (!reference) throw Error('Say what to cancel: a project, a run id or an item id.');
   const { owner, running } = ownerView(root);
   const runs = runsNamed(root, running, reference);
   if (!owner) throw Error('Nothing is running, because no dashboard is open.');
   if (!runs.length) throw Error(`Nothing is running on ${reference}. hobkin work running lists what is.`);
+  const notApproved = decline ? runs.find(run => run.item) : null;
+  if (decline && !notApproved) throw Error(`Nothing running on ${reference} has an item to say no to, so nothing was cancelled. hobkin work cancel ${reference} stops it for now.`);
+
   const ids = runs.map(({ id }) => id);
-  for (const id of ids) requestCancel(root, id);
+  for (const id of ids) requestCancel(root, id, Date.now(), { decline: id === notApproved?.id });
 
   const titles = runs.map(({ title }) => title).join(', ');
-  return reply(`Cancel requested for ${titles}. The owner stops it on its next tick, and a cancelled item goes to the end of the queue until hobkin work back puts it back.`, { runs: ids });
+  if (!notApproved) {
+    return reply(`Cancel requested for ${titles}. The owner stops it on its next tick, and a cancelled item goes to the end of the queue until hobkin work back puts it back.`, { runs: ids });
+  }
+
+  const { project, item } = runningItem(root, notApproved);
+  return reply(`Cancel requested for ${titles}. The owner stops it on its next tick, then records "${item.title}" on ${nameOf(project)} as not approved, so it will not run again. Its branch stays.`, { runs: ids });
+}
+
+/** What `k` did once the user picked how a run stops. It is told like an action on a card, so the main agent hears it with their next message. */
+export function toldStop(root, run, { decline = false } = {}) {
+  if (!run) throw Error('It had already finished, so nothing was stopped.');
+  const { project, item } = runningItem(root, run);
+  if (item && decline) return cardReply(project, item, 'stopped it: not approved', named => `Stopped ${named}: not approved, so it will not run again.`);
+  if (item) return cardReply(project, item, 'stopped it for now', named => `Stopped ${named} for now; it waits at the end of the queue.`);
+
+  const line = `Stopped "${run.title}" for now.`;
+  const told = {
+    did: 'stopped it for now',
+    ...(project ? { project: nameOf(project) } : {}),
+    title: run.title,
+    line,
+  };
+  return reply(line, { told });
 }
 
 export function skipRow(root, reference, target) {
@@ -438,13 +473,23 @@ function pushbackOn(root, { slug }, { branch, pushbacks = [] }, now) {
   return { pushbacks: [...pushbacks, { at: new Date(now).toISOString(), area: unit?.area ?? null }] };
 }
 
+function recordNo(root, project, item, now) {
+  updateItem(root, project.slug, item.id, { state: 'declined', ...pushbackOn(root, project, item, now) }, now);
+}
+
 /** A no is the user's answer, and it is what learning reads. The branch stays, so changing their mind costs nothing. */
 export function declineItem(root, reference, id, now = Date.now()) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
-  updateItem(root, project.slug, item.id, { state: 'declined', ...pushbackOn(root, project, item, now) }, now);
+  recordNo(root, project, item, now);
   return cardReply(project, item, 'said no', named => `Said no to ${named}. Its branch stays, and hobkin learns from this.`);
+}
+
+/** The same no, for a run the user stopped as not approved. The owner records it once that run has ended, so nothing the run recorded on its way out stands. */
+export function declineStopped(root, slug, id, now = Date.now()) {
+  const { project, item } = runningItem(root, { slug, item: id });
+  if (item) recordNo(root, project, item, now);
 }
 
 /**

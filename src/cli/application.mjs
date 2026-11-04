@@ -775,6 +775,8 @@ export class HobkinApplication {
       review: () => requestReview(root, slug, value),
       merge: () => mergeItem(root, slug, value, { ...extra, route: 'key' }),
       decline: () => declineItem(root, slug, value),
+      // `k` on an agent at work names the run, and how it stops: `decline` or `later`.
+      stop: () => this.director.stopFromScreen(slug, value),
       ask: () => askAgent(root, slug, value, extra),
       pr: () => prView(root, slug, value),
       decide: () => this.decide(slug, value),

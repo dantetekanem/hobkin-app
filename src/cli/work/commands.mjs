@@ -39,7 +39,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   start [folder] [--auto], stop       on, only picks run; off: agents finish
   pause, resume [project]              agents finish, none start; resume ends it
   trigger <project> [look|study|item]  run it next, inside limits (was run)
-  cancel <project|run id|item>         ask the owner to cancel running work
+  cancel <project|run id|item> [--decline]  stop it; --decline: not approved
   sync                                 find what merged or closed, file rebases
   add project <path|name> [level]      take a project (was choose)
   add item <project> <title> [--brief text]  add work by hand
@@ -269,7 +269,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'resume': return resumeWork(root, args[0]);
     case 'trigger':
     case 'run': return triggerRow(root, ...args);
-    case 'cancel': return cancelRuns(root, args[0]);
+    case 'cancel': return cancelRuns(root, args.find(arg => arg !== '--decline'), { decline: args.includes('--decline') });
     case 'sync': return syncWork(root);
     case 'ship': return setShipFirst(root, args[0]);
     case 'add': {
