@@ -2038,10 +2038,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const memorySize = () => (Number.isFinite(snapshot.memoryBytes)
     ? `${muted('memory')} ${dim(kilobytes(snapshot.memoryBytes))}` : '');
-  const workingNote = (clock, frame) => {
-    if (snapshot.connection !== 'connected' || !snapshot.busy) return '';
-    return `${highlight(frame)} ${dim(busySince ? `working ${elapsed(busySince, clock)}` : 'working')}`;
-  };
   const greetingLine = clock => {
     const name = clean(snapshot.userName ?? '');
     if (!name || clock - startedAt >= TIP_SHOW_MS) return '';
@@ -2154,7 +2150,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const activity = activityText(keys(hints.slice(0, shown)), frame, { tipRowSaysIt: tipRows.length > 0 && !question?.rows });
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
-    const memory = [workingNote(clock, frame), workNote, memorySize()].filter(Boolean).join(muted(' · '));
+    const memory = [workNote, memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
     if (question?.rows) return cardLines(inner, height, headerLength, statusLines);

@@ -901,25 +901,18 @@ test('typing carries on while a message goes out, and long multiline drafts rema
   }
 });
 
-test('only visible chat entries have author blocks and the footer times the busy main turn', () => {
+test('only visible chat entries have author blocks', () => {
   const messages = [
     { role: 'user', content: 'Question' },
     { role: 'assistant', content: '' },
     { role: 'assistant', content: '  ' },
     { role: 'assistant', content: 'Reply' },
   ];
-  let now = Date.parse('2026-10-29T18:08:00Z');
-  const ui = createDashboard({ ...snapshot, messages, busy: true, connection: 'connected', memoryBytes: 2048 }, {}, { now: () => now });
-  now += 15000;
+  const ui = createDashboard({ ...snapshot, messages, busy: true, connection: 'connected', memoryBytes: 2048 });
 
   const rendered = screen(ui, 80, 24).split('\n');
   assert.equal(rendered.slice(1).filter(value => /^\s*◆ hobkin\b/.test(value)).length, 1);
-  assert.match(rendered.find(value => value.includes('memory')), /working 15s · memory/);
   assert.match(rendered[0], /● connected/);
-  assert.doesNotMatch(rendered[0], /working/);
-
-  ui.update({ ...snapshot, messages, busy: false, connection: 'connected', memoryBytes: 2048 });
-  assert.doesNotMatch(screen(ui, 80, 24), /working/);
 });
 
 test('busy or live-job activity animates only while work runs and never after stop', async () => {
