@@ -2097,7 +2097,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (notice && !tipRowSaysIt) return toned(notice, noticeTone, frame);
     if (snapshot.error) return toned(snapshot.error, 'error', frame);
     if (question || focus !== 'composer') return hints;
-    if (snapshot.context?.compacting && connected()) return highlight(`${frame} Compacting…`);
     return hints;
   };
   const sessionBar = inner => {
@@ -2136,7 +2135,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   // While the main agent works, the row above the input says what it is doing, where its next message will show.
   const workingRow = (inner, clock, frame) => {
-    const label = `${highlight(frame)} ${assistantColor(bold('hobkin'))} ${dim(`is ${snapshot.doing ?? 'thinking'}…`)}`;
+    const doing = snapshot.context?.compacting ? 'compacting' : snapshot.doing ?? 'thinking';
+    const label = `${highlight(frame)} ${assistantColor(bold('hobkin'))} ${dim(`is ${doing}…`)}`;
     const since = busySince === null ? '' : muted(elapsed(busySince, clock));
     return row(label, since, inner);
   };
@@ -2238,7 +2238,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (question?.rows) return cardLines(inner, height, headerLength, statusLines);
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
     if (choosing) return [...questionBox(inner, height, headerLength, choosing), ...tipRows, ...statusLines];
-    const working = hasComposer && view === 'conversation' && snapshot.connection === 'connected' && snapshot.busy
+    // Compaction says itself here too, between turns as well as in one, so it is never said twice.
+    const working = hasComposer && view === 'conversation' && snapshot.connection === 'connected' && (snapshot.busy || snapshot.context?.compacting)
       ? [workingRow(inner, clock, frame)] : [];
     if (faceShown) {
       const [activityRow, ...rest] = statusLines;
