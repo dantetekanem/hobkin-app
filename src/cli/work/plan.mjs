@@ -391,10 +391,38 @@ function ownWait(entry, entries, context) {
   return entry.level === 'max' ? maxWait(context) : null;
 }
 
-/** Projects with no run for a day and none going now. Every run leaves its mark in the token log, so one that was never in it counts too. */
-function leftAlone({ root, now, running }) {
-  const ranLately = new Set(tokenEvents(root).filter(({ at }) => now - Date.parse(at) < LEFT_ALONE_MS).map(({ slug }) => slug));
-  return ({ slug }) => !ranLately.has(slug) && !running.some(run => run.slug === slug);
+/** When each project last ran. Every run leaves its mark in the token log, a run going now counts as now, and a project never in the log never ran. */
+function lastRuns({ root, now, running }) {
+  const last = new Map();
+  for (const { slug, at } of tokenEvents(root)) last.set(slug, Math.max(last.get(slug) ?? -Infinity, Date.parse(at)));
+  for (const { slug } of running) last.set(slug, now);
+  return slug => last.get(slug) ?? -Infinity;
+}
+
+/** Projects with no run for a day and none going now. */
+const leftAlone = ({ now }, lastRun) => ({ slug }) => now - lastRun(slug) >= LEFT_ALONE_MS;
+
+const ascending = (left, right) => (left > right) - (left < right);
+
+/**
+ * Within a grade, projects take turns: each one's best row first, the project that ran longest ago ahead, then each one's next row.
+ * Worth still orders a project's own rows, so one project with many good rows cannot fill the front while the others wait.
+ * A project whose top row was lifted for being left alone has had its first turn.
+ */
+function takingTurns(rows, lastRun, lifted) {
+  const taken = new Map();
+  const turns = rows.map(row => {
+    const group = `${row.slug}:${row.grade}:${row.item?.attempts ?? 0}`;
+    const turn = taken.get(group) ?? (lifted.some(entry => entry.slug === row.slug) ? 1 : 0);
+    taken.set(group, turn + 1);
+    return { row, turn };
+  });
+  return turns.toSorted((left, right) => gradeRank(left.row.grade) - gradeRank(right.row.grade)
+    || (left.row.item?.attempts ?? 0) - (right.row.item?.attempts ?? 0)
+    || gradeRank(left.row.priority) - gradeRank(right.row.priority)
+    || left.turn - right.turn
+    || ascending(lastRun(left.row.slug), lastRun(right.row.slug)))
+    .map(({ row }) => row);
 }
 
 /** One row for each project left alone: its top one that can go. A P0 row is at the front already, and the rest are lifted only among their own priority. */
@@ -406,9 +434,9 @@ function liftedRows(mode, entries, isLeftAlone) {
 
 /**
  * The user's picks go first in the order they were made, then P0 rows, then each project priority in turn, so a P2 or P3 project never
- * jumps a P1 one. Within a priority, a project left alone for a day goes first. What the user skipped stays in sight at the end.
+ * jumps a P1 one. Within a priority, a project left alone for a day goes first, and the rest take turns. What the user skipped stays in sight at the end.
  */
-function inQueueOrder(mode, entries, isLeftAlone) {
+function inQueueOrder(mode, entries, lastRun, isLeftAlone) {
   const lifted = liftedRows(mode, entries, isLeftAlone);
   const rest = entries.filter(entry => !entry.picked && !entry.skipped && !lifted.includes(entry));
   const inBand = band => entry => entry.grade !== 'P0' && bandOf(entry) === band;
@@ -417,7 +445,7 @@ function inQueueOrder(mode, entries, isLeftAlone) {
     ...rest.filter(entry => entry.grade === 'P0'),
     ...grades.flatMap(band => [
       ...lifted.filter(inBand(band)).map(entry => ({ ...entry, why: plainList(['left alone', entry.why]) })),
-      ...rest.filter(inBand(band)),
+      ...takingTurns(rest.filter(inBand(band)), lastRun, lifted),
     ]),
     ...entries.filter(entry => entry.skipped && !entry.picked),
   ];
@@ -492,7 +520,8 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
       return { ...row, held: shipping.holding && startsNewWork(row) };
     })
     .toSorted(byGrade);
-  const ranked = inQueueOrder(mode, sorted, leftAlone(context));
+  const lastRun = lastRuns(context);
+  const ranked = inQueueOrder(mode, sorted, lastRun, leftAlone(context, lastRun));
   const entries = ranked.map(entry => {
     const own = ownWait(entry, ranked, context);
     return { ...entry, ownWait: own, waiting: own ?? budgetWait(entry, budget) };

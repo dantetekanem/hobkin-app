@@ -277,6 +277,22 @@ test('a project with no run for a day, or none ever, puts its top row up among i
   assert.doesNotMatch(entries[2].why, /left alone/);
 });
 
+test('within a priority and grade projects take turns, the one that ran longest ago first, so one project\'s rows cannot fill the front', t => {
+  const root = dataRoot(t);
+  for (const slug of ['busy', 'quiet', 'middle']) project(root, slug);
+  recordTokens(root, { slug: 'busy', lane: 'do', tokens: 1 }, now - HOUR);
+  recordTokens(root, { slug: 'middle', lane: 'do', tokens: 1 }, now - 2 * HOUR);
+  recordTokens(root, { slug: 'quiet', lane: 'do', tokens: 1 }, now - 3 * HOUR);
+  fileItem(root, 'busy', item('busy one', { impact: 'high', effort: 'small' }), now);
+  fileItem(root, 'busy', item('busy two', { impact: 'high', effort: 'small' }), now);
+  fileItem(root, 'quiet', item('quiet one', { impact: 'high', effort: 'large' }), now);
+  fileItem(root, 'quiet', item('quiet two', { impact: 'high', effort: 'large' }), now);
+  fileItem(root, 'middle', item('middle one', { impact: 'high', effort: 'medium' }), now);
+
+  assert.deepEqual(titles(plan(root).entries), ['quiet one', 'middle one', 'busy one', 'quiet two', 'busy two']);
+  assert.deepEqual(titles(plan(root, { running: [{ slug: 'quiet', lane: 'look' }] }).entries), ['middle one', 'busy one', 'quiet one', 'busy two', 'quiet two']);
+});
+
 test('a run going now means a project is not left alone', t => {
   const root = dataRoot(t);
   project(root, 'site', 'casual');
