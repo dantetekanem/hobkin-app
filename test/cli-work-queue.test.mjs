@@ -250,6 +250,7 @@ test('the user switching branches mid-run stops the run, and the item stays in t
   const [filed] = readItems(h.root, 'api');
   assert.deepEqual([filed.state, filed.attempts], ['open', 0]);
   assert.match(readState(h.root, 'api').folderNote, /left the run's branch/);
+  assert.deepEqual(workStatus(h.root).folderLines.map(({ line }) => line), ['api\'s folder left the branch for "fix" while it ran, so that run stopped. Nothing was forced.']);
 });
 
 const insideARebase = (checkout, branch) => {
@@ -522,7 +523,7 @@ test('a folder that vanishes during a run does not hide how the run ended', asyn
   assert.deepEqual([filed.state, filed.attempts], ['open', 1]);
 });
 
-test('changes left in the folder at the end keep it where it is, and the tab says so', async t => {
+test('changes left in the folder at the end keep it where it is, and Chat hears it once, by the project and the work', async t => {
   const h = director(t);
   const checkout = studied(h, 'api');
   fileItem(h.root, 'api', item('fix'), h.clock);
@@ -532,8 +533,23 @@ test('changes left in the folder at the end keep it where it is, and the tab say
 
   assert.match(git(checkout, 'branch', '--show-current'), /^hobkin\//);
   assert.equal(readFileSync(join(checkout, 'app.txt'), 'utf8'), 'someone typed here\n');
-  assert.match(readState(h.root, 'api').folderNote, /uncommitted changes/);
   assert.match(workStatus(h.root).projects[0].folderNote, /uncommitted changes/);
+  const lines = workStatus(h.root).folderLines.map(({ line }) => line);
+  assert.deepEqual(lines, ['api\'s folder stays on the branch for "fix", because it has uncommitted changes. Nothing in it was changed.']);
+});
+
+test('the folder hobkin runs from is never switched, so its work goes to a worktree', async t => {
+  const h = director(t);
+  const checkout = studied(h, 'api');
+  h.director.ownFolder = checkout;
+  fileItem(h.root, 'api', item('fix'), h.clock);
+  let during;
+  h.agent = request => { during = { cwd: request.cwd, branch: git(checkout, 'branch', '--show-current') }; };
+
+  await h.tick();
+
+  assert.notEqual(during.cwd, checkout);
+  assert.equal(during.branch, 'main', 'the folder stayed on its default branch while the run worked');
 });
 
 test('a default branch behind origin is brought up to date before a run', async t => {

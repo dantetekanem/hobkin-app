@@ -324,6 +324,13 @@ export class HobkinApplication {
       notices.push({ id, role: 'notice', content: line, tone: 'quiet', at });
       noticeIds.add(id);
     }
+    // A folder of the user's own left off its default branch is theirs to know about, so it reads as a system line.
+    for (const { key, line, at } of work.folderLines) {
+      const id = `notice:${key}`;
+      if (noticeIds.has(id)) continue;
+      notices.push({ id, role: 'system', content: line, at });
+      noticeIds.add(id);
+    }
     const reviewed = work.review;
     const reviewedId = reviewed && `notice:work-review:${reviewed.at}`;
     if (reviewed && !noticeIds.has(reviewedId)) {

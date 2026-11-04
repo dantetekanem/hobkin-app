@@ -1092,7 +1092,6 @@ const workSections = ({ work, runs, inner, clock, frame }) => {
       lines: [
         `${positive('●')} ${cell(bold(named(project)), nameWidth)}  ${cell(gradeLabel(project.priority), 2)}  ${cell(dim(project.level), 9)}  ${muted(projectStatus(project, clock))}`,
         ...(project.lookError ? wrapped(`Last look failed: ${project.lookError}`, inner - 2).map(value => `  ${negative(value)}`) : []),
-        ...(project.folderNote ? wrapped(`Its folder: ${project.folderNote}`, inner - 2).map(value => `  ${caution(value)}`) : []),
       ],
     }))],
     ['PROPOSED', proposed.map(project => ({

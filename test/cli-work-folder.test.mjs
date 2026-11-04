@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { enterFolder, folderRefusal, leaveFolder, prepareTree, releaseTree } from '../src/cli/work/tree.mjs';
 import { git, repository, withOrigin } from './helpers/work-fixture.mjs';
 
@@ -244,10 +244,9 @@ test('changes made meanwhile keep the folder where it is, and it says so', async
   const { base } = await enterFolder({ repo, branch: 'hobkin/one' });
   writeFileSync(join(repo, 'app.txt'), 'the user typed here\n');
 
-  const said = await leaveFolder({ repo, branch: 'hobkin/one', base });
+  const left = await leaveFolder({ repo, branch: 'hobkin/one', base });
 
-  assert.match(said, /stays on hobkin\/one/);
-  assert.match(said, /uncommitted changes/);
+  assert.deepEqual(left, { stays: 'it has uncommitted changes' });
   assert.equal(git(repo, 'branch', '--show-current'), 'hobkin/one');
   assert.equal(readFileSync(join(repo, 'app.txt'), 'utf8'), 'the user typed here\n');
 });
@@ -257,10 +256,46 @@ test('a user who moved the folder elsewhere is left where they went', async t =>
   const { base } = await enterFolder({ repo, branch: 'hobkin/one' });
   git(repo, 'switch', '-qc', 'my-work');
 
-  const said = await leaveFolder({ repo, branch: 'hobkin/one', base });
+  const left = await leaveFolder({ repo, branch: 'hobkin/one', base });
 
-  assert.match(said, /my-work/);
+  assert.deepEqual(left, { moved: 'my-work' });
   assert.equal(git(repo, 'branch', '--show-current'), 'my-work');
+});
+
+/** A run that stops tracking a file the default branch tracks, such as a secret, leaves the file in the folder, ignored. */
+async function stopsTracking(repo, path, content) {
+  mkdirSync(join(repo, dirname(path)), { recursive: true });
+  writeFileSync(join(repo, path), content);
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-qm', `track ${path}`);
+  const { base } = await enterFolder({ repo, branch: 'hobkin/one' });
+  git(repo, 'rm', '-q', '--cached', path);
+  writeFileSync(join(repo, '.gitignore'), `${path}\n`);
+  git(repo, 'add', '.gitignore');
+  git(repo, 'commit', '-qm', `stop tracking ${path}`);
+  return base;
+}
+
+test('a file the run stopped tracking does not keep the folder from going back when the default branch has the same copy', async t => {
+  const { repo } = folder(t);
+  const base = await stopsTracking(repo, 'config/master.key', 'the key\n');
+
+  assert.equal(await leaveFolder({ repo, branch: 'hobkin/one', base }), null);
+
+  assert.equal(git(repo, 'branch', '--show-current'), 'main');
+  assert.equal(readFileSync(join(repo, 'config', 'master.key'), 'utf8'), 'the key\n');
+});
+
+test('a file the run stopped tracking that changed since keeps the folder on its branch, and says which file', async t => {
+  const { repo } = folder(t);
+  const base = await stopsTracking(repo, 'config/master.key', 'the key\n');
+  writeFileSync(join(repo, 'config', 'master.key'), 'a rotated key\n');
+
+  const left = await leaveFolder({ repo, branch: 'hobkin/one', base });
+
+  assert.deepEqual(left, { stays: "going back to main would replace config/master.key, which is not the same as main's copy" });
+  assert.equal(git(repo, 'branch', '--show-current'), 'hobkin/one');
+  assert.equal(readFileSync(join(repo, 'config', 'master.key'), 'utf8'), 'a rotated key\n');
 });
 
 test('a tree can never be the project\'s own folder', async t => {

@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
@@ -76,6 +77,16 @@ const QUIET_REASON = 'It went quiet for an hour.';
 const clone = promisify(execFile);
 // A clone that hangs or asks for a password has no session to watch, so it gets a limit of its own.
 const CLONE_TIMEOUT_MS = 10 * 60000;
+const MOST_FOLDER_LINES = 10;
+// hobkin runs from its own folder, so a run switching that folder's branch would change the code hobkin runs, mid-session.
+const HOBKIN_FOLDER = fileURLToPath(new URL('../../..', import.meta.url));
+const realPlace = folder => {
+  try {
+    return realpathSync(folder);
+  } catch {
+    return folder;
+  }
+};
 
 // Pi loads the user's global rules into every run, and those rules ask for permission first. This line is that permission.
 const authorization = 'The user has already authorized everything this run needs, so nothing needs asking and no run is ever blocked. '
@@ -112,8 +123,8 @@ const notTheWork = run => Boolean(run?.result?.usageLimit);
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, claudeProjects, follow = followInBackground }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, fetch, claudeProjects, follow });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, claudeProjects, follow = followInBackground, ownFolder = HOBKIN_FOLDER }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, fetch, claudeProjects, follow, ownFolder });
     this.active = new Map();
     this.lastStartAt = null;
   }
@@ -400,6 +411,7 @@ export class WorkDirector {
     const sharing = this.running().some(run => run !== entry && run.slug === project.slug);
     const writing = branch ? 'this item rebases' : 'this look runs tests';
     let reason = writes ? writing : sharing ? 'another agent is in this repository' : null;
+    if (!reason && realPlace(repo) === realPlace(this.ownFolder)) reason = 'hobkin runs from this folder';
     if (!reason && resume && await currentBranch(tree) === branch) reason = 'its work is there';
     if (!reason) {
       const { refused, base } = await enterFolder({ repo, branch });
@@ -416,13 +428,34 @@ export class WorkDirector {
     return Boolean(state) && !runnableStates.includes(state);
   }
 
-  /** A run hands the folder back as it found it. If that cannot be done it stays as it is, and the tab says so. A tree lets go of its branch, so the user can check that out. */
+  /**
+   * A run hands the folder back as it found it. If that cannot be done it stays as it is, nothing in it is changed, and Chat says why once,
+   * by the project and the work. A tree lets go of its branch, so the user can check that out.
+   */
   async leave(slug, id, { folder, tree }) {
     if (tree) await releaseTree(tree, { finished: this.recordedOutcome(slug, id) });
     if (!folder) return;
-    const left = folder.branch ? await leaveFolder(folder) : await folderRefusal(folder.repo);
-    const said = left && !folder.branch ? `After the look, ${left}.` : left;
-    writeState(this.root, slug, { folderNote: said });
+    if (!folder.branch) {
+      const refused = await folderRefusal(folder.repo);
+      writeState(this.root, slug, { folderNote: refused && `After the look, ${refused}.` });
+      return;
+    }
+
+    const { moved, stays } = await leaveFolder(folder) ?? {};
+    const note = moved ? `It is on ${moved} now, so hobkin left it there.` : stays ? `It stays on the run's branch, because ${stays}.` : null;
+    writeState(this.root, slug, { folderNote: note });
+    if (stays) this.sayAboutFolder(slug, `${this.folderOf(slug)} stays on the branch for "${this.titleOf(slug, id)}", because ${stays}. Nothing in it was changed.`);
+  }
+
+  folderOf(slug) { return `${nameOf(readProject(this.root, slug))}'s folder`; }
+
+  titleOf(slug, id) { return readItems(this.root, slug).find(item => item.id === id)?.title ?? 'its work'; }
+
+  /** What the user needs to know about their own folder is said once in Chat, as a system line, and never sits in the tab as an error. */
+  sayAboutFolder(slug, line) {
+    const at = new Date(this.now()).toISOString();
+    const told = [...readMode(this.root).folderLines ?? [], { key: `folder:${slug}:${at}`, line, at }];
+    writeMode(this.root, { folderLines: told.slice(-MOST_FOLDER_LINES) });
   }
 
   // Only a look that finished starts clean. Anything else left a list to pick up, here and in `checkMemory`.
@@ -659,7 +692,10 @@ export class WorkDirector {
     const item = readItems(this.root, slug).find(entry => entry.id === id);
     if (!item) return;
     if (item.state !== 'doing') return this.itemFinished(slug, item);
-    if (moved) writeState(this.root, slug, { folderNote: 'The folder left the run\'s branch, so the run stopped. Nothing was forced.' });
+    if (moved) {
+      writeState(this.root, slug, { folderNote: 'The folder left the run\'s branch, so the run stopped. Nothing was forced.' });
+      this.sayAboutFolder(slug, `${this.folderOf(slug)} left the branch for "${item.title}" while it ran, so that run stopped. Nothing was forced.`);
+    }
     if (moved || run?.result?.paneClosed) {
       updateItem(this.root, slug, id, { state: 'open' }, this.now());
       return;

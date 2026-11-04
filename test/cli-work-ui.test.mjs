@@ -1425,14 +1425,6 @@ test('max work shows its count', () => {
   ui.stop();
 });
 
-test('a folder left as it was says so on its project', () => {
-  const ui = createDashboard({ ...base, work: { enabled: true, projects: [{ ...chosen, folderNote: 'It stays on hobkin/abc-fix, because it has uncommitted changes.' }] } });
-  ui.input('\x1b[D');
-
-  assert.match(screen(ui), /Its folder: It stays on hobkin\/abc-fix/);
-  ui.stop();
-});
-
 test('the Work Mode tab shows the harness', () => {
   const ui = createDashboard({ ...base, work: { enabled: true, harness: 'claude', projects: [] } });
   ui.input('\x1b[D');

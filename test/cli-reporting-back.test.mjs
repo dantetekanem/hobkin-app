@@ -575,6 +575,20 @@ test('a group answered at once says each row in Chat and one line that sums it u
   }
 });
 
+test('what a run left in the user\'s own folder is said in Chat once, as a system line', async t => {
+  const h = fixture(t);
+  const at = new Date().toISOString();
+  const line = 'api\'s folder stays on the branch for "fix", because it has uncommitted changes. Nothing in it was changed.';
+  writeMode(h.root, { folderLines: [{ key: `folder:api:${at}`, line, at }] });
+  const app = await h.openApp();
+  try {
+    assert.deepEqual(systemLines(await app.refresh()).map(({ content }) => content), [line]);
+    assert.equal(systemLines(await app.refresh()).length, 1, 'once');
+  } finally {
+    await app.close();
+  }
+});
+
 test('a deleted session report stays deleted', async t => {
   const h = fixture(t);
   saveReport(h.root, 'session:hobkin-gone', 'Gone.');

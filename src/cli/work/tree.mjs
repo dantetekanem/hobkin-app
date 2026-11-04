@@ -232,15 +232,37 @@ export async function landBranch({ repo, base, branch, tip, message }) {
   return target;
 }
 
-/** Puts the folder back on its default branch, unless someone has changed it since. Returns what the user should know, or nothing. */
+/** Files the default branch tracks and this branch does not, sitting in the folder. Only ignored ones get past a clean status. */
+async function inTheWayOf(repo, base) {
+  const added = await git(repo, 'diff', '--name-only', '-z', '--diff-filter=A', 'HEAD', base);
+  return added.split('\0').filter(path => path && existsSync(join(repo, path)));
+}
+
+const sameAs = async (repo, base, path) => await git(repo, 'hash-object', '--', path) === await gitOrNothing(repo, 'rev-parse', `${base}:${path}`);
+
+/**
+ * Puts the folder back on its default branch, unless someone has changed it since. A file the run stopped tracking, such as a secret,
+ * stays in the folder ignored, and git will not write the default branch's copy over it. One that is the same as that copy loses
+ * nothing, so it does not hold the folder back. Returns where the user `moved` it, why it `stays` on the run's branch, or nothing.
+ */
 export async function leaveFolder({ repo, branch, base }) {
   const current = await currentBranch(repo);
-  if (current !== branch) return `It is on ${current || 'no branch'} now, so hobkin left it there.`;
-  if (await git(repo, 'status', '--porcelain')) return `It stays on ${branch}, because it has uncommitted changes.`;
+  if (current !== branch) return { moved: current || 'no branch' };
+  if (await git(repo, 'status', '--porcelain')) return { stays: 'it has uncommitted changes' };
+
+  const inTheWay = await inTheWayOf(repo, base);
+  const changed = [];
+  for (const path of inTheWay) {
+    if (!await sameAs(repo, base, path)) changed.push(path);
+  }
+  if (changed.length) {
+    const which = changed.length === 1 ? `${changed[0]}, which is not the same as ${base}'s copy` : `${changed.join(', ')}, which are not the same as ${base}'s copies`;
+    return { stays: `going back to ${base} would replace ${which}` };
+  }
   try {
-    await git(repo, 'switch', '--quiet', '--no-overwrite-ignore', base);
+    await git(repo, 'switch', '--quiet', ...(inTheWay.length ? ['--overwrite-ignore'] : ['--no-overwrite-ignore']), base);
     return null;
-  } catch (error) {
-    return `It stays on ${branch}: ${firstLine(error)}`;
+  } catch {
+    return { stays: `git would not switch it back to ${base}` };
   }
 }
