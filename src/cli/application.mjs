@@ -500,6 +500,7 @@ export class HobkinApplication {
       connection: 'connected',
       busy: this.runtime.mainBusy,
       searching: searchingTool(this.runtime.mainTool),
+      tooling: Boolean(this.runtime.mainTool),
       learning: learningEnabled(this.runtime.directory),
       userName: callName(readProfile(this.runtime.directory)),
       main: {
@@ -757,7 +758,10 @@ export class HobkinApplication {
     };
     const result = await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
-    if (result?.told) recordCardAction(root, result.told, this.now());
+    if (result?.told) {
+      recordCardAction(root, result.told, this.now());
+      this.moods.react({ event: 'card', did: result.told.did });
+    }
     if (result?.handOff) this.handOff(result.handOff);
     await this.director.tick();
     // A refresh already under way read the state before this change, and the screen must show the change.

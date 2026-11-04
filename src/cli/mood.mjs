@@ -35,8 +35,19 @@ const cleanTurn = reading => turnEnded(moment => moment.status === 'completed' &
  * From a moment to a mood, with no network, no model and nothing kept. First match wins, so what a message or a reply says is read here and goes
  * no further. Moods that only describe what is going on are in `shownMood`, and a moment that matches nothing leaves the face alone.
  */
+const CHANGED_UNDER = /moved since|already|so there is no|no longer|is (?:merged|done|declined|dropped)\b/i;
+const failedWith = pattern => ({ event, text }) => event === 'answer failed' && pattern.test(String(text ?? ''));
+const cardDid = reading => ({ event, did }) => event === 'card' && reading(String(did ?? ''));
+
 const RULES = [
   ['hello', 'session started', happened('session')],
+  ['love', 'the user decided everything waiting', happened('all decided')],
+  ['wink', 'the user answered at once', happened('quick answer')],
+  ['sad', 'the user said no to work', cardDid(did => did === 'said no')],
+  ['celebrating', 'the user merged work', cardDid(did => /\bmerged\b/.test(did))],
+  ['grumpy', 'a merge hit a conflict', failedWith(/conflict/i)],
+  ['confused', 'the work changed under the answer', failedWith(CHANGED_UNDER)],
+  ['error', 'an answer failed', happened('answer failed')],
   ['sad', COMPLAINT, ({ event, text }) => event === 'said' && saysBadWork(text)],
   ['hello', 'user said hello', userSaid(HELLO)],
   ['love', 'user said something kind', userSaid(KIND)],
@@ -69,16 +80,21 @@ export function moodFor(moment) {
   return rule ? { mood: rule[0], cause: rule[1] } : null;
 }
 
-/** What the face shows on a frame and why: a reaction while it lasts, and otherwise whatever is going on. */
-export function shownMood({ reaction, busy, running, typing, now, asked, waiting, searching, busyMs = 0 }) {
+/**
+ * What the face shows on a frame and why: a reaction while it lasts, and otherwise whatever is going on. In a turn the face follows what the
+ * agent does: searching while it reads, working while it runs any other tool, and thinking, or focused after five minutes, while it writes.
+ */
+export function shownMood({ reaction, busy, running, typing, now, asked, waiting, searching, tooling, busyMs = 0 }) {
   // A face that went quiet with the room wakes for whoever starts typing, and waits to hear what they want.
   if (reaction?.lasting && typing) return { mood: 'listening', cause: 'user is typing' };
   if (asked) return { mood: 'listening', cause: 'a question is on screen' };
   const stepsAside = reaction?.yields && (busy || running);
   if (reaction && now < reaction.until && !stepsAside) return reaction;
   if (busy && searching) return { mood: 'searching', cause: 'turn is searching or reading' };
+  if (busy && tooling) return { mood: 'working', cause: 'turn is running a tool' };
   if (busy && busyMs >= LONG_TURN_MS) return { mood: 'focused', cause: 'turn over five minutes' };
   if (busy) return { mood: 'thinking', cause: 'turn under way' };
+  if (typing) return { mood: 'listening', cause: 'user is typing' };
   if (running) return { mood: 'working', cause: 'a run is going' };
   return waiting ? { mood: 'listening', cause: 'a decision is waiting' } : { mood: 'idle', cause: 'nothing going on' };
 }
@@ -101,6 +117,7 @@ const stateOf = view => {
     error: view.error ?? null,
     contextFull: view.context?.percent >= FORCE_AT_PERCENT,
     decisions: (view.decisions ?? []).length,
+    waiting: (view.decisions ?? []).length + Object.values(view.waiting ?? {}).reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0),
     merged: (view.work?.projects ?? []).reduce((sum, { merged = 0 }) => sum + merged, 0),
   };
 };
@@ -130,6 +147,7 @@ function whatHappened(before, now, turnMs) {
   if (crowded(now) && !crowded(before)) return { event: 'crowded' };
   if (now.contextFull && !before.contextFull) return { event: 'context' };
   if (now.decisions > before.decisions) return { event: 'decision' };
+  if (before.waiting > 0 && now.waiting === 0) return { event: 'all decided' };
   if (now.running.some(id => !before.running.includes(id))) return { event: 'run started' };
   return ended.length ? runMoment(ended[0], now.runs) : null;
 }

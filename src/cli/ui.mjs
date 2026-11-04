@@ -164,6 +164,7 @@ const MIN_ROWS_FOR_PINNED_DAY = 8;
 const MIN_ROWS_FOR_PREVIEW = 18;
 const PASTE_NOTICE_MS = 4000;
 const RESULT_SHOWN_MS = 10000;
+const QUICK_ANSWER_MS = 3000;
 const MAX_REPOSITORIES_SHOWN = 8;
 // With no row picked yet, the tab opens on the first thing that needs an answer.
 const answerableRows = ['allowance', 'proposal'];
@@ -1479,6 +1480,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     asked: Boolean(question),
     waiting: decisions().length > 0,
     searching: snapshot.searching,
+    tooling: snapshot.tooling,
     busyMs: busySince === null ? 0 : clock - busySince,
     now: clock,
   });
@@ -2263,9 +2265,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     pending = Promise.resolve().then(() => callbacks.workAction(...request))
       .then(result => { if (result?.ok && !result.told) sayInChat(clean(result.message)); })
       .catch(error => {
-        sayInChat(clean(error?.message ?? error));
+        const why = clean(error?.message ?? error);
+        sayInChat(why);
         record('error_shown', { from: 'Work mode' });
-        callbacks.moment?.({ event: 'error' });
+        // The face reads why, to tell a conflict or work that changed under the answer from any other failure. It goes no further.
+        callbacks.moment?.({ event: 'answer failed', text: why });
       })
       .finally(changed);
   };
@@ -2322,14 +2326,20 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const { entry } = donePage;
     return listRows().find(({ slug, id }) => slug === entry.slug && id === entry.item) ?? doneRow(entry, branchType(entry), '');
   };
+  // An answer given at once is the user knowing their mind, and the face winks back.
+  const answeredAfter = ms => {
+    if (ms < QUICK_ANSWER_MS) callbacks.moment?.({ event: 'quick answer' });
+  };
   /** Puts a box of choices on screen. `onPick` gets the value of the choice, and the typed words when `takesChanges` gave the box a row for them. */
   const openChoices = ({ question: asked, choices, takesChanges = false, onPick }) => {
     const selection = new SelectList(takesChanges ? [...choices, CHANGES_ROW] : choices, FEWEST_CHOICES_SHOWN, selectTheme);
     const other = takesChanges ? new Input({ placeholder: 'Type the changes, then Enter', placeholderStyle: dim }) : null;
     const box = { question: asked, choices, selection, other, scroll: 0 };
+    const openedAt = now();
     selection.onSelectionChange = () => { box.scroll = 0; };
     selection.onSelect = item => {
       if (item !== CHANGES_ROW) {
+        answeredAfter(now() - openedAt);
         onPick(item.value);
         return;
       }
@@ -2686,6 +2696,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           ({ focus, view, scroll } = previous);
           const choice = value?.typed ? request.choices.length : request.choices.findIndex(item => item.value === value);
           record('question_ended', { how, ...(how === 'answered' ? { choice } : {}), ms: now() - shownAt });
+          if (how === 'answered') answeredAfter(now() - shownAt);
           resolve(value);
           changed();
         }

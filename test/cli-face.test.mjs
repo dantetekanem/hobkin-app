@@ -3,14 +3,12 @@ import { test } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, FACE_ROWS, faceFrame, faceLines, moods, octantFor, supportsOctants } from '../src/cli/face.mjs';
-import { currentMood, defaultMoods } from '../src/cli/mood.mjs';
+import { currentMood } from '../src/cli/mood.mjs';
 
 const colors = { hood: [240, 234, 214], eye: [232, 163, 23] };
 
-test('the design has eighteen moods, and four of them need no model', () => {
+test('the design has eighteen moods', () => {
   assert.equal(moods.length, 18);
-  assert.deepEqual(defaultMoods, ['idle', 'thinking', 'working', 'happy']);
-  assert.ok(defaultMoods.every(mood => moods.includes(mood)));
 });
 
 test('each dot pattern maps to the Unicode character named for it', () => {

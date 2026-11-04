@@ -274,11 +274,11 @@ test('too much at once is dizzy, as it happens and not for as long as it lasts',
   }
 });
 
-test('a question filed for the user makes the face listen, and an answered one does not', () => {
+test('a question filed for the user makes the face listen, and answering the last one waiting is love', () => {
   const h = started(view({ decisions: [{ id: 'one' }] }));
 
   h.moods.observe(view({ decisions: [] }));
-  assert.equal(h.mood(), undefined);
+  assert.equal(h.mood(), 'love');
 
   h.moods.observe(view({ decisions: [{ id: 'two' }] }));
   assert.equal(h.mood(), 'listening');
@@ -379,9 +379,57 @@ test('with no reaction the face follows what is going on', () => {
     [{ searching: true }, 'idle'],
     [{ busy: true, asked: true }, 'listening'],
     [{ asked: true, reaction: { mood: 'happy', until: 2000 } }, 'listening'],
+    [{ busy: true, tooling: true }, 'working'],
+    [{ busy: true, tooling: true, busyMs: 9 * MINUTE }, 'working'],
+    [{ busy: true, tooling: true, searching: true }, 'searching'],
+    [{ typing: true }, 'listening'],
+    [{ typing: true, running: true }, 'listening'],
+    [{ typing: true, busy: true }, 'thinking'],
   ];
 
   for (const [state, mood] of states) assert.equal(currentMood({ ...state, now }), mood, JSON.stringify(state));
+});
+
+test('what the user does from a card shows on the face: a no is sad, a merge celebrates', () => {
+  const said = started();
+  said.moods.react({ event: 'card', did: 'said no' });
+  assert.equal(said.mood(), 'sad');
+
+  for (const did of ['merged it locally', 'merged the PR', 'merged it after its refresh']) {
+    const h = started();
+    h.moods.react({ event: 'card', did });
+    assert.equal(h.mood(), 'celebrating', did);
+  }
+
+  const asked = started();
+  asked.moods.react({ event: 'card', did: 'asked for a review' });
+  assert.equal(asked.mood(), undefined, 'a review asked for is no reason to react');
+});
+
+test('an answer that fails shows why: a conflict is grumpy, work that changed under it is confused, anything else an error', () => {
+  const cases = [
+    ['"Fix login" conflicts with main, so nothing changed. Send an agent back to rebase it.', 'grumpy'],
+    ['"Fix login" moved since it was offered, so nothing merged. It needs reading again.', 'confused'],
+    ['"Fix login" is merged, so there is no local branch to merge.', 'confused'],
+    ['gh: network down', 'error'],
+  ];
+  for (const [text, mood] of cases) {
+    const h = started();
+    h.moods.react({ event: 'answer failed', text });
+    assert.equal(h.mood(), mood, text);
+  }
+});
+
+test('answering at once is a wink, and clearing everything waiting is love', () => {
+  const quick = started();
+  quick.moods.react({ event: 'quick answer' });
+  assert.equal(quick.mood(), 'wink');
+
+  const pile = started(view({ decisions: [{ id: 'one' }], waiting: { branches: [{ item: 'a' }, { item: 'b' }], yours: [] } }));
+  pile.moods.observe(view({ decisions: [], waiting: { branches: [{ item: 'a' }], yours: [] } }));
+  assert.notEqual(pile.mood(), 'love', 'one left is not everything');
+  pile.moods.observe(view({ decisions: [], waiting: { branches: [], yours: [] } }));
+  assert.equal(pile.mood(), 'love');
 });
 
 test('a search or a read counts as searching, and other tools do not', () => {
