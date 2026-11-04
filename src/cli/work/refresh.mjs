@@ -6,6 +6,8 @@ const REFRESH_NOTE = 'Bring this branch up to date with the default branch: reba
 // Where a run leaves finished work: on its local branch, or on its PR.
 const FINISHED = ['branch', 'pr'];
 const HANDED_JOB = 'Bring the branch up to date with the default branch, run its proof again, then merge it with hobkin work merge.';
+// Long enough for a session to refresh and merge it, and short enough that a hand-off nothing came of brings its card back.
+const WITH_MAIN_AGENT_MS = 3 * 3600000;
 
 /** Work mode starts the refresh itself unless it is off or held, and then nothing would start it at all. */
 function whyWorkModeWaits(mode, now) {
@@ -41,7 +43,10 @@ export function refreshThenMerge(root, reference, id, { read = 'none', readMs = 
   }
 
   const held = whyWorkModeWaits(readMode(root), now);
-  if (held) return handOff(project, item, held);
+  if (held) {
+    updateItem(root, project.slug, item.id, { withMainAgent: { until: new Date(now + WITH_MAIN_AGENT_MS).toISOString() } }, now);
+    return handOff(project, item, held);
+  }
 
   const mergeWhenFresh = { at: new Date(now).toISOString(), read, readMs, ...(item.left ? { left: item.left } : {}) };
   updateItem(root, project.slug, item.id, { workNote: REFRESH_NOTE, mergeWhenFresh }, now);

@@ -172,7 +172,10 @@ const nextToMerge = (first, second) => Number(Boolean(first.conflict)) - Number(
 // A title is all that older items have, and agents now file these as `yours`. This only decides where a row sits.
 const onlyAPersonCan = ({ kind, title }) => kind === 'yours' || /^Prepare\b/.test(title);
 
-const closingNow = item => runnableStates.includes(item.state) && (item.kind === SHIP_KIND || item.reviewAsked || item.workNote);
+/** Finished work the user asked to refresh and merge while work mode was off is a session's, through the main agent, until its time runs out. */
+const withMainAgent = item => Date.parse(item.withMainAgent?.until ?? '') > Date.now();
+const closingNow = item => withMainAgent(item)
+  || (runnableStates.includes(item.state) && (item.kind === SHIP_KIND || item.reviewAsked || item.workNote));
 
 function gapOf(item, unit, items) {
   if (item.kind === 'yours') return 'yours';
@@ -410,6 +413,7 @@ export function landingList(root) {
 }
 
 const closingWords = item => {
+  if (withMainAgent(item)) return 'refreshing it, then merging it';
   if (item.kind === SHIP_KIND) return 'getting it ready to merge';
   return item.reviewAsked ? 'reviewing it' : 'working on your note';
 };

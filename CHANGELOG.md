@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-04
+
+- Keep a refresh and merge out of Decisions once it is asked for. With work mode off, it goes to the main agent to start a session, but nothing marked the item, so its card stayed in Decisions as if the user had not answered. It now waits under AGENT ON IT as refreshing it, then merging it, and its card comes back only if nothing comes of it in three hours.
+
 ## 2026-11-03
 
 - Remember the user's decisions. An answer in Decisions reached the main agent only when another session had asked, a card's action reached it once, and an answer to its own question lived in the chat, where a compaction paraphrased it. Now every turn's system prompt ends with what the user decided lately: their answers in Decisions and to the agent's questions, and what they did from a card or with Esc, newest first by title, from the last 14 days, at most 20 lines and 4 KB. Answers to the agent's questions are kept in `answers.jsonl`, and memory search covers every answer and each project's `directions.md`.

@@ -323,7 +323,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     }
     case 'item': {
       // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `workNote` and what a merge or an offer records are only ever hobkin's or the user's word, so none can arrive here.
-      const { max, grade, reviewAsked, reviewAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, ...item } = await readJson(input);
+      const { max, grade, reviewAsked, reviewAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);

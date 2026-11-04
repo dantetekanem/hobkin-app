@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { mergeRefreshed, refreshThenMerge } from '../src/cli/work/refresh.mjs';
 import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { closingItems, readyItems } from '../src/cli/work/reads.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
@@ -152,4 +153,20 @@ test('refresh and merge takes work an agent once called done while its branch st
   assert.equal(read(h, said).state, 'open');
   assert.ok(read(h, said).mergeWhenFresh, 'it merges once the refresh ends well');
   assert.throws(() => refreshThenMerge(h.root, 'api', closed.id, { now: NOW }), /is done, so there is no branch to refresh/);
+});
+
+test('a refresh handed to the main agent takes its card out of Decisions while a session has it, and brings it back if nothing comes of it', t => {
+  const h = workspace(t);
+  writeMode(h.root, { enabled: false });
+  branched(h.checkout, 'hobkin/fix', 'fix.txt', 'fix\n');
+  const item = finished(h, 'hobkin/fix');
+
+  const { handOff } = refreshThenMerge(h.root, 'api', item.id, { now: Date.now() });
+
+  assert.equal(handOff.item, item.id);
+  assert.equal(readyItems(h.root)[0].gap, 'closing', 'the card waits out of the list, with the agent');
+  assert.deepEqual(closingItems(h.root).map(({ doing }) => doing), ['refreshing it, then merging it']);
+
+  updateItem(h.root, 'api', item.id, { withMainAgent: { until: new Date(Date.now() - 1000).toISOString() } });
+  assert.equal(readyItems(h.root)[0].gap, 'land', 'a hand-off that ran out brings the card back');
 });
