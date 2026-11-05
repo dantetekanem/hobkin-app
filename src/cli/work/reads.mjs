@@ -326,6 +326,7 @@ export const weakEarlierWork = (row, units) => stackedBeneath(row, units).find(h
 function whyLeftOut(row, units) {
   if (row.gap === 'elsewhere' && row.landedOn) return `it is already on ${row.landedOn}`;
   if (row.gap !== 'land') return gapWords[row.gap];
+  if (row.left) return `it still has work left: ${row.left}`;
   if (heldByItsGrade(row)) return ratingWords(row);
   if (!row.head) return 'the last survey did not read its branch, and hobkin work sync reads it';
   if (row.proved === false) return 'it has no proof';

@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { fillGaps, surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
-import { readWaiting } from '../src/cli/pending-read.mjs';
+import { readPending, readWaiting } from '../src/cli/pending-read.mjs';
 import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openPullRequest, requestReview } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { closingItems, landingList, readyItems } from '../src/cli/work/reads.mjs';
@@ -185,6 +185,30 @@ test('a bulk landing takes work with proof whatever its grade, leaves out what a
   assert.match(why['work 2'], /rated risky D/);
   assert.match(why['work 5'], /no proof/);
   assert.match(why['Prepare HTTPS enforcement for the blog'], /only a person/);
+});
+
+for (const state of ['branch', 'pr']) test(`a ${state} with work left stays out of ready and keeps its restriction`, async t => {
+  const h = workspace(t);
+  const left = 'Remote delivery remains unperformed because landing is off.';
+  for (const number of [1, 2]) branched(h.checkout, `hobkin/${number}-fix`);
+  const held = finished(h, 'hobkin/1-fix', { ...proved, state, left });
+  const ready = finished(h, 'hobkin/2-fix', { ...proved, state, left: '' });
+  for (const number of [1, 2]) reviewed(h, tipOf(h, `hobkin/${number}-fix`));
+  const pulls = state === 'pr' ? [1, 2].map(number => pull(number, { headRefOid: tipOf(h, `hobkin/${number}-fix`) })) : [];
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify(pulls), reviews: h.reviews });
+  const before = read(h, held);
+
+  const { landable, leftOut } = landingList(h.root);
+  const waiting = readWaiting(h.root, { now: NOW, reports: [] });
+  const pending = readPending(h.root, { now: NOW, reports: [] });
+
+  assert.deepEqual(landable.map(({ item }) => item), [ready.id]);
+  assert.deepEqual(leftOut.map(({ item }) => item), [held.id]);
+  assert.ok(leftOut[0].why.includes(left));
+  assert.deepEqual(waiting.branches.map(({ item }) => item), [ready.id]);
+  assert.deepEqual(waiting.yours.map(({ item, left }) => [item, left]), [[held.id, left]]);
+  assert.deepEqual(pending.groups.map(({ name, count }) => [name, count]), [['ready', 1], ['yours', 1]]);
+  assert.deepEqual(read(h, held), before);
 });
 
 test('work the last survey did not read stays out, because nothing pins it to a commit', async t => {
@@ -725,7 +749,7 @@ test('a closing pass gives an item that says done its finished state back while 
   const said = finished(h, 'hobkin/abc', { state: 'done' });
   const closed = finished(h, 'hobkin/closed', { state: 'done', closedByUser: true });
 
-  await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: false });
+  await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: h.reviews, launchReviews: false });
 
   assert.equal(read(h, said).state, 'branch', 'it is finished work again, which every card action takes');
   assert.equal(read(h, closed).state, 'done');

@@ -77,7 +77,7 @@ function askReviews(root, now = Date.now()) {
 
 /**
  * The survey, what it showed needs closing, the reviews it showed were missed, then the pulse on what has landed. These write only hobkin's own
- * records. `reviews: false` is a sync someone asked for: asking hobkin something must never start a review, so those wait for work mode's own survey.
+ * records. `launchReviews: false` is a sync someone asked for: asking hobkin something must never start a review, so those wait for work mode's own survey.
  */
 /**
  * An item an agent once called done while its branch still waits to merge is finished work, as `done` has meant no change was needed
@@ -100,7 +100,7 @@ export async function surveyAndClose(root, options = {}) {
   restoreWaitingWork(root, options.now);
   const filled = fillGaps(root, options.now);
   // After the gaps, so a branch an agent is describing keeps that one agent, and gets its review on a pass after that is done.
-  const reviewing = options.reviews === false ? [] : askReviews(root, options.now);
+  const reviewing = options.launchReviews === false ? [] : askReviews(root, options.now);
   const pulse = await pulseLaunches(root, options);
   return { ...survey, filed: [...survey.filed, ...filled], reviewing, pulse };
 }

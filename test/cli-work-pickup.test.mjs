@@ -44,6 +44,7 @@ test('a backup a run made of a branch is no work: no unit, no item of its own an
   filedAs(h, 'work', { state: 'branch', branch: 'hobkin/abc-fix' });
   backUp(h, 'hobkin/abc-fix', 'hobkin/abc-fix-before-c289e6');
   backUp(h, 'hobkin/abc-fix', 'hobkin/abc-before-rebase-b9be7852');
+  backUp(h, 'hobkin/abc-fix', 'hobkin/abc-before-refresh-66899b65');
   commit(h.checkout, 'app.txt', 'main moved\n');
 
   const { adopted } = await survey(h);
@@ -59,17 +60,19 @@ test('what the survey filed for a backup is dropped at the next survey with its 
   branched(h.checkout, 'hobkin/abc-fix');
   backUp(h, 'hobkin/abc-fix', 'hobkin/abc-fix-before-c289e6');
   backUp(h, 'hobkin/abc-fix', 'hobkin/abc-before-rebase-b9be7852');
+  backUp(h, 'hobkin/abc-fix', 'hobkin/abc-before-refresh-66899b65');
+  const refresh = filedAs(h, 'branch:hobkin/abc-before-refresh-66899b65', { state: 'branch', branch: 'hobkin/abc-before-refresh-66899b65' }, 'chore');
   const stray = filedAs(h, 'branch:hobkin/abc-fix-before-c289e6', { state: 'branch', branch: 'hobkin/abc-fix-before-c289e6' }, 'chore');
   const rebase = filedAs(h, 'ship:rebase:hobkin/abc-before-rebase-b9be7852:1234567', { branch: 'hobkin/abc-before-rebase-b9be7852', ships: stray.id }, 'pr-fix');
   const closed = filedAs(h, 'ship:rebase:hobkin/abc-fix-before-c289e6:7654321', { state: 'done', branch: 'hobkin/abc-fix-before-c289e6' }, 'pr-fix');
   const byAnAgent = filedAs(h, 'bugs:the copy', { branch: 'hobkin/abc-fix-before-c289e6' });
-  const byTheUser = filedAs(h, 'hand:look at the copy', { branch: 'hobkin/abc-before-rebase-b9be7852' }, 'improvement');
+  const byTheUser = filedAs(h, 'hand:look at the copy', { branch: 'hobkin/abc-before-refresh-66899b65' }, 'improvement');
   const realStray = filedAs(h, 'branch:hobkin/abc-fix', { state: 'branch', branch: 'hobkin/abc-fix' }, 'chore');
 
   const { retired } = await survey(h);
 
-  assert.deepEqual(retired.map(({ id }) => id), [stray.id, rebase.id]);
-  for (const backup of [stray, rebase]) {
+  assert.deepEqual(retired.map(({ id }) => id), [refresh.id, stray.id, rebase.id]);
+  for (const backup of [refresh, stray, rebase]) {
     const { state, branch, reason } = read(h, backup);
     assert.deepEqual([state, branch], ['dropped', backup.branch]);
     assert.match(reason, /backup/);
@@ -84,6 +87,7 @@ test('a backup outside hobkin\'s branches is not where the work it copies landed
   branched(h.checkout, 'hobkin/abc-fix');
   const work = filedAs(h, 'work', { state: 'branch', branch: 'hobkin/abc-fix' });
   backUp(h, 'hobkin/abc-fix', 'backup/abc-before-rebase-20261102');
+  backUp(h, 'hobkin/abc-fix', 'backup/abc-before-refresh-66899b65');
 
   await survey(h);
 

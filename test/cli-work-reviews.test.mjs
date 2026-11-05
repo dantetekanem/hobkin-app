@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import { syncWork } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode, writeOwnerView } from '../src/cli/work/store.mjs';
@@ -101,6 +102,36 @@ test('with no range a review goes to the revision it names, and only then to the
   const grades = readReviewGrades({ folder: h.reviews, now: NOW });
 
   assert.deepEqual([...grades.keys()].toSorted(), ['bbb222', 'ccc333']);
+});
+
+test('sync reads saved grades without asking for reviews, independently of the review directory', async t => {
+  const h = workspace(t, reviewsOn);
+  const graded = finished(h, 'graded');
+  const ungraded = finished(h, 'ungraded');
+  reviewed(h, 'graded', { preflight: { head: tipOf(h, graded.branch) } });
+  const { PATH, PI_CODING_AGENT_DIR } = process.env;
+  t.after(() => {
+    process.env.PATH = PATH;
+    if (PI_CODING_AGENT_DIR === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = PI_CODING_AGENT_DIR;
+  });
+  writeFileSync(join(h.base, 'gh'), '#!/bin/sh\nprintf "[]"\n', { mode: 0o755 });
+  process.env.PATH = `${h.base}:${PATH}`;
+  process.env.PI_CODING_AGENT_DIR = h.base;
+
+  const synced = await syncWork(h.root);
+
+  assert.equal(safetyOf(h, graded)?.grade, 'safe');
+  assert.deepEqual(synced.reviewing, []);
+  assert.deepEqual(askedFor(h, ungraded), ['branch', undefined, undefined]);
+  assert.deepEqual(readMode(h.root).queueNext, []);
+
+  const closed = await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: h.reviews, launchReviews: false });
+
+  assert.equal(safetyOf(h, graded)?.grade, 'safe');
+  assert.deepEqual(closed.reviewing, []);
+  assert.deepEqual(askedFor(h, ungraded), ['branch', undefined, undefined]);
+  assert.deepEqual(readMode(h.root).queueNext, []);
 });
 
 // With reviews on, asking for the reviews that never came.

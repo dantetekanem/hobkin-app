@@ -566,7 +566,7 @@ export function trustPattern(root, pattern, word) {
 
 /** Asks `git` and `gh` now instead of at the next survey. Past a fetch they only read the repositories: all this changes is Hobkin's own record of its items. */
 export async function syncWork(root) {
-  const { settled, filed, retired, reviewing, pulse } = await surveyAndClose(root, { reviews: false });
+  const { settled, filed, retired, reviewing, pulse } = await surveyAndClose(root, { launchReviews: false });
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
   const found = [

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-05
+
+- Keep backups and unfinished work out of what is ready. A copy a run saved before a refresh, named `-before-refresh-`, was taken for work of its own, so an old backup on the blog showed as ready to merge. A sync someone asked for loaded no saved review grades, and the landing list took work with a step still left for the user as ready while the waiting count did not. A refresh's backup is now a backup, sync reads saved grades and still starts no review, and work with a step left stays off the landing list with that step as the reason.
+
 ## 2026-11-04
 
 - Keep Pi's scheduler out of the main chat. The main agent set its own timers with the user's Pi scheduler package to fetch a routine's report, and each one posted its result into Chat as a message from You, a whole shell command and its JSON. The main chat no longer loads that package, so the agent has only hobkin's routines, whose reports already reach Chat by themselves. It stays installed, and the user's own Pi and every other run keep it.

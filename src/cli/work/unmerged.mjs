@@ -29,9 +29,9 @@ const MOST_COMMITS_BACK = 40;
 const MOST_PATHS = 400;
 // What a run left uncommitted, saved beside its own branch. It is that item's, for its next run to use, and no change of its own.
 const KEPT_BRANCH = /-kept-\d{8}-\d{6}$/;
-// A copy a run saved of a branch before it rewrote it, named for what came next: `-before-` and an item's id, or `-before-rebase-` and a commit or a date.
+// A copy a run saved before rewriting a branch: `-before-`, `-before-rebase-` or `-before-refresh-`, then an id, commit or date.
 // Its work is on the branch it copies, or has landed from there, so a backup is no unit and gets no item or fix, and holding work says nothing about where that work went.
-const BACKUP_BRANCH = /-before-(?:rebase-)?[0-9a-f]{6,40}$/;
+const BACKUP_BRANCH = /-before-(?:(?:rebase|refresh)-)?[0-9a-f]{6,40}$/;
 // The survey's own items: one for a branch nothing named, and work to get a branch merged.
 const SURVEY_KEY = /^(?:branch|ship):/;
 const BACKUP_REASON = 'Its branch is only a backup of another branch, so there is no work of its own here.';
