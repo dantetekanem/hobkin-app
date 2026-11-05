@@ -1,7 +1,9 @@
-import { lstatSync, readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { linkSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const DEFAULT_BASE_URL = 'http://127.0.0.1:3100';
+export const DEFAULT_BASE_URL = 'https://api.hobkin.dev';
+const ENROLL_TIMEOUT_MS = 10000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SECRET = /^[0-9a-f]{64}$/;
 const FIELDS = ['base_url', 'installation_id', 'key_id', 'secret'];
@@ -80,8 +82,8 @@ function validated(value) {
 }
 
 /**
- * Only provisioning writes remote.json; hobkin only reads it. No file means this machine is not enrolled, and
- * nothing is sent. A file anyone else can read is refused, and no error ever repeats what the file holds.
+ * Enrollment or provisioning writes remote.json; reading never does. No file means this machine is not enrolled,
+ * and nothing is sent. A file anyone else can read is refused, and no error ever repeats what the file holds.
  */
 export function readCredentials(root) {
   const file = credentialsFile(root);
@@ -102,4 +104,36 @@ export function enrollment(root) {
   } catch (error) {
     return { enrolled: false, problem: error.message };
   }
+}
+
+/**
+ * A machine with no remote.json asks hobkin's server for its own key, once, and keeps it private to this user.
+ * A file already in place is never replaced, even one that cannot be used. A failure leaves nothing behind, so a
+ * later pass asks again.
+ */
+export async function enroll(root, { fetch = globalThis.fetch, baseUrl = DEFAULT_BASE_URL } = {}) {
+  const file = credentialsFile(root);
+  if (lstatSync(file, { throwIfNoEntry: false })) return false;
+
+  const response = await fetch(new URL('/api/v1/enrollments', baseUrl), {
+    method: 'POST',
+    redirect: 'error',
+    signal: AbortSignal.timeout(ENROLL_TIMEOUT_MS),
+  });
+  if (response.status !== 201) return false;
+  const { installation_id, key_id, secret } = await response.json();
+  const values = validated({ installation_id, key_id, secret, base_url: baseUrl });
+
+  // Written whole under a private name, then linked into place: never half a key, never over one written meanwhile.
+  mkdirSync(join(root, 'runtime'), { recursive: true, mode: 0o700 });
+  const draft = `${file}.${randomBytes(8).toString('hex')}`;
+  writeFileSync(draft, JSON.stringify(values), { flag: 'wx', mode: 0o600 });
+  try {
+    linkSync(draft, file);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+  } finally {
+    unlinkSync(draft);
+  }
+  return true;
 }

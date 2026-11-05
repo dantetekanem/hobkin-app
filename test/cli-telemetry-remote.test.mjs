@@ -263,15 +263,15 @@ test('off drops what waits and sends nothing, and on starts again from that mome
   assert.deepEqual(batchOf(server.calls[0]).events.map(({ facts }) => facts), [{ tab: 'reports' }]);
 });
 
-test('a machine that is not enrolled sends nothing and writes nothing', async t => {
+test('a machine whose enrollment fails sends no usage events and writes nothing', async t => {
   const h = fixture(t, { enrolled: false });
-  new RemoteSender({ root: h.root, ...h.options(fakeServer(batchReceipt)) });
+  new RemoteSender({ root: h.root, ...h.options(fakeServer(reply(503, { error: {} }))) });
   h.record('app_opened');
-  const server = fakeServer(batchReceipt);
+  const server = fakeServer(reply(503, { error: {} }));
 
   assert.deepEqual(await sendTelemetry(h.root, h.options(server)), { sent: 0 });
 
-  assert.equal(server.calls.length, 0);
+  assert.deepEqual(server.calls.map(call => call.url), ['https://api.hobkin.dev/api/v1/enrollments']);
   assert.equal(existsSync(join(h.root, 'telemetry')), false);
   assert.equal(uploadStatus(h.root).enrolled, false);
 });

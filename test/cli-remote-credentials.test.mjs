@@ -38,12 +38,12 @@ test('provisioned credentials read back, and none of them shows in JSON or inspe
   assert.deepEqual(enrollment(root), { enrolled: true, sendsTo: 'https://api.example.test' });
 });
 
-test('without a base_url the server is the local default', t => {
+test('without a base_url the server is the live one', t => {
   const root = dataRoot(t);
   const { base_url, ...withoutBase } = TEST_CREDENTIALS;
   provision(root, withoutBase);
 
-  assert.equal(DEFAULT_BASE_URL, 'http://127.0.0.1:3100');
+  assert.equal(DEFAULT_BASE_URL, 'https://api.hobkin.dev');
   assert.equal(readCredentials(root).baseUrl, DEFAULT_BASE_URL);
 });
 

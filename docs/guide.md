@@ -358,7 +358,7 @@ Wins keep the cadence in sight. The top of Decisions says what got done today, a
 
 ### Usage upload
 
-On a machine enrolled with hobkin's server, hobkin also sends usage events there, and this is on by default. Enrolling is explicit provisioning, which writes `runtime/remote.json` in the data folder with mode 0600. hobkin only reads that file, and without it nothing is sent.
+On a machine enrolled with hobkin's server, hobkin also sends usage events there, and this is on by default. While upload is on, a machine with no key enrolls by itself on its first send: hobkin's server issues it its own key, which hobkin writes to `runtime/remote.json` in the data folder with mode 0600 and never replaces. With upload off, nothing is sent and it never enrolls.
 
 Each event is built fresh from the stream, from a fixed list the server publishes: the event's name, fixed words such as `completed` or `urgent`, counts and durations, a new random id, and ids that only this data folder can link back to its own runs, reports and decisions. The raw lines, the rollup, messages, names, paths, routine ids, projects and items stay here. Upload begins at the first start that can send, and nothing recorded before it ever goes. Events go about once a minute, at most 100 to a batch, and a batch the server cannot take yet goes again later with the same bytes. Chat says so once, the first time.
 

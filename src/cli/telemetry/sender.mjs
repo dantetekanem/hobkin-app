@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { atomicJson, setTelemetryUpload, telemetryUploadEnabled } from '../config.mjs';
 import { eventsFolder } from '../events.mjs';
 import { deliverFeedback } from '../feedback/outbox.mjs';
-import { enrollment } from '../remote/credentials.mjs';
+import { enroll, enrollment } from '../remote/credentials.mjs';
 import { TELEMETRY_PATH, transportFor } from '../remote/transport.mjs';
 import { HOBKIN_VERSION } from '../version.mjs';
 import { TRANSPORT_TYPES, transportEvent, transportId } from './events.mjs';
@@ -176,6 +176,8 @@ function settle(root, batch, answer, now) {
  */
 export async function sendTelemetry(root, options = {}) {
   const now = options.now ?? Date.now;
+  // A machine with no key yet gets its own from the server first; a failure just waits for a later pass.
+  if (telemetryUploadEnabled(root)) await enroll(root, options).catch(() => false);
   if (!uploading(root)) {
     forget(root);
     return { sent: 0 };
@@ -209,7 +211,7 @@ export async function sendTelemetry(root, options = {}) {
 
 function statusLine(on, enrolled, sendsTo) {
   if (!on) return 'Upload is off. No usage events leave this machine. hobkin telemetry upload on turns it back on.';
-  if (!enrolled) return "Upload is on, but this machine is not enrolled with hobkin's server, so nothing is sent.";
+  if (!enrolled) return "Upload is on. This machine gets its own key from hobkin's server on its next send; until then nothing is sent.";
   return `hobkin sends usage events to ${sendsTo}: which parts were used and how runs, questions and decisions ended, with fresh random ids, never what you type, your reports, your names or your paths. hobkin telemetry upload off stops it.`;
 }
 
