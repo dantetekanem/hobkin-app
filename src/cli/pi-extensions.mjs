@@ -6,9 +6,10 @@ const PI_BUILT_INS = ['llama.cpp', 'codemode', 'tool-search', 'mcp'];
 const LEFT_OUT = ['pi-emote'];
 /**
  * The main chat compacts by hobkin's rule and keeps hobkin's memory. One package holds compaction off until the window is nearly full, which let
- * the chat reach 420K tokens and lose its own past, and one adds a second memory beside hobkin's. Both stay installed and in every other run.
+ * the chat reach 420K tokens and lose its own past, and one adds a second memory beside hobkin's. The scheduler gave the main agent timers of its
+ * own beside hobkin's routines, and posted what they found as if the user had typed it. All three stay installed and in every other run.
  */
-export const LEFT_OUT_OF_THE_MAIN_CHAT = ['pi-cache-compact-preserved-messages', 'pi-memory'];
+export const LEFT_OUT_OF_THE_MAIN_CHAT = ['pi-cache-compact-preserved-messages', 'pi-memory', 'pi-scheduler'];
 
 const keptWithout = names => ({ enabled, path }) => enabled && !path.split(sep).some(part => names.includes(part));
 

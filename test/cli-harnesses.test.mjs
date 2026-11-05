@@ -498,10 +498,10 @@ test('every job that loads tools leaves pi-emote behind, and the user\'s Pi sett
   assert.equal(toolFree.extensions, undefined, 'a tool-free job already loads no extensions');
 });
 
-test('the main chat leaves out the packages that would stop its compaction or keep a second memory, and other runs keep them', async t => {
+test('the main chat leaves out the packages that would stop its compaction, keep a second memory or speak as the user, and other runs keep them', async t => {
   const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-agent-'));
   t.after(() => rmSync(agentDir, { recursive: true, force: true }));
-  for (const name of ['pi-memory', 'pi-cache-compact-preserved-messages', 'pi-other']) {
+  for (const name of ['pi-memory', 'pi-cache-compact-preserved-messages', 'pi-scheduler', 'pi-other']) {
     mkdirSync(join(agentDir, 'extensions', name), { recursive: true });
     writeFileSync(join(agentDir, 'extensions', name, 'index.ts'), 'export default function () {}\n');
   }
@@ -511,5 +511,5 @@ test('the main chat leaves out the packages that would stop its compaction or ke
   const otherRun = await extensionPaths(agentDir, { agentDir, builtIns: [] });
 
   assert.deepEqual(named(mainChat), ['pi-other']);
-  assert.deepEqual(named(otherRun), ['pi-cache-compact-preserved-messages', 'pi-memory', 'pi-other']);
+  assert.deepEqual(named(otherRun), ['pi-cache-compact-preserved-messages', 'pi-memory', 'pi-other', 'pi-scheduler']);
 });
