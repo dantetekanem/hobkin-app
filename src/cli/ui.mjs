@@ -934,6 +934,56 @@ const mergeValue = ({ pr, behind }) => {
   return pr ? 'mergePr' : 'merge';
 };
 const choice = (value, label) => ({ value, label });
+const LONGEST_CARD_LINE = 280;
+// One line whatever an agent wrote, and short enough to leave room for the choices.
+const cardLine = text => {
+  const flat = clean(text).replace(/\s+/g, ' ').trim();
+  return flat.length > LONGEST_CARD_LINE ? `${flat.slice(0, LONGEST_CARD_LINE - 1)}…` : flat;
+};
+// Whether a review vouches for the commit the card shows, and what one costs when none does.
+const reviewLine = ({ safety }) => {
+  if (!safety) return 'Not reviewed. Get it reviewed runs one first, about $2 and 14 minutes.';
+
+  const grade = `${clean(safety.grade)} ${clean(safety.rating)}`;
+  return safety.stale ? `Reviewed on an older commit (${grade}), not this one.` : `Reviewed: ${grade} at this commit.`;
+};
+// What yes does, to which branch and where, in the words of the choice that does it.
+const mergeLine = (card, { branch, size }) => {
+  const named = branch ? clean(branch) : 'its branch';
+  if (card.pr) return `It is the PR ${clean(card.pr)}, and merging it merges it on GitHub.`;
+  if (card.conflict) return 'It conflicts with the default branch, so it cannot merge until an agent rebases it.';
+  if (card.behind > 0) {
+    return `Refresh and merge brings ${named} up to date with the default branch first and runs its proof again, then merges it on this machine. Nothing is pushed.`;
+  }
+  const lines = size ? ` (${count(size.additions + size.deletions, 'line')})` : '';
+  return `Merge it puts ${named}${lines} into the default branch on this machine. Nothing is pushed.`;
+};
+// A card that is no merge says where it stands instead.
+const standingLine = (card, entry) => {
+  if (card.type === 'unlanded') return 'An agent called it done, but its branch still holds work that is not merged.';
+  if (card.type === 'elsewhere') return `It is already on ${clean(entry.landedOn ?? 'another branch')}, so there is nothing to merge here.`;
+  const step = entry.left ?? entry.summary ?? card.reason;
+  return step ? `Only you can do this: ${cardLine(step)}` : 'Only you can do this.';
+};
+/**
+ * What the user needs to decide on a card, in its box: whether the work is finished and what it did, how it was shown to work, whether a review
+ * vouches for this commit, and what yes does, to which branch and where.
+ */
+const cardQuestion = card => {
+  const entry = card.entry ?? {};
+  const heading = `${clean(card.project ?? card.slug)}: ${clean(shownTitle(card.title))}`;
+  const facts = approvalTypes.includes(card.type)
+    ? [
+      entry.about ? `Finished: ${cardLine(entry.about)}` : 'Finished, with no summary of what it did.',
+      entry.proof ? `Proof: ${cardLine(entry.proof)}` : 'No proof: nothing recorded shows it works.',
+      reviewLine(entry),
+      entry.launch?.risk && `The one risk its review named: ${cardLine(entry.launch.risk)}`,
+      mergeLine(card, entry),
+      entry.left && `Still yours after it merges: ${cardLine(entry.left)}`,
+    ]
+    : [standingLine(card, entry)];
+  return [heading, '', ...facts.filter(Boolean), '', 'What do you want to do?'].join('\n');
+};
 /**
  * What an open card offers, in words. Enter takes the first, so only a card rated risky at this commit offers its review first, and a card that
  * conflicts offers an agent to rebase it and no merge at all. A card with no grade merges first, with its review further down.
@@ -1262,6 +1312,7 @@ const stepRow = ({ project, slug, item, title, reason }) => ({
   project,
   id: item,
   title,
+  reason,
   render: (open, inner) => {
     const told = clean(reason ?? 'Only you can do this one.');
     const facts = open ? wrapped(told, inner - 2) : [told];
@@ -2517,7 +2568,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     runCardAction(...cardRequest(card, value, typed));
   };
   const openCard = card => openChoices({
-    question: `${clean(card.project ?? card.slug)}: ${clean(shownTitle(card.title))}. What do you want to do?`,
+    question: cardQuestion(card),
     choices: cardChoices(card),
     takesChanges: approvalTypes.includes(card.type),
     onPick: (value, typed) => answerCard(card, value, typed),

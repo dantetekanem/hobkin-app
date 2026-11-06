@@ -544,7 +544,7 @@ test('a card takes no letters: Enter opens it, and it asks what to do with each 
 
   ui.input('\r');
   await ui.pending();
-  assert.match(screen(ui, 110, 50), /website: Work one\. What do you want to do\?/);
+  assert.match(screen(ui, 110, 50), /website: Work one[\s\S]*What do you want to do\?/);
   offers(ui, ['Merge it', 'Show the diff', 'Review it again', 'Cancel it', 'Ask for changes']);
   assert.match(screen(ui, 110, 50), /↑↓\s+choose\s+·\s+enter\s+pick/);
 
@@ -764,14 +764,14 @@ test('an open card shows its page with the description above its choices, and th
   assert.match(text, /Why: No accepted issue remains\./);
   assert.match(text, /Left for you: Deploy it\./);
   assert.match(text, /Moves the site\./);
-  assert.match(text, /hobkin asks[\s\S]*website: Work one\. What do you want to do\?/);
+  assert.match(text, /hobkin asks[\s\S]*website: Work one[\s\S]*What do you want to do\?/);
   assert.match(text, /pgup\/pgdn\s+read/);
 
   for (let page = 0; page < 10; page++) ui.input('\x1b[6~');
   const scrolled = screen(ui, 100, 40);
   assert.match(scrolled, /Proof: it passed\./);
   assert.doesNotMatch(scrolled, /Moves the site\./);
-  assert.match(scrolled, /website: Work one\. What do you want to do\?/, 'the choices stay while the page scrolls');
+  assert.match(scrolled, /website: Work one[\s\S]*What do you want to do\?/, 'the choices stay while the page scrolls');
 
   ui.input('\x1b');
   assert.equal(ui.state().focus, 'work');
@@ -1030,7 +1030,7 @@ test('a branch in Decisions opens its page with the same choices as in Done, and
 
   ui.input('\r');
   await ui.pending();
-  assert.match(screen(ui, 110, 30), /website: Work two\. What do you want to do\?/, 'the next card is the one selected');
+  assert.match(screen(ui, 110, 30), /website: Work two[\s\S]*What do you want to do\?/, 'the next card is the one selected');
   pick(ui, 'Cancel it');
   await ui.pending();
 
@@ -1135,7 +1135,7 @@ test('Decisions puts what to approve in groups one yes can finish, each led by i
   ui.input('\x1b[B');
   ui.input('\r');
   await ui.pending();
-  assert.match(screen(ui, 110, 50), /website: Work one\. What do you want to do\?/);
+  assert.match(screen(ui, 110, 50), /website: Work one[\s\S]*What do you want to do\?/);
   ui.stop();
 });
 
@@ -1171,7 +1171,7 @@ test('a group\'s action lists every title it carries out, by project and in orde
   assert.match(back, /enter\s+open/);
   ui.input('\r');
   await ui.pending();
-  assert.match(screen(ui, 110, 50), /website: Work held\. What do you want to do\?/, 'the list comes back on what follows the group');
+  assert.match(screen(ui, 110, 50), /website: Work held[\s\S]*What do you want to do\?/, 'the list comes back on what follows the group');
   ui.input('\x1b');
   ui.input('\x1b');
   assert.match(screen(ui, 110, 40), /◇ system[\s\S]*group ok/);
@@ -1237,7 +1237,7 @@ test('a card shows its title without the Review locally: in front, on its row, i
   ui.input('\r');
   await ui.pending();
   const page = screen(ui, 110, 50);
-  assert.match(page, /website: Patch the build\. What do you want to do\?/);
+  assert.match(page, /website: Patch the build[\s\S]*What do you want to do\?/);
   assert.doesNotMatch(page, /Review locally/);
   pick(ui, 'Cancel it');
   await ui.pending();
@@ -1309,7 +1309,7 @@ test('a step only the user can take opens in place, and its card marks it done o
 
   ui.input('x');
   ui.input('\r');
-  assert.match(screen(ui, 110, 50), /finboard: Rotate the OAuth secret\. What do you want to do\?/);
+  assert.match(screen(ui, 110, 50), /finboard: Rotate the OAuth secret[\s\S]*What do you want to do\?/);
   offers(ui, ['Mark it done', 'Talk it over in Chat', 'Not needed']);
   pick(ui, 'Mark it done');
   await ui.pending();
@@ -1345,6 +1345,41 @@ test('a step can be talked over in Chat from its card, with what the step says',
 
   assert.match(sent[0].about.body, /Rotate it at Google\./);
   ui.stop();
+});
+
+// The text of the box a card opens to, from Decisions. A card one yes can carry sits under its group's row, so it is one down.
+const cardBox = (details, { underGroup = false } = {}) => {
+  const ui = createDashboard({ ...base, waiting: waiting({ branches: [landing('c42', details)] }) });
+  toDecisions(ui);
+  if (underGroup) ui.input('\x1b[B');
+  ui.input('\r');
+  const text = screen(ui, 170, 70);
+  ui.stop();
+  return text;
+};
+
+test('a finished branch\'s card says in its box whether the work is done, how it was shown to work, whether a review vouches for it, and what Merge does', () => {
+  const text = cardBox({
+    title: 'Reconcile two failing old-run status tests',
+    about: 'Both tests now read the status the run recorded.',
+    proof: 'The two tests failed before the change and pass now, and the full suite passes.',
+    size: { additions: 10, deletions: 2, files: 1 },
+  });
+
+  assert.match(text, /website: Reconcile two failing old-run status tests/);
+  assert.match(text, /Finished: Both tests now read the status the run recorded\./);
+  assert.match(text, /Proof: The two tests failed before the change and pass now, and the full suite passes\./);
+  assert.match(text, /Not reviewed\. Get it reviewed runs one first, about \$2 and 14 minutes\./);
+  assert.match(text, /Merge it puts hobkin\/c42 \(12 lines\) into the default branch on this machine\. Nothing is pushed\./);
+  assert.match(text, /What do you want to do\?/);
+});
+
+test('the box says when a review covers this commit or an older one, and what yes does to a branch behind or in conflict', () => {
+  assert.match(cardBox({ safety: { grade: 'safe', rating: 'A' } }), /Reviewed: safe A at this commit\./);
+  assert.match(cardBox({ safety: { grade: 'safe', rating: 'A', stale: true } }), /Reviewed on an older commit \(safe A\), not this one\./);
+  assert.match(cardBox({ proof: null, proved: false }), /No proof: nothing recorded shows it works\./);
+  assert.match(cardBox({ conflict: false, behind: 3, head: 'c42beef' }, { underGroup: true }), /Refresh and merge brings hobkin\/c42 up to date with the default branch first/);
+  assert.match(cardBox({ conflict: true }), /It conflicts with the default branch, so it cannot merge until an agent rebases it\./);
 });
 
 test('Talk it over in Chat from Done talks about that card, whatever Decisions has selected', async () => {
