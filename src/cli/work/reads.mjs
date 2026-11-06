@@ -5,7 +5,7 @@ import { forecastWork } from './forecast.mjs';
 import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
-import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
+import { canStart, itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import {
   byPriority, byRank, chosenProjects, currentRequest, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates, tokenLabel,
 } from './store.mjs';
@@ -13,8 +13,8 @@ import { BRANCH_PREFIX } from './tree.mjs';
 import { finishedOnBranch, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const projectStates = ['chosen', 'proposed', 'skipped', 'dropped'];
-// Work that is over asks nothing more of the user, whatever its run left.
-const overStates = ['merged', 'dropped'];
+// Work that is over asks nothing more of the user, whatever its run left, and that includes work they said no to.
+const overStates = ['merged', 'dropped', 'declined'];
 const SECOND_MS = 1000;
 const SHORT_SHA = 7;
 // What the tab and an agent asking need, and a long list would otherwise fill the status.
@@ -47,7 +47,7 @@ function nextAction({ mode, next, pause, waitingOn, entries, free, nextStartAt, 
   if (next) return `${next.project}: ${next.title} starts next.`;
   const top = entries.find(entry => !entry.skipped);
   if (!top) return 'Nothing is queued. The next look comes round by itself.';
-  if (!mode.autoPick && !top.picked) return 'Auto-pick is off, so only what is triggered runs.';
+  if (!canStart(mode, top)) return 'Auto-pick is off, so only what is triggered runs.';
   const wait = rowWait(top, free);
   if (wait) return `${top.project}: ${top.title} is waiting: ${wait}.`;
   return `${top.project}: ${top.title} starts at ${lookTime(nextStartAt, Date.now())}, after the gap between starts.`;
@@ -169,10 +169,7 @@ const nextToMerge = (first, second) => Number(Boolean(first.conflict)) - Number(
   || linesChanged(first) - linesChanged(second)
   || (first.at ?? '').localeCompare(second.at ?? '');
 
-// A title is all that older items have, and agents now file these as `yours`. This only decides where a row sits.
-const onlyAPersonCan = ({ kind, title }) => kind === 'yours' || /^Prepare\b/.test(title);
-
-/** Finished work the user asked to refresh and merge while work mode was off is a session's, through the main agent, until its time runs out. */
+/** Finished work the user chose on a card while work mode could not start it is a session's, through the main agent, until its time runs out. */
 const withMainAgent = item => Date.parse(item.withMainAgent?.until ?? '') > Date.now();
 const closingNow = item => withMainAgent(item)
   || (runnableStates.includes(item.state) && (item.kind === SHIP_KIND || item.reviewAsked || item.workNote));
@@ -182,7 +179,6 @@ function gapOf(item, unit, items) {
   if (unit.landedOn) return 'elsewhere';
   if (unit.stackedUnder) return 'stacked';
   if (items.some(other => closingNow(other) && other.branch === item.branch)) return 'closing';
-  if (onlyAPersonCan(item)) return 'yours';
   if (item.state === 'done') return 'unlanded';
   return unit.conflict ? 'rebase' : 'land';
 }
@@ -414,7 +410,8 @@ export function landingList(root) {
 }
 
 const closingWords = item => {
-  if (withMainAgent(item)) return 'refreshing it, then merging it';
+  // A hand-off says what its session is doing. One older than that was always a refresh.
+  if (withMainAgent(item)) return item.withMainAgent.doing ?? 'refreshing it, then merging it';
   if (item.kind === SHIP_KIND) return 'getting it ready to merge';
   return item.reviewAsked ? 'reviewing it' : 'working on your note';
 };
@@ -490,7 +487,7 @@ function modeWaits(mode, row) {
   ];
 }
 
-/** Each row says how it is answered, so nothing here needs the code or the tab to act on. */
+/** Each row says how it is answered, so nothing here needs the code or the tab to act on. What is left for the user counts only on a project still being worked on, as its rows do. */
 export function attentionView(root) {
   const projects = readProjects(root);
   const names = new Map(projects.map(project => [project.slug, nameOf(project)]));
@@ -509,9 +506,11 @@ export function attentionView(root) {
     .filter(({ state }) => state === 'proposed')
     .toSorted(byRank)
     .map(({ slug, summary = null }) => row('proposal', names.get(slug), `hobkin work choose ${slug} [level], or skip ${slug}`, { slug, reason: summary }));
-  const items = projects.flatMap(({ slug }) => readItems(root, slug)
-    .filter(leftForTheUser)
-    .map(({ id, title, left }) => row('item', title, `hobkin work done ${slug} ${id}, once it is sorted`, { slug, item: id, reason: left })));
+  const items = projects
+    .filter(({ state }) => state === 'chosen')
+    .flatMap(({ slug }) => readItems(root, slug)
+      .filter(leftForTheUser)
+      .map(({ id, title, left }) => row('item', title, `hobkin work done ${slug} ${id}, once it is sorted`, { slug, item: id, reason: left })));
 
   return [...modeWaits(readMode(root), row), ...paused, ...proposals, ...items];
 }

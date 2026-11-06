@@ -55,7 +55,7 @@ A source that failed before is no reason to stop now. Follow the routine in its 
 
 ## A question for the user
 
-Only ask what you cannot settle yourself and what changes the next run. Pipe `{ "key": "...", "question": "...", "tldr": "...", "choices": [{ "value": "no", "label": "..." }, { "value": "yes", "label": "..." }], "recommended": "no", "why": "..." }` to the `decide` command in your request. It queues in the user's Decisions tab with 2 to 6 choices. Nothing waits for it, so finish this run with what you have. The answer appears in `checkMemory` on a later run.
+Only ask what you cannot settle yourself and what changes the next run. Pipe `{ "key": "...", "question": "...", "tldr": "...", "choices": [{ "value": "wait", "label": "..." }, { "value": "pay", "label": "..." }, { "value": "dispute", "label": "..." }], "recommended": "wait", "why": "..." }` to the `decide` command in your request. It queues in the user's Decisions tab with 2 to 6 choices. Offer the real options, each a different thing to do, not only yes and no, and never a choice that only says "later": the user can leave any question, or answer in their own words. Nothing waits for it, so finish this run with what you have. The answer appears in `checkMemory` on a later run, word for word when they wrote their own.
 
 - `key` stays the same each time you ask this question, whatever words you use. Without one, hobkin makes it from the question's text.
 - `recommended` is the value of the choice you would take. The tab marks it and keeps your order, so put the harmless choice first, because Enter takes the first.

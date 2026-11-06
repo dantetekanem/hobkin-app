@@ -1,0 +1,67 @@
+import { noteForCheck } from './checks.mjs';
+import { answerDecision, decisionRow, findOpenDecision, openDecisions } from './decisions.mjs';
+import { recordEvent } from './events.mjs';
+import { handAnswer, remindTomorrow } from './inbox.mjs';
+import { answerOffer, askAgent } from './work/controls.mjs';
+import { answerPair } from './work/pairs.mjs';
+import { answerPickUp } from './work/pick-up.mjs';
+import { answerSubscriptionPause } from './work/subscription.mjs';
+
+const USAGE = 'Say `hobkin decisions` to list what is open, or `hobkin decisions answer <id> <value>`, with `--typed "<their words>"` in place of the value for an answer in their own words.';
+
+function chosen(decision, value) {
+  const choice = decision.choices.find(entry => entry.value === value);
+  if (!choice) throw Error(`That is not one of its choices: ${decision.choices.map(entry => entry.value).join(', ')}.`);
+  return choice;
+}
+
+/** What hobkin's own questions do with a choice. Each says what came of it, or nothing. */
+function carryOutChoice(root, { answerTo }, value, now) {
+  if (answerTo?.kind === 'reminder' && value === 'tomorrow') return remindTomorrow(root, answerTo.id, now);
+  if (answerTo?.kind === 'merge') return answerOffer(root, answerTo, value, now);
+  if (answerTo?.kind === 'pair') return answerPair(root, value, answerTo.rows, now);
+  if (answerTo?.kind === 'pickup') return answerPickUp(root, value, answerTo.keys);
+  if (answerTo?.kind === 'subscription') return answerSubscriptionPause(root, value, answerTo.until, now);
+  return null;
+}
+
+/**
+ * Their own words carry nothing out by themselves, so an offer or a pair holds the way reading it first does: an offer for a day, a pair until
+ * its rows have moved. Otherwise it would come straight back while whoever heard the words acts on them.
+ */
+function holdWhileTheyAct(root, { answerTo }, now) {
+  if (answerTo?.kind === 'merge') return answerOffer(root, answerTo, 'later', now);
+  if (answerTo?.kind === 'pair') return answerPair(root, 'read', answerTo.rows, now);
+  return null;
+}
+
+/**
+ * Carries out the user's answer to a decision, given on screen or told to the main agent in Chat: one of its choices, or their own words. The
+ * asker hears first, in the words the answer came in, so an answer that cannot reach it stays open for another try. A merge that fails is the
+ * same: it throws, and the reason goes back to where they answered. Their own words carry out nothing by themselves: whoever hears them acts.
+ */
+export async function carryOutAnswer(root, id, { value = null, typed = null } = {}, now = Date.now()) {
+  const words = typed?.trim() || null;
+  if (!value && !words) throw Error('Give one of its choices or their own words.');
+  const decision = findOpenDecision(root, id);
+  const choice = words ? null : chosen(decision, value);
+  const { question, answerTo, at, from } = decision;
+  const said = words
+    ? `The user was asked: ${question} They answered in their own words: ${words}`
+    : `The user was asked: ${question} They answered: ${choice.label}`;
+  if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
+  if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
+  if (answerTo?.kind === 'outside') handAnswer(root, { from, question, answer: words ?? choice.label }, now);
+  if (words) await holdWhileTheyAct(root, decision, now);
+  const came = words ? null : await carryOutChoice(root, decision, value, now);
+  answerDecision(root, id, words ? 'typed' : value, now, { typed: words });
+  recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: now - Date.parse(at) });
+  return came ?? { ok: true, message: words ? 'Answered in their own words.' : `Answered: ${choice.label}.` };
+}
+
+/** `hobkin decisions`: what waits in Decisions, and `answer` for the main agent to answer one the user answered in Chat. */
+export async function runDecisionsCommand(root, [action, id, value] = [], { typed = null, now = Date.now() } = {}) {
+  if (!action) return { decisions: openDecisions(root).map(decisionRow) };
+  if (action !== 'answer' || !id || (!value && !typed)) throw Error(USAGE);
+  return carryOutAnswer(root, id, { value, typed }, now);
+}

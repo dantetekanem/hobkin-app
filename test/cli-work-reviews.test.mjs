@@ -214,7 +214,7 @@ test('a branch with its grade, of docs alone, only a person can land, or that a 
   finished(h, 'graded');
   reviewed(h, 'graded', { preflight: { head: tipOf(h, 'hobkin/graded') } });
   finished(h, 'docs', { file: 'GUIDE.md', text: '# Guide\n' });
-  finished(h, 'prep', { title: 'Prepare HTTPS enforcement for the blog' });
+  finished(h, 'step', { kind: 'yours' });
   // Its review recorded the outcome, and its run has not ended yet.
   finished(h, 'settling', { reviewAsked: true });
   const running = finished(h, 'running');

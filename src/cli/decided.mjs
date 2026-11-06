@@ -42,6 +42,7 @@ const newestFirst = entries => entries
   .toSorted((left, right) => right.time - left.time);
 
 const chosenLabel = ({ answer, choices = [] }) => choices.find(choice => choice.value === answer)?.label ?? answer;
+const replyOf = decision => (decision.typed ? `wrote "${plain(decision.typed)}"` : `chose "${plain(chosenLabel(decision))}"`);
 
 /** The user's answers in Decisions since `since`. Search gets each question whole, and a turn gets the line Decisions showed it under. */
 function decisionEntries(root, since, { forSearch = false } = {}) {
@@ -52,7 +53,7 @@ function decisionEntries(root, since, { forSearch = false } = {}) {
       const question = forSearch ? plain(decision.question, LONGEST_FULL) : plain(decision.tldr || decision.question);
       return {
         time: Date.parse(decision.answeredAt),
-        line: `In Decisions, ${asker} asked "${question}", and they chose "${plain(chosenLabel(decision))}".`,
+        line: `In Decisions, ${asker} asked "${question}", and they ${replyOf(decision)}.`,
       };
     });
 }

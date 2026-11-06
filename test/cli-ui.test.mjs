@@ -1171,78 +1171,14 @@ test('arrows and Enter still answer a question nobody needs', async () => {
   ui.stop();
 });
 
-const cardRequest = {
-  question: '9 waiting. How do you want to tackle them?',
-  groups: [
-    { name: 'ready', count: 3, label: 'ready', fact: 'safe A, about 120 lines' },
-    { name: 'questions', count: 6, label: 'questions', fact: 'oldest 3 days' },
-  ],
-  choices: [{ value: 'later', label: 'Not now' }, { value: 'ready', label: 'Start with the 3 ready' }, { value: 'walk', label: 'Walk it all' }],
-  other: true,
-  whenQuiet: true,
-};
-
-test('a card shows its rows and its numbered choices, and Enter takes Not now', async () => {
+test('typing past a quiet question keeps every letter, r included, for the message being written', async () => {
   const ui = createDashboard(snapshot);
-  const answer = ui.askPending(cardRequest);
+  const answer = ui.askQuestion({ ...abc, whenQuiet: true });
 
-  const shown = screen(ui, 80, 24);
-  assert.match(shown, /9 waiting\. How do you want to tackle them\?/);
-  assert.match(shown, /● 3 ready\s+safe A, about 120 lines/);
-  assert.match(shown, /\? 6 questions\s+oldest 3 days/);
-  assert.match(shown, /1 Not now/);
-  assert.match(shown, /2 Start with the 3 ready/);
+  typing(ui, 'Run it');
 
-  ui.input('\r');
-
-  assert.equal(await answer, 'later');
-  ui.stop();
-});
-
-test('a digit answers a card at once, and a digit with no choice is typing past it', async () => {
-  const ui = createDashboard(snapshot);
-
-  const answer = ui.askPending(cardRequest);
-  ui.input('3');
-  assert.equal(await answer, 'walk');
-
-  const typedPast = ui.askPending(cardRequest);
-  ui.input('7');
-  assert.equal(await typedPast, null);
-  assert.equal(ui.state().draft, '7');
-  ui.stop();
-});
-
-test('the Other row on a card takes words, however quiet the card is', async () => {
-  const ui = createDashboard(snapshot);
-  const answer = ui.askPending(cardRequest);
-
-  for (const _row of cardRequest.choices) ui.input(DOWN);
-  typing(ui, 'drop 2 of them');
-  ui.input('\r');
-
-  assert.deepEqual(await answer, { typed: 'drop 2 of them' });
-  ui.stop();
-});
-
-test('a card left alone goes by itself, and using it keeps it open', async () => {
-  const ui = createDashboard(snapshot);
-  assert.equal(await ui.askPending({ ...cardRequest, waitMs: 5 }), null);
-
-  const answer = ui.askPending({ ...cardRequest, waitMs: 5 });
-  ui.input(DOWN);
-  await new Promise(resolve => { setTimeout(resolve, 20); });
-  ui.input('\r');
-
-  assert.equal(await answer, 'ready');
-  ui.stop();
-});
-
-test('a card takes no screen from a draft', async () => {
-  const ui = createDashboard(snapshot);
-  typing(ui, 'half a thought');
-
-  assert.equal(await ui.askPending(cardRequest), undefined);
+  assert.equal(await answer, null);
+  assert.equal(ui.state().draft, 'Run it');
   ui.stop();
 });
 

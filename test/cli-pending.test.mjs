@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { canShowCard, cardChoices, cardDue, cardEvidence, CARD_BAR, CARD_QUIET_MS, PRESENT_MS, pendingCard, waitingRows } from '../src/cli/pending.mjs';
+import { canShowCard, PRESENT_MS, pendingCard, waitingRows } from '../src/cli/pending.mjs';
 
 const NOW = Date.parse('2026-11-02T15:00:00Z');
 const HOUR_MS = 3600000;
@@ -14,7 +14,7 @@ const card = input => pendingCard({ now: NOW, ...input });
 const groupOf = (result, name) => result.groups.find(group => group.name === name);
 
 test('nothing waiting is an empty card with no rows at all', () => {
-  assert.deepEqual(card({}), { total: 0, groups: [], trouble: [], walk: 'chat' });
+  assert.deepEqual(card({}), { total: 0, groups: [] });
 });
 
 test('a branch with proof and nothing in its way is ready, graded or not, and the fact adds up its lines', () => {
@@ -110,23 +110,22 @@ test('trouble on a launch went wrong, and it says where and since when', () => {
   ] });
 
   assert.deepEqual(groupOf(result, 'wrong'), { name: 'wrong', count: 1, label: 'went wrong', fact: 'finboard, new error since 14:02' });
-  assert.deepEqual(result.trouble, [{ key: 'launch:finboard:abc', tab: 'work' }]);
 });
 
-test('a critical or blocked report with a Next line went wrong, and opens as that report', () => {
+test('a critical or blocked report with a Next line went wrong, and is not also to read', () => {
   const result = card({ reports: [report('bad', 'Critical: The site is down.\n\nNext: Restart it.')] });
 
   assert.deepEqual(groupOf(result, 'wrong'), { name: 'wrong', count: 1, label: 'went wrong', fact: 'Mail: Restart it.' });
-  assert.deepEqual(result.trouble, [{ key: 'report:bad', tab: 'reports', report: 'bad' }]);
   assert.equal(groupOf(result, 'read'), undefined);
 });
 
-test('questions are every open decision and ask, except those about a branch or the card itself', () => {
+test('questions are every open decision and ask, except those about branches that have their rows, or the old card', () => {
   const result = card({
     decisions: [
       decision('routine', { at: ago(72) }),
       decision('land', { answerTo: { kind: 'land' } }),
       decision('offer', { answerTo: { kind: 'merge', slug: 'api', item: 'abc', head: 'f00' } }),
+      decision('pair', { answerTo: { kind: 'pair', rows: [] } }),
       decision('card', { answerTo: { kind: 'pending' } }),
     ],
     attention: [
@@ -171,12 +170,6 @@ test('rows come in one order, and an empty group has no row', () => {
   assert.equal(result.total, 4);
 });
 
-test('walking it all opens Decisions, which lists every kind of row', () => {
-  assert.equal(card({ ready: [branch('a')], decisions: [decision('one')] }).walk, 'decisions');
-  assert.equal(card({ reports: [report('call', 'Useful: Two.\n\nNext: Do it.')] }).walk, 'decisions');
-  assert.equal(card({ attention: [{ kind: 'item', title: 'Rotate a key', slug: 'api', item: 'key' }] }).walk, 'decisions');
-});
-
 test('each thing the card counts is one row to list, by the same rules', () => {
   const given = {
     ready: [
@@ -217,24 +210,6 @@ test('each thing the card counts is one row to list, by the same rules', () => {
   assert.equal(listed, card(given).total, 'nothing the card counts is left out, and nothing is listed twice');
 });
 
-test('Not now comes first, and a choice with an empty group does not appear', () => {
-  const values = result => cardChoices(result).map(({ value }) => value);
-
-  assert.deepEqual(values(card({ ready: [branch('a')] })), ['later', 'walk']);
-  assert.deepEqual(cardChoices(card({ ready: [branch('a', { proved: true })], launches: [{ slug: 'api', project: 'api', item: 'b', outcome: 'trouble' }] })), [
-    { value: 'later', label: 'Not now' },
-    { value: 'ready', label: 'Start with the 1 ready' },
-    { value: 'wrong', label: 'Just what went wrong' },
-    { value: 'walk', label: 'Walk it all' },
-  ]);
-});
-
-test('the evidence for the main agent is the rows in plain words', () => {
-  const result = card({ ready: [branch('a', { proved: true, size: size(120) })], decisions: [decision('one')] });
-
-  assert.equal(cardEvidence(result), '2 waiting.\n1 ready: with proof, about 120 lines\n1 question: oldest 2 hours');
-});
-
 const free = { seenAt: NOW - 1000, away: false, occupied: false };
 
 test('the user is there for two minutes after a key, a click or gaining focus', () => {
@@ -243,38 +218,8 @@ test('the user is there for two minutes after a key, a click or gaining focus', 
   assert.equal(canShowCard({ presence: { ...free, seenAt: NOW - PRESENT_MS }, busy: false, now: NOW }), false);
 });
 
-test('a terminal that lost focus, a screen in use or a running turn keeps the card away', () => {
+test('a terminal that lost focus, a screen in use or a running turn keeps a question away', () => {
   assert.equal(canShowCard({ presence: { ...free, away: true }, busy: false, now: NOW }), false);
   assert.equal(canShowCard({ presence: { ...free, occupied: true }, busy: false, now: NOW }), false);
   assert.equal(canShowCard({ presence: free, busy: true, now: NOW }), false);
-});
-
-test('the bar is 8 calls', () => {
-  assert.equal(CARD_BAR, 8);
-  assert.equal(cardDue({ total: 7, trouble: [], last: null, now: NOW }), false);
-  assert.equal(cardDue({ total: 8, trouble: [], last: null, now: NOW }), true);
-});
-
-const shown = { at: new Date(NOW - HOUR_MS).toISOString(), total: 10, trouble: [{ key: 'launch:api:old' }] };
-
-test('after a card it stays quiet for 4 hours', () => {
-  const same = { total: 10, trouble: [{ key: 'launch:api:old' }] };
-
-  assert.equal(cardDue({ ...same, last: shown, now: NOW }), false);
-  assert.equal(cardDue({ ...same, last: shown, now: Date.parse(shown.at) + CARD_QUIET_MS - 1 }), false);
-  assert.equal(cardDue({ ...same, last: shown, now: Date.parse(shown.at) + CARD_QUIET_MS }), true);
-});
-
-test('5 more calls end the quiet', () => {
-  assert.equal(cardDue({ total: 14, trouble: [], last: shown, now: NOW }), false);
-  assert.equal(cardDue({ total: 15, trouble: [], last: shown, now: NOW }), true);
-});
-
-test('something new going wrong ends the quiet, and the same trouble does not', () => {
-  assert.equal(cardDue({ total: 10, trouble: [{ key: 'report:new' }], last: shown, now: NOW }), true);
-  assert.equal(cardDue({ total: 10, trouble: [{ key: 'launch:api:old' }], last: shown, now: NOW }), false);
-});
-
-test('new trouble still has to clear the bar', () => {
-  assert.equal(cardDue({ total: 7, trouble: [{ key: 'report:new' }], last: shown, now: NOW }), false);
 });

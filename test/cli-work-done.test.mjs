@@ -11,7 +11,7 @@ import { readPending, readWaiting } from '../src/cli/pending-read.mjs';
 import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openPullRequest, requestReview } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { closingItems, landingList, readyItems } from '../src/cli/work/reads.mjs';
-import { chooseProject, fileItem, prFile, readItems, updateItem } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
 
@@ -155,19 +155,17 @@ test('work already on another branch of the user says where, whether copied or m
 
 test('a bulk landing takes work with proof whatever its grade, leaves out what a review rated below safe at this commit, and says why', async t => {
   const h = workspace(t);
-  for (const name of ['good', 'medium', 'risky', 'changed', 'never', 'unproved', 'prep']) branched(h.checkout, `hobkin/${name}`, `${name}.txt`, `${name}\n`);
+  for (const name of ['good', 'medium', 'risky', 'changed', 'never', 'unproved']) branched(h.checkout, `hobkin/${name}`, `${name}.txt`, `${name}\n`);
   const good = finished(h, 'hobkin/good', proved);
   finished(h, 'hobkin/medium', proved);
   finished(h, 'hobkin/risky', proved);
   const changed = finished(h, 'hobkin/changed', proved);
   const never = finished(h, 'hobkin/never', { ...proved, summary: 'Rated safe A by the author.' });
   finished(h, 'hobkin/unproved');
-  finished(h, 'hobkin/prep', { ...proved, title: 'Prepare HTTPS enforcement for the blog' });
   reviewed(h, tipOf(h, 'hobkin/good'));
   reviewed(h, tipOf(h, 'hobkin/medium'), 'medium', 'B');
   reviewed(h, tipOf(h, 'hobkin/risky'), 'risky', 'D');
   reviewed(h, tipOf(h, 'hobkin/changed'));
-  reviewed(h, tipOf(h, 'hobkin/prep'));
   git(h.checkout, 'switch', '-q', 'hobkin/changed');
   commit(h.checkout, 'more.txt', 'more\n');
   git(h.checkout, 'switch', '-q', 'main');
@@ -184,7 +182,6 @@ test('a bulk landing takes work with proof whatever its grade, leaves out what a
   assert.match(why['work 1'], /rated medium B/);
   assert.match(why['work 2'], /rated risky D/);
   assert.match(why['work 5'], /no proof/);
-  assert.match(why['Prepare HTTPS enforcement for the blog'], /only a person/);
 });
 
 for (const state of ['branch', 'pr']) test(`a ${state} with work left stays out of ready and keeps its restriction`, async t => {
@@ -209,6 +206,26 @@ for (const state of ['branch', 'pr']) test(`a ${state} with work left stays out 
   assert.deepEqual(waiting.yours.map(({ item, left }) => [item, left]), [[held.id, left]]);
   assert.deepEqual(pending.groups.map(({ name, count }) => [name, count]), [['ready', 1], ['yours', 1]]);
   assert.deepEqual(read(h, held), before);
+});
+
+test('work with a step left for the user still merges from its own card, at the commit its row shows', async t => {
+  const h = workspace(t);
+  const left = 'Push main and deploy the site.';
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc', { ...proved, left });
+  await survey(h);
+
+  const { gap, left: stillYours, head, proof, conflict } = row(h, item);
+  await mergeItem(h.root, 'api', item.id, { head });
+
+  assert.deepEqual({ gap, stillYours, head, proof, conflict }, {
+    gap: 'land',
+    stillYours: left,
+    head: tipOf(h, 'hobkin/abc'),
+    proof: proved.proof,
+    conflict: false,
+  });
+  assert.equal(read(h, item).state, 'merged');
 });
 
 test('work the last survey did not read stays out, because nothing pins it to a commit', async t => {
@@ -416,6 +433,7 @@ test('a PR that does not merge says why and changes nothing', async t => {
 
 test('what the user does from a card names the work and its project, and the line for Chat adds a PR\'s link', async t => {
   const h = workspace(t);
+  writeMode(h.root, { enabled: true });
   branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
   const merged = finished(h, 'hobkin/abc');
   const declined = finished(h, 'hobkin/no');
@@ -456,6 +474,7 @@ test('only an item with an open PR merges or opens on its host', async t => {
 
 test('asking for changes on a PR sends an agent back to its branch with the user\'s words', t => {
   const h = workspace(t);
+  writeMode(h.root, { enabled: true });
   const item = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
 
   askAgent(h.root, 'api', item.id, 'Rename the flag.');
@@ -465,21 +484,56 @@ test('asking for changes on a PR sends an agent back to its branch with the user
   assert.equal(read(h, item).workNote, 'Rename the flag.');
 });
 
+test('with work mode off or paused, a note, a rebase or a review asked on a card goes to the main agent, and nothing is queued', t => {
+  const h = workspace(t);
+  const published = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
+  const stuck = finished(h, 'hobkin/abc');
+  const unreviewed = finished(h, 'hobkin/def');
+
+  const noteReply = askAgent(h.root, 'api', published.id, ' Rename the flag. ');
+  writeMode(h.root, { enabled: true, pausedAt: new Date().toISOString() });
+  const rebaseReply = askAgent(h.root, 'api', stuck.id, '');
+  const reviewReply = requestReview(h.root, 'api', unreviewed.id);
+
+  assert.deepEqual(noteReply.handOff, {
+    project: 'api',
+    item: published.id,
+    title: 'work 0',
+    branch: 'hobkin/8-fix',
+    pr: 'https://example.com/pull/8',
+    asked: 'The user\'s note: "Rename the flag." Make the change the user asked for on this branch, run its proof again and record it.',
+    why: 'work mode is off',
+  });
+  assert.equal(noteReply.message, 'Work mode is off, so the main agent starts a session to make the requested change on "work 0" on api, run its proof again and record it.');
+  assert.equal(rebaseReply.handOff.why, 'work mode is paused');
+  assert.equal(rebaseReply.handOff.asked, 'Close whatever stops this branch merging, run its proof again and record it.');
+  assert.match(reviewReply.handOff.asked, /^Review this branch/);
+  assert.deepEqual([noteReply, rebaseReply, reviewReply].map(({ told }) => told.did), ['sent it back with a note', 'sent it back with a note', 'asked for a review']);
+
+  assert.deepEqual([published, stuck, unreviewed].map(item => read(h, item).state), ['pr', 'branch', 'branch']);
+  assert.deepEqual(readMode(h.root).queueNext, []);
+  assert.deepEqual(closingItems(h.root).map(({ doing }) => doing), ['working on your note', 'getting it ready to merge', 'reviewing it'], 'each card waits with its session');
+  assert.equal(read(h, published).pushbacks.length, 1, 'a branch sent back still counts against its pattern');
+});
+
+test('a command queues a note whatever the mode, because no main agent hears it, and says nothing starts yet', async t => {
+  const h = workspace(t);
+  const item = finished(h, 'hobkin/abc');
+
+  const asked = await runWorkCommand(h.root, ['ask', 'api', item.id, 'Rename', 'it.']);
+
+  const queued = read(h, item);
+  assert.equal(asked.handOff, undefined);
+  assert.deepEqual([queued.state, queued.workNote], ['open', 'Rename it.']);
+  assert.deepEqual(readMode(h.root).queueNext, [`item:api:${item.id}`]);
+  assert.match(asked.message, /next\. Nothing starts while work mode is off\.$/);
+});
+
 test('the landing list is never cut short', async t => {
   const h = workspace(t);
   for (let index = 0; index < 52; index += 1) finished(h, `hobkin/many-${index}`);
 
   assert.equal(landingList(h.root).leftOut.length, 52);
-});
-
-test('what only a person can do sits apart from what can merge', async t => {
-  const h = workspace(t);
-  branched(h.checkout, 'hobkin/prep', 'NOTES.md', '# Steps\n');
-  const item = finished(h, 'hobkin/prep', { title: 'Prepare HTTPS enforcement for the blog' });
-
-  await survey(h);
-
-  assert.equal(row(h, item).gap, 'yours');
 });
 
 test('the list starts with what is safest and smallest, and what cannot merge goes last', async t => {
@@ -611,6 +665,7 @@ test('declining keeps the branch and takes the item off the list', async t => {
 
 test('sending an agent back keeps the branch and carries the user\'s words', t => {
   const h = workspace(t);
+  writeMode(h.root, { enabled: true });
   const item = finished(h, 'hobkin/abc');
 
   askAgent(h.root, 'api', item.id, 'Keep the old flag working.');

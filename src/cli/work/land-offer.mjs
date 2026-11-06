@@ -1,12 +1,9 @@
 import { learningEnabled } from '../config.mjs';
-import { answerDecision, openDecisions } from '../decisions.mjs';
+import { answerDecision, lastFiledAt, openDecisions } from '../decisions.mjs';
 import { weighedRows } from './reads.mjs';
 import { paths, readItems, readJson } from './store.mjs';
-import { readUnmerged } from './unmerged.mjs';
 
 const QUIET_HOURS_MS = 2 * 3600000;
-// A survey comes round every half hour, so a new branch waits this long at most to be weighed before it gets the plain question.
-const SURVEY_WAIT_MS = 3600000;
 const MOST_ALIKE = 5;
 // Below this hobkin can see a change go live but not whether it works.
 const SEES_IT_WORKING = 2;
@@ -14,20 +11,6 @@ const SEES_IT_WORKING = 2;
 // Titles come from agents, and these reach the terminal.
 const plain = text => String(text).replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
 const sentence = text => (/[.!?]$/.test(text) ? text : `${text}.`);
-
-const questionFor = drafts => {
-  const [{ title, project }] = drafts;
-  return drafts.length === 1 ? `${plain(title)} on ${plain(project)} can land. Walk it now?` : `${drafts.length} finished branches can land. Walk them now?`;
-};
-
-const landDecision = (drafts, count) => ({
-  key: 'land',
-  from: 'Work mode',
-  question: questionFor(drafts),
-  tldr: `${count} finished ${count === 1 ? 'branch' : 'branches'} can land`,
-  choices: [{ value: 'later', label: 'Later' }, { value: 'walk', label: 'Yes, show me' }],
-  answerTo: { kind: 'land' },
-});
 
 const dayWords = at => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 const gradeWords = ({ safety, onlyDocs }) => (onlyDocs ? 'docs only' : `${plain(safety.grade)} ${plain(safety.rating)}`);
@@ -141,8 +124,8 @@ export function offerDecisions(root, now = Date.now()) {
 }
 
 /**
- * An offer whose work has left the list has nothing to ask, so it should not sit there adding to what is waiting. The plain question only
- * points at finished branches, which Decisions lists one by one, so once it has had its moment on screen it goes too.
+ * An offer whose work has left the list has nothing to ask, so it should not sit there adding to what is waiting. A plain question left
+ * from before only pointed at finished branches, which Decisions lists one by one, so once it has had its moment on screen it goes too.
  */
 export function retireOffers(root, now = Date.now()) {
   for (const { id, answerTo, shown } of openDecisions(root)) {
@@ -152,13 +135,6 @@ export function retireOffers(root, now = Date.now()) {
     const waiting = offeredIn(answerTo).some(({ item }) => items.find(entry => entry.id === item)?.state === 'branch');
     if (!waiting) answerDecision(root, id, 'later', now);
   }
-}
-
-/** A branch the survey has not read cannot be weighed yet, and the plain question now would only mean asking again once it can. */
-export function notSurveyed(root, { slug, id }) {
-  if (!learningEnabled(root)) return false;
-  const branch = readItems(root, slug).find(item => item.id === id)?.branch;
-  return !(readUnmerged(root).projects[slug]?.open ?? []).some(unit => unit.branch === branch);
 }
 
 const precedentRow = ({ merged, held, quiet, unexercised, watching, weight, slug }) => ({ merged, held, quiet, unexercised, watching, weight, from: slug });
@@ -186,53 +162,30 @@ export function offersView(root, now = Date.now()) {
   };
 }
 
+/** When the last offer was filed, whatever came of it. The quiet between offers starts there, so a restart does not end it. */
+export const lastOfferAt = root => lastFiledAt(root, 'merge');
+
 /**
- * Finished work is no use until someone decides on it, so hobkin brings it up. This takes no model. Branches that finish together are one
- * decision, and a new one comes at most every two hours, because a question per branch would interrupt more than it helps. What qualifies
- * goes first, as an offer to land it on one key. The rest get the plain question.
+ * Finished work waits in Decisions, by its branch, and the brief tells of it, so a branch that finishes files no question of its own: a
+ * question that could only say "go and look" asked for nothing. What qualifies comes as an offer to land it on one key, which takes no
+ * model, one at a time and at most every two hours, because an offer per branch would interrupt more than it helps.
  */
 export class LandOffers {
-  waiting = [];
-  filedAt = -Infinity;
-
-  constructor({ file, now = Date.now, offers = () => [], unread = () => false }) {
-    Object.assign(this, { file, now, offers, unread });
+  constructor({ file, now = Date.now, offers = () => [], lastFiledAt: filedBefore = () => -Infinity }) {
+    Object.assign(this, { file, now, offers });
+    this.filedAt = filedBefore();
   }
 
-  add(draft) {
-    this.waiting.push({ ...draft, addedAt: this.now() });
+  /** A branch just finished, so the next offer may be about it. */
+  add() {
     this.next();
-  }
-
-  plainQuestion() {
-    const drafts = this.waiting.filter(draft => !this.unread(draft) || this.now() - draft.addedAt >= SURVEY_WAIT_MS);
-    this.waiting = this.waiting.filter(draft => !drafts.includes(draft));
-    return drafts.length ? landDecision(drafts, drafts.length) : null;
-  }
-
-  fileOffer(offer) {
-    this.waiting = this.waiting.filter(({ slug, id }) => slug !== offer.answerTo.slug || !offeredIn(offer.answerTo).some(({ item }) => item === id));
-    this.file(offer);
-    this.filedAt = this.now();
   }
 
   next() {
     if (!this.file || this.now() - this.filedAt < QUIET_HOURS_MS) return;
     const [offer] = this.offers();
-    if (offer) {
-      this.fileOffer(offer);
-      return;
-    }
-    const question = this.plainQuestion();
-    if (!question) return;
-    this.file(question);
+    if (!offer) return;
+    this.file(offer);
     this.filedAt = this.now();
-  }
-
-  /** The user asked for what is ready, so this comes now, whatever the quiet gap says. With nothing to offer it says so, and they go to Done instead. */
-  offerReady() {
-    const [offer] = this.file ? this.offers() : [];
-    if (offer) this.fileOffer(offer);
-    return Boolean(offer);
   }
 }

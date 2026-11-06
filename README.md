@@ -67,7 +67,7 @@ Set your own timezone and `cwd`. hobkin picks the file up by itself, and `hobkin
 
 Type `/work` in Chat to turn it on or off. The first time, hobkin asks which folder to start from. It looks through the repositories there and proposes projects. Nothing starts until you take one: answer in Chat, or press `y` or `n` on its row in the Work Mode tab.
 
-Agents study each project you take and file items for what they find. All items go in one queue, graded P0 to P3, with P0 first. Turning work mode on starts nothing new by itself: hobkin offers the next few rows, and you start those, the first one, or let the whole queue run, so it starts by itself whenever a worker is free and the daily token budget allows it.
+Agents study each project you take and file items for what they find. All items go in one queue, graded P0 to P3, with P0 first. Turning work mode on starts nothing new by itself: hobkin offers the next few rows, and you start those, the first one, or let the whole queue run, so it starts by itself whenever a worker is free and the daily token budget allows it. Letting it run stays your choice the next time you turn work mode on. Work that finishes a branch, such as a rebase, a fix that gets it merged, a review or your note, goes ahead of new work and starts by itself either way.
 
 Every change happens on a `hobkin/*` branch, and git can bring it all back, so nothing waits for permission. Agents never commit to your default branch or merge into it. Deploying, publishing and deleting what git cannot bring back stay with you.
 
@@ -89,7 +89,8 @@ Every card still opens by itself, the highest priority first, each with its safe
 
 - `Merge it` merges the branch on this machine and pushes nothing. A branch behind its base offers `Refresh and merge it`: an agent brings it up to date and runs its proof again, and hobkin merges it once that run ends well.
 - A card offers its merge first, graded or not, and `Get it reviewed` further down. Only a card rated risky at its commit offers its review first, and its merge says so. A review runs only when you ask for one.
-- `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type.
+- `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type. With work mode off or paused, asking for changes, a rebase or a review goes to the main agent, which starts a session on that branch.
+- A step only you can take offers `Mark it done`, `Talk it over in Chat` or `Not needed`, which says no and hobkin learns from it.
 - Under NOT LANDED, an older item that says done with work still on its branch waits until the next survey makes it finished work again. Its card can close it for good.
 
 Whatever you do on a card, Chat says so in one line that names the project and the title, with the link for a PR. The main agent hears it with your next message. A group's yes gets the same line for each card, then one line that sums it up. A PR you merge from its card closes at once and leaves the list.
@@ -98,11 +99,11 @@ Once you merge and push, hobkin watches what happens next. A check every half ho
 
 With learning on, a change like one that already went well comes to you as an offer in Decisions, with what happened last time and the one risk to look at: Later, Merge it, Read it or Not this one. hobkin still merges only on your word.
 
-A question from a routine or work mode waits 30 seconds on screen, then moves to the Decisions tab, so nothing stops for you. Each one has a one-line summary and numbered choices: press the number to answer. A routine that asks what you answered in the last 30 days gets your answer back and does not ask again.
+A question from a routine or work mode opens on screen for 30 seconds while you are there, then moves to the Decisions tab, so nothing stops for you. One that comes while you are away waits for you, and after ten minutes it goes to Decisions without opening. Each one has a one-line summary and numbered choices: press the number to answer, or pick the last row to answer in your own words. A routine that asks what you answered in the last 30 days gets your answer back and does not ask again.
 
-Decisions lists everything waiting on you, with work mode on or off: questions, finished branches, steps only you can take and reports with a call. Pick one and work on it there. Enter opens a row, and it asks the way a question does: each thing it can do in words, the arrows to choose and Enter to pick. A finished branch opens its page with its choices below, the same as in Done, and letters do nothing there, so a key meant for another tab cannot act on it.
+Decisions lists everything waiting on you, with work mode on or off: questions, finished branches, steps only you can take and reports with a call. Pick one and work on it there. Enter opens a row, and it asks the way a question does: each thing it can do in words, the arrows to choose and Enter to pick. A finished branch opens its page with its choices below, the same as in Done, and letters do nothing there except `r`, so a key meant for another tab cannot act on it. `r` on any row, or with its box open, talks it over in Chat.
 
-When 8 or more things are waiting across your routines and work mode and you are at the screen, hobkin shows a short card, one row for each kind, and asks how you want to tackle them. It waits for an empty composer, stays out of a running turn, and stops nothing. `hobkin pending` prints the same thing as JSON.
+When you come back after two hours or more to three or more things that came in, Chat says so in one line, such as `It's been a while. While you were away: 4 decisions, 6 reports (2 with a call) and 1 from work mode. Want a brief? Just say: brief me`. It asks nothing, and it comes once each time you come back, even after a night with hobkin closed. Say `brief me` and the main agent writes the brief: what matters most and why, what changed, then what needs you, numbered. Answer in your own words, such as `1 yes, 2 drop it`, and it carries each one out. A merge still takes your yes on its numbered line. `hobkin pending` prints what waits as JSON.
 
 With 8 or more finished and waiting, hobkin starts no new work and brings the next two to move as one decision, so the queue gets healthy before it grows. Reviews, rebases, urgent work and your own picks still run, and `hobkin work ship off` lets new work start for the rest of the day.
 

@@ -148,15 +148,19 @@ export function realFolder(path) {
 /**
  * Discovery searches only where the user said to start, so the first start needs a folder.
  * The daily clock is for looking again at projects that exist, so with nothing to show a start makes the look due now, unless the look at this folder already finished.
- * Turning it on starts nothing by itself: the user sees the queue and picks what runs first, so auto-pick goes off. `autoPick` is `start --auto`, the old start.
+ * Turning it on starts nothing new by itself until the user chooses auto-pick: they see the queue and pick what runs first. Their choice stands at every
+ * turn-on, and `autoPick` is `start --auto`, the old start, which turns auto-pick on whatever they chose.
  */
 export function startWork(root, requested, { autoPick = false } = {}) {
-  const { folder: saved } = readMode(root);
+  const { folder: saved, autoPickChoice = false } = readMode(root);
   const folder = requested ? realFolder(requested) : saved;
   if (!folder) throw Error('Say which folder to start from.');
   const looksNow = requested || !hasWorkToShow(root);
-  return writeMode(root, { enabled: true, folder, pausedAt: null, autoPick, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
+  return writeMode(root, { enabled: true, folder, pausedAt: null, autoPick: autoPick || autoPickChoice, ...(looksNow ? { lastDiscoveryAt: null } : {}) });
 }
+
+/** The user's own word on auto-pick, kept beside the switch, so turning work mode on again keeps it. Until they say, there is none. */
+export const chooseAutoPick = (root, on) => writeMode(root, { autoPick: on, autoPickChoice: on });
 
 export function setHarness(root, harness) {
   if (!workHarnesses.includes(harness)) throw Error(`harness must be one of: ${workHarnesses.join(', ')}`);

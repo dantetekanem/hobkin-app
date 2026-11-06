@@ -68,6 +68,9 @@ const stillRuns = item => item.state === 'doing' || item.urgent || item.kind ===
 /** What the pile holds back: anything that adds to it. A pick is the user's own word, and a watch looks after what already landed. */
 export const startsNewWork = ({ picked, focus, item }) => !picked && focus !== 'watch' && !(item && stillRuns(item));
 
+/** Work that finishes what is already done: a review, the user's note or a fix that gets a branch merged. It is not new work, so it goes ahead of new work and starts with auto-pick off. */
+export const finishesWork = ({ item }) => Boolean(item && movesFinishedWork(item));
+
 /**
  * The priority whose runs a row spends when it starts by itself: its project's, or its own grade with no project, as for discovery. P0 spends none,
  * and neither does a look for projects carrying on from where it stopped, because it is the run already counted, as a started item is.
@@ -78,7 +81,7 @@ export function countsAgainst(row) {
   return startBudgets[priority] ? priority : null;
 }
 
-/** Why a row waits for its priority's window to move on. Only auto-pick starts anything by itself, so with it off nothing waits here. */
+/** Why a row waits for its priority's window to move on. With auto-pick off only what is never paced starts by itself, so nothing waits here. */
 export function startBudgetWait({ mode, spent }, row) {
   if (!mode.autoPick) return null;
   const priority = countsAgainst(row);
@@ -341,8 +344,11 @@ function maxWait({ mode, now, running, budget, panes }) {
   return budget.maxRuns + runningNow >= MAX_RUNS_A_DAY ? `${MAX_RUNS_A_DAY} max runs a day` : null;
 }
 
-/** Only a row that can start holds another back. A skipped one stays where it is, and with auto-pick off only a pick ever starts, so waiting on anything else never ends. */
-export const canStart = ({ autoPick }, row) => !row.skipped && !row.held && (autoPick || row.picked);
+/** With auto-pick off a row starts only on a pick, or when it finishes work already done. */
+const mayStart = ({ autoPick }, row) => autoPick || row.picked || finishesWork(row);
+
+/** Only a row that can start holds another back. A skipped one stays where it is, and with auto-pick off nothing else ever starts, so waiting on anything else never ends. */
+export const canStart = (mode, row) => !row.skipped && !row.held && mayStart(mode, row);
 
 // A study holds its project's items only while it can start. One its priority cannot start yet would hold back work that is never paced, such as an urgent fix.
 function needsItsStudy(context, entry, entries) {
@@ -433,16 +439,20 @@ function liftedRows(mode, entries, isLeftAlone) {
 }
 
 /**
- * The user's picks go first in the order they were made, then P0 rows, then each project priority in turn, so a P2 or P3 project never
- * jumps a P1 one. Within a priority, a project left alone for a day goes first, and the rest take turns. What the user skipped stays in sight at the end.
+ * The user's picks go first in the order they were made, then P0 rows, then work that finishes what is already done, whatever its project's priority,
+ * then each project priority in turn, so a P2 or P3 project never jumps a P1 one with new work. Within a priority, a project left alone for a day goes
+ * first, and the rest take turns. What the user skipped stays in sight at the end.
  */
 function inQueueOrder(mode, entries, lastRun, isLeftAlone) {
-  const lifted = liftedRows(mode, entries, isLeftAlone);
-  const rest = entries.filter(entry => !entry.picked && !entry.skipped && !lifted.includes(entry));
+  const queued = entries.filter(entry => !entry.picked && !entry.skipped);
+  const finishing = queued.filter(entry => entry.grade !== 'P0' && finishesWork(entry));
+  const lifted = liftedRows(mode, entries, isLeftAlone).filter(entry => !finishing.includes(entry));
+  const rest = queued.filter(entry => !lifted.includes(entry) && !finishing.includes(entry));
   const inBand = band => entry => entry.grade !== 'P0' && bandOf(entry) === band;
   return [
     ...mode.queueNext.flatMap(key => entries.filter(entry => entry.key === key)),
     ...rest.filter(entry => entry.grade === 'P0'),
+    ...finishing,
     ...grades.flatMap(band => [
       ...lifted.filter(inBand(band)).map(entry => ({ ...entry, why: plainList(['left alone', entry.why]) })),
       ...takingTurns(rest.filter(inBand(band)), lastRun, lifted),
@@ -535,7 +545,7 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const pause = stop ?? budgetPause(entries.filter(entry => !entry.skipped), budget, now);
   const spaced = startsAt !== null && startsAt > now;
   const waitingOn = checks && free <= 0 ? 'Scheduled checks are running, so nothing new starts until they finish.' : null;
-  const first = entries.find(entry => !entry.waiting && (mode.autoPick || entry.picked));
+  const first = entries.find(entry => !entry.waiting && mayStart(mode, entry));
   // A pick goes first, and it waits out the gap like any start, because two at once is the race the gap is there to stop.
   const next = stop || free <= 0 || spaced ? null : first ?? null;
   return {

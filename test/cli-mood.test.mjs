@@ -28,18 +28,18 @@ const turnThen = (content, patch) => {
   return h;
 };
 
-test('a face gone quiet wakes when the user types, and a passing reaction plays out', () => {
+test('a sleep lasts, and a passing reaction plays out over typing', () => {
   const asleep = { mood: 'sleepy', lasting: true, until: Number.MAX_SAFE_INTEGER };
   const pleased = { mood: 'happy', until: 2000 };
 
   assert.equal(currentMood({ reaction: asleep, now: 1000 }), 'sleepy');
-  assert.equal(currentMood({ reaction: asleep, typing: true, now: 1000 }), 'listening');
   assert.equal(currentMood({ reaction: pleased, typing: true, now: 1000 }), 'happy');
 });
 
-test('typing in the composer wakes the face, and clearing it lets it sleep again', () => {
-  const asleep = { mood: 'sleepy', lasting: true, until: Number.MAX_SAFE_INTEGER };
-  const ui = createDashboard({
+test('typing to a sleeping face wakes it slowly, and erasing the draft leaves it awake until the room is quiet again', () => {
+  let clock = 100000;
+  const moods = new Moods({ now: () => clock });
+  const room = {
     config: { main: {}, background: { harness: 'pi', model: null, effort: 'medium' } },
     counts: { daily: 0, weekly: 0, monthly: 0 },
     schedules: [],
@@ -48,15 +48,25 @@ test('typing in the composer wakes the face, and clearing it lets it sleep again
     connection: 'connected',
     runs: [],
     usage: null,
-    mood: asleep,
-  });
-  assert.equal(ui.state().mood, 'sleepy');
+  };
+  const ui = createDashboard(room, { moment: moment => moods.react(moment) }, { now: () => clock });
+  // What the app does on its clock and on every refresh.
+  const moodAfter = ms => {
+    clock += ms;
+    moods.notice();
+    ui.update({ ...room, mood: moods.reaction });
+    return ui.state().mood;
+  };
+  assert.equal(moodAfter(15 * MINUTE), 'sleepy');
 
   ui.input('h');
-  assert.equal(ui.state().mood, 'listening');
+  const waking = [0, 1000, 900, 1100].map(moodAfter);
+  assert.deepEqual(waking, ['focused', 'happy', 'hello', 'listening']);
 
-  ui.input('\x03');
-  assert.equal(ui.state().mood, 'sleepy');
+  ui.input('\x7f');
+  assert.equal(moodAfter(0), 'idle');
+  assert.equal(moodAfter(14 * MINUTE), 'idle');
+  assert.equal(moodAfter(MINUTE), 'sleepy');
   ui.stop();
 });
 

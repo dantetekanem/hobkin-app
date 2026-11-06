@@ -62,6 +62,71 @@ function cardReply(project, item, did, sentence) {
   return reply(sentence(named), { told: toldOf(project, item, did, sentence(linked)) });
 }
 
+// Long enough for a session to do the job, and short enough that a hand-off nothing came of brings its card back.
+const WITH_MAIN_AGENT_MS = 3 * 3600000;
+/** Where a run leaves finished work: on its local branch, or on its PR. */
+export const isFinished = ({ state }) => ['branch', 'pr'].includes(state);
+
+/** Work mode starts work on a finished branch itself unless it is off or held, and then nothing would start it at all. */
+export function whyWorkModeWaits(mode, now) {
+  if (!mode.enabled) return 'work mode is off';
+  const until = pause => Boolean(pause) && Date.parse(pause.until) > now;
+  if (mode.pausedAt || until(mode.usagePause) || until(mode.subscriptionPause)) return 'work mode is paused';
+  return null;
+}
+
+/**
+ * What work mode cannot start goes to the main agent, which hands it to one session. Nothing is queued, so the job runs once, and the card waits with
+ * that session, saying what it is `doing`, until its time runs out. `asked` is the session's job, and `to` says it in the reply.
+ */
+export function handOff(root, { project, item, why, now, also = {} }, { asked, doing, did, to }) {
+  const withMainAgent = { until: new Date(now + WITH_MAIN_AGENT_MS).toISOString(), doing };
+  updateItem(root, project.slug, item.id, { ...also, withMainAgent }, now);
+
+  const named = `"${item.title}" on ${nameOf(project)}`;
+  const message = `${why.charAt(0).toUpperCase()}${why.slice(1)}, so the main agent starts a session to ${to(named)}.`;
+  const job = {
+    project: nameOf(project),
+    item: item.id,
+    title: item.title,
+    branch: item.branch,
+    ...(item.pr ? { pr: item.pr } : {}),
+    asked,
+    why,
+  };
+  return reply(message, { handOff: job, told: toldOf(project, item, did, message) });
+}
+
+// A job queued while work mode waits starts only once that ends, and the reply says so.
+const queuedWhile = held => (held ? ` Nothing starts while ${held}.` : '');
+
+const ASKED_REVIEW = 'asked for a review';
+const SENT_BACK = 'sent it back with a note';
+const REVIEW_JOB = {
+  asked: 'Review this branch with the review tooling you have and fix what it finds that is real, then run its proof again and record it.',
+  doing: 'reviewing it',
+  did: ASKED_REVIEW,
+  to: named => `review ${named}, run its proof again and record it`,
+};
+
+/** What a session does with the user's note, in their own words. With no note it closes whatever stops the branch merging, as a run would. */
+function noteJob(words) {
+  if (!words) {
+    return {
+      asked: 'Close whatever stops this branch merging, run its proof again and record it.',
+      doing: 'getting it ready to merge',
+      did: SENT_BACK,
+      to: named => `close whatever stops ${named} merging, run its proof again and record it`,
+    };
+  }
+  return {
+    asked: `The user's note: "${words}" Make the change the user asked for on this branch, run its proof again and record it.`,
+    doing: 'working on your note',
+    did: SENT_BACK,
+    to: named => `make the requested change on ${named}, run its proof again and record it`,
+  };
+}
+
 // `low` is how people say the lowest level.
 const levelNamed = word => (word === 'low' ? 'casual' : word);
 
@@ -70,13 +135,14 @@ function assertNotRunning(root, { slug }, { id, title }) {
   if (running) throw Error(`"${title}" is already running. hobkin work cancel ${id} stops it.`);
 }
 
-/** `autoPick` is `start --auto`, the start work mode used to have, where the top of the queue starts by itself. */
+/** `autoPick` is `start --auto`, the start work mode used to have, where the top of the queue starts by itself. The user's own choice of auto-pick does the same. */
 export function startMode(root, requested, { autoPick = false } = {}) {
-  const { enabled, folder } = startWork(root, requested, { autoPick });
+  const started = startWork(root, requested, { autoPick });
+  const { enabled, folder } = started;
   const view = ownerView(root);
   const next = view.owner ? 'The owner picks it up on its next tick.' : NEEDS_AN_OWNER;
   const { line } = forecastWork(root, planWork(root, view), view);
-  const itself = autoPick ? ', and the top of the queue starts by itself' : '';
+  const itself = started.autoPick ? ', and the top of the queue starts by itself' : '';
   return reply(`Work mode is on, starting from ${shortPath(folder)}${itself}. ${next} ${line}`, { enabled, folder });
 }
 
@@ -351,17 +417,25 @@ export async function openDiff(root, reference, id, { panes = diffPanes(), follo
   return reply(`"${title}" is open in pi-coder, in pane ${pane}. It closes by itself a few minutes after you leave it.`, { range, cwd, pane });
 }
 
-/** The only way a review starts. `reviewAsked` is the user's word, so the item's next run is that review and no agent can set it. */
-export function requestReview(root, reference, id) {
+/**
+ * The only way a review starts. `reviewAsked` is the user's word, so the item's next run is that review and no agent can set it. With work mode off or
+ * paused a card's review of finished work goes to the main agent instead. No main agent hears a command, so `toMainAgent` is false there and it queues.
+ */
+export function requestReview(root, reference, id, { toMainAgent = true, now = Date.now() } = {}) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
   if (![...statesThatRun, 'pr'].includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to review.`);
   if (!item.branch) throw Error(`"${item.title}" has no branch yet, so there is nothing to review.`);
 
+  const held = whyWorkModeWaits(readMode(root), now);
+  if (held && toMainAgent && isFinished(item)) {
+    return handOff(root, { project, item, why: held, now }, REVIEW_JOB);
+  }
+
   updateItem(root, project.slug, item.id, { reviewAsked: true });
   retryItem(root, project.slug, item.id);
-  return cardReply(project, item, 'asked for a review', named => `${named} goes to the front of the queue for a review. It leaves the list while it is reviewed, and comes back to approve with its grade.`);
+  return cardReply(project, item, ASKED_REVIEW, named => `${named} goes to the front of the queue for a review.${queuedWhile(held)} It leaves the list while it is reviewed, and comes back to approve with its grade.`);
 }
 
 const firstLine = text => String(text).split('\n', 1)[0];
@@ -499,20 +573,26 @@ export function declineStopped(root, slug, id, now = Date.now()) {
 }
 
 /**
- * Sends an agent back to a finished branch or PR with the user's words, which go first in the queue like a review does.
- * `answering` is a run's own question being answered, which says nothing against the work.
+ * Sends an agent back to a finished branch or PR with the user's words, which go first in the queue like a review does. With work mode off or paused
+ * a card's note goes to the main agent instead, as a review does. `answering` is a run's own question being answered, which says nothing against the work.
  */
-export function askAgent(root, reference, id, note, { answering = false, now = Date.now() } = {}) {
+export function askAgent(root, reference, id, note, { answering = false, toMainAgent = true, now = Date.now() } = {}) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
   if (![...statesThatRun, 'pr'].includes(item.state)) throw Error(`"${item.title}" is ${item.state}, so there is nothing to work on.`);
 
-  const finished = ['branch', 'pr'].includes(item.state);
+  const words = note?.trim();
+  const finished = isFinished(item);
   const sentBack = finished && !answering ? pushbackOn(root, project, item, now) : {};
-  updateItem(root, project.slug, item.id, { workNote: note?.trim() || 'Close whatever stops this merging.', ...sentBack }, now);
+  const held = answering ? null : whyWorkModeWaits(readMode(root), now);
+  if (held && toMainAgent && finished && item.branch) {
+    return handOff(root, { project, item, why: held, now, also: sentBack }, noteJob(words));
+  }
+
+  updateItem(root, project.slug, item.id, { workNote: words || 'Close whatever stops this merging.', ...sentBack }, now);
   retryItem(root, project.slug, item.id);
-  return cardReply(project, item, 'sent it back with a note', named => `An agent goes back to ${named} next.`);
+  return cardReply(project, item, SENT_BACK, named => `An agent goes back to ${named} next.${queuedWhile(held)}`);
 }
 
 const stateOf = (root, slug, id) => readItems(root, slug).find(item => item.id === id)?.state;

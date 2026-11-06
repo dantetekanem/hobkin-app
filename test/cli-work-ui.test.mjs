@@ -1310,10 +1310,124 @@ test('a step only the user can take opens in place, and its card marks it done o
   ui.input('x');
   ui.input('\r');
   assert.match(screen(ui, 110, 50), /finboard: Rotate the OAuth secret\. What do you want to do\?/);
+  offers(ui, ['Mark it done', 'Talk it over in Chat', 'Not needed']);
   pick(ui, 'Mark it done');
   await ui.pending();
 
   assert.deepEqual(actions, [['done', 'finboard', 'oauth']]);
+  ui.stop();
+});
+
+test('a step that is not needed is declined, so hobkin learns from it', async () => {
+  const { actions, workAction } = acting();
+  const ui = createDashboard({ ...base, waiting: waiting({ yours: [step] }) }, { workAction });
+  toDecisions(ui);
+
+  ui.input('\r');
+  pick(ui, 'Not needed');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['decline', 'finboard', 'oauth']]);
+  ui.stop();
+});
+
+test('a step can be talked over in Chat from its card, with what the step says', async () => {
+  const sent = [];
+  const ui = createDashboard({ ...base, connection: 'connected', waiting: waiting({ yours: [step] }) }, { send: async (text, about) => { sent.push({ text, about }); } });
+  toDecisions(ui);
+
+  ui.input('\r');
+  pick(ui, 'Talk it over in Chat');
+  assert.equal(ui.state().view, 'conversation');
+  for (const letter of 'where?') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+
+  assert.match(sent[0].about.body, /Rotate it at Google\./);
+  ui.stop();
+});
+
+test('Talk it over in Chat from Done talks about that card, whatever Decisions has selected', async () => {
+  const sent = [];
+  const ready = [landing('turn', { gap: 'yours', title: 'Turn on HTTPS', summary: 'Settings, Pages.' })];
+  const wrong = [{ key: 'launch:mail:1', tab: 'work', fact: 'mail, CI failing since 09:00' }];
+  const ui = createDashboard(
+    { ...base, connection: 'connected', work: { enabled: true, projects: [], ready }, waiting: waiting({ wrong }) },
+    { send: async (text, about) => { sent.push({ text, about }); } },
+  );
+  toDone(ui);
+
+  ui.input('\r');
+  pick(ui, 'Talk it over in Chat');
+  for (const letter of 'why?') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+
+  assert.match(sent[0].about.body, /Turn on HTTPS/);
+  assert.doesNotMatch(sent[0].about.body, /CI failing/);
+  ui.stop();
+});
+
+test('a question nobody waits on stays out of the way of a reply the user is about to write', async () => {
+  const ui = createDashboard({ ...base, connection: 'connected', waiting: waiting({ yours: [step] }) });
+  toDecisions(ui);
+  ui.input('r');
+
+  const asked = await ui.askQuestion({ question: 'Reply to the bank?', choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }], whenQuiet: true });
+
+  assert.equal(asked, undefined);
+  ui.stop();
+});
+
+test('r with a card open in Decisions opens Chat about it, as on its row', async () => {
+  const sent = [];
+  const ui = createDashboard({ ...base, connection: 'connected', waiting: waiting({ yours: [step] }) }, { send: async (text, about) => { sent.push({ text, about }); } });
+  toDecisions(ui);
+  ui.input('\r');
+  assert.match(screen(ui, 110, 50), /r reply/);
+
+  ui.input('r');
+
+  assert.equal(ui.state().view, 'conversation');
+  for (const letter of 'how?') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+  assert.equal(sent[0].about.id, 'left:finboard:oauth');
+  assert.match(sent[0].about.body, /Rotate the OAuth secret/);
+  ui.stop();
+});
+
+test('a question in Decisions has a row for the user\'s own words, and the words answer it', async () => {
+  const { actions, workAction } = acting();
+  const ui = createDashboard({ ...base, decisions: [asked('one')] }, { workAction });
+  toDecisions(ui);
+
+  ui.input('\r');
+  pick(ui, 'Other: type your own answer');
+  for (const letter of 'only the 2024 ones') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual(actions, [['words', 'one', 'only the 2024 ones']]);
+  ui.stop();
+});
+
+test('r on a report with a call talks over the report itself', async () => {
+  const sent = [];
+  const at = new Date().toISOString();
+  const report = { id: 'mail', title: 'Mail', at, body: 'Useful: The bank wrote.\n\nNext: Reply by Friday.' };
+  const ui = createDashboard(
+    { ...base, connection: 'connected', reports: [report], waiting: waiting({ reports: [{ id: 'mail', title: 'Mail', at, level: 'useful', next: 'Reply by Friday.' }] }) },
+    { send: async (text, about) => { sent.push({ text, about }); } },
+  );
+  toDecisions(ui);
+
+  ui.input('r');
+  for (const letter of 'draft it') ui.input(letter);
+  ui.input('\r');
+  await ui.pending();
+
+  assert.deepEqual([sent[0].about.id, sent[0].about.body], ['mail', report.body]);
   ui.stop();
 });
 
@@ -1408,11 +1522,15 @@ test('Enter on a queue row runs it now, s skips it, and s on a skipped row puts 
   ui.stop();
 });
 
-test('auto-pick off says so, and the tab offers no way to turn work mode off', () => {
-  const ui = createDashboard({ ...base, work: { ...queueWork, autoPick: false } });
+test('auto-pick off says so, and the next row it names is one that still starts: work on a finished branch, not new work', () => {
+  const plan = [queueEntry('item:api:1', { title: 'Add a new report' }), queueEntry('item:api:2', { title: 'Rebase the login fix', finishes: true })];
+  const ui = createDashboard({ ...base, work: { ...queueWork, autoPick: false, plan } });
   ui.input('\x1b[D');
 
-  assert.match(screen(ui), /Auto-pick is off: only what is picked in the queue runs\./);
+  const text = screen(ui, 110, 40);
+  assert.match(text, /Auto-pick is off: only picks and work on finished branches start\./);
+  assert.match(text, /finboard-api: Rebase the login fix starts now\./);
+  assert.doesNotMatch(text, /Add a new report starts/);
   ui.stop();
 });
 

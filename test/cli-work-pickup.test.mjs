@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { answerDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import { answerPickUp, filePickUp } from '../src/cli/work/pick-up.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
-import { chooseProject, fileItem, readItems, readMode, retryItem, skipInQueue, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, readMode, retryItem, skipInQueue, startWork, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { director, studied } from './helpers/work-director.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
@@ -108,7 +109,7 @@ test('turning work mode on starts nothing by itself, and only what the user pick
   await h.ticks(2);
 
   assert.deepEqual([readMode(h.root).enabled, readMode(h.root).autoPick], [true, false]);
-  assert.match(message, /only picks start/);
+  assert.match(message, /only picks and work on finished branches start/);
   assert.deepEqual(h.calls, []);
 
   await runWorkCommand(h.root, ['trigger', 'api', filed.id]);
@@ -127,8 +128,37 @@ test('start --auto is the old start, where the top of the queue starts by itself
   await h.tick();
 
   assert.deepEqual([readMode(h.root).folder, readMode(h.root).autoPick], [h.base, true]);
-  assert.doesNotMatch(message, /only picks start/);
+  assert.doesNotMatch(message, /only picks and work on finished branches start/);
   assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['Fix login']);
+});
+
+test('the user\'s word on auto-pick stands each time work mode turns on, and start --auto goes past it for that start alone', async t => {
+  const h = director(t);
+  studied(h, 'api', 'critical');
+  fileItem(h.root, 'api', item('Fix login'), h.clock);
+  writeMode(h.root, { enabled: false, folder: h.base });
+  const autoPickAfterRestart = async (...args) => {
+    await runWorkCommand(h.root, ['stop']);
+    await runWorkCommand(h.root, ['start', ...args]);
+    return readMode(h.root).autoPick;
+  };
+
+  await runWorkCommand(h.root, ['start']);
+  const pickUp = openDecisions(h.root).find(({ key }) => key === 'pickup');
+  answerPickUp(h.root, 'auto', pickUp.answerTo.keys);
+  answerDecision(h.root, pickUp.id, 'auto');
+  // The dashboard turns work mode off and on this way.
+  writeMode(h.root, { enabled: false });
+  startWork(h.root);
+
+  assert.equal(readMode(h.root).autoPick, true);
+  assert.equal(filePickUp(h.root), false, 'nothing asks again');
+
+  await runWorkCommand(h.root, ['auto', 'off']);
+
+  assert.equal(await autoPickAfterRestart(), false, 'off stands too');
+  assert.equal(await autoPickAfterRestart('--auto'), true);
+  assert.equal(await autoPickAfterRestart(), false, 'the user\'s off stands again after the start --auto');
 });
 
 test('a retry puts an item back in the queue, and only a review or a fix for finished work goes to the front by itself', t => {
@@ -163,6 +193,25 @@ test('hobkin work start leaves what to pick up first in Decisions, and start --a
 
   assert.equal(openDecisions(h.root).some(({ key }) => key === 'pickup'), false);
   assert.doesNotMatch(auto.message, /waits in Decisions/);
+});
+
+test('with auto-pick off a fix that gets a branch merged starts by itself, so the pick-up offers only new work', async t => {
+  const h = director(t);
+  const checkout = studied(h, 'api', 'critical');
+  git(checkout, 'branch', 'hobkin/old');
+  const fix = fileItem(h.root, 'api', item('Fix login'), h.clock);
+  const rebase = fileItem(h.root, 'api', item('Rebase hobkin/old', { kind: 'pr-fix' }), h.clock);
+  updateItem(h.root, 'api', rebase.id, { branch: 'hobkin/old' }, h.clock);
+  writeMode(h.root, { enabled: false, folder: h.base });
+
+  await runWorkCommand(h.root, ['start']);
+  await h.tick();
+
+  const pickUp = openDecisions(h.root).find(({ key }) => key === 'pickup');
+  // The pick-up reads the real clock, so the project's looks are due there too.
+  const offeredItems = pickUp.answerTo.keys.filter(key => key.startsWith('item:'));
+  assert.deepEqual(offeredItems, [`item:api:${fix.id}`]);
+  assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['Rebase hobkin/old']);
 });
 
 test('a retry says where it went: back in line, or to the front for a review or a note', async t => {

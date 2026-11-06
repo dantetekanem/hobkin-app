@@ -11,12 +11,12 @@ import { assertLaunch, recordWatch } from './launches.mjs';
 import { findProject, nameOf } from './names.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { filePickUp } from './pick-up.mjs';
-import { MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
+import { finishesWork, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
 import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
 import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
-  agentStates, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
+  agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
   readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { gitOrNothing, prepareTree } from './tree.mjs';
@@ -66,6 +66,8 @@ Used by agents inside a run:
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
 const MAX_PLAN_SENT = 50;
+// No main agent hears a command's reply, so a note or a review asked here waits in the queue whatever the mode.
+const QUEUED = { toMainAgent: false };
 
 /** A wrong command needs nothing but the help. */
 class WrongCommand extends Error {}
@@ -110,9 +112,11 @@ async function watchCommand(root, reference, input) {
   return reply(`Recorded ${recorded} on ${nameOf(project)}. ${said}`, { recorded, trouble });
 }
 
-const planRow = ({ key, kind, lane, slug, project, level, grade, item, title, why, estimate, waiting, skipped, picked }, free) => ({
-  key, kind, lane, slug, project, level, grade, item: item?.id ?? null, title, why, estimate, skipped, picked, waiting: rowWait({ waiting }, free),
-});
+// `finishes` marks work on a finished branch, which starts even with auto-pick off.
+const planRow = (entry, free) => {
+  const { key, kind, lane, slug, project, level, grade, item, title, why, estimate, waiting, skipped, picked } = entry;
+  return { key, kind, lane, slug, project, level, grade, item: item?.id ?? null, title, why, estimate, skipped, picked, finishes: finishesWork(entry), waiting: rowWait({ waiting }, free) };
+};
 const runningRow = ({ id, tokens = 0, cached = 0, note = null, estimate }) => ({ id, tokens, cached, estimate, note });
 
 function watchSummary(root) {
@@ -255,7 +259,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'ready': return landingList(root);
     case 'pr': return prView(root, ...args);
     case 'diff': return openDiff(root, ...args);
-    case 'review': return args.length ? requestReview(root, ...args) : reviewView(root);
+    case 'review': return args.length ? requestReview(root, args[0], args[1], QUEUED) : reviewView(root);
     case 'search': return searchView(root, args.join(' '));
     case 'attention': return attentionView(root);
     case 'offers': return offersView(root);
@@ -286,7 +290,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'done': return markDone(root, ...args);
     case 'merge': return mergeItem(root, args[0], args[1]);
     case 'decline': return declineItem(root, args[0], args[1]);
-    case 'ask': return askAgent(root, args[0], args[1], args.slice(2).join(' '));
+    case 'ask': return askAgent(root, args[0], args[1], args.slice(2).join(' '), QUEUED);
     case 'drop': return dropWork(root, ...args);
     case 'grade': return setGrade(root, ...args);
     case 'max': return markMax(root, ...args);
@@ -302,7 +306,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'tokens': return reply(`The daily limit is ${tokenLabel(setDailyTokens(root, Number(args[0])).dailyTokens)} fresh tokens, from now on.`);
     case 'auto': {
       if (!args[0]) return { autoPick: readMode(root).autoPick };
-      const { autoPick } = writeMode(root, { autoPick: autoPickFrom(args[0]) });
+      const { autoPick } = chooseAutoPick(root, autoPickFrom(args[0]));
       return reply(autoPick ? 'Auto-pick is on. The top of the queue starts by itself.' : 'Auto-pick is off. Work mode stays on, and only what is triggered runs.');
     }
     case 'reviews': {
@@ -327,7 +331,9 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);
-      return updateItem(root, args[0], item.id, await trueOutcome(root, args[0], item));
+      // A session the main agent was handed this work by has said how it went, so its card comes back now, not when the hand-off runs out.
+      const reported = item.state || item.proof ? { withMainAgent: null } : {};
+      return updateItem(root, args[0], item.id, { ...(await trueOutcome(root, args[0], item)), ...reported });
     }
     case 'tree': return treeFor(root, args[0]);
     case 'signals': return signalsCommand(root, args[0], input);

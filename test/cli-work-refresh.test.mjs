@@ -79,6 +79,19 @@ test('a refresh that left something for the user does not merge, and waits for t
   assert.equal(read(h, item).state, 'branch');
 });
 
+test('an empty left is nothing left, before the refresh and after it, so the refreshed branch merges', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'job.txt');
+  const item = finished(h, 'hobkin/abc', { left: '' });
+  refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
+
+  refreshEnds(h, item, { left: '' });
+  const [merged] = await mergeRefreshed(h.root, { now: NOW + 3000 });
+
+  assert.equal(merged?.ok, true);
+  assert.equal(read(h, item).state, 'merged');
+});
+
 test('a merge that fails after the refresh says why once, and the card goes back to the user', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/abc', 'app.txt', 'branch side\n');

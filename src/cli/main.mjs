@@ -16,7 +16,7 @@ import { HOBKIN_VERSION } from './version.mjs';
 const DAY_MS = 86400000;
 const DEFAULT_TELEMETRY_DAYS = 30;
 const DEFAULT_WINS_DAYS = 7;
-const COMMANDS_WITH_WORDS = ['reports', 'work', 'import', 'learning', 'profile', 'decide', 'remind', 'remember', 'skill', 'routines', 'schedules', 'feedback', 'telemetry'];
+const COMMANDS_WITH_WORDS = ['reports', 'work', 'import', 'learning', 'profile', 'decide', 'decisions', 'remind', 'remember', 'skill', 'routines', 'schedules', 'feedback', 'telemetry'];
 
 export function parseArguments(args) {
   const values = [...args];
@@ -37,6 +37,8 @@ export function parseArguments(args) {
       options.from = values.shift();
     } else if (options.command === 'remind' && flag === '--on' && values.length) {
       options.on = values.shift();
+    } else if (options.command === 'decisions' && flag === '--typed' && values.length) {
+      options.typed = values.shift();
     } else if (options.command === 'skill' && flag === '--to' && values[0] && !values[0].startsWith('-')) {
       options.to = values.shift();
     } else if (flag === '--plain') options.plain = true;
@@ -157,7 +159,6 @@ async function connected(options, snapshot, dependencies) {
       memoryIndex: {},
       onChange: view => dashboard.update(view),
       askQuestion: (request, signal) => dashboard.askQuestion(request, signal),
-      askPending: request => dashboard.askPending(request),
       showDone: row => dashboard.showDone?.(row),
       showRow: target => dashboard.showRow?.(target),
       presence: () => dashboard.presence?.(),
@@ -238,6 +239,12 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     const input = dependencies.input ?? process.stdin;
     const filed = await runDecideCommand(root, options.args, input, Date.now(), options.from);
     output.write(`${JSON.stringify(filed, null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'decisions') {
+    const { runDecisionsCommand } = await import('./answer.mjs');
+    const result = await runDecisionsCommand(workspaceRoot(options.root), options.args, { typed: options.typed });
+    output.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
   if (options.command === 'pending') {

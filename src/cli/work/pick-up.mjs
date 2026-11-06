@@ -1,7 +1,7 @@
 import { answerDecision, fileDecision, openDecisions } from '../decisions.mjs';
 import { reply } from './controls.mjs';
-import { planWork } from './plan.mjs';
-import { ownerView, pickNext, readMode, writeMode } from './store.mjs';
+import { finishesWork, planWork } from './plan.mjs';
+import { chooseAutoPick, ownerView, pickNext, readMode } from './store.mjs';
 
 // What turning work mode on asks when auto-pick is off: the next few rows the queue would start, for the user to pick before anything runs.
 const KEY = 'pickup';
@@ -12,8 +12,8 @@ const LONGEST_TITLE = 70;
 const plain = text => String(text ?? '').replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
 const shortTitle = title => (title.length > LONGEST_TITLE ? `${title.slice(0, LONGEST_TITLE - 1).trimEnd()}…` : title);
 
-/** A row the user already picked starts anyway, and one that waits on something cannot start, so neither is offered. */
-const canOffer = ({ skipped, waiting, picked }) => !skipped && !waiting && !picked;
+/** A row the user already picked starts anyway, and so does one that finishes work already done. One that waits on something cannot start. None of these is offered. */
+const canOffer = row => !row.skipped && !row.waiting && !row.picked && !finishesWork(row);
 
 function rowLine({ grade, project, title, why }, index) {
   const reason = why ? ` (${plain(why)})` : '';
@@ -71,7 +71,7 @@ export function retirePickUp(root, now = Date.now()) {
 /** Carries out the answer, and only code calls this: the keys come from the decision hobkin filed. */
 export function answerPickUp(root, value, keys) {
   if (value === 'auto') {
-    writeMode(root, { autoPick: true });
+    chooseAutoPick(root, true);
     return reply('Auto-pick is on, so the queue runs from the top by itself.');
   }
 

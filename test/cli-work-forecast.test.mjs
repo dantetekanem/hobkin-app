@@ -166,6 +166,18 @@ test('shipping first holds new work and its looks, and what still runs at the ba
   assert.equal(line, 'Next 8h: about 1 job · 1 P0 · 2 agents at a time.', 'the shipping first line beside it already says why');
 });
 
+test('with auto-pick off it counts work that finishes what is already done, and no new work', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('New work'), now);
+  fileItem(root, 'api', item('Describe hobkin/abc', { kind: 'pr-fix' }), now);
+  writeMode(root, { autoPick: false });
+
+  const { jobs, grades, limit } = forecast(root);
+
+  assert.deepEqual([jobs, grades.P1, limit], [1, 1, 'picks']);
+});
+
 test('with the mode off it counts what turning it on would start, which ends a pause by hand', t => {
   const root = dataRoot(t);
   project(root, 'api', 'casual');

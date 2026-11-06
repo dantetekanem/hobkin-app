@@ -200,7 +200,7 @@ function forecastLine({ jobs, grades: byGrade, agents, limit, until }, now) {
     hour: 'The hourly share caps it.',
     priority: 'The pace by priority caps it.',
     pace: 'More is due than fits.',
-    picks: 'Auto-pick is off, so only picks start.',
+    picks: 'Auto-pick is off, so only picks and work on finished branches start.',
   }[limit];
   const counts = [
     `about ${counted(jobs, 'job')}`,

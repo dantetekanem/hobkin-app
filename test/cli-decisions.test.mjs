@@ -143,6 +143,29 @@ test('a routine that asks what was answered in the last 30 days files nothing an
   assert.match(again.message, /2026-10-20.*No/);
 });
 
+test('another session always files, because two sessions in different projects can ask the same words about different things', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, [], asked({ key: 'cleanup' }), at, 'Claude Code');
+  answerDecision(root, id, 'yes', at);
+
+  const again = await runDecideCommand(root, [], asked({ key: 'cleanup' }), at + DAY_MS, 'Pi in finboard');
+
+  assert.equal(again.answer, undefined);
+  assert.equal(openDecisions(root).length, 1);
+});
+
+test('an answer in the user\'s own words comes back to a routine as their words', async t => {
+  const root = home(t);
+  const at = Date.parse('2026-10-20T10:00:00Z');
+  const { id } = await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices' }), at);
+  answerDecision(root, id, 'typed', at, { typed: 'keep the 2024 ones only' });
+
+  const again = await runDecideCommand(root, ['routine', 'mail'], asked({ key: 'invoices' }), at + DAY_MS);
+
+  assert.equal(again.label, 'keep the 2024 ones only');
+});
+
 test('an answer given again from memory goes on the record, with who asked and none of the words', async t => {
   const root = home(t);
   const at = Date.parse('2026-10-20T10:00:00Z');

@@ -674,6 +674,34 @@ test('a ship item goes ahead of the same grade of anything else, and new work be
   assert.deepEqual(titles(plan(root).entries), ['Rebase hobkin/abc onto main', 'fix', 'feature']);
 });
 
+test('work that finishes what is already done goes ahead of new work at any priority, and only P0 goes before it', t => {
+  const root = dataRoot(t);
+  project(root, 'tool');
+  project(root, 'site', 'casual');
+  project(root, 'toy', 'casual');
+  setProjectPriority(root, 'toy', 'P3');
+  ranRecently(root, 'tool', 'site', 'toy');
+  fileItem(root, 'tool', item('new work at P1', { impact: 'high' }), now);
+  fileItem(root, 'tool', item('main is broken', { urgent: true }), now);
+  fileItem(root, 'site', item('Describe hobkin/abc at P2', { kind: 'pr-fix', impact: 'high', effort: 'small' }), now);
+  const sentBack = fileItem(root, 'toy', item('a note sent back at P3', { impact: 'low' }), now);
+  updateItem(root, 'toy', sentBack.id, { workNote: 'Keep the old flag.' }, now);
+
+  assert.deepEqual(titles(plan(root).entries), ['main is broken', 'Describe hobkin/abc at P2', 'a note sent back at P3', 'new work at P1']);
+});
+
+test('with auto-pick off, work that finishes what is already done still starts by itself, and new work waits for a pick', t => {
+  const root = dataRoot(t);
+  project(root, 'site', 'casual');
+  fileItem(root, 'site', item('new work', { impact: 'high' }), now);
+  writeMode(root, { autoPick: false });
+  assert.equal(plan(root).next, null);
+
+  fileItem(root, 'site', item('Rebase hobkin/abc onto main', { kind: 'pr-fix' }), now);
+
+  assert.equal(plan(root).next.title, 'Rebase hobkin/abc onto main');
+});
+
 test('the ideas row does not appear with 5 waiting to merge, and 4 still lets it', t => {
   const root = dataRoot(t);
   project(root, 'api', 'critical');

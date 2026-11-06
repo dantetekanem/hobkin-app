@@ -336,6 +336,21 @@ test('a row a review rated below safe at its commit gets a review on the user\'s
   assert.ok(readMode(root).queueNext.includes(`item:api:${first.id}`));
 });
 
+test('with work mode off a pair\'s review still waits in work mode\'s queue, so no card is held for a session nobody starts', async t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  writeMode(root, { enabled: false });
+  const rows = finishedOn(root, 'api', SHIP_FIRST_AT);
+  surveyed(root, 'api', rows, { safety: { grade: 'medium', rating: 'B' } });
+  bringPair(root, now);
+
+  await answered(root, 'go');
+
+  const [first] = readItems(root, 'api');
+  assert.deepEqual([first.reviewAsked, first.withMainAgent ?? null], [true, null]);
+  assert.ok(readMode(root).queueNext.includes(`item:api:${first.id}`));
+});
+
 test('a row with a conflict gets its rebase on the user\'s yes', async t => {
   const root = dataRoot(t);
   project(root, 'api');

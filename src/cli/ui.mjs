@@ -8,6 +8,7 @@ import {
   stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
+import { FaceReactions } from './face-reactions.mjs';
 import { feedbackQuestion } from './feedback/draft.mjs';
 import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
 import { shownMood } from './mood.mjs';
@@ -112,8 +113,6 @@ const CHANGES_ROW = { value: 'changes', label: 'Ask for changes: type them' };
 const FOCUS_GAINED = '\x1b[I';
 const FOCUS_LOST = '\x1b[O';
 // What a card always keeps around its own rows: one row of chat, the box's two edges and its question.
-const ROWS_AROUND_CARD = 4;
-const cardLooks = { ready: ['●', positive], read: ['◐', caution], wrong: ['▲', negative], questions: ['?', accent], yours: ['◇', dim] };
 const FEWEST_CHOICES_SHOWN = 3;
 const PRINTABLE_KEY = /^[^\x00-\x1f\x7f]$/u;
 // The question's box, the footer and the few rows of conversation that always stay in sight.
@@ -744,8 +743,9 @@ const foldersDone = discovery => {
 };
 // A queue with work in it is what happens next, and a look hours away says nothing about that.
 const nextInQueue = ({ plan = [], nextStartAt, autoPick, paused }, clock) => {
-  if (paused || autoPick === false) return '';
-  const rows = plan.filter(entry => !entry.skipped);
+  if (paused) return '';
+  // With auto-pick off, only a pick or work on a finished branch starts by itself.
+  const rows = plan.filter(entry => !entry.skipped && (autoPick !== false || entry.picked || entry.finishes));
   const ready = rows.find(entry => !entry.waiting);
   const top = ready ?? rows.find(entry => entry.waiting === 'a free worker');
   if (!top) return '';
@@ -940,7 +940,11 @@ const choice = (value, label) => ({ value, label });
  */
 const cardChoices = card => {
   const { type, pr, rated, risky, conflict } = card;
-  if (['yours', 'left'].includes(type)) return [choice('done', 'Mark it done')];
+  // A step only the user can take is done, talked over, or not needed, which is a no hobkin learns from. One with a branch shows it too.
+  if (['yours', 'left'].includes(type)) {
+    const shows = type === 'yours' ? [choice('diff', 'Show the diff')] : [];
+    return [choice('done', 'Mark it done'), ...shows, choice('talk', 'Talk it over in Chat'), choice('decline', 'Not needed')];
+  }
   if (type === 'elsewhere') return [choice('done', 'Close it')];
 
   const diff = choice('diff', 'Show the diff');
@@ -1141,7 +1145,7 @@ const watchLine = ({ watch }, clock) => {
 };
 const startLine = ({ waitingOn, autoPick }) => {
   if (waitingOn) return waitingOn;
-  return autoPick === false ? 'Auto-pick is off: only what is picked in the queue runs.' : '';
+  return autoPick === false ? 'Auto-pick is off: only picks and work on finished branches start.' : '';
 };
 const maxLine = ({ maxRuns, projects = [] }) => {
   const inUse = maxRuns && (maxRuns.running || maxRuns.today || projects.some(project => project.state === 'chosen' && project.level === 'max'));
@@ -1308,15 +1312,6 @@ const decisionLines = ({ sections, selectedKey, inner, wins }) => {
   const selected = sections.flatMap(([, rows]) => rows).find(({ key: rowKey }) => rowKey === selectedKey);
   return { content, selectedRange: pushSections(content, { sections, selected, inner }) };
 };
-// The fact comes last, so on a narrow terminal the box edge cuts the fact and nothing else.
-const pendingRows = groups => {
-  const countWidth = Math.max(...groups.map(({ count }) => String(count).length));
-  const labelWidth = Math.max(...groups.map(({ label }) => label.length));
-  return groups.map(({ name, count, label, fact }) => {
-    const [glyph, tone] = cardLooks[name];
-    return `${tone(glyph)} ${tone(bold(String(count).padStart(countWidth)))} ${label.padEnd(labelWidth)}  ${dim(clean(fact))}`;
-  });
-};
 /** Adds each section to `content`, and returns where the selected row landed. A row with `lit` marks only its first lines. */
 const pushSections = (content, { sections, selected, inner }) => {
   let selectedRange;
@@ -1422,6 +1417,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   let columns = 80;
   let contentBounds = { top: 0, bottom: 0 };
   let clickableTabs = [];
+  // Where the face was drawn, in rows from the top of the footer, so a click or the pointer can find it.
+  let faceZone = null;
   let hasFocus = true;
   let question = null;
   let notice = '';
@@ -1543,8 +1540,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (images) return images.frameMs(mood);
     return ['idle', 'sleepy'].includes(mood) ? RESTING_FACE_MS : MOVING_FACE_MS;
   };
+  const reactions = new FaceReactions({
+    now,
+    reaction: () => snapshot.mood,
+    // Any moment ends a sleep in the app, and this one has no mood of its own, so the face sleeps again only after the usual quiet.
+    onWake: () => callbacks.moment?.({ event: 'woken' }),
+  });
   const faceNow = clock => shownMood({
-    reaction: snapshot.mood,
+    reaction: reactions.current(),
     busy: snapshot.connection === 'connected' && snapshot.busy,
     running: jobViews().length || snapshot.work?.discovering,
     typing: Boolean(editor.getExpandedText()),
@@ -1555,7 +1558,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     busyMs: busySince === null ? 0 : clock - busySince,
     now: clock,
   });
-  const moodNow = clock => faceNow(clock).mood;
+  const moodNow = clock => reactions.shown(clock)?.mood ?? faceNow(clock).mood;
   const currentWorkSections = (inner, clock, frame) => {
     const work = snapshot.work ?? {};
     return workTab === 'done' ? doneSections({ work, inner, clock, running: runningGroups }) : workSections({ work, runs: workRuns(), inner, clock, frame });
@@ -2092,9 +2095,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     queue: selected?.skipped ? [['s', 'put back']] : [['enter', 'run now'], ...(selected?.id ? [['p', 'grade'], ['x', 'done']] : []), ['s', 'skip']],
   })[selected?.type] ?? [];
   const hintsFor = draft => {
-    if (question?.rows) return [[`1-${question.choices.length}`, 'answer'], ['↑↓', 'choose'], ['esc', 'not now']];
     if (question) return [['↑↓', 'choose'], ['enter', 'answer'], ['esc', 'cancel'], ['pgup/pgdn', 'read']];
-    if (choosing) return [['↑↓', 'choose'], ['enter', 'pick'], ...(onPage() ? [['pgup/pgdn', 'read']] : []), ['esc', 'back']];
+    if (choosing) return [['↑↓', 'choose'], ['enter', 'pick'], ...(view === 'decisions' ? [['r', 'reply']] : []), ...(onPage() ? [['pgup/pgdn', 'read']] : []), ['esc', 'back']];
     if (askingWorkFolder) return [['enter', 'start'], ['esc', 'cancel']];
     if (focus === 'workTabs') return [['←→', 'subtabs'], ['↓', 'rows'], ['esc', 'chat']];
     if (focus === 'decisions') {
@@ -2178,7 +2180,11 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     // Here and not in the state, because a reaction ends by the clock and only a drawn face was shown.
     if (mood !== lastMood) record('mood_shown', { mood, cause });
     lastMood = mood;
-    return images ? images.lines(mood, clock) : faceLines(mood, clock, { ...palette.face, octants: supportsOctants() });
+    // A reaction to the user's keys or pointer is drawn over that from its own first frame, and recorded nowhere.
+    const played = reactions.shown(clock);
+    const drawn = played?.mood ?? mood;
+    const ms = played?.ms ?? clock;
+    return images ? images.lines(drawn, ms) : faceLines(drawn, ms, { ...palette.face, octants: supportsOctants() });
   };
   // While the main agent works, the row above the input says what it is doing, where its next message will show, and how to stop it.
   const workingRow = (inner, clock, frame) => {
@@ -2252,17 +2258,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     const visibleText = text.slice(box.scroll, box.scroll + capacity);
     return boxed({ paint: highlight, top: highlight(bold('hobkin asks')), lines: [...visibleText, '', ...choices, ...typing], inner });
   };
-  // A short terminal gives up the status lines, then the row kept for typing, then the blank rows. Every group and every choice stays.
-  const cardLines = (inner, height, headerLength, statusLines) => {
-    question.selection.maxVisible = question.choices.length + 1;
-    const choices = question.selection.render(inner - 4);
-    const typed = onOtherRow() ? typingRow(inner - 4) : [];
-    const room = height - headerLength - ROWS_AROUND_CARD - question.rows.length - choices.length - typed.length;
-    const blank = rowsNeeded => (room >= rowsNeeded ? [''] : []);
-    const lines = [line(bold(clean(question.question)), inner - 4), ...blank(2), ...question.rows, ...blank(1), ...choices, ...(typed.length ? typed : blank(3))];
-    const box = boxed({ paint: highlight, top: highlight(bold('hobkin')), lines, inner });
-    return [...box, ...statusLines.slice(0, Math.max(0, room - 3))];
-  };
   const renderFooter = (inner, height, headerLength, clock, frame) => {
     // Grey and with no cursor while the main conversation connects, since the input takes nothing until then.
     editor.focused = hasFocus && focus === 'composer' && !connecting();
@@ -2278,15 +2273,14 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     // Drop whole hints from the end rather than cutting one mid-word.
     let shown = hints.length;
     while (shown > 1 && visibleWidth(keys(hints.slice(0, shown))) > room) shown--;
-    // The row stays reserved so a tip coming or going never moves anything. The pending card has no tip row.
+    // The row stays reserved so a tip coming or going never moves anything.
     const tipRows = height >= MIN_ROWS_FOR_TIP_LINE ? [tipLine(clock, frame)] : [];
-    const activity = activityText(keys(hints.slice(0, shown)), frame, { tipRowSaysIt: tipRows.length > 0 && !question?.rows });
+    const activity = activityText(keys(hints.slice(0, shown)), frame, { tipRowSaysIt: tipRows.length > 0 });
     const rule = centered(faint('─'.repeat(Math.round(inner * FOOTER_RULE_SHARE))), inner);
     const workNote = snapshot.work?.enabled ? accent(workRuns().length ? `work ${workRuns().length} running` : 'work on') : '';
     const memory = [workNote, memorySize()].filter(Boolean).join(muted(' · '));
     const nextCheckRow = row(nextCheck(inner - visibleWidth(memory) - 2, clock), memory, inner);
     const statusLines = [activity, rule, nextCheckRow, sessionBar(inner)];
-    if (question?.rows) return cardLines(inner, height, headerLength, statusLines);
     if (question) return [...questionBox(inner, height, headerLength), ...tipRows, ...statusLines];
     if (choosing) return [...questionBox(inner, height, headerLength, choosing), ...tipRows, ...statusLines];
     // Compaction says itself here too, between turns as well as in one, so it is never said twice.
@@ -2295,6 +2289,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (faceShown) {
       const [activityRow, ...rest] = statusLines;
       const face = drawnFace(clock);
+      faceZone = { top: working.length, rows: face.length };
       // A mood's speed is known once its frames have loaded.
       animate();
       const beside = [...composerLines(room), ...tipRows, activityRow];
@@ -2468,17 +2463,20 @@ export function createDashboard(initial, handlers = {}, options = {}) {
     if (ms < QUICK_ANSWER_MS) callbacks.moment?.({ event: 'quick answer' });
   };
   /**
-   * Puts a box of choices on screen. `onPick` gets the value of the choice, and the typed words when `takesChanges` gave the box a row for them.
-   * `run` is the running agent the box asks about, so the box goes when the agent does.
+   * Puts a box of choices on screen. `onPick` gets the value of the choice, and the typed words when the box has a row for them: changes for
+   * a card that `takesChanges`, or the user's own answer to a question that `takesWords`. `run` is the running agent the box asks about, so
+   * the box goes when the agent does.
    */
-  const openChoices = ({ question: asked, choices, takesChanges = false, run = null, onPick }) => {
-    const selection = new SelectList(takesChanges ? [...choices, CHANGES_ROW] : choices, FEWEST_CHOICES_SHOWN, selectTheme);
-    const other = takesChanges ? new Input({ placeholder: 'Type the changes, then Enter', placeholderStyle: dim }) : null;
+  const openChoices = ({ question: asked, choices, takesChanges = false, takesWords = false, run = null, onPick }) => {
+    const typing = (takesChanges && CHANGES_ROW) || (takesWords && OTHER_ROW) || null;
+    const selection = new SelectList(typing ? [...choices, typing] : choices, FEWEST_CHOICES_SHOWN, selectTheme);
+    const placeholder = typing === CHANGES_ROW ? 'Type the changes, then Enter' : 'Type here, then Enter';
+    const other = typing ? new Input({ placeholder, placeholderStyle: dim }) : null;
     const box = { question: asked, choices, selection, other, scroll: 0, run };
     const openedAt = now();
     selection.onSelectionChange = () => { box.scroll = 0; };
     selection.onSelect = item => {
-      if (item !== CHANGES_ROW) {
+      if (item !== typing) {
         answeredAfter(now() - openedAt);
         onPick(item.value);
         return;
@@ -2486,7 +2484,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
 
       // No words are no answer, so Enter waits for some.
       const typed = other.getValue().trim();
-      if (typed) onPick('changes', typed);
+      if (typed) onPick(item.value, typed);
     };
     choosing = box;
     focus = 'card';
@@ -2504,6 +2502,16 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   // Reading more keeps the card open. Anything else answers it.
   const keepsCardOpen = ['diff', 'open'];
   const answerCard = (card, value, typed) => {
+    if (value === 'talk') {
+      // What this card's own row in Decisions says, or its title and what it records when Decisions does not list it.
+      const title = shownTitle(card.title);
+      const ownRow = decisionRows().find(row => row.key === card.key);
+      const recorded = card.entry?.left ?? card.entry?.summary ?? card.reason;
+      const about = ownRow ?? { key: card.key, title, body: [title, recorded].filter(Boolean).map(clean).join('\n') };
+      closeCard();
+      replyAbout(about);
+      return;
+    }
     if (value === 'diff') noteReading(card, { read: 'diff' });
     if (!keepsCardOpen.includes(value)) walkOn(card);
     runCardAction(...cardRequest(card, value, typed));
@@ -2555,14 +2563,32 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   const readingSince = row => (row.decision && onDecision?.id === row.decision.id ? onDecision.since : null);
   // A question in Decisions asks in the same box as one on screen, and its answer is the one its number gives.
+  // Their own words answer a question the way a choice does, and whoever asked hears them as written.
+  const answerInWords = (row, words, readSince) => {
+    if (readSince !== null) record('decision_read', { id: row.decision.id, ms: now() - readSince });
+    walkOn(row);
+    runCardAction('words', row.decision.id, words);
+  };
   const openAsked = row => {
     const since = readingSince(row) ?? now();
-    openChoices({ question: row.question, choices: row.choices, onPick: value => answerAsked(row, value, since) });
+    openChoices({
+      question: row.question,
+      choices: row.choices,
+      takesWords: Boolean(row.decision),
+      onPick: (value, words) => (words ? answerInWords(row, words, since) : answerAsked(row, value, since)),
+    });
   };
   // The open box takes the keys: the arrows choose, Enter picks, the page keys read the card's page, and Esc leaves it as it was.
   const handleChoosingKey = data => {
     if (key(data, 'escape')) {
       closeCard();
+      return;
+    }
+    // r talks over what the box is about in Chat, as it does on the row. Only the typing row takes letters.
+    if ((data === 'r' || data === 'R') && view === 'decisions' && !onOtherRow(choosing)) {
+      const selected = selectedDecisionRow();
+      closeCard();
+      if (selected) replyAbout(selected);
       return;
     }
     if (key(data, 'pageUp') || key(data, 'pageDown')) {
@@ -2693,11 +2719,18 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   const occupied = () => Boolean(question || editor.getExpandedText() || choosing || askingWorkFolder || referencedReport
     || view === 'decisions' || (view === 'work' && workTab === 'done') || columns < 60 || rows < 18);
   // A number answers a question and Enter asks it in a box, Enter opens a report, and finished work opens the way it does in Done.
-  /** A row in Decisions can be talked over in Chat, as a report can: r opens Chat about it, and the main agent gets what the row says. */
-  const replyAbout = row => {
+  // A report's row is about the report, so the main agent gets the report itself. A question on screen brings its own words.
+  const referenceFor = row => {
+    const report = row.report ? (snapshot.reports ?? []).find(({ id }) => id === row.report) : null;
+    if (report) return report;
+    if (row.body) return { id: row.key, kind: 'decision', title: row.title, at: new Date(now()).toISOString(), body: row.body };
     const lines = (row.lines ?? []).map(value => clean(value).trim()).filter(Boolean);
     const title = (lines[0] ?? 'Decision').replace(/^[^\p{L}\p{N}]+/u, '');
-    referencedReport = { id: `decision:${row.key}`, kind: 'decision', title, at: new Date(now()).toISOString(), body: lines.join('\n') };
+    return { id: row.key, kind: 'decision', title, at: new Date(now()).toISOString(), body: lines.join('\n') };
+  };
+  /** A row in Decisions, its open box or a question on screen can be talked over in Chat, as a report can: r opens Chat about it. */
+  const replyAbout = row => {
+    referencedReport = referenceFor(row);
     view = 'conversation';
     focus = 'composer';
     scroll = 0;
@@ -2773,6 +2806,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
   };
   // Every row sits inside the frame's two columns of margin.
   const tabAt = ({ x, y }) => clickableTabs.find(zone => zone.y === y && x - 2 >= zone.from && x - 2 < zone.to)?.name;
+  const onFace = ({ x, y }) => {
+    if (!faceZone) return false;
+
+    const row = y - contentBounds.bottom - faceZone.top;
+    const column = x - 2;
+    return row >= 0 && row < faceZone.rows && column >= 0 && column < faceColumns();
+  };
   const openTab = name => {
     if (reportKinds.some(kind => kind.name === name)) {
       showReportKind(name);
@@ -2871,18 +2911,13 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       if (gained) sawUser();
       else away = true;
     },
-    /** A question with what it is about painted above numbered choices. */
-    askPending({ groups, choices, ...request }, signal) {
-      const numbered = choices.map(({ value, label }, index) => ({ value, label: `${index + 1} ${label}` }));
-      return controller.askQuestion({ ...request, choices: numbered, rows: pendingRows(groups) }, signal);
-    },
     askQuestion(request, signal) {
       // Someone is waiting on this one, and what it replaces can wait in Decisions.
       if (question?.whenQuiet && !request.whenQuiet) question.finish(null, 'expired');
       if (stopped || question) return Promise.resolve(undefined);
       if (signal?.aborted) return Promise.resolve(null);
-      // A question nobody is waiting on stays out of the way of what the user is typing, and of the card they are deciding on.
-      if (request.whenQuiet && (editor.getExpandedText() || choosing)) return Promise.resolve(undefined);
+      // A question nobody is waiting on stays out of the way of what the user is typing, of a reply they are about to write, and of the card they are deciding on.
+      if (request.whenQuiet && (editor.getExpandedText() || referencedReport || choosing)) return Promise.resolve(undefined);
       return new Promise(resolve => {
         const previous = { focus, view, scroll };
         // What the main agent asks about is the message just above it in Chat, so the question opens there, and the answer comes back here.
@@ -2908,7 +2943,6 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         }
         const cancel = () => finish(null, 'expired');
         const expiry = request.waitMs ? setTimeout(cancel, request.waitMs) : null;
-        current.keepOpen = () => clearTimeout(expiry);
         selection.onSelectionChange = () => { current.scroll = 0; };
         selection.onSelect = item => {
           if (item !== OTHER_ROW) {
@@ -2948,11 +2982,15 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return { handled: true };
       }
+      // Movement only stirs the face, and stays the terminal's to use.
+      if (event.type === 'move' && reactions.hover(onFace(event))) changed();
       if (event.type === 'press' || event.type === 'click') {
         const tab = event.button === 'left' ? tabAt(event) : null;
-        if (!tab) return;
+        const faceHit = event.button === 'left' && onFace(event);
+        if (!tab && !faceHit) return;
         if (event.type === 'click') {
-          openTab(tab);
+          if (tab) openTab(tab);
+          else reactions.click();
           changed();
         }
         // Taking the press too is what makes the click arrive, and stops it starting a text selection.
@@ -2977,16 +3015,9 @@ export function createDashboard(initial, handlers = {}, options = {}) {
         changed();
         return;
       }
-      const cardChoice = question?.rows && !onOtherRow() ? question.choices[Number(data) - 1] : null;
-      if (cardChoice) {
-        question.finish(cardChoice.value);
-        return;
-      }
       // Nobody is waiting on this kind of question, so typing past it means "not now" and the key carries on to wherever the user was.
       if (question?.whenQuiet && PRINTABLE_KEY.test(data) && !onOtherRow()) question.finish(null);
       if (question) {
-        // Someone using a card has not left it alone.
-        if (question.rows) question.keepOpen();
         const tooSmall = (options.tui?.terminal.columns ?? columns) < 60 || (options.tui?.terminal.rows ?? rows) < 18;
         const paging = !tooSmall && (key(data, 'pageUp') || key(data, 'pageDown'));
         if (key(data, 'escape')) question.finish(null);
@@ -3056,6 +3087,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
           // Tab finished the command.
         } else {
           if (key(data, 'ctrl+v') && takesImages()) pasteImage();
+          // A sleeping face wakes slowly to the first key, and the key still goes straight to the composer.
+          reactions.wake();
           editor.disableSubmit = clearing;
           editor.handleInput(data);
         }
@@ -3097,6 +3130,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       columns = width;
       contentBounds = { top: 0, bottom: 0 };
       clickableTabs = [];
+      faceZone = null;
       const tooSmall = text => {
         motion?.reset();
         return [line(text, width)];
@@ -3139,8 +3173,7 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       if (pinnedRows) body.splice(0, pinnedRows, framed(pinned.heading), framed(''));
       const shown = motion?.faint && fading ? motion.fade(body, { ...placed, first: pinnedRows }, fadeColors[palette.face.theme]) : body;
       const screen = [...header.map(framed), ...shown, ...footer.map(framed)];
-      // A tab row that wraps can only cost a card the top of the screen, never a row of its own.
-      return question?.rows ? screen.slice(-height) : screen;
+      return screen;
     },
   };
   animate();

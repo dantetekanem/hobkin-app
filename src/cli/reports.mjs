@@ -45,6 +45,12 @@ const statOrMissing = file => {
   }
 };
 
+/** Where a report's text is saved, or null when it has none on disk. */
+export const savedReportPath = (root, id) => {
+  const saved = reportPath(root, id);
+  return statOrMissing(saved) ? saved : null;
+};
+
 // Well under Runtime's 64 KiB message limit, leaving the user room to write.
 const MAX_REFERENCED_BYTES = 24576;
 // The old tag still appears in conversations imported from pi-companion.

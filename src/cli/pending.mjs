@@ -5,16 +5,13 @@ const MINUTE_MS = 60000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-export const CARD_BAR = 8;
-export const CARD_QUIET_MS = 4 * HOUR_MS;
 export const PRESENT_MS = 2 * MINUTE_MS;
-const CARD_MORE = 5;
 
 const TO_READ = ['land', 'rebase', 'elsewhere', 'unlanded'];
 const WENT_WRONG = ['critical', 'blocked'];
 const ASKS = ['allowance', 'proposal'];
-// Each of these is about a branch that already has its row, or is the card itself.
-const NOT_QUESTIONS = ['land', 'merge', 'read', 'pending'];
+// Each of these is about branches that already have their rows, or is the old card about the pile itself.
+const NOT_QUESTIONS = ['land', 'merge', 'read', 'pair', 'pending'];
 
 const plural = (amount, noun) => `${amount} ${noun}${amount === 1 ? '' : 's'}`;
 const pad = number => String(number).padStart(2, '0');
@@ -121,7 +118,7 @@ export function waitingRows({ ready = [], attention = [], proposals = [], launch
   };
 }
 
-/** What waits on the user, across every routine and work mode, as the card's rows. Each fact is worked out from what is given, and nothing here reads or writes anything. */
+/** What waits on the user, across every routine and work mode, one row per group. Each fact is worked out from what is given, and nothing here reads or writes anything. */
 export function pendingCard({ decisions = [], now, ...given }) {
   const { wrong, asks, proposals, branches, yours, reports } = waitingRows({ now, ...given });
   const landable = branches.filter(isReady);
@@ -135,46 +132,11 @@ export function pendingCard({ decisions = [], now, ...given }) {
     ...row('questions', questions.length === 1 ? 'question' : 'questions', questions, () => questionFact(questions, now)),
     ...row('yours', 'yours', yours, () => yours.slice(0, 2).map(({ title }) => title).join(', ')),
   ];
-  const total = groups.reduce((sum, { count }) => sum + count, 0);
-  return {
-    total,
-    groups,
-    trouble: wrong.map(({ fact, ...target }) => target),
-    // Decisions lists all of it, with work mode on or off.
-    walk: total ? 'decisions' : 'chat',
-  };
+  return { total: groups.reduce((sum, { count }) => sum + count, 0), groups };
 }
 
-export const cardQuestion = ({ total }) => `${total} waiting. How do you want to tackle them?`;
+/** The user is there for two minutes after a key, a click or gaining focus. A key or a click is enough, because Herdr may never pass focus reports on. */
+export const isPresent = ({ seenAt, away }, now) => !away && now - seenAt < PRESENT_MS;
 
-/** `Not now` comes first because Enter takes the first. */
-export function cardChoices({ groups }) {
-  const ready = groups.find(({ name }) => name === 'ready');
-  return [
-    { value: 'later', label: 'Not now' },
-    ...(ready ? [{ value: 'ready', label: `Start with the ${ready.count} ready` }] : []),
-    ...(groups.some(({ name }) => name === 'wrong') ? [{ value: 'wrong', label: 'Just what went wrong' }] : []),
-    { value: 'walk', label: 'Walk it all' },
-  ];
-}
-
-/** The card in plain words, for the main agent when the user types their own answer. */
-export const cardEvidence = ({ total, groups }) => [
-  `${total} waiting.`,
-  ...groups.map(({ count, label, fact }) => `${count} ${label}: ${fact}`),
-].join('\n');
-
-/** The card comes to a user who is there and whose screen is free. A key or a click is enough, because Herdr may never pass focus reports on. */
-export const canShowCard = ({ presence: { seenAt, away, occupied }, busy, now }) => !away && !occupied && !busy && now - seenAt < PRESENT_MS;
-
-/** Whether there is enough to bring up. After a card it stays quiet for 4 hours, unless 5 more arrive or something new went wrong. */
-export function cardDue({ total, trouble, last, now }) {
-  if (total < CARD_BAR) return false;
-  if (!last) return true;
-
-  const quietIsOver = now - Date.parse(last.at) >= CARD_QUIET_MS;
-  const moreArrived = total >= last.total + CARD_MORE;
-  const seen = new Set(last.trouble.map(({ key }) => key));
-  const newTrouble = trouble.some(({ key }) => !seen.has(key));
-  return quietIsOver || moreArrived || newTrouble;
-}
+/** A question comes to a user who is there and whose screen is free. */
+export const canShowCard = ({ presence, busy, now }) => isPresent(presence, now) && !presence.occupied && !busy;

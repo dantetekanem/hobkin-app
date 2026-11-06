@@ -11,7 +11,8 @@ import { deleteReports, saveReport } from '../src/cli/reports.mjs';
 import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { png } from './helpers/png.mjs';
-import { fileDecision, lastCard, markShown, openDecisions } from '../src/cli/decisions.mjs';
+import { fileDecision, markShown, openDecisions } from '../src/cli/decisions.mjs';
+import { readBriefState, writeBriefState } from '../src/cli/brief.mjs';
 import { openCheck } from '../src/cli/checks.mjs';
 import { retireOffers } from '../src/cli/work/land-offer.mjs';
 import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
@@ -900,30 +901,101 @@ test('a message about a report gives the model the report and shows the chat onl
 
 const yesNo = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
 
-test('a finished branch files a decision with no model turn, and a yes opens Done', async t => {
+test('a finished branch files no question of its own, so nothing opens for it', async t => {
   const h = fixture(t);
   const asked = [];
-  let walked = 0;
-  const app = await h.openApp({
-    showDone: () => { walked += 1; },
-    askQuestion: async request => {
-      asked.push(request);
-      return request.choices[1].value;
-    },
-  });
+  const app = await h.openApp({ askQuestion: async request => { asked.push(request); return null; } });
   try {
     chooseProject(h.root, '/repos/api', 'important');
-    app.runtime.mainTurn = { id: 'busy' };
     await app.director.onDraftDone({ slug: 'api', id: 'abc', project: 'api', title: 'Fix login' });
     await app.presentDecision();
-    assert.deepEqual(asked, [], 'it waits for the chat to be free');
 
-    app.runtime.mainTurn = null;
+    assert.deepEqual(asked, []);
+    assert.deepEqual(openDecisions(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a question filed while the user is away waits for them, and after ten minutes goes to Decisions without opening', async t => {
+  const h = fixture(t);
+  const asked = [];
+  const clock = { at: Date.parse('2026-06-01T12:00:00Z') };
+  const app = await h.openApp({
+    now: () => clock.at,
+    presence: () => ({ seenAt: clock.at - 3 * 3600000, away: true, occupied: false }),
+    askQuestion: async request => { asked.push(request); return null; },
+  });
+  try {
+    const { id } = fileDecision(h.root, { from: 'Routine mail', question: 'Reply to the bank?', choices: yesNo }, clock.at);
+    await app.presentDecision();
+    assert.equal(openDecisions(h.root)[0].shown, false);
+
+    clock.at += 10 * 60000;
     await app.presentDecision();
 
-    assert.match(asked[0].question, /can land/);
-    assert.equal(asked[0].waitMs, 30000);
-    assert.equal(walked, 1);
+    assert.deepEqual(asked, []);
+    assert.deepEqual(openDecisions(h.root).map(decision => [decision.id, decision.shown]), [[id, true]]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('parking a question nobody saw never throws from the tick, even when the screen cannot refresh', async t => {
+  const h = fixture(t);
+  const clock = { at: Date.parse('2026-06-01T12:00:00Z') };
+  const app = await h.openApp({ now: () => clock.at, presence: () => ({ seenAt: clock.at - 3 * 3600000, away: true, occupied: false }) });
+  try {
+    fileDecision(h.root, { from: 'Routine mail', question: 'Reply to the bank?', choices: yesNo }, clock.at);
+    clock.at += 10 * 60000;
+    app.refresh = async () => { throw Error('The view cannot be written.'); };
+
+    await assert.doesNotReject(app.presentDecision());
+
+    assert.equal(openDecisions(h.root)[0].shown, true);
+  } finally {
+    delete app.refresh;
+    await app.close();
+  }
+});
+
+test('a question on screen has a row for the user\'s own words, and their words reach whoever asked', async t => {
+  const h = fixture(t);
+  const asked = [];
+  const app = await h.openApp({ askQuestion: async request => { asked.push(request); return { typed: 'only if it is under $50' }; } });
+  try {
+    fileDecision(h.root, { from: 'Routine mail', question: 'Pay the bank fee?', choices: yesNo, answerTo: { kind: 'routine', id: 'mail' } });
+    await app.presentDecision();
+
+    assert.equal(asked[0].other, true);
+    assert.deepEqual(openDecisions(h.root), []);
+    assert.match(openCheck(h.root, 'mail').memory.text, /in their own words: only if it is under \$50/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('their own words to one of hobkin\'s own questions go to the main agent with the question, in Chat', async t => {
+  const h = fixture(t);
+  const shown = [];
+  const app = await h.openApp({ showRow: target => shown.push(target), askQuestion: async () => ({ typed: 'start only the finboard one' }) });
+  try {
+    fileDecision(h.root, {
+      key: 'pickup',
+      from: 'Work mode',
+      question: 'Work mode is on, and nothing new starts by itself. Next in the queue:\n1. P0 finboard: Fix totals',
+      choices: [{ value: 'later', label: 'Not now' }, { value: 'these', label: 'Start it' }],
+      answerTo: { kind: 'pickup', keys: ['item:finboard:a1'] },
+    });
+    await app.presentDecision();
+    await app.outgoing;
+    await app.runtime.idle();
+
+    const sent = app.runtime.messages().find(message => message.role === 'user').content;
+    assert.match(sent, /^<hobkin-report>\n/);
+    assert.match(sent, /Next in the queue:\n1\. P0 finboard: Fix totals\n\n- Not now\n- Start it/);
+    assert.match(sent, /start only the finboard one$/);
+    assert.deepEqual(shown, [{ tab: 'chat' }]);
     assert.deepEqual(openDecisions(h.root), []);
   } finally {
     await app.close();
@@ -1013,206 +1085,117 @@ test('turning work mode on without auto-pick asks what to start, and the answer 
 });
 
 const HOUR_MS = 3600000;
+const iso = time => new Date(time).toISOString();
 const pileUp = (root, count, at) => {
   for (let index = 0; index < count; index += 1) {
     const { id } = fileDecision(root, { from: 'Routine mail', question: `Question ${index}?`, choices: yesNo, answerTo: { kind: 'routine', id: 'mail' } }, at);
     markShown(root, id);
   }
 };
-const cardApp = (h, clock, { answer = 'later', ...options } = {}) => {
-  const seen = { asked: [], shown: [] };
-  const opening = h.openApp({
-    now: () => clock.at,
-    intervalMs: HOUR_MS,
-    presence: () => ({ seenAt: clock.at, away: false, occupied: false }),
-    askPending: async request => { seen.asked.push(request); return typeof answer === 'function' ? answer(request) : answer; },
-    showRow: target => seen.shown.push(target),
-    ...options,
-  });
-  return opening.then(app => ({ app, ...seen }));
-};
-const atWork = root => {
-  chooseProject(root, '/repos/api', 'important');
-  const { id } = fileItem(root, 'api', { key: 'fix', kind: 'fix', title: 'Fix login', brief: 'The first change.' });
-  updateItem(root, 'api', id, { state: 'branch', branch: 'hobkin/login' });
-};
+const briefApp = (h, clock, options = {}) => h.openApp({
+  now: () => clock.at,
+  intervalMs: HOUR_MS,
+  presence: () => ({ seenAt: clock.at, away: false, occupied: false }),
+  ...options,
+});
+const offersIn = view => view.messages.filter(({ id }) => id?.startsWith('notice:brief:'));
+const OFFER = "It's been a while. While you were away: 3 decisions. Want a brief? Just say: brief me";
 
-test('when calls pile up and the user is there, hobkin asks once how to tackle them and files nothing that waits', async t => {
+test('back after a while to what came in, Chat offers a brief once, in a line that asks nothing', async t => {
   const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 8, clock.at);
-  const { app, asked } = await cardApp(h, clock);
+  const clock = { at: Date.parse('2026-11-05T08:00:00Z') };
+  writeBriefState(h.root, { lastSeenAt: iso(clock.at) });
+  pileUp(h.root, 3, clock.at + HOUR_MS);
+  clock.at += 3 * HOUR_MS;
+  const app = await briefApp(h, clock);
   try {
-    await app.presentPending();
-    clock.at += 1000 * 60;
-    await app.presentPending();
+    app.lookForReturn();
+    clock.at += 60000;
+    app.lookForReturn();
+    const offers = offersIn(await app.refresh());
 
-    assert.equal(asked.length, 1);
-    const [{ question, choices, groups, other, whenQuiet }] = asked;
-    assert.equal(question, '8 waiting. How do you want to tackle them?');
-    assert.deepEqual(choices[0], { value: 'later', label: 'Not now' });
-    assert.deepEqual(groups.map(({ name, count }) => [name, count]), [['questions', 8]]);
-    assert.deepEqual({ other, whenQuiet }, { other: true, whenQuiet: true });
-    assert.equal(openDecisions(h.root).length, 8);
+    assert.deepEqual(offers.map(({ role, content }) => [role, content]), [['notice', OFFER]]);
+    assert.equal(openDecisions(h.root).length, 3);
+    assert.equal(readBriefState(h.root).lastSeenAt, iso(clock.at));
   } finally {
     await app.close();
   }
 });
 
-test('under the bar, with the user away or with a turn running, no card comes', async t => {
+test('no offer for a user who stayed, while they are still away, or for too little', async t => {
   const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 7, clock.at);
-  const present = { value: { seenAt: clock.at, away: false, occupied: false } };
-  const { app, asked } = await cardApp(h, clock, { presence: () => present.value });
+  const clock = { at: Date.parse('2026-11-05T08:00:00Z') };
+  const presence = { value: { seenAt: clock.at, away: false, occupied: false } };
+  const app = await briefApp(h, clock, { presence: () => presence.value });
   try {
-    await app.presentPending();
-    pileUp(h.root, 1, clock.at);
-    clock.at += HOUR_MS / 2;
-    present.value = { seenAt: clock.at, away: true, occupied: false };
-    await app.presentPending();
-    clock.at += HOUR_MS / 2;
-    present.value = { seenAt: clock.at, away: false, occupied: false };
-    app.runtime.mainTurn = { id: 'busy' };
-    await app.presentPending();
-
-    assert.deepEqual(asked, []);
-
-    app.runtime.mainTurn = null;
-    await app.presentPending();
-
-    assert.equal(asked.length, 1);
-  } finally {
-    await app.close();
-  }
-});
-
-test('what the card showed survives a restart, so it stays quiet for 4 hours', async t => {
-  const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 8, clock.at);
-  const first = await cardApp(h, clock);
-  await first.app.presentPending();
-  await first.app.close();
-  assert.equal(first.asked.length, 1);
-
-  clock.at += HOUR_MS;
-  const second = await cardApp(h, clock);
-  try {
-    await second.app.presentPending();
-    assert.deepEqual(second.asked, []);
+    app.lookForReturn();
+    pileUp(h.root, 5, clock.at + 60000);
+    clock.at += HOUR_MS;
+    presence.value = { seenAt: clock.at, away: false, occupied: false };
+    app.lookForReturn();
 
     clock.at += 3 * HOUR_MS;
-    await second.app.presentPending();
-    assert.equal(second.asked.length, 1);
-  } finally {
-    await second.app.close();
-  }
-});
+    presence.value = { seenAt: clock.at - 3 * HOUR_MS, away: true, occupied: false };
+    app.lookForReturn();
 
-test('a card dismissed still counts as shown, and one that never opened comes back', async t => {
-  const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 8, clock.at);
-  const answers = [undefined, null];
-  const { app, asked } = await cardApp(h, clock, { answer: () => answers.shift() });
-  try {
-    await app.presentPending();
-    clock.at += HOUR_MS / 60;
-    await app.presentPending();
-    clock.at += HOUR_MS / 60;
-    await app.presentPending();
+    pileUp(h.root, 2, clock.at - HOUR_MS);
+    presence.value = { seenAt: clock.at, away: false, occupied: false };
+    app.lookForReturn();
 
-    assert.equal(asked.length, 2);
-    assert.equal(openDecisions(h.root).length, 8);
-    assert.equal(lastCard(h.root).total, 8);
+    assert.equal(readBriefState(h.root).offer, null);
+    assert.deepEqual(offersIn(await app.refresh()), []);
   } finally {
     await app.close();
   }
 });
 
-test('Start with the ready and Walk it all both open Decisions', async t => {
+test('when the user was last here survives a restart, so opening hobkin hours later offers the brief', async t => {
   const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  const { app, shown } = await cardApp(h, clock);
-  const card = walk => fileDecision(h.root, {
-    from: 'hobkin',
-    question: '8 waiting.',
-    choices: [{ value: 'ready', label: 'Start with the 3 ready' }, { value: 'walk', label: 'Walk it all' }],
-    answerTo: { kind: 'pending', total: 8, trouble: [], walk, evidence: '8 waiting.' },
-  }, clock.at).id;
+  const clock = { at: Date.parse('2026-11-05T08:00:00Z') };
+  const first = await briefApp(h, clock);
+  first.lookForReturn();
+  await first.close();
+
+  pileUp(h.root, 3, clock.at + HOUR_MS);
+  clock.at += 10 * HOUR_MS;
+  const second = await briefApp(h, clock);
   try {
-    writeMode(h.root, { enabled: true });
+    second.lookForReturn();
 
-    await app.workAction('decide', card('decisions'), 'ready');
-    await app.workAction('decide', card('decisions'), 'walk');
-
-    assert.deepEqual(shown, [{ tab: 'decisions' }, { tab: 'decisions' }]);
-    assert.deepEqual(openDecisions(h.root), []);
+    assert.deepEqual(offersIn(await second.refresh()).map(({ content }) => content), [OFFER]);
   } finally {
-    await app.close();
+    await second.close();
   }
 });
 
-test('Just what went wrong opens that report', async t => {
+test('brief me reaches the main agent with the brief ahead of the words, and Chat shows only the words', async t => {
   const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 7, clock.at);
-  const { app, asked, shown } = await cardApp(h, clock, { answer: 'wrong' });
+  const clock = { at: Date.parse('2026-11-05T08:00:00Z') };
+  writeBriefState(h.root, { offer: { since: iso(clock.at), at: iso(clock.at + 2 * HOUR_MS), line: OFFER } });
+  const { id } = fileDecision(h.root, { from: 'Routine mail', question: 'Archive the old invoices?', choices: yesNo, answerTo: { kind: 'routine', id: 'mail' } }, clock.at + HOUR_MS);
+  clock.at += 2 * HOUR_MS;
+  const app = await briefApp(h, clock);
   try {
-    app.snapshot.reports = [{ id: 'bad', title: 'Site', scheduleId: 'site', at: new Date(clock.at).toISOString(), outcome: 'completed', body: 'Critical: The site is down.\n\nNext: Restart it.' }];
-    clock.at += HOUR_MS;
-
-    await app.presentPending();
-
-    assert.deepEqual(asked[0].groups.map(({ name }) => name), ['wrong', 'questions']);
-    assert.deepEqual(shown, [{ key: 'report:bad', tab: 'reports', report: 'bad' }]);
-  } finally {
-    await app.close();
-  }
-});
-
-test('a typed answer reaches the main agent with the card as evidence, and Chat shows the words', async t => {
-  const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 8, clock.at);
-  const { app, shown } = await cardApp(h, clock, { answer: { typed: 'drop the old finboard branches' } });
-  try {
-    await app.presentPending();
+    app.snapshot.reports = [{ id: 'rent:1', title: 'Rent', scheduleId: 'rent', at: iso(clock.at - HOUR_MS), outcome: 'completed', body: 'Useful: Rent is due Friday.\n\nNext: Pay it.' }];
+    await app.send('brief me');
     await app.runtime.idle();
 
     const sent = app.runtime.messages().find(message => message.role === 'user').content;
-    assert.match(sent, /8 waiting\.\n8 questions: oldest/);
-    assert.match(sent, /drop the old finboard branches$/);
-    assert.deepEqual(shown, [{ tab: 'chat' }]);
+    const [, json] = sent.match(/<hobkin-brief>\n(.*)\n<\/hobkin-brief>\n\nbrief me$/);
+    const material = JSON.parse(json);
+    assert.equal(material.since, iso(clock.at - 2 * HOUR_MS));
+    assert.deepEqual(material.decisions.map(({ id: decision, choices }) => [decision, choices.length]), [[id, 2]]);
+    assert.deepEqual(material.reports.map(({ id: report, next }) => [report, next]), [['rent:1', 'Pay it.']]);
+    assert.match(material.guide, /prompts\/humanizer\.md$/);
+    assert.equal(readBriefState(h.root).briefedAt, iso(clock.at));
     const chat = (await app.refresh()).messages.find(message => message.role === 'user');
-    assert.equal(chat.content, 'drop the old finboard branches');
-    assert.equal(chat.about, 'Pending card');
-    assert.equal(lastCard(h.root).total, 8);
+    assert.equal(chat.content, 'brief me');
   } finally {
     await app.close();
   }
 });
 
-test('with work mode off the walk still opens Decisions, and no agent is asked', async t => {
-  const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  atWork(h.root);
-  pileUp(h.root, 7, clock.at);
-  const { app, shown } = await cardApp(h, clock, { answer: 'walk' });
-  try {
-    await app.presentPending();
-    await app.outgoing;
-    await app.runtime.idle();
-
-    assert.deepEqual(shown, [{ tab: 'decisions' }]);
-    assert.equal(app.runtime.messages().find(message => message.role === 'user'), undefined);
-  } finally {
-    await app.close();
-  }
-});
-
-test('the view carries every row the card counts, for Decisions to list', async t => {
+test('the view carries every row Decisions lists', async t => {
   const h = fixture(t);
   chooseProject(h.root, '/repos/api', 'important');
   const { id } = fileItem(h.root, 'api', { key: 'keys', kind: 'fix', title: 'Rotate the keys', brief: 'The first change.' });
@@ -1278,50 +1261,6 @@ test('a learning proposal answered in Decisions is recorded at once, and a yes a
     assert.deepEqual(shown, [{ tab: 'chat' }]);
     await assert.rejects(app.workAction('learning', 'abc123', 'yes'), /already answered/);
   } finally {
-    await app.close();
-  }
-});
-
-test('a problem working out the card reaches nothing', async t => {
-  const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 8, clock.at);
-  const { app } = await cardApp(h, clock, { askPending: async () => { throw Error('The screen is gone.'); } });
-  try {
-    await app.presentPending();
-
-    assert.equal(lastCard(h.root), null);
-    assert.equal(app.presenting, false);
-  } finally {
-    await app.close();
-  }
-});
-
-test('the card and the dashboard work together: a digit answers, and it opens the tab', async t => {
-  const h = fixture(t);
-  const clock = { at: Date.parse('2026-11-02T12:00:00Z') };
-  pileUp(h.root, 8, clock.at);
-  let ui = null;
-  const app = await h.openApp({
-    now: () => clock.at,
-    intervalMs: HOUR_MS,
-    presence: () => ui.presence(),
-    askPending: request => ui.askPending(request),
-    showRow: target => ui.showRow(target),
-    onChange: view => ui?.update(view),
-  });
-  ui = createDashboard(app.snapshot, {}, { now: () => clock.at });
-  try {
-    const presented = app.presentPending();
-    await new Promise(setImmediate);
-    assert.match(stripTerminalSequences(ui.render(80, 24).join('\n')), /8 waiting\. How do you want to tackle them\?/);
-
-    ui.input('2');
-    await presented;
-
-    assert.equal(ui.state().view, 'decisions');
-  } finally {
-    ui.stop();
     await app.close();
   }
 });

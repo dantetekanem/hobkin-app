@@ -25,24 +25,26 @@ import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessio
 import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
-import { askReminders, handAnswer, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted, remindTomorrow } from './inbox.mjs';
+import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted } from './inbox.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
-import { answerOffer, askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
+import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
-import { answerPickUp, filePickUp, retirePickUp } from './work/pick-up.mjs';
+import { filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
-import { answerSubscriptionPause } from './work/subscription.mjs';
 import { winsNow, yesterdayLine } from './work/wins.mjs';
 import { prView } from './work/reads.mjs';
-import { LandOffers, notSurveyed, offerDecisions, retireOffers } from './work/land-offer.mjs';
-import { answerPair, fileFirstPair } from './work/pairs.mjs';
-import { noteForCheck, stalled } from './checks.mjs';
-import { answerDecision, fileDecision, findDecision, lastCard, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
-import { canShowCard, cardChoices, cardDue, cardEvidence, cardQuestion } from './pending.mjs';
+import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
+import { fileFirstPair } from './work/pairs.mjs';
+import { stalled } from './checks.mjs';
+import { fileDecision, findDecision, findOpenDecision, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
+import { isPresent } from './pending.mjs';
 import { readPending, readWaiting } from './pending-read.mjs';
+import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
+import { readReportIds } from './telemetry.mjs';
+import { carryOutAnswer } from './answer.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
@@ -55,7 +57,7 @@ import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
 import { readLocalView } from './view.mjs';
 import { PastedImages } from './paste-image.mjs';
-import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, splitReportReference } from './reports.mjs';
+import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
 
 const textOf = message => (typeof message.content === 'string' ? message.content
@@ -73,7 +75,7 @@ const imagesIn = message => (Array.isArray(message.content) ? message.content : 
 // Every refresh hashes the whole chat, and an image would be most of what it hashes.
 const withoutImageData = (_, value) => (value?.type === 'image' ? { ...value, data: '' } : value);
 // What the user typed, and the report it was about, without the notes hobkin sends ahead of it.
-const typedPart = text => splitReportReference(withoutLearningNote(withoutWorkNote(text)));
+const typedPart = text => splitReportReference(withoutBriefNote(withoutLearningNote(withoutWorkNote(text))));
 const chatMessage = (message, index, shown) => {
   const { text, about } = typedPart(textOf(message));
   const endedTheChat = index === shown.length - 1;
@@ -107,6 +109,10 @@ const BUSY_RETRY_MS = 100;
 const WALK_EVENTS = { diff: 'done_diff', merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
 // A tick comes every second, and what is waiting rarely changes that fast.
 const PENDING_LOOK_MS = 30000;
+// A question nobody was there to see waits this long for them to come back, then joins Decisions without opening.
+const UNSEEN_MS = 10 * 60000;
+// A decision as the main agent reads it when the user talks it over: its summary, then the question and each choice in words.
+const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [question, '', ...choices.map(({ label }) => `- ${label}`)].join('\n') });
 
 export class HobkinApplication {
   jobActivity = new Map();
@@ -118,7 +124,7 @@ export class HobkinApplication {
   // Scheduled failures already told, and when this process opened. The scheduler stamps its messages by the wall clock, so this does too.
   failuresTold = new Set();
   openedAt = Date.now();
-  pendingLookedAt = -Infinity;
+  returnLookedAt = -Infinity;
 
   observeActivity(id, event) {
     try {
@@ -132,7 +138,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, askPending, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
+  static async open(root, { createMain, askQuestion, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -201,16 +207,16 @@ export class HobkinApplication {
           app.tickInbox();
           app.remote.tick();
           app.landOffers.next();
-          // Not awaited: each holds a question on screen for as long as it stays there. The card goes first, because it stands for the whole pile.
-          app.presentPending();
+          app.lookForReturn();
+          // Not awaited: it holds a question on screen for as long as it stays there.
           app.presentDecision();
         },
       });
-      Object.assign(app, { askQuestion, askPending, showDone, showRow, presence });
+      Object.assign(app, { askQuestion, showDone, showRow, presence });
       app.landOffers = new LandOffers({
         file: decision => fileDecision(app.runtime.directory, decision, app.now()),
         offers: () => offerDecisions(app.runtime.directory, app.now()),
-        unread: draft => notSurveyed(app.runtime.directory, draft),
+        lastFiledAt: () => lastOfferAt(app.runtime.directory),
         now: app.now,
       });
       app.director = new WorkDirector({
@@ -326,6 +332,13 @@ export class HobkinApplication {
     if (shipping && !noticeIds.has(shippingId)) {
       notices.push({ id: shippingId, role: 'notice', content: shipping.line, tone: 'useful', at: shipping.at });
       noticeIds.add(shippingId);
+    }
+    // The offer of a brief stands where it was made, and the user answers it in their own words.
+    const offered = readBriefState(this.runtime.directory).offer;
+    const offeredId = offered && `notice:brief:${offered.since}`;
+    if (offered && !noticeIds.has(offeredId)) {
+      notices.push({ id: offeredId, role: 'notice', content: offered.line, tone: 'useful', at: offered.at });
+      noticeIds.add(offeredId);
     }
     for (const { key, line, at } of work.harnessLines) {
       const id = `notice:${key}`;
@@ -566,14 +579,18 @@ export class HobkinApplication {
     const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid, handed: inboxNews(handedOver) }, this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
+    // "brief me" brings what a brief is written from, ahead of the words, in the room the work note and the words leave, and Chat shows only the words.
+    const room = MAX_MESSAGE_BYTES - Buffer.byteLength(`${opening}${message}`);
+    const brief = !report && asksForBrief(text) ? this.briefBlock(room) : '';
     // A message with no room for the note still goes, and the note goes with the next one.
-    const fits = Buffer.byteLength(`${opening}${learned}${message}`) <= MAX_MESSAGE_BYTES;
-    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${message}`, images);
+    const fits = Buffer.byteLength(`${opening}${learned}${brief}${message}`) <= MAX_MESSAGE_BYTES;
+    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${brief}${message}`, images);
     this.pastedImages.remove(images);
     this.workNoteSeen = note;
     markHeard(this.runtime.directory, sessions);
     markCardActionsHeard(this.runtime.directory, userDid);
     markInboxHeard(this.runtime.directory, handedOver);
+    if (brief) writeBriefState(this.runtime.directory, { briefedAt: new Date(this.now()).toISOString() });
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
       recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });
@@ -793,6 +810,7 @@ export class HobkinApplication {
       ask: () => askAgent(root, slug, value, extra),
       pr: () => prView(root, slug, value),
       decide: () => this.decide(slug, value),
+      words: () => this.answerWords(slug, value),
       learning: () => this.answerLearning(slug, value),
       mergePr: () => mergePullRequest(root, slug, value, extra),
       refreshMerge: () => refreshThenMerge(root, slug, value, { ...extra, now: this.now() }),
@@ -820,37 +838,77 @@ export class HobkinApplication {
   /** The asker hears first, so an answer that cannot reach it stays open for another try. A merge that fails is the same: it throws, and the reason goes on screen. */
   async decide(id, value) {
     const root = this.runtime.directory;
-    const { decision: { question, answerTo, at, from }, choice } = findDecision(root, id, value);
-    const said = `The user was asked: ${question} They answered: ${choice.label}`;
-    if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
-    if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
-    if (answerTo?.kind === 'outside') handAnswer(root, { from, question, answer: choice.label }, this.now());
-    const snoozed = answerTo?.kind === 'reminder' && value === 'tomorrow' ? remindTomorrow(root, answerTo.id, this.now()) : null;
+    const { decision: { answerTo } } = findDecision(root, id, value);
+    const result = await carryOutAnswer(root, id, { value }, this.now());
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
-    if (answerTo?.kind === 'pending') this.tackle(id, choice, answerTo);
-    const offered = answerTo?.kind === 'merge' ? await answerOffer(root, answerTo, value, this.now()) : null;
     if (value === 'read' && ['merge', 'read'].includes(answerTo?.kind)) this.showDone?.(answerTo);
     if (answerTo?.kind === 'pair' && value === 'read') this.showDone?.();
-    const moved = answerTo?.kind === 'pair' ? await answerPair(root, value, answerTo.rows, this.now()) : null;
-    const picked = answerTo?.kind === 'pickup' ? answerPickUp(root, value, answerTo.keys) : null;
-    const chose = answerTo?.kind === 'subscription' ? answerSubscriptionPause(root, value, answerTo.until, this.now()) : null;
-    answerDecision(root, id, value, this.now());
-    recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: this.now() - Date.parse(at) });
-    return offered ?? moved ?? picked ?? chose ?? snoozed ?? { ok: true, message: `Answered: ${choice.label}.` };
+    return result;
   }
 
-  /** A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. Only a choice answers it. */
-  async presentDecision() {
+  /**
+   * Their own words answer it, and whoever asked hears them. Hobkin's own questions have no asker to hear words, so the main agent gets them
+   * with the question, in Chat, and acts on them there.
+   */
+  async answerInWords(decision, words) {
     const root = this.runtime.directory;
-    const next = openDecisions(root).find(({ shown }) => !shown);
-    if (this.presenting || !next) return;
+    await carryOutAnswer(root, decision.id, { typed: words }, this.now());
+    if (!['work', 'routine', 'outside'].includes(decision.answerTo?.kind)) {
+      this.showRow?.({ tab: 'chat' });
+      void this.send(words, { ...aboutDecision(decision), id: `decision:${decision.id}`, kind: 'decision', at: decision.at }).catch(() => {});
+    }
+    await this.refresh();
+  }
 
-    const overdue = this.now() - Date.parse(next.at) >= QUESTION_WAIT_MS;
+  /** Words typed under a question in Decisions answer that question. */
+  async answerWords(id, words) {
+    await this.answerInWords(findOpenDecision(this.runtime.directory, id), words);
+    return { ok: true, message: 'Answered in your own words.' };
+  }
+
+  /** The oldest decision that has not had its moment on screen. The tick awaits nothing, so a log that cannot be read costs this look and nothing more. */
+  nextUnshown(root) {
+    try {
+      return openDecisions(root).find(({ shown }) => !shown) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Nobody was there to see it, so it waits in Decisions and the next brief without opening. */
+  parkUnseen(root, decision) {
+    try {
+      markShown(root, decision.id);
+      this.requestRefresh();
+    } catch {
+      // The next look tries again.
+    }
+  }
+
+  /**
+   * A question from a routine or work mode gets 30 seconds on screen, and after that it waits in Decisions. A choice answers it, or the user's
+   * own words. It opens only to a user who is there: one filed while they are away waits for them, and after ten minutes it waits in Decisions
+   * and the next brief instead of opening to an empty room.
+   */
+  async presentDecision() {
+    if (this.presenting) return;
+    const root = this.runtime.directory;
+    const next = this.nextUnshown(root);
+    if (!next) return;
+
+    const waited = this.now() - Date.parse(next.at);
+    const presence = this.presence?.();
+    if (presence && !isPresent(presence, this.now())) {
+      if (waited >= UNSEEN_MS) this.parkUnseen(root, next);
+      return;
+    }
+    const overdue = waited >= QUESTION_WAIT_MS;
     this.presenting = true;
     try {
       const { question, choices, id } = next;
-      const answer = this.runtime.mainTurn ? undefined : await this.askQuestion?.({ question, choices, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
-      if (answer) await this.workAction('decide', id, answer);
+      const answer = this.runtime.mainTurn ? undefined : await this.askQuestion?.({ question, choices, other: true, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
+      if (answer?.typed) await this.answerInWords(next, answer.typed);
+      else if (answer) await this.workAction('decide', id, answer);
       else if (answer === null || overdue) {
         markShown(root, id);
         await this.refresh();
@@ -871,61 +929,65 @@ export class HobkinApplication {
     }
   }
 
-  /** The card to bring up now, if any. Nothing is read until the user is there and the screen is free. */
-  dueCard() {
+  /**
+   * Someone back after a while finds what came in, so hobkin offers a brief, once for each return, in a line that asks nothing. When the user
+   * was last here is kept on disk, so a restart, or a night with hobkin closed, still counts as time away. Any trouble costs one look.
+   */
+  lookForReturn() {
     const now = this.now();
     const presence = this.presence?.();
-    if (!presence || now - this.pendingLookedAt < PENDING_LOOK_MS) return null;
-    if (!canShowCard({ presence, busy: Boolean(this.sending || this.runtime.mainTurn), now })) return null;
+    if (!presence || now - this.returnLookedAt < PENDING_LOOK_MS) return;
+    this.returnLookedAt = now;
+    if (!isPresent(presence, now)) return;
 
-    this.pendingLookedAt = now;
-    const root = this.runtime.directory;
-    const card = readPending(root, { now, reports: this.snapshot.reports });
-    return cardDue({ ...card, last: lastCard(root), now }) ? card : null;
-  }
-
-  /** The card only ever asks. Nothing waits for it and nothing stops for it, so any trouble here costs one card and no more. */
-  async presentPending() {
-    if (this.presenting) return;
     try {
-      const card = this.dueCard();
-      if (!card) return;
-      this.presenting = true;
-      await this.askAboutCard(card);
+      const root = this.runtime.directory;
+      const state = readBriefState(root);
+      const since = returnedSince({ lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
+      const offer = since && state.offer?.since !== since ? this.offerAfter(root, since, now) : null;
+      const seen = seenMoved(state, presence.seenAt) ? { lastSeenAt: new Date(presence.seenAt).toISOString() } : {};
+
+      const patch = { ...seen, ...(offer ? { offer } : {}) };
+      if (Object.keys(patch).length) writeBriefState(root, patch);
+      if (offer) this.requestRefresh();
     } catch {
-      // The next look works it all out again.
-    } finally {
-      this.presenting = false;
+      // The next look works it out again.
     }
   }
 
-  /** A card that opened goes on record however it ended, and that record is what keeps it quiet. It never waits in Decisions, because a call about calls helps nobody. */
-  async askAboutCard(card) {
-    const root = this.runtime.directory;
-    const shownAt = this.now();
-    const [question, choices] = [cardQuestion(card), cardChoices(card)];
-    const answer = await this.askPending({ question, choices, groups: card.groups, other: true, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
-    if (answer === undefined) return;
+  /** The offer for a return, or none when too little came in while the user was away. */
+  offerAfter(root, since, now) {
+    const arrived = arrivedSince({
+      decisions: openDecisions(root),
+      reports: this.snapshot.reports ?? [],
+      read: readReportIds(root),
+      since,
+    });
+    if (arrivedCount(arrived) < BRIEF_BAR) return null;
 
-    const { total, trouble, walk } = card;
-    const answerTo = { kind: 'pending', total, trouble, walk, evidence: cardEvidence(card) };
-    const { id } = fileDecision(root, { from: 'hobkin', question, choices, answerTo }, shownAt);
-    if (answer?.typed) {
-      answerDecision(root, id, 'typed', this.now());
-      await this.askMain(id, answer.typed, answerTo);
-    } else if (answer) await this.workAction('decide', id, answer);
-    else answerDecision(root, id, 'dismissed', this.now());
+    return { since, at: new Date(now).toISOString(), line: offerLine(arrived) };
   }
 
-  /** Decisions lists everything the card counts, with work mode on or off. A launch in trouble lives on the Work tab, which work mode hides, so with it off the main agent takes that one. */
-  tackle(id, { value, label }, answerTo) {
-    if (value === 'later' || (value === 'ready' && this.landOffers.offerReady())) return;
-
-    const { trouble, walk } = answerTo;
-    const target = value === 'wrong' ? trouble[0] : { tab: value === 'ready' ? 'decisions' : walk };
-    const hidden = target.tab === 'work' && !readMode(this.runtime.directory).enabled;
-    if (target.tab === 'chat' || hidden) void this.askMain(id, label, answerTo).catch(() => {});
-    else this.showRow?.(target);
+  /** What a brief is written from, as of now, in the room the message has left. A problem gathering it costs this message its brief, and the words still go. */
+  briefBlock(room) {
+    try {
+      const root = this.runtime.directory;
+      const now = this.now();
+      const reports = this.snapshot.reports ?? [];
+      const material = briefMaterial({
+        since: briefSince(readBriefState(root), now),
+        now,
+        decisions: openDecisions(root),
+        reports,
+        read: readReportIds(root),
+        waiting: readPending(root, { now, reports }),
+        rows: readWaiting(root, { now, reports }),
+        reportPath: id => savedReportPath(root, id),
+      });
+      return briefNote(material, { most: room });
+    } catch {
+      return '';
+    }
   }
 
   /** Today's wins and the days in a row, for the Decisions tab. A problem counting them costs this refresh the line and nothing else. */
@@ -1009,11 +1071,6 @@ export class HobkinApplication {
     const about = { id: `learning:${id}`, title: 'Learning proposal', at: proposal.at, body: `${proposalMessage(proposal)}\nProposal ID: ${id}` };
     void this.send('Yes, plan it.', about).catch(() => {});
     return { ok: true, message: 'The main agent writes the plan, and asks before changing anything.' };
-  }
-
-  askMain(id, text, { evidence }) {
-    this.showRow?.({ tab: 'chat' });
-    return this.send(text, { id: `pending:${id}`, title: 'Pending card', at: new Date(this.now()).toISOString(), body: evidence });
   }
 
   recordReportRead(read) {

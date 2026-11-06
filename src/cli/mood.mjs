@@ -83,10 +83,9 @@ export function moodFor(moment) {
 /**
  * What the face shows on a frame and why: a reaction while it lasts, and otherwise whatever is going on. In a turn the face follows what the
  * agent does: searching while it reads, working while it runs any other tool, and thinking, or focused after five minutes, while it writes.
+ * A sleep lasts through a draft left sitting, because the dashboard wakes the face when a key reaches the composer.
  */
 export function shownMood({ reaction, busy, running, typing, now, asked, waiting, searching, tooling, busyMs = 0 }) {
-  // A face that went quiet with the room wakes for whoever starts typing, and waits to hear what they want.
-  if (reaction?.lasting && typing) return { mood: 'listening', cause: 'user is typing' };
   if (asked) return { mood: 'listening', cause: 'a question is on screen' };
   const stepsAside = reaction?.yields && (busy || running);
   if (reaction && now < reaction.until && !stepsAside) return reaction;

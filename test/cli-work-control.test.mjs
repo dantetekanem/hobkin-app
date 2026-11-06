@@ -527,6 +527,44 @@ test('what was left stops asking for the user once its item is merged or dropped
   assert.equal((await hobkin(h.root, 'projects')).json[0].left, 3, 'the project counts the same ones');
 });
 
+test('what a dropped project left asks nothing more of the user', async t => {
+  const root = home(t);
+  for (const slug of ['api', 'old']) {
+    chooseProject(root, `/repos/${slug}`, 'important');
+    const { id } = fileItem(root, slug, item(`Ship ${slug}`));
+    updateItem(root, slug, id, { state: 'branch', left: `Push ${slug}.` });
+  }
+  dropProject(root, 'old');
+
+  assert.deepEqual((await hobkin(root, 'attention')).json.map(({ reason }) => reason), ['Push api.']);
+});
+
+test('a session handed a card\'s work records how it went, and the card comes back at once instead of hours later', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const { id } = fileItem(root, 'api', item('Fix login'));
+  const handed = { until: new Date(Date.now() + 3600000).toISOString(), doing: 'reviewing it' };
+  updateItem(root, 'api', id, { state: 'branch', branch: 'hobkin/login', withMainAgent: handed });
+
+  const input = Readable.from([JSON.stringify({ id, state: 'branch', proof: 'The login tests pass.' })]);
+  const code = await main(['work', 'item', 'api', '--home', root], { write: () => {} }, { input });
+
+  assert.equal(code, 0);
+  const [recorded] = readItems(root, 'api');
+  assert.deepEqual([recorded.proof, recorded.withMainAgent ?? null], ['The login tests pass.', null]);
+});
+
+test('a step the user said is not needed asks nothing more of them', async t => {
+  const root = home(t);
+  chooseProject(root, '/repos/api', 'important');
+  const { id } = fileItem(root, 'api', item('Rotate the keys'));
+  updateItem(root, 'api', id, { state: 'done', left: 'Rotate the keys at the provider.' });
+
+  await success(root, 'decline', 'api', id);
+
+  assert.deepEqual((await hobkin(root, 'attention')).json, []);
+});
+
 // Controls.
 
 test('start and stop are on and off, and starting ends a pause', async t => {

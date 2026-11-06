@@ -53,6 +53,12 @@ function readAll(root) {
 /** What still waits for the user, oldest first. */
 export const openDecisions = root => readAll(root).filter(({ answer }) => answer === undefined);
 
+/** When hobkin last filed a decision of this kind, answered or not. A quiet between them that lives here survives a restart. */
+export function lastFiledAt(root, kind) {
+  const times = readAll(root).filter(({ answerTo }) => answerTo?.kind === kind).map(({ at }) => Date.parse(at)).filter(Number.isFinite);
+  return times.length ? Math.max(...times) : -Infinity;
+}
+
 /**
  * What the user answered since `since`. hobkin closes a question itself once it no longer holds, and that is no answer of theirs. Only the
  * user's own answer goes on record as `decision_answered`, which is also how the day's wins count them, and events go back six months.
@@ -63,12 +69,6 @@ export function answeredByUser(root, since = 0) {
     .map(({ id }) => id));
 
   return readAll(root).filter(({ id, answer }) => answer !== undefined && answeredIds.has(id));
-}
-
-/** The last card, which is how a restart knows what was already shown. */
-export function lastCard(root) {
-  const card = readAll(root).findLast(({ answerTo }) => answerTo?.kind === 'pending');
-  return card ? { at: card.at, total: card.answerTo.total, trouble: card.answerTo.trouble } : null;
 }
 
 /** Nothing waits for the answer: the asker carries on, and the answer reaches it later. A `key` keeps one open question from becoming several. */
@@ -97,18 +97,36 @@ export function fileDecision(root, { key = null, from, question, tldr, choices, 
 /** It has had its moment on screen, so from here it only waits in the tab. */
 export const markShown = (root, id) => append(root, { id, shown: true });
 
-export function answerDecision(root, id, answer, now = Date.now()) {
-  append(root, { id, answer, answeredAt: new Date(now).toISOString() });
+/** An answer in the user's own words is `typed`, and `typed` keeps the words. */
+export function answerDecision(root, id, answer, now = Date.now(), { typed } = {}) {
+  append(root, { id, answer, ...(typed ? { typed } : {}), answeredAt: new Date(now).toISOString() });
 }
 
-/** One decision, or a clear refusal: an answer from a stale screen must not reach the wrong question. */
-export function findDecision(root, id, value) {
+/** One open decision, or a clear refusal: an answer from a stale screen must not reach the wrong question. */
+export function findOpenDecision(root, id) {
   const decision = openDecisions(root).find(entry => entry.id === id);
   if (!decision) throw Error('That decision was already answered.');
+  return decision;
+}
+
+export function findDecision(root, id, value) {
+  const decision = findOpenDecision(root, id);
   const choice = decision.choices.find(entry => entry.value === value);
-  if (!choice) throw Error('That is not one of its choices.');
+  if (!choice) throw Error(`That is not one of its choices: ${decision.choices.map(entry => entry.value).join(', ')}.`);
   return { decision, choice };
 }
+
+/** A decision as the main agent reads it, to tell the user about and to answer: who asked, what, and each choice by its value. */
+export const decisionRow = ({ id, from, answerTo, at, question, choices = [], recommended = null, why = null }) => ({
+  id,
+  from: from ?? 'hobkin',
+  kind: answerTo?.kind ?? null,
+  at: at ?? null,
+  question,
+  choices: choices.map(({ value, label }) => ({ value, label })),
+  recommended: recommended ?? null,
+  why: why ?? null,
+});
 
 const whereTo = ([kind, ...names], from) => {
   const session = from?.trim().slice(0, LONGEST_FROM);
@@ -127,8 +145,8 @@ function recentAnswer(root, key, now) {
   return answered.toSorted((first, second) => first.answeredAt.localeCompare(second.answeredAt)).at(-1) ?? null;
 }
 
-function earlierAnswer({ answer, answeredAt, choices }) {
-  const label = choices.find(choice => choice.value === answer)?.label ?? answer;
+function earlierAnswer({ answer, typed, answeredAt, choices }) {
+  const label = typed ?? choices.find(choice => choice.value === answer)?.label ?? answer;
   return {
     ok: true,
     answer,
@@ -141,7 +159,8 @@ function earlierAnswer({ answer, answeredAt, choices }) {
 /**
  * `hobkin decide`, for a run in another process. The question comes as JSON on stdin, and the run carries on as soon as this returns. A routine gets back what was
  * already answered. Work runs never do, because their one use of this is deleting what git cannot restore. Another session names itself with `--from`, and its
- * answer goes to hobkin's main agent, because that session may be gone by then.
+ * answer goes to hobkin's main agent, because that session may be gone by then. Nor do other sessions get an earlier answer: two of them, in different projects,
+ * can ask the same words about different things.
  */
 export async function runDecideCommand(root, args, input, now = Date.now(), from = null) {
   let text = '';

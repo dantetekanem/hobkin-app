@@ -8,7 +8,7 @@ import { initialize, setLearning } from '../src/cli/config.mjs';
 import { fileDecision, markShown, openDecisions } from '../src/cli/decisions.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { answerOffer, askAgent, declineItem, mergeItem } from '../src/cli/work/controls.mjs';
-import { LandOffers, notSurveyed, offerDecisions, offersView, retireOffers } from '../src/cli/work/land-offer.mjs';
+import { LandOffers, lastOfferAt, offerDecisions, offersView, retireOffers } from '../src/cli/work/land-offer.mjs';
 import { offerFor } from '../src/cli/work/patterns.mjs';
 import { readTrackRecords, readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, readItems, recordLaunch, updateItem } from '../src/cli/work/store.mjs';
@@ -20,79 +20,66 @@ const DAY = 24 * HOUR;
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const draft = (id, title = `Fix ${id}`) => ({ slug: 'api', id, project: 'API', title });
 
-function offering({ offers, unread } = {}) {
+const offerOf = id => ({ key: `offer:api:${id}`, answerTo: { kind: 'merge', slug: 'api', item: id, head: 'tip' } });
+
+function offering({ offers, lastFiledAt } = {}) {
   const filed = [];
   const clock = { at: 1000 * HOUR };
-  const landOffers = new LandOffers({ file: decision => filed.push(decision), now: () => clock.at, offers, unread });
+  const landOffers = new LandOffers({ file: decision => filed.push(decision), now: () => clock.at, offers, lastFiledAt });
   return { filed, offers: landOffers, clock };
 }
 
-test('a finished branch files one decision: walk it now or later', () => {
-  const { filed, offers } = offering();
-
-  offers.add(draft('a1', 'Fix login'));
-
-  const [{ key, question, tldr, choices, answerTo }] = filed;
-  assert.equal(key, 'land');
-  assert.match(question, /Fix login on API can land/);
-  assert.match(tldr, /1 finished branch can land/);
-  assert.deepEqual(choices.map(({ value }) => value), ['later', 'walk']);
-  assert.deepEqual(answerTo, { kind: 'land' });
-});
-
-test('branches that finish close together wait, and two hours on they are one decision', () => {
+test('a finished branch files no question of its own: it waits in Decisions, and the brief tells of it', () => {
   const { filed, offers, clock } = offering();
 
-  offers.add(draft('a1'));
-  offers.add(draft('a2'));
-  offers.add(draft('a3'));
-  assert.equal(filed.length, 1);
-
-  clock.at += 2 * HOUR;
+  offers.add(draft('a1', 'Fix login'));
+  clock.at += 3 * HOUR;
   offers.next();
 
-  assert.equal(filed.length, 2);
-  assert.match(filed[1].question, /2 finished branches can land/);
+  assert.deepEqual(filed, []);
 });
 
-test('with nowhere to file, nothing is lost', () => {
-  const offers = new LandOffers({});
-
-  offers.add(draft('a1'));
-
-  assert.equal(offers.waiting.length, 1);
-});
-
-test('an offer goes ahead of the plain question, one every two hours, and what it covers stops waiting', () => {
-  const offer = { key: 'offer:api:a1', answerTo: { kind: 'merge', slug: 'api', item: 'a1', head: 'tip' } };
-  const open = [offer];
+test('what qualifies comes as an offer, one every two hours', () => {
+  const open = [offerOf('a1'), offerOf('a2')];
   const { filed, offers, clock } = offering({ offers: () => open });
 
   offers.add(draft('a1'));
+  open.shift();
   offers.add(draft('a2'));
-
-  assert.deepEqual(filed.map(({ key }) => key), ['offer:api:a1']);
-  assert.deepEqual(offers.waiting.map(({ id }) => id), ['a2']);
-
-  open.length = 0;
-  offers.next();
-  assert.equal(filed.length, 1, 'still inside the two hours');
+  assert.deepEqual(filed.map(({ key }) => key), ['offer:api:a1'], 'still inside the two hours');
 
   clock.at += 2 * HOUR;
   offers.next();
-  assert.deepEqual(filed.map(({ key }) => key), ['offer:api:a1', 'land']);
+  assert.deepEqual(filed.map(({ key }) => key), ['offer:api:a1', 'offer:api:a2']);
 });
 
-test('a draft the survey has not read waits to be weighed, and gets the plain question within the hour', () => {
-  const { filed, offers, clock } = offering({ unread: () => true });
+test('the two hours hold across a restart, from the last offer on record', () => {
+  const { filed, offers, clock } = offering({ offers: () => [offerOf('a1')], lastFiledAt: () => 1000 * HOUR - HOUR });
 
-  offers.add(draft('a1'));
-  assert.equal(filed.length, 0);
+  offers.next();
+  assert.deepEqual(filed, []);
 
   clock.at += HOUR;
   offers.next();
+  assert.deepEqual(filed.map(({ key }) => key), ['offer:api:a1']);
+});
 
-  assert.deepEqual(filed.map(({ key }) => key), ['land']);
+test('with nowhere to file, nothing breaks', () => {
+  const offers = new LandOffers({ offers: () => [offerOf('a1')] });
+
+  assert.doesNotThrow(() => offers.add(draft('a1')));
+});
+
+test('the last offer on record is when the quiet began, whatever came of it', t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-quiet-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const choices = [{ value: 'later', label: 'Later' }, { value: 'merge', label: 'Merge it' }];
+  assert.equal(lastOfferAt(root), -Infinity);
+
+  fileDecision(root, { ...offerOf('a1'), from: 'Work mode', question: 'Merge it?', choices }, 5 * HOUR);
+  fileDecision(root, { from: 'Routine mail', question: 'Reply?', choices, answerTo: { kind: 'routine', id: 'mail' } }, 9 * HOUR);
+
+  assert.equal(lastOfferAt(root), 5 * HOUR);
 });
 
 function workspace(t) {
@@ -216,7 +203,7 @@ test('an offer says what the project cannot see', async t => {
   assert.doesNotMatch(offerDecisions(h.root, NOW)[0].question, /cannot see/);
 });
 
-test('with learning off nothing is judged: no offers, no precedent on a row, and the plain question stays', async t => {
+test('with learning off nothing is judged: no offers and no precedent on a row', async t => {
   const h = workspace(t);
   history(h);
   const { id } = qualifying(h, 'cashback');
@@ -226,7 +213,6 @@ test('with learning off nothing is judged: no offers, no precedent on a row, and
   assert.deepEqual(offerDecisions(h.root, NOW), []);
   assert.equal(rowOf(h, id).like, null);
   assert.deepEqual(offersView(h.root, NOW), { learning: false, offers: [], rest: [] });
-  assert.equal(notSurveyed(h.root, { slug: 'api', id: 'unknown' }), false);
 });
 
 test('a row with a precedent carries it, and one from another project says where', async t => {
@@ -408,11 +394,10 @@ test('an offer whose work has gone from the list answers itself, and an answer t
   assert.deepEqual(openDecisions(h.root), []);
 });
 
-test('the plain question goes once it has been on screen, because each branch it names waits in Decisions', t => {
+test('a plain question left from before goes once it has been on screen, because each branch it named waits in Decisions', t => {
   const { root } = workspace(t);
-  const { filed, offers } = offering();
-  offers.add(draft('a1', 'Fix login'));
-  const { id } = fileDecision(root, filed[0], NOW);
+  const walkOrLater = [{ value: 'later', label: 'Later' }, { value: 'walk', label: 'Yes, show me' }];
+  const { id } = fileDecision(root, { key: 'land', from: 'Work mode', question: 'Fix login on API can land. Walk it now?', choices: walkOrLater, answerTo: { kind: 'land' } }, NOW);
 
   retireOffers(root, NOW);
   assert.deepEqual(openDecisions(root).map(decision => decision.id), [id], 'it is still on screen');
@@ -496,17 +481,6 @@ test('an A branch that brings earlier work below safe A gets no offer', async t 
   assert.ok(offersView(h.root, NOW).rest.find(({ item }) => item === id).why.some(words => /earlier work below safe A/.test(words)));
 });
 
-test('a draft waits to be weighed only while the survey has not read its branch', async t => {
-  const h = workspace(t);
-  const { id } = qualifying(h, 'cashback');
-
-  assert.equal(notSurveyed(h.root, { slug: 'api', id }), true);
-
-  await survey(h);
-
-  assert.equal(notSurveyed(h.root, { slug: 'api', id }), false);
-});
-
 test('declining from the walk counts as well', async t => {
   const h = workspace(t);
   const { id } = qualifying(h, 'cashback');
@@ -515,20 +489,4 @@ test('declining from the walk counts as well', async t => {
   declineItem(h.root, 'api', id, NOW);
 
   assert.deepEqual(read(h, id).pushbacks, [{ at: iso(NOW), area: 'lib' }]);
-});
-
-test('asking for what is ready brings an offer now, inside the quiet gap, and says when there is none', () => {
-  const filed = [];
-  const clock = { at: 1000 * 3600000 };
-  const offer = { key: 'offer:api:a1', answerTo: { kind: 'merge', slug: 'api', item: 'a1' } };
-  const offers = new LandOffers({ file: decision => filed.push(decision), now: () => clock.at, offers: () => [offer] });
-  offers.next();
-  assert.equal(filed.length, 1);
-
-  assert.equal(offers.offerReady(), true);
-  assert.equal(filed.length, 2);
-
-  const none = new LandOffers({ file: decision => filed.push(decision), now: () => clock.at });
-  assert.equal(none.offerReady(), false);
-  assert.equal(filed.length, 2);
 });

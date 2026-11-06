@@ -138,7 +138,8 @@ function sendToRebase(root, { slug, item }) {
 
 async function moveRow(root, row, now) {
   const { slug, item, head, step } = row;
-  if (step === 'review') return requestReview(root, slug, item);
+  // A pair moves through work mode's own queue, as its rebase does, so its reply holds no hand-off to the main agent.
+  if (step === 'review') return requestReview(root, slug, item, { toMainAgent: false });
   if (step === 'rebase') return sendToRebase(root, row);
   return mergeItem(root, slug, item, { route: KEY, head, now });
 }

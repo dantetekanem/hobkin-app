@@ -293,10 +293,9 @@ test('from /work to a PR: told what it looks at, asked in Chat, answered in Chat
   // Looking and doing: taking it is what lets work start, and the first item ends in a PR.
   await hobkin.settled(() => readItems(h.root, 'billing').some(item => item.state === 'pr'), { timeout: 15000 });
 
-  // Asked: work with an open PR is reviewed there, so it can land straight away.
-  await hobkin.until(/can land/);
-  assert.match(hobkin.screen(), /Walk it now/);
-  hobkin.press(ESCAPE);
+  // Finished: work with an open PR is reviewed there, so it waits in Decisions to land, and no question opens for it.
+  await hobkin.until(/Decisions \d/);
+  assert.doesNotMatch(hobkin.screen(), /can land|hobkin asks/);
   assert.ok(readItems(h.root, 'billing').every(item => !item.reviewAsked));
 
   hobkin.press(LEFT);
