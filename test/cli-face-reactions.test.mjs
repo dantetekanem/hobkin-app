@@ -100,6 +100,28 @@ test('the pointer coming onto the face five times in a few seconds makes it dizz
   assert.deepEqual(passes(5, 100), [false, false, false, false, false], 'a sleeping face does not notice');
 });
 
+test('once rubbed dizzy the face takes half a minute to notice passes again, and passes while it reacts never count', () => {
+  const h = face();
+  const pass = gap => {
+    h.clock += gap;
+    const reacted = h.face.hover(true);
+    h.face.hover(false);
+    return reacted;
+  };
+  const passes = (count, gap) => Array.from({ length: count }, () => pass(gap));
+
+  assert.equal(passes(5, 500).at(-1), true);
+  h.clock += 2400;
+  assert.equal(passes(10, 500).includes(true), false, 'moving the pointer about right after does not make it dizzy again');
+
+  h.clock += 30000;
+  h.face.click();
+  assert.equal(passes(5, 200).includes(true), false, 'passes while it reacts to a poke never count');
+
+  h.clock += 3000;
+  assert.equal(passes(5, 500).at(-1), true, 'after the pause it notices again');
+});
+
 const room = {
   config: { main: {}, background: { harness: 'pi', model: null, effort: 'medium' } },
   counts: { daily: 0, weekly: 0, monthly: 0 },

@@ -10,7 +10,7 @@ import {
 import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
 import { FaceReactions } from './face-reactions.mjs';
 import { feedbackQuestion } from './feedback/draft.mjs';
-import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
+import { FaceImages, IMAGE_FACE_COLUMNS, faceFrameLimit, supportsFaceImages } from './face-images.mjs';
 import { shownMood } from './mood.mjs';
 import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
 import { IMAGE_ONLY_TEXT, MAX_IMAGES, previewRows } from './paste-image.mjs';
@@ -3242,7 +3242,9 @@ function readingFocus(terminal, onFocus) {
 }
 
 export function startDashboard(snapshot, handlers = {}, options = {}) {
-  const images = options.images ?? (!options.terminal && supportsFaceImages() ? new FaceImages({ write: data => tui.terminal.write(data) }) : null);
+  const images = options.images ?? (!options.terminal && supportsFaceImages()
+    ? new FaceImages({ write: data => tui.terminal.write(data), frameLimit: faceFrameLimit() })
+    : null);
   // Left to itself, the screen code deletes every image on the terminal at each full redraw, and it does not know about these.
   if (images) setCapabilityOverrides({ images: null });
   const terminal = readingFocus(options.terminal ?? new ProcessTerminal(), gained => controller.terminalFocus(gained));

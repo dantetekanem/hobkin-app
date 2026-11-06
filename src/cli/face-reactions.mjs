@@ -14,6 +14,8 @@ const POKE_STREAK_MS = 2500;
 const RUBBED = [{ mood: 'dizzy', ms: 2400 }];
 const RUB_PASSES = 5;
 const RUB_WINDOW_MS = 4000;
+// After a rub the face takes no notice for a while, so moving the pointer about cannot keep it dizzy.
+const RUB_PAUSE_MS = 30000;
 
 export class FaceReactions {
   playing = null;
@@ -22,6 +24,7 @@ export class FaceReactions {
   lastPokeAt = -Infinity;
   passTimes = [];
   pointerOnFace = false;
+  rubbedAt = -Infinity;
 
   constructor({ now = Date.now, reaction = () => null, onWake = () => {} } = {}) {
     this.now = now;
@@ -67,18 +70,20 @@ export class FaceReactions {
     this.play([{ mood, ms: POKE_MS }]);
   }
 
-  /** Counts each time the pointer comes onto the face. True when that starts a reaction. */
+  /** Counts each time the pointer comes onto the face. True when that starts a reaction. A face asleep, reacting or rubbed lately takes no notice. */
   hover(inside) {
     const entered = inside && !this.pointerOnFace;
     this.pointerOnFace = inside;
-    if (!entered || this.asleep() || this.waking()) return false;
+    if (!entered || this.asleep() || this.shown()) return false;
 
     const at = this.now();
+    if (at - this.rubbedAt < RUB_PAUSE_MS) return false;
     const recent = this.passTimes.filter(passedAt => at - passedAt < RUB_WINDOW_MS);
     this.passTimes = [...recent, at];
     if (this.passTimes.length < RUB_PASSES) return false;
 
     this.passTimes = [];
+    this.rubbedAt = at;
     this.play(RUBBED);
     return true;
   }

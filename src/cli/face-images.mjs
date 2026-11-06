@@ -21,6 +21,19 @@ const LAST_ID = 0xE00000;
 export const supportsFaceImages = (env = process.env) => env.HOBKIN_FACE !== 'blocks' && !env.TMUX
   && (Boolean(env.GHOSTTY_RESOURCES_DIR || env.KITTY_WINDOW_ID) || /ghostty|kitty/i.test(`${env.TERM_PROGRAM} ${env.TERM}`));
 
+// Herdr 0.9.5 keeps on the user's terminal only the picture on screen and the 16 hidden ones shown last (MAX_OFFSCREEN_IMAGES in its
+// src/kitty_graphics/surface.rs). It deletes any other and sends it again when it comes back, so a mood with more pictures than that is
+// sent again frame after frame, and that is what flickers. With sixteen a mood, one of those places stays free for the wordmark.
+export const HERDR_FACE_FRAMES = 16;
+
+export const faceFrameLimit = (env = process.env) => (env.HERDR_ENV === '1' ? HERDR_FACE_FRAMES : Infinity);
+
+/** At most `limit` of the frames, evenly spread, so the loop keeps its length with fewer pictures. */
+const spread = (frames, limit) => {
+  if (frames.length <= limit) return frames;
+  return Array.from({ length: limit }, (_, index) => frames[Math.floor((index * frames.length) / limit)]);
+};
+
 const transmission = (id, data, columns, rows) => {
   const pieces = data.match(new RegExp(`.{1,${CHUNK_LENGTH}}`, 'g'));
   return pieces.map((piece, index) => {
@@ -35,16 +48,21 @@ const placeholderRow = (id, row, columns) => `${pointingAt(id)}${PLACEHOLDER}${R
 
 const deletion = ids => ids.map(id => `\x1b_Ga=d,d=I,i=${id},q=2\x1b\\`).join('');
 
+// Herdr turns each image into raw pixels, about 210 KB a frame, so only the moods shown last stay in the terminal: enough for the face to go
+// back and forth between thinking, searching and working, or into a reaction and out of it, without sending and freeing pictures each time.
+const KEPT_MOODS = 4;
+
 /**
  * Shows the design's frames through text cells that stand for an image. Every frame is its own image, sent once,
  * so moving to the next one only changes a text colour; replacing an image in place is what flickers inside Herdr.
- * Only the mood on screen stays in the terminal, because Herdr turns each image into raw pixels, about 210 KB a frame.
  */
 export class FaceImages {
-  constructor({ write, theme = 'dark', directory = ASSETS }) {
-    Object.assign(this, { write, theme, directory });
+  constructor({ write, theme = 'dark', directory = ASSETS, frameLimit = Infinity }) {
+    Object.assign(this, { write, theme, directory, frameLimit });
     this.nextId = randomInt(FIRST_ID, LAST_ID);
     this.shown = null;
+    // The moods in the terminal, the one shown longest ago first.
+    this.kept = new Map();
     this.wordmarkId = null;
     this.retiring = [];
   }
@@ -59,7 +77,14 @@ export class FaceImages {
     return ids;
   }
 
-  // The old mood goes one frame after the new one arrives, so the cells never point at nothing.
+  load(name) {
+    const { seconds, frames } = this.read(name);
+    const shownFrames = spread(frames, this.frameLimit);
+    return { name, seconds, ids: this.send(shownFrames, IMAGE_FACE_COLUMNS, IMAGE_FACE_ROWS) };
+  }
+
+  // A mood shown lately is still in the terminal, so going back to it sends nothing. One that falls out goes a frame after the new one
+  // arrives, so the cells never point at nothing.
   show(mood) {
     const name = moods.includes(mood) ? mood : 'idle';
     if (this.shown?.name === name) {
@@ -67,10 +92,17 @@ export class FaceImages {
       this.retiring = [];
       return this.shown;
     }
-    this.retiring.push(...(this.shown?.ids ?? []));
-    const { seconds, frames } = this.read(name);
-    this.shown = { name, seconds, ids: this.send(frames, IMAGE_FACE_COLUMNS, IMAGE_FACE_ROWS) };
-    return this.shown;
+
+    const next = this.kept.get(name) ?? this.load(name);
+    this.kept.delete(name);
+    this.kept.set(name, next);
+    while (this.kept.size > KEPT_MOODS) {
+      const [oldest] = this.kept.keys();
+      this.retiring.push(...this.kept.get(oldest).ids);
+      this.kept.delete(oldest);
+    }
+    this.shown = next;
+    return next;
   }
 
   lines(mood, milliseconds) {
@@ -80,8 +112,9 @@ export class FaceImages {
   }
 
   frameMs(mood) {
-    if (this.shown?.name !== mood) return FIRST_FRAME_MS;
-    return (this.shown.seconds * 1000) / this.shown.ids.length;
+    const known = this.kept.get(mood);
+    if (!known) return FIRST_FRAME_MS;
+    return (known.seconds * 1000) / known.ids.length;
   }
 
   wordmark() {
@@ -109,8 +142,10 @@ export class FaceImages {
   }
 
   clear() {
-    const ids = [...this.retiring, ...(this.shown?.ids ?? []), ...(this.wordmarkId ? [this.wordmarkId] : [])];
+    const kept = [...this.kept.values()].flatMap(({ ids }) => ids);
+    const ids = [...this.retiring, ...kept, ...(this.wordmarkId ? [this.wordmarkId] : [])];
     this.shown = null;
+    this.kept = new Map();
     this.wordmarkId = null;
     this.retiring = [];
     if (ids.length) this.write(deletion(ids));

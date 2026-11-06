@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { carryOutAnswer } from '../src/cli/answer.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { openDecisions } from '../src/cli/decisions.mjs';
 import { resumeWork } from '../src/cli/work/controls.mjs';
@@ -37,7 +38,7 @@ test('work ahead of the subscription\'s pace is told in Chat and asked about onc
   assert.equal(readMode(root).pauseNotice.line, '64% of the week window is used, with 32% of its time gone. Work keeps going unless you pause it.');
 });
 
-test('pausing waits until the time it named, keep working changes nothing, and resume ends the pause early', t => {
+test('pausing waits until the time it named, keep working pauses nothing, and resume ends the pause early', t => {
   const root = home(t);
 
   assert.equal(answerSubscriptionPause(root, 'keep', ahead.until, NOW).message, 'Work keeps going.');
@@ -49,6 +50,31 @@ test('pausing waits until the time it named, keep working changes nothing, and r
 
   resumeWork(root);
   assert.equal(readMode(root).subscriptionPause, null);
+});
+
+test('keep working holds until the time the question named, so the next day asks nothing before then, and after it asks again', async t => {
+  const root = home(t);
+  const DAY = 24 * HOUR;
+  const week = { ...ahead, usedPercent: 81, until: NOW + 4 * DAY };
+
+  offerSubscriptionPause(root, week, NOW);
+  const [asked] = openDecisions(root);
+  await carryOutAnswer(root, asked.id, { value: 'keep' }, NOW + HOUR);
+
+  assert.equal(offerSubscriptionPause(root, { ...week, usedPercent: 95 }, NOW + DAY), false, 'the next day, further ahead, asks nothing');
+  assert.equal(offerSubscriptionPause(root, { ...week, usedPercent: 95 }, NOW + DAY + HOUR), false);
+  assert.equal(offerSubscriptionPause(root, { ...week, until: NOW + 6 * DAY }, NOW + 4 * DAY + HOUR), true, 'past that time it asks again');
+});
+
+test('hobkin closing a question once the window caught up is no keep working from the user, so a later day asks again', t => {
+  const root = home(t);
+  const DAY = 24 * HOUR;
+  const week = { ...ahead, until: NOW + 4 * DAY };
+
+  offerSubscriptionPause(root, week, NOW);
+  retireSubscriptionPause(root, null, NOW + HOUR);
+
+  assert.equal(offerSubscriptionPause(root, week, NOW + DAY), true);
 });
 
 test('nothing is asked with work mode off or paused, and a question closes once the window has caught up', t => {

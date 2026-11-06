@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { moods } from '../src/cli/face.mjs';
-import { FaceImages, IMAGE_FACE_ROWS, WORDMARK_COLUMNS, supportsFaceImages } from '../src/cli/face-images.mjs';
+import { FaceImages, IMAGE_FACE_ROWS, WORDMARK_COLUMNS, faceFrameLimit, supportsFaceImages } from '../src/cli/face-images.mjs';
 
 const transmissions = text => text.match(/\x1b_G[^;]*a=T[^;]*;/g) ?? [];
+// The picture each transmission carries, for frames small enough to go in one piece.
+const sentPictures = text => [...text.matchAll(/\x1b_G[^;]*a=T[^;]*;([^\x1b]*)\x1b\\/g)].map(([, picture]) => picture);
 const imageIdOf = value => {
   const [, red, green, blue] = /\x1b\[38;2;(\d+);(\d+);(\d+)m/.exec(value);
   return (Number(red) << 16) + (Number(green) << 8) + Number(blue);
@@ -62,27 +64,40 @@ test('a mood is sent to the terminal once, one image per frame, and never again'
   assert.ok(transmissions(first).every(control => /U=1/.test(control) && /q=2/.test(control)), 'virtual placement, no replies on stdin');
 });
 
-test('only the mood on screen stays in the terminal', () => {
+const deletionsIn = written => written.join('').match(/a=d,d=I,i=\d+/g) ?? [];
+
+test('the four moods shown last stay in the terminal, so going back to one sends and frees nothing', () => {
   const { faces, written } = images();
-  const deletions = () => written.join('').match(/a=d,d=I,i=\d+/g) ?? [];
+  for (const mood of ['idle', 'thinking', 'working', 'searching']) faces.lines(mood, 0);
+  const sent = transmissions(written.join('')).length;
 
   faces.lines('idle', 0);
-  const idleImages = transmissions(written.join('')).length;
-  faces.lines('thinking', 0);
-  assert.deepEqual(deletions(), [], 'the old mood stays until the new one has been drawn');
+  faces.lines('working', 125);
+  faces.lines('idle', 250);
 
-  faces.lines('thinking', 125);
-
-  assert.equal(deletions().length, idleImages);
-  faces.lines('thinking', 250);
-  assert.equal(deletions().length, idleImages, 'each image is freed once');
+  assert.equal(transmissions(written.join('')).length, sent, 'each mood went to the terminal once');
+  assert.deepEqual(deletionsIn(written), []);
 });
 
-test('coming back to a mood sends it again', () => {
+test('a fifth mood frees the one shown longest ago, a frame after it arrives, and each image once', () => {
   const { faces, written } = images();
   faces.lines('idle', 0);
-  faces.lines('thinking', 0);
-  faces.lines('thinking', 125);
+  const idleImages = transmissions(written.join('')).length;
+  for (const mood of ['thinking', 'working', 'searching']) faces.lines(mood, 0);
+
+  faces.lines('happy', 0);
+  assert.deepEqual(deletionsIn(written), [], 'the old mood stays until the new one has been drawn');
+  faces.lines('happy', 125);
+
+  assert.equal(deletionsIn(written).length, idleImages);
+  faces.lines('happy', 250);
+  assert.equal(deletionsIn(written).length, idleImages, 'each image is freed once');
+});
+
+test('coming back to a mood that was freed sends it again', () => {
+  const { faces, written } = images();
+  for (const mood of ['idle', 'thinking', 'working', 'searching', 'happy']) faces.lines(mood, 0);
+  faces.lines('happy', 125);
   const before = transmissions(written.join('')).length;
 
   faces.lines('idle', 0);
@@ -131,6 +146,39 @@ test('the animation loops at the speed the design set', () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('with a frame limit a long mood shows that many of its pictures, evenly spread over the same loop, and a short one keeps all of its own', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hobkin-faces-'));
+  try {
+    mkdirSync(join(directory, 'dark'));
+    const frames = count => Array.from({ length: count }, (_, index) => Buffer.from(`frame ${index}`).toString('base64'));
+    writeFileSync(join(directory, 'dark/idle.json'), JSON.stringify({ seconds: 4, frames: frames(32) }));
+    writeFileSync(join(directory, 'dark/happy.json'), JSON.stringify({ seconds: 1, frames: frames(4) }));
+    const { faces, written } = images({ directory, frameLimit: 16 });
+    const id = milliseconds => imageIdOf(faces.lines('idle', milliseconds)[0]);
+
+    const first = id(0);
+
+    const sent = written.join('');
+    assert.deepEqual(sentPictures(sent), frames(32).filter((_, index) => index % 2 === 0));
+    assert.equal(faces.frameMs('idle'), 250);
+    assert.equal(id(249), first);
+    assert.equal(id(250), first + 1);
+    assert.equal(id(3999), first + 15);
+    assert.equal(id(4000), first, 'the loop still takes the 4 seconds the design set');
+
+    written.length = 0;
+    faces.lines('happy', 0);
+    assert.equal(transmissions(written.join('')).length, 4);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('inside Herdr a mood gets at most 16 pictures, the most Herdr keeps on the terminal while they are hidden, and elsewhere every one', () => {
+  assert.equal(faceFrameLimit({ HERDR_ENV: '1', GHOSTTY_RESOURCES_DIR: '/x' }), 16);
+  assert.equal(faceFrameLimit({ GHOSTTY_RESOURCES_DIR: '/x' }), Infinity);
 });
 
 test('a big frame goes out in chunks the protocol allows', () => {

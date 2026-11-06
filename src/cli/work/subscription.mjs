@@ -1,10 +1,12 @@
-import { answerDecision, fileDecision, openDecisions } from '../decisions.mjs';
+import { answerDecision, answeredByUser, fileDecision, openDecisions } from '../decisions.mjs';
 import { lookTime } from './chat.mjs';
 import { reply } from './controls.mjs';
 import { readMode, writeMode } from './store.mjs';
 
 // Work ahead of the subscription's pace is told and asked about. Nothing stops for it until the user says so.
 const KEY = 'subscription';
+// The longest window there is, so no answer that could still hold is left out.
+const WEEK_MS = 7 * 24 * 3600 * 1000;
 
 const usedWords = ({ label, usedPercent, elapsedPercent }) => {
   const window = label === 'window' ? 'the window' : `the ${label} window`;
@@ -15,6 +17,14 @@ const sentence = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 export const choosesPause = (mode, now) => Boolean(mode.subscriptionPause) && Date.parse(mode.subscriptionPause.until) > now;
 
+/** A keep working the user gave holds until the time its question named, so nothing asks again before then. */
+function keptWorking(root, now) {
+  return answeredByUser(root, now - WEEK_MS).some(({ answerTo, answer }) => {
+    const until = new Date(answerTo?.until ?? 0).getTime();
+    return answerTo?.kind === KEY && answer === 'keep' && until > now;
+  });
+}
+
 /**
  * Once a day for each window, Chat says work is ahead of the subscription's pace and hobkin asks whether to pause until it catches up. Keep working
  * comes first, because a question left alone changes nothing.
@@ -23,6 +33,11 @@ export function offerSubscriptionPause(root, ahead, now = Date.now()) {
   const mode = readMode(root);
   const asked = ahead && `${ahead.label}:${new Date(now).toDateString()}`;
   if (!ahead || !mode.enabled || mode.pausedAt || choosesPause(mode, now) || mode.subscriptionAsked === asked) return false;
+  if (keptWorking(root, now)) {
+    // The day counts as asked, so the ticks after this one skip reading the answers.
+    writeMode(root, { subscriptionAsked: asked });
+    return false;
+  }
 
   const facts = usedWords(ahead);
   const until = ahead.until ? lookTime(ahead.until, now) : null;
