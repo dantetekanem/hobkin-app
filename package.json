@@ -19,8 +19,8 @@
   "scripts": {
     "hobkin": "node src/cli/main.mjs",
     "test": "node --test test/hobkin.test.mjs test/durable.test.mjs test/experience.test.mjs test/reinforcement.test.mjs",
-    "test:cli": "node --test test/cli-*.test.mjs",
-    "test:migration": "node --test test/migration.test.mjs test/migration-*.test.mjs"
+    "test:cli": "node --test --test-concurrency=${HOBKIN_TEST_CONCURRENCY:-4} test/cli-*.test.mjs",
+    "test:migration": "node --test --test-concurrency=${HOBKIN_TEST_CONCURRENCY:-4} test/migration.test.mjs test/migration-*.test.mjs"
   },
   "engines": { "node": ">=22.19.0" },
   "devEngines": {
