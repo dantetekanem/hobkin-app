@@ -347,7 +347,7 @@ test('an Enter meant for a draft cannot approve anything, and the draft survives
   assert.equal(logLines(h).length, 2, 'it ran nothing');
 });
 
-test('the question reaches the user on another tab and leaves them there', async t => {
+test('the question reaches the user on another tab, opens in Chat, and leaves them back where they were', async t => {
   const h = fixture(t);
   const seen = [];
   const hobkin = await openHobkin(h, { play: planning(seen), check: async run => failingRun(run.sessionFile) });
@@ -359,14 +359,16 @@ test('the question reaches the user on another tab and leaves them there', async
   await hobkin.app.runner.trigger('mail', 'second-try');
   await hobkin.until(/hobkin asks/);
 
-  assert.equal(hobkin.state().view, 'schedules');
-  assert.match(hobkin.screen(), /held, retries/);
+  // The main agent's question is about the message just above it, so it opens there whichever tab the user was on.
+  assert.equal(hobkin.state().view, 'conversation');
   assert.ok(hobkin.screen().includes(QUESTION.question), 'the question has to stand alone here');
 
   hobkin.press(ENTER);
   await rest(100);
   assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
+  // Answering takes the user back to the tab they left, so the held check is still in front of them.
   assert.equal(hobkin.state().view, 'schedules');
+  assert.match(hobkin.screen(), /held, retries/);
 });
 
 test('quitting with the question open is not a no, however long the quit takes: the next start asks again', async t => {
