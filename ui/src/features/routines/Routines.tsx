@@ -102,7 +102,7 @@ export function Routines() {
     if (view === 'all') return rollingSpan(now, VIEW_ZONE, HOURS_BEHIND, HOURS_AHEAD)
     return spanOf(now, VIEW_ZONE, 7)
   }, [view, now])
-  const days = useMemo(() => nextSevenDays(data.routines, now, VIEW_ZONE, holds), [data.routines, now, holds])
+  const days = useMemo(() => view === 'week' ? nextSevenDays(data.routines, now, VIEW_ZONE, holds) : [], [view, data.routines, now, holds])
 
   const readOnly = sample === null
   const opened = facts.find((item) => item.routine.id === openId)
