@@ -1,0 +1,206 @@
+/*
+ * A diff, drawn the way GitHub draws one. Colors come from the palette: the code surface, and tints of
+ * green and red at about 20% for a line and 45% for a changed word. See _specs/000-product/design.md.
+ *
+ * Token colors are CSS variables set per token: `--tl` in the light theme and `--td` in the dark one.
+ * Changing the theme changes which variable is read, and nothing is highlighted again.
+ */
+
+.dv {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--hb-code-bg);
+  color: var(--hb-code-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  font-variant-ligatures: none;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--hb-code-text) 26%, transparent) transparent;
+  overscroll-behavior: contain;
+  outline: none;
+  --dv-gutter: 3.4em;
+  --dv-quiet: color-mix(in oklab, var(--hb-code-text) 52%, var(--hb-code-bg));
+}
+
+.dv-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.dv-line {
+  display: grid;
+  grid-template-columns: var(--dv-gutter) var(--dv-gutter) 1.6em minmax(0, 1fr);
+  min-height: 1.7em;
+}
+.dv-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.dv-split .dv-line {
+  grid-template-columns: var(--dv-gutter) 1.6em minmax(0, 1fr);
+}
+.dv-split .dv-line + .dv-line {
+  box-shadow: inset 1px 0 0 color-mix(in oklab, var(--hb-code-text) 12%, transparent);
+}
+
+.dv-no,
+.dv-mark {
+  user-select: none;
+  color: var(--dv-quiet);
+  font-variant-numeric: tabular-nums;
+}
+.dv-no {
+  padding-right: 0.8em;
+  text-align: right;
+}
+.dv-mark {
+  text-align: center;
+}
+
+.dv-code {
+  padding-right: 1em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.dv-code span {
+  color: var(--tl, inherit);
+}
+.dark .dv-code span {
+  color: var(--td, inherit);
+}
+.light .dv-code span[data-li],
+.dark .dv-code span[data-di] {
+  font-style: italic;
+}
+.light .dv-code span[data-lb],
+.dark .dv-code span[data-db] {
+  font-weight: 600;
+}
+
+.dv-line[data-kind='added'] {
+  background: var(--hb-diff-add);
+}
+.dv-line[data-kind='removed'] {
+  background: var(--hb-diff-del);
+}
+.dv-line[data-kind='added'] .dv-mark {
+  color: var(--hb-ok-fg);
+}
+.dv-line[data-kind='removed'] .dv-mark {
+  color: var(--hb-bad-fg);
+}
+/* The words that changed inside a line, tinted more strongly than the line. */
+.dv-line[data-kind='added'] .dv-word {
+  background: var(--hb-diff-add-word);
+}
+.dv-line[data-kind='removed'] .dv-word {
+  background: var(--hb-diff-del-word);
+}
+.dv-word {
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* The empty half of a row in two columns. */
+.dv-line[data-kind='none'] {
+  background: color-mix(in oklab, var(--hb-code-text) 4%, transparent);
+}
+
+/* The lines of the current step carry an accent bar. Other changes in the same file step back a little. */
+.dv-line[data-emphasis='true'] {
+  box-shadow: inset 3px 0 0 var(--hb-accent);
+}
+.dv-line[data-dim='true'] {
+  opacity: 0.55;
+}
+
+/* Lines selected for a note, and lines that already carry one. */
+.dv-line {
+  position: relative;
+}
+.dv-no[role='button'] {
+  cursor: pointer;
+}
+.dv-line[data-selected='true'] {
+  background: color-mix(in oklab, var(--hb-accent) 26%, var(--hb-code-bg));
+  box-shadow: inset 3px 0 0 var(--hb-accent);
+}
+.dv-line[data-selected='true'] .dv-no {
+  color: var(--hb-code-text);
+}
+.dv-line[data-noted='true'] .dv-no:first-of-type {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--hb-accent) 70%, transparent);
+}
+.dv-count {
+  position: absolute;
+  top: 0.25em;
+  left: 0.35em;
+  z-index: 1;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 0.35em;
+  border-radius: 999px;
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.5em;
+  text-align: center;
+}
+
+/* Between two shown parts: how many lines are held back, and the ways to see them. */
+.dv-gap {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-height: 2.3em;
+  padding: 0 0.9em 0 calc(var(--dv-gutter) * 2 + 1.6em);
+  background: color-mix(in oklab, var(--hb-code-text) 6%, var(--hb-code-bg));
+  color: var(--dv-quiet);
+  font-family: var(--font-heading);
+  font-size: 12px;
+}
+.dv-gap button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  height: 1.9em;
+  padding: 0 0.7em;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--hb-code-text) 10%, transparent);
+  color: var(--hb-code-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
+}
+.dv-gap button:active {
+  transform: scale(0.97);
+}
+.dv-gap svg {
+  width: 13px;
+  height: 13px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .dv-gap button:hover {
+    background: color-mix(in oklab, var(--hb-code-text) 18%, transparent);
+  }
+}
+
+.dv-note {
+  padding: 1.4em 1.2em;
+  color: var(--dv-quiet);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}

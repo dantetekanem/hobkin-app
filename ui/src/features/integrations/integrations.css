@@ -1,0 +1,75 @@
+/*
+ * Integrations: the mark of each service, and the small signs of life on a connected one.
+ * A mark is the service's symbol on a rounded tile, in a hue of its own. Lightness and chroma are set per
+ * theme, so every hue sits in the palette and its symbol keeps its contrast. No vendor logos.
+ */
+.svc-mark {
+  --svc-bg: oklch(0.885 0.055 var(--svc-hue));
+  --svc-fg: oklch(0.38 0.11 var(--svc-hue));
+  --svc-ring: oklch(0.62 0.12 var(--svc-hue));
+  position: relative;
+  display: block;
+  flex: none;
+}
+.dark .svc-mark {
+  --svc-bg: oklch(0.34 0.06 var(--svc-hue));
+  --svc-fg: oklch(0.9 0.07 var(--svc-hue));
+  --svc-ring: oklch(0.74 0.11 var(--svc-hue));
+}
+
+.svc-mark-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: var(--svc-bg);
+  color: var(--svc-fg);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  transform-origin: 50% 100%;
+}
+
+/* While one of its tools is in use, the mark bobs as an agent's hood does, and a ring opens out from it. */
+.svc-mark-face::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 2px var(--svc-ring);
+  opacity: 0;
+  pointer-events: none;
+}
+.svc-mark-face[data-busy] {
+  animation: svc-bob 0.74s ease-in-out 2;
+}
+.svc-mark-face[data-busy]::after {
+  animation: svc-ring 1.5s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes svc-bob {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50% { transform: translateY(-9%) scale(0.96, 1.05); }
+}
+@keyframes svc-ring {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Connecting. */
+.svc-spin {
+  animation: svc-spin 0.9s linear infinite;
+}
+@keyframes svc-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .svc-mark-face,
+  :root:not([data-motion='lively']) .svc-mark-face::after,
+  :root:not([data-motion='lively']) .svc-spin { animation: none; }
+}
+:root[data-motion='still'] .svc-mark-face,
+:root[data-motion='still'] .svc-mark-face::after,
+:root[data-motion='still'] .svc-spin { animation: none; }

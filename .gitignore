@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+
+# Local development home for hobkin data. Never the real ~/.hobkin.
+.dev-home/
+
+# Local orchestration notes, never committed.
+goal.md
+
+.DS_Store
+*.log
+.env
+.env.*

@@ -1,0 +1,197 @@
+/*
+ * hobkin palette. Source: ~/Poetry/hobkin.dev/styles.css (lines 9 and 10).
+ * Every color in the app comes from these variables. See _specs/000-product/design.md.
+ */
+
+:root,
+.light {
+  color-scheme: light;
+
+  --hb-bg: #f0ead6;
+  --hb-gap: #ded4b8;
+  --hb-tone-1: #e9e1c9;
+  --hb-tone-2: #f5f0e1;
+  --hb-tone-3: #e3d9bd;
+  --hb-surface: #f8f4e8;
+  --hb-surface-2: #e7dec4;
+  --hb-text: #16181f;
+  --hb-muted: #5a5648;
+  --hb-border: #dcd2b6;
+  --hb-border-strong: #857d69;
+  --hb-accent: #ffc940;
+  --hb-on-accent: #16181f;
+  --hb-focus: #16181f;
+  --hb-mark: #16181f;
+  --hb-mark-eye: #ffc940;
+  --hb-sun: #ffc940;
+
+  /* Status. Fills are the site's colors. Text variants are darker to pass AA on cream. */
+  --hb-ok: #4cc38a;
+  --hb-ok-fg: #17633f;
+  --hb-warn: #ff8a3d;
+  --hb-warn-fg: #9a4a00;
+  --hb-bad: #ff7a6e;
+  --hb-bad-fg: #b3261e;
+  --hb-sun-fg: #7a4e00;
+
+  /* Graph. Periwinkle is the ridge hue of the site's hills. */
+  --hb-code: oklch(0.52 0.11 265);
+  --hb-code-fg: oklch(0.4 0.11 265);
+  --hb-wire: #857d69;
+  --hb-wire-active: #16181f;
+  --hb-wire-pulse: #ffc940;
+
+  /* Code panel. */
+  --hb-code-bg: #f8f4e8;
+  --hb-code-text: #16181f;
+  --hb-diff-add: color-mix(in oklab, #4cc38a 22%, var(--hb-code-bg));
+  --hb-diff-add-word: color-mix(in oklab, #4cc38a 46%, var(--hb-code-bg));
+  --hb-diff-del: color-mix(in oklab, #ff7a6e 20%, var(--hb-code-bg));
+  --hb-diff-del-word: color-mix(in oklab, #ff7a6e 44%, var(--hb-code-bg));
+
+  --hb-ridge-0: oklch(0.9 0.045 86);
+  --hb-ridge-1: oklch(0.855 0.071 79);
+  --hb-ridge-2: oklch(0.81 0.097 72);
+  --hb-ridge-3: oklch(0.765 0.123 65);
+
+  --hb-shadow: 0 1px 2px rgb(22 24 31 / 0.06), 0 8px 24px rgb(22 24 31 / 0.08);
+  --hb-float: 0 0 0 1px rgb(22 24 31 / 0.05), 0 2px 6px rgb(22 24 31 / 0.06), 0 24px 56px rgb(22 24 31 / 0.16);
+  --hb-scrim: rgb(22 24 31 / 0.28);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --hb-bg: #0e0f13;
+  --hb-gap: #090a0d;
+  --hb-tone-1: #15171d;
+  --hb-tone-2: #1b1e26;
+  --hb-tone-3: #111319;
+  --hb-surface: #17191f;
+  --hb-surface-2: #20232b;
+  --hb-text: #f0ead6;
+  --hb-muted: #a8a291;
+  --hb-border: #2c303a;
+  --hb-border-strong: #6b6f7a;
+  --hb-accent: #ffc940;
+  --hb-on-accent: #16181f;
+  --hb-focus: #ffc940;
+  --hb-mark: #f0ead6;
+  --hb-mark-eye: #e8a317;
+  --hb-sun: #e8a317;
+
+  --hb-ok: #4cc38a;
+  --hb-ok-fg: #4cc38a;
+  --hb-warn: #ff8a3d;
+  --hb-warn-fg: #ff8a3d;
+  --hb-bad: #ff7a6e;
+  --hb-bad-fg: #ff7a6e;
+  --hb-sun-fg: #ffc940;
+
+  --hb-code: oklch(0.66 0.11 265);
+  --hb-code-fg: oklch(0.78 0.09 265);
+  --hb-wire: #6b6f7a;
+  --hb-wire-active: #ffc940;
+  --hb-wire-pulse: #fff2c2;
+
+  /* Dracula's background and its green and red. */
+  --hb-code-bg: #282a36;
+  --hb-code-text: #f8f8f2;
+  --hb-diff-add: color-mix(in oklab, #50fa7b 14%, var(--hb-code-bg));
+  --hb-diff-add-word: color-mix(in oklab, #50fa7b 32%, var(--hb-code-bg));
+  --hb-diff-del: color-mix(in oklab, #ff5555 16%, var(--hb-code-bg));
+  --hb-diff-del-word: color-mix(in oklab, #ff5555 36%, var(--hb-code-bg));
+
+  --hb-ridge-0: oklch(0.34 0.035 262);
+  --hb-ridge-1: oklch(0.295 0.039 267);
+  --hb-ridge-2: oklch(0.25 0.043 272);
+  --hb-ridge-3: oklch(0.205 0.047 277);
+
+  --hb-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45);
+  --hb-float: 0 0 0 1px rgb(240 234 214 / 0.07), 0 2px 8px rgb(0 0 0 / 0.5), 0 28px 64px rgb(0 0 0 / 0.6);
+  --hb-scrim: rgb(0 0 0 / 0.5);
+}
+
+/*
+ * Type. The text face is the user's choice (Settings). Space Grotesk stays for headings, labels and the wordmark.
+ * Each face gets the weight and tracking it reads best at in a dense interface. Space Grotesk is a display
+ * face: as text it needs a little more weight and tighter spacing than its default.
+ */
+:root {
+  --font-text: "Space Grotesk Variable";
+  --weight-base: 430;
+  --tracking-text: -0.014em;
+  /* On the dark theme light strokes thin out, so every face carries a touch more weight there. */
+  --weight-text: calc(var(--weight-base) + var(--weight-dark, 0));
+}
+:root[data-type="inter"] {
+  --font-text: "Inter Variable";
+  --weight-base: 420;
+  --tracking-text: -0.011em;
+}
+:root[data-type="geist"] {
+  --font-text: "Geist Variable";
+  --weight-base: 420;
+  --tracking-text: -0.006em;
+}
+:root[data-type="dm-sans"] {
+  --font-text: "DM Sans Variable";
+  --weight-base: 420;
+  --tracking-text: -0.012em;
+}
+:root[data-type="figtree"] {
+  --font-text: "Figtree Variable";
+  --weight-base: 430;
+  --tracking-text: -0.006em;
+}
+:root.dark {
+  --weight-dark: 20;
+}
+
+/* shadcn's tokens, mapped onto the palette. shadcn's "accent" is a quiet hover surface; hobkin's yellow is "primary". */
+:root,
+.light,
+.dark {
+  --background: var(--hb-bg);
+  --foreground: var(--hb-text);
+  --card: var(--hb-surface);
+  --card-foreground: var(--hb-text);
+  --popover: var(--hb-surface);
+  --popover-foreground: var(--hb-text);
+  --primary: var(--hb-accent);
+  --primary-foreground: var(--hb-on-accent);
+  --secondary: var(--hb-surface-2);
+  --secondary-foreground: var(--hb-text);
+  --muted: var(--hb-tone-1);
+  --muted-foreground: var(--hb-muted);
+  --accent: var(--hb-surface-2);
+  --accent-foreground: var(--hb-text);
+  --destructive: var(--hb-bad-fg);
+  --border: var(--hb-border);
+  --input: var(--hb-border-strong);
+  --ring: var(--hb-focus);
+  --chart-1: var(--hb-sun);
+  --chart-2: var(--hb-ok);
+  --chart-3: var(--hb-code);
+  --chart-4: var(--hb-warn);
+  --chart-5: var(--hb-muted);
+  --sidebar: var(--hb-tone-1);
+  --sidebar-foreground: var(--hb-text);
+  --sidebar-primary: var(--hb-accent);
+  --sidebar-primary-foreground: var(--hb-on-accent);
+  --sidebar-accent: var(--hb-surface-2);
+  --sidebar-accent-foreground: var(--hb-text);
+  --sidebar-border: var(--hb-border);
+  --sidebar-ring: var(--hb-focus);
+
+  --radius: 0.875rem;
+
+  /* Motion. Curves from the animate skill's table; the color time is the site's. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms;
+  --dur-fast: 160ms;
+  --dur-base: 220ms;
+  --dur-color: 450ms;
+}

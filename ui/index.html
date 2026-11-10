@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="/hob.svg" />
+    <title>hobkin</title>
+    <script>
+      // Set the theme before first paint so the window never flashes the wrong one.
+      (function () {
+        var saved = null;
+        try { saved = localStorage.getItem('hobkin-theme'); } catch (e) {}
+        var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.add(dark ? 'dark' : 'light');
+        // In the Tauri window the traffic lights sit over the top bar, so its content starts after them.
+        if (window.__TAURI_INTERNALS__) document.documentElement.style.setProperty('--titlebar-inset', '88px');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

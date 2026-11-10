@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import { test, type TestContext } from 'node:test'
+import { fileDecision } from 'hobkin/src/cli/decisions.mjs'
+import type { AskMessage } from '#shared/protocol/messages.ts'
+import type { PendingQuestion } from '#shared/protocol/question.ts'
+import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
+
+const QUESTION = 'The staging deploy is ready. Promote it to production?'
+const CHOICES = [
+  { value: 'promote', label: 'Promote it' },
+  { value: 'wait', label: 'Wait until Monday' },
+]
+
+/** A host with someone at the window, and a way to file a question the way another session does with `hobkin decide`. */
+async function questionHost(t: TestContext, questionWaitMs?: number) {
+  const root = join(temporaryDirectory(t), 'home')
+  const host = await hostFor(t, { root, questionWaitMs })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+  client.send({ type: 'presence', focused: true, typing: false })
+
+  const asks = () => client.received.filter((message): message is AskMessage => message.type === 'ask')
+  const asked = async (): Promise<PendingQuestion> => {
+    await client.until(() => asks().at(-1)?.question, 'the question to reach the UI')
+    return asks().at(-1)!.question!
+  }
+  const gone = () => client.until(() => asks().at(-1)?.question === null, 'the question to leave the screen')
+  const file = (question = QUESTION) =>
+    fileDecision(root, { from: 'deploy session', question, tldr: 'Promote staging?', choices: CHOICES, recommended: 'wait', why: 'Only you can approve a release.', answerTo: { kind: 'outside' } }).id
+  const waiting = () => (client.view.snapshot.decisions ?? []) as { id: string; shown?: boolean; question: string }[]
+  return { client, asked, gone, file, waiting }
+}
+
+test('a question times out to action items and an answer resolves it', async (t) => {
+  // hobkin keeps a question up for 30 seconds. The test does not wait that long.
+  const { client, asked, gone, file, waiting } = await questionHost(t, 400)
+
+  const first = file()
+  const question = await asked()
+  assert.deepEqual(
+    { ...question, id: 'x', askedAt: 0, expiresAt: 0 },
+    { id: 'x', from: 'deploy session', question: QUESTION, tldr: 'Promote staging?', choices: CHOICES, other: true, recommended: 'wait', why: 'Only you can approve a release.', askedAt: 0, expiresAt: 0 },
+  )
+  assert.equal(question.expiresAt! - question.askedAt, 400)
+  assert.ok(Math.abs(question.askedAt - Date.now()) < 5000)
+
+  // Nobody answers. It leaves the screen by itself and waits under Action items, still open.
+  await gone()
+  await client.until(() => waiting().some((decision) => decision.id === first && decision.shown === true), 'the question to wait in Action items')
+  const late = await client.command('question.answer', { id: question.id, value: 'promote' })
+  assert.equal(!late.ok && late.error.code, 'unavailable', 'an answer to a question that left the screen goes nowhere')
+  assert.equal(waiting().length, 1)
+
+  // The next one is answered with one of its choices, and hobkin carries the answer out.
+  const second = file('The staging deploy is ready again. Promote it now?')
+  const next = await asked()
+  assert.notEqual(next.id, question.id)
+  const notAChoice = await client.command('question.answer', { id: next.id, value: 'ship-it' })
+  assert.equal(notAChoice.ok, false)
+  const neither = await client.command('question.answer', { id: next.id })
+  assert.equal(neither.ok, false)
+  assert.deepEqual(await client.run('question.answer', { id: next.id, value: 'promote' }), { ok: true })
+  await gone()
+  await client.until(() => !waiting().some((decision) => decision.id === second), 'the answered question to leave Action items')
+  assert.deepEqual(waiting().map((decision) => decision.id), [first], 'the one that timed out still waits there')
+})
+
+test('a question takes the user\'s own words, or waits for later', async (t) => {
+  const { client, asked, gone, file, waiting } = await questionHost(t)
+
+  const first = file()
+  const question = await asked()
+  assert.equal(question.expiresAt! - question.askedAt, 30000, 'hobkin\'s own thirty seconds')
+  await client.run('question.answer', { id: question.id, typed: 'Promote it after the backup finishes.' })
+  await gone()
+  await client.until(() => !waiting().some((decision) => decision.id === first), 'the answered question to leave Action items')
+
+  // "Later" takes it off the screen at once and leaves it open under Action items.
+  const second = file('One more thing: tag the release too?')
+  const next = await asked()
+  assert.deepEqual(await client.run('question.defer', { id: next.id }), { ok: true })
+  await gone()
+  await client.until(() => waiting().some((decision) => decision.id === second && decision.shown === true), 'the deferred question to wait in Action items')
+})
+
+test('a UI that connects while a question is up gets it', async (t) => {
+  const { client, asked, file } = await questionHost(t)
+  file()
+  const question = await asked()
+
+  const late = await Client.connect({ port: Number(new URL(client.url).port), token: new URL(client.url).searchParams.get('token')! })
+  afterTest(t, () => late.close())
+  await late.until(() => late.received.some((message) => message.type === 'ask' && message.question?.id === question.id), 'the question on the second connection')
+})

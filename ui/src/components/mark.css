@@ -1,0 +1,78 @@
+/*
+ * A small hobkin that stands for one agent. The box is the hood. The art is larger and set back, so what
+ * floats beside the hood (hands, dots) is drawn outside the box without moving anything around it.
+ */
+.agent-hood {
+  position: relative;
+  display: block;
+  flex: none;
+}
+.agent-hood-art {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+/* Each hood starts its loops at its own point (--agent-delay), so a row of them never moves in step. */
+.agent-hood .hob-body,
+.agent-hood .hob-look {
+  animation-delay: var(--agent-delay, 0s);
+}
+
+/* The art's own question mark is a hairline at this size. The badge says it instead. */
+.agent-hood[data-asking] .hob-qfloat {
+  display: none;
+}
+
+/* Waiting for the user: a question mark in the accent, with a ring that opens out from it. */
+.agent-hood-ask {
+  position: absolute;
+  top: -22%;
+  right: -34%;
+  display: grid;
+  place-items: center;
+  width: clamp(12px, 0.56em, 30px);
+  height: clamp(12px, 0.56em, 30px);
+  border-radius: 999px;
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+  font-family: var(--font-heading);
+  font-size: clamp(9px, 0.42em, 20px);
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--background);
+  animation: agent-ask-float 1.8s ease-in-out infinite;
+}
+.agent-hood-ask::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1.5px var(--hb-accent);
+  animation: agent-ask-ring 1.8s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+/* On a large face the corner of the box is far from the hood, so the mark sits on the hood's shoulder instead. */
+.agent-hood[data-large] .agent-hood-ask {
+  top: 1%;
+  right: auto;
+  left: 60%;
+}
+
+@keyframes agent-ask-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14%); }
+}
+@keyframes agent-ask-ring {
+  0% { transform: scale(1); opacity: 0.7; }
+  70%, 100% { transform: scale(2.1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .agent-hood-ask,
+  :root:not([data-motion='lively']) .agent-hood-ask::after { animation: none; }
+  :root:not([data-motion='lively']) .agent-hood-ask::after { opacity: 0; }
+}
+:root[data-motion='still'] .agent-hood-ask,
+:root[data-motion='still'] .agent-hood-ask::after { animation: none; }
+:root[data-motion='still'] .agent-hood-ask::after { opacity: 0; }

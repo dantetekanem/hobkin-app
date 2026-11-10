@@ -1,0 +1,1131 @@
+{
+  "version": 1,
+  "id": "sample",
+  "change": {
+    "project": "hobkin",
+    "item": "7d02c9",
+    "title": "Say what the main agent is doing, above the input",
+    "branch": "hobkin/7d02c9-say-what-hobkin-is-doing",
+    "base": "deae00240d36777aa579d7e2b316042cbafc67ab",
+    "head": "7d02c99f8c61be4291e0c2046d29787cbc1c010a",
+    "additions": 111,
+    "deletions": 2,
+    "files": 9
+  },
+  "snapshot": "77279a768b1b0f6bc9713ed77988e9615cfcdfb645cf46b3b14113f77e2589cb",
+  "spec": {
+    "path": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+    "outcome": "While the main agent works, the row above the input reads like its next message: hobkin is thinking, writing, researching, delegating, working, retrying or compacting, with how long the turn has run. The word follows each step of the turn, and the row goes when the turn ends.",
+    "outOfScope": [
+      "Saying what work agents and checks are doing. The row is about the main agent only.",
+      "Stopping the turn from this row.",
+      "Naming the tool or showing what it was given. The row says one word."
+    ],
+    "openQuestions": [
+      "Thinking is the word before the first event and again after every tool. Should the wait before the first event read differently?",
+      "Should the row also say what a work agent is doing, or stay about the main agent?"
+    ]
+  },
+  "files": [
+    {
+      "id": "CHANGELOG.md",
+      "path": "CHANGELOG.md",
+      "status": "modified",
+      "binary": false,
+      "additions": 1,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "docs/guide.md",
+      "path": "docs/guide.md",
+      "status": "modified",
+      "binary": false,
+      "additions": 2,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/cli/application.mjs",
+      "path": "src/cli/application.mjs",
+      "status": "modified",
+      "binary": false,
+      "additions": 1,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/cli/doing.mjs",
+      "path": "src/cli/doing.mjs",
+      "status": "added",
+      "binary": false,
+      "additions": 28,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/cli/runtime.mjs",
+      "path": "src/cli/runtime.mjs",
+      "status": "modified",
+      "binary": false,
+      "additions": 3,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/cli/ui.mjs",
+      "path": "src/cli/ui.mjs",
+      "status": "modified",
+      "binary": false,
+      "additions": 10,
+      "deletions": 2,
+      "summarized": false
+    },
+    {
+      "id": "test/cli-doing.test.mjs",
+      "path": "test/cli-doing.test.mjs",
+      "status": "added",
+      "binary": false,
+      "additions": 32,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "test/cli-event-recording.test.mjs",
+      "path": "test/cli-event-recording.test.mjs",
+      "status": "modified",
+      "binary": false,
+      "additions": 16,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "test/cli-ui.test.mjs",
+      "path": "test/cli-ui.test.mjs",
+      "status": "modified",
+      "binary": false,
+      "additions": 18,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "path": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/cli/mood.mjs",
+      "path": "src/cli/mood.mjs",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    }
+  ],
+  "nodes": [
+    {
+      "id": "A1",
+      "kind": "criterion",
+      "title": "A1",
+      "subtitle": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "change": "unchanged",
+      "summary": "While the model streams, the word is thinking for its thinking and writing for its reply.",
+      "status": "proven",
+      "proof": "`test/cli-doing.test.mjs` › \"what the model streams says whether it is thinking or writing its reply\"",
+      "anchors": [
+        {
+          "fileId": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+          "side": "added",
+          "startLine": 31,
+          "endLine": 31,
+          "hash": "80286f8108d73832b78716b859b3cf9aee8fc21be121c7242dfe7cb2223e5693"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "A2",
+      "kind": "criterion",
+      "title": "A2",
+      "subtitle": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "change": "unchanged",
+      "summary": "A tool says what kind of work it is: reading and searching read as researching, a `hobkin session` command as delegating, and anything else as working. When the tool ends, the word is thinking again.",
+      "status": "proven",
+      "proof": "`test/cli-doing.test.mjs` › \"a tool says what kind of work it is, and the step after it is thinking again\"",
+      "anchors": [
+        {
+          "fileId": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+          "side": "added",
+          "startLine": 32,
+          "endLine": 32,
+          "hash": "6ac3598980c70d2b9ba956182c880234272886546eab89a2b75c89e7cc5fa9f3"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 164
+      }
+    },
+    {
+      "id": "A3",
+      "kind": "criterion",
+      "title": "A3",
+      "subtitle": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "change": "unchanged",
+      "summary": "A retry reads as retrying and a compaction as compacting. An event that says nothing new keeps the word it had.",
+      "status": "proven",
+      "proof": "`test/cli-doing.test.mjs` › \"a retry and a compaction say so, and anything else keeps the word it had\"",
+      "anchors": [
+        {
+          "fileId": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+          "side": "added",
+          "startLine": 33,
+          "endLine": 33,
+          "hash": "bb4c52aac2bab30fc69aeab12050e8c363af9140a908fc3196b12209e37f7426"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 328
+      }
+    },
+    {
+      "id": "A4",
+      "kind": "criterion",
+      "title": "A4",
+      "subtitle": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "change": "unchanged",
+      "summary": "The word reaches the snapshot as `doing` while the turn runs, and is null once the turn ends.",
+      "status": "proven",
+      "proof": "`test/cli-event-recording.test.mjs` › \"what a turn is doing reaches the screen in a word, and goes when the turn ends\"",
+      "anchors": [
+        {
+          "fileId": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+          "side": "added",
+          "startLine": 34,
+          "endLine": 34,
+          "hash": "b1a2973d43da756e8eddc097ec76e950f31af216d3aab1d3c531db280ec8d63e"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 492
+      }
+    },
+    {
+      "id": "A5",
+      "kind": "criterion",
+      "title": "A5",
+      "subtitle": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "change": "unchanged",
+      "summary": "In Chat, while the main agent works, the row above the input reads \"hobkin is researching…\" with how long the turn has run. Before any event it says thinking, and the row goes when the turn ends.",
+      "status": "proven",
+      "proof": "`test/cli-ui.test.mjs` › \"while the main agent works, the row above the input says what it is doing and for how long\"",
+      "anchors": [
+        {
+          "fileId": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+          "side": "added",
+          "startLine": 35,
+          "endLine": 35,
+          "hash": "2020325e1733f03b0e52085be694fde889a6303bf7855cff73b089b652d427eb"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 656
+      }
+    },
+    {
+      "id": "A6",
+      "kind": "criterion",
+      "title": "A6",
+      "subtitle": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+      "change": "unchanged",
+      "summary": "The row gives way when a question or a card takes the input's place.",
+      "status": "unproven",
+      "anchors": [
+        {
+          "fileId": "_specs/7d02c9-say-what-hobkin-is-doing/spec.md",
+          "side": "added",
+          "startLine": 36,
+          "endLine": 36,
+          "hash": "1e8074dbe9d46af0efb580992e1d557db45a243873fd9e2ac920dd6056275ed6"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 820
+      },
+      "warning": "This line has no Proof line."
+    },
+    {
+      "id": "u13",
+      "kind": "test",
+      "title": "what the model streams says whether it is thinking or writing its reply",
+      "subtitle": "test/cli-doing.test.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 13,
+        "deletions": 0
+      },
+      "summary": "Streams a piece of thinking, of text and of a tool call through doingAfter, and expects thinking, writing and working.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/cli-doing.test.mjs",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 5,
+          "hash": "fef605eca85e1d49d50ddf7ee820a28776d23e4016267a711457b2c30ba4dfec"
+        },
+        {
+          "fileId": "test/cli-doing.test.mjs",
+          "side": "added",
+          "startLine": 7,
+          "endLine": 14,
+          "hash": "1f57a0898f9df50c6dc31998f9971e21006b10765edd9d087373760f9d39169e"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 26
+      }
+    },
+    {
+      "id": "u14",
+      "kind": "test",
+      "title": "a tool says what kind of work it is, and the step after it is thinking again",
+      "subtitle": "test/cli-doing.test.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 11,
+        "deletions": 0
+      },
+      "summary": "Starts five tools and expects researching, delegating or working for each, then thinking once a tool has ended.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/cli-doing.test.mjs",
+          "side": "added",
+          "startLine": 6,
+          "endLine": 6,
+          "hash": "9d42b0292e5ed522b38252be1757d8e7c7297fb6a5a30082f7c5beffb5edc984"
+        },
+        {
+          "fileId": "test/cli-doing.test.mjs",
+          "side": "added",
+          "startLine": 15,
+          "endLine": 24,
+          "hash": "1d5a92104d60966a08187efbbd7786cd9a5fe74f59bbfb8351646d81635927bc"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 190
+      }
+    },
+    {
+      "id": "u15",
+      "kind": "test",
+      "title": "a retry and a compaction say so, and anything else keeps the word it had",
+      "subtitle": "test/cli-doing.test.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Expects retrying and compacting, thinking after a compaction ends, and the same word back for events that say nothing new.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/cli-doing.test.mjs",
+          "side": "added",
+          "startLine": 25,
+          "endLine": 32,
+          "hash": "e6cac296f4e7c192f144b22d52db3fdf3c6b296e917df6fa16ef48d3ce82e1e3"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 354
+      }
+    },
+    {
+      "id": "u16",
+      "kind": "test",
+      "title": "what a turn is doing reaches the screen in a word, and goes when the turn ends",
+      "subtitle": "test/cli-event-recording.test.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 16,
+        "deletions": 0
+      },
+      "summary": "Opens an application, tells it two events and reads doing from the snapshot. After a turn ends it expects null.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/cli-event-recording.test.mjs",
+          "side": "added",
+          "startLine": 287,
+          "endLine": 302,
+          "hash": "793cd4c7a2f8ff7043330eeac4d36b03e8cbdf8f3d81b60b090c94014eecc824"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 518
+      }
+    },
+    {
+      "id": "u17",
+      "kind": "test",
+      "title": "while the main agent works, the row above the input says what it is doing and for how long",
+      "subtitle": "test/cli-ui.test.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 18,
+        "deletions": 0
+      },
+      "summary": "Draws an 80 by 24 screen from a busy snapshot and finds \"hobkin is researching… 15s\" on the row above the input.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/cli-ui.test.mjs",
+          "side": "added",
+          "startLine": 918,
+          "endLine": 935,
+          "hash": "49b033284c95b26f807777a4f964cf24fee9b72ecf08bbfb52df040b1127bbde"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 682
+      }
+    },
+    {
+      "id": "u1",
+      "kind": "code",
+      "title": "project",
+      "subtitle": "src/cli/application.mjs",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "summary": "The snapshot gains one field, doing: the runtime's word, or null when no turn is running.",
+      "anchors": [
+        {
+          "fileId": "src/cli/application.mjs",
+          "side": "added",
+          "startLine": 381,
+          "endLine": 521,
+          "hash": "d9d673bfe23afd26165f89e852e50a314b4d6e7aca0d2e653eda84cdb64a7d45"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 558
+      }
+    },
+    {
+      "id": "u2",
+      "kind": "code",
+      "title": "toolDoing",
+      "subtitle": "src/cli/doing.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 11,
+        "deletions": 0
+      },
+      "summary": "Turns a tool start into a word: researching for a tool that reads or searches, delegating for `hobkin session`, working for the rest.",
+      "anchors": [
+        {
+          "fileId": "src/cli/doing.mjs",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 11,
+          "hash": "018419297ba703bf7c8195491d1bb28efa7759a61f127b6ad758fcaa9fc9476a"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 260
+      }
+    },
+    {
+      "id": "u3",
+      "kind": "code",
+      "title": "streamedDoing",
+      "subtitle": "src/cli/doing.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 7,
+        "deletions": 0
+      },
+      "summary": "Turns a piece of the model's stream into a word: thinking, writing, or working when it starts a tool call.",
+      "anchors": [
+        {
+          "fileId": "src/cli/doing.mjs",
+          "side": "added",
+          "startLine": 12,
+          "endLine": 18,
+          "hash": "6e6f444cede383fa1a8b243df9a04671ea5dbd81443f63719fd665df2669e138"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 96
+      }
+    },
+    {
+      "id": "u4",
+      "kind": "code",
+      "title": "doingAfter",
+      "subtitle": "src/cli/doing.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 10,
+        "deletions": 0
+      },
+      "summary": "Takes the word so far and one event of the turn, and returns the word after it. An event it does not know keeps the word.",
+      "anchors": [
+        {
+          "fileId": "src/cli/doing.mjs",
+          "side": "added",
+          "startLine": 19,
+          "endLine": 28,
+          "hash": "dfc3df18d5ed4c03e3d4502b44707ce89c77457416d9d5281cf1f071fa086a1c"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 241
+      }
+    },
+    {
+      "id": "u5",
+      "kind": "code",
+      "title": "connectMain",
+      "subtitle": "src/cli/runtime.mjs",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 0
+      },
+      "summary": "Where the runtime listens to the main session. Each event now goes through doingAfter, and the result is kept as mainDoing.",
+      "anchors": [
+        {
+          "fileId": "src/cli/runtime.mjs",
+          "side": "added",
+          "startLine": 10,
+          "endLine": 10,
+          "hash": "6b71dd8d3f222eb15610121e2e73c73eae4602bc48148c15cef5ad624e899d23"
+        },
+        {
+          "fileId": "src/cli/runtime.mjs",
+          "side": "added",
+          "startLine": 145,
+          "endLine": 231,
+          "hash": "1cf78e9ff122707fe52cb6c85ad295ae89b38976d46a3671867fb82f87e719a8"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 348
+      }
+    },
+    {
+      "id": "u6",
+      "kind": "code",
+      "title": "send",
+      "subtitle": "src/cli/runtime.mjs",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "summary": "When the turn ends, the finally block that already forgets the tool name clears the word as well.",
+      "anchors": [
+        {
+          "fileId": "src/cli/runtime.mjs",
+          "side": "added",
+          "startLine": 540,
+          "endLine": 573,
+          "hash": "ba8ced5766af76b1bdeb00361689fbe9f5377c499a2ab8bd67a8a468d805977c"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 512
+      }
+    },
+    {
+      "id": "u7",
+      "kind": "code",
+      "title": "workingRow",
+      "subtitle": "src/cli/ui.mjs",
+      "change": "added",
+      "stats": {
+        "additions": 6,
+        "deletions": 0
+      },
+      "summary": "Builds the row: a spinner frame, \"hobkin is\" and the word, and on the right the time since the turn began.",
+      "anchors": [
+        {
+          "fileId": "src/cli/ui.mjs",
+          "side": "added",
+          "startLine": 2069,
+          "endLine": 2074,
+          "hash": "7d214af66e95e3986c23b9ccb22f1098d79874211282191d5dd3bd2cc6ecfaf1"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 665
+      }
+    },
+    {
+      "id": "u8",
+      "kind": "code",
+      "title": "renderFooter",
+      "subtitle": "src/cli/ui.mjs",
+      "change": "modified",
+      "stats": {
+        "additions": 4,
+        "deletions": 2
+      },
+      "summary": "Shows the row above the input, only in Chat, connected and busy. For a question or a card it returns before the row is built.",
+      "anchors": [
+        {
+          "fileId": "src/cli/ui.mjs",
+          "side": "added",
+          "startLine": 2147,
+          "endLine": 2184,
+          "hash": "71f8ae8f36f37728277153199795165f8a077e8f2352b857d58eddfdb44b104b"
+        },
+        {
+          "fileId": "src/cli/ui.mjs",
+          "side": "deleted",
+          "startLine": 2141,
+          "endLine": 2176,
+          "hash": "257642c0a5b240b0122daff7b72db77b8dd23dfaea500af7588150107c70b8f1"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 693
+      }
+    },
+    {
+      "id": "u9",
+      "kind": "file",
+      "title": "CHANGELOG.md",
+      "subtitle": "CHANGELOG.md",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "summary": "One entry under 2026-11-03 that says what the row shows and when it goes.",
+      "anchors": [
+        {
+          "fileId": "CHANGELOG.md",
+          "side": "added",
+          "startLine": 5,
+          "endLine": 5,
+          "hash": "81fee2838f5edb56deef11693481bb2b4d0bcdf9ca11c4ed40bff0bb502ba86b"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 857
+      }
+    },
+    {
+      "id": "u10",
+      "kind": "file",
+      "title": "guide.md",
+      "subtitle": "docs/guide.md",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 0
+      },
+      "summary": "A paragraph in the guide about the row above the input.",
+      "anchors": [
+        {
+          "fileId": "docs/guide.md",
+          "side": "added",
+          "startLine": 54,
+          "endLine": 55,
+          "hash": "85f59e1ad761e749fceb66178637261cf0adc19fa9147bfd6985297d78252bc1"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 1005
+      }
+    },
+    {
+      "id": "c1",
+      "kind": "context",
+      "title": "searchingTool",
+      "subtitle": "src/cli/mood.mjs",
+      "change": "unchanged",
+      "summary": "Unchanged. Says whether a tool reads or searches, by its name. The face already uses it to look like it is searching.",
+      "anchors": [
+        {
+          "fileId": "src/cli/mood.mjs",
+          "side": "added",
+          "startLine": 25,
+          "endLine": 25,
+          "hash": "33eabb617dfe8ae0e12731c6e915f10762dd15208ee3149adeae9f070aa49afd"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 268
+      }
+    },
+    {
+      "id": "c2",
+      "kind": "context",
+      "title": "elapsed",
+      "subtitle": "src/cli/ui.mjs",
+      "change": "unchanged",
+      "summary": "Unchanged. Formats a length of time: 15s under a minute, then minutes and seconds.",
+      "anchors": [
+        {
+          "fileId": "src/cli/ui.mjs",
+          "side": "added",
+          "startLine": 265,
+          "endLine": 269,
+          "hash": "df5ac998c2a383c65d185e099e0de2ddcc06f3ae0300c2c87c625d1dde6f7e50"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 673
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "exercises:u13>u4",
+      "from": "u13",
+      "to": "u4",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u14>u4",
+      "from": "u14",
+      "to": "u4",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u15>u4",
+      "from": "u15",
+      "to": "u4",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u16>u6",
+      "from": "u16",
+      "to": "u6",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u4>u2",
+      "from": "u4",
+      "to": "u2",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u4>u3",
+      "from": "u4",
+      "to": "u3",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u5>u4",
+      "from": "u5",
+      "to": "u4",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u8>u7",
+      "from": "u8",
+      "to": "u7",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A1>u13",
+      "from": "A1",
+      "to": "u13",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A2>u14",
+      "from": "A2",
+      "to": "u14",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A3>u15",
+      "from": "A3",
+      "to": "u15",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A4>u16",
+      "from": "A4",
+      "to": "u16",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A5>u17",
+      "from": "A5",
+      "to": "u17",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u2>c1",
+      "from": "u2",
+      "to": "c1",
+      "kind": "calls",
+      "label": "asks if the tool reads or searches",
+      "certainty": "model"
+    },
+    {
+      "id": "calls:u7>c2",
+      "from": "u7",
+      "to": "c2",
+      "kind": "calls",
+      "label": "formats the time",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u7>u1",
+      "from": "u7",
+      "to": "u1",
+      "kind": "uses",
+      "label": "reads snapshot.doing",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u16>u1",
+      "from": "u16",
+      "to": "u1",
+      "kind": "exercises",
+      "label": "reads doing from the snapshot",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u17>u8",
+      "from": "u17",
+      "to": "u8",
+      "kind": "exercises",
+      "label": "draws the screen and finds the row",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A1>u3",
+      "from": "A1",
+      "to": "u3",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A2>u2",
+      "from": "A2",
+      "to": "u2",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A3>u4",
+      "from": "A3",
+      "to": "u4",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A4>u5",
+      "from": "A4",
+      "to": "u5",
+      "kind": "implements",
+      "label": "kept while the turn runs",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A4>u6",
+      "from": "A4",
+      "to": "u6",
+      "kind": "implements",
+      "label": "null once the turn ends",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A4>u1",
+      "from": "A4",
+      "to": "u1",
+      "kind": "implements",
+      "label": "carried as doing",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A5>u7",
+      "from": "A5",
+      "to": "u7",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A6>u8",
+      "from": "A6",
+      "to": "u8",
+      "kind": "implements",
+      "label": "returns first for a question or a card",
+      "certainty": "model"
+    }
+  ],
+  "story": [
+    {
+      "id": "outcome",
+      "kind": "outcome",
+      "title": "Say what the main agent is doing, above the input",
+      "text": "While the main agent works, the row above the input reads like its next message: hobkin is thinking, writing, researching, delegating, working, retrying or compacting, with how long the turn has run. The word follows each step of the turn, and the row goes when the turn ends.",
+      "focus": [],
+      "criteria": []
+    },
+    {
+      "id": "s1",
+      "kind": "walk",
+      "title": "Three promises about one word",
+      "text": "The word has three sources. The model's own stream says whether it is thinking or writing. A tool says researching, delegating or working, by what kind of tool it is. A retry and a compaction name themselves. Anything that says nothing new leaves the word as it was. These three lines are the first step of the spec, and they can be met before any screen exists.",
+      "focus": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "criteria": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "specStep": "S1"
+    },
+    {
+      "id": "s2",
+      "kind": "walk",
+      "title": "Three tests that need nothing else",
+      "text": "Each promise has its own test in test/cli-doing.test.mjs. All three do the same thing: hand a word and an event to one function and check the word that comes back. They import only that function, so they run without a runtime or a screen. The second test passes a whole `hobkin session` command, path and flags included, and expects delegating.",
+      "focus": [
+        "u13",
+        "u14",
+        "u15"
+      ],
+      "criteria": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "specStep": "S1",
+      "travel": "proves:A1>u13"
+    },
+    {
+      "id": "s3",
+      "kind": "walk",
+      "title": "doingAfter: from an event to a word",
+      "text": "This function is the whole rule. It takes the word so far and one event of the turn, and returns the word after it. It keeps no state of its own, so the same event always gives the same word. A streamed piece and a tool start go to two helpers. The end of a tool or of a compaction reads as thinking, a retry as retrying, a compaction as compacting. Any other event returns the word unchanged, which is the last sentence of A3.",
+      "focus": [
+        "u4"
+      ],
+      "criteria": [
+        "A3"
+      ],
+      "specStep": "S1",
+      "travel": "exercises:u13>u4"
+    },
+    {
+      "id": "s4",
+      "kind": "walk",
+      "title": "Two helpers, one for each kind of event",
+      "text": "streamedDoing reads the kind of a streamed piece: thinking reads as thinking, text as writing, and the start of a tool call as working. For any other piece it returns null, and doingAfter keeps the word it had. toolDoing reads a tool start. A tool that reads or searches is researching. A bash command that runs `hobkin session` is delegating, wherever hobkin is installed. Every other tool is working.",
+      "focus": [
+        "u3",
+        "u2"
+      ],
+      "criteria": [
+        "A1",
+        "A2"
+      ],
+      "specStep": "S1",
+      "travel": "calls:u4>u2"
+    },
+    {
+      "id": "s5",
+      "kind": "walk",
+      "title": "A rule that was already there",
+      "text": "toolDoing does not decide what counts as research. It asks searchingTool in mood.mjs, which matches tool names such as read, grep, find, search and fetch. The face already uses that function to look like it is searching, and the snapshot already calls it. Using it here means the face and the row cannot disagree about the same tool. The function itself did not change.",
+      "focus": [
+        "c1"
+      ],
+      "criteria": [
+        "A2"
+      ],
+      "specStep": "S1",
+      "travel": "calls:u2>c1"
+    },
+    {
+      "id": "s6",
+      "kind": "walk",
+      "title": "The runtime keeps the word for one turn",
+      "text": "connectMain is where the runtime listens to the main session. One new line passes every event to doingAfter and keeps the result as mainDoing, next to the tool name it already kept. The other change is in send. When the turn ends, however it ends, the finally block that already forgets the tool name sets mainDoing to null. A word left over from a finished turn would be false.",
+      "focus": [
+        "u5",
+        "u6"
+      ],
+      "criteria": [
+        "A4"
+      ],
+      "specStep": "S2"
+    },
+    {
+      "id": "s7",
+      "kind": "walk",
+      "title": "The promise that the word gets out",
+      "text": "A4 asks for the word on the snapshot while the turn runs, and null after it. Its test opens an application through the suite's fixture. It tells the main session a piece of thinking and reads doing: thinking. It tells it that a read tool started and reads researching. Then it sends a message, waits for the turn to finish, and reads null.",
+      "focus": [
+        "A4",
+        "u16"
+      ],
+      "criteria": [
+        "A4"
+      ],
+      "specStep": "S2",
+      "travel": "exercises:u16>u6"
+    },
+    {
+      "id": "s8",
+      "kind": "walk",
+      "title": "One field on the snapshot",
+      "text": "The screen reads the snapshot, a plain object the application builds again on every refresh. project is the method that builds it, and this change adds one line there: doing is the runtime's word, or null when there is none. It sits beside busy, searching and tooling, which the face already reads.",
+      "focus": [
+        "u1"
+      ],
+      "criteria": [
+        "A4"
+      ],
+      "specStep": "S2",
+      "travel": "exercises:u16>u1"
+    },
+    {
+      "id": "s9",
+      "kind": "walk",
+      "title": "The row",
+      "text": "workingRow builds the row from three things: the spinner frame, hobkin in the agent's color, and \"is researching…\" in dim text, with the word taken from snapshot.doing. Before the first event there is no word yet, so it falls back to thinking. On the right it shows how long the turn has run. elapsed formats that time and was already in the file: 15s under a minute, then minutes and seconds.",
+      "focus": [
+        "u7",
+        "c2"
+      ],
+      "criteria": [
+        "A5"
+      ],
+      "specStep": "S3",
+      "travel": "uses:u7>u1"
+    },
+    {
+      "id": "s10",
+      "kind": "walk",
+      "title": "Where the row goes, and when",
+      "text": "renderFooter builds the lines at the bottom of the screen: the input, the tips and the status. It builds the row only in Chat, with the input on screen, while hobkin is connected and busy. Then it puts the row first, above the input, whether or not the face is drawn beside it. The two removed lines are the two returns that now start with the row.",
+      "focus": [
+        "u8"
+      ],
+      "criteria": [
+        "A5",
+        "A6"
+      ],
+      "specStep": "S3",
+      "travel": "calls:u8>u7"
+    },
+    {
+      "id": "s11",
+      "kind": "walk",
+      "title": "The test that draws the screen",
+      "text": "A5 is the promise a person can see. Its test builds the dashboard from a busy snapshot whose word is researching, moves the clock 15 seconds, and draws an 80 by 24 screen. It looks for \"hobkin is researching… 15s\" and checks that the input starts on the next row. Then it updates the snapshot twice: with no word the row says thinking, and with busy off the row is gone.",
+      "focus": [
+        "A5",
+        "u17"
+      ],
+      "criteria": [
+        "A5"
+      ],
+      "specStep": "S3",
+      "travel": "exercises:u17>u8"
+    },
+    {
+      "id": "s12",
+      "kind": "walk",
+      "title": "One promise with no proof",
+      "text": "A6 says the row gives way when a question or a card takes the input's place. The code does this: renderFooter returns for a card, a question or a choice before it builds the row. No test in this change checks it, so the line shows as unproven. The changelog states the same behavior, which makes a test for it worth adding.",
+      "focus": [
+        "A6",
+        "u8"
+      ],
+      "criteria": [
+        "A6"
+      ],
+      "specStep": "S3",
+      "travel": "exercises:u17>u8"
+    },
+    {
+      "id": "s13",
+      "kind": "walk",
+      "title": "Said in the guide and the changelog",
+      "text": "Two files say it in words. The guide gains a paragraph on the row above the input, placed before the paragraph about the face. The changelog gains an entry under 2026-11-03, and it adds one thing the guide leaves out: the row also goes when a question takes the input's place. Neither file changes behavior.",
+      "focus": [
+        "u10",
+        "u9"
+      ],
+      "criteria": [
+        "A5"
+      ],
+      "specStep": "S4"
+    },
+    {
+      "id": "closing",
+      "kind": "closing",
+      "title": "Out of scope and open questions",
+      "text": "What this change leaves alone, and two questions it leaves open.",
+      "focus": [],
+      "criteria": []
+    }
+  ],
+  "summary": "While its main agent works, hobkin now says what it is doing in one word, on the row above the input, with how long the turn has run.",
+  "notices": [
+    "Sample data. This review was built from hobkin commit 7d02c99. Its spec was written after the fact and its story by hand."
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "summary": "While its main agent works, hobkin now says what it is doing in one word, on the row above the input, with how long the turn has run.",
+  "nodes": {
+    "u13": { "summary": "Streams a piece of thinking, of text and of a tool call through doingAfter, and expects thinking, writing and working." },
+    "u14": { "summary": "Starts five tools and expects researching, delegating or working for each, then thinking once a tool has ended." },
+    "u15": { "summary": "Expects retrying and compacting, thinking after a compaction ends, and the same word back for events that say nothing new." },
+    "u16": { "summary": "Opens an application, tells it two events and reads doing from the snapshot. After a turn ends it expects null." },
+    "u17": { "summary": "Draws an 80 by 24 screen from a busy snapshot and finds \"hobkin is researching… 15s\" on the row above the input." },
+    "u1": { "summary": "The snapshot gains one field, doing: the runtime's word, or null when no turn is running." },
+    "u2": { "summary": "Turns a tool start into a word: researching for a tool that reads or searches, delegating for `hobkin session`, working for the rest." },
+    "u3": { "summary": "Turns a piece of the model's stream into a word: thinking, writing, or working when it starts a tool call." },
+    "u4": { "summary": "Takes the word so far and one event of the turn, and returns the word after it. An event it does not know keeps the word." },
+    "u5": { "summary": "Where the runtime listens to the main session. Each event now goes through doingAfter, and the result is kept as mainDoing." },
+    "u6": { "summary": "When the turn ends, the finally block that already forgets the tool name clears the word as well." },
+    "u7": { "summary": "Builds the row: a spinner frame, \"hobkin is\" and the word, and on the right the time since the turn began." },
+    "u8": { "summary": "Shows the row above the input, only in Chat, connected and busy. For a question or a card it returns before the row is built." },
+    "u9": { "summary": "One entry under 2026-11-03 that says what the row shows and when it goes." },
+    "u10": { "summary": "A paragraph in the guide about the row above the input." }
+  },
+  "context": [
+    {
+      "id": "searchingTool",
+      "path": "src/cli/mood.mjs",
+      "symbol": "searchingTool",
+      "summary": "Unchanged. Says whether a tool reads or searches, by its name. The face already uses it to look like it is searching."
+    },
+    {
+      "id": "elapsed",
+      "path": "src/cli/ui.mjs",
+      "symbol": "elapsed",
+      "summary": "Unchanged. Formats a length of time: 15s under a minute, then minutes and seconds."
+    }
+  ],
+  "wires": [
+    { "from": "u2", "to": "searchingTool", "kind": "calls", "label": "asks if the tool reads or searches" },
+    { "from": "u7", "to": "elapsed", "kind": "calls", "label": "formats the time" },
+    { "from": "u7", "to": "u1", "kind": "uses", "label": "reads snapshot.doing" },
+    { "from": "u16", "to": "u1", "kind": "exercises", "label": "reads doing from the snapshot" },
+    { "from": "u17", "to": "u8", "kind": "exercises", "label": "draws the screen and finds the row" },
+    { "from": "A1", "to": "u3", "kind": "implements" },
+    { "from": "A2", "to": "u2", "kind": "implements" },
+    { "from": "A3", "to": "u4", "kind": "implements" },
+    { "from": "A4", "to": "u5", "kind": "implements", "label": "kept while the turn runs" },
+    { "from": "A4", "to": "u6", "kind": "implements", "label": "null once the turn ends" },
+    { "from": "A4", "to": "u1", "kind": "implements", "label": "carried as doing" },
+    { "from": "A5", "to": "u7", "kind": "implements" },
+    { "from": "A6", "to": "u8", "kind": "implements", "label": "returns first for a question or a card" }
+  ],
+  "story": [
+    {
+      "title": "Three promises about one word",
+      "text": "The word has three sources. The model's own stream says whether it is thinking or writing. A tool says researching, delegating or working, by what kind of tool it is. A retry and a compaction name themselves. Anything that says nothing new leaves the word as it was. These three lines are the first step of the spec, and they can be met before any screen exists.",
+      "focus": ["A1", "A2", "A3"],
+      "criteria": ["A1", "A2", "A3"],
+      "specStep": "S1"
+    },
+    {
+      "title": "Three tests that need nothing else",
+      "text": "Each promise has its own test in test/cli-doing.test.mjs. All three do the same thing: hand a word and an event to one function and check the word that comes back. They import only that function, so they run without a runtime or a screen. The second test passes a whole `hobkin session` command, path and flags included, and expects delegating.",
+      "focus": ["u13", "u14", "u15"],
+      "criteria": ["A1", "A2", "A3"],
+      "specStep": "S1"
+    },
+    {
+      "title": "doingAfter: from an event to a word",
+      "text": "This function is the whole rule. It takes the word so far and one event of the turn, and returns the word after it. It keeps no state of its own, so the same event always gives the same word. A streamed piece and a tool start go to two helpers. The end of a tool or of a compaction reads as thinking, a retry as retrying, a compaction as compacting. Any other event returns the word unchanged, which is the last sentence of A3.",
+      "focus": ["u4"],
+      "criteria": ["A3"],
+      "specStep": "S1"
+    },
+    {
+      "title": "Two helpers, one for each kind of event",
+      "text": "streamedDoing reads the kind of a streamed piece: thinking reads as thinking, text as writing, and the start of a tool call as working. For any other piece it returns null, and doingAfter keeps the word it had. toolDoing reads a tool start. A tool that reads or searches is researching. A bash command that runs `hobkin session` is delegating, wherever hobkin is installed. Every other tool is working.",
+      "focus": ["u3", "u2"],
+      "criteria": ["A1", "A2"],
+      "specStep": "S1"
+    },
+    {
+      "title": "A rule that was already there",
+      "text": "toolDoing does not decide what counts as research. It asks searchingTool in mood.mjs, which matches tool names such as read, grep, find, search and fetch. The face already uses that function to look like it is searching, and the snapshot already calls it. Using it here means the face and the row cannot disagree about the same tool. The function itself did not change.",
+      "focus": ["searchingTool"],
+      "criteria": ["A2"],
+      "specStep": "S1"
+    },
+    {
+      "title": "The runtime keeps the word for one turn",
+      "text": "connectMain is where the runtime listens to the main session. One new line passes every event to doingAfter and keeps the result as mainDoing, next to the tool name it already kept. The other change is in send. When the turn ends, however it ends, the finally block that already forgets the tool name sets mainDoing to null. A word left over from a finished turn would be false.",
+      "focus": ["u5", "u6"],
+      "criteria": ["A4"],
+      "specStep": "S2"
+    },
+    {
+      "title": "The promise that the word gets out",
+      "text": "A4 asks for the word on the snapshot while the turn runs, and null after it. Its test opens an application through the suite's fixture. It tells the main session a piece of thinking and reads doing: thinking. It tells it that a read tool started and reads researching. Then it sends a message, waits for the turn to finish, and reads null.",
+      "focus": ["A4", "u16"],
+      "criteria": ["A4"],
+      "specStep": "S2"
+    },
+    {
+      "title": "One field on the snapshot",
+      "text": "The screen reads the snapshot, a plain object the application builds again on every refresh. project is the method that builds it, and this change adds one line there: doing is the runtime's word, or null when there is none. It sits beside busy, searching and tooling, which the face already reads.",
+      "focus": ["u1"],
+      "criteria": ["A4"],
+      "specStep": "S2"
+    },
+    {
+      "title": "The row",
+      "text": "workingRow builds the row from three things: the spinner frame, hobkin in the agent's color, and \"is researching…\" in dim text, with the word taken from snapshot.doing. Before the first event there is no word yet, so it falls back to thinking. On the right it shows how long the turn has run. elapsed formats that time and was already in the file: 15s under a minute, then minutes and seconds.",
+      "focus": ["u7", "elapsed"],
+      "criteria": ["A5"],
+      "specStep": "S3"
+    },
+    {
+      "title": "Where the row goes, and when",
+      "text": "renderFooter builds the lines at the bottom of the screen: the input, the tips and the status. It builds the row only in Chat, with the input on screen, while hobkin is connected and busy. Then it puts the row first, above the input, whether or not the face is drawn beside it. The two removed lines are the two returns that now start with the row.",
+      "focus": ["u8"],
+      "criteria": ["A5", "A6"],
+      "specStep": "S3"
+    },
+    {
+      "title": "The test that draws the screen",
+      "text": "A5 is the promise a person can see. Its test builds the dashboard from a busy snapshot whose word is researching, moves the clock 15 seconds, and draws an 80 by 24 screen. It looks for \"hobkin is researching… 15s\" and checks that the input starts on the next row. Then it updates the snapshot twice: with no word the row says thinking, and with busy off the row is gone.",
+      "focus": ["A5", "u17"],
+      "criteria": ["A5"],
+      "specStep": "S3"
+    },
+    {
+      "title": "One promise with no proof",
+      "text": "A6 says the row gives way when a question or a card takes the input's place. The code does this: renderFooter returns for a card, a question or a choice before it builds the row. No test in this change checks it, so the line shows as unproven. The changelog states the same behavior, which makes a test for it worth adding.",
+      "focus": ["A6", "u8"],
+      "criteria": ["A6"],
+      "specStep": "S3"
+    },
+    {
+      "title": "Said in the guide and the changelog",
+      "text": "Two files say it in words. The guide gains a paragraph on the row above the input, placed before the paragraph about the face. The changelog gains an entry under 2026-11-03, and it adds one thing the guide leaves out: the row also goes when a question takes the input's place. Neither file changes behavior.",
+      "focus": ["u10", "u9"],
+      "criteria": ["A5"],
+      "specStep": "S4"
+    }
+  ],
+  "closing": "What this change leaves alone, and two questions it leaves open."
+}

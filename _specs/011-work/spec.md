@@ -1,0 +1,104 @@
+---
+{
+  "id": "011-work",
+  "title": "Work mode on the canvas",
+  "kind": "work",
+  "status": "doing",
+  "depends": ["002-host", "017-model-tiers"],
+  "updated": "2026-11-10"
+}
+---
+# Work mode on the canvas
+
+## Outcome
+
+The Work screen shows one hobkin delegating to many. hobkin sits on the left of a live map, wired to every agent it started, and each agent shows what it is doing right now. Under the map are the queue, the projects and the finished changes. While agents run, they are also listed at the bottom of the chat, and each has a canvas of its own that shows how its work is going. Work mode keeps the rules it has in the terminal app.
+
+## Decisions
+
+- Work mode's data and rules are hobkin's (`src/cli/work/`). The screen renders hobkin's snapshot and calls its work actions. It adds no rules of its own.
+- The delegation map uses the same node and wire language as Change Review. hobkin is one node. Each running agent is a node with a small hood in its own hue, its project, its task, its tier and what it is doing. A wire pulses when an agent reports back. A finished agent slides into the finished column.
+- Running agents are listed at the bottom of the chat, under the input, and only while something runs. The list is navigated as pi-extended-teams' activity card is: Down from an empty input enters it. Down and Up move, and the canvas shows the selected agent at once. Enter steps into that agent, `i` interrupts the tool command the agent is running, `x` stops the agent, and Escape returns to the input and puts the canvas back as it was.
+- Stepping into an agent is how the user talks to it. The canvas grows a little over the chat, the chat darkens and blurs slightly, and an input rises from the bottom of the canvas with the keyboard in it. What the user sends goes to that agent while it works, as steering, the way hobkin's `message_check` does. Escape steps back out onto the same agent in the list, and everything returns as it was. Every part of this is animated.
+- A new agent pops into the list from below like a bubble rising, and the rows above make room. While an agent works its hood moves. The screen menu's item for an open agent carries the agent's name. A row shows the agent's title, project, what it is doing, its tier, and the elapsed time.
+- An agent's canvas is a rendered view of how the work is going, not a raw log: the mission (goal, question, expected result), the steps taken so far as a short path, the tool calls and their output as they happen from hobkin's job activity, and what it changed. The Agent item appears in the screen menu while one is open.
+- In the client, agents run without Herdr panes, as Pi child processes the host owns. Where hobkin needs a pane today, it gets a path without one on the `client-host` branch.
+- The queue shows hobkin's offered rows with their grade and reason. A row can be started, skipped or moved to the front. hobkin has one key that both starts a row and puts it first (`run`, Enter in the terminal): the screen calls it Run next, and Enter on the row presses it. Skip and Put back are its `s`.
+- Projects show priority and the pull request setting, both changeable.
+- Finished changes use hobkin's three groups: ready to merge, refresh then merge, needs you. A card says what the change is, its proof, its safety grade and what a yes will do. "Review" opens it in Change Review.
+- Turning work mode on starts nothing by itself. This is hobkin's rule and it stays.
+- The host reads work mode from hobkin's snapshot with hobkin's own functions (`approvalGroups`, `groupPlan`, `groupWords`, `landingWay`) and sends it whole as its own slice (`work` in `shared/protocol/work.ts`). The finished changes are the rows hobkin's Decisions lists for approval (`waiting.branches`, pull requests included), the most urgent first. A card's words and choices are those of hobkin's terminal card, which hobkin does not export, so the host writes them out as they are (`host/src/work.ts`).
+- Every action is one of hobkin's own work actions (`workAction`), and a refusal comes back in hobkin's words. Opening a pull request never goes through hobkin's own browser opener: a card links to it, as the GitHub page does.
+- Words for a running agent go through hobkin's `message_check` (`runner.messageCheck`), which hands them to Pi as a steer. Routines take them today; work agents take them once hobkin opens an inbox for their runs (host/proposed-hobkin-changes/03). Stopping a work agent is hobkin's `k` (for now, or not approved); any other agent is cancelled with hobkin's `kill`.
+
+## Out of scope
+
+- Agents on other machines.
+- New kinds of work items.
+
+## Acceptance
+
+- A1. With work mode on and two agents running, the map shows hobkin wired to two agent nodes. Each names its project, its item and what it is doing, and updates within 1 second of a change.
+- A2. An agent that finishes leaves the running column, and a notice appears in the conversation, as in the terminal app.
+- A3. Opening an agent from the list under the input, or from its node on the map, shows its canvas: mission, steps so far, and tool calls with their output, updating live. The canvas stays readable after the agent finishes.
+- A4. The queue lists hobkin's offered rows in hobkin's order. Start, Skip and "Run next" each do what the terminal keys do.
+- A5. Finished changes appear in hobkin's three groups, and each card shows the reason it is in its group.
+- A6. "Merge it" on a card merges on this machine and pushes nothing. A change that cannot merge says why and stays.
+- A7. A group's action (for example "Merge all 3") shows every title it will act on before it acts, then reports each result.
+- A8. With work mode off, the screen says so and offers to turn it on. Turning it on starts no agent.
+- A9. A project's priority and pull request setting can be changed, and the change is the one `hobkin work` reports afterwards.
+- A10. An agent can be stopped from its node. Its run ends as hobkin records a stopped run.
+- A11. Down in an empty input moves to the agents list and shows the first agent's canvas. Down and Up move the selection and the canvas follows. Enter steps into the agent. `i` interrupts the selected agent's running tool command without stopping the agent, and `x` stops the agent after a confirmation. Escape returns to the input, and the canvas returns to the screen it showed before the list was entered.
+- A12. The list under the input shows exactly the agents and routines running now, and disappears when none is running.
+- A13. Enter on an agent, or a click on it, steps into it: the canvas grows over the chat, the chat darkens with a slight blur, and an input rises in the canvas holding the keyboard. Escape, or a click on the darkened chat, steps back out onto the same agent with everything as it was.
+- A14. A message sent from that input reaches the agent while it works and appears in the agent's canvas. With the agent finished, the input says so and sends nothing.
+- A15. A new agent pops into the list and the others make room. Each working agent's hood moves, in the list and on its canvas, and no two side by side move in step. The menu's item for an open agent shows the agent's name.
+- A16. Each agent's small face shows what it is doing with hobkin's own moods (working, thinking, searching and the rest), in the list, in the menu and on its canvas.
+- A17. An agent that waits for the user (a question, or help it asked for) wears a question mark on its face and nothing else marks its row. It comes first in the list, the row's second line says what it waits on, and the list's heading counts how many wait, with the key that goes to them (019 A16). Enter on it, or Cmd+G, opens its question in the question sheet with its choices; an answer given there, or later from Action Items, clears the question mark, and the agent's exchange keeps the answer in words under the question. Putting it off sends it to Action Items, and the agent keeps waiting. (Seen 2026-11-10: Cmd+G, 2, the heading went from 2 to 1 waiting and the keyboard returned to the message input.)
+- A18. Stepping into an agent moves nothing on its canvas by surprise: the input rises into room that is always kept for it, and nothing jumps. The agent's canvas uses the canvas width less a tenth on each side.
+- A19. While the user walks the agents list, each agent shows only its small screen: face, title, what it is on, and its question or its last message cut to two lines with the count of messages. It is the same size however long the exchange is, and the whole exchange, code included, is drawn only after stepping in. Stepping in shrinks the header into a bar at the top in one movement and opens the exchange at its newest message. Only transforms and opacity move, and messages out of view are not drawn.
+- A20. With no host the Work screen draws a sample in the shape the host sends, says it is sample data, and its actions answer the way hobkin would without reaching hobkin, a refused merge included. With a host it draws hobkin's own work mode, and when the host has none to show (a view the terminal saved), it says work mode is not known yet.
+- A21. The Work screen works from the keyboard alone. Up and Down walk it. Enter opens or presses what has the keyboard: an agent's canvas, a queue row run next, a change opened in Change Review, a group's question. Left and Right move along a row to its own choices and back, and change a project's setting. Escape steps back from a choice to its row, and leaves a group's or a stop question without acting. When what had the keyboard leaves (a merged card, a skipped row), the keyboard stays on the screen.
+- A22. While work mode is on the map keeps a place for every agent hobkin may run at once, free or taken. A pulse runs back along a wire to hobkin when its agent reports. Nodes, wires and hobkin move together on one spring, by transform alone. Under Still they are placed where they belong and only fade, and no pulse runs.
+- A23. A finished change on GitHub links to its pull request, and shows where its review and checks stand once gh has read it.
+
+## Proof
+
+- A1. `host/test/work.test.ts` › "running agents reach the state with what each is doing"
+- A2. `host/test/work.test.ts` › "a finished run leaves running and files a notice"
+- A3. `host/test/work.test.ts` › "job activity is forwarded and kept"
+- A4. `host/test/work.test.ts` › "queue actions call hobkin's work actions"
+- A5. `host/test/work.test.ts` › "finished changes keep hobkin's groups and reasons"
+- A6. `host/test/work.test.ts` › "merge passes hobkin's refusal through"
+- A7. `host/test/work.test.ts` › "a group action lists its targets before acting"
+- A8. `host/test/work.test.ts` › "turning work mode on starts nothing"
+- A9. `host/test/work.test.ts` › "project settings round trip"
+- A10. `host/test/work.test.ts` › "stopping an agent ends its run as stopped"
+- A11. `host/test/work.test.ts` › "interrupt cancels the running tool and keeps the agent, stop ends it"
+- A12. `host/test/work.test.ts` › "the running list follows the runs"
+- A13. check: Down, Enter, type, Escape, Escape. Watch the canvas, the chat and the input move.
+- A14. `host/test/work.test.ts` › "a message to a running agent is delivered as steering, and refused once it finished"
+- A15. check: raise Agents at once in Settings and watch the list. Open an agent and read the menu.
+- A16. check: open agents with different moods in the list, the menu and the canvas.
+- A17. `ui/test/asking.test.ts`; check: Cmd+G, answer, read the list and the canvas.
+- A18. check: sample the agent's face every 50ms while pressing Enter on it, and look for any jump.
+- A19. check (2026-11-09, Chrome): with a 40-message exchange on one agent, walking four agents ran at a median 8.3ms a frame and 9.4ms at worst, and no exchange was drawn while walking. Stepping in, the face rose from 149px to 116px in one movement, the exchange opened at its newest message, and the shrunken title ended 13px above it.
+- A20. `ui/test/work.test.ts` › "the sample answers as hobkin would: a refused merge keeps its card, and a group says how each row went"
+- A21. check (2026-11-10, Chrome, sample data, keyboard only): the walk went switch, two agent nodes, queue rows, project settings, the group's yes, cards. Right reached Run next and Skip and stopped at the end, Left came back, Escape returned to the row and stayed in the screen. Enter on a row ran it next, Skip sent it to the end and the queued count fell from 7 to 6, with the keyboard kept in place. Right and Left changed storefront's priority and where its work goes. Enter on "Merge all 3" put the keyboard on the question's own yes; Escape left with all 6 cards there; yes reported a line for each of the 3 and kept the refused one. Enter on a node opened its canvas, and Enter on a card opened Change Review.
+- A22. check (2026-11-10, Chrome): a sample agent's pulse went from its node's pin (897, 425) to hobkin's (775, 390) in 1.15s, fading in and out. Under Still no pulse was drawn, the header only faded in (no transform), and a skipped row moved with no transform on any row.
+- A23. check (2026-11-10, Chrome, sample data): the card for storefront #479 showed Approved and Checks pass from the sample GitHub, and its Open PR #479 links to the pull request.
+
+## Steps
+
+- [ ] S1 (A1, A2, A3, A10). Host: agents, activity and stop as state and commands. hobkin branch: agents without panes. Done: `agent.stop` (hobkin's `k` for a work agent, its `kill` for a routine) and a finished job's last activity kept in what the snapshot sends (`host/src/agents.ts`, `host/src/activity.ts`); the A3 and A10 tests pass. Left: the A1 and A2 tests, and agents without panes.
+- [ ] S2 (A1, A2, A3). UI: the delegation map and the agent's canvas. Done: the map on the Work screen (`ui/src/features/work/DelegationMap.tsx`), reading the same agents as the list under the input. Left: the finished column, and the canvas drawing the activity the host now keeps.
+- [ ] S5 (A11, A12, A15). The agents list under the input: live rows that pop in and move, keys, interrupt and stop. Since 2026-11-10 the list, the menu's agents row and the agent canvas read hobkin's real runs when a host is connected (`agentsFrom` in ui/src/lib/host/frame.ts): every running run that is not the main conversation, with its mood from its activity; with no host, the sample pool. Seen live with nothing running: the list is hidden (A12). Left: interrupt and stop. Stop now exists in the host as `agent.stop`, by run id. Interrupt has no way in yet: hobkin cannot stop one tool call of a job and keep the job going (Pi's abort ends the turn), so it needs a hobkin change first.
+- [ ] S6 (A13, A14, A18). Stepping into an agent to talk to it, with delivery through the host. Done: `agent.say` in the host, through hobkin's `message_check`, refused once the agent has finished; the A14 test passes with fakes. Routines take words today, work agents with proposed hobkin change 03. `sayToAgent` (`ui/src/features/work/say.ts`) is ready for the agent's input. Left: the input in `AgentScreen.tsx` calling it, and saying why when nothing was sent.
+- [ ] S7 (A16, A17). Moods and waiting agents. Done on sample data; the host has to report each run's mood and what it waits on.
+- [x] S3 (A4, A8, A9). Queue, projects, and the on and off state. Proof: `node --test host/test/work.test.ts` passes "queue actions call hobkin's work actions", "turning work mode on starts nothing" (a real host on a test home) and "project settings round trip" (2026-11-10). Seen live against a scripted host on a scratch home: the folder question, hobkin's own start, and its forecast saying nothing starts.
+- [x] S4 (A5, A6, A7). Finished changes: groups, cards, actions, and the link to Change Review. Proof: `node --test host/test/work.test.ts` passes "finished changes keep hobkin's groups and reasons", "merge passes hobkin's refusal through" and "a group action lists its targets before acting" (2026-11-10).
+- [x] S8 (A20, A21, A22, A23). The Work screen (`ui/src/features/work/WorkScreen.tsx`): sample and live data, the keyboard, the map's movement, and the links to pull requests. Proof: `node --test ui/test/work.test.ts` passes, and the checks under A21 to A23 (2026-11-10).
+
+## Open questions
+
+- hobkin's highest work level runs on Claude in a Herdr pane today (`src/cli/work/store.mjs:9`). The client has no panes. `017-model-tiers` proposes that the `max` tier replaces this special case.

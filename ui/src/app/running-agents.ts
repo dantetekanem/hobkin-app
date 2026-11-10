@@ -1,0 +1,169 @@
+import { useMemo } from 'react'
+import { create } from 'zustand'
+import type { Choice } from '@/features/questions/queue.ts'
+import { useQuestions } from '@/features/questions/store.ts'
+import { useSettings } from '@/features/settings/store.ts'
+import { useAgentThreads } from '@/features/work/agent-threads.ts'
+import { agentsFrom, hasHost } from '@/lib/host/frame.ts'
+import { hostStore, useAgents, useHasHost } from '@/lib/host/index.ts'
+import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
+import type { SampleAgent } from './sample.ts'
+import { useView } from './view-store.ts'
+
+/**
+ * The agents working right now, for the frame. With a host connected they are hobkin's own: every run that is
+ * not the main conversation (agents it started, routines running), with what each is doing and its mood from
+ * its activity. With no host they are sample values: as many as the "Agents at once" setting allows, two of
+ * them waiting for the user, to show what that looks like.
+ */
+export interface RunningAgent extends SampleAgent {
+  /** What the agent is waiting on the user for, in its own words. Absent while it gets on with its work. */
+  asks?: string
+  /** The answers it offers, shown in the question sheet. The user can always type another. */
+  choices?: Choice[]
+  /** The choice the agent recommends, and why. */
+  recommended?: string
+  why?: string
+}
+
+const POOL: RunningAgent[] = [
+  { id: 'a1', title: 'Fix the login redirect loop', project: 'storefront', doing: 'running the auth tests', tier: 'high', hue: 262, mood: 'working', kind: 'work' },
+  {
+    id: 'a2',
+    title: 'Look for dependency updates',
+    project: 'billing-api',
+    doing: 'reading the changelog',
+    tier: 'fast',
+    hue: 200,
+    mood: 'searching',
+    kind: 'work',
+    asks: 'One update changes how invoices round. Take it now, or hold it for a review?',
+    choices: [
+      { value: 'take', label: 'Take it now' },
+      { value: 'hold', label: 'Hold it for a review' },
+    ],
+    recommended: 'hold',
+    why: 'Rounding changes what customers are charged, so a person should see it before it ships.',
+  },
+  { id: 'a3', title: 'Morning recap', project: 'routine', doing: 'writing the report', tier: 'mid', hue: 86, mood: 'thinking', kind: 'routine' },
+  { id: 'a4', title: 'Tighten the checkout tests', project: 'storefront', doing: 'reading the test file', tier: 'mid', hue: 20, mood: 'working', kind: 'work' },
+  {
+    id: 'a5',
+    title: 'Review the invoice export',
+    project: 'billing-api',
+    doing: 'grading the diff',
+    tier: 'high',
+    hue: 320,
+    mood: 'focused',
+    kind: 'work',
+    asks: 'The export has no test for refunds. Should I add one before I grade it?',
+    choices: [
+      { value: 'add', label: 'Add the refund test first' },
+      { value: 'grade', label: 'Grade it as it is' },
+    ],
+    recommended: 'add',
+    why: 'Refunds are where exports like this usually break.',
+  },
+  { id: 'a6', title: 'Refresh the install guide', project: 'docs-site', doing: 'checking the commands', tier: 'fast', hue: 150, mood: 'working', kind: 'work' },
+  { id: 'a7', title: 'Watch the last release', project: 'storefront', doing: 'reading the error log', tier: 'fast', hue: 40, mood: 'searching', kind: 'work' },
+  { id: 'a8', title: 'Plan the rate limiter', project: 'billing-api', doing: 'tracing the request path', tier: 'max', hue: 290, mood: 'thinking', kind: 'work' },
+]
+
+/** The questions answered in this window. Sample state: the host will say which agents are waiting. */
+const useAnswered = create<{ ids: readonly string[] }>()(() => ({ ids: [] }))
+
+/** An agent that has had its answer gets on with its work. */
+function settle(agent: RunningAgent, answered: readonly string[]): RunningAgent {
+  if (!agent.asks || !answered.includes(agent.id)) return agent
+  const { asks: _answered, ...working } = agent
+  return working
+}
+
+function running(limit: number, answered: readonly string[]): RunningAgent[] {
+  // An agent that waits for the user comes first, so it is never below the fold of a long list.
+  return waitingFirst(POOL.slice(0, limit).map((agent) => settle(agent, answered)))
+}
+
+export function useRunningAgents(): RunningAgent[] {
+  const live = useHasHost()
+  const hosted = useAgents()
+  const limit = useSettings((state) => state.agents)
+  const answered = useAnswered((state) => state.ids)
+  return useMemo(() => (live ? hosted : running(limit, answered)), [live, hosted, limit, answered])
+}
+
+/** One agent, following whether it is still waiting. It is found even after it has left the list. */
+export function useAgent(id: string | null): RunningAgent | undefined {
+  const live = useHasHost()
+  const hosted = useAgents()
+  const answered = useAnswered((state) => state.ids)
+  return useMemo(() => {
+    if (live) return hosted.find((agent) => agent.id === id)
+    const agent = POOL.find((entry) => entry.id === id)
+    return agent && settle(agent, answered)
+  }, [id, live, hosted, answered])
+}
+
+/** The running agents as they are this instant, for code outside a component. */
+export function runningAgents(): RunningAgent[] {
+  const host = hostStore.getState()
+  if (hasHost(host)) return agentsFrom(host.snapshot)
+  return running(useSettings.getState().agents, useAnswered.getState().ids)
+}
+
+/** What the agent asked, also after the user has answered it, so the canvas can keep the exchange. */
+export function questionOf(id: string | null): string | undefined {
+  // Sample agents only. A real agent's question reaches the user through hobkin's own questions (the question sheet).
+  if (hasHost(hostStore.getState())) return undefined
+  return POOL.find((entry) => entry.id === id)?.asks
+}
+
+export function findAgent(id: string | null): RunningAgent | undefined {
+  const host = hostStore.getState()
+  if (hasHost(host)) return agentsFrom(host.snapshot).find((agent) => agent.id === id)
+  const agent = POOL.find((entry) => entry.id === id)
+  return agent && settle(agent, useAnswered.getState().ids)
+}
+
+/** The user answered this agent. */
+export function answerAgent(id: string): void {
+  const { ids } = useAnswered.getState()
+  if (!ids.includes(id)) useAnswered.setState({ ids: [...ids, id] })
+}
+
+/**
+ * Puts an agent's question in the question sheet, the same one Action Items uses: its choices, the one it
+ * recommends, and room to type another answer. False when the agent is not waiting.
+ */
+export function askAgent(id: string): boolean {
+  const agent = findAgent(id)
+  if (!agent?.asks) return false
+  useView.getState().closeVeil()
+  useQuestions.getState().raise({
+    id: agentQuestionId(agent.id),
+    from: agent.title,
+    question: agent.asks,
+    choices: agent.choices ?? [],
+    recommended: agent.recommended,
+    why: agent.why,
+  })
+  return true
+}
+
+/** Asks the next agent that is waiting, after the one on the canvas. False when nobody is waiting. */
+export function answerNext(): boolean {
+  const view = useView.getState()
+  const next = nextAsking(runningAgents(), view.screen === 'agent' ? view.openAgent : null)
+  return next ? askAgent(next) : false
+}
+
+// An answer given in the sheet, here or from Action Items, reaches the agent that asked: it stops waiting,
+// and its exchange keeps the answer in words.
+useQuestions.subscribe((state, previous) => {
+  if (state.queue.answered === previous.queue.answered) return
+  const labelOf = (agentId: string, value: string) => POOL.find((agent) => agent.id === agentId)?.choices?.find((choice) => choice.value === value)?.label
+  for (const { agentId, text } of answeredAgents(previous.queue.answered, state.queue.answered, labelOf)) {
+    answerAgent(agentId)
+    useAgentThreads.getState().say(agentId, text)
+  }
+})

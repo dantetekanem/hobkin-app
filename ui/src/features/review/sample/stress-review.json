@@ -1,0 +1,4079 @@
+{
+  "version": 1,
+  "id": "stress",
+  "change": {
+    "project": "orchard",
+    "item": "5e77a1",
+    "title": "Keep the orchard's books by season",
+    "branch": "hobkin/5e77a1-keep-the-orchard-books",
+    "base": "base",
+    "head": "head",
+    "additions": 5216,
+    "deletions": 55,
+    "files": 14,
+    "risk": "Made-up data. Nothing here runs."
+  },
+  "snapshot": "4b9f1f0c1e4a3b5dc5a992e21246dec962514e43810aac7db3b07d01484462fd",
+  "spec": {
+    "path": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+    "outcome": "The orchard's trees, harvest, market and ledger are each counted by season. This is made-up data for measuring Change Review under load.",
+    "outOfScope": [
+      "Counting by week.",
+      "More than one orchard."
+    ],
+    "openQuestions": [
+      "Should a season that is still open be counted?"
+    ]
+  },
+  "files": [
+    {
+      "id": "CHANGELOG.md",
+      "path": "CHANGELOG.md",
+      "status": "modified",
+      "binary": false,
+      "additions": 2,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "README.md",
+      "path": "README.md",
+      "status": "modified",
+      "binary": false,
+      "additions": 1,
+      "deletions": 1,
+      "summarized": false
+    },
+    {
+      "id": "assets/logo.png",
+      "path": "assets/logo.png",
+      "status": "added",
+      "binary": true,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "config/settings.json",
+      "path": "config/settings.json",
+      "status": "modified",
+      "binary": false,
+      "additions": 2,
+      "deletions": 1,
+      "summarized": false
+    },
+    {
+      "id": "docs/guide.md",
+      "path": "docs/guide.md",
+      "status": "modified",
+      "binary": false,
+      "additions": 3,
+      "deletions": 1,
+      "summarized": false
+    },
+    {
+      "id": "src/generated/catalog.ts",
+      "path": "src/generated/catalog.ts",
+      "status": "added",
+      "binary": false,
+      "additions": 5000,
+      "deletions": 0,
+      "summarized": true
+    },
+    {
+      "id": "src/orchard/harvest.ts",
+      "path": "src/orchard/harvest.ts",
+      "status": "modified",
+      "binary": false,
+      "additions": 29,
+      "deletions": 13,
+      "summarized": false
+    },
+    {
+      "id": "src/orchard/ledger.ts",
+      "path": "src/orchard/ledger.ts",
+      "status": "modified",
+      "binary": false,
+      "additions": 29,
+      "deletions": 13,
+      "summarized": false
+    },
+    {
+      "id": "src/orchard/market.ts",
+      "path": "src/orchard/market.ts",
+      "status": "modified",
+      "binary": false,
+      "additions": 29,
+      "deletions": 13,
+      "summarized": false
+    },
+    {
+      "id": "src/orchard/trees.ts",
+      "path": "src/orchard/trees.ts",
+      "status": "modified",
+      "binary": false,
+      "additions": 29,
+      "deletions": 13,
+      "summarized": false
+    },
+    {
+      "id": "test/harvest.test.ts",
+      "path": "test/harvest.test.ts",
+      "status": "added",
+      "binary": false,
+      "additions": 23,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "test/ledger.test.ts",
+      "path": "test/ledger.test.ts",
+      "status": "added",
+      "binary": false,
+      "additions": 23,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "test/market.test.ts",
+      "path": "test/market.test.ts",
+      "status": "added",
+      "binary": false,
+      "additions": 23,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "test/trees.test.ts",
+      "path": "test/trees.test.ts",
+      "status": "added",
+      "binary": false,
+      "additions": 23,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "path": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/lib/soil.ts",
+      "path": "src/lib/soil.ts",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/lib/weather.ts",
+      "path": "src/lib/weather.ts",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/lib/prices.ts",
+      "path": "src/lib/prices.ts",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    },
+    {
+      "id": "src/lib/clock.ts",
+      "path": "src/lib/clock.ts",
+      "status": "unchanged",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "summarized": false
+    }
+  ],
+  "nodes": [
+    {
+      "id": "A1",
+      "kind": "criterion",
+      "title": "A1",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The trees can be planned for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/trees.test.ts` › \"plans the trees for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 14,
+          "endLine": 14,
+          "hash": "dceb9fee1af5006f2e1ca9f99f7a540adce3859291d6c137d703edd4b2b6106b"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 759
+      }
+    },
+    {
+      "id": "A2",
+      "kind": "criterion",
+      "title": "A2",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The harvest can be planned for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/harvest.test.ts` › \"plans the harvest for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 15,
+          "endLine": 15,
+          "hash": "214b62529c940f98d36430c481aa817a787914c17d0f1bfbadfb37aa282d3e21"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 923
+      }
+    },
+    {
+      "id": "A3",
+      "kind": "criterion",
+      "title": "A3",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The market can be planned for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/market.test.ts` › \"plans the market for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 16,
+          "endLine": 16,
+          "hash": "193d31943fe5270a2c42cf401abdcd2e6d21fb367614a484850d846aef642779"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 1087
+      }
+    },
+    {
+      "id": "A4",
+      "kind": "criterion",
+      "title": "A4",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The ledger can be planned for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/ledger.test.ts` › \"plans the ledger for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 17,
+          "endLine": 17,
+          "hash": "6773da84690ffa68787793009c2da59ef059ebea54b40c21f919de261aa489f4"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 1251
+      }
+    },
+    {
+      "id": "A5",
+      "kind": "criterion",
+      "title": "A5",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The trees can be checked for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/trees.test.ts` › \"checks the trees for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 18,
+          "endLine": 18,
+          "hash": "5efd8827c51a7fb53566b3f47df6e5598973510ab457549ea8fc98c632c011bb"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 1415
+      }
+    },
+    {
+      "id": "A6",
+      "kind": "criterion",
+      "title": "A6",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The harvest can be checked for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/harvest.test.ts` › \"checks the harvest for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 19,
+          "endLine": 19,
+          "hash": "76a68dc1aa8e02fad3f5d2072d757f53be775175801982c894af0b75da0f8c4d"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 1579
+      }
+    },
+    {
+      "id": "A7",
+      "kind": "criterion",
+      "title": "A7",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The market can be checked for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/market.test.ts` › \"checks the market for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 20,
+          "endLine": 20,
+          "hash": "69adc3b810f6c452b616006db124977e003ca14c18d44b4ff791e2950188e7bf"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 1743
+      }
+    },
+    {
+      "id": "A8",
+      "kind": "criterion",
+      "title": "A8",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The ledger can be checked for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "`test/ledger.test.ts` › \"checks the ledger for a season\"",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 21,
+          "endLine": 21,
+          "hash": "353572098be0b2ea0623826fe2bcee5588a8b016856a12210a8a49ee9398887f"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 1907
+      }
+    },
+    {
+      "id": "A9",
+      "kind": "criterion",
+      "title": "A9",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The trees can be loaded for a season, and a season below zero is refused.",
+      "status": "proven",
+      "proof": "check: load one season and compare the ledger with the market.",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 22,
+          "endLine": 22,
+          "hash": "61b05a920e1a1ac00e367a1c39b090cd6ae62a34dd03e2bb20c01ce0a0155996"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 2071
+      }
+    },
+    {
+      "id": "A10",
+      "kind": "criterion",
+      "title": "A10",
+      "subtitle": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+      "change": "unchanged",
+      "summary": "The harvest can be loaded for a season, and a season below zero is refused.",
+      "status": "unproven",
+      "anchors": [
+        {
+          "fileId": "_specs/5e77a1-keep-the-orchard-books/spec.md",
+          "side": "added",
+          "startLine": 23,
+          "endLine": 23,
+          "hash": "e675a1e18ecff147d40d3583cbe00d947179256098a3a5b44c231df4090a4d04"
+        }
+      ],
+      "position": {
+        "x": 0,
+        "y": 2235
+      },
+      "warning": "This line has no Proof line."
+    },
+    {
+      "id": "u42",
+      "kind": "test",
+      "title": "plans the harvest for a season",
+      "subtitle": "test/harvest.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "New in this change. 8 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/harvest.test.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 8,
+          "hash": "1316891c211b8e2c24734af5d043b1b06820681010c20fa665835f2144072e5c"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 164
+      }
+    },
+    {
+      "id": "u43",
+      "kind": "test",
+      "title": "checks the harvest for a season",
+      "subtitle": "test/harvest.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/harvest.test.ts",
+          "side": "added",
+          "startLine": 9,
+          "endLine": 12,
+          "hash": "de2aaed7689c4f9f66750f4174b757f1d985faa8d2b1eadd9d4cefc6ecd30a34"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 1476
+      }
+    },
+    {
+      "id": "u44",
+      "kind": "test",
+      "title": "loads the harvest for a season",
+      "subtitle": "test/harvest.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/harvest.test.ts",
+          "side": "added",
+          "startLine": 13,
+          "endLine": 16,
+          "hash": "07b571e65257388eba34963efedb9efc0bbeec7e930e257fe3ad1ae5e6b0da6d"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 2296
+      }
+    },
+    {
+      "id": "u45",
+      "kind": "test",
+      "title": "saves the harvest for a season",
+      "subtitle": "test/harvest.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/harvest.test.ts",
+          "side": "added",
+          "startLine": 17,
+          "endLine": 20,
+          "hash": "3ca06c3a9765c96520285fdc55e32446ec34360f29815b945b384461c40925bb"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 984
+      }
+    },
+    {
+      "id": "u46",
+      "kind": "test",
+      "title": "scores the harvest for a season",
+      "subtitle": "test/harvest.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 3,
+        "deletions": 0
+      },
+      "summary": "New in this change. 3 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/harvest.test.ts",
+          "side": "added",
+          "startLine": 21,
+          "endLine": 23,
+          "hash": "a19ff53eb8bea30945e1c7bc252ea2176b39e6407b069614a0291a9d37284914"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 328
+      }
+    },
+    {
+      "id": "u47",
+      "kind": "test",
+      "title": "plans the ledger for a season",
+      "subtitle": "test/ledger.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "New in this change. 8 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/ledger.test.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 8,
+          "hash": "aafc5779047947cad75c5975de523f2ff1bf31698ebc756815415d0130ff1579"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 1312
+      }
+    },
+    {
+      "id": "u48",
+      "kind": "test",
+      "title": "checks the ledger for a season",
+      "subtitle": "test/ledger.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/ledger.test.ts",
+          "side": "added",
+          "startLine": 9,
+          "endLine": 12,
+          "hash": "7a44b056ac590b223ce47e314a1fdd9f9b9dcbff872742049763d14d9cc4c7d4"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 2624
+      }
+    },
+    {
+      "id": "u49",
+      "kind": "test",
+      "title": "loads the ledger for a season",
+      "subtitle": "test/ledger.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/ledger.test.ts",
+          "side": "added",
+          "startLine": 13,
+          "endLine": 16,
+          "hash": "e56ad687a86a6578ee85dd5dc278ed0b0432e5c967a5bf0f4314e1799864b2f7"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 656
+      }
+    },
+    {
+      "id": "u50",
+      "kind": "test",
+      "title": "saves the ledger for a season",
+      "subtitle": "test/ledger.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/ledger.test.ts",
+          "side": "added",
+          "startLine": 17,
+          "endLine": 20,
+          "hash": "363696f45f28e9ac674ad1087762f6a22e232a9fe382229e96c24f0a26cfceb8"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 492
+      }
+    },
+    {
+      "id": "u51",
+      "kind": "test",
+      "title": "scores the ledger for a season",
+      "subtitle": "test/ledger.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 3,
+        "deletions": 0
+      },
+      "summary": "New in this change. 3 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/ledger.test.ts",
+          "side": "added",
+          "startLine": 21,
+          "endLine": 23,
+          "hash": "0a197e6f05412201ee3caa90b6a05b24568826f3fcc6f06a55c26d1dcf0ddad4"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 1968
+      }
+    },
+    {
+      "id": "u52",
+      "kind": "test",
+      "title": "plans the market for a season",
+      "subtitle": "test/market.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "New in this change. 8 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/market.test.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 8,
+          "hash": "589c09444ab2776dcb4a6b9d31f13b14598e6b8924c705b81f2c45b87fb6eccb"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 2952
+      }
+    },
+    {
+      "id": "u53",
+      "kind": "test",
+      "title": "checks the market for a season",
+      "subtitle": "test/market.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "failed",
+      "anchors": [
+        {
+          "fileId": "test/market.test.ts",
+          "side": "added",
+          "startLine": 9,
+          "endLine": 12,
+          "hash": "c0d9bacfb2d1c6f8a066825edd2cdd536702bdc603c56a8c2b512c59433eca53"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 1148
+      }
+    },
+    {
+      "id": "u54",
+      "kind": "test",
+      "title": "loads the market for a season",
+      "subtitle": "test/market.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/market.test.ts",
+          "side": "added",
+          "startLine": 13,
+          "endLine": 16,
+          "hash": "663d1794e604071d7a5846d4bb16f3c6d707b37db4f2b3b8bb8a90c9e8063464"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 2132
+      }
+    },
+    {
+      "id": "u55",
+      "kind": "test",
+      "title": "saves the market for a season",
+      "subtitle": "test/market.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/market.test.ts",
+          "side": "added",
+          "startLine": 17,
+          "endLine": 20,
+          "hash": "84aadaf840fbf897cb949a7b2a293445028c5d6bfa626cadd7cb397049da47df"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 1804
+      }
+    },
+    {
+      "id": "u56",
+      "kind": "test",
+      "title": "scores the market for a season",
+      "subtitle": "test/market.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 3,
+        "deletions": 0
+      },
+      "summary": "New in this change. 3 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/market.test.ts",
+          "side": "added",
+          "startLine": 21,
+          "endLine": 23,
+          "hash": "9b712d81090ab8f8d93a4eabdf590c30f0b9226747c3dfe27ab51577bb6d166b"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 2788
+      }
+    },
+    {
+      "id": "u57",
+      "kind": "test",
+      "title": "plans the trees for a season",
+      "subtitle": "test/trees.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "New in this change. 8 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/trees.test.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 8,
+          "hash": "2f5810f818ed46dfb860a2bd9d9302fa42128cdfbc74a702fab121f1bba37df6"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 0
+      }
+    },
+    {
+      "id": "u58",
+      "kind": "test",
+      "title": "checks the trees for a season",
+      "subtitle": "test/trees.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/trees.test.ts",
+          "side": "added",
+          "startLine": 9,
+          "endLine": 12,
+          "hash": "7478bede9933b97dd91f36d8499afc1d9fc36379566cd20078b0c51a1856012e"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 820
+      }
+    },
+    {
+      "id": "u59",
+      "kind": "test",
+      "title": "loads the trees for a season",
+      "subtitle": "test/trees.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "passed",
+      "anchors": [
+        {
+          "fileId": "test/trees.test.ts",
+          "side": "added",
+          "startLine": 13,
+          "endLine": 16,
+          "hash": "30dbfb830176d05496ded9dfd62b64816f319168566eacf253aff7d61cf06391"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 2460
+      }
+    },
+    {
+      "id": "u60",
+      "kind": "test",
+      "title": "saves the trees for a season",
+      "subtitle": "test/trees.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 4,
+        "deletions": 0
+      },
+      "summary": "New in this change. 4 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/trees.test.ts",
+          "side": "added",
+          "startLine": 17,
+          "endLine": 20,
+          "hash": "c271c5abfe4a987a649b2b86cc377700777bf465740363a35012cb6189ca3e1c"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 3116
+      }
+    },
+    {
+      "id": "u61",
+      "kind": "test",
+      "title": "scores the trees for a season",
+      "subtitle": "test/trees.test.ts",
+      "change": "added",
+      "stats": {
+        "additions": 3,
+        "deletions": 0
+      },
+      "summary": "New in this change. 3 lines added.",
+      "status": "not-run",
+      "anchors": [
+        {
+          "fileId": "test/trees.test.ts",
+          "side": "added",
+          "startLine": 21,
+          "endLine": 23,
+          "hash": "7105bd3b1db2f104a698b03f81d7f62a379fb72c6b51842f353c16f916e49cdd"
+        }
+      ],
+      "position": {
+        "x": 420,
+        "y": 1640
+      }
+    },
+    {
+      "id": "u1",
+      "kind": "code",
+      "title": "dropHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "deleted",
+      "stats": {
+        "additions": 0,
+        "deletions": 8
+      },
+      "summary": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "deleted",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "9ad0c42d37aac550b3792c883beec8c32b311e9fb5088ff2cb45435cd707d2b2"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 2236
+      }
+    },
+    {
+      "id": "u2",
+      "kind": "code",
+      "title": "planHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "db5f0f73c487da8d426f02d11040eddbc4f39b586eb52f0a2ecdc99c1ffb4a81"
+        },
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "deleted",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "47d0b39ee2f90ddd9705f5b4473935f817e42d227558a15f3d01dc1e855931f1"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 1464
+      }
+    },
+    {
+      "id": "u3",
+      "kind": "code",
+      "title": "checkHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "a9af3d6b2314e9cbd059ed0498377794dadc8b0152e68dd0dd8368d80cf58d0e"
+        },
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "deleted",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "e50c7661b3c408b7305b5f0586b847474be5ee9b195ad5c40e5497eb24a0ddb1"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 1103
+      }
+    },
+    {
+      "id": "u4",
+      "kind": "code",
+      "title": "loadHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "f060156dcc1c93734ce705883eb8e108498ab25257ef4a8975fe86b63d0eac34"
+        },
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "deleted",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "6cf0cd37a63cebd9a526b3620869bd63bef659ff0c5afea39cc713c686092c67"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 1995
+      }
+    },
+    {
+      "id": "u5",
+      "kind": "code",
+      "title": "saveHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "c2a571f2c7539faa09bd670c0b0af806374e8b2334fb17470e3ee9e3c72510af"
+        },
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "deleted",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "928f70a40e93c3a0cddff39231d4ef143ccbe74509e97c1c545a98556fe0848b"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 1197
+      }
+    },
+    {
+      "id": "u6",
+      "kind": "code",
+      "title": "scoreHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "d20ba28ddb0d296672eb108f46a78b3117701aa9fb8bc45a63484a75e0bed04b"
+        },
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "deleted",
+          "startLine": 43,
+          "endLine": 49,
+          "hash": "5d8983619af20edcb8c2794e085ed1ad0fda50f0903711d2387d2dc863b10eb0"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 705
+      }
+    },
+    {
+      "id": "u7",
+      "kind": "code",
+      "title": "mergeHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 43,
+          "endLine": 50,
+          "hash": "1618141a4d17a6e12560729a70370b52f8ad260ce6110b1733c45c98f56d18f6"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 2181
+      }
+    },
+    {
+      "id": "u8",
+      "kind": "code",
+      "title": "trimHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 51,
+          "endLine": 58,
+          "hash": "ae3bb6b4f89e4a2d62c2c10e47e1311956d6c0e1a3696e5dad14deceb2bdd645"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 869
+      }
+    },
+    {
+      "id": "u9",
+      "kind": "code",
+      "title": "rankHarvest",
+      "subtitle": "src/orchard/harvest.ts",
+      "change": "added",
+      "stats": {
+        "additions": 7,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/harvest.ts",
+          "side": "added",
+          "startLine": 59,
+          "endLine": 65,
+          "hash": "473ddfcb3b8bf66af49b4844344743170b357968c15f147f5206272d18903e2f"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 1252
+      }
+    },
+    {
+      "id": "u10",
+      "kind": "code",
+      "title": "dropLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "deleted",
+      "stats": {
+        "additions": 0,
+        "deletions": 8
+      },
+      "summary": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "deleted",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "a039291d662c883a12579b1e033571e52bd5c5884363442d956b4a9badddbf0a"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 327
+      }
+    },
+    {
+      "id": "u11",
+      "kind": "code",
+      "title": "planLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "2695fcf6a0d8e72274b4b38ecda09afe0269d04a70811b8db9cb9ca6fec0ac8e"
+        },
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "deleted",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "e141ef623cbe43cc9c42f9e7983682a3c9f6784f03063f4ff192621da0430a39"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 1831
+      }
+    },
+    {
+      "id": "u12",
+      "kind": "code",
+      "title": "checkLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "8e0546b1f952b617eca64d5239ef83633c3c10d8d4fa8de8af49372e82ed1ef0"
+        },
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "deleted",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "6a24c3c1a650ed89ef1f65721214fe94b7beab9cdc566323c30f201d38b9dd32"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 1525
+      }
+    },
+    {
+      "id": "u13",
+      "kind": "code",
+      "title": "loadLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "5e6b55185b09cc5731cc79ba237b49f4e70c4c871812e2e791d41ba7441a25af"
+        },
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "deleted",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "910783f08bc4e672c96159296b884d33ac9eb3084dda8575975be2c737c6434a"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 2017
+      }
+    },
+    {
+      "id": "u14",
+      "kind": "code",
+      "title": "saveLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "785b9eb12a9f3b48ee5f0e033e472cb16f47c93b77a47ee98df3087fa459f425"
+        },
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "deleted",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "37dca03a5b42fec26720204750cc2a60bff9d5ef12ac756d15087fae61ac25c1"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 1416
+      }
+    },
+    {
+      "id": "u15",
+      "kind": "code",
+      "title": "scoreLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "bc5d7e0e96f4a94c233bf435a109ba602f1eb970c9465f18dce9e36d3bf9da63"
+        },
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "deleted",
+          "startLine": 43,
+          "endLine": 49,
+          "hash": "ddcf8a27a10f6e738339ebc43a297d31b53c11ff534275e9efbfa77af95ccb16"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 1580
+      }
+    },
+    {
+      "id": "u16",
+      "kind": "code",
+      "title": "mergeLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 43,
+          "endLine": 50,
+          "hash": "f1410a9eb47e5c38c00f45f6bd7c33277f3a52e7d809748cd9d8d7412bcac10b"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 2072
+      }
+    },
+    {
+      "id": "u17",
+      "kind": "code",
+      "title": "trimLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 51,
+          "endLine": 58,
+          "hash": "363a39834c1643de8eee7d9b35f91edbb74e5ae110f214c143bf3db8ad54a8e5"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 924
+      }
+    },
+    {
+      "id": "u18",
+      "kind": "code",
+      "title": "rankLedger",
+      "subtitle": "src/orchard/ledger.ts",
+      "change": "added",
+      "stats": {
+        "additions": 7,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/ledger.ts",
+          "side": "added",
+          "startLine": 59,
+          "endLine": 65,
+          "hash": "a0233010c1b9da7e3718363920b6de0b959fc883ca508c1c62db73009e51cda6"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 760
+      }
+    },
+    {
+      "id": "u19",
+      "kind": "code",
+      "title": "dropMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "deleted",
+      "stats": {
+        "additions": 0,
+        "deletions": 8
+      },
+      "summary": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "deleted",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "c241b9464803a78d2ab43a67b2288ab1eebeea229d4c22b7dcf32ce3640a753d"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 2564
+      }
+    },
+    {
+      "id": "u20",
+      "kind": "code",
+      "title": "planMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "a1d09eb3bec8f93a96ce40c6ee3a24cb34199b8eebe7f99d2a8046ea85f141b6"
+        },
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "deleted",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "67b7cc32a0db7e9a30d27ee3b4f6a0e8768b51307348db596dd749a2a1845b7f"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 1300
+      }
+    },
+    {
+      "id": "u21",
+      "kind": "code",
+      "title": "checkMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "efd5aa8611370afe9cab23f3be0e83eb2c9a766706e64c15d90b8c0b8611c065"
+        },
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "deleted",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "cf49f95fa8eb54bd85a3148e0fc0e3dda79a1501753971daafd206427538d1a7"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 1267
+      }
+    },
+    {
+      "id": "u22",
+      "kind": "code",
+      "title": "loadMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "086edbabfed2c38786bff9924bde14a8229b6d30df6816f961ecbea7f133325c"
+        },
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "deleted",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "5cbd129adfdcf9ab4d3c3c738cb216efa79139b0919a9f11020fa42dbc1b811a"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 1667
+      }
+    },
+    {
+      "id": "u23",
+      "kind": "code",
+      "title": "saveMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "bce5c21502a0988eba03d2a2f0fa2103396ebdf7d6bc59cd1b197f7c18cfd1f5"
+        },
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "deleted",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "2dc23ea7243885a2763abe2021214bcf43e48def58f3f34077830fb9bb26e390"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 1361
+      }
+    },
+    {
+      "id": "u24",
+      "kind": "code",
+      "title": "scoreMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "540f02c3d8a884eb66e629017bd27ecae1bc4443144d8ba5664c41fcc4f75a73"
+        },
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "deleted",
+          "startLine": 43,
+          "endLine": 49,
+          "hash": "cfd98a8f54b70249970fb8caa8fd9de463369aba7813d21477419b44272fadac"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 1689
+      }
+    },
+    {
+      "id": "u25",
+      "kind": "code",
+      "title": "mergeMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 43,
+          "endLine": 50,
+          "hash": "bb7d5e1d826bb2ff0f623f810b989f1c76e0b8d54fe8ffad4438133d56f4d5c3"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 2345
+      }
+    },
+    {
+      "id": "u26",
+      "kind": "code",
+      "title": "trimMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 51,
+          "endLine": 58,
+          "hash": "3cbb3d7dcdda2dbab398206ef0741478cd2f7908e56eff3b3123a190a7584794"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 1033
+      }
+    },
+    {
+      "id": "u27",
+      "kind": "code",
+      "title": "rankMarket",
+      "subtitle": "src/orchard/market.ts",
+      "change": "added",
+      "stats": {
+        "additions": 7,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/market.ts",
+          "side": "added",
+          "startLine": 59,
+          "endLine": 65,
+          "hash": "30be0c83fe4ea37852f1da5bcf468530e0e963c39605c0dd126b167b8712eeab"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 1088
+      }
+    },
+    {
+      "id": "u28",
+      "kind": "code",
+      "title": "dropTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "deleted",
+      "stats": {
+        "additions": 0,
+        "deletions": 8
+      },
+      "summary": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "deleted",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "e5e19a4b1b9f2ee79d1a5c16f29bbd8cd99271793c87bd11f6b3e47ca319d003"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 2892
+      }
+    },
+    {
+      "id": "u29",
+      "kind": "code",
+      "title": "planTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 3,
+          "endLine": 10,
+          "hash": "6465ccc2ad167bfa85979de8fd97edd698455fcd7f903f500aacc53913650de8"
+        },
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "deleted",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "d995f3a3aa0e60e3c3da087dfa4415fcc1e8a21fa216ccb63c67c22be3276909"
+        }
+      ],
+      "position": {
+        "x": 1260,
+        "y": 2159
+      }
+    },
+    {
+      "id": "u30",
+      "kind": "code",
+      "title": "checkTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 11,
+          "endLine": 18,
+          "hash": "0d903ea621409b8ca09cb416da7b4c799585bb7a873e1d2d43570fe54369d989"
+        },
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "deleted",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "b4dd5b962dffbb87bfa94f2fa3b1f119763eec63b53815b78e78b793ab8f1367"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 1853
+      }
+    },
+    {
+      "id": "u31",
+      "kind": "code",
+      "title": "loadTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 19,
+          "endLine": 26,
+          "hash": "f511bd35d71409e1b6636a4a0f3555fa4e8e704373558ff8bce7227d7bccda0f"
+        },
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "deleted",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "265090d64c6a3168f78e81100ad67282bb9af49a374bc0a94aa4fb4e9d947de4"
+        }
+      ],
+      "position": {
+        "x": 1680,
+        "y": 2509
+      }
+    },
+    {
+      "id": "u32",
+      "kind": "code",
+      "title": "saveTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 27,
+          "endLine": 34,
+          "hash": "099148385af779e72a6a6dfbe36f64778ef9cf0d4fbfc83601a9d72f03233268"
+        },
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "deleted",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "7de19c521f558c77f05c5ebd36a7e6dfd329c00a3bfd03ad6b82db12241a27fa"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 2400
+      }
+    },
+    {
+      "id": "u33",
+      "kind": "code",
+      "title": "scoreTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 1
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 35,
+          "endLine": 42,
+          "hash": "86c73d9f689ef2f0519cd40c7eeeec8d7c966cce6335f57459227efa3a4a757d"
+        },
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "deleted",
+          "startLine": 43,
+          "endLine": 49,
+          "hash": "944e6affbbed9b33790dc5b6e06166bedf0ac523a5cab0545c5d823bc9abd441"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 1744
+      }
+    },
+    {
+      "id": "u34",
+      "kind": "code",
+      "title": "mergeTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 43,
+          "endLine": 50,
+          "hash": "3cf49935033ba763aefc18ed6b6bc511cec81f54f800ae2ff43fa6c3d27fb7b5"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 2728
+      }
+    },
+    {
+      "id": "u35",
+      "kind": "code",
+      "title": "trimTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "added",
+      "stats": {
+        "additions": 8,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 51,
+          "endLine": 58,
+          "hash": "97045fd9e5cd48cc5d0cf9135f3279f66d426f39f3cece6f0c31a3561a4eaabd"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 1908
+      }
+    },
+    {
+      "id": "u36",
+      "kind": "code",
+      "title": "rankTrees",
+      "subtitle": "src/orchard/trees.ts",
+      "change": "added",
+      "stats": {
+        "additions": 7,
+        "deletions": 0
+      },
+      "summary": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "anchors": [
+        {
+          "fileId": "src/orchard/trees.ts",
+          "side": "added",
+          "startLine": 59,
+          "endLine": 65,
+          "hash": "6c5a0adfa01ef0011e85a050a6b4d2ef6bd6b79728ca545ef721593f2f02790a"
+        }
+      ],
+      "position": {
+        "x": 2100,
+        "y": 596
+      }
+    },
+    {
+      "id": "u37",
+      "kind": "file",
+      "title": "CHANGELOG.md",
+      "subtitle": "CHANGELOG.md",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 0
+      },
+      "summary": "New in this change. 2 lines added.",
+      "anchors": [
+        {
+          "fileId": "CHANGELOG.md",
+          "side": "added",
+          "startLine": 2,
+          "endLine": 3,
+          "hash": "5b687aefdb6feaa920cf28621eb07f1d9c851c5a4effbdb6208bb6466559919e"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 1628
+      }
+    },
+    {
+      "id": "u38",
+      "kind": "file",
+      "title": "README.md",
+      "subtitle": "README.md",
+      "change": "modified",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "summary": "1 line added and 1 line removed.",
+      "anchors": [
+        {
+          "fileId": "README.md",
+          "side": "added",
+          "startLine": 3,
+          "endLine": 3,
+          "hash": "a6fbb97672e7dbb1ef7707038b4992ddc4a4aa6c43e8c408fe3f1dfe6abd78b5"
+        },
+        {
+          "fileId": "README.md",
+          "side": "deleted",
+          "startLine": 3,
+          "endLine": 3,
+          "hash": "97b028de56ca668e878d9fef59b0f849e29ff2cfed1666596da61bb501720519"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 1776
+      }
+    },
+    {
+      "id": "u39",
+      "kind": "file",
+      "title": "settings.json",
+      "subtitle": "config/settings.json",
+      "change": "modified",
+      "stats": {
+        "additions": 2,
+        "deletions": 1
+      },
+      "summary": "2 lines added and 1 line removed.",
+      "anchors": [
+        {
+          "fileId": "config/settings.json",
+          "side": "added",
+          "startLine": 2,
+          "endLine": 3,
+          "hash": "4e713b3115240f4b0e518df3dd4305454dfba2f77b3899116a369bd3f39d21b5"
+        },
+        {
+          "fileId": "config/settings.json",
+          "side": "deleted",
+          "startLine": 2,
+          "endLine": 2,
+          "hash": "fd95e9eeb303fc981d8e22fde45a4104cafdf7911f9fd68ecf40ea8f8dc7995f"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 2072
+      }
+    },
+    {
+      "id": "u40",
+      "kind": "file",
+      "title": "guide.md",
+      "subtitle": "docs/guide.md",
+      "change": "modified",
+      "stats": {
+        "additions": 3,
+        "deletions": 1
+      },
+      "summary": "3 lines added and 1 line removed.",
+      "anchors": [
+        {
+          "fileId": "docs/guide.md",
+          "side": "added",
+          "startLine": 3,
+          "endLine": 5,
+          "hash": "d7b98b11d10fc16a246b4609eddee890236636c7da25b0307ff0ac6bcc6fb310"
+        },
+        {
+          "fileId": "docs/guide.md",
+          "side": "deleted",
+          "startLine": 3,
+          "endLine": 3,
+          "hash": "afbb8be964ce6aa1e5ff2d05ad5e933339b67d7ce321ad70243b166747a19be9"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 1924
+      }
+    },
+    {
+      "id": "u41",
+      "kind": "file",
+      "title": "catalog.ts",
+      "subtitle": "src/generated/catalog.ts",
+      "change": "added",
+      "stats": {
+        "additions": 5000,
+        "deletions": 0
+      },
+      "summary": "Shown whole, without its parts, because this change is over the size limits. 5,000 lines added.",
+      "anchors": [
+        {
+          "fileId": "src/generated/catalog.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 5000,
+          "hash": "c90e1675fb7f3594321e55a1baadba7e690dfc07913a93f27e2e601c1571455c"
+        }
+      ],
+      "position": {
+        "x": 840,
+        "y": 2220
+      }
+    },
+    {
+      "id": "f1",
+      "kind": "file",
+      "title": "logo.png",
+      "subtitle": "assets/logo.png",
+      "change": "added",
+      "stats": {
+        "additions": 0,
+        "deletions": 0
+      },
+      "summary": "A binary file. Its contents are not shown.",
+      "anchors": [],
+      "position": {
+        "x": 840,
+        "y": 2368
+      }
+    },
+    {
+      "id": "c1",
+      "kind": "context",
+      "title": "readSoil",
+      "subtitle": "src/lib/soil.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The soil figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/soil.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 4,
+          "hash": "bbe2763ec2a346b86620058b176dd1ecc2445e0db965202d26c4208c494a481e"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 1771
+      }
+    },
+    {
+      "id": "c2",
+      "kind": "context",
+      "title": "roundSoil",
+      "subtitle": "src/lib/soil.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The soil figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/soil.ts",
+          "side": "added",
+          "startLine": 6,
+          "endLine": 9,
+          "hash": "a2f14f400fdd8d96ea9183a2d146585c07bb031b7ee06577275eb8d6d0dc5f1b"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 1308
+      }
+    },
+    {
+      "id": "c3",
+      "kind": "context",
+      "title": "readWeather",
+      "subtitle": "src/lib/weather.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The weather figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/weather.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 4,
+          "hash": "08ac56205969a6f4254188f76bae2bd83bc20d8b5fd352c2f1b7cdb34c3f2ad2"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 1919
+      }
+    },
+    {
+      "id": "c4",
+      "kind": "context",
+      "title": "roundWeather",
+      "subtitle": "src/lib/weather.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The weather figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/weather.ts",
+          "side": "added",
+          "startLine": 6,
+          "endLine": 9,
+          "hash": "63abef11623b5f53074b05d2a19a0d17b96c84598e3d406cadf36731e04f09b3"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 1619
+      }
+    },
+    {
+      "id": "c5",
+      "kind": "context",
+      "title": "readPrices",
+      "subtitle": "src/lib/prices.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The prices figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/prices.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 4,
+          "hash": "f68dc4dc434041889b6544dc754660f4b8d04eca3131b3294a6b6f3695c39f4e"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 1456
+      }
+    },
+    {
+      "id": "c6",
+      "kind": "context",
+      "title": "roundPrices",
+      "subtitle": "src/lib/prices.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The prices figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/prices.ts",
+          "side": "added",
+          "startLine": 6,
+          "endLine": 9,
+          "hash": "bf9d6304208ddf689be97e68ad38cbeedafb922946974ebc7cd8a4424368135d"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 2272
+      }
+    },
+    {
+      "id": "c7",
+      "kind": "context",
+      "title": "readClock",
+      "subtitle": "src/lib/clock.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The clock figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/clock.ts",
+          "side": "added",
+          "startLine": 1,
+          "endLine": 4,
+          "hash": "bbe080b455b80284cb42cb2d26d61595c1f9a556eedb96472bf8259941688aaf"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 1160
+      }
+    },
+    {
+      "id": "c8",
+      "kind": "context",
+      "title": "roundClock",
+      "subtitle": "src/lib/clock.ts",
+      "change": "unchanged",
+      "summary": "Unchanged. The clock figures the orchard counts with.",
+      "anchors": [
+        {
+          "fileId": "src/lib/clock.ts",
+          "side": "added",
+          "startLine": 6,
+          "endLine": 9,
+          "hash": "8876f659f8411d7a97bd4b71d969f7884b75cdd35baf62f006ee30ebe7503efa"
+        }
+      ],
+      "position": {
+        "x": 2520,
+        "y": 888
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "exercises:u43>u3",
+      "from": "u43",
+      "to": "u3",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u44>u4",
+      "from": "u44",
+      "to": "u4",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u45>u5",
+      "from": "u45",
+      "to": "u5",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u46>u6",
+      "from": "u46",
+      "to": "u6",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u48>u12",
+      "from": "u48",
+      "to": "u12",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u49>u13",
+      "from": "u49",
+      "to": "u13",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u50>u14",
+      "from": "u50",
+      "to": "u14",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u51>u15",
+      "from": "u51",
+      "to": "u15",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u53>u21",
+      "from": "u53",
+      "to": "u21",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u54>u22",
+      "from": "u54",
+      "to": "u22",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u55>u23",
+      "from": "u55",
+      "to": "u23",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u56>u24",
+      "from": "u56",
+      "to": "u24",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u58>u30",
+      "from": "u58",
+      "to": "u30",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u59>u31",
+      "from": "u59",
+      "to": "u31",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u60>u32",
+      "from": "u60",
+      "to": "u32",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "exercises:u61>u33",
+      "from": "u61",
+      "to": "u33",
+      "kind": "exercises",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u2>u3",
+      "from": "u2",
+      "to": "u3",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u2>u4",
+      "from": "u2",
+      "to": "u4",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u3>u5",
+      "from": "u3",
+      "to": "u5",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u3>u6",
+      "from": "u3",
+      "to": "u6",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u4>u7",
+      "from": "u4",
+      "to": "u7",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u4>u8",
+      "from": "u4",
+      "to": "u8",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u5>u9",
+      "from": "u5",
+      "to": "u9",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u11>u12",
+      "from": "u11",
+      "to": "u12",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u11>u13",
+      "from": "u11",
+      "to": "u13",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u12>u14",
+      "from": "u12",
+      "to": "u14",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u12>u15",
+      "from": "u12",
+      "to": "u15",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u13>u16",
+      "from": "u13",
+      "to": "u16",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u13>u17",
+      "from": "u13",
+      "to": "u17",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u14>u18",
+      "from": "u14",
+      "to": "u18",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u20>u21",
+      "from": "u20",
+      "to": "u21",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u20>u22",
+      "from": "u20",
+      "to": "u22",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u21>u23",
+      "from": "u21",
+      "to": "u23",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u21>u24",
+      "from": "u21",
+      "to": "u24",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u22>u25",
+      "from": "u22",
+      "to": "u25",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u22>u26",
+      "from": "u22",
+      "to": "u26",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u23>u27",
+      "from": "u23",
+      "to": "u27",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u29>u30",
+      "from": "u29",
+      "to": "u30",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u29>u31",
+      "from": "u29",
+      "to": "u31",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u30>u32",
+      "from": "u30",
+      "to": "u32",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u30>u33",
+      "from": "u30",
+      "to": "u33",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u31>u34",
+      "from": "u31",
+      "to": "u34",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u31>u35",
+      "from": "u31",
+      "to": "u35",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "calls:u32>u36",
+      "from": "u32",
+      "to": "u36",
+      "kind": "calls",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A1>u57",
+      "from": "A1",
+      "to": "u57",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A2>u42",
+      "from": "A2",
+      "to": "u42",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A3>u52",
+      "from": "A3",
+      "to": "u52",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A4>u47",
+      "from": "A4",
+      "to": "u47",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A5>u58",
+      "from": "A5",
+      "to": "u58",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A6>u43",
+      "from": "A6",
+      "to": "u43",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A7>u53",
+      "from": "A7",
+      "to": "u53",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "proves:A8>u48",
+      "from": "A8",
+      "to": "u48",
+      "kind": "proves",
+      "certainty": "host"
+    },
+    {
+      "id": "replaces:u34>u28",
+      "from": "u34",
+      "to": "u28",
+      "kind": "replaces",
+      "label": "takes its place",
+      "certainty": "model"
+    },
+    {
+      "id": "replaces:u7>u1",
+      "from": "u7",
+      "to": "u1",
+      "kind": "replaces",
+      "label": "takes its place",
+      "certainty": "model"
+    },
+    {
+      "id": "replaces:u25>u19",
+      "from": "u25",
+      "to": "u19",
+      "kind": "replaces",
+      "label": "takes its place",
+      "certainty": "model"
+    },
+    {
+      "id": "replaces:u16>u10",
+      "from": "u16",
+      "to": "u10",
+      "kind": "replaces",
+      "label": "takes its place",
+      "certainty": "model"
+    },
+    {
+      "id": "configures:u39>u29",
+      "from": "u39",
+      "to": "u29",
+      "kind": "configures",
+      "label": "sets refuseBelowZero",
+      "certainty": "model"
+    },
+    {
+      "id": "configures:u39>u11",
+      "from": "u39",
+      "to": "u11",
+      "kind": "configures",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A1>u2",
+      "from": "A1",
+      "to": "u2",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A2>u5",
+      "from": "A2",
+      "to": "u5",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A3>u8",
+      "from": "A3",
+      "to": "u8",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A4>u12",
+      "from": "A4",
+      "to": "u12",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A5>u15",
+      "from": "A5",
+      "to": "u15",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A6>u18",
+      "from": "A6",
+      "to": "u18",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A7>u22",
+      "from": "A7",
+      "to": "u22",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A8>u25",
+      "from": "A8",
+      "to": "u25",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A9>u29",
+      "from": "A9",
+      "to": "u29",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A10>u32",
+      "from": "A10",
+      "to": "u32",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u42>u3",
+      "from": "u42",
+      "to": "u3",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u43>u5",
+      "from": "u43",
+      "to": "u5",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u44>u7",
+      "from": "u44",
+      "to": "u7",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u45>u9",
+      "from": "u45",
+      "to": "u9",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u46>u12",
+      "from": "u46",
+      "to": "u12",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u47>u14",
+      "from": "u47",
+      "to": "u14",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u48>u16",
+      "from": "u48",
+      "to": "u16",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u49>u18",
+      "from": "u49",
+      "to": "u18",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u50>u21",
+      "from": "u50",
+      "to": "u21",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u51>u23",
+      "from": "u51",
+      "to": "u23",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u52>u25",
+      "from": "u52",
+      "to": "u25",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u53>u27",
+      "from": "u53",
+      "to": "u27",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u54>u30",
+      "from": "u54",
+      "to": "u30",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u55>u32",
+      "from": "u55",
+      "to": "u32",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u56>u34",
+      "from": "u56",
+      "to": "u34",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u57>u36",
+      "from": "u57",
+      "to": "u36",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u58>u3",
+      "from": "u58",
+      "to": "u3",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u59>u5",
+      "from": "u59",
+      "to": "u5",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u60>u7",
+      "from": "u60",
+      "to": "u7",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u61>u9",
+      "from": "u61",
+      "to": "u9",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u2>c1",
+      "from": "u2",
+      "to": "c1",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u3>c2",
+      "from": "u3",
+      "to": "c2",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u4>c3",
+      "from": "u4",
+      "to": "c3",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u5>c4",
+      "from": "u5",
+      "to": "c4",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u6>c5",
+      "from": "u6",
+      "to": "c5",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u7>c6",
+      "from": "u7",
+      "to": "c6",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u8>c7",
+      "from": "u8",
+      "to": "c7",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u9>c8",
+      "from": "u9",
+      "to": "c8",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u11>c1",
+      "from": "u11",
+      "to": "c1",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u12>c2",
+      "from": "u12",
+      "to": "c2",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u13>c3",
+      "from": "u13",
+      "to": "c3",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u14>c4",
+      "from": "u14",
+      "to": "c4",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u15>c5",
+      "from": "u15",
+      "to": "c5",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u16>c6",
+      "from": "u16",
+      "to": "c6",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u17>c7",
+      "from": "u17",
+      "to": "c7",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u18>c8",
+      "from": "u18",
+      "to": "c8",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u20>c1",
+      "from": "u20",
+      "to": "c1",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u21>c2",
+      "from": "u21",
+      "to": "c2",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u22>c3",
+      "from": "u22",
+      "to": "c3",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u23>c4",
+      "from": "u23",
+      "to": "c4",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u24>c5",
+      "from": "u24",
+      "to": "c5",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u25>c6",
+      "from": "u25",
+      "to": "c6",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u26>c7",
+      "from": "u26",
+      "to": "c7",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u27>c8",
+      "from": "u27",
+      "to": "c8",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u29>c1",
+      "from": "u29",
+      "to": "c1",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u30>c2",
+      "from": "u30",
+      "to": "c2",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u31>c3",
+      "from": "u31",
+      "to": "c3",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u32>c4",
+      "from": "u32",
+      "to": "c4",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u33>c5",
+      "from": "u33",
+      "to": "c5",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u34>c6",
+      "from": "u34",
+      "to": "c6",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u35>c7",
+      "from": "u35",
+      "to": "c7",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u36>c8",
+      "from": "u36",
+      "to": "c8",
+      "kind": "uses",
+      "label": "reads the figure",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A1>u9",
+      "from": "A1",
+      "to": "u9",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A2>u13",
+      "from": "A2",
+      "to": "u13",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A3>u16",
+      "from": "A3",
+      "to": "u16",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A4>u20",
+      "from": "A4",
+      "to": "u20",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A5>u23",
+      "from": "A5",
+      "to": "u23",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A6>u26",
+      "from": "A6",
+      "to": "u26",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A7>u30",
+      "from": "A7",
+      "to": "u30",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A8>u33",
+      "from": "A8",
+      "to": "u33",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A9>u36",
+      "from": "A9",
+      "to": "u36",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "implements:A10>u4",
+      "from": "A10",
+      "to": "u4",
+      "kind": "implements",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u42>u8",
+      "from": "u42",
+      "to": "u8",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u43>u11",
+      "from": "u43",
+      "to": "u11",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u44>u13",
+      "from": "u44",
+      "to": "u13",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u45>u15",
+      "from": "u45",
+      "to": "u15",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u46>u17",
+      "from": "u46",
+      "to": "u17",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u47>u20",
+      "from": "u47",
+      "to": "u20",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u48>u22",
+      "from": "u48",
+      "to": "u22",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u49>u24",
+      "from": "u49",
+      "to": "u24",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u50>u26",
+      "from": "u50",
+      "to": "u26",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u51>u29",
+      "from": "u51",
+      "to": "u29",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u52>u31",
+      "from": "u52",
+      "to": "u31",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u53>u33",
+      "from": "u53",
+      "to": "u33",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u54>u35",
+      "from": "u54",
+      "to": "u35",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u55>u2",
+      "from": "u55",
+      "to": "u2",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u56>u4",
+      "from": "u56",
+      "to": "u4",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u57>u6",
+      "from": "u57",
+      "to": "u6",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u58>u8",
+      "from": "u58",
+      "to": "u8",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u59>u11",
+      "from": "u59",
+      "to": "u11",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u60>u13",
+      "from": "u60",
+      "to": "u13",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "exercises:u61>u15",
+      "from": "u61",
+      "to": "u15",
+      "kind": "exercises",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u2>c4",
+      "from": "u2",
+      "to": "c4",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u3>c5",
+      "from": "u3",
+      "to": "c5",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u4>c6",
+      "from": "u4",
+      "to": "c6",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u5>c7",
+      "from": "u5",
+      "to": "c7",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u6>c8",
+      "from": "u6",
+      "to": "c8",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u7>c1",
+      "from": "u7",
+      "to": "c1",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u8>c2",
+      "from": "u8",
+      "to": "c2",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u9>c3",
+      "from": "u9",
+      "to": "c3",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u11>c4",
+      "from": "u11",
+      "to": "c4",
+      "kind": "uses",
+      "certainty": "model"
+    },
+    {
+      "id": "uses:u12>c5",
+      "from": "u12",
+      "to": "c5",
+      "kind": "uses",
+      "certainty": "model"
+    }
+  ],
+  "story": [
+    {
+      "id": "outcome",
+      "kind": "outcome",
+      "title": "Keep the orchard's books by season",
+      "text": "The orchard's trees, harvest, market and ledger are each counted by season. This is made-up data for measuring Change Review under load.",
+      "focus": [],
+      "criteria": []
+    },
+    {
+      "id": "s1",
+      "kind": "walk",
+      "title": "A1: a season of trees",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A1",
+        "u57"
+      ],
+      "criteria": [
+        "A1"
+      ],
+      "specStep": "S1"
+    },
+    {
+      "id": "s2",
+      "kind": "walk",
+      "title": "A2: a season of harvest",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A2",
+        "u42"
+      ],
+      "criteria": [
+        "A2"
+      ],
+      "specStep": "S1"
+    },
+    {
+      "id": "s3",
+      "kind": "walk",
+      "title": "A3: a season of market",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A3",
+        "u52"
+      ],
+      "criteria": [
+        "A3"
+      ],
+      "specStep": "S1"
+    },
+    {
+      "id": "s4",
+      "kind": "walk",
+      "title": "A4: a season of ledger",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A4",
+        "u47"
+      ],
+      "criteria": [
+        "A4"
+      ],
+      "specStep": "S1"
+    },
+    {
+      "id": "s5",
+      "kind": "walk",
+      "title": "A5: a season of trees",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A5",
+        "u58",
+        "u30"
+      ],
+      "criteria": [
+        "A5"
+      ],
+      "specStep": "S2"
+    },
+    {
+      "id": "s6",
+      "kind": "walk",
+      "title": "A6: a season of harvest",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A6",
+        "u43",
+        "u3"
+      ],
+      "criteria": [
+        "A6"
+      ],
+      "specStep": "S2",
+      "travel": "exercises:u58>u3"
+    },
+    {
+      "id": "s7",
+      "kind": "walk",
+      "title": "A7: a season of market",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A7",
+        "u53",
+        "u21"
+      ],
+      "criteria": [
+        "A7"
+      ],
+      "specStep": "S2"
+    },
+    {
+      "id": "s8",
+      "kind": "walk",
+      "title": "A8: a season of ledger",
+      "text": "This line asks for one part of the orchard to be counted by season. Its test calls the function that does the counting.",
+      "focus": [
+        "A8",
+        "u48",
+        "u12"
+      ],
+      "criteria": [
+        "A8"
+      ],
+      "specStep": "S2"
+    },
+    {
+      "id": "s9",
+      "kind": "walk",
+      "title": "A9: a season of trees",
+      "text": "This line asks for one part of the orchard to be counted by season. Nothing proves it yet.",
+      "focus": [
+        "A9"
+      ],
+      "criteria": [
+        "A9"
+      ],
+      "specStep": "S3"
+    },
+    {
+      "id": "s10",
+      "kind": "walk",
+      "title": "A10: a season of harvest",
+      "text": "This line asks for one part of the orchard to be counted by season. Nothing proves it yet.",
+      "focus": [
+        "A10"
+      ],
+      "criteria": [
+        "A10"
+      ],
+      "specStep": "S3"
+    },
+    {
+      "id": "s11",
+      "kind": "walk",
+      "title": "dropHarvest",
+      "text": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "focus": [
+        "u1"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s12",
+      "kind": "walk",
+      "title": "planHarvest and saves the market for a season",
+      "text": "planHarvest: Counts one part of the orchard for a season. Refuses a season below zero. saves the market for a season: New in this change. 4 lines added.",
+      "focus": [
+        "u2",
+        "u55"
+      ],
+      "criteria": [
+        "A1"
+      ]
+    },
+    {
+      "id": "s13",
+      "kind": "walk",
+      "title": "loadHarvest, loads the harvest for a season and scores the market for a season",
+      "text": "loadHarvest: Counts one part of the orchard for a season. Refuses a season below zero. loads the harvest for a season: New in this change. 4 lines added. scores the market for a season: New in this change. 3 lines added.",
+      "focus": [
+        "u4",
+        "u44",
+        "u56"
+      ],
+      "criteria": [
+        "A10"
+      ],
+      "travel": "calls:u2>u4"
+    },
+    {
+      "id": "s14",
+      "kind": "walk",
+      "title": "saveHarvest, saves the harvest for a season and loads the trees for a season",
+      "text": "saveHarvest: Counts one part of the orchard for a season. Refuses a season below zero. saves the harvest for a season: New in this change. 4 lines added. loads the trees for a season: New in this change. 4 lines added.",
+      "focus": [
+        "u5",
+        "u45",
+        "u59"
+      ],
+      "criteria": [
+        "A2"
+      ]
+    },
+    {
+      "id": "s15",
+      "kind": "walk",
+      "title": "scoreHarvest and scores the harvest for a season",
+      "text": "scoreHarvest: Counts one part of the orchard for a season. Refuses a season below zero. scores the harvest for a season: New in this change. 3 lines added.",
+      "focus": [
+        "u6",
+        "u46"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s16",
+      "kind": "walk",
+      "title": "mergeHarvest and saves the trees for a season",
+      "text": "mergeHarvest: Counts one part of the orchard for a season. Refuses a season below zero. saves the trees for a season: New in this change. 4 lines added.",
+      "focus": [
+        "u7",
+        "u60"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s17",
+      "kind": "walk",
+      "title": "trimHarvest",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u8"
+      ],
+      "criteria": [
+        "A3"
+      ]
+    },
+    {
+      "id": "s18",
+      "kind": "walk",
+      "title": "rankHarvest and scores the trees for a season",
+      "text": "rankHarvest: Counts one part of the orchard for a season. Refuses a season below zero. scores the trees for a season: New in this change. 3 lines added.",
+      "focus": [
+        "u9",
+        "u61"
+      ],
+      "criteria": [
+        "A1"
+      ]
+    },
+    {
+      "id": "s19",
+      "kind": "walk",
+      "title": "dropLedger",
+      "text": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "focus": [
+        "u10"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s20",
+      "kind": "walk",
+      "title": "planLedger",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u11"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s21",
+      "kind": "walk",
+      "title": "loadLedger and loads the ledger for a season",
+      "text": "loadLedger: Counts one part of the orchard for a season. Refuses a season below zero. loads the ledger for a season: New in this change. 4 lines added.",
+      "focus": [
+        "u13",
+        "u49"
+      ],
+      "criteria": [
+        "A2"
+      ],
+      "travel": "calls:u11>u13"
+    },
+    {
+      "id": "s22",
+      "kind": "walk",
+      "title": "saveLedger and saves the ledger for a season",
+      "text": "saveLedger: Counts one part of the orchard for a season. Refuses a season below zero. saves the ledger for a season: New in this change. 4 lines added.",
+      "focus": [
+        "u14",
+        "u50"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s23",
+      "kind": "walk",
+      "title": "scoreLedger and scores the ledger for a season",
+      "text": "scoreLedger: Counts one part of the orchard for a season. Refuses a season below zero. scores the ledger for a season: New in this change. 3 lines added.",
+      "focus": [
+        "u15",
+        "u51"
+      ],
+      "criteria": [
+        "A5"
+      ]
+    },
+    {
+      "id": "s24",
+      "kind": "walk",
+      "title": "mergeLedger",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u16"
+      ],
+      "criteria": [
+        "A3"
+      ]
+    },
+    {
+      "id": "s25",
+      "kind": "walk",
+      "title": "trimLedger",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u17"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s26",
+      "kind": "walk",
+      "title": "rankLedger",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u18"
+      ],
+      "criteria": [
+        "A6"
+      ]
+    },
+    {
+      "id": "s27",
+      "kind": "walk",
+      "title": "dropMarket",
+      "text": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "focus": [
+        "u19"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s28",
+      "kind": "walk",
+      "title": "planMarket",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u20"
+      ],
+      "criteria": [
+        "A4"
+      ]
+    },
+    {
+      "id": "s29",
+      "kind": "walk",
+      "title": "loadMarket and loads the market for a season",
+      "text": "loadMarket: Counts one part of the orchard for a season. Refuses a season below zero. loads the market for a season: New in this change. 4 lines added.",
+      "focus": [
+        "u22",
+        "u54"
+      ],
+      "criteria": [
+        "A7"
+      ],
+      "travel": "calls:u20>u22"
+    },
+    {
+      "id": "s30",
+      "kind": "walk",
+      "title": "saveMarket",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u23"
+      ],
+      "criteria": [
+        "A5"
+      ]
+    },
+    {
+      "id": "s31",
+      "kind": "walk",
+      "title": "scoreMarket",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u24"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s32",
+      "kind": "walk",
+      "title": "mergeMarket",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u25"
+      ],
+      "criteria": [
+        "A8"
+      ]
+    },
+    {
+      "id": "s33",
+      "kind": "walk",
+      "title": "trimMarket",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u26"
+      ],
+      "criteria": [
+        "A6"
+      ]
+    },
+    {
+      "id": "s34",
+      "kind": "walk",
+      "title": "rankMarket",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u27"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s35",
+      "kind": "walk",
+      "title": "dropTrees",
+      "text": "Counts one part of the orchard for a season. Removed, because merging took its place.",
+      "focus": [
+        "u28"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s36",
+      "kind": "walk",
+      "title": "planTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u29"
+      ],
+      "criteria": [
+        "A9"
+      ]
+    },
+    {
+      "id": "s37",
+      "kind": "walk",
+      "title": "loadTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u31"
+      ],
+      "criteria": [],
+      "travel": "calls:u29>u31"
+    },
+    {
+      "id": "s38",
+      "kind": "walk",
+      "title": "saveTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u32"
+      ],
+      "criteria": [
+        "A10"
+      ]
+    },
+    {
+      "id": "s39",
+      "kind": "walk",
+      "title": "scoreTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u33"
+      ],
+      "criteria": [
+        "A8"
+      ]
+    },
+    {
+      "id": "s40",
+      "kind": "walk",
+      "title": "mergeTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u34"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s41",
+      "kind": "walk",
+      "title": "trimTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u35"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s42",
+      "kind": "walk",
+      "title": "rankTrees",
+      "text": "Counts one part of the orchard for a season. Refuses a season below zero.",
+      "focus": [
+        "u36"
+      ],
+      "criteria": [
+        "A9"
+      ]
+    },
+    {
+      "id": "s43",
+      "kind": "walk",
+      "title": "CHANGELOG.md, README.md and settings.json",
+      "text": "CHANGELOG.md: New in this change. 2 lines added. README.md: 1 line added and 1 line removed. settings.json: 2 lines added and 1 line removed.",
+      "focus": [
+        "u37",
+        "u38",
+        "u39"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s44",
+      "kind": "walk",
+      "title": "guide.md, catalog.ts and logo.png",
+      "text": "guide.md: 3 lines added and 1 line removed. catalog.ts: Shown whole, without its parts, because this change is over the size limits. 5,000 lines added. logo.png: A binary file. Its contents are not shown.",
+      "focus": [
+        "u40",
+        "u41",
+        "f1"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s45",
+      "kind": "walk",
+      "title": "readSoil, roundSoil and readWeather",
+      "text": "readSoil: Unchanged. The soil figures the orchard counts with. roundSoil: Unchanged. The soil figures the orchard counts with. readWeather: Unchanged. The weather figures the orchard counts with.",
+      "focus": [
+        "c1",
+        "c2",
+        "c3"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s46",
+      "kind": "walk",
+      "title": "roundWeather, readPrices and roundPrices",
+      "text": "roundWeather: Unchanged. The weather figures the orchard counts with. readPrices: Unchanged. The prices figures the orchard counts with. roundPrices: Unchanged. The prices figures the orchard counts with.",
+      "focus": [
+        "c4",
+        "c5",
+        "c6"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "s47",
+      "kind": "walk",
+      "title": "readClock and roundClock",
+      "text": "readClock: Unchanged. The clock figures the orchard counts with. roundClock: Unchanged. The clock figures the orchard counts with.",
+      "focus": [
+        "c7",
+        "c8"
+      ],
+      "criteria": []
+    },
+    {
+      "id": "closing",
+      "kind": "closing",
+      "title": "Out of scope, the risk and open questions",
+      "text": "Counting by week and more than one orchard are left for later.",
+      "focus": [],
+      "criteria": []
+    }
+  ],
+  "summary": "Made-up change: the orchard counts trees, harvest, market and ledger by season.",
+  "notices": [
+    "1 file is summarized without its parts, because this change is over 60 files or 4,000 changed lines."
+  ]
+}

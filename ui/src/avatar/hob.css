@@ -1,0 +1,139 @@
+/*
+ * The hobkin character. Ported from ~/Poetry/hobkin/assets/animations/{light,dark}/*.svg,
+ * with every class prefixed "hob-" so it cannot collide with the app's own names.
+ */
+
+.hob {
+  --hob-mark: var(--hb-mark);
+  --hob-eye: var(--hb-mark-eye);
+  --hob-stage: var(--background);
+  display: block;
+  overflow: visible;
+}
+
+.hob-fm { fill: var(--hob-mark); }
+.hob-fe { fill: var(--hob-eye); }
+.hob-fs { fill: var(--hob-stage); }
+.hob-se { fill: none; stroke: var(--hob-eye); stroke-linecap: round; stroke-linejoin: round; }
+.hob-sm { fill: none; stroke: var(--hob-mark); stroke-linecap: round; stroke-linejoin: round; }
+/* A part drawn over the hood: filled like the hood, outlined in the color behind it. */
+.hob-cut { fill: var(--hob-mark); stroke: var(--hob-stage); }
+
+.hob-body, .hob-look, .hob-blink, .hob-dot, .hob-z, .hob-hand, .hob-key, .hob-pulse, .hob-twinkle,
+.hob-spin, .hob-narrow, .hob-wavehand, .hob-qfloat, .hob-puff { transform-box: fill-box; }
+.hob-body { transform-origin: 50% 100%; }
+.hob-look, .hob-blink, .hob-pulse, .hob-twinkle, .hob-spin, .hob-narrow { transform-origin: 50% 50%; }
+.hob-wavehand { transform-origin: 20% 100%; }
+.hob-confetti { transform-box: view-box; transform-origin: 100px 46px; }
+
+/* The eyes follow the pointer. The component sets this transform on the element itself. */
+.hob-follow { transition: transform 180ms ease-out; }
+
+/* A mood's parts fade in when the mood changes, so a swap is never a hard cut. */
+.hob-part { animation: hob-part-in 180ms var(--ease-out) both; }
+@keyframes hob-part-in { from { opacity: 0; } }
+
+.hob-m-idle { animation: hob-breathe 3.2s ease-in-out infinite; }
+.hob-m-hello { animation: hob-hello 1s ease-in-out infinite; }
+.hob-m-listening { animation: hob-lean 3s ease-in-out infinite; }
+.hob-m-thinking { animation: hob-sway 3s ease-in-out infinite; }
+.hob-m-searching { animation: hob-slide 1.6s ease-in-out infinite; }
+.hob-m-working { animation: hob-bob 0.35s ease-in-out infinite; }
+.hob-m-focused { animation: hob-breathe 5s ease-in-out infinite; }
+.hob-m-happy { animation: hob-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating { animation: hob-hop 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-love { animation: hob-sway 2.4s ease-in-out infinite; }
+.hob-m-wink { animation: hob-tilt 2s ease-in-out infinite; }
+.hob-m-surprised { animation: hob-pop 2.4s ease-out infinite; }
+.hob-m-confused { animation: hob-puzzle 2.4s ease-in-out infinite; }
+.hob-m-sad { animation: hob-sad 4s ease-in-out infinite; }
+.hob-m-grumpy { animation: hob-tremble 0.18s linear infinite; }
+.hob-m-error { animation: hob-shake 1.6s ease-in-out infinite; }
+.hob-m-dizzy { animation: hob-wobble 1.2s ease-in-out infinite; }
+.hob-m-sleepy { animation: hob-sleep 4.5s ease-in-out infinite; }
+
+.hob-l-up { animation: hob-lookup 3s ease-in-out infinite; }
+.hob-l-left { animation: hob-listen 2s ease-in-out infinite; }
+.hob-l-search { animation: hob-search 1.6s ease-in-out infinite; }
+.hob-l-type { animation: hob-typelook 1s ease-in-out infinite; }
+.hob-l-focus { transform: translate(0, 2px); }
+.hob-l-down { transform: translate(0, 6px); }
+.hob-l-big { animation: hob-big 2.4s ease-out infinite; }
+
+.hob-b-on { animation: hob-blink 4s infinite; }
+.hob-b-slow { animation: hob-blink 6s infinite; }
+
+.hob-pulse { animation: hob-beat 1s ease-in-out infinite; }
+.hob-twinkle { animation: hob-twinkle 1.2s ease-in-out infinite; }
+.hob-spin { animation: hob-spin 1.2s linear infinite; }
+.hob-narrow { animation: hob-narrow 3s ease-in-out infinite; }
+.hob-dot { animation: hob-fade 1.2s ease-in-out infinite; }
+.hob-d2 { animation-delay: 0.2s; }
+.hob-d3 { animation-delay: 0.4s; }
+.hob-z { opacity: 0; animation: hob-z 3s ease-out infinite; }
+.hob-z2 { animation-delay: 1s; }
+.hob-z3 { animation-delay: 2s; }
+.hob-hand { animation: hob-tap 0.5s ease-in-out infinite; }
+.hob-h2 { animation-delay: -0.25s; }
+.hob-key { opacity: 0; animation: hob-key 1s steps(1) infinite; }
+.hob-k2 { animation-delay: 0.25s; }
+.hob-k3 { animation-delay: 0.5s; }
+.hob-k4 { animation-delay: 0.75s; }
+.hob-wavehand { animation: hob-wave 0.6s ease-in-out infinite; }
+.hob-wl { animation: hob-fade 0.6s ease-in-out infinite; }
+.hob-snd { animation: hob-snd 1.5s ease-in-out infinite; }
+.hob-s2 { animation-delay: 0.2s; }
+.hob-s1 { animation-delay: 0.4s; }
+.hob-qfloat { animation: hob-qfloat 2.4s ease-in-out infinite; }
+.hob-confetti { animation: hob-burst 1.2s ease-out infinite; }
+.hob-puff { opacity: 0; animation: hob-puff 1.4s ease-out infinite; }
+.hob-p2 { animation-delay: 0.7s; }
+
+@keyframes hob-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.02, 1.04); } }
+@keyframes hob-hello { 0%, 100% { transform: rotate(3deg); } 50% { transform: rotate(5deg) translateY(-3px); } }
+@keyframes hob-lean { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(-5deg) scale(1.01, 1.03); } }
+@keyframes hob-sway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes hob-slide { 0%, 100% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
+@keyframes hob-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes hob-hop { 0% { transform: translateY(0) scale(1.06, 0.94); } 30% { transform: translateY(-18px) scale(0.96, 1.05); } 55% { transform: translateY(0) scale(1.08, 0.92); } 75%, 100% { transform: translateY(0) scale(1, 1); } }
+@keyframes hob-tilt { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(6deg); } }
+@keyframes hob-pop { 0% { transform: scale(1, 1); } 8% { transform: translateY(-14px) scale(0.94, 1.12); } 16% { transform: translateY(0) scale(1.05, 0.96); } 24%, 85% { transform: translateY(0) scale(1, 1.04); } 100% { transform: scale(1, 1); } }
+@keyframes hob-puzzle { 0%, 100% { transform: rotate(6deg); } 50% { transform: rotate(9deg); } }
+@keyframes hob-sad { 0%, 100% { transform: scale(1.04, 0.92); } 50% { transform: scale(1.05, 0.9); } }
+@keyframes hob-tremble { 0%, 100% { transform: translateX(-1.5px); } 50% { transform: translateX(1.5px); } }
+@keyframes hob-shake { 0%, 60%, 100% { transform: translateX(0); } 10%, 30%, 50% { transform: translateX(-6px); } 20%, 40% { transform: translateX(6px); } }
+@keyframes hob-wobble { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
+@keyframes hob-sleep { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.04, 1.06); } }
+@keyframes hob-lookup { 0%, 100% { transform: translate(5px, -6px); } 50% { transform: translate(8px, -8px); } }
+@keyframes hob-listen { 0%, 100% { transform: translate(-6px, -2px); } 50% { transform: translate(-8px, -4px); } }
+@keyframes hob-search { 0%, 100% { transform: translate(-12px, 0); } 50% { transform: translate(10px, 2px); } }
+@keyframes hob-typelook { 0%, 100% { transform: translate(-3px, 6px); } 50% { transform: translate(3px, 6px); } }
+@keyframes hob-big { 0% { transform: scale(1); } 10%, 85% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes hob-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes hob-beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(1); } 45% { transform: scale(1.15); } }
+@keyframes hob-twinkle { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.25) rotate(45deg); } }
+@keyframes hob-spin { to { transform: rotate(360deg); } }
+@keyframes hob-narrow { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.55); } }
+@keyframes hob-fade { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes hob-z { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(16px, -28px); } }
+@keyframes hob-tap { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes hob-key { 0% { opacity: 1; } 20% { opacity: 0; } }
+@keyframes hob-wave { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(24deg); } }
+@keyframes hob-snd { 0%, 100% { opacity: 0.15; } 30% { opacity: 1; } }
+@keyframes hob-qfloat { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-6px) rotate(6deg); } }
+@keyframes hob-burst { 0% { transform: scale(0.2); opacity: 0; } 15% { opacity: 1; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1.2); opacity: 0; } }
+@keyframes hob-puff { 0% { opacity: 0; transform: translate(0, 0) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(0, -16px) scale(1.3); } }
+
+/* Reduced motion: the character holds its pose. Parts that only show mid-animation stay visible. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="lively"]) .hob * { animation: none !important; }
+  :root:not([data-motion="lively"]) .hob-follow { transition: none; }
+  :root:not([data-motion="lively"]) .hob-z,
+  :root:not([data-motion="lively"]) .hob-puff { opacity: 1; }
+}
+:root[data-motion="still"] .hob *,
+.hob[data-still="true"] * { animation: none !important; }
+:root[data-motion="still"] .hob-z,
+:root[data-motion="still"] .hob-puff { opacity: 1; }
+.hob[data-still="true"] .hob-z,
+.hob[data-still="true"] .hob-puff { opacity: 1; }

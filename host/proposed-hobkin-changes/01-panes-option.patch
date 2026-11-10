@@ -1,0 +1,21 @@
+--- a/src/cli/application.mjs
++++ b/src/cli/application.mjs
+@@ -139,7 +139,7 @@
+     }
+   }
+ 
+-  static async open(root, { createMain, askQuestion, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
++  static async open(root, { createMain, askQuestion, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, panes } = {}) {
+     signal?.throwIfAborted();
+     const app = new HobkinApplication();
+     app.onChange = onChange;
+@@ -226,7 +226,8 @@
+         runtime: app.runtime,
+         runner: app.runner,
+         ...(runHarness ? { runHarness } : {}),
+-        panes: insideHerdr() ? new WorkPanes() : null,
++        // A front end that is not a terminal in Herdr passes `panes: null`, so nothing it opens touches the user's panes.
++        panes: panes === undefined ? (insideHerdr() ? new WorkPanes() : null) : panes,
+         now: app.now,
+         onChange: () => app.requestRefresh(),
+         onDraftDone: draft => app.landOffers.add(draft),

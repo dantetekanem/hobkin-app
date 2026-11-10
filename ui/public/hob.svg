@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 17 176 176">
+<title>hobkin</title>
+<style>
+.hood{fill:#16181F}
+.eye{fill:#FFC940}
+@media (prefers-color-scheme:dark){
+.hood{fill:#F0EAD6}
+.eye{fill:#E8A317}
+}
+</style>
+<path class="hood" d="M40 180 Q40 100 100 22 Q160 100 160 180 Q160 188 152 188 L48 188 Q40 188 40 180 Z"/>
+<circle class="eye" cx="84" cy="138" r="13"/>
+<circle class="eye" cx="116" cy="138" r="13"/>
+</svg>

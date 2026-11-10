@@ -1,0 +1,32 @@
+/*
+ * The Routines screen's two small loops. The next run in the sky sends out a ring, and a running
+ * routine's dot beats. Both are off when the app keeps still, or follows a Mac that asks for less motion.
+ */
+.routines-ping {
+  animation: routines-ping 2.4s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+.routines-beat {
+  animation: routines-beat 1.2s ease-in-out infinite;
+}
+
+@keyframes routines-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes routines-beat {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.6); opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .routines-ping,
+  :root:not([data-motion='lively']) .routines-beat {
+    animation: none;
+  }
+  :root:not([data-motion='lively']) .routines-ping { opacity: 0; }
+}
+:root[data-motion='still'] .routines-ping,
+:root[data-motion='still'] .routines-beat {
+  animation: none;
+}
+:root[data-motion='still'] .routines-ping { opacity: 0; }

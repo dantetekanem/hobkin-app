@@ -1,0 +1,213 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "./tokens.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-text), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: "Space Grotesk Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* hobkin's own names, for the places shadcn's vocabulary does not cover. */
+  --color-gap: var(--hb-gap);
+  --color-tone-1: var(--hb-tone-1);
+  --color-tone-2: var(--hb-tone-2);
+  --color-tone-3: var(--hb-tone-3);
+  --color-surface: var(--hb-surface);
+  --color-surface-2: var(--hb-surface-2);
+  --color-border-strong: var(--hb-border-strong);
+  --color-mark: var(--hb-mark);
+  --color-mark-eye: var(--hb-mark-eye);
+  --color-sun: var(--hb-sun);
+  --color-sun-fg: var(--hb-sun-fg);
+  --color-ok: var(--hb-ok);
+  --color-ok-fg: var(--hb-ok-fg);
+  --color-warn: var(--hb-warn);
+  --color-warn-fg: var(--hb-warn-fg);
+  --color-bad: var(--hb-bad);
+  --color-bad-fg: var(--hb-bad-fg);
+  --color-code: var(--hb-code);
+  --color-code-fg: var(--hb-code-fg);
+  --color-code-bg: var(--hb-code-bg);
+  --color-code-text: var(--hb-code-text);
+  --color-wire: var(--hb-wire);
+  --color-wire-active: var(--hb-wire-active);
+  --color-scrim: var(--hb-scrim);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.72);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.43);
+  --radius-2xl: calc(var(--radius) * 1.72);
+  --radius-3xl: calc(var(--radius) * 2.3);
+  --radius-4xl: calc(var(--radius) * 2.86);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --shadow-panel: var(--hb-shadow);
+  --shadow-float: var(--hb-float);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    height: 100%;
+    background: var(--hb-bg);
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    height: 100%;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: var(--weight-text);
+    letter-spacing: var(--tracking-text);
+    font-optical-sizing: auto;
+    font-kerning: normal;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    /* An app, not a page: no rubber-band scroll, no text selection on chrome. */
+    overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.022em;
+  }
+
+  /* Numbers line up in lists and counters. */
+  body {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--hb-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--hb-accent) 55%, transparent);
+    color: var(--hb-text);
+  }
+}
+
+/*
+ * Changing theme. The new theme opens in a circle from the control that was used (see app/theme.ts).
+ * The old page stays still underneath, and the new one is clipped in over it.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  z-index: 1;
+}
+/* While the circle opens, nothing else animates its colors, or the new page would be caught mid-fade. */
+:root[data-theme-reveal] *,
+:root[data-theme-reveal] *::before,
+:root[data-theme-reveal] *::after {
+  transition: none !important;
+}
+/* Where the browser has no view transitions, every color eases to its new value instead. */
+:root[data-theme-fade] *,
+:root[data-theme-fade] *::before,
+:root[data-theme-fade] *::after {
+  transition:
+    background-color var(--dur-color) ease,
+    color var(--dur-color) ease,
+    border-color var(--dur-color) ease,
+    fill var(--dur-color) ease,
+    stroke var(--dur-color) ease,
+    box-shadow var(--dur-color) ease !important;
+}
+
+@layer utilities {
+  /* Text that reads as a label: Space Grotesk, a touch tighter. */
+  .font-label {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+  }
+
+  .wordmark {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    line-height: 1;
+  }
+
+  /* Small uppercase label above a group, as on the site. */
+  .eyebrow {
+    font-family: var(--font-heading);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hb-muted);
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  .select-none-chrome {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  /* Thin scrollbars that stay out of the way. */
+  .scroll-quiet {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hb-border-strong) 55%, transparent) transparent;
+  }
+}

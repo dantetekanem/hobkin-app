@@ -1,0 +1,22 @@
+--- a/src/cli/work/director.mjs
++++ b/src/cli/work/director.mjs
+@@ -845,6 +845,10 @@
+     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
+     const startedAt = handed?.startedAt ?? new Date(this.now()).toISOString();
+     const entry = { id, harnessId, kind, model, bound, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: paneKind, pane, startedAt, paneId: handed?.paneId, report: handed?.report };
++    // A run outside a pane takes messages while it works, as a running check does (`message_check`). The runner closes its inbox when the run ends.
++    const inbox = inPane ? null : Promise.withResolvers();
++    inbox?.promise.catch(() => {});
++    if (inbox) this.runner.inboxes.set(id, inbox);
+     const runIn = async (place, signal) => {
+       const here = place.cwd;
+       const schedule = { id: scheduleId, title, prompt: instructions, cwd: here, harness: 'pi', model, context: [] };
+@@ -868,7 +872,7 @@
+         prompt,
+         sessionFile,
+         signal,
+-      }, { onEvent: event => this.runner.onActivity(id, event) });
++      }, { onEvent: event => this.runner.onActivity(id, event), ...(inbox ? { onReady: send => inbox.resolve(send) } : {}) });
+     };
+     const effect = async signal => {
+       const place = handed?.place ?? (prepare ? await prepare(entry) : { cwd });

@@ -1,0 +1,705 @@
+/*
+ * Change Review. The graph language is in _specs/000-product/design.md: rounded cards with a header tinted
+ * by kind, pins on the left and right edges, thin wires that curve with level ends.
+ *
+ * Motion rules kept here: only opacity, filter and transform change over time. State changes that can be
+ * triggered again mid-way (hover, focus levels) are transitions, so they retarget from where they are.
+ * `data-reduced` on the root carries the system setting and the development switch.
+ */
+
+.rv {
+  position: relative;
+  height: 100%;
+  /* Clip, not hidden: a hidden overflow can still be scrolled by focus and scrollIntoView, which would slide
+     the whole review sideways under the frame. */
+  overflow: clip;
+  outline: none;
+  border-radius: 26px 0 0 26px;
+  /* Ink around the yellow ring, so the ring reads on cream as well as on ink. */
+  --rv-ring-edge: color-mix(in oklab, var(--hb-text) 62%, transparent);
+  --rv-float: var(--hb-surface);
+}
+
+.dark .rv {
+  --rv-ring-edge: transparent;
+  --rv-float: var(--hb-surface-2);
+}
+
+/* The keyboard is in the review: the same inset ring the frame draws on a screen it has focused. */
+.rv:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--hb-focus);
+}
+
+.rv .react-flow {
+  background: transparent;
+}
+
+.rv .react-flow__pane {
+  cursor: grab;
+}
+
+.rv .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+.rv .react-flow__node {
+  cursor: pointer;
+}
+
+.rv .react-flow__node.dragging {
+  cursor: grabbing;
+}
+
+/* React Flow's own handles only tell it where wires attach. The pins that are seen are drawn by the card. */
+.rv .react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ───────────────────────────── Node cards ───────────────────────────── */
+
+.rv-node {
+  --kind: var(--hb-code);
+  --kind-fg: var(--hb-code-fg);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  color: var(--hb-text);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    filter var(--dur-base) var(--ease-out);
+}
+
+.rv-node[data-kind='criterion'] {
+  --kind: var(--hb-sun);
+  --kind-fg: var(--hb-sun-fg);
+}
+.rv-node[data-kind='test'] {
+  --kind: var(--hb-ok);
+  --kind-fg: var(--hb-ok-fg);
+}
+/* A test turns red when it failed and quiet when it was not run. */
+.rv-node[data-kind='test'][data-status='failed'] {
+  --kind: var(--hb-bad);
+  --kind-fg: var(--hb-bad-fg);
+}
+.rv-node[data-kind='test'][data-status='not-run'],
+.rv-node[data-kind='test']:not([data-status]) {
+  --kind: var(--hb-border-strong);
+  --kind-fg: var(--hb-muted);
+}
+.rv-node[data-kind='file'] {
+  --kind: var(--hb-muted);
+  --kind-fg: var(--hb-muted);
+}
+.rv-node[data-kind='context'] {
+  --kind: var(--hb-border-strong);
+  --kind-fg: var(--hb-muted);
+}
+.rv-node[data-change='deleted'] {
+  --kind: var(--hb-bad);
+  --kind-fg: var(--hb-bad-fg);
+}
+
+/* The card's drop shadow is a layer of its own, so a card can settle flat by opacity alone. */
+.rv-node::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  box-shadow: var(--hb-shadow);
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+.rv-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--hb-tone-2);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--kind) 38%, var(--hb-border));
+}
+
+/*
+ * A veil of the canvas's own color, under the card's text. Raising it blends the card into the canvas
+ * without touching the text, so a dimmed card reads as well as a lit one.
+ */
+.rv-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--hb-surface);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+/* Context is unchanged code: a dashed outline and a quieter surface. */
+.rv-node[data-kind='context'] .rv-card {
+  background: color-mix(in oklab, var(--hb-tone-2) 55%, var(--hb-surface));
+  box-shadow: none;
+  outline: 1.5px dashed var(--hb-border-strong);
+  outline-offset: -1.5px;
+}
+.rv-node[data-kind='context']::before {
+  display: none;
+}
+
+/* An unproven line and a failed test are marked on the card itself, not only by a word. */
+.rv-node[data-alert='true'] .rv-card {
+  box-shadow: 0 0 0 1.5px var(--hb-bad);
+}
+
+/* The accent ring of a focus node. It is its own layer, so it comes and goes by opacity alone. */
+.rv-node::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 18px;
+  box-shadow:
+    0 0 0 2.5px var(--hb-accent),
+    0 0 0 3.5px var(--rv-ring-edge),
+    0 14px 36px color-mix(in oklab, var(--hb-accent) 26%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.rv-node[data-level='focus']::after {
+  opacity: 1;
+}
+
+.rv-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px 8px;
+}
+/* The header's tint is the kind's color laid thin over the card, so it can fade with the card. */
+.rv-head::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--kind);
+  opacity: 0.16;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+.rv-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  color: var(--kind-fg);
+}
+
+.rv-title {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.012em;
+}
+
+.rv-kind {
+  flex: none;
+  margin-top: 2px;
+  font-family: var(--font-heading);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kind-fg);
+}
+
+.rv-body {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 12px 9px;
+}
+
+.rv-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* A long path loses its start, not the file name. */
+  direction: rtl;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 14px;
+  color: var(--hb-muted);
+}
+
+.rv-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--lines, 2);
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: color-mix(in oklab, var(--hb-text) 84%, var(--hb-tone-2));
+}
+
+.rv-facts {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 15px;
+  font-size: 10.5px;
+  line-height: 15px;
+}
+
+.rv-stats {
+  display: flex;
+  gap: 7px;
+  font-family: var(--font-mono);
+}
+.rv-add {
+  color: var(--hb-ok-fg);
+}
+.rv-del {
+  color: var(--hb-bad-fg);
+}
+
+.rv-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--hb-muted);
+}
+.rv-status[data-tone='ok'] {
+  color: var(--hb-ok-fg);
+}
+.rv-status[data-tone='bad'] {
+  color: var(--hb-bad-fg);
+}
+.rv-status svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Pins: what a node depends on enters on the left, and what leans on it leaves on the right. */
+.rv-pin {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--kind) 70%, var(--hb-border-strong));
+  background: var(--hb-surface);
+}
+.rv-pin[data-side='left'] {
+  left: -5.5px;
+}
+.rv-pin[data-side='right'] {
+  right: -5.5px;
+}
+.rv-pin[data-wired='true'] {
+  background: var(--kind-fg);
+  border-color: var(--hb-surface);
+}
+
+/*
+ * Focus levels. The focus is sharp, its neighbors are dimmed and sharp, the rest is blurred and faded.
+ *
+ * A dimmed card settles flat into the canvas: its surface, its tint and its shadow step back, and its text
+ * keeps its own color. Fading the whole card would thin the text and let wires show through it.
+ */
+.rv-node[data-level='neighbor'] .rv-card::before,
+.rv-node[data-level='rest'][data-hover='dim'] .rv-card::before {
+  opacity: 0.72;
+}
+.rv-node[data-level='neighbor'] .rv-head::before,
+.rv-node[data-level='rest'][data-hover='dim'] .rv-head::before {
+  opacity: 0.07;
+}
+.rv-node[data-level='neighbor']::before,
+.rv-node[data-level='rest'][data-hover='dim']::before {
+  opacity: 0;
+}
+.rv-node[data-level='background'] {
+  opacity: 0.46;
+  filter: blur(2.5px);
+}
+/* What the story has not reached yet sits further back than what it has. */
+.rv-node[data-level='background'][data-seen='false'] {
+  opacity: 0.28;
+}
+/* The cheaper treatment: no blur on the nodes, a deeper fade instead. */
+.rv[data-treatment='fade'] .rv-node[data-level='background'] {
+  filter: none;
+  opacity: 0.3;
+}
+.rv[data-treatment='fade'] .rv-node[data-level='background'][data-seen='false'] {
+  opacity: 0.16;
+}
+
+/*
+ * Hover: the node, its wires and its neighbors light up, and every other node dims (the flat treatment above).
+ * While the story holds a focus, hover only lights things up. It never dims what the step is about.
+ */
+.rv-node[data-hover='lit'] {
+  opacity: 1;
+  filter: none;
+}
+.rv-node[data-hover='lit'] .rv-card::before {
+  opacity: 0;
+}
+.rv-node[data-hover='lit'] .rv-head::before {
+  opacity: 0.16;
+}
+.rv-node[data-hover='lit']::before {
+  opacity: 1;
+}
+
+/* From far away a card says one thing: its name. The rest would be too small to read. */
+.rv[data-far='true'] .rv-title {
+  font-size: 21px;
+  line-height: 1.16;
+  -webkit-line-clamp: 4;
+}
+.rv[data-far='true'] .rv-head {
+  flex: 1;
+  padding-top: 12px;
+}
+.rv[data-far='true'] .rv-icon {
+  width: 22px;
+  height: 22px;
+}
+.rv[data-far='true'] .rv-kind {
+  font-size: 13px;
+}
+.rv[data-far='true'] .rv-path,
+.rv[data-far='true'] .rv-summary {
+  display: none;
+}
+.rv[data-far='true'] .rv-body {
+  flex: none;
+  padding-top: 5px;
+}
+.rv[data-far='true'] .rv-facts {
+  font-size: 15px;
+  line-height: 20px;
+}
+.rv[data-far='true'] .rv-status svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ───────────────────────────── Wires ───────────────────────────── */
+
+.rv-wire {
+  --tint: var(--hb-code-fg);
+}
+.rv-wire[data-wire='proves'],
+.rv-wire[data-wire='implements'] {
+  --tint: var(--hb-sun-fg);
+}
+.rv-wire[data-wire='exercises'] {
+  --tint: var(--hb-ok-fg);
+}
+.rv-wire[data-wire='configures'] {
+  --tint: var(--hb-muted);
+}
+.rv-wire[data-wire='replaces'] {
+  --tint: var(--hb-bad-fg);
+}
+
+.rv-wire path {
+  fill: none;
+}
+
+/* Wide and unseen: it makes a thin wire easy to click. */
+.rv-wire-hit {
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.rv-wire-base {
+  stroke: color-mix(in oklab, var(--tint) 72%, var(--hb-wire));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0.66;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+/* A wire the model proposed is dashed until the reviewer confirms it. */
+.rv-wire[data-proposed='true'] .rv-wire-base {
+  stroke-dasharray: 5 6;
+}
+.rv-wire[data-level='faded'] .rv-wire-base {
+  opacity: 0.24;
+}
+.rv-wire[data-level='faded'][data-seen='false'] .rv-wire-base {
+  opacity: 0.12;
+}
+.rv-wire[data-level='rest'][data-hover='dim'] .rv-wire-base {
+  opacity: 0.12;
+}
+/* An active wire is drawn over by its live line. A proposed one keeps its dashes and lights up in place. */
+.rv-wire[data-active='true'][data-proposed='false'] .rv-wire-base {
+  opacity: 0;
+}
+.rv-wire[data-active='true'][data-proposed='true'] .rv-wire-base {
+  opacity: 1;
+  stroke: var(--hb-wire-active);
+  stroke-width: 2.2;
+}
+
+/* The active wire: ink with a yellow pulse on cream, yellow on ink. */
+.rv-wire-live {
+  stroke: var(--hb-wire-active);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+/* Drawn once, when the review first opens: the wire inks in after the nodes it joins have landed. */
+.rv-wire-draw {
+  stroke: color-mix(in oklab, var(--tint) 80%, var(--hb-wire));
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.rv-pulse {
+  fill: var(--hb-wire-pulse);
+  stroke: var(--hb-wire-active);
+  stroke-width: 1;
+}
+
+/* The pulse the camera follows from one focus to the next. */
+.rv-rider {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--hb-wire-pulse);
+  box-shadow:
+    0 0 0 1.5px var(--hb-wire-active),
+    0 0 18px 6px color-mix(in oklab, var(--hb-accent) 60%, transparent);
+  pointer-events: none;
+}
+
+/* A wire's words, at its middle. */
+.rv-chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--rv-float);
+  color: var(--hb-text);
+  box-shadow:
+    0 0 0 1px var(--hb-border),
+    var(--hb-shadow);
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: all;
+  /* Placed by left and top at the wire's middle, so transform is free for the press. */
+  transform: translate(-50%, -50%);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+.rv-chip[data-proposed='true'] {
+  box-shadow:
+    0 0 0 1px var(--hb-border),
+    var(--hb-shadow);
+  outline: 1.5px dashed var(--hb-border-strong);
+  outline-offset: -1.5px;
+}
+.rv-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rv-chip em {
+  font-style: normal;
+  color: var(--hb-muted);
+}
+
+/* ───────────────────────────── Floating pieces ───────────────────────────── */
+
+.rv-float {
+  background: var(--rv-float);
+  color: var(--hb-text);
+  box-shadow: var(--hb-float);
+}
+
+.rv-text {
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+/* Thin scrollbars that stay out of the way. */
+.rv-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--hb-border-strong) 55%, transparent) transparent;
+  overscroll-behavior: contain;
+}
+
+/* The rail: one segment per step. The current one is wide and accented, and the seen ones are filled. */
+.rv-seg {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 5px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.rv-seg[data-current='true'] {
+  flex-grow: 5;
+}
+.rv-seg i {
+  position: absolute;
+  inset: 8px 0;
+  background: color-mix(in oklab, var(--hb-border-strong) 42%, transparent);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.rv-seg[data-seen='true'] i {
+  background: var(--hb-text);
+  opacity: 0.62;
+}
+.rv-seg[data-current='true'] i {
+  background: var(--hb-accent);
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--rv-ring-edge);
+}
+
+/* The steps panel: the left of the review, full height. One edge divides it from the graph. */
+.rv-steps {
+  background: var(--hb-tone-1);
+  box-shadow:
+    1px 0 0 var(--hb-border),
+    14px 0 36px rgb(0 0 0 / 0.08);
+}
+
+/* A note marker: how many notes a node or a wire has. */
+.rv-notes {
+  position: absolute;
+  z-index: 2;
+  top: -7px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 17px;
+  padding: 0 6px 0 5px;
+  border-radius: 999px;
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+  box-shadow: 0 0 0 1.5px var(--hb-surface);
+  font-family: var(--font-heading);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.rv-notes svg {
+  width: 10px;
+  height: 10px;
+}
+
+.rv-chip-notes {
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* The code panel: a sheet over the bottom of the graph, flush with the canvas, lit from below its top edge. */
+.rv-panel {
+  box-shadow:
+    0 -1px 0 color-mix(in oklab, var(--hb-code-text) 12%, transparent),
+    0 -20px 48px rgb(0 0 0 / 0.2);
+}
+
+/* With reduced motion a step is a cut with a short fade, and nothing travels, blurs or pulses. */
+@keyframes rv-cut {
+  from {
+    opacity: 0.35;
+  }
+}
+.rv[data-reduced='true'] .rv-cut,
+.rv[data-reduced='true'] .rv-panel[data-open='true'] {
+  animation: rv-cut var(--dur-fast) linear;
+}
+.rv[data-reduced='true'] .rv-node,
+.rv[data-reduced='true'] .rv-node::before,
+.rv[data-reduced='true'] .rv-node::after,
+.rv[data-reduced='true'] .rv-card::before,
+.rv[data-reduced='true'] .rv-head::before,
+.rv[data-reduced='true'] .rv-wire-base,
+.rv[data-reduced='true'] .rv-chip,
+.rv[data-reduced='true'] .rv-seg i {
+  transition: none;
+}
+.rv[data-reduced='true'] .rv-node[data-level='background'] {
+  filter: none;
+}
+.rv[data-reduced='true'] .rv-pulse,
+.rv[data-reduced='true'] .rv-rider {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rv-chip:hover {
+    transform: translate(-50%, calc(-50% - 1px));
+  }
+  .rv-seg:hover i {
+    opacity: 1;
+  }
+}
+.rv-chip:active {
+  transform: translate(-50%, -50%) scale(0.97);
+}

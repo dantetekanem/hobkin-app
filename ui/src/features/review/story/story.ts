@@ -1,0 +1,121 @@
+/**
+ * Where the reviewer is in the story: the step, what they have seen, what has drawn in, and whether they
+ * stepped off the path. Pure functions over a small state, so the walk can be tested without a screen.
+ */
+import type { Review, ReviewEdge } from '#shared/review/types.ts'
+import type { StoredProgress } from '../state/memory.ts'
+
+export interface StoryState {
+  /** Index of the current step. Off the path, this is the step to come back to. */
+  step: number
+  /** Ids of the steps seen, in the order they were first seen. */
+  seen: string[]
+  /** Ids of the nodes and wires that have drawn in. On later visits they are already there. */
+  revealed: string[]
+  /** A node focused outside the story, by a click or by the keyboard. */
+  detour: string | null
+  /** Focus was left for the whole graph. */
+  whole: boolean
+}
+
+/** What draws in on arriving somewhere for the first time. */
+export interface Fresh {
+  nodes: string[]
+  /** Each new wire, and the end it grows from: the end that was already on screen. */
+  wires: { id: string; from: 'source' | 'target' }[]
+}
+
+export interface Moved {
+  state: StoryState
+  fresh: Fresh
+}
+
+type Story = Pick<Review, 'story' | 'nodes' | 'edges'>
+
+const NOTHING: Fresh = { nodes: [], wires: [] }
+const clampStep = (review: Story, index: number) => Math.max(0, Math.min(review.story.length - 1, Math.trunc(index) || 0))
+const unique = <Value>(values: readonly Value[]) => [...new Set(values)]
+
+/** The nodes in focus now: the detour, nothing for the whole graph, or the current step's own focus. */
+export function focusOf(review: Story, state: StoryState): string[] {
+  if (state.whole) return []
+  if (state.detour != null) return [state.detour]
+  return review.story[state.step]?.focus ?? []
+}
+
+/** True when the reviewer is looking at something other than the current step: "Back to step N" is offered. */
+export function offPath(review: Story, state: StoryState): boolean {
+  return state.detour != null || (state.whole && (review.story[state.step]?.focus.length ?? 0) > 0)
+}
+
+/** Marks what a focus puts on screen as drawn in, and says which of it is new. */
+function reveal(review: Story, revealed: readonly string[], focus: readonly string[]): { revealed: string[]; fresh: Fresh } {
+  if (focus.length === 0) return { revealed: [...revealed], fresh: NOTHING }
+  const before = new Set(revealed)
+  const focused = new Set(focus)
+  const touching = review.edges.filter((edge) => focused.has(edge.from) || focused.has(edge.to))
+  const near = new Set(touching.flatMap((edge) => [edge.from, edge.to]))
+
+  const nodes = [...focus.filter((id) => !before.has(id)), ...review.nodes.map((node) => node.id).filter((id) => near.has(id) && !focused.has(id) && !before.has(id))]
+  const wires = touching.filter((edge) => !before.has(edge.id)).map((edge) => ({ id: edge.id, from: growsFrom(edge, before, focused) }))
+  return { revealed: [...revealed, ...nodes, ...wires.map((wire) => wire.id)], fresh: { nodes, wires } }
+}
+
+/** A wire grows from the end that was on screen before. With both or neither, it grows out of the focus. */
+function growsFrom(edge: Pick<ReviewEdge, 'from' | 'to'>, before: ReadonlySet<string>, focused: ReadonlySet<string>): 'source' | 'target' {
+  const [source, target] = [before.has(edge.from), before.has(edge.to)]
+  if (source !== target) return source ? 'source' : 'target'
+  return focused.has(edge.from) ? 'source' : 'target'
+}
+
+/** Opens the story where the reviewer left it, or at its first step. Saved ids the review no longer has are dropped. */
+export function startStory(review: Story, saved?: StoredProgress | null): StoryState {
+  const stepIds = new Set(review.story.map((step) => step.id))
+  const known = new Set([...review.nodes.map((node) => node.id), ...review.edges.map((edge) => edge.id)])
+  const step = Math.max(0, review.story.findIndex((entry) => entry.id === saved?.step))
+  const seen = unique((saved?.seen ?? []).filter((id) => stepIds.has(id)))
+  const current = review.story[step]?.id
+  if (current && !seen.includes(current)) seen.push(current)
+  const restored = unique((saved?.revealed ?? []).filter((id) => known.has(id)))
+  // The step being opened on is on screen, so it has drawn in.
+  return { step, seen, revealed: reveal(review, restored, review.story[step]?.focus ?? []).revealed, detour: null, whole: false }
+}
+
+/** Moves to a step, back onto the path. */
+export function goToStep(review: Story, state: StoryState, index: number): Moved {
+  const step = clampStep(review, index)
+  const id = review.story[step]!.id
+  const { revealed, fresh } = reveal(review, state.revealed, review.story[step]!.focus)
+  return { state: { step, seen: state.seen.includes(id) ? state.seen : [...state.seen, id], revealed, detour: null, whole: false }, fresh }
+}
+
+/**
+ * The step a move of `delta` lands on. Off the path, the path is where the reviewer left it:
+ * back returns to that step, and forward moves on to the one after.
+ */
+export function stepFrom(review: Story, state: StoryState, delta: number): number {
+  const from = offPath(review, state) && delta < 0 ? state.step + 1 : state.step
+  return clampStep(review, from + delta)
+}
+
+/** Focuses one node. A node of the current step stays on the path, and any other is a detour. */
+export function focusNode(review: Story, state: StoryState, nodeId: string): Moved {
+  if (!review.nodes.some((node) => node.id === nodeId)) return { state, fresh: NOTHING }
+  if (review.story[state.step]?.focus.includes(nodeId)) return backToStep(review, state)
+  const { revealed, fresh } = reveal(review, state.revealed, [nodeId])
+  return { state: { ...state, revealed, detour: nodeId, whole: false }, fresh }
+}
+
+/** "Back to step N": the remembered step, with its own focus. */
+export function backToStep(review: Story, state: StoryState): Moved {
+  return goToStep(review, state, state.step)
+}
+
+/** Leaves focus for the whole graph. The step is remembered. */
+export function leaveFocus(_review: Story, state: StoryState): StoryState {
+  return { ...state, detour: null, whole: true }
+}
+
+export function progressOf(review: Story, state: StoryState): StoredProgress {
+  return { step: review.story[state.step]?.id ?? '', seen: state.seen, revealed: state.revealed }
+}
