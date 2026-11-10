@@ -1,7 +1,6 @@
 import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Button } from '@/components/ui/button.tsx'
-import { focusCanvas } from './keys.ts'
 import { Hero, Rise } from './Reveal.tsx'
 import { type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
@@ -41,7 +40,6 @@ export function Placeholder({ screen }: { screen: PlaceholderScreen }) {
               variant="outline"
               onClick={() => {
                 openReviewFor('sample')
-                requestAnimationFrame(focusCanvas)
               }}
             >
               Open the sample review

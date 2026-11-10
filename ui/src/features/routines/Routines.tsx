@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useStops } from '@/app/stops.ts'
@@ -9,10 +9,8 @@ import { Detail } from './Detail.tsx'
 import { BrokenFiles, EmptyHome, SampleLine, SkyTile, Suggested, Templates } from './Extras.tsx'
 import { useClock } from './hooks.ts'
 import { AllRoutines, NextSevenDays } from './Lists.tsx'
-import { factsOf } from './rules.ts'
-import { rollingSpan, spanOf } from './sky-math.ts'
+import { selectPreparedView } from './prepare.ts'
 import { useRoutines, VIEW_ZONE, type RoutinesView } from './store.ts'
-import { nextSevenDays } from './timeline.ts'
 import './routines.css'
 
 /**
@@ -39,9 +37,6 @@ const slide: Variants = {
   gone: (direction: number) => ({ opacity: 0, transform: `translateX(${direction * -40}px)`, transition: { transform: spring.screenExit, opacity: tween.exit } }),
 }
 
-/** The day in the sky rolls with the clock: these hours behind now, and these ahead. */
-const HOURS_BEHIND = 8
-const HOURS_AHEAD = 16
 /** How long the word that a message went to hobkin stays, in seconds. Long enough to read it. */
 const SUGGESTED_FOR = 3.6
 
@@ -71,9 +66,10 @@ export function Routines() {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const now = useClock(30_000)
-  const { data, sample, view, openId, openFrom, lit } = useRoutines(
+  const { data, prepared, sample, view, openId, openFrom, lit } = useRoutines(
     useShallow((state) => ({
       data: state.data,
+      prepared: state.prepared,
       sample: state.sample,
       view: state.view,
       openId: state.openId,
@@ -84,6 +80,7 @@ export function Routines() {
   const actions = useRoutines(
     useShallow((state) => ({
       setView: state.setView,
+      setSkyWidth: state.setSkyWidth,
       open: state.open,
       close: state.close,
       light: state.light,
@@ -95,14 +92,8 @@ export function Routines() {
   )
   const [direction, setDirection] = useState<1 | -1>(1)
   const [asked, setAsked] = useState(0)
-
-  const facts = useMemo(() => factsOf(data, now), [data, now])
-  const holds = useMemo(() => Object.fromEntries(facts.map((item) => [item.routine.id, item.hold])), [facts])
-  const span = useMemo(() => {
-    if (view === 'all') return rollingSpan(now, VIEW_ZONE, HOURS_BEHIND, HOURS_AHEAD)
-    return spanOf(now, VIEW_ZONE, 7)
-  }, [view, now])
-  const days = useMemo(() => view === 'week' ? nextSevenDays(data.routines, now, VIEW_ZONE, holds) : [], [view, data.routines, now, holds])
+  const screen = selectPreparedView(prepared, view)
+  const { facts, holds } = screen
 
   const readOnly = sample === null
   const opened = facts.find((item) => item.routine.id === openId)
@@ -160,7 +151,7 @@ export function Routines() {
                 askForNewRoutine()
                 onAsked()
               }}
-              span={span}
+              span={screen.span}
               detail={view === 'all'}
               labels={view === 'all' ? 'hours' : 'days'}
               now={now}
@@ -168,6 +159,9 @@ export function Routines() {
               data={data}
               holds={holds}
               lit={lit}
+              marks={screen.marks}
+              scene={screen.scene}
+              onWidth={actions.setSkyWidth}
               onLight={actions.light}
               onPick={pick}
             />
@@ -196,7 +190,7 @@ export function Routines() {
               <div className="relative">
                 <AnimatePresence mode="popLayout" initial={false} custom={direction}>
                   <motion.div key={view} custom={direction} variants={slide} initial="from" animate="here" exit="gone" className="flex flex-col gap-2">
-                    {view === 'all' ? <AllRoutines {...listProps} /> : <NextSevenDays days={days} {...listProps} />}
+                    {view === 'all' ? <AllRoutines {...listProps} /> : <NextSevenDays days={screen.days} {...listProps} />}
                   </motion.div>
                 </AnimatePresence>
               </div>

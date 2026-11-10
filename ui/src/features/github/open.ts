@@ -1,4 +1,6 @@
 import type { MouseEvent } from 'react'
+import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
+import { useView } from '@/app/view-store.ts'
 import { runCommand, type GitHubPull } from '@/lib/host/index.ts'
 
 /** The Mac window. Its web view opens no window of its own for a link, and the shell has no opener for one. */
@@ -20,10 +22,8 @@ export function openGitHubPage(url: string): void {
   else window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-/**
- * Opens a pull request, from its row or from the spotlight. A pull request belongs in Change Review, and this is the
- * one place that hands it over: until Change Review can open a pull request, it opens on github.com.
- */
+/** Opens this pull request in shared Review, from its row or the spotlight. */
 export function openPullRequestReview(pull: GitHubPull): void {
-  openGitHubPage(pull.url)
+  const target = targetOfReviewId(pull.url)
+  if (target?.kind === 'pull') useView.getState().openReviewFor(reviewIdOf(target))
 }

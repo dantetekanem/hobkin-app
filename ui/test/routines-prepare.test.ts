@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { prepareRoutines, withSkyWidth } from '../src/features/routines/prepare.ts'
+import { prepareRoutines, selectPreparedView, withSkyWidth } from '../src/features/routines/prepare.ts'
 import { factsOf } from '../src/features/routines/rules.ts'
 import { buildSample } from '../src/features/routines/sample.ts'
 import { rollingSpan, skyMarks, spanOf } from '../src/features/routines/sky-math.ts'
@@ -39,4 +39,23 @@ test('the sky is drawn ahead once its width is known, for both views', () => {
   assert.equal(wider.day.scene?.width, 1040)
   assert.equal(wider.facts, drawn.facts, 'a new width draws again and works nothing else out again')
   assert.equal(withSkyWidth(wider, 1040, TORONTO), wider, 'the same width changes nothing')
+})
+
+test('screen views select prepared facts, sky and week days without recomputing them', () => {
+  const prepared = prepareRoutines(data, NOW, TORONTO, 960)
+  const all = selectPreparedView(prepared, 'all')
+  const week = selectPreparedView(prepared, 'week')
+
+  for (const selected of [all, week]) {
+    assert.equal(selected.facts, prepared.facts)
+    assert.equal(selected.holds, prepared.holds)
+  }
+  assert.equal(all.span, prepared.day.span)
+  assert.equal(all.marks, prepared.day.marks)
+  assert.equal(all.scene, prepared.day.scene)
+  assert.deepEqual(all.days, [])
+  assert.equal(week.span, prepared.week.span)
+  assert.equal(week.marks, prepared.week.marks)
+  assert.equal(week.scene, prepared.week.scene)
+  assert.equal(week.days, prepared.week.days)
 })

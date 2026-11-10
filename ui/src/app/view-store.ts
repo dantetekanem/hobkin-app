@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { requestCanvasFocus } from './focus.ts'
 import { closeOver, depth, ground, toggleIntegrationsOver, toggleSettingsOver, type Over } from './overlays.ts'
 import { screenIndex, type ScreenId, type VeilSection } from './screens.ts'
 
@@ -11,6 +12,8 @@ export interface ScreenMotion {
   axis: 'x' | 'y'
   direction: 1 | -1
 }
+
+type ReviewReturn = Pick<ViewState, 'screen' | 'settingsReturn' | 'githubReturn' | 'openAgent' | 'previewReturn' | 'agentTalk'>
 
 interface ViewState {
   screen: ScreenId
@@ -24,6 +27,8 @@ interface ViewState {
   conversationWidth: number
   /** Id of the review open on the canvas, if any. */
   openReview: string | null
+  /** The screen and its return path before the review was explicitly entered. Not persisted. */
+  reviewReturn: ReviewReturn | null
   /** Id of the agent whose canvas is open, if any. */
   openAgent: string | null
   /** While the user walks the agents list, the screen to return to when they leave it. */
@@ -107,6 +112,7 @@ export const useView = create<ViewState>()(
       spotlight: false,
       conversationWidth: CONVERSATION_WIDTH.initial,
       openReview: null,
+      reviewReturn: null,
       openAgent: null,
       previewReturn: null,
       agentTalk: false,
@@ -119,6 +125,10 @@ export const useView = create<ViewState>()(
         if (screen === current.screen) return
         set({
           screen,
+          ...(screen === 'review' ? { reviewReturn: ground(current) === 'review' ? current.reviewReturn : {
+            screen: current.screen, settingsReturn: current.settingsReturn, githubReturn: current.githubReturn,
+            openAgent: current.openAgent, previewReturn: current.previewReturn, agentTalk: current.agentTalk,
+          } } : {}),
           previewReturn: null,
           agentTalk: false,
           settingsReturn: null,
@@ -142,10 +152,16 @@ export const useView = create<ViewState>()(
         get().openScreen('review')
         // Opening a review is asking to look at it, so it takes the room at once.
         set({ canvasEngaged: true })
+        requestCanvasFocus()
       },
       closeReview: () => {
-        if (get().screen === 'review') get().openScreen('work')
-        set({ openReview: null })
+        const { screen, reviewReturn } = get()
+        if (screen === 'review') {
+          get().openScreen(reviewReturn?.screen ?? 'work')
+          if (reviewReturn) set(reviewReturn)
+          requestCanvasFocus()
+        }
+        set({ openReview: null, reviewReturn: null })
       },
       previewAgent: (agentId, direction) => {
         const { screen, previewReturn, openAgent } = get()
@@ -188,8 +204,14 @@ export const useView = create<ViewState>()(
       },
       // Settings and Integrations come down over whatever is showing, and lift away again when they are left.
       // The way back is in overlays.ts.
-      toggleSettings: () => set(stepOver(get(), toggleSettingsOver)),
-      toggleIntegrations: () => set(stepOver(get(), toggleIntegrationsOver)),
+      toggleSettings: () => {
+        set(stepOver(get(), toggleSettingsOver))
+        if (get().screen === 'settings') requestCanvasFocus()
+      },
+      toggleIntegrations: () => {
+        set(stepOver(get(), toggleIntegrationsOver))
+        requestCanvasFocus()
+      },
       closeSettings: () => {
         if (depth(get()) > 0) set(stepOver(get(), closeOver))
       },

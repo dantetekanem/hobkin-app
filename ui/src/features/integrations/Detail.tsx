@@ -7,6 +7,8 @@ import { freeName, targetOf } from '#shared/integrations/servers.ts'
 import type { CatalogEntry, ConfiguredServer, PiServerEntry, ServerTool } from '#shared/integrations/types.ts'
 import type { GitHubConnection } from '#shared/protocol/github.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
+import { useSettings } from '@/features/settings/store.ts'
 import { spring, staggerDelay, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { fillProblems, toolsOf } from './changes.ts'
@@ -208,6 +210,9 @@ const THROUGH_GH: Record<GitHubConnection, string> = {
  * server below is another way in, for the tools agents use.
  */
 function ThroughGh({ gh, onOpenPage }: { gh: GhLink; onOpenPage?: () => void }) {
+  const showGitHubInMenu = useSettings((settings) => settings.showGitHubInMenu)
+  const setShowGitHubInMenu = useSettings((settings) => settings.setShowGitHubInMenu)
+
   return (
     <Block label="Through gh">
       <p className="font-heading text-[15px] font-medium">{ghLine(gh)}</p>
@@ -218,6 +223,10 @@ function ThroughGh({ gh, onOpenPage }: { gh: GhLink; onOpenPage?: () => void }) 
           Open the GitHub page
         </Button>
       ) : null}
+      <label className="flex items-center justify-between gap-3">
+        <span className="font-heading text-[13px] font-medium">Show GitHub in the menu</span>
+        <Switch checked={showGitHubInMenu} onCheckedChange={setShowGitHubInMenu} data-key-stop="" data-action="" />
+      </label>
     </Block>
   )
 }

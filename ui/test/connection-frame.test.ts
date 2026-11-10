@@ -38,6 +38,23 @@ test('the agents are the runs going on now, without hobkin itself', () => {
   assert.deepEqual(agentsFrom({}), [])
 })
 
+test('an agent that has begun emitting events is thinking until its first visible step', () => {
+  const runs: WireSnapshot['runs'] = [{ id: 'work:site:do:1', title: 'Fix login', state: 'running', kind: 'background' }]
+  assert.equal(agentsFrom({ runs })[0]?.doing, 'starting')
+  assert.equal(agentsFrom({ runs, jobActivity: { 'work:site:do:1': [] } })[0]?.doing, 'thinking')
+})
+
+test('an ended agent keeps its identity for a reopened canvas without rejoining the running dock', () => {
+  const run = { id: 'work:site:do:1', title: 'site: Fix login', state: 'running', kind: 'background', effort: 'high', work: { slug: 'site', item: 'fix' } } as const
+  const [working] = agentsFrom({ runs: [run] })
+  for (const state of ['completed', 'failed', 'interrupted']) {
+    const snapshot: WireSnapshot = { runs: [{ ...run, state }] }
+    assert.deepEqual(agentsFrom(snapshot), [])
+    assert.deepEqual(agentsFrom(snapshot, { includeEnded: true }), [{ ...working, doing: state, mood: 'idle' }])
+  }
+  assert.deepEqual(agentsFrom({ runs: [{ id: 'main', title: 'Chat', kind: 'main', state: 'completed' }] }, { includeEnded: true }), [])
+})
+
 test('the frame reads what waits on the user, the model and the projects from the snapshot', () => {
   assert.equal(actionItemCountFrom({ decisions: [{}, {}], waiting: { asks: [{}], branches: [{}, {}], note: 'not rows' } }), 5)
   assert.equal(actionItemCountFrom({}), 0)

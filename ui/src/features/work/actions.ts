@@ -25,6 +25,58 @@ type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal'
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
 
+export interface AgentStopTarget { id: string; title: string; project: string; kind: string; source?: string }
+export interface AgentControlState {
+  target: AgentStopTarget | null
+  busy: boolean
+  result: { id: string; text: string } | null
+}
+
+/** A confirmation belongs to one selected execution, never the row that later takes its place. */
+export function createAgentControls({ selected, send, changed }: {
+  selected: () => AgentStopTarget | undefined
+  send: (id: string) => Promise<string>
+  changed: (state: AgentControlState) => void
+}) {
+  let state: AgentControlState = { target: null, busy: false, result: null }
+  const stopped = new Set<string>()
+  const identity = (target: AgentStopTarget) => `${target.source ?? ''}\0${target.id}`
+  const update = (next: Partial<AgentControlState>) => { state = { ...state, ...next }; changed(state) }
+  const current = (id: string) => { const agent = selected(); return agent?.id === id ? agent : undefined }
+  return {
+    stopped: (id: string | null) => { const target = id === null ? undefined : current(id); return target !== undefined && stopped.has(identity(target)) },
+    request(id: string) {
+      if (state.busy || state.target) return
+      const target = current(id)
+      if (target && stopped.has(identity(target))) return
+      update({ target: target ? { ...target } : null, result: target ? null : { id, text: 'This agent has changed or finished. Nothing was stopped.' } })
+    },
+    cancel() { if (!state.busy) update({ target: null }) },
+    interrupt(id: string) {
+      if (!state.busy) update({ result: { id, text: current(id) ? 'hobkin cannot interrupt one tool command without stopping this agent. Nothing was interrupted.' : 'This agent has finished. Nothing was interrupted.' } })
+    },
+    async confirm() {
+      const target = state.target
+      if (!target || state.busy) return
+      const now = current(target.id)
+      if (!now || now.title !== target.title || now.project !== target.project || now.kind !== target.kind || now.source !== target.source) {
+        update({ target: null, result: { id: target.id, text: 'This agent has changed or finished. Nothing was stopped.' } })
+        return
+      }
+      update({ busy: true })
+      try {
+        const text = await send(target.id)
+        stopped.add(identity(target))
+        update({ result: { id: target.id, text } })
+      } catch (error) {
+        update({ result: { id: target.id, text: error instanceof Error ? error.message : String(error) } })
+      } finally {
+        update({ target: null, busy: false })
+      }
+    },
+  }
+}
+
 const CHANGE_ACTION = { merge: 'merge', mergePr: 'merge-pr', refreshMerge: 'refresh-merge', review: 'review', decline: 'decline' } as const
 
 export function commandFor(action: WorkAction): WorkCall {

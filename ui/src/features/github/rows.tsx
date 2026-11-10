@@ -135,6 +135,7 @@ function Where({ repo, number, by, labels }: { repo: string; number: number; by:
 export function PullRow({ pull, mine, now, ...placed }: Placed & { pull: GitHubPull; mine: boolean; now: number }) {
   const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
     event.preventDefault()
     openPullRequestReview(pull)
   }

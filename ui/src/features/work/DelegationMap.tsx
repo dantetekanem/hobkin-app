@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { focusCanvas } from '@/app/keys.ts'
+import { requestCanvasFocus } from '@/app/focus.ts'
 import type { RunningAgent } from '@/app/running-agents.ts'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
@@ -275,7 +275,7 @@ function AgentNode({ agent, y, left, still, onStop }: { agent: RunningAgent; y: 
   const open = () => {
     useView.getState().openAgentCanvas(agent.id)
     // The keyboard goes along to the agent's canvas.
-    requestAnimationFrame(focusCanvas)
+    requestCanvasFocus()
   }
 
   return (

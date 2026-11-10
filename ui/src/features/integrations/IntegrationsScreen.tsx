@@ -5,7 +5,7 @@ import { CATALOG, CHECKED } from '#shared/integrations/catalog.ts'
 import { splitServers } from '#shared/integrations/servers.ts'
 import type { CatalogEntry } from '#shared/integrations/types.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
-import { focusCanvas } from '@/app/keys.ts'
+import { requestCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -158,7 +158,7 @@ export function IntegrationsScreen() {
   /** Pages › GitHub, with the keyboard on the page once it has arrived. From GitHub's detail. */
   const openGitHubPage = () => {
     useView.getState().openGitHub()
-    requestAnimationFrame(focusCanvas)
+    requestCanvasFocus()
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

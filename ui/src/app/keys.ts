@@ -5,6 +5,8 @@ import { answerNext, runningAgents } from './running-agents.ts'
 import { resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
 import { walkScreens, type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
+import { focusInput, messageInput, requestCanvasFocus } from './focus.ts'
+export { focusCanvas, focusInput } from './focus.ts'
 
 /**
  * Carries out the frame's keyboard map on the page. The map itself is `key-map.ts`.
@@ -20,23 +22,6 @@ import { useView } from './view-store.ts'
 export function visibleScreens(): ScreenId[] {
   const { openReview, screen } = useView.getState()
   return walkScreens({ screen, reviewOpen: openReview !== null, githubInMenu: useSettings.getState().showGitHubInMenu })
-}
-
-function messageInput(): HTMLTextAreaElement | null {
-  return document.querySelector<HTMLTextAreaElement>('[data-chat-side] textarea')
-}
-
-export function focusInput(): void {
-  messageInput()?.focus()
-}
-
-/** While one screen leaves and another arrives there are two. The last one is the one arriving. */
-function lastCanvasScreen(): HTMLElement | undefined {
-  return [...document.querySelectorAll<HTMLElement>('[data-canvas-screen]')].at(-1)
-}
-
-export function focusCanvas(): void {
-  lastCanvasScreen()?.focus()
 }
 
 /** The rows of the list that is veiling the chat. */
@@ -87,7 +72,7 @@ function perform(action: KeyAction): boolean {
       view.openScreen(action.screen)
       if (action.focusCanvas) {
         view.engageCanvas()
-        requestAnimationFrame(focusCanvas)
+        requestCanvasFocus()
       } else view.disengageCanvas()
       return true
     case 'focus-input':
@@ -119,14 +104,14 @@ function perform(action: KeyAction): boolean {
     case 'open-integrations':
       view.closeVeil()
       view.toggleIntegrations()
-      if (useView.getState().screen === 'integrations') requestAnimationFrame(focusCanvas)
+      if (useView.getState().screen === 'integrations') requestCanvasFocus()
       else focusInput()
       return true
     case 'open-settings':
       view.closeVeil()
       view.toggleSettings()
       // Opening hands the keyboard to Settings, which puts it on its first control. Closing sends it home.
-      if (useView.getState().screen === 'settings') requestAnimationFrame(focusCanvas)
+      if (useView.getState().screen === 'settings') requestCanvasFocus()
       else focusInput()
       return true
     case 'answer-agent':
@@ -136,9 +121,11 @@ function perform(action: KeyAction): boolean {
       else if (view.screen === 'integrations') view.toggleIntegrations()
       else if (view.screen === 'github') view.closeGitHub()
       else view.closeSettings()
-      // One step back. Landing on Settings keeps the keyboard there, on the way it came in by. Anywhere else, it goes home.
-      if (useView.getState().screen === 'settings') {
-        requestAnimationFrame(() => (document.querySelector<HTMLElement>('[data-opens="integrations"]') ?? lastCanvasScreen())?.focus())
+      // Leaving a review returns the keyboard to its opener; other temporary screens keep their existing trail.
+      if (view.screen === 'review') {
+        requestCanvasFocus()
+      } else if (useView.getState().screen === 'settings') {
+        requestCanvasFocus('[data-opens="integrations"]')
       } else {
         useView.getState().disengageCanvas()
         focusInput()

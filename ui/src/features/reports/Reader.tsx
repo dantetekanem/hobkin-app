@@ -39,7 +39,7 @@ export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply
       tabIndex={-1}
       role="region"
       aria-label={report.title}
-      className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[28px] bg-background outline-offset-[-2px]"
+      className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[28px] bg-background outline-none"
     >
       {/* The first report rides in with the box, so it does not slide again inside it. */}
       <AnimatePresence initial={false} custom={direction}>

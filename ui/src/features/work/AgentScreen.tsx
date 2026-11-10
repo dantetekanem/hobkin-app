@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { Hero, Rise } from '@/app/Reveal.tsx'
-import { answerAgent, questionOf, useAgent, type RunningAgent } from '@/app/running-agents.ts'
+import { agentControls, answerAgent, questionOf, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
@@ -16,7 +16,8 @@ import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { useHasHost } from '@/lib/host/index.ts'
+import { agentsFrom } from '@/lib/host/frame.ts'
+import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
 import { sayToAgent } from './say.ts'
 
@@ -93,6 +94,7 @@ export function AgentScreen() {
           ) : null}
         </motion.div>
       </motion.div>
+      <AgentStopControl key={agentId} agentId={agentId} finished={!running} />
       <AnimatePresence>
         {talking && agent && agentId ? <Exchange key={agentId} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} activity={activity} /> : null}
       </AnimatePresence>
@@ -105,12 +107,55 @@ export function AgentScreen() {
   )
 }
 
-/** The agent as it was last seen running, so its canvas stays readable after it has finished. Another agent starts afresh. */
+function AgentStopControl({ agentId, finished }: { agentId: string | null; finished: boolean }) {
+  const { target, busy, result } = useAgentControl()
+  const dialog = useRef<HTMLDialogElement>(null)
+  const opener = useRef<HTMLElement | null>(null)
+  const cancel = () => {
+    if (busy) return
+    dialog.current?.close()
+    agentControls.cancel()
+    opener.current?.focus({ preventScroll: true })
+  }
+  useEffect(() => {
+    if (!target || target.id !== agentId) return
+    const element = dialog.current
+    const section = element?.closest<HTMLElement>('[data-canvas-screen]')
+    if (section?.dataset.canvasScreen !== element?.closest<HTMLElement>('[data-active-canvas-screen]')?.dataset.activeCanvasScreen) return
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    element?.showModal()
+    return () => {
+      element?.close()
+      const view = useView.getState()
+      if (view.screen === 'agent' && view.openAgent === agentId && element?.contains(document.activeElement)) opener.current?.focus({ preventScroll: true })
+      if (useAgentControl.getState().target === target) agentControls.cancel()
+    }
+  }, [target, agentId])
+  return (
+    <div className="absolute right-6 top-6 z-10 text-sm">
+      <button type="button" disabled={finished || busy || agentControls.stopped(agentId)} onClick={() => agentId && agentControls.request(agentId)} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Stop agent</button>
+      {result?.id === agentId ? <p role="status" className="mt-2 max-w-72 text-muted-foreground">{result.text}</p> : null}
+      <dialog ref={dialog} aria-labelledby="agent-stop-title" aria-describedby="agent-stop-description" onCancel={(event) => { event.preventDefault(); cancel() }} onKeyDown={(event) => event.stopPropagation()} className="m-auto max-w-md rounded-2xl border border-border bg-background p-6 text-foreground backdrop:bg-black/40">
+        <h2 id="agent-stop-title" className="text-lg font-semibold">Stop {target?.kind === 'routine' ? 'routine' : 'agent'}?</h2>
+        <p id="agent-stop-description" className="my-4">{target?.title} · {target?.project}. {target?.kind === 'work' ? 'Its branch stays and its item goes to the end of the queue.' : 'The current run will be cancelled.'}</p>
+        <div className="flex justify-end gap-4">
+          <button type="button" disabled={busy} onClick={cancel}>Cancel</button>
+          <button type="button" disabled={busy || finished || target?.id !== agentId} onClick={() => void agentControls.confirm()}>{busy ? 'Stopping…' : 'Stop run'}</button>
+        </div>
+      </dialog>
+    </div>
+  )
+}
+
+/** Keep the canvas readable after completion, including when it mounts from a reconnected snapshot. */
 function useLastSeen(agentId: string | null, running: RunningAgent | undefined): RunningAgent | undefined {
+  const run = useHost((state) => state.snapshot.runs?.find(({ id }) => id === agentId))
+  const recorded = useMemo(() => (run ? agentsFrom({ runs: [run] }, { includeEnded: true })[0] : undefined), [run])
+  const current = running ?? recorded
   const seen = useRef<RunningAgent | undefined>(undefined)
-  if (running) seen.current = running
+  if (current) seen.current = current
   else if (seen.current?.id !== agentId) seen.current = undefined
-  return running ?? seen.current
+  return current ?? seen.current
 }
 
 /**

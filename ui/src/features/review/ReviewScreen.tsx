@@ -3,7 +3,13 @@ import { MotionConfig, useMotionValueEvent } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
-import { ReviewRefused } from '#shared/review/validate.ts'
+import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
+import { createReviewLoader } from './loader.ts'
+import { ReviewLoad } from './ReviewLoad.ts'
+import { VerdictPanel } from './VerdictPanel.tsx'
+import type { VerdictCommands } from './verdict.ts'
+import { escapeReview } from './entry.ts'
+import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
@@ -20,7 +26,7 @@ import { WireCard } from './graph/WireCard.tsx'
 import { pressKey } from './keys.ts'
 import { STEPS_STRIP, StepsPanel, stepsPanelWidth } from './panel/StepsPanel.tsx'
 import './review.css'
-import { sampleSource } from './source.ts'
+import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
 import { reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
 import { memoryKey } from './state/memory.ts'
 import { createSession } from './state/session.ts'
@@ -35,7 +41,6 @@ import { useCamera } from './story/useCamera.ts'
 const COVER = { top: 112, bottom: 68 }
 /** Below this zoom a card shows only its name, large. */
 const FAR = 0.6
-type Loaded = { status: 'loading' } | { status: 'refused'; reason: string } | { status: 'ready'; review: Review }
 
 /**
  * Change Review's canvas screen. This file is the entry the frame mounts.
@@ -44,43 +49,59 @@ type Loaded = { status: 'loading' } | { status: 'refused'; reason: string } | { 
 export function ReviewScreen() {
   const reviewId = useView((view) => view.openReview)
   const closeReview = useView((view) => view.closeReview)
-  const source: ReviewSource = sampleSource
-  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
+  const home = useHost((state) => state.home)
+  const live = Boolean(home) && !SAMPLE_REVIEWS.includes(reviewId ?? 'sample')
+  const verdict = useMemo(() => {
+    const current = () => hostStore.getState().home === home && useView.getState().screen === 'review' && useView.getState().openReview === reviewId
+    const command: VerdictCommands = (name, args) => {
+      if (!home || !current()) return Promise.reject(new Error('The review or connected host changed. Reopen this review.'))
+      return runCommand(name, args)
+    }
+    return { command, current }
+  }, [home, reviewId])
+  const loader = useMemo(() => createReviewLoader({
+    id: reviewId ?? 'sample', scope: live ? `host:${home}` : 'sample', memory: reviewMemory,
+    ...(live ? { command: (name, args) => {
+      if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
+      return runCommand(name, args)
+    } } : { sample: sampleSource }),
+  }), [reviewId, home, live])
 
   useEffect(() => {
-    if (!reviewId) return
-    let current = true
-    setLoaded({ status: 'loading' })
-    source.getReview(reviewId).then(
-      (review) => current && setLoaded({ status: 'ready', review }),
-      // A review whose anchors no longer match the code is refused, and the screen says why.
-      (error: unknown) => current && setLoaded({ status: 'refused', reason: error instanceof ReviewRefused || error instanceof Error ? error.message : 'The review did not load.' }),
-    )
-    return () => {
-      current = false
-    }
-  }, [reviewId, source])
+    void loader.load()
+    const timer = setInterval(() => {
+      const { status, preparation } = loader.getState()
+      if (status === 'preparing' || preparation?.phase) void loader.load()
+    }, 1500)
+    return () => { clearInterval(timer); loader.dispose() }
+  }, [loader])
 
-  if (loaded.status === 'ready') {
-    return (
-      <ReactFlowProvider key={memoryKey(loaded.review)}>
-        <Stage review={loaded.review} source={source} />
-      </ReactFlowProvider>
-    )
-  }
+  return <ReviewLoad loader={loader} renderReview={(review) => (
+    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}`}>
+      <Stage review={review} source={loader.source} />
+      <div className="absolute left-4 top-28 z-30"><Button variant="outline" onClick={closeReview}>Close review · Esc</Button></div>
+      {live ? <VerdictPanel key={memoryKey(review)} review={review} {...verdict} saveNotes={loader.saveNotes} /> : <div className="absolute right-4 top-28 z-30 flex flex-col items-end gap-1"><Button disabled>Submit review</Button><span className="text-xs text-muted-foreground">Sample only. Nothing is sent.</span></div>}
+    </ReactFlowProvider>
+  )} renderWaiting={(status, reason) => (
+    <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />
+  )} />
+}
+
+function ReviewWaiting({ status, reason, closeReview }: { status: string; reason: string | null; closeReview: () => void }) {
+  const failed = status === 'refused' || status === 'error'
   return (
     <div className="grid h-full place-items-center p-8 pt-20">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
         <Hero>
-          <Hob mood={loaded.status === 'refused' ? 'confused' : 'searching'} size={112} stage="var(--card)" />
+          <Hob mood={failed ? 'confused' : 'searching'} size={112} stage="var(--card)" />
         </Hero>
         <Rise>
-          <p className="font-heading text-[20px] font-semibold tracking-[-0.02em]">{loaded.status === 'refused' ? 'This review cannot be shown' : 'Opening the review'}</p>
+          <p className="font-heading text-[20px] font-semibold tracking-[-0.02em]">{failed ? 'This review cannot be shown' : status === 'preparing' ? 'Preparing the review' : 'Opening the review'}</p>
         </Rise>
-        {loaded.status === 'refused' ? (
+        {failed ? (
           <>
             <Rise>
-              <p className="text-[15px] text-pretty text-muted-foreground">{loaded.reason}</p>
+              <p className="text-[15px] text-pretty text-muted-foreground">{reason}</p>
             </Rise>
             <Rise>
               <Button variant="outline" onClick={closeReview}>
@@ -165,17 +186,19 @@ function Stage({ review, source }: { review: Review; source: ReviewSource }) {
   useEffect(() => {
     const element = root.current
     if (!element) return
-    const section = element.closest<HTMLElement>('[data-canvas-screen]')
-    const take = (event: FocusEvent) => {
-      if (event.target === section) element.focus({ preventScroll: true })
-    }
-    section?.addEventListener('focus', take)
-    // Opened by a click in the canvas, the review has the keyboard at once. Opened while typing, it does not take it.
-    if (!document.activeElement?.closest('[data-chat-side]')) element.focus({ preventScroll: true })
+    const releaseFocus = handOffCanvasFocus(element)
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing) return
       const target = event.target as HTMLElement
+      if (event.key === 'Escape') {
+        // Fields in the note editor/finder handle Escape themselves, preserving their draft before leaving.
+        if (target.closest('input, textarea') && (session.getState().editor || session.getState().finder)) return
+        if (target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return
+        escapeReview(session.getState(), () => useView.getState().closeReview())
+        event.preventDefault()
+        return
+      }
       if (target.closest('input, textarea, select, [contenteditable="true"]')) return
       // A focused button is pressed by Enter and Space, as buttons are.
       if ((event.key === 'Enter' || event.key === ' ') && target.closest('button, a, [role="button"]')) return
@@ -183,13 +206,8 @@ function Stage({ review, source }: { review: Review; source: ReviewSource }) {
       if (target.closest('[data-rv-code]') && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(event.key) && !event.shiftKey) return
       const steps = element.querySelector<HTMLElement>('[data-rv-steps]')
       const inSteps = steps?.contains(target) ?? false
-      // Inside the steps panel, Up and Down walk its controls, and Escape goes back to the graph.
+      // Inside the steps panel, Up and Down walk its controls.
       if (inSteps && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey) return
-      if (inSteps && event.key === 'Escape' && !session.getState().editor) {
-        element.focus({ preventScroll: true })
-        event.preventDefault()
-        return
-      }
       const used = pressKey(session.getState(), { key: event.key, shift: event.shiftKey, alt: event.altKey }, {
         panelKey,
         toggleSteps: () => {
@@ -205,7 +223,7 @@ function Stage({ review, source }: { review: Review; source: ReviewSource }) {
     }
     element.addEventListener('keydown', onKeyDown)
     return () => {
-      section?.removeEventListener('focus', take)
+      releaseFocus()
       element.removeEventListener('keydown', onKeyDown)
     }
   }, [session])

@@ -8,6 +8,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import type { Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
+import type { ReviewNotes } from '#shared/review/status.ts'
 import { foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 
 export interface Point {
@@ -57,6 +58,8 @@ export interface NewNote {
 
 export interface MemoryState {
   reviews: Record<string, ReviewMemory>
+  /** Unsaved notes belong to the source and target, not a historical graph snapshot. */
+  unsyncedNotes: Record<string, ReviewNotes>
   /** The code panel's height as a share of the window's height, once the reviewer has dragged it. */
   panelShare: number | null
   /** One column or two in the code panel. */
@@ -89,7 +92,8 @@ const STORAGE_NAME = 'hobkin-client-review'
 
 /** A review prepared again from another head is another review, so its key carries the fingerprint of its bytes. */
 export function memoryKey(review: Pick<Review, 'id' | 'snapshot'>): string {
-  return `${review.id}@${review.snapshot.slice(0, 12)}`
+  const scope = (review as typeof review & { memoryScope?: string }).memoryScope
+  return `${scope ? `${scope}:` : ''}${review.id}@${review.snapshot.slice(0, 12)}`
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value != null && typeof value === 'object' && !Array.isArray(value)
@@ -149,6 +153,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
         }
         return {
           reviews: {},
+          unsyncedNotes: {},
           panelShare: null,
           splitDiff: false,
           panelPinned: false,
@@ -206,14 +211,21 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
         name: STORAGE_NAME,
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ reviews, panelShare, splitDiff, panelPinned }) => ({ reviews, panelShare, splitDiff, panelPinned }),
+        partialize: ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned }) => ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned }),
         merge: (persisted, current) => {
           const saved = isRecord(persisted) ? persisted : {}
           const reviews: Record<string, ReviewMemory> = {}
           for (const [key, value] of Object.entries(isRecord(saved.reviews) ? saved.reviews : {})) reviews[key] = readMemory(value)
+          const unsyncedNotes: Record<string, ReviewNotes> = {}
+          for (const [key, value] of Object.entries(isRecord(saved.unsyncedNotes) ? saved.unsyncedNotes : {})) {
+            if (!isRecord(value)) continue
+            const restored = readMemory({ notes: value.entries, draft: value.draft })
+            unsyncedNotes[key] = { entries: restored.notes, draft: restored.draft }
+          }
           return {
             ...current,
             reviews,
+            unsyncedNotes,
             panelShare: typeof saved.panelShare === 'number' && Number.isFinite(saved.panelShare) ? saved.panelShare : null,
             splitDiff: saved.splitDiff === true,
             panelPinned: saved.panelPinned === true,

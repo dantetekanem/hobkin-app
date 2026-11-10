@@ -66,11 +66,11 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
   }
   if (press.ctrl || press.alt) return null
 
-  // Tab and Shift+Tab change the screen from anywhere. From inside a screen the keyboard stays in the screen.
+  // Tab and Shift+Tab change the screen from anywhere and hand focus to the arriving screen.
   if (press.key === 'Tab') {
     // Among the agents only Up and Down move. Tab is the menu's again once the keyboard has left them.
     if (amongAgents(context)) return { do: 'hold' }
-    return { do: 'open-screen', screen: neighbor(context, press.shift ? -1 : 1), focusCanvas: context.zone === 'canvas' }
+    return { do: 'open-screen', screen: neighbor(context, press.shift ? -1 : 1), focusCanvas: true }
   }
   if (press.shift) return null
 
@@ -129,12 +129,12 @@ function openForNow({ screen, githubInMenu }: KeyContext): boolean {
  * Escape walks one step back toward the message input. Whatever had the keyboard gets the key first:
  * when it used the key (`prevented`), the frame leaves it alone.
  *
- * A screen that is open only for now is left: a review for Work, Integrations for Settings, Settings for the screen
+ * A screen that is open only for now is left: a review for its opener, Integrations for Settings, Settings for the screen
  * under it, a GitHub the menu leaves out for the screen it was opened over. A menu screen stays open and the
  * keyboard goes home.
  */
 export function resolveEscape(context: KeyContext, prevented: boolean): KeyAction | null {
-  if (prevented || context.inOverlay || context.zone === 'input') return null
+  if (prevented || context.inOverlay) return null
   if (openForNow(context)) return { do: 'leave-screen' }
-  return { do: 'focus-input' }
+  return context.zone === 'input' ? null : { do: 'focus-input' }
 }

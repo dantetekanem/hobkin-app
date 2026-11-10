@@ -4,7 +4,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useTiers } from '@/features/tiers/store.ts'
 import { cn } from '@/lib/utils.ts'
-import { askAgent, useRunningAgents } from './running-agents.ts'
+import { agentControls, askAgent, useAgentControl, useRunningAgents } from './running-agents.ts'
 import { type Tier } from './sample.ts'
 import { holdStill, useStill } from './still.ts'
 import { useView } from './view-store.ts'
@@ -116,7 +116,7 @@ export function AgentsDock() {
           }}
           onBlur={() => {
             // Stepping into an agent takes the keyboard to its input. The list keeps its place for the way back.
-            if (useView.getState().agentTalk) return
+            if (useView.getState().agentTalk || useAgentControl.getState().target) return
             // Leaving the list by any other road ends the preview, and the list drifts back to its top.
             endAgentPreview()
             list.current?.scrollTo({ top: 0, behavior: document.documentElement.dataset.motion === 'still' ? 'auto' : 'smooth' })
@@ -131,6 +131,8 @@ export function AgentsDock() {
               else select(current - 1, -1)
             } else if (event.key === 'Enter') stepInto(current)
             else if (event.key === 'Escape') backToInput()
+            else if (event.key === 'x' && !event.metaKey && !event.ctrlKey && !event.altKey) agentControls.request(agents[current]!.id)
+            else if (event.key === 'i' && !event.metaKey && !event.ctrlKey && !event.altKey) agentControls.interrupt(agents[current]!.id)
             else return
             event.preventDefault()
           }}

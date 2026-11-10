@@ -22,7 +22,7 @@ The whole app can be used without touching the mouse. The message input is home.
   | Where | Keys | What they do |
   | --- | --- | --- |
   | Message input | Enter, Shift+Enter | Send, new line |
-  | Anywhere | Tab, Shift+Tab | Next and previous screen in the canvas menu, wrapping at the ends. The keyboard stays where it is, and from inside the canvas it stays in the canvas. Left and Right never change the screen |
+  | Frame, when no overlay or completion list owns Tab | Tab, Shift+Tab | Next and previous screen in the canvas menu, wrapping at the ends. Focus moves into the screen being opened. The agents list and an agent's input hold Tab instead. Left and Right never change the screen |
   | Message input, empty | Down | Into the agents list, as in pi-extended-teams |
   | Message input, empty | Up | Earlier messages the user sent |
   | Message input | Ctrl+Option+P | Full prompt focus, as in pi-prompt |
@@ -46,7 +46,7 @@ The whole app can be used without touching the mouse. The message input is home.
   | Canvas | The open screen's own keys | For example Left and Right through a review's steps |
 
 - Tab never moves between controls, except inside a dialog such as the tiers lightbox, where it keeps its usual meaning. One more exception: an input that is showing completions owns its keys, so after a slash in the message input Tab completes the command. Controls are walked the terminal's way instead: Up and Down move, Left and Right change, Enter presses. A screen marks its controls and uses `ui/src/app/stops.ts`.
-- A click on the screen menu or on the chat header's buttons does not move the keyboard, so the keys go on working after it.
+- Choosing a screen from the menu, Spotlight, or a review opener takes the keyboard into that screen, even while the user was typing. Loading or refreshing its data does not take the keyboard back after the user has moved away. History and theme buttons keep the keyboard where it was.
 - The veil's selected row is state, not focus. Its keys therefore work whether it was opened by key or by click.
 - A line under the chat names the keys that matter where the keyboard is now.
 - The keyboard position is always visible: a filled row, a ring, or the caret.
@@ -60,7 +60,7 @@ The whole app can be used without touching the mouse. The message input is home.
 ## Acceptance
 
 - A1. The app opens with the keyboard in the message input.
-- A2. From anywhere in the frame, including the menu after a click, the agents list, the veil and the canvas, Tab moves to the next screen in the menu and Shift+Tab to the previous one, wrapping at the ends. Inside a dialog Tab moves between its fields.
+- A2. When the frame owns Tab, including from the menu after a click, the veil and the canvas (but not the agents list or an agent's input), Tab moves to the next screen in the menu and Shift+Tab to the previous one, wrapping at the ends and moving focus into the screen being opened. Dialogs, menus and completion lists keep their existing Tab handling.
 - ~~A3. With an empty message, Right and Left change the screen as Tab does.~~ Retired on 2026-11-09: the user wants only Tab and Shift+Tab to change the screen. See A12.
 - A4. With an empty message, Down moves into the agents list. With text, it moves the caret.
 - A5. Cmd+1 to Cmd+9 open the screen at that place in the menu and move the keyboard into the canvas. Cmd+J moves into the canvas without changing the screen. Cmd+L returns to the message input.
@@ -72,16 +72,16 @@ The whole app can be used without touching the mouse. The message input is home.
 - A11. Cmd+K opens the command list. Typing filters it, Enter runs the chosen command, and each row shows the command's keys.
 - A12. Left and Right in the message input only move the caret, with or without text. They never change the screen.
 - A13. Inside a canvas screen, Up and Down move between its controls in reading order, and Left and Right change the control that has the keyboard.
-- A14. A click on the screen menu or on a button in the chat's header leaves the keyboard where it was.
+- A14. Choosing a screen from the menu, Spotlight, Settings, or a review opener moves the keyboard into it. Reentering the current screen does the same. Data loading and refreshes do not steal typing focus. History and theme buttons leave the keyboard where it was.
 - A15. Tab and Shift+Tab never move between agents. In the agents list, or in the input of an agent being talked to, Tab does nothing and only Up and Down move. Back in the message input, Tab walks the menu again, counting from the screen that was under the agent.
 - A16. Cmd+G opens the question of the next agent that waits for the user in the question sheet (022), the same sheet Action Items uses: its choices, the one it recommends, and room to type. With nobody waiting the key is left alone. Cmd+U stays the message input's (attach).
-- A17. An Escape that nothing used leaves a screen that is open only for now, one step at a time: a review returns to Work, Integrations to Settings, Settings to the screen under it. On a menu screen Escape takes the keyboard home.
+- A17. An Escape that nothing used leaves a screen that is open only for now, even from the message input: a review returns to the screen that opened it, with the keyboard there; Integrations returns to Settings, and Settings to the screen under it. Editors, completion lists and overlays get Escape first. On a menu screen Escape takes the keyboard home.
 - A18. Cmd+R reloads the window from anywhere, also from a dialog, and the app reopens on the screen it showed.
 
 ## Proof
 
 - A1. check: reload the app and type. The text lands in the message input.
-- A2. `ui/test/keys.test.ts` › "tab changes the screen from anywhere, with or without text in the message"
+- A2. `ui/test/keys.test.ts` › "tab walks the menu and wraps", "tab changes the screen from anywhere, with or without text in the message", and "tab from inside the canvas keeps the keyboard in the canvas" assert navigation and canvas-focus handoff. One-shot Lightpanda against `http://localhost:5187/` verified that Tab from the message input opened Routines, prevented the browser default, and left focus inside the new screen; `*:5188/*` and HTTPS requests were blocked.
 - A4. `ui/test/keys.test.ts` › "down enters the agents only when the message is empty"
 - A5. `ui/test/keys.test.ts` › "command keys open a screen, enter the canvas and return home"
 - A6. `ui/test/keys.test.ts` › "with the veil open, the arrows walk its list, enter chooses and escape closes, wherever the keyboard is"
@@ -92,10 +92,10 @@ The whole app can be used without touching the mouse. The message input is home.
 - A11. `ui/test/command-list.test.ts` › "filters, runs, and shows keys"
 - A12. `ui/test/keys.test.ts` › "left and right never change the screen"
 - A13. check: open Settings and walk it with Down and Up, changing each control with Left and Right.
-- A14. check: click a menu item, then press Tab.
+- A14. `ui/test/screen-focus.test.ts` covers explicit entry, delayed focus handoff, and typing during refresh. One-shot Lightpanda on the sample UI verified menu entry, Spotlight entry, Settings, and the Actions review button with `document.activeElement`. Delaying review data verified that resumed typing keeps focus when loading finishes; the real host was blocked.
 - A15. `ui/test/keys.test.ts` › "among the agents tab is held, and it is the menu's again once the keyboard has left them"
 - A16. `ui/test/keys.test.ts` › "command g goes to an agent that is waiting for the user, and is left alone when none is"; `ui/test/asking.test.ts`
-- A17. `ui/test/keys.test.ts` › "escape that nothing used leaves a screen that is open only for now"; `ui/test/overlays.test.ts`
+- A17. `ui/test/keys.test.ts` › "escape that nothing used leaves a screen that is open only for now"; `ui/test/overlays.test.ts` covers review origins and nested return paths. One-shot Lightpanda verified Escape from chat returning Review to Action Items with canvas focus.
 - A18. `ui/test/keys.test.ts` › "command r reloads the window from anywhere, also from a dialog"
 
 ## Steps
@@ -103,7 +103,7 @@ The whole app can be used without touching the mouse. The message input is home.
 - [x] S1 (A1, A2, A4, A5, A7, A12). The frame's map: input keys, command keys, Escape home. The mapping is a pure function from a key and a focus zone to a command, with tests.
 - [x] S2 (A6). Keys inside the veil.
 - [ ] S3 (A8). The contract for screens that use keys, applied to the review and the agent canvas.
-- [x] S6 (A13, A14). Walking a screen's controls with Up and Down, and clicks that leave the keyboard in place.
+- [x] S6 (A13, A14). Walking a screen's controls with Up and Down, and deliberate screen entries that take the keyboard.
 - [ ] S4 (A10). Visible keyboard position everywhere.
 - [ ] S5 (A9, A11). The command list on Cmd+K, fed by the command registry.
 - [x] S7 (A15, A16, A17, A18). Agents outside the Tab walk, the jump to a waiting agent, Escape one step out of an open-for-now screen, and reload.

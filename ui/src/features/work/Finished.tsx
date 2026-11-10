@@ -1,11 +1,11 @@
 import { ExternalLink, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { focusCanvas } from '@/app/keys.ts'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
 import { openOnGitHub } from '@/features/github/open.ts'
+import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
 import { useGitHub, type FinishedChange, type FinishedGroup, type GitHubPull, type WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
@@ -19,9 +19,6 @@ import { runWork, useWorkUi, type Said } from './store.ts'
  * hobkin's order. "Review" opens it in Change Review, and a change on GitHub links to its pull request. A group's
  * one yes first lists every title it acts on, in the order they go, and then says how each went.
  */
-
-/** Change Review reads only its samples until the host can hand it a change (005-review-model). */
-const REVIEW_ID = 'sample'
 
 interface Shared {
   live: boolean
@@ -247,9 +244,8 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
   const risky = change.safety?.grade === 'risky' && !change.safety.stale
 
   const review = () => {
-    useView.getState().openReviewFor(REVIEW_ID)
-    // The keyboard goes along into the review.
-    requestAnimationFrame(focusCanvas)
+    const id = finishedReviewId(change, live)
+    if (id) useView.getState().openReviewFor(id)
   }
 
   const choose = async (choice: HobkinChoice, note?: string) => {

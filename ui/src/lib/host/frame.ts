@@ -30,7 +30,7 @@ const folderName = (path: string | undefined) => path?.split('/').filter(Boolean
 
 function doingOf(activity: ActivityEntry[] | undefined): Pick<SampleAgent, 'doing' | 'mood'> {
   const last = activity?.at(-1)
-  if (!last) return { doing: 'starting', mood: 'thinking' }
+  if (!last) return { doing: activity ? 'thinking' : 'starting', mood: 'thinking' }
   if (last.kind === 'tool' && last.state === 'running') {
     return { doing: `running ${last.name ?? 'a tool'}`, mood: SEARCH_TOOL.test(last.name ?? '') ? 'searching' : 'working' }
   }
@@ -42,18 +42,18 @@ function kindOf(run: RunSummary): SampleAgent['kind'] {
   return run.scheduleId ? 'routine' : 'session'
 }
 
-/** Every agent or routine running now. hobkin's own turn is not one of them: the conversation shows that. */
-export function agentsFrom(snapshot: WireSnapshot): SampleAgent[] {
+/** Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent. */
+export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { includeEnded?: boolean } = {}): SampleAgent[] {
   const activity = (snapshot.jobActivity ?? {}) as Record<string, ActivityEntry[]>
   return (snapshot.runs ?? [])
-    .filter((run): run is RunSummary & { id: string } => run.state === 'running' && run.kind !== 'main' && typeof run.id === 'string')
+    .filter((run): run is RunSummary & { id: string } => (includeEnded || run.state === 'running') && run.kind !== 'main' && typeof run.id === 'string')
     .map((run) => {
       const kind = kindOf(run)
       return {
         id: run.id,
         title: run.title,
         project: run.work?.slug ?? (kind === 'routine' ? 'routine' : folderName(run.cwd)),
-        ...doingOf(activity[run.id]),
+        ...(run.state === 'running' ? doingOf(activity[run.id]) : { doing: run.state, mood: 'idle' as const }),
         tier: TIER_BY_EFFORT[run.effort ?? ''] ?? 'mid',
         hue: hueOf(run.id),
         kind,

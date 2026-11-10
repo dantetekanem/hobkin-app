@@ -7,6 +7,7 @@ import { useSettings } from '@/features/settings/store.ts'
 import { useActionItemCount, useHasHost } from '@/lib/host/index.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { requestCanvasFocus } from './focus.ts'
 import { useRunningAgents } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
@@ -87,9 +88,12 @@ export function ScreenMenu() {
                 type="button"
                 aria-current={active ? 'page' : undefined}
                 aria-label={tab.label}
-                // A click here leaves the keyboard where it was.
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => openScreen(tab.id)}
+                onClick={() => {
+                  openScreen(tab.id)
+                  useView.getState().engageCanvas()
+                  requestCanvasFocus()
+                }}
                 className={cn(ITEM, active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
               >
                 {active ? <Marker /> : null}
@@ -192,7 +196,12 @@ function Agents() {
             aria-label={agent.asks ? `${agent.title}, waiting for you` : agent.title}
             title={agent.title}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => previewAgent(agent.id, index > at ? 1 : -1)}
+            onClick={() => {
+              previewAgent(agent.id, index > at ? 1 : -1)
+              // A menu choice stays open when focus leaves the agents list, keeping the preview's travel direction.
+              useView.getState().openAgentCanvas(agent.id)
+              requestCanvasFocus()
+            }}
             className={cn(ITEM, 'px-2', active ? 'pr-3 text-foreground' : 'text-muted-foreground hover:text-foreground')}
           >
             {active ? <Marker /> : null}
@@ -232,7 +241,11 @@ function Crumb({ id, label, index, active, onClick }: { id: ScreenId; label: str
       type="button"
       aria-current={active ? 'page' : undefined}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={active ? undefined : onClick}
+      onClick={() => {
+        if (!active) onClick?.()
+        useView.getState().engageCanvas()
+        requestCanvasFocus()
+      }}
       className={cn(ITEM, active ? 'cursor-default text-foreground' : 'text-muted-foreground hover:text-foreground')}
     >
       {active ? <Marker /> : null}

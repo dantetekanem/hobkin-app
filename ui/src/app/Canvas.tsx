@@ -112,6 +112,7 @@ export function Canvas() {
 
   return (
     <motion.main
+      data-active-canvas-screen={key}
       className="@container relative z-30 min-w-0 flex-1"
       // The canvas takes room from the chat by sliding its left edge over it. The chat itself does not move.
       initial={false}
@@ -134,8 +135,8 @@ export function Canvas() {
             animate="center"
             exit="exit"
             tabIndex={-1}
-            data-canvas-screen
-            className="col-start-1 row-start-1 min-h-0 min-w-0 rounded-l-[26px] outline-none will-change-transform focus-visible:[box-shadow:inset_0_0_0_2px_var(--hb-focus)]"
+            data-canvas-screen={key}
+            className="col-start-1 row-start-1 min-h-0 min-w-0 rounded-l-[26px] outline-none will-change-transform"
           >
             <ScreenBoundary>
               <Suspense fallback={null}>

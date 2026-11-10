@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { focusCanvas } from '@/app/keys.ts'
+import { requestCanvasFocus } from '@/app/focus.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { useStops } from '@/app/stops.ts'
 import { useView } from '@/app/view-store.ts'
@@ -16,6 +16,7 @@ import { ItemCard } from './ItemCard.tsx'
 import { stepInRow, type WaitingRow } from './items.ts'
 import { PileTile } from './Pile.tsx'
 import { sampleReviewFor } from './sample.ts'
+import { finishedReviewId } from '@/features/review/entry.ts'
 import { startAnswering, stopAnswering, useActionItems, useWaitingRows } from './store.ts'
 
 /** The question on the sheet that this screen raised, and from where, so the keyboard comes back to the right place. */
@@ -129,7 +130,7 @@ export function ActionsScreen() {
     const view = useView.getState()
     view.openScreen(opens.screen)
     view.engageCanvas()
-    requestAnimationFrame(focusCanvas)
+    requestCanvasFocus()
   }
 
   const ask = (row: WaitingRow) => {
@@ -156,12 +157,12 @@ export function ActionsScreen() {
   }
 
   const review = (row: WaitingRow) => {
-    // hobkin's finished branches are handled on the Work screen. The sample has reviews of its own.
-    if (!useActionItems.getState().sample) return openWhereHandled({ screen: 'work' })
     if (!row.item) return
-    useView.getState().openReviewFor(sampleReviewFor(row.item))
-    // The keyboard goes along into the review.
-    requestAnimationFrame(focusCanvas)
+    if (useActionItems.getState().sample) return useView.getState().openReviewFor(sampleReviewFor(row.item))
+    const target = row.item.answerTo
+    if (target?.kind !== 'merge' || typeof target.slug !== 'string' || typeof target.item !== 'string') return
+    const id = finishedReviewId({ slug: target.slug, item: target.item }, true)
+    if (id) useView.getState().openReviewFor(id)
   }
 
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {

@@ -4,8 +4,9 @@ import type { Choice } from '@/features/questions/queue.ts'
 import { useQuestions } from '@/features/questions/store.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useAgentThreads } from '@/features/work/agent-threads.ts'
+import { createAgentControls, type AgentControlState } from '@/features/work/actions.ts'
 import { agentsFrom, hasHost } from '@/lib/host/frame.ts'
-import { hostStore, useAgents, useHasHost } from '@/lib/host/index.ts'
+import { hostStore, runCommand, useAgents, useHasHost } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import type { SampleAgent } from './sample.ts'
 import { useView } from './view-store.ts'
@@ -110,6 +111,22 @@ export function runningAgents(): RunningAgent[] {
   if (hasHost(host)) return agentsFrom(host.snapshot)
   return running(useSettings.getState().agents, useAnswered.getState().ids)
 }
+
+export const useAgentControl = create<AgentControlState>()(() => ({ target: null, busy: false, result: null }))
+export const agentControls = createAgentControls({
+  selected: () => {
+    const view = useView.getState()
+    const agent = view.screen === 'agent' ? findAgent(view.openAgent) : undefined
+    const host = hostStore.getState()
+    return agent ? { ...agent, source: `${host.home}:${host.epoch}` } : undefined
+  },
+  send: async (id) => {
+    if (!hasHost(hostStore.getState())) throw new Error('Sample agent only. Nothing was stopped.')
+    const answer = await runCommand('agent.stop', { run: id, how: 'for-now' })
+    return answer.message || 'Stop requested. Waiting for the host to report the result.'
+  },
+  changed: (state) => useAgentControl.setState(state),
+})
 
 /** What the agent asked, also after the user has answered it, so the canvas can keep the exchange. */
 export function questionOf(id: string | null): string | undefined {

@@ -13,7 +13,7 @@ import type { Routine } from '@/features/routines/types.ts'
 import { howOften } from '@/features/routines/words.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useGitHub, type GitHubState } from '@/lib/host/index.ts'
-import { focusCanvas } from './keys.ts'
+import { requestCanvasFocus } from './focus.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import type { SpotlightEntry } from './spotlight-search.ts'
@@ -86,7 +86,7 @@ function stillNow(): boolean {
 /** The keyboard goes into the screen, which puts it where its reading starts. */
 function enter(): void {
   useView.getState().engageCanvas()
-  requestAnimationFrame(focusCanvas)
+  requestCanvasFocus()
 }
 
 /**

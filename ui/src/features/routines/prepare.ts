@@ -57,6 +57,18 @@ export function prepareRoutines(data: RoutinesData, now: number, zone: string, w
 }
 
 /** The same screen with the sky drawn again for a new width. Nothing else is worked out again. */
+export function selectPreparedView(prepared: PreparedRoutines, view: 'all' | 'week') {
+  const sky = view === 'all' ? prepared.day : prepared.week
+  return {
+    facts: prepared.facts,
+    holds: prepared.holds,
+    span: sky.span,
+    marks: sky.marks,
+    scene: sky.scene,
+    days: view === 'week' ? prepared.week.days : [],
+  }
+}
+
 export function withSkyWidth(prepared: PreparedRoutines, width: number, zone: string): PreparedRoutines {
   if (prepared.day.scene?.width === width || (width <= 0 && prepared.day.scene === null)) return prepared
   return {
