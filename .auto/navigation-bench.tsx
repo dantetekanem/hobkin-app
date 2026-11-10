@@ -59,6 +59,7 @@ function NavigationFrame({ still }: { still: boolean }) {
   </MotionConfig>
 }
 
+let navigationCount = 0
 const sections = () => [...document.querySelectorAll<HTMLElement>('[data-canvas-screen]')]
 const rowSelector = (screen: string) => screen === 'routines' ? '[data-anchor^="routine-"]' : '[data-report-row]'
 
@@ -104,6 +105,7 @@ async function tab(to: 'reports' | 'routines', count: number, still: boolean) {
     }
   }
   assert(present !== null && incoming, `${to} reached a paint opportunity`)
+  performance.measure(`tab-to-${to}-${++navigationCount}`, { start, end: start + present! })
   assert(incoming!.querySelectorAll(rowSelector(to)).length === count, `all ${count} ${to} rows remain rendered`)
   assert(incoming!.contains(document.activeElement), 'Tab transfers focus into the incoming canvas')
   assert(sawOutgoing && !outgoing.isConnected && sections().length === 1, 'outgoing screen survives its exit, then unmounts')

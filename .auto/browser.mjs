@@ -42,6 +42,7 @@ let buffer = ''
 const pending = new Map()
 const events = []
 let pageLoaded
+let traceFinished
 chrome.stdio[4].setEncoding('utf8')
 chrome.stdio[4].on('data', (chunk) => {
   buffer += chunk
@@ -50,6 +51,7 @@ chrome.stdio[4].on('data', (chunk) => {
     const message = JSON.parse(buffer.slice(0, end))
     buffer = buffer.slice(end + 1)
     if (message.method === 'Page.loadEventFired') pageLoaded?.()
+    if (message.method === 'Tracing.tracingComplete') traceFinished?.(message.params.stream)
     if (message.method === 'Runtime.exceptionThrown' || message.method === 'Log.entryAdded') events.push(message)
     const request = pending.get(message.id)
     if (!request) continue
@@ -88,6 +90,7 @@ try {
     await call('Profiler.enable', {}, sessionId)
     await call('Profiler.start', {}, sessionId)
   }
+  if (process.env.TRACE === '1') await call('Tracing.start', { categories: 'devtools.timeline,blink.user_timing', transferMode: 'ReturnAsStream' })
   await call('Performance.enable', {}, sessionId)
   const before = await call('Performance.getMetrics', {}, sessionId)
   const result = await call('Runtime.evaluate', {
@@ -110,6 +113,19 @@ try {
     const value = (metric(after, source) - metric(before, source)) * 1000
     if (!Number.isFinite(value) || value < 0) throw new Error(`Missing browser CPU metric ${source}`)
     report.metrics[name] = value
+  }
+  if (process.env.TRACE === '1') {
+    const finished = new Promise((resolve) => { traceFinished = resolve })
+    await call('Tracing.end')
+    const handle = await finished
+    let trace = ''
+    for (;;) {
+      const part = await call('IO.read', { handle, size: 1048576 })
+      trace += part.data
+      if (part.eof) break
+    }
+    await call('IO.close', { handle })
+    await writeFile(path.join(out, 'navigation-trace.json'), trace)
   }
   if (process.env.REFLOW_CHECK === '1') {
     const reflow = await call('Runtime.evaluate', { expression: 'window.verifyReportReflow()', awaitPromise: true, returnByValue: true }, sessionId)
