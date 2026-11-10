@@ -241,7 +241,7 @@ export function ReportsScreen() {
   }
 
   return (
-    <div ref={root} className="relative h-full" onKeyDownCapture={onKeyDownCapture}>
+    <div ref={root} className="relative h-full [contain:layout]" onKeyDownCapture={onKeyDownCapture}>
       <div className="grid h-full min-h-0 grid-cols-[minmax(300px,380px)_minmax(0,1fr)] grid-rows-1 gap-3 px-3 pt-[70px] pb-3 @max-[800px]:grid-cols-1">
         {/* The week, or the open report. First in reading order: it is the largest piece, so it lands first. */}
         <div className="pointer-events-none relative col-start-2 row-start-1 min-h-0 @max-[800px]:absolute @max-[800px]:inset-x-3 @max-[800px]:top-[70px] @max-[800px]:bottom-3 @max-[800px]:z-10">
