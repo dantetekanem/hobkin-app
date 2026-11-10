@@ -134,69 +134,40 @@ test('the dashboard holds one owner until a signal, then closes and removes hand
   assert.equal(h.signals.listenerCount('SIGINT'), 0);
 });
 
-function quittingWith(h, agents, answer) {
-  const closes = [];
-  const asked = [];
+test('dashboard quit stops the application and releases lifecycle resources', async t => {
+  const h = fixture(t, true);
   const opened = Promise.withResolvers();
+  let handlers;
+  let signal;
+  let dashboardStopped = false;
+  const closeCalls = [];
   const work = main(['--home', h.root], h.output, {
     signals: h.signals,
     input: { isTTY: true },
-    startDashboard: (_view, handlers) => {
-      opened.resolve(handlers);
-      return { update() {}, askQuestion: async request => { asked.push(request); return answer; }, stop() {} };
+    startDashboard: (_view, callbacks) => {
+      handlers = callbacks;
+      return { update() {}, stop() { dashboardStopped = true; } };
     },
-    openApplication: async () => ({ agentsAtWork: () => agents, close: async options => { closes.push(options); } }),
+    openApplication: async (_root, options) => {
+      signal = options.signal;
+      opened.resolve();
+      return { close: async (...args) => { closeCalls.push(args); } };
+    },
   });
-  return { work, opened: opened.promise, closes, asked };
-}
-const applicationOpen = () => new Promise(resolve => setImmediate(resolve));
 
-test('quitting with agents at work asks, and letting them finish leaves them going', async t => {
-  const h = fixture(t, true);
-  const { work, opened, closes, asked } = quittingWith(h, 2, 'finish');
-  const handlers = await opened;
-  await applicationOpen();
+  await Promise.race([
+    opened.promise,
+    work.then(code => { throw Error(`CLI exited before opening the application (${code})`); }),
+  ]);
+  await new Promise(resolve => setImmediate(resolve));
+  handlers.onQuit();
 
-  await handlers.onQuit();
-  await work;
-
-  assert.match(asked[0].question, /You are quitting, and 2 agents are still working/);
-  assert.deepEqual(asked[0].choices.map(({ value }) => value), ['finish', 'stop']);
-  assert.deepEqual(closes, [{ letFinish: true }]);
-});
-
-test('stopping them closes as it always did, and Esc stays open', async t => {
-  const stopping = fixture(t, true);
-  const stopped = quittingWith(stopping, 1, 'stop');
-  const handlers = await stopped.opened;
-  await applicationOpen();
-  await handlers.onQuit();
-  await stopped.work;
-  assert.deepEqual(stopped.closes, [{ letFinish: false }]);
-  assert.match(stopped.asked[0].question, /1 agent is still working. Stop it or let it finish/);
-
-  const staying = fixture(t, true);
-  const stayed = quittingWith(staying, 1, null);
-  const kept = await stayed.opened;
-  await applicationOpen();
-  await kept.onQuit();
-  assert.deepEqual(stayed.closes, [], 'Esc keeps hobkin open');
-  staying.signals.emit('SIGTERM');
-  await stayed.work;
-  assert.deepEqual(stayed.closes, [{ letFinish: true }], 'a signal cannot be asked, and leaving them going loses nothing');
-});
-
-test('with no agent at work a quit asks nothing', async t => {
-  const h = fixture(t, true);
-  const { work, opened, closes, asked } = quittingWith(h, 0, 'stop');
-  const handlers = await opened;
-  await applicationOpen();
-
-  await handlers.onQuit();
-  await work;
-
-  assert.deepEqual(asked, []);
-  assert.deepEqual(closes, [{ letFinish: false }]);
+  assert.equal(await work, 0);
+  assert.equal(signal.aborted, true);
+  assert.deepEqual(closeCalls, [[]]);
+  assert.equal(dashboardStopped, true);
+  assert.equal(h.signals.listenerCount('SIGTERM'), 0);
+  assert.equal(h.signals.listenerCount('SIGINT'), 0);
 });
 
 test('connected command exits the process only after the application has closed', async t => {

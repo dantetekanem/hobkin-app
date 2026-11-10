@@ -504,6 +504,10 @@ export class HobkinApplication {
         };
       }
     }
+    // Publish the final buffered events once before releasing ended jobs.
+    const jobActivity = Object.fromEntries(
+      [...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()]),
+    );
     for (const id of this.jobActivity.keys()) {
       if (!active.has(id)) this.jobActivity.delete(id);
     }
@@ -517,9 +521,7 @@ export class HobkinApplication {
     this.snapshot = {
       ...this.snapshot,
       ...visible,
-      jobActivity: Object.fromEntries(
-        [...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()]),
-      ),
+      jobActivity,
       completedJobReports,
       counts: loaded.counts,
       schedules: loaded.schedules,

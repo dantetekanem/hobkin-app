@@ -736,6 +736,49 @@ test('job activity is transient and quiet completion hands off exact saved Markd
   assert.equal((await app.refresh()).completedJobReports.unsaved, undefined);
 });
 
+for (const status of ['completed', 'failed', 'interrupted']) {
+  for (const publishedWhileRunning of [true, false]) {
+    test(`${status} activity publishes once when the job ends ${publishedWhileRunning ? 'after' : 'before'} its first refresh`, async t => {
+      const h = fixture(t);
+      const app = await h.openApp({ intervalMs: 60000 });
+      t.after(() => app.close());
+      clearTimeout(app.refreshTimer);
+      app.refreshTimer = null;
+      app.requestRefresh = () => {}; // Keep the terminal events in one projection, independent of timer timing.
+      const published = [];
+      app.onChange = view => published.push(view);
+      await app.runtime.admit({ id: 'ending', kind: 'background', scheduleId: 'check', title: 'Check' });
+      app.observeActivity('ending', { type: 'message_start', message: { role: 'assistant', content: [] } });
+      app.observeActivity('ending', { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Draft' } });
+      app.observeActivity('ending', { type: 'tool_execution_start', toolCallId: 'read', toolName: 'read', args: { path: 'fixture.txt' } });
+      if (publishedWhileRunning) {
+        const live = await app.refresh();
+        assert.equal(live.jobActivity.ending[0].text, 'Draft');
+        assert.equal(live.jobActivity.ending[1].state, 'running');
+      }
+      app.observeActivity('ending', {
+        type: 'tool_execution_end', toolCallId: 'read', toolName: 'read', isError: status === 'failed',
+        result: { content: [{ type: 'text', text: 'Final tool output\n' }] },
+      });
+      app.observeActivity('ending', { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Final assistant text\n' }] } });
+      await app.runtime.finish('ending', { status, text: 'Useful: Fixture report.' });
+      const terminal = await app.refresh();
+      assert.deepEqual(terminal.jobActivity.ending, [
+        { id: 'message:1:0', kind: 'assistant', text: 'Final assistant text\n' },
+        { id: 'tool:read', kind: 'tool', name: 'read', state: status === 'failed' ? 'failed' : 'completed', input: '{\n  "path": "fixture.txt"\n}', output: 'Final tool output\n' },
+      ]);
+      assert.equal(terminal.runs.find(run => run.id === 'ending').state, status);
+      assert.equal(published.at(-1), terminal);
+      assert.equal(app.jobActivity.size, 0);
+      assert.deepEqual((await app.refresh()).jobActivity, {});
+      assert.equal(published.filter(view => view.jobActivity.ending?.[0].text === 'Final assistant text\n').length, 1);
+      const saved = JSON.parse(readFileSync(join(h.root, 'runtime/view.json'), 'utf8'));
+      assert.equal(Object.hasOwn(saved, 'jobActivity'), false);
+      assert.doesNotMatch(JSON.stringify(await app.runtime.state()), /Final tool output|Final assistant text/);
+    });
+  }
+}
+
 test('event refresh during projection gets a follow-up instead of joining stale work', async t => {
   const app = Object.create(HobkinApplication.prototype);
   const entered = Promise.withResolvers();

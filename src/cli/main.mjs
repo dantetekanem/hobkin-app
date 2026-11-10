@@ -87,7 +87,7 @@ async function connected(options, snapshot, dependencies) {
 
     const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
     dashboard = start({ ...snapshot, connection: 'connecting' }, {
-      onQuit: quit,
+      onQuit: stop,
       send: (text, report, images) => {
         if (!app) throw Error('Main conversation is still connecting.');
         return app.send(text, report, images);
@@ -141,11 +141,11 @@ async function connected(options, snapshot, dependencies) {
     await done.promise;
     return 0;
   } finally {
-    signals.removeListener('SIGINT', stopBySignal);
-    signals.removeListener('SIGTERM', stopBySignal);
+    signals.removeListener('SIGINT', stop);
+    signals.removeListener('SIGTERM', stop);
     stopCrashCapture();
     dashboard?.stop();
-    await app?.close({ letFinish });
+    await app?.close();
   }
 }
 
