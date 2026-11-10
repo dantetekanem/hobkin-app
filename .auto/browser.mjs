@@ -12,7 +12,7 @@ await build({
   configFile: false, root: process.cwd(), logLevel: 'error', plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve('ui/src') } },
   define: { 'process.env.NODE_ENV': '"production"', __HOBKIN_VERSION__: '"benchmark"', __HOBKIN_CORE_VERSION__: '"benchmark"' },
-  build: { outDir: path.join(out, 'bundle'), emptyOutDir: true, minify: true,
+  build: { outDir: path.join(out, 'bundle'), emptyOutDir: true, minify: process.env.PROFILE !== '1',
     lib: { entry: path.resolve('.auto/render-bench.tsx'), name: 'RenderBenchmark', formats: ['iife'], fileName: () => 'bench.js', cssFileName: 'bench' } },
 })
 await writeFile(path.join(out, 'bundle/index.html'), `<!doctype html><html><head><meta charset="UTF-8">
@@ -75,6 +75,10 @@ try {
   const url = pathToFileURL(path.join(out, 'bundle/index.html')).href
   await call('Page.navigate', { url }, sessionId)
   await loaded
+  if (process.env.PROFILE === '1') {
+    await call('Profiler.enable', {}, sessionId)
+    await call('Profiler.start', {}, sessionId)
+  }
   const result = await call('Runtime.evaluate', {
     expression: `new Promise((resolve, reject) => {
       const run = () => { try { resolve(window.runBenchmark(${process.env.HOLDOUT === '1'})) } catch (error) { reject(error) } };
@@ -82,6 +86,10 @@ try {
     })`, awaitPromise: true, returnByValue: true,
   }, sessionId)
   if (result.exceptionDetails) throw new Error((result.exceptionDetails.exception?.description ?? JSON.stringify(result.exceptionDetails)) + '\nPage events: ' + JSON.stringify(events))
+  if (process.env.PROFILE === '1') {
+    const { profile } = await call('Profiler.stop', {}, sessionId)
+    await writeFile(path.join(out, 'profile.json'), JSON.stringify(profile))
+  }
   const report = result.result.value
   if (!report?.metrics || !Number.isFinite(report.metrics.render_ms) || report.metrics.render_ms <= 0) throw new Error('Missing benchmark result')
   await writeFile(path.join(out, process.env.HOLDOUT === '1' ? 'holdout.json' : 'latest.json'), JSON.stringify(report, null, 2) + '\n')
