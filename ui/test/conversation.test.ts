@@ -45,6 +45,24 @@ test('groups stored messages by day', () => {
   assert.deepEqual(buildConversation({ messages: [], now: NOW, timeZone: 'UTC' }), [])
 })
 
+test('day labels follow the current local date across midnight, DST and timezone changes', () => {
+  const message: ChatMessage = { id: 'before-midnight', role: 'assistant', content: 'Keep this reply', at: '2026-03-08T04:30:00Z' }
+  const labels = (now: string, timeZone: string) => buildConversation({ messages: [message], now: Date.parse(now), timeZone }).map(({ key, label }) => [key, label])
+
+  assert.deepEqual(labels('2026-03-08T04:45:00Z', 'America/New_York'), [['2026-03-07', 'Today']])
+  assert.deepEqual(labels('2026-03-08T07:30:00Z', 'America/New_York'), [['2026-03-07', 'Yesterday']])
+  assert.deepEqual(labels('2026-03-09T04:30:00Z', 'America/New_York'), [['2026-03-07', 'Sat, Mar 7']])
+  assert.deepEqual(labels('2026-03-08T07:30:00Z', 'Asia/Tokyo'), [['2026-03-08', 'Today']])
+  assert.deepEqual(labels('2026-03-08T07:30:00Z', 'America/New_York'), [['2026-03-07', 'Yesterday']], 'a previous call cannot pin another timezone')
+
+  const repeatedHour: ChatMessage[] = [
+    { id: 'first', role: 'user', content: 'Before fallback', at: '2026-11-01T05:30:00Z' },
+    { id: 'second', role: 'assistant', content: 'After fallback', at: '2026-11-01T06:30:00Z' },
+  ]
+  const days = buildConversation({ messages: repeatedHour, now: Date.parse('2026-11-02T05:30:00Z'), timeZone: 'America/New_York' })
+  assert.deepEqual(days.map(({ key, label, entries }) => [key, label, keys(entries)]), [['2026-11-01', 'Yesterday', ['first', 'second']]])
+})
+
 test('collapses identical notices', () => {
   const notice = (id: string, content: string, at: string, tone: ChatMessage['tone'] = 'quiet'): ChatMessage => ({ id, role: 'notice', content, tone, at })
   const messages: ChatMessage[] = [

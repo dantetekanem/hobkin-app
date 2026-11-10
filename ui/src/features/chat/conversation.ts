@@ -55,14 +55,7 @@ export const timeOf = (at: ChatMessage['at']): number | null => {
 
 const DAY_MS = 86400000
 
-/** `2026-11-09`, in the user's time zone. */
-function dayKey(at: number, timeZone?: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at)
-}
-
-function dayLabel(at: number, now: number, timeZone?: string): string {
-  const day = dayKey(at, timeZone)
-  const today = dayKey(now, timeZone)
+function dayLabel(at: number, day: string, today: string, timeZone?: string): string {
   if (day === today) return 'Today'
   // Noon of today's date, a day back, is always yesterday's date, whatever the clocks did in between.
   if (day === new Date(Date.parse(`${today}T12:00:00Z`) - DAY_MS).toISOString().slice(0, 10)) return 'Yesterday'
@@ -108,12 +101,16 @@ function withLocal(stored: readonly ChatMessage[], local: readonly ChatMessage[]
  */
 export function buildConversation({ messages, local = [], live = null, outbox = [], now, timeZone }: ConversationInput): DayGroup[] {
   const days: DayGroup[] = []
+  // Reuse the formatter while grouping; the next build picks up any system timezone change.
+  let dates: Intl.DateTimeFormat | undefined
+  let today: string | undefined
+  const dayKey = (at: number) => (dates ??= new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })).format(at)
   const place = (entry: Entry, at: number | null) => {
-    const key = at === null ? null : dayKey(at, timeZone)
+    const key = at === null ? null : dayKey(at)
     let day = days.at(-1)
     // A message with no time stays with the day before it.
     if (!day || (key !== null && key !== day.key)) {
-      day = { key: key ?? 'undated', label: at === null ? 'Earlier' : dayLabel(at, now, timeZone), entries: [] }
+      day = { key: key ?? 'undated', label: at === null || key === null ? 'Earlier' : dayLabel(at, key, today ??= dayKey(now), timeZone), entries: [] }
       days.push(day)
     }
     const previous = day.entries.at(-1)
