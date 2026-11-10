@@ -1,9 +1,14 @@
 import { Type, type Static, type TSchema } from 'typebox'
 import { Check, Errors } from 'typebox/value'
+import type { IntegrationsState } from '../integrations/wire.ts'
+import type { CanvasState } from '../protocol/canvas.ts'
+import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState } from '../protocol/models.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import { GRADES, PR_MODES } from '../protocol/work.ts'
+import type { OpenedReview, ReviewStatus, VerdictPreview } from '../review/status.ts'
+import type { ReviewFileContents } from '../review/types.ts'
 
 /**
  * Every action a person can take is a command here: a name, what it does, the shape of its arguments and where it runs.
@@ -35,6 +40,41 @@ const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
 /** The commit a card showed. A merge pinned to it refuses a branch that moved since. */
 const commit = Type.String({ pattern: '^[0-9a-f]{7,64}$' })
+/** An MCP server by its name in Pi's configuration, which Pi limits to letters, digits, `_` and `-`. */
+const mcpServer = Type.Object({ name: Type.String({ pattern: '^[A-Za-z0-9_-]{1,64}$' }) }, { additionalProperties: false })
+/** A review by what it reviews: a finished change, `change:<slug>:<item>`, or a pull request, `pr:<owner>/<repo>/<number>`. */
+const reviewId = Type.String({ pattern: '^(change|pr):\\S{3,300}$' })
+const verdict = oneOf(['comment', 'approve', 'request-changes'])
+/** A reviewer's note as `shared/review/notes.ts` has it, so nothing else is kept in the home or sent with a verdict. */
+const note = Type.Object(
+  {
+    id: words(64),
+    step: words(256),
+    target: Type.Union([
+      Type.Object({ kind: Type.Literal('step') }, { additionalProperties: false }),
+      Type.Object({ kind: Type.Literal('node'), node: words(512) }, { additionalProperties: false }),
+      Type.Object({ kind: Type.Literal('wire'), wire: words(512) }, { additionalProperties: false }),
+      Type.Object(
+        { kind: Type.Literal('lines'), fileId: words(1024), side: oneOf(['added', 'deleted']), startLine: Type.Integer({ minimum: 1 }), endLine: Type.Integer({ minimum: 1 }), hash: words(128) },
+        { additionalProperties: false },
+      ),
+    ]),
+    intent: oneOf(['comment', 'question']),
+    text: Type.String({ minLength: 1, maxLength: 20000 }),
+    author: oneOf(['user', 'hobkin']),
+    at: Type.Number(),
+    sent: Type.Optional(Type.Number()),
+  },
+  { additionalProperties: false },
+)
+const noteEntry = Type.Union([
+  Type.Object({ op: Type.Literal('put'), note }, { additionalProperties: false }),
+  Type.Object({ op: Type.Literal('remove'), id: words(64) }, { additionalProperties: false }),
+])
+const noteDraft = Type.Union([
+  Type.Null(),
+  Type.Object({ intent: oneOf(['comment', 'question']), text: Type.String({ maxLength: 20000 }), editing: Type.Optional(words(64)) }, { additionalProperties: false }),
+])
 
 export const COMMANDS = {
   'conversation.send': {
@@ -154,6 +194,113 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ url: Type.String({ pattern: '^https://github\\.com/', maxLength: 2048 }) }, { additionalProperties: false }),
   },
+  'integrations.refresh': {
+    description:
+      "Read Pi's MCP configuration again and connect to each server that is on, the way `pi mcp list` does, to report its state, its tools and Pi's message when it fails. It only reads, and closes every connection it opened. A look already under way answers this one too.",
+    runs: 'host',
+    args: nothing,
+  },
+  'integrations.turn-off': {
+    description: "Turn an MCP server off: Pi's configuration keeps its entry with enabled set to false, and Pi stops connecting to it. Nothing else in the file changes.",
+    runs: 'host',
+    args: mcpServer,
+    outside: true,
+  },
+  'integrations.turn-on': {
+    description: "Turn an MCP server back on: the enabled key leaves its entry in Pi's configuration, and Pi connects to it again. Nothing else in the file changes.",
+    runs: 'host',
+    args: mcpServer,
+    outside: true,
+  },
+  'integrations.add': {
+    description:
+      "Add a service from the Integrations catalog to Pi's configuration, by its catalog id, with the values its entry asks for, such as the address of the user's own server. A key is never a value here: the entry reads it from an environment variable the user sets in their shell profile.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        service: Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' }),
+        values: Type.Optional(Type.Record(Type.String({ pattern: '^[a-z][a-z0-9-]{0,63}$' }), Type.String({ maxLength: 512 }))),
+      },
+      { additionalProperties: false },
+    ),
+    outside: true,
+  },
+  'integrations.remove': {
+    description: "Remove an MCP server from Pi's configuration: its entry is deleted, and nothing else in the file changes.",
+    runs: 'host',
+    args: mcpServer,
+    outside: true,
+  },
+  'system.open': {
+    description: 'Open a web or mail address (http, https or mailto) in the Mac\'s default app for it, such as a link clicked in the chat.',
+    runs: 'host',
+    args: Type.Object({ url: Type.String({ pattern: '^(https?://|mailto:)\\S', maxLength: 4096 }) }, { additionalProperties: false }),
+  },
+  'canvas.show': {
+    description:
+      'Open the canvas, a panel beside the screens that shows a web page, so the user can see work happening for real, such as a local app under test. `url` is an http or https address. `title` names the page.',
+    runs: 'host',
+    args: Type.Object(
+      { url: Type.String({ pattern: '^https?://\\S', maxLength: 4096 }), title: Type.Optional(words(120)) },
+      { additionalProperties: false },
+    ),
+    hobkin: true,
+  },
+  'canvas.close': {
+    description: 'Close the canvas panel.',
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'file.read': {
+    description: 'Read a file for the viewer: text only, up to 2 MB, a regular file only (links are followed). `path` is a full path or starts with ~/. Refused with a plain reason for anything else.',
+    runs: 'host',
+    args: Type.Object({ path: Type.String({ pattern: '^(/|~/)', maxLength: 4096 }) }, { additionalProperties: false }),
+  },
+  'file.open': {
+    description: 'Open a file in the Mac\'s default app for it. `path` is a full path or starts with ~/. A program or an app bundle never opens this way.',
+    runs: 'host',
+    args: Type.Object({ path: Type.String({ pattern: '^(/|~/)', maxLength: 4096 }) }, { additionalProperties: false }),
+  },
+  'review.prepare': {
+    description:
+      "Prepare the Change Review of a finished hobkin change or a GitHub pull request, by its review id. It runs in the background and answers at once with how it stands. A review already prepared for the change's commit is used as it is, and `refresh` prepares it again anyway. A pull request is only read, through gh.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId, refresh: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+  },
+  'review.status': {
+    description: 'How the preparation of a review stands: ready to open, being prepared and what it is doing, or failed and why.',
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+  },
+  'review.get': {
+    description: "A prepared review, with the reviewer's notes on it, sent and not. Refused while none is ready.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+  },
+  'review.file': {
+    description: 'Both sides of one file of a prepared review: as it was, and as the change leaves it.',
+    runs: 'host',
+    args: Type.Object({ id: reviewId, fileId: words(1024) }, { additionalProperties: false }),
+  },
+  'review.notes': {
+    description: "Keep the reviewer's notes on a review in the home, with the note being written, so they come back after a restart. Nothing is sent anywhere.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId, entries: Type.Array(noteEntry, { maxItems: 2000 }), draft: noteDraft }, { additionalProperties: false }),
+  },
+  'review.preview': {
+    description:
+      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments, and for a finished change the hobkin action it would take. `summary` is the user's words to go with it. Answers with the `confirm` that review.verdict needs.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }) }, { additionalProperties: false }),
+  },
+  'review.verdict': {
+    description:
+      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user, and a finished change one of hobkin's own work actions, merge or ask for changes. `confirm` is what the preview answered. A verdict that would now do anything else is refused.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), confirm: Type.String({ pattern: '^[0-9a-f]{64}$' }) }, { additionalProperties: false }),
+    outside: true,
+  },
   'work.mode': {
     description:
       "Turn work mode on or off with hobkin's own switch. On starts nothing by itself: what runs is what the user starts, unless they chose auto-pick. The first time, `folder` says where to look for projects. Off lets running agents finish and starts nothing new.",
@@ -162,9 +309,9 @@ export const COMMANDS = {
   },
   'work.queue': {
     description:
-      "Act on a row of hobkin's queue, by the row's key: `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
+      "Act on a row of hobkin's queue, named by hobkin's own name for it in `row` (such as `item:storefront:3fa9c1`): `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
     runs: 'host',
-    args: Type.Object({ key: words(256), action: oneOf(['run', 'skip', 'back']) }, { additionalProperties: false }),
+    args: Type.Object({ row: words(256), action: oneOf(['run', 'skip', 'back']) }, { additionalProperties: false }),
   },
   'work.project': {
     description:
@@ -172,6 +319,17 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ slug: projectSlug, priority: Type.Optional(oneOf(GRADES)), prs: Type.Optional(oneOf(PR_MODES)) }, { additionalProperties: false }),
     rule: ({ priority, prs }) => ((priority === undefined) !== (prs === undefined) ? null : 'need "priority" or "prs", and only one of them'),
+  },
+  'work.proposal': {
+    description:
+      "Answer a project hobkin proposed, as y and n do in the terminal: `take` chooses it at the level hobkin proposed, so its work joins the queue, and `skip` leaves it alone. A project left alone is taken again with `take`.",
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug, answer: oneOf(['take', 'skip']) }, { additionalProperties: false }),
+  },
+  'work.agents': {
+    description: "Set how many work agents may run at once, from 1 to hobkin's most of 8, as `hobkin work agents` sets it. Running agents finish as they are.",
+    runs: 'host',
+    args: Type.Object({ agents: Type.Integer({ minimum: 1, maximum: 8 }) }, { additionalProperties: false }),
   },
   'work.change': {
     description:
@@ -214,6 +372,19 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ run: words(256), text: words(4096) }, { additionalProperties: false }),
   },
+  'decision.answer': {
+    description:
+      "Answer something waiting in Action Items with hobkin's own decision action, as its Decisions tab does: `value` is one of its choices, `typed` the user's own words, which whoever asked hears. What the answer then does, such as a merge or a note to the routine that asked, is hobkin's.",
+    runs: 'host',
+    args: Type.Object({ id: words(64), value: Type.Optional(words(64)), typed: Type.Optional(words(4000)) }, { additionalProperties: false }),
+    rule: ({ value, typed }) => ((value === undefined) !== (typed === undefined) ? null : 'need "value" or "typed", and only one of them'),
+  },
+  'learning.answer': {
+    description:
+      "Answer one of hobkin's learning proposals with its own learning action: `yes` plans it with the main agent in Chat, `later` asks again in a week, and `no` does not ask it again.",
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: '^[0-9a-f]{6}$' }), value: oneOf(['yes', 'later', 'no']) }, { additionalProperties: false }),
+  },
 } as const satisfies Record<string, CommandDefinition>
 
 export type CommandName = keyof typeof COMMANDS
@@ -242,9 +413,31 @@ export interface CommandResults {
   'signin.out': { ok: true; stillConnected: boolean; message: string }
   'github.refresh': GitHubState
   'github.open': { ok: true }
+  'system.open': { ok: true }
+  'canvas.show': CanvasState
+  'canvas.close': CanvasState
+  'file.read': FileContent
+  'file.open': { ok: true }
+  'review.prepare': ReviewStatus
+  'review.status': ReviewStatus
+  'review.get': OpenedReview
+  'review.file': ReviewFileContents
+  'review.notes': { ok: true }
+  'review.preview': VerdictPreview
+  /** What was done, in plain words: where GitHub shows the review, or what hobkin said. */
+  'review.verdict': { message: string }
+  /** Each answers with the servers as they stand once the change is made and the server it touched was looked at. */
+  'integrations.refresh': IntegrationsState
+  'integrations.turn-off': IntegrationsState
+  'integrations.turn-on': IntegrationsState
+  'integrations.add': IntegrationsState
+  'integrations.remove': IntegrationsState
   'work.mode': { enabled: boolean }
   'work.queue': { ok: true }
   'work.project': { ok: true }
+  'work.proposal': { ok: true }
+  /** How many work agents may run at once now. */
+  'work.agents': { agents: number }
   /** What hobkin did, in its own words. */
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */
@@ -252,6 +445,9 @@ export interface CommandResults {
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
   'agent.say': { delivered: true }
+  /** What hobkin said of the answer, and whether the item went to the main agent in Chat and stays open until done. */
+  'decision.answer': { message: string; handedOff: boolean }
+  'learning.answer': { message: string }
 }
 
 export type ArgumentCheck = { ok: true } | { ok: false; code: 'unknown-command' | 'invalid-arguments'; message: string }

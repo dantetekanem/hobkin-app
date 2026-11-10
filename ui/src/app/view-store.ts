@@ -19,6 +19,8 @@ interface ViewState {
   veil: VeilSection | null
   /** The row of the veil's list that Up and Down have reached. */
   veilActive: number
+  /** The spotlight (Command+K) is open over the whole window. Not saved either. */
+  spotlight: boolean
   conversationWidth: number
   /** Id of the review open on the canvas, if any. */
   openReview: string | null
@@ -30,6 +32,8 @@ interface ViewState {
   agentTalk: boolean
   /** While Settings or Integrations is open: the screen under both, which closing returns to. */
   settingsReturn: ScreenId | null
+  /** While GitHub is open: the screen it was opened over. Closing a GitHub the menu leaves out returns there. */
+  githubReturn: ScreenId | null
   /**
    * True while the canvas has the user's attention: the keyboard is in it, or it was just clicked.
    * A review takes almost the whole window while it does, and gives the room back when the user returns to the chat.
@@ -42,6 +46,9 @@ interface ViewState {
   /** Moves the veil's selection by one row within a list of `count` rows, or sets it. */
   moveVeil: (delta: 1 | -1, count: number) => void
   setVeilActive: (index: number) => void
+  /** Opens the spotlight. The veil gives way to it. */
+  openSpotlight: () => void
+  closeSpotlight: () => void
   resizeConversation: (width: number) => void
   openReviewFor: (reviewId: string) => void
   closeReview: () => void
@@ -60,9 +67,9 @@ interface ViewState {
   closeSettings: () => void
   /** Opens Integrations, which always sits under Settings. In Integrations it steps back up to Settings. */
   toggleIntegrations: () => void
-  /** Opens the GitHub page, which sits under Pages. */
+  /** Opens GitHub, from the menu, the spotlight or GitHub's entry in Integrations, whether or not the menu shows it. */
   openGitHub: () => void
-  /** Leaves the GitHub page for Pages, one step up. */
+  /** Leaves GitHub for the screen it was opened over. The menu offers it for a GitHub it leaves out, which is open only for now. */
   closeGitHub: () => void
   engageCanvas: () => void
   disengageCanvas: () => void
@@ -77,6 +84,15 @@ function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewSta
 }
 
 /**
+ * Where leaving GitHub goes back to: the screen showing when it opened, the one under Settings and Integrations, or
+ * the one an agent's preview came from. Opened again from over itself, it keeps the way back it had.
+ */
+function backFromGitHub(state: ViewState): ScreenId | null {
+  const back = state.screen === 'agent' ? (state.previewReturn ?? 'work') : ground(state)
+  return back === 'github' ? state.githubReturn : back
+}
+
+/**
  * What the user is looking at. Kept in the browser's storage for now;
  * `014-continuity` moves it into the home so it follows the user's data.
  */
@@ -88,18 +104,27 @@ export const useView = create<ViewState>()(
       screenMotion: { axis: 'x', direction: 1 },
       veil: null,
       veilActive: 0,
+      spotlight: false,
       conversationWidth: CONVERSATION_WIDTH.initial,
       openReview: null,
       openAgent: null,
       previewReturn: null,
       agentTalk: false,
       settingsReturn: null,
+      githubReturn: null,
       canvasEngaged: false,
 
       openScreen: (screen) => {
-        const current = get().screen
-        if (screen === current) return
-        set({ screen, previewReturn: null, agentTalk: false, settingsReturn: null, screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current) ? 1 : -1 } })
+        const current = get()
+        if (screen === current.screen) return
+        set({
+          screen,
+          previewReturn: null,
+          agentTalk: false,
+          settingsReturn: null,
+          githubReturn: screen === 'github' ? backFromGitHub(current) : null,
+          screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current.screen) ? 1 : -1 },
+        })
       },
       openVeil: (veil) => {
         // A new list starts at its first row.
@@ -108,6 +133,8 @@ export const useView = create<ViewState>()(
       closeVeil: () => set({ veil: null }),
       moveVeil: (delta, count) => set({ veilActive: Math.min(Math.max(0, count - 1), Math.max(0, get().veilActive + delta)) }),
       setVeilActive: (veilActive) => set({ veilActive }),
+      openSpotlight: () => set({ spotlight: true, veil: null }),
+      closeSpotlight: () => set({ spotlight: false }),
       resizeConversation: (width) =>
         set({ conversationWidth: Math.round(Math.min(CONVERSATION_WIDTH.max, Math.max(CONVERSATION_WIDTH.min, width))) }),
       openReviewFor: (openReview) => {
@@ -166,23 +193,25 @@ export const useView = create<ViewState>()(
       closeSettings: () => {
         if (depth(get()) > 0) set(stepOver(get(), closeOver))
       },
-      // Opened from anywhere (Pages, or the GitHub entry in Integrations), it comes down over the canvas,
-      // and leaving it lifts it away onto Pages.
-      openGitHub: () => {
-        if (get().screen === 'github') return
-        set({ screen: 'github', settingsReturn: null, previewReturn: null, agentTalk: false, screenMotion: { axis: 'y', direction: -1 } })
-      },
+      // GitHub is a menu screen, so it travels in along the menu as the others do, from wherever it is opened.
+      openGitHub: () => get().openScreen('github'),
       closeGitHub: () => {
-        if (get().screen === 'github') set({ screen: 'pages', screenMotion: { axis: 'y', direction: 1 } })
+        const { screen, githubReturn } = get()
+        if (screen === 'github') get().openScreen(githubReturn ?? 'work')
       },
       engageCanvas: () => set({ canvasEngaged: true }),
       disengageCanvas: () => set({ canvasEngaged: false }),
     }),
     {
       name: 'hobkin-client-view',
-      version: 4,
-      // Earlier versions had a sidebar column, then a chat bar. Their saved layouts do not carry over.
-      migrate: () => ({}),
+      version: 5,
+      // Earlier versions had a sidebar column, then a chat bar: their saved layouts do not carry over. Version 4 could
+      // reopen on Pages, which is gone. GitHub, the page that lived under it, takes its place.
+      migrate: (saved, version) => {
+        if (version !== 4 || typeof saved !== 'object' || saved === null) return {}
+        const view = saved as { screen?: unknown }
+        return view.screen === 'pages' ? { ...view, screen: 'github' } : view
+      },
       // Settings is not a place to reopen in: the app comes back on the screen that was under it.
       partialize: ({ screen, settingsReturn, conversationWidth, openAgent }) => {
         const under = ground({ screen, settingsReturn })

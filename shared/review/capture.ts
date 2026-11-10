@@ -9,6 +9,11 @@ export interface ChangedPath {
   /** Path at base, when the file was renamed. */
   oldPath?: string
   status: Exclude<FileStatus, 'unchanged'>
+  /**
+   * The lines it changes, when the source counted them already and reading the file would cost too much, such as a
+   * pull request's files past the size limits. Such a file is summarized and never read.
+   */
+  counted?: { additions: number; deletions: number }
 }
 
 export type FileRead = { kind: 'text'; text: string } | { kind: 'binary' } | { kind: 'missing' }
@@ -36,6 +41,8 @@ export interface CapturedFile {
   deletions: number
   /** Over the size limits: this file becomes one `file` node without units. */
   summarized: boolean
+  /** Never read: the source counted its lines, and it is summarized. */
+  skipped?: boolean
 }
 
 /** Pass 1 of preparing a review: the exact bytes of a change, read once, before anything interprets them. */
@@ -70,7 +77,8 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
   const changes: ChangeRange[] = []
 
   const files = await Promise.all(
-    paths.map(async ({ path, oldPath, status }): Promise<CapturedFile> => {
+    paths.map(async ({ path, oldPath, status, counted }): Promise<CapturedFile> => {
+      if (counted) return { id: path, path, ...(oldPath ? { oldPath } : {}), status, binary: false, base: null, head: null, ...counted, summarized: true, skipped: true }
       const [before, after] = await Promise.all([
         status === 'added' ? missing : reader.read(base, oldPath ?? path),
         status === 'deleted' ? missing : reader.read(head, path),
@@ -92,7 +100,7 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
   )
 
   for (const file of files) {
-    if (file.binary) continue
+    if (file.binary || file.skipped) continue
     const rows = alignRows(file.base ?? '', file.head ?? '')
     Object.assign(file, countChanges(rows))
     changes.push(...changedRanges(file.id, rows))
@@ -101,6 +109,7 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
   let kept = 0
   let changedLines = 0
   for (const file of [...files].sort((a, b) => detailRank(a.path) - detailRank(b.path) || byPath(a, b))) {
+    if (file.skipped) continue
     const size = file.additions + file.deletions
     if (kept < limit.files && changedLines + size <= limit.changedLines) {
       kept += 1

@@ -3,11 +3,12 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { AgentHood } from '@/components/Mark.tsx'
 import { useActionCount } from '@/features/actions/store.ts'
+import { useSettings } from '@/features/settings/store.ts'
 import { useActionItemCount, useHasHost } from '@/lib/host/index.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useRunningAgents } from './running-agents.ts'
-import { SCREENS, type ScreenId } from './screens.ts'
+import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
 import { useView } from './view-store.ts'
 
@@ -35,14 +36,14 @@ function popIn(index: number, still: boolean) {
   }
 }
 
-/** What the second row holds: the agents, the review, or Settings with Integrations under it. */
-type Second = 'agents' | 'review' | 'settings' | 'pages'
+/** What the second row holds: the agents, the review, Settings with Integrations under it, or a GitHub the menu leaves out. */
+type Second = 'agents' | 'review' | 'settings' | 'github'
 
-function secondFor(screen: ScreenId): Second | null {
+function secondFor(screen: ScreenId, githubInMenu: boolean): Second | null {
   if (screen === 'agent') return 'agents'
   if (screen === 'review') return 'review'
   if (screen === 'settings' || screen === 'integrations') return 'settings'
-  if (screen === 'github') return 'pages'
+  if (screen === 'github' && !githubInMenu) return 'github'
   return null
 }
 
@@ -65,12 +66,13 @@ function Marker() {
 export function ScreenMenu() {
   const screen = useView((view) => view.screen)
   const openScreen = useView((view) => view.openScreen)
-  const main = SCREENS.filter((tab) => !('contextual' in tab))
+  const githubInMenu = useSettings((settings) => settings.showGitHubInMenu)
+  const main = SCREENS.filter((tab) => inMenu(tab.id, githubInMenu))
   // With a host, hobkin's own count: open decisions plus waiting rows, as the terminal counts them.
   const sampleCount = useActionCount()
   const hostCount = useActionItemCount()
   const badges: Partial<Record<ScreenId, number>> = { actions: useHasHost() ? hostCount : sampleCount }
-  const second = secondFor(screen)
+  const second = secondFor(screen, githubInMenu)
 
   return (
     <div className="select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex justify-center">
@@ -105,7 +107,7 @@ export function ScreenMenu() {
         <AnimatePresence mode="popLayout" initial={false}>
           {second ? (
             <Born key={second} label={second === 'agents' ? 'Agents' : 'Open now'}>
-              {second === 'agents' ? <Agents /> : second === 'review' ? <ReviewItem /> : second === 'pages' ? <PagesTrail /> : <SettingsTrail inIntegrations={screen === 'integrations'} />}
+              {second === 'agents' ? <Agents /> : second === 'review' ? <ReviewItem /> : second === 'github' ? <GitHubItem /> : <SettingsTrail inIntegrations={screen === 'integrations'} />}
             </Born>
           ) : null}
         </AnimatePresence>
@@ -293,19 +295,13 @@ function SettingsTrail({ inIntegrations }: { inIntegrations: boolean }) {
   )
 }
 
-/** A page under Pages: Pages › GitHub. Pages is the way back up. */
-function PagesTrail() {
-  const still = useStill()
+/** GitHub, opened from Integrations or the spotlight while the user keeps it out of the menu. It is open only for now. */
+function GitHubItem() {
   const closeGitHub = useView((view) => view.closeGitHub)
-
   return (
     <>
-      <Crumb id="pages" label="Pages" index={0} active={false} onClick={closeGitHub} />
-      <motion.span layout="position" transition={spring.pill} {...popIn(1, still)} aria-hidden="true" className="grid place-items-center text-muted-foreground">
-        <ChevronRight className="size-3.5" />
-      </motion.span>
-      <Crumb id="github" label="GitHub" index={2} active />
-      <CloseButton label="Close GitHub" index={3} onClick={closeGitHub} />
+      <Crumb id="github" label="GitHub" index={0} active />
+      <CloseButton label="Close GitHub" index={1} onClick={closeGitHub} />
     </>
   )
 }

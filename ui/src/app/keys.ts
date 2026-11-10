@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
+import { useSettings } from '@/features/settings/store.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { answerNext, runningAgents } from './running-agents.ts'
 import { resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
-import { SCREENS, VEIL_SECTIONS, type ScreenId } from './screens.ts'
+import { walkScreens, type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
 
 /**
@@ -18,8 +19,7 @@ import { useView } from './view-store.ts'
  */
 export function visibleScreens(): ScreenId[] {
   const { openReview, screen } = useView.getState()
-  const open: Partial<Record<ScreenId, boolean>> = { review: openReview !== null, settings: screen === 'settings', integrations: screen === 'integrations', github: screen === 'github' }
-  return SCREENS.filter((screen) => !('contextual' in screen) || open[screen.id]).map((screen) => screen.id)
+  return walkScreens({ screen, reviewOpen: openReview !== null, githubInMenu: useSettings.getState().showGitHubInMenu })
 }
 
 function messageInput(): HTMLTextAreaElement | null {
@@ -75,6 +75,7 @@ function contextOf(target: EventTarget | null): KeyContext {
     inOverlay: inOverlay(target),
     veilOpen: veil !== null,
     asking: runningAgents().some((agent) => agent.asks),
+    githubInMenu: useSettings.getState().showGitHubInMenu,
   }
 }
 
@@ -95,11 +96,6 @@ function perform(action: KeyAction): boolean {
       view.disengageCanvas()
       focusInput()
       return true
-    case 'focus-canvas':
-      view.closeVeil()
-      view.engageCanvas()
-      focusCanvas()
-      return true
     case 'focus-agents':
       return focusAgentsDock()
     case 'open-veil':
@@ -109,17 +105,16 @@ function perform(action: KeyAction): boolean {
       view.moveVeil(action.delta, veilRows().length)
       requestAnimationFrame(() => document.querySelector('[data-chat-veil] [data-veil-row][data-active="true"]')?.scrollIntoView({ block: 'nearest' }))
       return true
-    case 'veil-switch': {
-      const at = VEIL_SECTIONS.indexOf(view.veil ?? 'projects')
-      view.openVeil(VEIL_SECTIONS[(at + action.delta + VEIL_SECTIONS.length) % VEIL_SECTIONS.length]!)
-      return true
-    }
     case 'veil-choose':
       veilRows()[view.veilActive]?.click()
       return true
     case 'close-veil':
       view.closeVeil()
       focusInput()
+      return true
+    case 'open-spotlight':
+      // It takes the keyboard itself as it opens, and gives it back when it closes.
+      view.openSpotlight()
       return true
     case 'open-integrations':
       view.closeVeil()
@@ -141,11 +136,9 @@ function perform(action: KeyAction): boolean {
       else if (view.screen === 'integrations') view.toggleIntegrations()
       else if (view.screen === 'github') view.closeGitHub()
       else view.closeSettings()
-      // One step back. Landing on the parent page (Settings, Pages) keeps the keyboard there, on the way it came
-      // in by. Anywhere else, it goes home.
-      if (useView.getState().screen === 'settings' || (useView.getState().screen === 'pages' && view.screen === 'github')) {
-        const way = useView.getState().screen === 'settings' ? 'integrations' : 'github'
-        requestAnimationFrame(() => (document.querySelector<HTMLElement>(`[data-opens="${way}"]`) ?? lastCanvasScreen())?.focus())
+      // One step back. Landing on Settings keeps the keyboard there, on the way it came in by. Anywhere else, it goes home.
+      if (useView.getState().screen === 'settings') {
+        requestAnimationFrame(() => (document.querySelector<HTMLElement>('[data-opens="integrations"]') ?? lastCanvasScreen())?.focus())
       } else {
         useView.getState().disengageCanvas()
         focusInput()

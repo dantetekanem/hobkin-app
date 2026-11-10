@@ -2,6 +2,7 @@ import { ArrowUpRight, CalendarClock, Eye, Info, LoaderCircle, LogIn, PenLine, P
 import { motion, type Variants } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { entryText, fillEntry, fillValue } from '#shared/integrations/entry.ts'
+import { HIDDEN } from '#shared/integrations/redact.ts'
 import { freeName, targetOf } from '#shared/integrations/servers.ts'
 import type { CatalogEntry, ConfiguredServer, PiServerEntry, ServerTool } from '#shared/integrations/types.ts'
 import type { GitHubConnection } from '#shared/protocol/github.ts'
@@ -11,10 +12,10 @@ import { cn } from '@/lib/utils.ts'
 import { fillProblems, toolsOf } from './changes.ts'
 import { ghLine } from './gh.ts'
 import type { GhLink, Item } from './items.ts'
+import type { IntegrationActions } from './live.ts'
 import { ownMark, serviceMark } from './marks.ts'
 import { sampleRoutines } from './sample-data.ts'
 import { ServiceMark } from './ServiceMark.tsx'
-import { useIntegrations } from './store.ts'
 import { GhChip, StateChip } from './tiles.tsx'
 
 /** How far the screen behind the detail blurs, and how much of the canvas's own color settles over it. */
@@ -41,6 +42,11 @@ interface DetailProps {
   /** Every configured server, to name a new one the way it would be added. */
   servers: readonly ConfiguredServer[]
   still: boolean
+  /** Real data from a host: the actions change Pi's configuration, and nothing made up is shown. */
+  live: boolean
+  /** Pi's configuration file as the host names it. Null on sample data. */
+  path: string | null
+  actions: IntegrationActions
   onClose: () => void
   onConnect: (values: Record<string, string>) => void
   onRemove: () => void
@@ -59,10 +65,16 @@ function landIn(panel: HTMLElement) {
  * entry it adds to Pi's configuration, the page it came from, and its actions. It grows out of the tile that
  * was chosen and goes back into it. A key is never typed here: the detail names the variable to set instead.
  */
-export function Detail({ item, servers, still, onClose, onConnect, onRemove, onOpenPage }: DetailProps) {
+export function Detail({ item, servers, still, live, path, actions, onClose, onConnect, onRemove, onOpenPage }: DetailProps) {
   const panel = useRef<HTMLElement | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [tried, setTried] = useState(false)
+  /** What the host said when an action did not happen. It goes with the next action. */
+  const [failure, setFailure] = useState<string | null>(null)
+  const run = (action: () => Promise<void>) => {
+    setFailure(null)
+    action().catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)))
+  }
   const server = item.server
   const entry = item.kind === 'service' ? item.entry : null
   const name = server?.name ?? freeName(entry!.id, servers.map((other) => other.name))
@@ -99,8 +111,9 @@ export function Detail({ item, servers, still, onClose, onConnect, onRemove, onO
           <div className="flex flex-col gap-7">
             <Head item={item} name={name} onClose={onClose} />
             {item.kind === 'service' && item.gh ? <ThroughGh gh={item.gh} onOpenPage={onOpenPage} /> : null}
-            <Actions entry={entry} server={server} onConnect={connect} onRemove={onRemove} />
-            <Notice entry={entry} server={server} />
+            <Actions entry={entry} server={server} live={live} actions={actions} run={run} onConnect={connect} onRemove={onRemove} />
+            {failure ? <p className="rounded-2xl bg-bad/10 px-4 py-3 text-[13px] text-bad-fg">{failure}</p> : null}
+            <Notice entry={entry} server={server} live={live} />
             <CanDo entry={entry} server={server} />
             <Tools entry={entry} server={server} />
             {entry && entry.connect.env.length > 0 ? <Keys entry={entry} /> : null}
@@ -108,8 +121,9 @@ export function Detail({ item, servers, still, onClose, onConnect, onRemove, onO
               <Fills entry={entry} values={values} problems={tried ? problems : {}} onChange={setValues} onConnect={connect} />
             ) : null}
             {entry && !server && entry.connect.before.length > 0 ? <Before steps={entry.connect.before} /> : null}
-            <Routines of={entry?.id ?? name} />
-            <Entry name={name} entry={server?.entry ?? previewOf(entry!, values)} configured={server !== null} />
+            {/* Which routines use a server is sample data until the host reports it. */}
+            {live ? null : <Routines of={entry?.id ?? name} />}
+            <Entry name={name} entry={server?.entry ?? previewOf(entry!, values)} configured={server !== null} path={path} />
             {entry && entry.notes.length > 0 ? <Notes notes={entry.notes} /> : null}
             <Source entry={entry} />
           </div>
@@ -208,8 +222,18 @@ function ThroughGh({ gh, onOpenPage }: { gh: GhLink; onOpenPage?: () => void }) 
   )
 }
 
-function Actions({ entry, server, onConnect, onRemove }: { entry: CatalogEntry | null; server: ConfiguredServer | null; onConnect: () => void; onRemove: () => void }) {
-  const store = useIntegrations()
+interface ActionsProps {
+  entry: CatalogEntry | null
+  server: ConfiguredServer | null
+  live: boolean
+  actions: IntegrationActions
+  /** Runs an action and shows why when it does not happen. */
+  run: (action: () => Promise<void>) => void
+  onConnect: () => void
+  onRemove: () => void
+}
+
+function Actions({ entry, server, live, actions, run, onConnect, onRemove }: ActionsProps) {
   const [armed, setArmed] = useState(false)
 
   if (!server) {
@@ -225,13 +249,16 @@ function Actions({ entry, server, onConnect, onRemove }: { entry: CatalogEntry |
   }
 
   const name = server.name
+  // With a host, signing in happens in a terminal with `pi mcp login`, so the way on is to look again afterwards.
   const primary =
     server.state === 'sign-in'
-      ? { label: 'Sign in', icon: LogIn, run: () => store.signIn(name) }
+      ? live
+        ? { label: 'Check again', icon: RotateCw, go: () => actions.signIn(name) }
+        : { label: 'Sign in', icon: LogIn, go: () => actions.signIn(name) }
       : server.state === 'failed'
-        ? { label: 'Try again', icon: RotateCw, run: () => store.retry(name) }
+        ? { label: 'Try again', icon: RotateCw, go: () => actions.retry(name) }
         : server.state === 'off'
-          ? { label: 'Turn on', icon: Power, run: () => store.turnOn(name) }
+          ? { label: 'Turn on', icon: Power, go: () => actions.turnOn(name) }
           : null
 
   return (
@@ -243,13 +270,13 @@ function Actions({ entry, server, onConnect, onRemove }: { entry: CatalogEntry |
         </Button>
       ) : null}
       {primary ? (
-        <Button data-key-stop="" data-primary="" data-action="" onClick={primary.run}>
+        <Button data-key-stop="" data-primary="" data-action="" onClick={() => run(primary.go)}>
           <primary.icon aria-hidden="true" />
           {primary.label}
         </Button>
       ) : null}
       {server.state !== 'off' ? (
-        <Button variant="outline" data-key-stop="" data-action="" onClick={() => store.turnOff(name)}>
+        <Button variant="outline" data-key-stop="" data-action="" onClick={() => run(() => actions.turnOff(name))}>
           <Power aria-hidden="true" />
           Turn off
         </Button>
@@ -262,7 +289,16 @@ function Actions({ entry, server, onConnect, onRemove }: { entry: CatalogEntry |
   )
 }
 
-function Notice({ entry, server }: { entry: CatalogEntry | null; server: ConfiguredServer | null }) {
+function Notice({ entry, server, live }: { entry: CatalogEntry | null; server: ConfiguredServer | null; live: boolean }) {
+  if (server?.state === 'sign-in' && live) {
+    return (
+      <p className="rounded-2xl bg-warn/15 px-4 py-3 text-[13px] leading-relaxed text-warn-fg">
+        Pi needs you to sign in{entry ? ` to ${entry.name}` : ''}. In a terminal, run{' '}
+        <code className="rounded-md bg-background/70 px-1.5 py-0.5 font-mono text-[12px] text-foreground">pi mcp login {server.name}</code>. Pi opens the page to approve in your browser and
+        keeps the sign-in itself. Then check again here.
+      </p>
+    )
+  }
   if (!server && entry && !entry.usable) {
     return <p className="rounded-2xl bg-warn/15 px-4 py-3 text-[13px] text-warn-fg">{entry.blocked}</p>
   }
@@ -477,10 +513,11 @@ function Routines({ of }: { of: string }) {
 }
 
 /** The entry as it sits in the file. A name read from the shell is tinted, and a value still to fill in is marked. */
-function Entry({ name, entry, configured }: { name: string; entry: PiServerEntry; configured: boolean }) {
+function Entry({ name, entry, configured, path }: { name: string; entry: PiServerEntry; configured: boolean; path: string | null }) {
+  // A value the host hid shows as [hidden]. A reference to the environment stays, since it holds no secret.
   const parts = entryText(name, entry).split(/(\$\{[A-Z][A-Z0-9_]*\}|<[a-z][a-z0-9-]*>)/)
   return (
-    <Block label="Its entry in Pi's configuration" aside={<span className="font-mono">~/.pi/agent/mcp.json</span>}>
+    <Block label="Its entry in Pi's configuration" aside={<span className="font-mono">{path ?? '~/.pi/agent/mcp.json'}</span>}>
       <pre className="scroll-quiet overflow-x-auto rounded-2xl bg-code-bg p-4 font-mono text-[12px] leading-[1.7] text-code-text">
         {parts.map((part, index) =>
           part.startsWith('${') ? (
@@ -497,7 +534,8 @@ function Entry({ name, entry, configured }: { name: string; entry: PiServerEntry
         )}
       </pre>
       <p className="text-[12px] text-muted-foreground">
-        {configured ? 'Under mcpServers, as it is written.' : 'Connect adds this under mcpServers.'} A name in {'${ }'} is read from your shell when Pi connects.
+        {configured ? 'Under mcpServers, as Pi reads it.' : 'Connect adds this under mcpServers.'}
+        {parts.some((part) => part.includes(HIDDEN)) ? ' A value written into it shows as [hidden], so no key leaves the host.' : ''} A name in {'${ }'} is read from your shell when Pi connects.
       </p>
     </Block>
   )

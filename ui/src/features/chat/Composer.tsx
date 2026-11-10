@@ -165,7 +165,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   return (
     <div className="shrink-0 px-3 pt-1 pb-2">
       <div className="mx-auto max-w-[640px]">
-        <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} />
+        <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} />
         <div className="flex items-end gap-2">
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">

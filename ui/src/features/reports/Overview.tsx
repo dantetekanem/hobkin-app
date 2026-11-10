@@ -90,7 +90,20 @@ function dotVariants(still: boolean): Variants {
  * filled until it is read, standing in the column of its day. hobkin stands at the end of the week, and its
  * face says how the unread ones look. A dot opens its report.
  */
-export function Overview({ list, read, now, onOpen }: { list: readonly Report[]; read: ReadonlySet<string>; now: number; onOpen: (id: string, from: HTMLElement) => void }) {
+export function Overview({
+  list,
+  read,
+  now,
+  onOpen,
+  quiet = false,
+}: {
+  list: readonly Report[]
+  read: ReadonlySet<string>
+  now: number
+  onOpen: (id: string, from: HTMLElement) => void
+  /** It slides back in beside a report that closed, already in place, so nothing in it arrives a second time. */
+  quiet?: boolean
+}) {
   const still = useStill()
   const summary = useMemo(() => summarize(list, read), [list, read])
   const { columns, earlier } = useMemo(() => week(list, now), [list, now])
@@ -98,14 +111,12 @@ export function Overview({ list, read, now, onOpen }: { list: readonly Report[];
   let order = 0
 
   return (
-    // It drives its own arrival, because it also comes back long after the screen arrived: it steps back, out of
-    // focus, while a report grows over it, and pops up again when the report closes.
+    // It drives its own arrival with the screen. Sliding back in beside a report that closed, it is already in place.
     <motion.div
       className="pointer-events-auto absolute inset-0 @max-[800px]:hidden"
       variants={still ? STILL_STAGE : STAGE}
-      initial="enter"
+      initial={quiet ? false : 'enter'}
       animate="center"
-      exit="leave"
     >
       <Hero className="h-full">
         <section aria-label="The week" className="flex h-full flex-col overflow-hidden rounded-[28px] bg-background p-7">

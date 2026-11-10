@@ -85,7 +85,8 @@ export function reportsKey(press: KeyPress, context: KeyContext): KeyAction | nu
     if (key === 'ArrowLeft') return { do: 'kind', delta: -1 }
   }
   if (context.where === 'row') {
-    if (key === 'Enter' || key === 'ArrowRight') return { do: 'open' }
+    // The list is on the right, so a report opens toward the reader on its left.
+    if (key === 'Enter' || key === 'ArrowLeft') return { do: 'open' }
     return onReport(key, context)
   }
   return key === 'u' && context.canUndo ? { do: 'undo' } : null

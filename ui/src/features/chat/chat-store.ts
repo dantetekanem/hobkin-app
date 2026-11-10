@@ -6,7 +6,7 @@ import type { SlashCommand } from '#shared/protocol/slash.ts'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
 import { useReportReply } from '@/features/reports/reply.ts'
 import { attachmentRefusal, fileAsBase64 } from './attachments.ts'
-import { draftReducer, emptyDraft, type Attachment, type DraftAction, type DraftState } from './draft.ts'
+import { draftReducer, emptyDraft, storedDraft, type Attachment, type DraftAction, type DraftState } from './draft.ts'
 import { emptyOutbox, settleOutbox, type Outbox } from './outbox.ts'
 import { closedSlash, slashCommandIn, slashKey, slashTyped, type SlashKey, type SlashState } from './slash.ts'
 
@@ -200,8 +200,8 @@ export const useChat = create<ChatState>()(
     {
       name: 'hobkin-client-chat',
       version: 1,
-      // Only the words survive a reload. Attachments are files hobkin holds for this session.
-      partialize: ({ draft }) => ({ draft: { text: draft.text, sent: draft.sent } }),
+      // Only the words survive a reload, kept drafts' included. Attachments are files hobkin holds for this session.
+      partialize: ({ draft }) => ({ draft: storedDraft(draft) }),
       merge: (saved, current) => ({ ...current, draft: { ...emptyDraft, ...(saved as { draft?: Partial<DraftState> } | undefined)?.draft } }),
     },
   ),

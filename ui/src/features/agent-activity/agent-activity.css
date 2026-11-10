@@ -1,0 +1,51 @@
+/*
+ * The parts of an agent's activity that the review's diff and Tailwind do not cover.
+ */
+
+/* A diff inside the canvas scrolls the canvas on past its own end, unlike one in the review. */
+.aa-diff .dv {
+  overscroll-behavior: auto;
+}
+
+/* A hairline over the diff's own background, so it stands off a canvas of nearly the same color. */
+.aa-diff {
+  position: relative;
+}
+.aa-diff::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--hb-border);
+  pointer-events: none;
+}
+
+/*
+ * An edit's place in its file is not known (hobkin keeps the text the agent replaced, not the line it was on),
+ * so its lines carry no numbers rather than wrong ones.
+ */
+.aa-diff[data-numbers='none'] .dv {
+  --dv-gutter: 0px;
+}
+.aa-diff[data-numbers='none'] .dv-no {
+  visibility: hidden;
+  padding: 0;
+}
+
+/* Something still running: a dot that breathes. Only its opacity moves. */
+.aa-running {
+  animation: aa-breathe 1.4s ease-in-out infinite;
+}
+@keyframes aa-breathe {
+  50% {
+    opacity: 0.3;
+  }
+}
+:root[data-motion='still'] .aa-running {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .aa-running {
+    animation: none;
+  }
+}

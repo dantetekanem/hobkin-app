@@ -4,7 +4,9 @@ import { ghSource } from './github-gh.ts'
 import { resolveHome } from './home.ts'
 import { startHost } from './host.ts'
 import { openGitHubPage } from './github.ts'
+import { openFileInSystem, openInSystem } from './open.ts'
 import { openInBrowser } from './signin.ts'
+import { spawnGh } from './review/gh.ts'
 
 /** The host's entry. The shell starts it, reads `client/host.json` in the home for the port and the token, and stops it with a signal. */
 async function main(args: readonly string[]): Promise<void> {
@@ -34,9 +36,13 @@ async function main(args: readonly string[]): Promise<void> {
     log: (line) => console.log(line),
     // A GitHub row the user chose opens in the browser, in the scripted host too: the user asked for it.
     openGitHub: openGitHubPage,
+    // A link or a file the user clicked opens in the Mac's default app, in the scripted host too.
+    openSystem: openInSystem,
+    openFile: openFileInSystem,
     ...scripted,
     // A live host always reads the real GitHub, read only. The scripted one shows made-up data unless asked.
-    ...(options.live || options.github ? { github: ghSource() } : {}),
+    // Change Review reads pull requests the same way, and only a live host posts a verdict the user confirmed.
+    ...(options.live || options.github ? { github: ghSource(), reviewGh: spawnGh() } : {}),
   })
   if (options.github && !options.live) console.log('The GitHub page reads the real GitHub through gh, read only.')
   // The token is never printed. It is in the home, readable by the user only.

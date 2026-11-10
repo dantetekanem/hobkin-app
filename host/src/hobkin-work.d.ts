@@ -57,6 +57,12 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export const prModes: readonly string[]
   /** P0 first. The sort is stable, so projects of one priority stay in the order they came in. */
   export function byPriority(left: { priority?: string }, right: { priority?: string }): number
+  /** Proposals in the order the look for projects ranked them. */
+  export function byRank(left: { rank?: number }, right: { rank?: number }): number
+  /** The most agents work mode will ever run at once, whatever is asked for. */
+  export const MAX_AGENTS: number
+  /** How many agents may run at once, as `hobkin work agents <n>` sets it. Throws for a number out of range. */
+  export function setAgents(root: string, agents: number): { agents: number; [key: string]: unknown }
   /** Work mode's switch and settings, as saved in the home. */
   export function readMode(root: string): { enabled: boolean; folder: string | null; autoPick: boolean; [key: string]: unknown }
   /** Takes a project: a known one by slug, or a folder by its absolute path. */

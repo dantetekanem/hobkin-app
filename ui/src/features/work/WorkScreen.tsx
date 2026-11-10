@@ -12,7 +12,7 @@ import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
-import { SaidLine } from './parts.tsx'
+import { SaidLine, Segmented } from './parts.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { runWork, useWorkUi, useWorkView } from './store.ts'
 
@@ -110,10 +110,11 @@ export function WorkScreen() {
         </Hero>
         <Rise>
           <section aria-label="At work" className="flex flex-col gap-3">
-            <div className="flex items-baseline gap-2 px-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
               <h2 className="eyebrow">At work</h2>
               <span className="eyebrow tabular-nums">{agents.length}</span>
               {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
+              {work ? <AgentsAtOnce work={work} live={live} /> : null}
             </div>
             <DelegationMap agents={agents} capacity={work?.agents ?? 0} enabled={work?.enabled ?? false} live={live} />
           </section>
@@ -132,6 +133,31 @@ export function WorkScreen() {
           </>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+/**
+ * How many work agents may run at once: hobkin's own setting, as `hobkin work agents` sets it, from one to hobkin's
+ * most. Left and Right change it. Running agents finish as they are.
+ */
+function AgentsAtOnce({ work, live }: { work: WorkState; live: boolean }) {
+  const busy = useWorkUi((state) => Boolean(state.busy['agents']))
+  const said = useWorkUi((state) => state.said['agents'])
+  const options = Array.from({ length: work.maxAgents }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))
+
+  return (
+    <div className="ml-auto flex flex-wrap items-center gap-2">
+      <span className="eyebrow">Agents at once</span>
+      <Segmented
+        label="Work agents that may run at once"
+        name="agents-at-once"
+        value={String(work.agentsAllowed)}
+        options={options}
+        disabled={busy}
+        onChoose={(agents) => void runWork({ do: 'agents', agents: Number(agents) }, { live, place: 'agents' })}
+      />
+      {said?.tone === 'refused' ? <SaidLine tone="refused">{said.text}</SaidLine> : null}
     </div>
   )
 }

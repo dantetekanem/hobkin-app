@@ -24,6 +24,9 @@ function fakeHobkin(answers: Record<string, (...args: unknown[]) => unknown> = {
       const answer = answers[String(args[0])]
       return answer ? answer(...args.slice(1)) : { ok: true, message: `hobkin did ${String(args[0])}.` }
     },
+    refresh: async () => {
+      calls.push(['refresh'])
+    },
   }
   return { app, calls }
 }
@@ -154,14 +157,14 @@ test('queue actions call hobkin\'s work actions', async () => {
   const { app, calls } = fakeHobkin()
   const handlers = handlersOf(app)
   const key = 'item:storefront:a1a1a1'
-  for (const action of ['run', 'skip', 'back'] as const) assert.equal((await runCommand(handlers, 'work.queue', { key, action })).ok, true)
+  for (const action of ['run', 'skip', 'back'] as const) assert.equal((await runCommand(handlers, 'work.queue', { row: key, action })).ok, true)
   // The terminal's keys on a queue row: Enter runs it next, s skips it, and s on a skipped row puts it back.
   assert.deepEqual(calls, [
     ['run', key],
     ['later', key],
     ['back', key],
   ])
-  const refused = await runCommand(handlers, 'work.queue', { key, action: 'delete' })
+  const refused = await runCommand(handlers, 'work.queue', { row: key, action: 'delete' })
   assert.equal(!refused.ok && refused.error.code, 'invalid-arguments')
   assert.equal(calls.length, 3, 'nothing else reached hobkin')
 })
@@ -268,6 +271,60 @@ test('project settings round trip', async (t) => {
   const wrong = await runCommand(handlers, 'work.project', { slug, priority: 'P9' })
   assert.equal(!wrong.ok && wrong.error.code, 'invalid-arguments')
   assert.equal(calls.length, 2)
+})
+
+test('projects show their state, and a proposal is answered as in the terminal', async () => {
+  const projects = [
+    { slug: 'old-site', name: 'old-site', state: 'dropped', priority: 'P3' },
+    { slug: 'docs-site', name: 'docs-site', state: 'chosen', priority: 'P2', prMode: 'published' },
+    { slug: 'design-kit', name: 'design-kit', state: 'proposed', level: 'casual', rank: 2 },
+    { slug: 'storefront', name: 'storefront', state: 'chosen', priority: 'P0' },
+    { slug: 'labs', name: 'labs', state: 'skipped' },
+    { slug: 'billing-api', name: 'billing-api', state: 'proposed', level: 'important', rank: 1 },
+  ]
+
+  const work = workFrom({ work: status({ projects }), waiting: null })!
+
+  // The ones taken by priority, then the proposals as the look ranked them, then the ones left alone.
+  assert.deepEqual(
+    work.projects.map(({ state, slug }) => `${state} ${slug}`),
+    ['chosen storefront', 'chosen docs-site', 'proposed billing-api', 'proposed design-kit', 'skipped labs', 'dropped old-site'],
+  )
+
+  const { app, calls } = fakeHobkin()
+  const handlers = handlersOf(app)
+
+  // y and n on a proposal in the terminal. A project left alone is taken again the same way.
+  assert.equal((await runCommand(handlers, 'work.proposal', { slug: 'billing-api', answer: 'take' })).ok, true)
+  assert.equal((await runCommand(handlers, 'work.proposal', { slug: 'design-kit', answer: 'skip' })).ok, true)
+  assert.equal((await runCommand(handlers, 'work.proposal', { slug: 'labs', answer: 'take' })).ok, true)
+
+  assert.deepEqual(calls, [
+    ['choose', 'billing-api'],
+    ['skip', 'design-kit'],
+    ['choose', 'labs'],
+  ])
+})
+
+test('agents at once round trip', async (t) => {
+  // hobkin's own store in a home of the test's.
+  const root = temporaryDirectory(t)
+  const { app, calls } = fakeHobkin()
+  const handlers = handlersOf(app, root)
+  const reported = async () => workFrom({ work: await runWorkCommand(root, []), waiting: null })!.agentsAllowed
+
+  assert.equal(await reported(), 2, "hobkin's own default")
+
+  const set = await runCommand(handlers, 'work.agents', { agents: 4 })
+
+  assert.deepEqual(set, { ok: true, value: { agents: 4 } })
+  // What `hobkin work` reports afterwards is the change, and the window hears of it at once.
+  assert.equal(await reported(), 4)
+  assert.deepEqual(calls, [['refresh']])
+
+  const tooMany = await runCommand(handlers, 'work.agents', { agents: 9 })
+  assert.equal(!tooMany.ok && tooMany.error.code, 'invalid-arguments')
+  assert.equal(await reported(), 4)
 })
 
 /** hobkin's runs as its snapshot lists them: its own conversation, a work agent, a routine, and one that has finished. */

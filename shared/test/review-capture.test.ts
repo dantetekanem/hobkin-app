@@ -108,3 +108,29 @@ test('summarizes files beyond the limits', async () => {
   const within = await captureChange(memoryReader({}, many), 'base', 'head', { files: 100, changedLines: 4000 })
   assert.equal(within.files.some((file) => file.summarized), false, 'the limits can be set')
 })
+
+test('a file the source already counted is summarized without reading it', async () => {
+  const reads: string[] = []
+  const reader = {
+    changed: async () => [
+      { path: 'src/a.ts', status: 'modified' as const },
+      { path: 'vendor/huge.js', status: 'added' as const, counted: { additions: 90000, deletions: 0 } },
+    ],
+    read: async (commit: string, path: string) => {
+      reads.push(`${commit}:${path}`)
+      return { kind: 'text' as const, text: commit === 'base' ? 'export const a = 1\n' : 'export const a = 2\n' }
+    },
+  }
+  const capture = await captureChange(reader, 'base', 'head')
+
+  assert.deepEqual(reads.sort(), ['base:src/a.ts', 'head:src/a.ts'], 'the counted file is never read')
+  const huge = capture.files.find((file) => file.path === 'vendor/huge.js')!
+  assert.deepEqual([huge.summarized, huge.skipped, huge.additions, huge.deletions, huge.base, huge.head], [true, true, 90000, 0, null, null])
+  assert.equal(capture.additions, 90001)
+  assert.equal(capture.changes.some((change) => change.fileId === 'vendor/huge.js'), false)
+
+  const review = await prepareReview({ id: 'counted', change: { project: 'demo', item: 'c', title: 'Counted', branch: 'b' }, capture, spec: null, readHead: async () => null })
+  const node = review.nodes.find((entry) => entry.subtitle === 'vendor/huge.js')!
+  assert.deepEqual([node.kind, node.stats], ['file', { additions: 90000, deletions: 0 }])
+  assert.match(node.summary, /not read/i)
+})

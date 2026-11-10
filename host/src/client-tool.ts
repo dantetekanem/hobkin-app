@@ -48,6 +48,7 @@ export function createClientTool({ run }: ClientToolOptions) {
     description: [
       "Use the hobkin app's own commands, the ones its window runs for the user's clicks.",
       'Through it you can list the model providers Pi knows and whether each is connected, say how to set up an API key without the key passing through the app, and start or cancel a sign-in to a provider such as a ChatGPT or Claude subscription, which the user then approves in the browser.',
+      'canvas.show opens a panel beside the screens with a web page (http or https) when you have something to show, such as an app you are testing; canvas.close sends it away.',
       'Start with action "list". Never ask the user for a key, token or password: give them the steps from models.key-help instead.',
     ].join(' '),
     promptSnippet: "client: run the hobkin app's commands, such as listing model providers or starting a sign-in",

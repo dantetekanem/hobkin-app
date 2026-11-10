@@ -108,6 +108,9 @@ export interface PiAi {
 export const loadPiCodingAgent = (): Promise<PiCodingAgent> => import(entryOf('@earendil-works/pi-coding-agent'))
 export const loadPiAi = (): Promise<PiAi> => import(entryOf('@earendil-works/pi-ai'))
 
+/** A module of Pi's package that it does not export by name, by its file next to Pi's entry, such as its MCP code. */
+export const piCodingAgentFile = (path: string): string => new URL(path, entryOf('@earendil-works/pi-coding-agent')).href
+
 /** What Pi's settings say about the model to start with. Only the reads the host makes. */
 export interface PiModelSettings {
   getDefaultProvider(): string | undefined

@@ -198,6 +198,8 @@ export interface PlacedBand {
 }
 
 export interface Scene {
+  /** The width it was drawn for, in CSS pixels. */
+  width: number
   track: { all: string; day: string }
   ridges: string[]
   labels: TimeLabel[]
@@ -224,6 +226,7 @@ export function sceneOf({ span, width, zone, labels, now, marks }: SceneInput): 
   }
 
   return {
+    width,
     track: trackPaths(span, width),
     ridges: RIDGES.map((ridge) => ridgePath(ridge.heights, width)),
     labels: labels === 'days' ? dayLabels(span, width, zone, now) : hourLabels(span, width, zone, now),

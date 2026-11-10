@@ -1,18 +1,22 @@
+import { RotateCw } from 'lucide-react'
 import { AnimatePresence, LayoutGroup, motion, type Variants } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { CATALOG, CHECKED } from '#shared/integrations/catalog.ts'
 import { splitServers } from '#shared/integrations/servers.ts'
 import type { CatalogEntry } from '#shared/integrations/types.ts'
+import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import { focusCanvas } from '@/app/keys.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
+import { Button } from '@/components/ui/button.tsx'
 import { useGitHub } from '@/lib/host/index.ts'
 import { spring, stagger, staggerDelay } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { checkedOn, Detail } from './Detail.tsx'
 import { withGh } from './gh.ts'
 import { allItems, itemsOf, type Item } from './items.ts'
-import { useIntegrations } from './store.ts'
+import { actionsFor, useServers } from './live.ts'
+import { needsLook } from './source.ts'
 import { OwnTile, ServiceTile, useStill } from './tiles.tsx'
 import { isArrowKey, walk, type Box } from './walk.ts'
 
@@ -30,6 +34,16 @@ function stopsIn(layer: HTMLElement): HTMLElement[] {
 function boxOf(element: HTMLElement): Box {
   const { left, top, width, height } = element.getBoundingClientRect()
   return { left, top, width, height }
+}
+
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+/** Where the servers on screen come from, and when they were looked at, in one line. */
+function piLine(pi: IntegrationsState): string {
+  const from = `From Pi's configuration, ${pi.path ?? 'which the host reads when asked'}.`
+  if (pi.checking) return `${from} Looking at each server now.`
+  if (!pi.checkedAt) return from
+  return `${from} Looked at ${new Date(pi.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`
 }
 
 /**
@@ -62,7 +76,11 @@ function useLanding(root: RefObject<HTMLDivElement | null>, scroller: RefObject<
  * An Escape with nothing of the screen's own open is left for the frame, which steps back up to Settings.
  */
 export function IntegrationsScreen() {
-  const servers = useIntegrations((state) => state.servers)
+  // With a host, only what it read from Pi's configuration. Without one, the sample.
+  const { live, servers, pi } = useServers()
+  const actions = actionsFor(live)
+  /** What the host said when connecting or removing did not happen. */
+  const [notice, setNotice] = useState<string | null>(null)
   // GitHub connects through gh, so its tile follows how gh stands (024-github).
   const { connection, login, sample } = useGitHub()
   const items = useMemo(() => withGh(itemsOf(splitServers(servers)), { connection, login }), [servers, connection, login])
@@ -75,6 +93,14 @@ export function IntegrationsScreen() {
   const open = openKey === null ? null : (allItems(items).find((item) => item.key === openKey) ?? null)
 
   useLanding(root, scroller)
+
+  // Opening the screen with a host looks at Pi's servers once, unless that was done in the last minute.
+  const looked = useRef(false)
+  useEffect(() => {
+    if (!live || looked.current || !needsLook(pi, Date.now())) return
+    looked.current = true
+    actions.refresh().catch((error: unknown) => setNotice(messageOf(error)))
+  }, [live, pi, actions])
 
   // A server that went away while its detail was open takes the detail with it.
   useEffect(() => {
@@ -101,10 +127,14 @@ export function IntegrationsScreen() {
   }
 
   // Connecting and removing wait for the detail to go back into its tile, so the tile is seen travelling to its new part.
+  // With a host the tile moves once the host reports the change, so the keyboard follows it then.
   const connect = (entry: CatalogEntry, values: Record<string, string>) =>
     close(() => {
-      useIntegrations.getState().connect(entry, values)
-      focusTile(entry.id, true)
+      setNotice(null)
+      actions.connect(entry, values).then(
+        () => focusTile(entry.id, true),
+        (error: unknown) => setNotice(messageOf(error)),
+      )
     })
 
   const remove = (item: Item) => {
@@ -112,9 +142,17 @@ export function IntegrationsScreen() {
     const at = keys.indexOf(item.key)
     const next = item.kind === 'service' ? item.key : (keys[at + 1] ?? keys[at - 1] ?? null)
     close(() => {
-      if (item.server) useIntegrations.getState().remove(item.server.name)
-      focusTile(next, true)
+      setNotice(null)
+      ;(item.server ? actions.remove(item.server.name) : Promise.resolve()).then(
+        () => focusTile(next, true),
+        (error: unknown) => setNotice(messageOf(error)),
+      )
     })
+  }
+
+  const lookAgain = () => {
+    setNotice(null)
+    actions.refresh().catch((error: unknown) => setNotice(messageOf(error)))
   }
 
   /** Pages › GitHub, with the keyboard on the page once it has arrived. From GitHub's detail. */
@@ -149,6 +187,15 @@ export function IntegrationsScreen() {
   const working = items.connected.filter(works).length
   const needLook = items.connected.length - working
   const fromMakers = CATALOG.every((entry) => entry.fromVendor)
+  const connectedLine = live
+    ? pi
+      ? piLine(pi)
+      : "This host does not read Pi's configuration yet. Restart it to see your servers here."
+    : sample
+      ? "Sample data. Nothing here changes Pi's configuration yet."
+      : "Sample data, apart from GitHub through gh. Nothing here changes Pi's configuration yet."
+  // What did not go as asked, then what Pi could not read: each in its own words.
+  const notices = [...(notice ? [notice] : []), ...(pi?.error ? [pi.error] : []), ...(pi?.problems ?? []).map((problem) => `Pi skipped part of its configuration: ${problem}`)]
 
   return (
     <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} className="relative h-full outline-none">
@@ -161,10 +208,31 @@ export function IntegrationsScreen() {
               <Part
                 label="Connected"
                 title={items.connected.length === 0 ? 'Nothing connected yet' : needLook > 0 ? `${working} connected, ${needLook} need${needLook === 1 ? 's' : ''} a look` : `${working} connected`}
-                line={sample ? "Sample data. Nothing here changes Pi's configuration yet." : "Sample data, apart from GitHub through gh. Nothing here changes Pi's configuration yet."}
+                line={connectedLine}
+                aside={
+                  live && pi ? (
+                    <Button variant="outline" size="sm" data-key-stop="" aria-label="Check every server again" onClick={lookAgain} className="shrink-0">
+                      <RotateCw className={cn(pi.checking && 'svc-spin')} aria-hidden="true" />
+                      {pi.checking ? 'Looking' : 'Check again'}
+                    </Button>
+                  ) : null
+                }
               >
-                <Grid count={items.connected.length} empty="Pick a service below to connect it." className="gap-3 grid-cols-3 @max-[1000px]:grid-cols-2 @max-[640px]:grid-cols-1">
-                  {items.connected.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} still={still} onOpen={setOpenKey} /> : null))}
+                {notices.length > 0 ? (
+                  <ul className="flex flex-col gap-1.5">
+                    {notices.map((text) => (
+                      <li key={text} className="rounded-2xl bg-warn/15 px-4 py-2.5 text-[13px] break-words text-warn-fg">
+                        {text}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <Grid
+                  count={items.connected.length}
+                  empty={live && pi?.checking ? "Reading Pi's configuration." : 'Pick a service below to connect it.'}
+                  className="gap-3 grid-cols-3 @max-[1000px]:grid-cols-2 @max-[640px]:grid-cols-1"
+                >
+                  {items.connected.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
                 </Grid>
               </Part>
             </Hero>
@@ -179,7 +247,7 @@ export function IntegrationsScreen() {
                 }
               >
                 <Grid count={items.available.length} empty="Every service in the catalog is configured." className="grid-cols-4 gap-2.5 @max-[1000px]:grid-cols-3 @max-[760px]:grid-cols-2">
-                  {items.available.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} still={still} onOpen={setOpenKey} /> : null))}
+                  {items.available.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
                 </Grid>
               </Part>
             </Rise>
@@ -195,7 +263,7 @@ export function IntegrationsScreen() {
               >
                 <Grid count={items.own.length} empty="Nothing of your own yet." className="gap-3 grid-cols-2 @max-[760px]:grid-cols-1">
                   <AnimatePresence initial={false}>
-                    {items.own.map((item) => (item.kind === 'own' ? <OwnTile key={item.key} item={item} still={still} onOpen={setOpenKey} /> : null))}
+                    {items.own.map((item) => (item.kind === 'own' ? <OwnTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
                   </AnimatePresence>
                 </Grid>
               </Part>
@@ -215,6 +283,9 @@ export function IntegrationsScreen() {
               item={open}
               servers={servers}
               still={still}
+              live={live}
+              path={pi?.path ?? null}
+              actions={actions}
               onClose={() => close()}
               onConnect={(values) => {
                 if (open.kind === 'service') connect(open.entry, values)
@@ -230,13 +301,16 @@ export function IntegrationsScreen() {
 }
 
 /** One of the three parts: a label, a line that sums it up, and its tiles. The heading glides when the parts above it change size. */
-function Part({ label, title, line, children }: { label: string; title: string; line: ReactNode; children: ReactNode }) {
+function Part({ label, title, line, aside, children }: { label: string; title: string; line: ReactNode; aside?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={label} className="flex flex-col gap-4">
-      <motion.header layout="position" transition={spring.screen}>
-        <h2 className="eyebrow">{label}</h2>
-        <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">{title}</p>
-        <p className="mt-1 text-[13px] text-muted-foreground">{line}</p>
+      <motion.header layout="position" transition={spring.screen} className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="eyebrow">{label}</h2>
+          <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">{title}</p>
+          <p className="mt-1 text-[13px] break-words text-muted-foreground">{line}</p>
+        </div>
+        {aside}
       </motion.header>
       {children}
     </section>

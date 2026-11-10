@@ -1,8 +1,7 @@
 import { AnimatePresence, motion, type Transition } from 'motion/react'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { useProjects, useSessions } from '@/lib/host/index.ts'
-import { VEIL_SECTIONS } from './screens.ts'
+import { useSessions } from '@/lib/host/index.ts'
 import { stillVariants, useStill } from './still.ts'
 import { useView } from './view-store.ts'
 
@@ -16,21 +15,18 @@ const arrive: Transition = spring.sheet
 const leave: Transition = { ...spring.sheet, duration: 0.3 }
 
 /**
- * Projects and earlier conversations, as a veil over the chat. It is not a pane: it lies inside the chat's
- * own bounds, the conversation stays visible beneath it, and it leaves as soon as something is chosen.
- * Switching between the two lists slides only the list.
+ * Earlier conversations, as a veil over the chat. It is not a pane: it lies inside the chat's own bounds, the
+ * conversation stays visible beneath it, and it leaves as soon as something is chosen. Projects live in Work.
  *
- * Its keys are the frame's (`key-map.ts`): Up and Down walk the list, Left and Right change list, Enter
- * chooses and Escape closes, wherever the keyboard was when the veil opened. The reached row is state,
- * not focus, so a click on the header's button works the same as its key.
+ * Its keys are the frame's (`key-map.ts`): Up and Down walk the list, Enter chooses and Escape closes, wherever
+ * the keyboard was when the veil opened. The reached row is state, not focus, so a click on the header's button
+ * works the same as its key.
  */
 export function ChatVeil() {
-  const projects = useProjects()
   const sessions = useSessions()
   const still = useStill()
   const veil = useView((view) => view.veil)
   const closeVeil = useView((view) => view.closeVeil)
-  const index = veil ? VEIL_SECTIONS.indexOf(veil) : 0
 
   const close = () => {
     closeVeil()
@@ -43,7 +39,7 @@ export function ChatVeil() {
         <motion.div
           key="veil"
           role="dialog"
-          aria-label={veil === 'history' ? 'Earlier conversations' : 'Projects'}
+          aria-label="Earlier conversations"
           data-chat-veil
           className="select-none-chrome absolute inset-0 z-10"
           initial="away"
@@ -75,29 +71,10 @@ export function ChatVeil() {
               still,
             )}
           >
-            <motion.div
-              className="flex"
-              style={{ width: `${VEIL_SECTIONS.length * 100}%` }}
-              initial={false}
-              animate={{ transform: `translateX(${(-index * 100) / VEIL_SECTIONS.length}%)` }}
-              transition={still ? { duration: 0 } : spring.screen}
-            >
-              <List label="Projects" shown={veil === 'projects'}>
-                {projects.map((project, row) => (
-                  <Row key={project.slug} row={row} shown={veil === 'projects'} onChoose={close}>
-                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-[11px] font-semibold">{project.priority}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15px] leading-tight">{project.name}</span>
-                      <span className="block truncate text-[12px] text-muted-foreground">
-                        {project.queued} queued · {project.waiting} waiting on you
-                      </span>
-                    </span>
-                  </Row>
-                ))}
-              </List>
-              <List label="Earlier conversations" shown={veil === 'history'}>
+            <div role="listbox" aria-label="Earlier conversations" data-veil-list className="scroll-quiet max-h-full overflow-y-auto px-3 pt-2 pb-4">
+              <div className="mx-auto flex max-w-[640px] flex-col gap-0.5">
                 {sessions.map((session, row) => (
-                  <Row key={session.id} row={row} shown={veil === 'history'} onChoose={close}>
+                  <Row key={session.id} row={row} onChoose={close}>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[15px] leading-tight">{session.title}</span>
                       <span className="block truncate text-[12px] text-muted-foreground">
@@ -106,8 +83,8 @@ export function ChatVeil() {
                     </span>
                   </Row>
                 ))}
-              </List>
-            </motion.div>
+              </div>
+            </div>
           </motion.div>
         </motion.div>
       ) : null}
@@ -115,24 +92,8 @@ export function ChatVeil() {
   )
 }
 
-function List({ label, shown, children }: { label: string; shown: boolean; children: React.ReactNode }) {
-  return (
-    <div
-      role="listbox"
-      aria-label={label}
-      data-veil-list
-      // The list that is off to the side is not read out and takes no clicks.
-      inert={!shown}
-      className="scroll-quiet max-h-full overflow-y-auto px-3 pt-2 pb-4"
-      style={{ width: `${100 / VEIL_SECTIONS.length}%` }}
-    >
-      <div className="mx-auto flex max-w-[640px] flex-col gap-0.5">{children}</div>
-    </div>
-  )
-}
-
-function Row({ row, shown, onChoose, children }: { row: number; shown: boolean; onChoose: () => void; children: React.ReactNode }) {
-  const active = useView((view) => view.veilActive === row) && shown
+function Row({ row, onChoose, children }: { row: number; onChoose: () => void; children: React.ReactNode }) {
+  const active = useView((view) => view.veilActive === row)
   const setVeilActive = useView((view) => view.setVeilActive)
 
   return (

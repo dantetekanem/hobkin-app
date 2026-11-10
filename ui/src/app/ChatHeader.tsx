@@ -1,26 +1,21 @@
-import { FolderGit2, History, Moon, Settings2, Sun, type LucideIcon } from 'lucide-react'
+import { History, Moon, Settings2, Sun } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Mark } from '@/components/Mark.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useConnection } from '@/lib/host/index.ts'
-import { VEIL_SECTIONS, type VeilSection } from './screens.ts'
+import { Spotlight } from './Spotlight.tsx'
 import { originOf, toggleTheme, useTheme } from './theme.ts'
 import { useView } from './view-store.ts'
 
-const SECTIONS: Record<VeilSection, { label: string; icon: LucideIcon; keys: string }> = {
-  projects: { label: 'Projects', icon: FolderGit2, keys: '⌘P' },
-  history: { label: 'History', icon: History, keys: '⌘Y' },
-}
-
 /**
- * The strip above the chat. The window is dragged by it. It holds the wordmark, the two buttons that
- * veil the chat with a list, and the theme switch.
+ * The strip above the chat. The window is dragged by it. It holds the wordmark, the button that veils the chat
+ * with earlier conversations, and the theme switch. The spotlight (Command+K) is drawn from here, over the whole window.
  */
 export function ChatHeader() {
   const theme = useTheme()
-  const veil = useView((view) => view.veil)
+  const historyOpen = useView((view) => view.veil === 'history')
   const openVeil = useView((view) => view.openVeil)
   const closeVeil = useView((view) => view.closeVeil)
   const toggleSettings = useView((view) => view.toggleSettings)
@@ -44,34 +39,28 @@ export function ChatHeader() {
         />
       </div>
       <div data-tauri-drag-region className="flex-1 self-stretch" />
-      {VEIL_SECTIONS.map((id) => {
-        const { label, icon: Icon, keys } = SECTIONS[id]
-        const active = veil === id
-        return (
-          <Tooltip key={id}>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-pressed={active}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => (active ? closeVeil() : openVeil(id))}
-                  className={cn(
-                    'no-drag relative flex h-8 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-medium tracking-[-0.01em] outline-offset-0',
-                    'transition-colors duration-[160ms] ease-[ease]',
-                    active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                />
-              }
-            >
-              {active ? <motion.span layoutId="chat-veil-button" className="absolute inset-0 rounded-full bg-surface-2" transition={spring.pill} /> : null}
-              <Icon className="relative size-3.5" aria-hidden="true" />
-              <span className="relative">{label}</span>
-            </TooltipTrigger>
-            <TooltipContent>{keys}</TooltipContent>
-          </Tooltip>
-        )
-      })}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-pressed={historyOpen}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => (historyOpen ? closeVeil() : openVeil('history'))}
+              className={cn(
+                'no-drag relative flex h-8 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-medium tracking-[-0.01em] outline-offset-0',
+                'transition-colors duration-[160ms] ease-[ease]',
+                historyOpen ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            />
+          }
+        >
+          {historyOpen ? <motion.span layoutId="chat-veil-button" className="absolute inset-0 rounded-full bg-surface-2" transition={spring.pill} /> : null}
+          <History className="relative size-3.5" aria-hidden="true" />
+          <span className="relative">History</span>
+        </TooltipTrigger>
+        <TooltipContent>⌘Y</TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger
           render={
@@ -108,6 +97,7 @@ export function ChatHeader() {
         </TooltipTrigger>
         <TooltipContent>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</TooltipContent>
       </Tooltip>
+      <Spotlight />
     </header>
   )
 }

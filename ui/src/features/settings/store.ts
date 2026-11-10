@@ -17,6 +17,8 @@ interface SettingsState {
   usedToday: number
   usageEvents: boolean
   feedback: boolean
+  /** GitHub sits in the screen menu. The switch is in GitHub's detail in Integrations (024-github). */
+  showGitHubInMenu: boolean
 
   setMovement: (movement: Movement) => void
   setTypeFace: (typeFace: TypeFace) => void
@@ -25,6 +27,7 @@ interface SettingsState {
   changeDailyTokens: (delta: -1 | 1) => void
   setUsageEvents: (on: boolean) => void
   setFeedback: (on: boolean) => void
+  setShowGitHubInMenu: (on: boolean) => void
 }
 
 export const useSettings = create<SettingsState>()(
@@ -37,6 +40,7 @@ export const useSettings = create<SettingsState>()(
       usedToday: 38_000_000,
       usageEvents: true,
       feedback: true,
+      showGitHubInMenu: true,
 
       setMovement: (movement) => set({ movement }),
       setTypeFace: (typeFace) => set({ typeFace }),
@@ -45,11 +49,20 @@ export const useSettings = create<SettingsState>()(
       changeDailyTokens: (delta) => set({ dailyTokens: stepBudget(get().dailyTokens, delta) }),
       setUsageEvents: (usageEvents) => set({ usageEvents }),
       setFeedback: (feedback) => set({ feedback }),
+      setShowGitHubInMenu: (showGitHubInMenu) => set({ showGitHubInMenu }),
     }),
     {
       name: 'hobkin-client-settings',
       version: 1,
-      partialize: ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback }) => ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback }),
+      partialize: ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu }) => ({
+        movement,
+        typeFace,
+        agents,
+        dailyTokens,
+        usageEvents,
+        feedback,
+        showGitHubInMenu,
+      }),
     },
   ),
 )

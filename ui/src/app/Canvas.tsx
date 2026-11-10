@@ -1,7 +1,6 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { lazy, Suspense, type ComponentType } from 'react'
 import { spring, stagger, staggerDelay, tween } from '@/lib/motion.ts'
-import { PagesScreen } from '@/features/pages/PagesScreen.tsx'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
 import { RoutinesScreen } from '@/features/routines/RoutinesScreen.tsx'
 import { SettingsScreen } from '@/features/settings/SettingsScreen.tsx'
@@ -9,6 +8,7 @@ import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { useHasHost } from '@/lib/host/index.ts'
 import { SignInScreen } from '@/features/signin/SignInScreen.tsx'
 import { AgentScreen } from '@/features/work/AgentScreen.tsx'
+import { CanvasPanel } from '@/features/canvas-panel/CanvasPanel.tsx'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { ScreenMenu } from './ScreenMenu.tsx'
@@ -31,7 +31,7 @@ const WorkScreen = lazy(() => import('@/features/work/WorkScreen.tsx').then((mod
  * Screens that so far can show only sample data. While a host is connected they are not drawn: the user's own
  * hobkin is never shown made-up data. Each leaves this list when it reads hobkin.
  */
-const NOT_WIRED: ReadonlySet<ScreenId> = new Set(['integrations'])
+const NOT_WIRED: ReadonlySet<ScreenId> = new Set<ScreenId>([])
 
 /** Each canvas screen. A feature replaces its placeholder here when it is built. */
 const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
@@ -40,7 +40,6 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   reports: ReportsScreen,
   actions: ActionsScreen,
   integrations: IntegrationsScreen,
-  pages: PagesScreen,
   github: GitHubScreen,
   agent: AgentScreen,
   review: ReviewScreen,
@@ -113,7 +112,6 @@ export function Canvas() {
 
   return (
     <motion.main
-      aria-label="Canvas"
       className="@container relative z-30 min-w-0 flex-1"
       // The canvas takes room from the chat by sliding its left edge over it. The chat itself does not move.
       initial={false}
@@ -148,6 +146,7 @@ export function Canvas() {
             </ScreenBoundary>
           </motion.section>
         </AnimatePresence>
+        <CanvasPanel />
       </div>
     </motion.main>
   )

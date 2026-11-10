@@ -45,9 +45,11 @@ test("each action of the screen is one of hobkin's work actions, at the commit i
   const calls: [WorkAction, ReturnType<typeof commandFor>][] = [
     [{ do: 'mode', on: true, folder: '~/code' }, { name: 'work.mode', args: { on: true, folder: '~/code' } }],
     [{ do: 'mode', on: false }, { name: 'work.mode', args: { on: false } }],
-    [{ do: 'queue', key: 'look:billing-api', action: 'skip' }, { name: 'work.queue', args: { key: 'look:billing-api', action: 'skip' } }],
+    [{ do: 'queue', key: 'look:billing-api', action: 'skip' }, { name: 'work.queue', args: { row: 'look:billing-api', action: 'skip' } }],
     [{ do: 'priority', slug: 'storefront', priority: 'P0' }, { name: 'work.project', args: { slug: 'storefront', priority: 'P0' } }],
     [{ do: 'prs', slug: 'storefront', prs: 'draft' }, { name: 'work.project', args: { slug: 'storefront', prs: 'draft' } }],
+    [{ do: 'proposal', slug: 'design-kit', answer: 'take' }, { name: 'work.proposal', args: { slug: 'design-kit', answer: 'take' } }],
+    [{ do: 'agents', agents: 3 }, { name: 'work.agents', args: { agents: 3 } }],
     [{ do: 'change', change, choice: 'merge' }, { name: 'work.change', args: { slug: change.slug, item: change.item, action: 'merge', head: change.head! } }],
     [{ do: 'change', change, choice: 'rebase' }, { name: 'work.change', args: { slug: change.slug, item: change.item, action: 'ask', note: '' } }],
     [{ do: 'change', change, choice: 'changes', note: 'Keep the old cart.' }, { name: 'work.change', args: { slug: change.slug, item: change.item, action: 'ask', note: 'Keep the old cart.' } }],

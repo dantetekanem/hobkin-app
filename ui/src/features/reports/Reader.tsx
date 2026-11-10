@@ -1,38 +1,20 @@
 import { ChevronLeft, ChevronRight, Reply, Trash, X } from 'lucide-react'
-import { AnimatePresence, motion, useAnimate, usePresence, type Variants } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useMemo, type ReactNode } from 'react'
+import { slideVariants } from './slide.ts'
+import { useStill } from './still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { dur, ease, spring, staggerDelay, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { kindOf, plainLine, readerParts, sourceOf, type Report, type Triage, type TriageLevel } from './report.ts'
 import { ReportMarkdown } from './ReportMarkdown.tsx'
-import { useStill } from './still.ts'
 import { clockTime, dayLabel, timeOf } from './time.ts'
 import { KIND_NAME, TONE_NAME, TONE_TEXT, kindIconOf } from './Tone.tsx'
 
-const REST = 'translateX(0px) translateY(0px) scaleX(1) scaleY(1)'
-
-/** The transform that lays the reader exactly over `from`, measured from where it rests (`to`). Its origin is its top left. */
-function flip(from: DOMRect, to: DOMRect): string {
-  return `translateX(${from.left - to.left}px) translateY(${from.top - to.top}px) scaleX(${from.width / to.width}) scaleY(${from.height / to.height})`
-}
-
-function pageVariants(still: boolean): Variants {
-  return {
-    from: (direction: 1 | -1) => (still ? { opacity: 0 } : { opacity: 0, transform: `translateX(${direction * 56}px)` }),
-    here: { opacity: 1, transform: 'translateX(0px)', transition: { transform: spring.screen, opacity: tween.enter } },
-    to: (direction: 1 | -1) =>
-      still ? { opacity: 0, transition: tween.exit } : { opacity: 0, transform: `translateX(${direction * -40}px)`, transition: { transform: spring.screenExit, opacity: tween.exit } },
-  }
-}
-
 interface ReaderProps {
   report: Report
-  /** The row or the dot it grows out of. Null when it opens with the screen. */
-  origin: DOMRect | null
-  /** Which way the last step went: 1 to an older report, -1 to a newer one. */
-  direction: 1 | -1
+  /** Which way the last move went: 1 to an older report, from the right, -1 to a newer one, from the left. */
+  direction?: number
   /** Its place in the list as it is filtered now, counted from 1. Zero when the filter hides it. */
   at: number
   of: number
@@ -43,89 +25,38 @@ interface ReaderProps {
 }
 
 /**
- * A report, open. It grows out of the row that was chosen and goes back into it when it closes. Stepping to
- * the next report slides the page in the direction of the key. The tile itself holds the keyboard, so the
- * page under it can change while the keys go on working.
+ * A report, open: a card in the strip beside the week (`slide.ts`). From the week, the whole card slides in. From
+ * one report to another the box stays where it is, and only the report inside it slides, the same way and as fast,
+ * clipped by the box. Nothing else moves on its own. The box holds the keyboard while it is open.
  */
-export function Reader({ report, origin, direction, at, of, onStep, onClose, onReply, onDelete }: ReaderProps) {
-  const [scope, animate] = useAnimate<HTMLDivElement>()
-  const [isPresent, safeToRemove] = usePresence()
+export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply, onDelete }: ReaderProps) {
   const still = useStill()
-  const pages = useMemo(() => pageVariants(still), [still])
-  const grows = origin !== null && !still
-
-  // It grows out of the row. Once, as it opens: moving to another report keeps the tile where it is.
-  useLayoutEffect(() => {
-    const tile = scope.current
-    if (!tile || !origin) return
-    // Measured at rest, so a second run (React runs effects twice while developing) starts from the same place.
-    tile.style.transform = ''
-    if (still) {
-      tile.style.opacity = '0'
-      void animate(tile, { opacity: 1 }, tween.enter)
-      return
-    }
-    const from = flip(origin, tile.getBoundingClientRect())
-    tile.style.transform = from
-    tile.style.opacity = '0'
-    void animate(tile, { transform: [from, REST], opacity: [0, 1] }, { transform: spring.screen, opacity: tween.enter })
-  }, []) // The opening is measured once, from the props it opened with.
-
-  // It goes back into its row as it closes, or falls back where the row is gone.
-  useEffect(() => {
-    if (isPresent) return
-    const tile = scope.current
-    if (!tile) {
-      safeToRemove()
-      return
-    }
-    const row = document.querySelector<HTMLElement>(`[data-report-row="${CSS.escape(report.id)}"]`)
-    const target = row?.getBoundingClientRect()
-    const shown = target !== undefined && target.height > 0 && target.bottom > 0 && target.top < innerHeight
-    const leaving = still
-      ? animate(tile, { opacity: 0 }, tween.exit)
-      : shown
-        ? animate(
-            tile,
-            { transform: flip(target, tile.getBoundingClientRect()), opacity: 0 },
-            { transform: spring.screenExit, opacity: { duration: dur.base, ease: ease.out, delay: staggerDelay } },
-          )
-        : animate(tile, { transform: 'translateX(0px) translateY(28px) scaleX(0.96) scaleY(0.96)', opacity: 0 }, { transform: spring.screenExit, opacity: tween.exit })
-    void leaving.then(safeToRemove)
-  }, [isPresent]) // Only the leaving starts this. The report is the last one shown.
+  const slides = useMemo(() => slideVariants(still), [still])
 
   return (
     <div
-      ref={scope}
-      data-reader=""
+      data-reader={report.id}
       tabIndex={-1}
       role="region"
       aria-label={report.title}
-      className="pointer-events-auto absolute inset-0 origin-top-left overflow-hidden rounded-[28px] bg-background outline-offset-[-2px]"
+      className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[28px] bg-background outline-offset-[-2px]"
     >
-      {/* While the tile grows its words would be squeezed, so they arrive once it has room. */}
-      <motion.div
-        className="absolute inset-0"
-        initial={grows ? { opacity: 0, transform: 'translateY(14px)' } : false}
-        animate={{ opacity: 1, transform: 'translateY(0px)' }}
-        transition={{ transform: { ...spring.rise, delay: staggerDelay }, opacity: { ...tween.enter, delay: staggerDelay } }}
-      >
-        <AnimatePresence initial={false} custom={direction}>
-          <motion.div
-            key={report.id}
-            data-reader-page={report.id}
-            custom={direction}
-            variants={pages}
-            initial="from"
-            animate="here"
-            exit="to"
-            className="scroll-quiet absolute inset-0 overflow-y-auto overscroll-contain px-8 pt-[72px] pb-14 @max-[800px]:px-6"
-          >
-            <Page report={report} />
-          </motion.div>
-        </AnimatePresence>
-        <Toolbar at={at} of={of} onStep={onStep} onClose={onClose} onReply={onReply} onDelete={onDelete} />
-      </motion.div>
+      {/* The first report rides in with the box, so it does not slide again inside it. */}
+      <AnimatePresence initial={false} custom={direction}>
+        <motion.div
+          key={report.id}
+          data-reader-page={report.id}
+          custom={direction}
+          variants={slides}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          className="scroll-quiet absolute inset-0 overflow-y-auto overscroll-contain px-8 pt-[72px] pb-14 @max-[800px]:px-6"
+        >
+          <Page report={report} />
+        </motion.div>
+      </AnimatePresence>
+      <Toolbar at={at} of={of} onStep={onStep} onClose={onClose} onReply={onReply} onDelete={onDelete} />
     </div>
   )
 }

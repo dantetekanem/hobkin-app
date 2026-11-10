@@ -10,6 +10,8 @@ import { reportsKey, type Where } from './keys.ts'
 import { rowVariants, useArriving, type Leaving } from './list-motion.ts'
 import { NoticeLine, REPLY_LINE_MS, type Line } from './NoticeLine.tsx'
 import { Overview } from './Overview.tsx'
+import { PAGE, arrivesQuietly, drawnCount, needsMore, nextLimit, showing } from './paging.ts'
+import { slideVariants } from './slide.ts'
 import { Reader } from './Reader.tsx'
 import { replyToReport } from './reply.ts'
 import { DayHeading, ReportRow } from './ReportRow.tsx'
@@ -50,8 +52,9 @@ export function ReportsScreen() {
   const openId = useReports((state) => state.openId)
   const { setKind, setTitle, open, close, remove, undo } = useReports.getState()
 
-  const [origin, setOrigin] = useState<DOMRect | null>(null)
-  const [direction, setDirection] = useState<1 | -1>(1)
+  // Which way the strip of cards last slid: 1 brings the next card from the right, -1 from the left, 0 not yet.
+  const [direction, setDirection] = useState<0 | 1 | -1>(0)
+  const slides = useMemo(() => slideVariants(still), [still])
   const [leaving, setLeaving] = useState<Leaving>('filtered')
   const [line, setLine] = useState<Line | null>(() =>
     inbox.removed ? { key: 0, kind: 'deleted', title: inbox.removed.report.title, until: inbox.removed.until } : null,
@@ -64,12 +67,44 @@ export function ReportsScreen() {
     [ordered, title],
   )
   const now = Date.now()
-  const groups = useMemo(() => byDay(list, Date.now()), [list])
   const variants = useMemo(() => rowVariants(still), [still])
   const arriving = useArriving()
   let order = 0
+  // Each row's place in the whole list, so rows that came by paging know to land quietly.
+  let index = 0
   const openReport = openId ? (inbox.reports.find((report) => report.id === openId) ?? null) : null
   const openAt = openId ? list.findIndex((report) => report.id === openId) + 1 : 0
+
+  // A page at a time: the list draws its first rows, and more as the scroll or the keyboard nears their end.
+  const [limit, setLimit] = useState(PAGE)
+  const scroller = useRef<HTMLDivElement | null>(null)
+  const more = useRef<HTMLDivElement | null>(null)
+  const drawn = useMemo(() => list.slice(0, drawnCount(limit, list.length)), [list, limit])
+  const rest = list.length - drawn.length
+  const drawnGroups = useMemo(() => byDay(drawn, Date.now()), [drawn])
+
+  // A report opened from elsewhere, or reached by stepping in the reader, is drawn in the list too.
+  useEffect(() => {
+    if (openAt > 0) setLimit((current) => showing(openAt - 1, current))
+  }, [openAt])
+
+  // Scrolling near the end draws the next page. Asked again after each page, in case the end is still in sight.
+  useEffect(() => {
+    const sentinel = more.current
+    if (!sentinel || rest === 0) return
+    const watcher = new IntersectionObserver((seen) => {
+      if (seen.some((entry) => entry.isIntersecting)) setLimit((current) => nextLimit(current))
+    }, { root: scroller.current, rootMargin: '0px 0px 640px 0px' })
+    watcher.observe(sentinel)
+    return () => watcher.disconnect()
+  }, [rest, limit])
+
+  // The keyboard walking down draws the next page before it reaches the end, so the walk never waits.
+  const drawMoreFor = (target: EventTarget) => {
+    const id = target instanceof HTMLElement ? target.dataset.reportRow : undefined
+    if (!id) return
+    if (needsMore(list.findIndex((report) => report.id === id), drawn.length, list.length)) setLimit((current) => nextLimit(current))
+  }
 
   // The undo line goes once the delete stands, or once it was undone from elsewhere.
   useEffect(() => {
@@ -106,34 +141,44 @@ export function ReportsScreen() {
   const rowOf = (id: string) => root.current?.querySelector<HTMLElement>(`[data-report-row="${CSS.escape(id)}"]`) ?? null
   // After React has drawn the change, so the element is the one now on screen.
   const focusLater = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => find()?.focus({ preventScroll: false }))
-  const focusReader = () => requestAnimationFrame(() => root.current?.querySelector<HTMLElement>('[data-reader]')?.focus({ preventScroll: true }))
+  // Each report is a card of its own, and while the strip slides the card leaving is still there, so it is found by id.
+  const focusReader = (id: string) =>
+    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(`[data-reader="${CSS.escape(id)}"]`)?.focus({ preventScroll: true }))
 
+  // A new filter is a new list, which starts again at its top and its first page.
+  const fromTheTop = () => {
+    setLimit(PAGE)
+    scroller.current?.scrollTo({ top: 0 })
+  }
   const chooseKind = (next: KindFilter) => {
     setLeaving('filtered')
+    fromTheTop()
     setKind(next)
   }
   const chooseTitle = (next: string) => {
     setLeaving('filtered')
+    fromTheTop()
     setTitle(next)
   }
 
-  const openFrom = (id: string, from: HTMLElement | null) => {
+  // The strip slides: a report comes in from the list's side, and another report from the side it lies on.
+  const openFrom = (id: string, _from: HTMLElement | null) => {
     if (openId && openReport) {
-      // Already reading: the page slides over to the other report, in the direction it lies in the list.
       if (id !== openId) setDirection(list.findIndex((report) => report.id === id) > list.findIndex((report) => report.id === openId) ? 1 : -1)
     } else {
-      setOrigin(from?.getBoundingClientRect() ?? null)
       setDirection(1)
     }
     open(id)
-    focusReader()
+    focusReader(id)
   }
 
+  // Going back slides the other way: the week comes in from the left as the report leaves to the right.
   const closeReader = () => {
     if (!openId) return
-    // The row comes into view first, so the reader has somewhere to go back into.
+    // Its row comes into view, so the list shows where the report was.
     rowOf(openId)?.scrollIntoView({ block: 'nearest' })
     const id = openId
+    setDirection(-1)
     close()
     focusLater(() => rowOf(id) ?? root.current?.querySelector<HTMLElement>('[data-report-row]'))
   }
@@ -144,7 +189,9 @@ export function ReportsScreen() {
     if (!next) return
     setDirection(delta)
     open(next.id)
-    rowOf(next.id)?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' })
+    focusReader(next.id)
+    // Once it is drawn: stepping can reach a report past the page the list has drawn so far.
+    requestAnimationFrame(() => rowOf(next.id)?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' }))
   }
 
   const scrollReader = (by: 'line' | 'page' | 'all', delta: 1 | -1) => {
@@ -242,40 +289,57 @@ export function ReportsScreen() {
 
   return (
     <div ref={root} className="relative h-full [contain:layout]" onKeyDownCapture={onKeyDownCapture}>
-      <div className="grid h-full min-h-0 grid-cols-[minmax(300px,380px)_minmax(0,1fr)] grid-rows-1 gap-3 px-3 pt-[70px] pb-3 @max-[800px]:grid-cols-1">
-        {/* The week, or the open report. First in reading order: it is the largest piece, so it lands first. */}
-        <div className="pointer-events-none relative col-start-2 row-start-1 min-h-0 @max-[800px]:absolute @max-[800px]:inset-x-3 @max-[800px]:top-[70px] @max-[800px]:bottom-3 @max-[800px]:z-10">
-          <AnimatePresence>
-            {openReport ? (
-              <Reader
-                key="reader"
-                report={openReport}
-                origin={origin}
-                direction={direction}
-                at={openAt}
-                of={list.length}
-                onStep={step}
-                onClose={closeReader}
-                onReply={() => reply(openReport.id)}
-                onDelete={sample ? () => deleteReport(openReport.id) : undefined}
-              />
-            ) : (
-              <Overview key="overview" list={list} read={inbox.read} now={now} onOpen={openFrom} />
-            )}
+      {/* The content on the left and the list on the right, read left to right, as on every screen with a list beside it. */}
+      <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,380px)] grid-rows-1 gap-3 px-3 pt-[70px] pb-3 @max-[800px]:grid-cols-1">
+        {/* The week, or the open report: cards side by side in one strip, which slides to show one or the other
+            (slide.ts). First in reading order: it is the largest piece, so it lands first. */}
+        <div className="pointer-events-none relative col-start-1 row-start-1 min-h-0 overflow-hidden rounded-[28px] @max-[800px]:absolute @max-[800px]:inset-x-3 @max-[800px]:top-[70px] @max-[800px]:bottom-3 @max-[800px]:z-10">
+          <AnimatePresence custom={direction}>
+            {/* Two cards: the week and the reader. Moving between reports keeps the reader's card, and slides inside it. */}
+            <motion.div
+              key={openReport ? 'reader' : 'week'}
+              custom={direction}
+              variants={slides}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              className="absolute inset-0"
+            >
+              {openReport ? (
+                <Reader
+                  report={openReport}
+                  direction={direction}
+                  at={openAt}
+                  of={list.length}
+                  onStep={step}
+                  onClose={closeReader}
+                  onReply={() => reply(openReport.id)}
+                  onDelete={sample ? () => deleteReport(openReport.id) : undefined}
+                />
+              ) : (
+                <Overview list={list} read={inbox.read} now={now} onOpen={openFrom} quiet={direction !== 0} />
+              )}
+            </motion.div>
           </AnimatePresence>
         </div>
 
-        <div className="relative col-start-1 row-start-1 flex min-h-0 flex-col">
+        <div className="relative col-start-2 row-start-1 flex min-h-0 flex-col @max-[800px]:col-start-1">
           <Rise className="flex flex-col gap-2 px-1 pt-2 pb-3">
             <KindChoice kind={kind} counts={counts} onChoose={chooseKind} />
             <TitleFilter value={title} onChange={chooseTitle} field={titleField} />
           </Rise>
 
-          <motion.div layoutScroll className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain pb-20">
-            <ul className="relative flex flex-col" aria-label="Reports">
+          <motion.div ref={scroller} layoutScroll className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain pb-20">
+            <ul className="relative flex flex-col" aria-label="Reports" onFocusCapture={(event) => drawMoreFor(event.target)}>
               <AnimatePresence mode="popLayout" custom={leaving}>
-                {groups.flatMap((group) => [
-                  <DayHeading key={`day:${group.key}`} label={group.label} variants={variants} order={arriving ? order++ : -1} />,
+                {drawnGroups.flatMap((group) => [
+                  <DayHeading
+                    key={`day:${group.key}`}
+                    label={group.label}
+                    variants={variants}
+                    order={arriving ? order++ : -1}
+                    quiet={arrivesQuietly(index)}
+                  />,
                   ...group.reports.map((report) => (
                     <ReportRow
                       key={report.id}
@@ -284,12 +348,19 @@ export function ReportsScreen() {
                       open={report.id === openId}
                       variants={variants}
                       order={arriving ? order++ : -1}
+                      quiet={arrivesQuietly(index++)}
                       onOpen={openFrom}
                     />
                   )),
                 ])}
               </AnimatePresence>
             </ul>
+            {/* Where the drawn rows end. Scrolling it near into view draws the next page. */}
+            {rest > 0 ? (
+              <div ref={more} className="px-3 py-4 text-center text-[12px] text-muted-foreground tabular-nums">
+                {rest === 1 ? '1 more report' : `${rest} more reports`}
+              </div>
+            ) : null}
             <AnimatePresence initial={false}>
               {list.length === 0 ? (
                 <motion.p

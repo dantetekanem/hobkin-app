@@ -24,26 +24,27 @@ export interface KeyContext {
   /** The screens in the menu right now, in order. */
   screens: readonly ScreenId[]
   screen: ScreenId
-  /** A dialog, menu or list that owns its keys has the keyboard. The frame takes nothing. */
+  /** A dialog, menu or list that owns its keys has the keyboard, the spotlight among them. The frame takes nothing. */
   inOverlay: boolean
-  /** Projects or History is veiling the chat. Its list then has the arrows, Enter and Escape, wherever the keyboard is. */
+  /** History is veiling the chat. Its list then has Up, Down, Enter and Escape, wherever the keyboard is. */
   veilOpen: boolean
   /** The menu screen under an agent's canvas. Tab counts from it, because agents are not part of the menu's walk. */
   under?: ScreenId
   /** An agent is waiting for the user. */
   asking: boolean
+  /** GitHub is in the menu. The user can take it out, in Integrations, and a GitHub opened then is open only for now. */
+  githubInMenu: boolean
 }
 
 export type KeyAction =
   | { do: 'open-screen'; screen: ScreenId; focusCanvas: boolean }
   | { do: 'focus-input' }
-  | { do: 'focus-canvas' }
   | { do: 'focus-agents' }
   | { do: 'open-veil'; section: VeilSection }
   | { do: 'veil-move'; delta: 1 | -1 }
-  | { do: 'veil-switch'; delta: 1 | -1 }
   | { do: 'veil-choose' }
   | { do: 'close-veil' }
+  | { do: 'open-spotlight' }
   | { do: 'open-settings' }
   | { do: 'open-integrations' }
   | { do: 'answer-agent' }
@@ -65,7 +66,7 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
   }
   if (press.ctrl || press.alt) return null
 
-  // Tab and Shift+Tab change the screen from anywhere. From inside the canvas the keyboard stays in the canvas.
+  // Tab and Shift+Tab change the screen from anywhere. From inside a screen the keyboard stays in the screen.
   if (press.key === 'Tab') {
     // Among the agents only Up and Down move. Tab is the menu's again once the keyboard has left them.
     if (amongAgents(context)) return { do: 'hold' }
@@ -85,9 +86,9 @@ function commandKey(key: string, context: KeyContext): KeyAction | null {
     const screen = context.screens[Number(key) - 1]
     return screen ? { do: 'open-screen', screen, focusCanvas: true } : null
   }
+  // Command+K finds anything and goes there, as Spotlight does (026-spotlight).
+  if (key === 'k') return { do: 'open-spotlight' }
   if (key === 'l') return { do: 'focus-input' }
-  if (key === 'j') return { do: 'focus-canvas' }
-  if (key === 'p') return { do: 'open-veil', section: 'projects' }
   if (key === 'y') return { do: 'open-veil', section: 'history' }
   // Command+comma is where a Mac app keeps its settings.
   if (key === ',') return { do: 'open-settings' }
@@ -102,12 +103,10 @@ function amongAgents({ zone, screen }: KeyContext): boolean {
   return zone === 'agents' || (zone === 'canvas' && screen === 'agent')
 }
 
-/** While a list veils the chat: Up and Down walk it, Left and Right change list, Enter chooses, Escape closes. */
+/** While History veils the chat: Up and Down walk it, Enter chooses, Escape closes. */
 function veilKey(key: string): KeyAction | null {
   if (key === 'ArrowDown') return { do: 'veil-move', delta: 1 }
   if (key === 'ArrowUp') return { do: 'veil-move', delta: -1 }
-  if (key === 'ArrowRight') return { do: 'veil-switch', delta: 1 }
-  if (key === 'ArrowLeft') return { do: 'veil-switch', delta: -1 }
   if (key === 'Enter') return { do: 'veil-choose' }
   if (key === 'Escape') return { do: 'close-veil' }
   return null
@@ -119,17 +118,23 @@ function neighbor({ screens, screen, under }: KeyContext, delta: 1 | -1): Screen
   return screens[(at + delta + screens.length) % screens.length]!
 }
 
-const OPEN_FOR_NOW: readonly ScreenId[] = ['review', 'settings', 'integrations', 'github']
+const OPEN_FOR_NOW: readonly ScreenId[] = ['review', 'settings', 'integrations']
+
+/** A review, Settings and Integrations are open only for now, and so is a GitHub opened while the menu leaves it out. */
+function openForNow({ screen, githubInMenu }: KeyContext): boolean {
+  return OPEN_FOR_NOW.includes(screen) || (screen === 'github' && !githubInMenu)
+}
 
 /**
  * Escape walks one step back toward the message input. Whatever had the keyboard gets the key first:
  * when it used the key (`prevented`), the frame leaves it alone.
  *
- * A screen that is open only for now is left: a review for Work, Integrations for Settings, the GitHub page
- * for Pages, Settings for the screen under it. A menu screen stays open and the keyboard goes home.
+ * A screen that is open only for now is left: a review for Work, Integrations for Settings, Settings for the screen
+ * under it, a GitHub the menu leaves out for the screen it was opened over. A menu screen stays open and the
+ * keyboard goes home.
  */
 export function resolveEscape(context: KeyContext, prevented: boolean): KeyAction | null {
   if (prevented || context.inOverlay || context.zone === 'input') return null
-  if (OPEN_FOR_NOW.includes(context.screen)) return { do: 'leave-screen' }
+  if (openForNow(context)) return { do: 'leave-screen' }
   return { do: 'focus-input' }
 }

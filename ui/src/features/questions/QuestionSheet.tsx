@@ -8,6 +8,8 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { WAIT_MS, current, timeLeft, type Question } from './queue.ts'
 import { useQuestions } from './store.ts'
+// hobkin's own questions rise on this sheet, and the answers go back to it (022 S4).
+import './host-bridge.ts'
 
 const TICK_MS = 250
 /** After this long without a key or a pointer move in the sheet, the user counts as idle again. */

@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { stillVariants } from '../../app/still-rule.ts'
 import { spring, tween } from '../../lib/motion.ts'
+import { localPathOf, remarkFilePaths } from '../viewer/paths.ts'
 
 /**
  * Markdown as the conversation and the prompt editor draw it. What a model writes is never markup of ours:
@@ -42,6 +43,8 @@ const styled =
   ({ node: _node, className: given, ...props }: ComponentProps<Name> & { node?: unknown }) =>
     createElement(tag, { ...props, ...motionProps, className: given ? `${given} ${className}` : className })
 
+const LINK = 'underline decoration-border-strong underline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground'
+
 const inline: Components = {
   strong: styled('strong', 'font-semibold'),
   em: styled('em', 'italic'),
@@ -49,16 +52,24 @@ const inline: Components = {
   code: styled('code', 'rounded-md bg-surface-2 px-1 py-0.5 font-mono text-[0.87em]'),
   th: styled('th', 'border-b border-border-strong px-2.5 py-1.5 text-left font-semibold'),
   td: styled('td', 'border-b border-border px-2.5 py-1.5 align-top'),
-  a: ({ node: _node, ...props }) =>
-    createElement('a', {
+  a: ({ node: _node, ...props }) => {
+    const file = localPathOf(props.href)
+    // A local file opens in the viewer (the app's link catcher, `viewer/catch.ts`). It opens no window of its own.
+    if (file) return createElement('a', { ...props, href: '#', 'data-file': file, title: file, className: LINK })
+    return createElement('a', {
       ...props,
       // Links open outside the app, and the page they open gets no handle on this window.
       target: '_blank',
       rel: 'noopener noreferrer',
-      className: 'underline decoration-border-strong underline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground',
-    }),
+      className: LINK,
+    })
+  },
   // A picture shows as its words, linked to where it is. Nothing loads until the user opens it.
-  img: ({ alt, src }) => createElement('a', { href: typeof src === 'string' ? src : undefined, target: '_blank', rel: 'noopener noreferrer', className: 'underline decoration-border-strong underline-offset-2' }, alt || 'image'),
+  img: ({ alt, src }) => {
+    const file = typeof src === 'string' ? localPathOf(src) : null
+    if (file) return createElement('a', { href: '#', 'data-file': file, title: file, className: 'underline decoration-border-strong underline-offset-2' }, alt || 'image')
+    return createElement('a', { href: typeof src === 'string' ? src : undefined, target: '_blank', rel: 'noopener noreferrer', className: 'underline decoration-border-strong underline-offset-2' }, alt || 'image')
+  },
 }
 
 const blockNames = Object.keys(BLOCKS) as (keyof typeof BLOCKS)[]
@@ -70,7 +81,7 @@ const components: Components = {
   table: ({ node: _node, ...props }) => createElement('div', { className: TABLE_WRAP }, createElement('table', { ...props, className: TABLE })),
 }
 
-const plugins = [remarkGfm]
+const plugins = [remarkGfm, remarkFilePaths]
 
 /** Renders Markdown text. The same component draws a message in the conversation and the preview in the prompt editor. */
 export const Markdown = memo(function Markdown({ text }: { text: string }): ReactElement {

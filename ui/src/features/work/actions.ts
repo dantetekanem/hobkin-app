@@ -14,11 +14,13 @@ export type WorkAction =
   | { do: 'queue'; key: string; action: 'run' | 'skip' | 'back' }
   | { do: 'priority'; slug: string; priority: Grade }
   | { do: 'prs'; slug: string; prs: PrMode }
+  | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
+  | { do: 'agents'; agents: number }
   | { do: 'change'; change: FinishedChange; choice: HobkinChoice; note?: string }
   | { do: 'group'; group: FinishedGroup }
   | { do: 'stop'; run: string; how: 'for-now' | 'not-approved' }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.change' | 'work.group' | 'agent.stop'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.change' | 'work.group' | 'agent.stop'
 
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
@@ -30,11 +32,15 @@ export function commandFor(action: WorkAction): WorkCall {
     case 'mode':
       return { name: 'work.mode', args: { on: action.on, ...(action.folder ? { folder: action.folder } : {}) } }
     case 'queue':
-      return { name: 'work.queue', args: { key: action.key, action: action.action } }
+      return { name: 'work.queue', args: { row: action.key, action: action.action } }
     case 'priority':
       return { name: 'work.project', args: { slug: action.slug, priority: action.priority } }
     case 'prs':
       return { name: 'work.project', args: { slug: action.slug, prs: action.prs } }
+    case 'proposal':
+      return { name: 'work.proposal', args: { slug: action.slug, answer: action.answer } }
+    case 'agents':
+      return { name: 'work.agents', args: { agents: action.agents } }
     case 'change': {
       const { slug, item, head } = action.change
       const { choice } = action

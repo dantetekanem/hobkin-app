@@ -1,3 +1,6 @@
+import type { ActivitySteps } from './activity.ts'
+import type { IntegrationsState } from '../integrations/wire.ts'
+import type { CanvasState } from './canvas.ts'
 import type { GitHubState } from './github.ts'
 import type { MessageOp } from './message-ops.ts'
 import type { ModelsState } from './models.ts'
@@ -56,14 +59,20 @@ export interface StateMessage {
   unset?: string[]
   /** Changes to the conversation. */
   messages?: MessageOp[]
+  /** Changes to the jobs' activity (`jobActivity`), a job and an entry at a time. A host from before this sends the whole key in `set`. */
+  activity?: ActivitySteps
   owner?: OwnerState
   signIn?: SignInState
   /** The whole models slice, whenever any of it changed. */
   models?: ModelsState
   /** The user's GitHub as the host reads it through gh, whole, whenever any of it changed and with every reset. */
   github?: GitHubState
+  /** The MCP servers in Pi's configuration with their state, secrets hidden, whole, whenever any of it changed and with every reset. */
+  integrations?: IntegrationsState
   /** Work mode as the Work screen draws it, whole, whenever any of it changed and with every reset. Null once hobkin's snapshot has none. */
   work?: WorkState | null
+  /** The canvas panel: open or closed and the page it shows, whole, whenever it changed and with every reset. */
+  canvas?: CanvasState
 }
 
 export interface TurnMessage {

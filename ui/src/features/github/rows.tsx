@@ -1,18 +1,22 @@
 import { Check, CircleDashed, CircleDot, Clock, GitPullRequest, GitPullRequestDraft, Minus, PenLine, UserRound, X, type LucideIcon } from 'lucide-react'
 import { motion, type Variants } from 'motion/react'
-import type { ReactNode } from 'react'
+import { createContext, useContext, type MouseEvent, type ReactNode } from 'react'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
 import type { ChecksState, GitHubIssue, GitHubPull, ReviewState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { openOnGitHub } from './open.ts'
+import { openOnGitHub, openPullRequestReview } from './open.ts'
 
 /**
  * The rows of the GitHub page. Each one is a link to its page on github.com and a stop in the screen's walk, so
- * Up and Down reach it and Enter opens it. Each row drives its own arrival, so a row that a refresh brings rises
- * in by itself, long after the screen arrived.
+ * Up and Down reach it and Enter opens it. A pull request opens through `openPullRequestReview`, which hands it to
+ * Change Review. Each row drives its own arrival, so a row that a refresh brings rises in by itself, long after the
+ * screen arrived.
  */
+
+/** Whether the rows can be reached: false while their tab is leaving, so Up and Down walk only the tab that is open. */
+export const Walkable = createContext(true)
 
 type Tone = 'ok' | 'bad' | 'quiet'
 
@@ -70,18 +74,19 @@ function Piece({ variants, order, className, children }: Placed & { className?: 
   )
 }
 
-function Row({ url, variants, order, children }: Placed & { url: string; children: ReactNode }) {
+function Row({ url, variants, order, onOpen, children }: Placed & { url: string; onOpen: (event: MouseEvent<HTMLAnchorElement>) => void; children: ReactNode }) {
+  const walkable = useContext(Walkable)
   return (
     <Piece variants={variants} order={order} className="relative">
       <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        data-stop=""
-        data-github-row=""
-        onClick={(event) => openOnGitHub(event, url)}
-        // The menu floats over the top of the canvas, so a row brought into view stops below it.
-        className="group relative isolate flex w-full cursor-default scroll-mt-[124px] scroll-mb-6 items-start gap-3 rounded-2xl px-3 py-2.5 text-left outline-offset-[-2px]"
+        data-stop={walkable ? '' : undefined}
+        data-github-row={walkable ? '' : undefined}
+        onClick={onOpen}
+        // A row brought into view keeps a little room around it, inside its tab's own scrolling.
+        className="group relative isolate flex w-full cursor-default scroll-mt-3 scroll-mb-6 items-start gap-3 rounded-2xl px-3 py-2.5 text-left outline-offset-[-2px]"
       >
         <span
           aria-hidden="true"
@@ -129,8 +134,12 @@ function Where({ repo, number, by, labels }: { repo: string; number: number; by:
 /** A pull request. One of the user's own shows where its review stands. One that waits for their review says who opened it. */
 export function PullRow({ pull, mine, now, ...placed }: Placed & { pull: GitHubPull; mine: boolean; now: number }) {
   const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    openPullRequestReview(pull)
+  }
   return (
-    <Row url={pull.url} {...placed}>
+    <Row url={pull.url} onOpen={open} {...placed}>
       <Icon className={cn('mt-[3px] size-4 shrink-0', pull.draft ? 'text-muted-foreground' : 'text-ok-fg')} aria-hidden="true" />
       <span className="relative min-w-0 flex-1">
         <Title title={pull.title} at={pull.updatedAt} now={now} />
@@ -148,7 +157,7 @@ export function PullRow({ pull, mine, now, ...placed }: Placed & { pull: GitHubP
 /** An issue, with why it is on the list: assigned to the user, opened by them, or both. */
 export function IssueRow({ issue, now, ...placed }: Placed & { issue: GitHubIssue; now: number }) {
   return (
-    <Row url={issue.url} {...placed}>
+    <Row url={issue.url} onOpen={(event) => openOnGitHub(event, issue.url)} {...placed}>
       <CircleDot className="mt-[3px] size-4 shrink-0 text-ok-fg" aria-hidden="true" />
       <span className="relative min-w-0 flex-1">
         <Title title={issue.title} at={issue.updatedAt} now={now} />

@@ -1,11 +1,13 @@
-import { fillEntry, fillValue, withEnabled } from '#shared/integrations/entry.ts'
+import { buildEntry, fillProblems, withEnabled } from '#shared/integrations/entry.ts'
 import { freeName } from '#shared/integrations/servers.ts'
 import type { CatalogEntry, ConfiguredServer, ServerTool } from '#shared/integrations/types.ts'
 
+export { fillProblems }
+
 /**
- * What each action on the Integrations screen does to the list of configured servers. On sample data the
- * screen's own store applies these. The host does the same to Pi's configuration (023-integrations, S3 and S4),
- * so the screen reads the same either way. Each function returns a new list and leaves the one passed in alone.
+ * What each action on the Integrations screen does to the list of configured servers, on sample data, for a window
+ * with no host. With a host, the host does the same to Pi's configuration (023-integrations, S3 and S4) and the
+ * screen shows what it reports. Each function returns a new list and leaves the one passed in alone.
  */
 
 /** Where a connection lands once Pi has reached the server. */
@@ -13,32 +15,18 @@ export type Outcome = 'connected' | 'sign-in'
 
 type Values = Readonly<Record<string, string>>
 
-/** The fills of a service that are missing or wrong, each with the reason. Empty when every one is fine. */
-export function fillProblems(entry: CatalogEntry, values: Values): Record<string, string> {
-  const problems: Record<string, string> = {}
-  for (const fill of entry.connect.fills) {
-    const result = fillValue(fill, values[fill.key] ?? '')
-    if ('problem' in result) problems[fill.key] = result.problem
-  }
-  return problems
-}
-
 /**
  * Adds a catalog service, connecting, under a name no other server has, with what the person filled in
  * written into its entry. Null when Pi cannot use the service or a fill is missing or wrong.
  */
 export function begin(servers: readonly ConfiguredServer[], entry: CatalogEntry, values: Values): { servers: ConfiguredServer[]; name: string } | null {
-  if (!entry.usable || Object.keys(fillProblems(entry, values)).length > 0) return null
-  const filled: Record<string, string> = {}
-  for (const fill of entry.connect.fills) {
-    const result = fillValue(fill, values[fill.key] ?? '')
-    if ('value' in result) filled[fill.key] = result.value
-  }
+  const built = entry.usable ? buildEntry(entry, values) : null
+  if (!built) return null
   const name = freeName(
     entry.id,
     servers.map((server) => server.name),
   )
-  return { name, servers: [...servers, { name, entry: fillEntry(entry.entry, filled), state: 'connecting', tools: [], error: null }] }
+  return { name, servers: [...servers, { name, entry: built, state: 'connecting', tools: [], error: null }] }
 }
 
 /** A service that signs in through the browser asks for it once Pi reaches it. One that reads a key from the environment is connected. */

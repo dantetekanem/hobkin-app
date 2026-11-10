@@ -104,16 +104,21 @@ export function StateChip({ server, long = false, className }: { server: Configu
   )
 }
 
-/** The one line under a configured tile's name: what it is doing now. It keeps its height, so a change never moves the tiles around it. */
-function Now({ server, using, routinesOf }: { server: ConfiguredServer; using: string | null; routinesOf: string }) {
-  const routines = sampleRoutines(routinesOf)
+/**
+ * The one line under a configured tile's name: what it is doing now. It keeps its height, so a change never moves the
+ * tiles around it. On sample data a connected one names the routines that use it, which the host does not report yet.
+ */
+function Now({ server, using, live, routinesOf }: { server: ConfiguredServer; using: string | null; live: boolean; routinesOf: string }) {
+  const routines = live ? [] : sampleRoutines(routinesOf)
   const text =
     server.state === 'connected'
       ? using
         ? `using ${using}`
-        : routines.length > 0
-          ? `Used by ${routines.join(' and ')}`
-          : 'No routine uses it yet'
+        : live
+          ? 'Pi reaches it'
+          : routines.length > 0
+            ? `Used by ${routines.join(' and ')}`
+            : 'No routine uses it yet'
       : server.state === 'connecting'
         ? 'Pi is connecting to it'
         : server.state === 'sign-in'
@@ -210,10 +215,20 @@ function TileBody({ itemKey, children, className }: { itemKey: string; children:
   )
 }
 
+interface TileProps<Of> {
+  item: Of
+  /** Real data from a host. Then nothing on the tile is made up: no tool in use, no routine. */
+  live: boolean
+  /** The app should not move. */
+  still: boolean
+  onOpen: (key: string) => void
+}
+
 /** A catalog service: compact while it waits in the catalog, fuller once it is configured. */
-export function ServiceTile({ item, still, onOpen }: { item: ServiceItem; still: boolean; onOpen: (key: string) => void }) {
+export function ServiceTile({ item, live, still, onOpen }: TileProps<ServiceItem>) {
   const { key, entry, server, gh } = item
-  const using = useBusy(server, still)
+  // The pulse of a tool in use is sample life, so a live tile stays quiet until the host reports real calls.
+  const using = useBusy(server, still || live)
   const hint = gh ? ghHint(gh) : hintOf(entry)
   // GitHub counts as configured once gh is signed in, with or without its MCP server.
   const configured = server !== null || gh?.connection === 'connected'
@@ -237,7 +252,7 @@ export function ServiceTile({ item, still, onOpen }: { item: ServiceItem; still:
           {configured ? (
             <>
               <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">{entry.line}</span>
-              {gh ? <GhNow gh={gh} /> : server ? <Now server={server} using={using} routinesOf={entry.id} /> : null}
+              {gh ? <GhNow gh={gh} /> : server ? <Now server={server} using={using} live={live} routinesOf={entry.id} /> : null}
             </>
           ) : (
             <span className={cn('mt-0.5 flex items-center gap-1 text-[12px]', entry.usable ? 'text-muted-foreground' : 'text-warn-fg')}>
@@ -252,9 +267,9 @@ export function ServiceTile({ item, still, onOpen }: { item: ServiceItem; still:
 }
 
 /** A server the person added themselves: its name, where it lives, its state and tools, and its last error. */
-export function OwnTile({ item, still, onOpen }: { item: OwnItem; still: boolean; onOpen: (key: string) => void }) {
+export function OwnTile({ item, live, still, onOpen }: TileProps<OwnItem>) {
   const { key, server } = item
-  const using = useBusy(server, still)
+  const using = useBusy(server, still || live)
   const target = targetOf(server.entry)
   const Where = target.kind === 'remote' ? Globe : SquareTerminal
 
@@ -278,7 +293,7 @@ export function OwnTile({ item, still, onOpen }: { item: OwnItem; still: boolean
             <Where className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate font-mono text-[12px]">{target.text}</span>
           </span>
-          <Now server={server} using={using} routinesOf={server.name} />
+          <Now server={server} using={using} live={live} routinesOf={server.name} />
         </motion.span>
       </button>
     </TileBody>

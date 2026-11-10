@@ -1,3 +1,6 @@
+import { applyActivity, type JobActivity } from '#shared/protocol/activity.ts'
+import type { CanvasState } from '#shared/protocol/canvas.ts'
+import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import { applyMessageOps } from '#shared/protocol/message-ops.ts'
 import type { HostMessage, OwnerState, StateMessage } from '#shared/protocol/messages.ts'
@@ -27,8 +30,12 @@ export interface HostState {
   models: ModelsState | null
   /** The user's GitHub as the host reads it through gh. Null until the host says, and always from a host that does not read it. */
   github: GitHubState | null
+  /** The MCP servers in Pi's configuration, as the host reads them through Pi, secrets hidden. Null until the host says, and always from a host that does not read them. */
+  integrations: IntegrationsState | null
   /** Work mode as the Work screen draws it. Null until the host says, and while hobkin's snapshot has none, as in a view the terminal saved. */
   work: WorkState | null
+  /** The canvas panel hobkin opened. Null until the host says, and always from a host that has none. */
+  canvas: CanvasState | null
   /** hobkin's snapshot, by top-level key. */
   snapshot: WireSnapshot
   /** The stored conversation. */
@@ -49,7 +56,9 @@ export const initialHostState: HostState = {
   signIn: { status: 'unknown' },
   models: null,
   github: null,
+  integrations: null,
   work: null,
+  canvas: null,
   snapshot: {},
   messages: [],
   live: null,
@@ -62,6 +71,8 @@ function applyState(state: HostState, message: StateMessage): HostState {
   const base = message.reset ? { snapshot: {}, messages: [] } : state
   const snapshot: WireSnapshot = { ...base.snapshot, ...message.set }
   for (const key of message.unset ?? []) delete snapshot[key]
+  // Job activity comes as steps. A host from before them sends the whole key in `set`, applied just above.
+  if (message.activity) snapshot.jobActivity = applyActivity((snapshot.jobActivity ?? {}) as JobActivity, message.activity)
   const messages = message.messages ? applyMessageOps(base.messages, message.messages) : base.messages
 
   return {
@@ -73,8 +84,11 @@ function applyState(state: HostState, message: StateMessage): HostState {
     models: message.models ?? state.models,
     // A host that reads GitHub sends the slice with every reset, so one without it does not read GitHub.
     github: message.github ?? (message.reset ? null : state.github),
+    // The same for Pi's MCP servers: a host that reads them sends the slice with every reset.
+    integrations: message.integrations ?? (message.reset ? null : state.integrations),
     // Work mode comes whole with every reset that has it, and null once hobkin's snapshot has none.
     work: message.work !== undefined ? message.work : message.reset ? null : state.work,
+    canvas: message.canvas ?? (message.reset ? null : state.canvas),
     live: settleLive(message.reset ? null : state.live, messages, snapshot.busy),
     epoch: message.reset ? state.epoch + 1 : state.epoch,
   }

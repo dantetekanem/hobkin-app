@@ -35,7 +35,7 @@ test('asking for settings from integrations steps back up to it', () => {
 })
 
 test('closing leaves settings and integrations together', () => {
-  assert.deepEqual(closeOver(toggleIntegrationsOver(on('pages'))), on('pages'))
+  assert.deepEqual(closeOver(toggleIntegrationsOver(on('github'))), on('github'))
   assert.deepEqual(closeOver(toggleSettingsOver(on('actions'))), on('actions'))
   assert.deepEqual(closeOver(on('reports')), on('reports'), 'nothing open for now, nothing changes')
 })
@@ -48,6 +48,6 @@ test('with nothing to return to, both close onto work', () => {
 test('the screen under settings and integrations is where the app comes back', () => {
   assert.equal(ground(on('routines')), 'routines')
   assert.equal(ground(toggleSettingsOver(on('routines'))), 'routines')
-  assert.equal(ground(toggleIntegrationsOver(on('pages'))), 'pages')
+  assert.equal(ground(toggleIntegrationsOver(on('github'))), 'github')
   assert.equal(ground(toggleIntegrationsOver(toggleSettingsOver(on('reports')))), 'reports')
 })

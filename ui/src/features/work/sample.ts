@@ -218,6 +218,7 @@ function projects(now: number): WorkProject[] {
   const at = (hours: number) => new Date(now + hours * HOUR_MS).toISOString()
   const project = (rest: Partial<WorkProject> & Pick<WorkProject, 'slug' | 'priority' | 'prMode' | 'level'>): WorkProject => ({
     name: rest.slug,
+    state: 'chosen',
     paused: false,
     open: 0,
     prs: 0,
@@ -232,6 +233,9 @@ function projects(now: number): WorkProject[] {
     project({ slug: 'storefront', priority: 'P0', prMode: 'draft', level: 'critical', open: 4, prs: 1, branches: 2, unmerged: 3, nextLookAt: at(0.7) }),
     project({ slug: 'billing-api', priority: 'P1', prMode: 'off', level: 'important', open: 7, branches: 2, left: 1, unmerged: 2, nextLookAt: at(5) }),
     project({ slug: 'docs-site', priority: 'P2', prMode: 'published', level: 'casual', open: 2, prs: 1, nextLookAt: at(50) }),
+    // What the look for projects found and the user has not answered, and one they left alone.
+    project({ slug: 'design-kit', state: 'proposed', priority: 'P2', prMode: 'off', level: 'casual' }),
+    project({ slug: 'old-landing', state: 'skipped', priority: 'P3', prMode: 'off', level: 'casual' }),
   ]
 }
 
@@ -243,6 +247,8 @@ export function sampleWork(now = Date.now()): WorkState {
     held: null,
     forecast: 'Next 8h: about 5 jobs · 1 P0 · 3 P1 · 1 P2 · 2 agents at a time. Auto-pick is off, so only picks and work on finished branches start.',
     agents: 2,
+    agentsAllowed: 2,
+    maxAgents: 8,
     queue: [
       { key: 'item:storefront:7a31c2', kind: 'item', slug: 'storefront', project: 'storefront', item: '7a31c2', title: 'Tighten the checkout tests', grade: 'P0', why: 'urgent, critical, high impact, small', waiting: null, skipped: false, picked: true, tokens: 180_000 },
       { key: 'look:billing-api', kind: 'look', slug: 'billing-api', project: 'billing-api', item: null, title: 'security look', grade: 'P1', why: 'important, due', waiting: 'a free worker', skipped: false, picked: false, tokens: 90_000 },

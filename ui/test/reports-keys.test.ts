@@ -4,9 +4,9 @@ import { reportsKey, type KeyContext } from '../src/features/reports/keys.ts'
 
 const at = (where: KeyContext['where'], over: Partial<KeyContext> = {}): KeyContext => ({ where, titleEmpty: true, canUndo: false, ...over })
 
-test('on a report, enter and right open it and the letters act on it', () => {
+test('on a report, enter and left open it, toward the reader on the left, and the letters act on it', () => {
   assert.deepEqual(reportsKey({ key: 'Enter' }, at('row')), { do: 'open' })
-  assert.deepEqual(reportsKey({ key: 'ArrowRight' }, at('row')), { do: 'open' })
+  assert.deepEqual(reportsKey({ key: 'ArrowLeft' }, at('row')), { do: 'open' }, 'the list is on the right and the report opens on its left')
   assert.deepEqual(reportsKey({ key: 'r' }, at('row')), { do: 'reply' })
   assert.deepEqual(reportsKey({ key: 'm' }, at('row')), { do: 'reply' }, 'as in the terminal app')
   assert.deepEqual(reportsKey({ key: 'Backspace' }, at('row')), { do: 'delete' })
@@ -15,7 +15,7 @@ test('on a report, enter and right open it and the letters act on it', () => {
 
   assert.equal(reportsKey({ key: 'ArrowDown' }, at('row')), null, 'up and down are the walk between controls')
   assert.equal(reportsKey({ key: 'ArrowUp' }, at('row')), null)
-  assert.equal(reportsKey({ key: 'ArrowLeft' }, at('row')), null, 'there is nothing to go back to')
+  assert.equal(reportsKey({ key: 'ArrowRight' }, at('row')), null, 'nothing lies to the right of the list')
   assert.equal(reportsKey({ key: 'x' }, at('row')), null)
 })
 

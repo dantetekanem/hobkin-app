@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
-import { draftReducer, emptyDraft, type Attachment, type DraftAction, type DraftState } from '../src/features/chat/draft.ts'
+import { draftAge, draftReducer, emptyDraft, storedDraft, type Attachment, type DraftAction, type DraftState } from '../src/features/chat/draft.ts'
 import { draftAfterStop, emptyOutbox, settleOutbox, type Outbox } from '../src/features/chat/outbox.ts'
 
 const after = (state: DraftState, ...actions: DraftAction[]) => actions.reduce(draftReducer, state)
@@ -24,25 +24,66 @@ test('the draft and attachments move into the prompt editor and back', () => {
   assert.equal(back.text, 'Plan the release\n\n## Steps\n\n1. Tag it')
   assert.deepEqual(back.attachments, [more])
 
-  // Escape asks before anything is lost. Staying changes nothing.
-  const asked = after(editor, { type: 'editor-escaped' })
+  // Escape asks before anything is lost. Going back to the text changes nothing.
+  const asked = after(editor, { type: 'editor-escaped', at: 1000, id: 'k1' })
   assert.equal(asked.place, 'editor')
   assert.equal(asked.leaving, true)
   assert.deepEqual(after(asked, { type: 'leave-cancelled' }), editor)
 
-  const kept = after(asked, { type: 'leave-kept' })
-  assert.deepEqual([kept.place, kept.leaving, kept.text, kept.attachments.length], ['input', false, 'Plan the release', 1])
+  // Keeping sets the draft aside with its images, so the input is free for the next thing.
+  const kept = after(asked, { type: 'leave-kept', at: 1000, id: 'k1' })
+  assert.deepEqual([kept.place, kept.leaving, kept.text, kept.attachments.length], ['input', false, '', 0])
+  assert.deepEqual(kept.kept, [{ id: 'k1', text: 'Plan the release', at: 1000, attachments: [picture] }])
+  // Escape asked twice keeps it: an unfinished prompt never stands in the way.
+  assert.deepEqual(after(asked, { type: 'editor-escaped', at: 1000, id: 'k1' }), kept)
   const discarded = after(asked, { type: 'leave-discarded' })
-  assert.deepEqual([discarded.place, discarded.leaving, discarded.text, discarded.attachments.length], ['input', false, '', 0])
+  assert.deepEqual([discarded.place, discarded.leaving, discarded.text, discarded.attachments.length, discarded.kept.length], ['input', false, '', 0, 0])
 
-  // With nothing written there is nothing to ask about.
-  const empty = after(emptyDraft, { type: 'editor-toggled' }, { type: 'editor-escaped' })
-  assert.deepEqual([empty.place, empty.leaving], ['input', false])
+  // With nothing written there is nothing to ask about, or to keep.
+  const empty = after(emptyDraft, { type: 'editor-toggled' }, { type: 'editor-escaped', at: 1, id: 'k' })
+  assert.deepEqual([empty.place, empty.leaving, empty.kept.length], ['input', false, 0])
 
   // Sending from the editor sends the draft and closes it.
   const sent = after(editor, { type: 'sent' })
   assert.deepEqual([sent.place, sent.text, sent.attachments.length], ['input', '', 0])
   assert.deepEqual(sent.sent, ['Plan the release'])
+})
+
+test('kept drafts wait in a list, newest first, and one opened again is the one being written', () => {
+  const keep = (state: DraftState, at: number, id: string) => after(state, { type: 'editor-escaped', at, id }, { type: 'editor-escaped', at, id })
+  const write = (state: DraftState, text: string) => after(state, { type: 'editor-toggled' }, { type: 'typed', text })
+  const listed = (state: DraftState) => state.kept.map(({ id, text }) => [id, text])
+
+  let draft = keep(write(emptyDraft, 'First idea'), 100, 'a')
+  draft = keep(write(draft, 'Second idea'), 200, 'b')
+  assert.deepEqual(listed(draft), [['b', 'Second idea'], ['a', 'First idea']])
+
+  // Opening one while another is being written sets that one aside first, so nothing is lost.
+  draft = after(write(draft, 'Half a third'), { type: 'draft-opened', id: 'a', at: 300, keepAs: 'c' })
+  assert.deepEqual([draft.text, draft.from, draft.place], ['First idea', 'a', 'editor'])
+  assert.deepEqual(listed(draft), [['c', 'Half a third'], ['b', 'Second idea']])
+
+  // Kept again, it goes back to the top under its own name, with what was added.
+  draft = keep(after(draft, { type: 'typed', text: 'First idea, grown' }), 400, 'unused')
+  assert.deepEqual(draft.kept.map(({ id, text, at }) => [id, text, at]), [['a', 'First idea, grown', 400], ['c', 'Half a third', 300], ['b', 'Second idea', 200]])
+
+  // Sent, it is gone for good. Deleted, too.
+  draft = after(draft, { type: 'editor-toggled' }, { type: 'draft-opened', id: 'c', at: 500, keepAs: 'd' }, { type: 'sent' })
+  assert.deepEqual([draft.kept.map(({ id }) => id), draft.from], [['a', 'b'], null])
+  draft = after(draft, { type: 'editor-toggled' }, { type: 'draft-opened', id: 'b', at: 600, keepAs: 'e' }, { type: 'editor-escaped', at: 600, id: 'e' }, { type: 'leave-discarded' })
+  assert.deepEqual(draft.kept.map(({ id }) => id), ['a'])
+  assert.equal(after(draft, { type: 'draft-opened', id: 'gone', at: 700, keepAs: 'f' }), draft, 'a draft that is not there opens nothing')
+
+  // Only the words survive a reload: images are files hobkin holds for this session.
+  const withPicture = { ...draft, kept: [{ id: 'x', text: 'With a picture', at: 1, attachments: [picture] }] }
+  assert.deepEqual(storedDraft(withPicture).kept, [{ id: 'x', text: 'With a picture', at: 1, attachments: [] }])
+
+  // Each one says when it was set aside.
+  const noon = new Date(2026, 10, 10, 12, 0).getTime()
+  assert.deepEqual(
+    [noon - 20000, noon - 5 * 60000, noon - 3 * 3600000, new Date(2026, 10, 9, 23, 0).getTime(), new Date(2026, 10, 6, 9, 0).getTime(), new Date(2026, 9, 3, 9, 0).getTime()].map((at) => draftAge(at, noon)),
+    ['now', '5 min', '3 h', 'yesterday', 'Fri', 'Oct 3'],
+  )
 })
 
 test('up in an empty message walks back through what the user sent', () => {

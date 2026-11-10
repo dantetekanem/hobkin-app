@@ -162,23 +162,94 @@ function factsOf(project: WorkProject, now: number): string {
 }
 
 export function ProjectsSection({ work, live, now, variants, turn }: { work: WorkState; now: number } & Shared) {
+  const taken = work.projects.filter(({ state }) => state === 'chosen').length
+  const proposed = work.projects.filter(({ state }) => state === 'proposed').length
+  const tally = [`${taken} taken`, proposed ? `${proposed} proposed` : ''].filter(Boolean).join(' · ')
+
   return (
     <section aria-label="Projects" className="flex flex-col gap-2">
-      <SectionHeading label="Projects" count={work.projects.length} />
+      <SectionHeading label="Projects" count={tally} />
       {work.projects.length ? (
         <ul className="relative flex flex-col gap-2">
           <AnimatePresence mode="popLayout">
-            {work.projects.map((project) => (
-              <ProjectItem key={project.slug} project={project} live={live} now={now} variants={variants} order={turn()} />
-            ))}
+            {work.projects.map((project) =>
+              project.state === 'chosen' ? (
+                <ProjectItem key={project.slug} project={project} live={live} now={now} variants={variants} order={turn()} />
+              ) : (
+                <ProposalItem key={project.slug} project={project} live={live} variants={variants} order={turn()} />
+              ),
+            )}
           </AnimatePresence>
         </ul>
       ) : (
         <p className="px-1 text-[13.5px] leading-relaxed text-muted-foreground">
-          {work.folder ? `hobkin proposes the projects it finds in ${work.folder}, and its proposals wait in Action Items.` : 'hobkin proposes the projects it finds once work mode is on.'}
+          {work.folder ? `hobkin proposes the projects it finds in ${work.folder}, and they show here to take or skip.` : 'hobkin proposes the projects it finds once work mode is on.'}
         </p>
       )}
     </section>
+  )
+}
+
+const STATE_WORDS: Record<Exclude<WorkProject['state'], 'chosen'>, string> = {
+  proposed: 'Proposed',
+  skipped: 'Skipped',
+  dropped: 'Dropped',
+}
+
+/**
+ * A project hobkin knows and does not work on: a proposal waits for the user's yes or no, as y and n answer it in
+ * the terminal, and a project left alone can be taken again. Enter on the row takes it.
+ */
+function ProposalItem({ project, live, variants, order }: { project: WorkProject; live: boolean; variants: Variants; order: number }) {
+  const still = useStill()
+  const busy = useWorkUi((state) => Boolean(state.busy[project.slug]))
+  const said = useWorkUi((state) => state.said[project.slug])
+  const answer = (answer: 'take' | 'skip') => void runWork({ do: 'proposal', slug: project.slug, answer }, { live, place: project.slug })
+  // A host older than this screen sends no state: the row still draws, with a neutral word.
+  const standing = project.state === 'chosen' ? 'Taken' : (STATE_WORDS[project.state as keyof typeof STATE_WORDS] ?? 'Known')
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || event.key !== 'Enter') return
+    event.preventDefault()
+    if (!busy) answer('take')
+  }
+
+  return (
+    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
+      <div
+        data-work-item=""
+        data-work-main=""
+        data-stop=""
+        tabIndex={-1}
+        role="group"
+        aria-label={`${project.name}, ${standing.toLowerCase()}, ${project.level}. Enter takes it.`}
+        onKeyDown={onKeyDown}
+        className="flex scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-4 gap-y-2 rounded-3xl border border-dashed border-border px-5 py-3.5 outline-offset-[-2px] focus-visible:bg-surface-2"
+      >
+        <div className="min-w-[180px] flex-1">
+          <p className="flex items-baseline gap-2 font-heading text-[15px] leading-tight font-semibold tracking-[-0.015em]">
+            {project.name}
+            <span className="eyebrow">{standing}</span>
+          </p>
+          <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{project.level}</p>
+        </div>
+        <span className="flex shrink-0 items-center gap-1">
+          <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => answer('take')}>
+            Take it
+          </Button>
+          {project.state === 'proposed' ? (
+            <Button variant="ghost" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => answer('skip')} className="text-muted-foreground">
+              Skip
+            </Button>
+          ) : null}
+        </span>
+      </div>
+      {said?.tone === 'refused' ? (
+        <SaidLine tone="refused" className="px-5 pt-1.5">
+          {said.text}
+        </SaidLine>
+      ) : null}
+    </motion.li>
   )
 }
 

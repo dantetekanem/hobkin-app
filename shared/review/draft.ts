@@ -108,7 +108,9 @@ function unitNode(unit: Unit, file: CapturedFile, isChanged: ReturnType<typeof c
 
 /** A file with no lines to show: binary, empty, or only renamed. It is still part of the change, so it is still a node. */
 function wholeFileNode(id: string, file: CapturedFile): ReviewNode {
-  const summary = file.binary
+  const summary = file.skipped
+    ? `Not read, because this change is over the size limits. ${changeSentence(file.additions, file.deletions)}`
+    : file.binary
     ? 'A binary file. Its contents are not shown.'
     : file.status === 'renamed'
       ? `Renamed from ${file.oldPath}. Its contents did not change.`
@@ -123,7 +125,7 @@ function wholeFileNode(id: string, file: CapturedFile): ReviewNode {
     title: fileName(file.path),
     subtitle: file.path,
     change: file.status === 'added' ? 'added' : file.status === 'deleted' ? 'deleted' : 'modified',
-    stats: { additions: 0, deletions: 0 },
+    stats: { additions: file.additions, deletions: file.deletions },
     summary,
     anchors: [],
     position: { x: 0, y: 0 },

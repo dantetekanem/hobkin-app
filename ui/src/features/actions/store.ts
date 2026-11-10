@@ -8,10 +8,24 @@ import { hostStore } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { hostRows } from './host.ts'
 
-/** Real rows stay authoritative, including while disconnected. Local question state is sample-only. */
-export const useActionItems = create<{ sample: boolean; items: ActionItem[]; rows: WaitingRow[] }>()(() => ({
-  sample: true, items: sampleItems, rows: [],
+/**
+ * Real rows stay authoritative, including while disconnected. Local question state is sample-only. `answering` holds
+ * the rows whose answer is on its way to hobkin: they leave the list at once, and come back if hobkin refuses.
+ */
+export const useActionItems = create<{ sample: boolean; items: ActionItem[]; rows: WaitingRow[]; answering: string[] }>()(() => ({
+  sample: true, items: sampleItems, rows: [], answering: [],
 }))
+
+/** An answer went to hobkin: its row leaves until hobkin's own list says otherwise. */
+export function startAnswering(id: string): void {
+  const { answering } = useActionItems.getState()
+  if (!answering.includes(id)) useActionItems.setState({ answering: [...answering, id] })
+}
+
+/** hobkin replied. Its next snapshot, which comes first, says whether the item is still open. */
+export function stopAnswering(id: string): void {
+  useActionItems.setState({ answering: useActionItems.getState().answering.filter((entry) => entry !== id) })
+}
 
 function syncActions(state: HostState, previous?: HostState): void {
   if (previous && state.home === previous.home && state.snapshot.decisions === previous.snapshot.decisions &&
@@ -31,11 +45,14 @@ import.meta.hot?.dispose(unsubscribe)
  * away and a question put off arrives.
  */
 export function useWaitingRows(): WaitingRow[] {
-  const { items, sample, rows } = useActionItems()
+  const { items, sample, rows, answering } = useActionItems()
   // Only these two lists. The rest of the queue changes as its clock runs, and the rows do not depend on it.
   const answered = useQuestions((state) => state.queue.answered)
   const deferred = useQuestions((state) => state.queue.deferred)
-  return useMemo(() => sample ? waiting(items, { ...emptyQueue, answered, deferred }) : rows, [sample, rows, items, answered, deferred])
+  return useMemo(
+    () => (sample ? waiting(items, { ...emptyQueue, answered, deferred }) : rows.filter(({ id }) => !answering.includes(id))),
+    [sample, rows, items, answered, deferred, answering],
+  )
 }
 
 /** How many things wait on the user: the number of rows on Action Items, for the menu's count (012 A4). */

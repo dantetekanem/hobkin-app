@@ -14,6 +14,8 @@ interface ReportRowProps {
   variants: Variants
   /** Its turn in the screen's arrival, or -1 when it arrives on its own. */
   order: number
+  /** It arrived by paging, so it is simply there, with no entrance. */
+  quiet?: boolean
   onOpen: (id: string, from: HTMLElement) => void
 }
 
@@ -21,9 +23,18 @@ interface ReportRowProps {
  * One report in the list: its mark, title and time, what it found, and the routine or project it came from.
  * The row is a stop in the screen's walk, so Up and Down reach it and Enter opens it.
  */
-export function ReportRow({ report, unread, open, variants, order, onOpen }: ReportRowProps) {
+export function ReportRow({ report, unread, open, variants, order, quiet = false, onOpen }: ReportRowProps) {
   return (
-    <motion.li layout="position" variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
+    <motion.li
+      layout="position"
+      variants={variants}
+      custom={order}
+      initial={quiet ? false : 'enter'}
+      animate="center"
+      exit="gone"
+      transition={rowLayout}
+      className="relative"
+    >
       <button
         type="button"
         data-stop=""
@@ -80,13 +91,13 @@ const ReportRowContent = memo(function ReportRowContent({ report, unread }: Pick
 })
 
 /** A day's heading in the list. It moves with the rows. */
-export function DayHeading({ label, variants, order }: { label: string; variants: Variants; order: number }) {
+export function DayHeading({ label, variants, order, quiet = false }: { label: string; variants: Variants; order: number; quiet?: boolean }) {
   return (
     <motion.li
       layout="position"
       variants={variants}
       custom={order}
-      initial="enter"
+      initial={quiet ? false : 'enter'}
       animate="center"
       exit="gone"
       transition={rowLayout}

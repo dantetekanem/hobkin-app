@@ -1,12 +1,18 @@
-import { CornerDownLeft, Trash, Undo2 } from 'lucide-react'
+import { Check, CircleX, CornerDownLeft, Trash, Undo2 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { useStill } from './still.ts'
 
-/** One line at the foot of the screen: a delete that can still be undone, or where a reply is going. */
-export type Line = { key: number; kind: 'deleted'; title: string; until: number } | { key: number; kind: 'replying'; title: string }
+/**
+ * One line at the foot of the screen: a delete that can still be undone, where a reply is going, or what hobkin
+ * said of something it was asked to do, in its own words (`refused` when it would not).
+ */
+export type Line =
+  | { key: number; kind: 'deleted'; title: string; until: number }
+  | { key: number; kind: 'replying'; title: string }
+  | { key: number; kind: 'said'; text: string; refused?: boolean }
 
 /** How long the line about a reply stays. */
 export const REPLY_LINE_MS = 4000
@@ -50,12 +56,21 @@ export function NoticeLine({ line, onUndo }: { line: Line | null; onUndo: () => 
                   transition={{ duration: Math.max(0, line.until - Date.now()) / 1000, ease: 'linear' }}
                 />
               </>
-            ) : (
+            ) : line.kind === 'replying' ? (
               <>
                 <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <span className="min-w-0 truncate py-1 pr-2.5">
                   <span className="font-medium">{line.title}</span> goes with your next message.
                 </span>
+              </>
+            ) : (
+              <>
+                {line.refused ? (
+                  <CircleX className="size-3.5 shrink-0 text-bad-fg" aria-hidden="true" />
+                ) : (
+                  <Check className="size-3.5 shrink-0 text-ok-fg" aria-hidden="true" />
+                )}
+                <span className="min-w-0 py-1 pr-2.5 leading-snug">{line.text}</span>
               </>
             )}
           </motion.div>

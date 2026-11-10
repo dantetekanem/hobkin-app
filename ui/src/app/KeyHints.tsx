@@ -3,8 +3,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 const HINTS: [keys: string, does: string][] = [
   ['tab', 'screens'],
   ['↓', 'agents'],
-  ['⌘J', 'canvas'],
-  ['⌘P', 'projects'],
+  ['⌘K', 'search'],
   ['⌘Y', 'history'],
   ['⌘,', 'settings'],
 ]

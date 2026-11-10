@@ -5,6 +5,7 @@ import { hostStore } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { routinesFromHost } from './host-data.ts'
 import type { TimesEdit, WindowEdit } from './edit.ts'
+import { prepareRoutines, withSkyWidth, type PreparedRoutines } from './prepare.ts'
 import { changeTimes, finishRun, holdFor, setEnabled, startRun, type RunOutcome } from './rules.ts'
 import { buildSample, SAMPLE_OUTCOMES } from './sample.ts'
 import { occurrencesBetween } from './timeline.ts'
@@ -13,6 +14,9 @@ import type { RoutinesData } from './types.ts'
 /**
  * Host routines are read-only. Without a host, the explicit sample keeps its simulated actions.
  * Only the view is persisted; a host snapshot always owns the routine data.
+ *
+ * What the screen draws is worked out here, ahead of time: whenever the data changes, on each minute, and when
+ * the sky's width changes (`prepared`). Opening the screen then only draws what is ready.
  */
 
 /** All routines grouped by how often they run, or the next seven days in time order. */
@@ -22,9 +26,12 @@ export type RoutinesView = 'all' | 'week'
 export const VIEW_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const SECOND = 1000
+const MINUTE = 60 * SECOND
 
 interface RoutinesState {
   data: RoutinesData
+  /** The screen worked out from `data` for the current minute. */
+  prepared: PreparedRoutines
   /** Null for host data; otherwise the explicitly labelled sample. */
   sample: 'full' | 'empty' | null
   view: RoutinesView
@@ -43,7 +50,15 @@ interface RoutinesState {
   setEnabled: (id: string, enabled: boolean) => void
   changeTimes: (id: string, edit: TimesEdit | WindowEdit) => void
   showSample: (sample: 'full' | 'empty') => void
+  /** The sky measured its width. Its scenes are drawn again for it, and nothing else is worked out again. */
+  setSkyWidth: (width: number) => void
 }
+
+/** The sky's width when it was last measured. The screen draws its sky for it before it opens. */
+let skyWidth = 0
+
+/** New data, with the screen worked out for it now. */
+const ready = (data: RoutinesData) => ({ data, prepared: prepareRoutines(data, Date.now(), VIEW_ZONE, skyWidth) })
 
 /** Runs in progress on sample data, and when each one ends. */
 const finishing = new Map<string, ReturnType<typeof setTimeout>>()
@@ -54,7 +69,7 @@ function finishLater(id: string, afterMs: number, outcome: RunOutcome): void {
 
   const timer = setTimeout(() => {
     finishing.delete(id)
-    useRoutines.setState((state) => ({ data: finishRun(state.data, id, Date.now(), outcome) }))
+    useRoutines.setState((state) => ready(finishRun(state.data, id, Date.now(), outcome)))
   }, afterMs)
   finishing.set(id, timer)
 }
@@ -96,7 +111,7 @@ function emptySample(): RoutinesData {
 export const useRoutines = create<RoutinesState>()(
   persist(
     (set, get) => ({
-      data: freshSample(),
+      ...ready(freshSample()),
       sample: 'full',
       view: 'all',
       openId: null,
@@ -116,7 +131,7 @@ export const useRoutines = create<RoutinesState>()(
         if (get().sample === null) return
         const { data } = get()
         if (id in data.running) return
-        set({ data: startRun(data, id, Date.now(), 'manual') })
+        set(ready(startRun(data, id, Date.now(), 'manual')))
 
         // A sample run takes a few seconds and brings back the next outcome in turn.
         const outcome = SAMPLE_OUTCOMES[manualRuns % SAMPLE_OUTCOMES.length]!
@@ -124,20 +139,26 @@ export const useRoutines = create<RoutinesState>()(
         finishLater(id, 5 * SECOND + ((manualRuns * 1700) % 4000), outcome)
       },
       setEnabled: (id, enabled) => {
-        if (get().sample !== null) set({ data: setEnabled(get().data, id, enabled) })
+        if (get().sample !== null) set(ready(setEnabled(get().data, id, enabled)))
       },
       changeTimes: (id, edit) => {
-        if (get().sample !== null) set({ data: changeTimes(get().data, id, edit, Date.now()) })
+        if (get().sample !== null) set(ready(changeTimes(get().data, id, edit, Date.now())))
       },
       showSample: (sample) => {
         if (get().sample === null) return
         stopAllRuns()
         set({
+          ...ready(sample === 'full' ? freshSample() : emptySample()),
           sample,
-          data: sample === 'full' ? freshSample() : emptySample(),
           openId: null,
           lit: null,
         })
+      },
+      setSkyWidth: (width) => {
+        const measured = Math.round(width)
+        if (measured <= 0 || measured === skyWidth) return
+        skyWidth = measured
+        set({ prepared: withSkyWidth(get().prepared, measured, VIEW_ZONE) })
       },
     }),
     {
@@ -162,7 +183,7 @@ function syncRoutines(state: HostState, previous?: HostState): void {
   const data = sample ? freshSample() : routinesFromHost(changedHome ? {} : state.snapshot)
   const contains = (id: string | null) => !changedHome && data.routines.some((routine) => routine.id === id)
   useRoutines.setState({
-    data,
+    ...ready(data),
     sample,
     openId: contains(current.openId) ? current.openId : null,
     openFrom: contains(current.openId) ? current.openFrom : null,
@@ -172,6 +193,14 @@ function syncRoutines(state: HostState, previous?: HostState): void {
 
 syncRoutines(hostStore.getState())
 const unsubscribe = hostStore.subscribe(syncRoutines)
+
+/** Each minute the screen is worked out again for the new time, whether it is open or not. */
+let minuteTimer: ReturnType<typeof setTimeout> | undefined
+function onMinute(): void {
+  useRoutines.setState((state) => ({ prepared: prepareRoutines(state.data, Date.now(), VIEW_ZONE, skyWidth) }))
+  minuteTimer = setTimeout(onMinute, MINUTE - (Date.now() % MINUTE))
+}
+minuteTimer = setTimeout(onMinute, MINUTE - (Date.now() % MINUTE))
 
 export interface RunningRoutine {
   id: string
@@ -221,7 +250,7 @@ function tick(): void {
     next = startRun(next, routine.id, now, 'scheduled')
     finishLater(routine.id, 6 * SECOND, QUIET)
   }
-  if (next !== data) useRoutines.setState({ data: next })
+  if (next !== data) useRoutines.setState(ready(next))
 }
 
 const ticker = setInterval(tick, 15 * SECOND)
@@ -229,6 +258,7 @@ const ticker = setInterval(tick, 15 * SECOND)
 // A saved edit reloads this module. The old clock and runs stop with it, so nothing runs twice.
 import.meta.hot?.dispose(() => {
   clearInterval(ticker)
+  clearTimeout(minuteTimer)
   stopAllRuns()
   unsubscribe()
 })

@@ -5,10 +5,14 @@ import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
 import { Attachments } from './attachments.ts'
 import { createClientTool } from './client-tool.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
+import { openablePath, readTextFile } from './files.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
+import { Integrations, type McpSource } from './integrations.ts'
+import { piMcpSourceFor } from './integrations-pi.ts'
 import { whyNotUsable } from './main-model.ts'
+import { openableUrl } from './open.ts'
 import { piModelAccess, type LiveModelAccess, type ModelAccess } from './model-access.ts'
 import { HomeOwner } from './owner.ts'
 import { Questions } from './questions.ts'
@@ -21,7 +25,11 @@ import { StateSync } from './state-sync.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
+import { Canvas } from './canvas.ts'
+import { decisionHandlers } from './decisions.ts'
 import { workFrom, workHandlers } from './work.ts'
+import type { GhCall } from './review/gh.ts'
+import { hostReviews, reviewHandlers, toPrepare } from './review/seat.ts'
 
 export interface HostOptions {
   /** The hobkin home to serve. */
@@ -48,8 +56,23 @@ export interface HostOptions {
   questionWaitMs?: number
   /** Where the GitHub page reads from (024-github). Made-up data when not given, and gh never runs. The entry (`main.ts`) passes gh for --live and --github. */
   github?: GitHubSource
+  /**
+   * gh for Change Review: it reads pull requests, and a live host posts a verdict the user confirmed. Without it a
+   * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
+   */
+  reviewGh?: GhCall
   /** Opens a page on github.com in the system browser. */
   openGitHub?: (url: string) => void
+  /** Opens a web or mail address in the system's default app (`system.open`). Nothing opens when not given; the entry passes the real one. */
+  openSystem?: (url: string) => void
+  /** Opens a file in the system's default app (`file.open`). Nothing opens when not given. */
+  openFile?: (path: string) => void
+  /**
+   * Where Integrations reads and writes MCP servers (023-integrations). Pi's own code over Pi's configuration when not
+   * given: for a live host Pi's own folder, and for a scripted one the folder in PI_CODING_AGENT_DIR or the agent
+   * folder in its home, never ~/.pi/agent.
+   */
+  integrations?: () => Promise<McpSource>
   log?: (line: string) => void
 }
 
@@ -88,8 +111,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     for (const socket of server?.sockets() ?? []) send(socket, message)
   }
   const publish = () => {
-    const message = sync.update(facts())
+    const now = facts()
+    const message = sync.update(now)
     if (message) broadcast(message)
+    // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
+    reviews.watch(toPrepare(now.work, now.github))
   }
   const connected = () => [...(server?.sockets() ?? [])].some((socket) => socket.readyState === socket.OPEN)
 
@@ -154,13 +180,30 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }
   // The GitHub page reads through gh and only reads. It reads again every few minutes while a UI is connected.
   const github = new GitHub({ source: options.github ?? sampleGitHubSource(), onChange: publish, wanted: connected, log })
+  // Integrations reads Pi's MCP servers only when asked, through Pi's own code, and hides their secrets before anything is sent.
+  const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
+  // The canvas panel: the page hobkin shows beside the screens. The window draws it (030-canvas-panel).
+  const canvas = new Canvas({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
+  // Change Review: reviews prepared in the background and kept in the home, and verdicts only on the user's word.
+  const reviews = hostReviews({
+    root,
+    live,
+    data: () => hobkin().runtime.directory,
+    work: () => (owner.snapshot ? workFrom(owner.snapshot) : null),
+    app: () => hobkin(),
+    runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
+    gh: options.reviewGh,
+    log,
+  })
   const facts = () => ({
     owner: owner.state,
     signIn: signIn.state,
     models: signIn.models,
     github: github.state,
+    integrations: integrations.state,
+    canvas: canvas.state,
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workFrom(owner.snapshot) : null,
     snapshot: owner.snapshot && activity.keep(owner.snapshot),
@@ -259,15 +302,38 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     'signin.out': ({ provider }) => signIn.signOut(provider),
     'github.refresh': () => github.refresh(),
+    // Integrations changes Pi's configuration only on the user's word, through Pi's own code (023-integrations).
+    'integrations.refresh': () => integrations.refresh(),
+    'integrations.turn-off': ({ name }) => integrations.turnOff(name),
+    'integrations.turn-on': ({ name }) => integrations.turnOn(name),
+    'integrations.add': ({ service, values }) => integrations.add(service, values),
+    'integrations.remove': ({ name }) => integrations.remove(name),
     'github.open': ({ url }) => {
       // Nothing opens the user's browser unless the caller hands an opener in. The app does (main.ts); a test never does.
       ;(options.openGitHub ?? (() => {}))(url)
+      return done
+    },
+    'system.open': ({ url }) => {
+      // Checked again here, so no opener is ever handed an address the registry's pattern let through.
+      ;(options.openSystem ?? (() => {}))(openableUrl(url).href)
+      return done
+    },
+    'canvas.show': ({ url, title }) => canvas.show(url, title),
+    'canvas.close': () => canvas.close(),
+    'file.read': ({ path }) => readTextFile(path),
+    'file.open': async ({ path }) => {
+      const real = await openablePath(path)
+      ;(options.openFile ?? (() => {}))(real)
       return done
     },
     // The Work screen's actions, each one of hobkin's own work actions.
     ...workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
+    // Action Items answered from the window, each through hobkin's own decision or learning action (012).
+    ...decisionHandlers({ app: hobkin }),
+    // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
+    ...reviewHandlers(reviews),
   }
 
   const hello = (): HelloMessage => ({
@@ -335,6 +401,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         questions.close()
         signIn.cancel()
         github.close()
+        integrations.close()
+        reviews.close()
         for (const socket of server.sockets()) socket.close(CLOSE.hostClosing, 'The host is closing')
         await owner.close()
         await server.close()

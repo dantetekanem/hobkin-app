@@ -28,11 +28,31 @@ const GROUPS: [string, ItemKind][] = [
   ['reports', 'routine'],
 ]
 
+/**
+ * What a learning proposal offers, in the words hobkin's terminal uses for it (`learningChoicesFor` in its
+ * `src/cli/ui.mjs`). A proposal about a repo is never asked again for that repo.
+ */
+const learningChoices = (scope: string) => [
+  { value: 'yes', label: 'Yes, plan it' },
+  { value: 'later', label: 'No, but ask me later' },
+  { value: 'no', label: scope.startsWith('work.') ? 'No, never again for this repo' : 'No, never again' },
+]
+
+/** Where a waiting row that is not answered here is handled: a report in Reports, anything about work in Work. */
+function opensOf(group: string, entry: Record<string, unknown>): WaitingRow['opens'] {
+  if (group === 'reports' && text(entry.id)) return { screen: 'reports', report: text(entry.id) }
+  if (group === 'wrong' && text(entry.report)) return { screen: 'reports', report: text(entry.report) }
+  if (group === 'proposals') return undefined
+  return { screen: 'work' }
+}
+
 /** The host's two waiting slices, without turning a saved summary into an answerable question. */
 export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
   const decisions = Array.isArray(snapshot.decisions) ? snapshot.decisions.filter(isDecision) : []
-  const rows = waiting(decisions, emptyQueue).map((row) => ({
+  const rows: WaitingRow[] = waiting(decisions, emptyQueue).map((row) => ({
     ...row,
+    // Answered through hobkin's own decision action, by the id it filed it under.
+    answers: { by: 'decision' as const, id: row.id },
     links: Array.isArray(row.links)
       ? row.links.filter((link) => {
           const entry = record(link)
@@ -53,6 +73,8 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
       const id = `waiting:${group}:${identity === ':' ? index : identity}`
       const from = text(entry.from) || text(entry.project) || text(entry.slug) || 'hobkin'
       const detail = text(entry.summary) || text(entry.reason) || text(entry.next)
+      // A learning proposal is a question hobkin answers with its learning action. The rest open where they are handled.
+      const proposal = group === 'proposals' && /^[0-9a-f]{6}$/.test(text(entry.id))
       rows.push({
         id,
         kind,
@@ -62,8 +84,8 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
         question: {
           id,
           from,
-          question: summary,
-          choices: [],
+          question: proposal ? text(entry.question) || summary : summary,
+          choices: proposal ? learningChoices(text(entry.scope)) : [],
           ...(detail ? { tldr: detail } : {}),
         },
         putOff: false,
@@ -72,6 +94,8 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
         changed: null,
         links: [],
         item: null,
+        ...(proposal ? { answers: { by: 'learning' as const, id: text(entry.id) } } : {}),
+        ...(opensOf(group, entry) ? { opens: opensOf(group, entry) } : {}),
       })
     })
   }

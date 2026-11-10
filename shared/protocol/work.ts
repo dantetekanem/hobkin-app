@@ -35,10 +35,17 @@ export interface QueueRow {
   tokens: number | null
 }
 
-/** A project work mode works on. */
+/**
+ * Where a project stands with work mode, in hobkin's words: `chosen` is taken and worked on, `proposed` waits for
+ * the user to take it, and `skipped` and `dropped` are left alone until the user takes them again.
+ */
+export type ProjectState = 'chosen' | 'proposed' | 'skipped' | 'dropped'
+
+/** A project work mode knows. */
 export interface WorkProject {
   slug: string
   name: string
+  state: ProjectState
   priority: Grade
   prMode: PrMode
   /** `casual`, `important`, `critical` or `max`: the model and how hard it thinks. */
@@ -131,11 +138,15 @@ export interface WorkState {
   held: string | null
   /** About how much work mode starts in the next hours, and what holds it down, in hobkin's words. */
   forecast: string | null
-  /** How many agents may run at once. */
+  /** How many agents may run at once now. Work mode can hold it below the user's own number. */
   agents: number
+  /** The user's own number of agents that may run at once (`hobkin work agents`), and the most hobkin allows. */
+  agentsAllowed: number
+  maxAgents: number
   queue: QueueRow[]
   /** How many rows are queued in all. `queue` holds the first of them, then the skipped ones. */
   queued: number
+  /** Every project work mode knows: the ones taken, by priority, then the proposals, then the ones left alone. */
   projects: WorkProject[]
   finished: FinishedGroup[]
 }

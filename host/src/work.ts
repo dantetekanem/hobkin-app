@@ -1,8 +1,20 @@
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle, type GroupName } from 'hobkin/src/cli/work/groups.mjs'
 import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
-import { byPriority, grades, readMode } from 'hobkin/src/cli/work/store.mjs'
-import { GRADES, PR_MODES, type ChangeChoice, type FinishedChange, type FinishedGroup, type Grade, type PrMode, type QueueRow, type WorkProject, type WorkState } from '#shared/protocol/work.ts'
+import { byPriority, byRank, grades, MAX_AGENTS, readMode, setAgents } from 'hobkin/src/cli/work/store.mjs'
+import {
+  GRADES,
+  PR_MODES,
+  type ChangeChoice,
+  type FinishedChange,
+  type FinishedGroup,
+  type Grade,
+  type PrMode,
+  type ProjectState,
+  type QueueRow,
+  type WorkProject,
+  type WorkState,
+} from '#shared/protocol/work.ts'
 import type { HostHandlers } from './commands.ts'
 
 /**
@@ -14,6 +26,8 @@ import type { HostHandlers } from './commands.ts'
 /** What the host needs of hobkin's application for work mode (`workAction` in its `src/cli/application.mjs`). */
 export interface WorkApp {
   workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>
+  /** Reads hobkin's state again, so the window sees a change made outside a work action at once. */
+  refresh(): Promise<unknown>
 }
 
 interface Safety {
@@ -66,6 +80,8 @@ interface ProjectStatus {
   slug: string
   name?: string
   state?: string
+  /** A proposal's place among the others, as the look for projects ranked them. */
+  rank?: number
   priority?: string
   prMode?: string
   level?: string
@@ -85,6 +101,7 @@ interface WorkStatus {
   folder?: string | null
   autoPick?: boolean
   agents?: number
+  agentsAllowed?: number
   pause?: { line?: string } | null
   waitingOn?: string | null
   forecast?: { line?: string } | null
@@ -227,9 +244,12 @@ const queueRowOf = (row: PlanRow): QueueRow => ({
   tokens: row.estimate?.fresh ?? null,
 })
 
+const PROJECT_STATES: readonly ProjectState[] = ['chosen', 'proposed', 'skipped', 'dropped']
+
 const projectOf = (project: ProjectStatus): WorkProject => ({
   slug: project.slug,
   name: project.name ?? project.slug,
+  state: PROJECT_STATES.includes(project.state as ProjectState) ? (project.state as ProjectState) : 'proposed',
   priority: gradeOf(project.priority) ?? 'P2',
   prMode: PR_MODES.includes(project.prMode as PrMode) ? (project.prMode as PrMode) : 'off',
   level: project.level ?? 'important',
@@ -244,8 +264,22 @@ const projectOf = (project: ProjectStatus): WorkProject => ({
 })
 
 /**
+ * Every project work mode knows: the ones taken, by priority as the terminal's Work tab lists them, then the
+ * proposals in the order the look ranked them, then the ones left alone. Each sort keeps the order of equals.
+ */
+function projectsFrom(projects: readonly ProjectStatus[]): WorkProject[] {
+  const inState = (state: ProjectState) => projects.filter((project) => project.state === state)
+  return [
+    ...inState('chosen').toSorted(byPriority),
+    ...inState('proposed').toSorted(byRank),
+    ...inState('skipped'),
+    ...inState('dropped'),
+  ].map(projectOf)
+}
+
+/**
  * Work mode as the Work screen draws it, from hobkin's snapshot: its switch, its queue in its order, the projects it
- * works on, and the finished changes in the groups one yes can finish, as the terminal's Decisions lists them.
+ * knows, and the finished changes in the groups one yes can finish, as the terminal's Decisions lists them.
  * Null for a snapshot with no work mode in it, such as the view the terminal saved.
  */
 export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
@@ -259,9 +293,11 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     held: work.pause?.line ?? work.waitingOn ?? null,
     forecast: work.forecast?.line ?? null,
     agents: work.agents ?? 0,
+    agentsAllowed: work.agentsAllowed ?? work.agents ?? 0,
+    maxAgents: MAX_AGENTS,
     queue: (work.plan ?? []).map(queueRowOf),
     queued: work.queued ?? 0,
-    projects: (work.projects ?? []).filter(({ state }) => state === 'chosen').toSorted(byPriority).map(projectOf),
+    projects: projectsFrom(work.projects ?? []),
     finished: finishedFrom(waiting?.branches ?? []),
   }
 }
@@ -273,7 +309,10 @@ export interface WorkSeat {
   root: () => string
 }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.change' | 'work.group'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.change' | 'work.group'
+
+/** y and n on a proposal in the terminal: take it, or leave it alone. */
+const PROPOSAL_ANSWERS = { take: 'choose', skip: 'skip' } as const
 
 /** The terminal's keys on a queue row: Enter runs it next, s skips it, and s on a skipped row puts it back. */
 const QUEUE_ACTIONS = { run: 'run', skip: 'later', back: 'back' } as const
@@ -300,13 +339,23 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       if (readMode(root()).enabled) await app().workAction('toggle')
       return { enabled: false }
     },
-    'work.queue': async ({ key, action }) => {
-      await app().workAction(QUEUE_ACTIONS[action], key)
+    'work.queue': async ({ row, action }) => {
+      await app().workAction(QUEUE_ACTIONS[action], row)
       return done
     },
     'work.project': async ({ slug, priority, prs }) => {
       await (priority ? app().workAction('priority', slug, priority) : app().workAction('prs', slug, prs))
       return done
+    },
+    'work.proposal': async ({ slug, answer }) => {
+      await app().workAction(PROPOSAL_ANSWERS[answer], slug)
+      return done
+    },
+    'work.agents': async ({ agents }) => {
+      // hobkin's work actions have no key for this. It is `hobkin work agents`, which writes work mode's own file.
+      const mode = setAgents(root(), agents)
+      await app().refresh()
+      return { agents: mode.agents }
     },
     'work.change': async ({ slug, item, action, head, note }) => {
       const named = CHANGE_ACTIONS[action]

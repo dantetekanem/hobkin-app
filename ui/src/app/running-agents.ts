@@ -118,6 +118,9 @@ export function questionOf(id: string | null): string | undefined {
   return POOL.find((entry) => entry.id === id)?.asks
 }
 
+/** What some sample agents have done so far, in hobkin's activity shape, by agent id. A real agent's comes from the host (`useAgentActivity`). */
+export { SAMPLE_ACTIVITY } from '@/features/agent-activity/sample.ts'
+
 export function findAgent(id: string | null): RunningAgent | undefined {
   const host = hostStore.getState()
   if (hasHost(host)) return agentsFrom(host.snapshot).find((agent) => agent.id === id)

@@ -1,4 +1,4 @@
-import { GRADES, type FinishedChange, type QueueRow, type WorkState } from '#shared/protocol/work.ts'
+import { GRADES, type FinishedChange, type ProjectState, type QueueRow, type WorkProject, type WorkState } from '#shared/protocol/work.ts'
 import type { HobkinChoice, WorkAction } from './actions.ts'
 import { groupOf } from './sample.ts'
 
@@ -54,6 +54,13 @@ function moved(queue: readonly QueueRow[], row: QueueRow, action: 'run' | 'skip'
   return [...rest.slice(0, at), placed, ...rest.slice(at)]
 }
 
+/** The projects taken, by priority, then the proposals, then the ones left alone, as the host lists them. Sorts keep the order of equals. */
+function inHobkinsOrder(projects: readonly WorkProject[]): WorkProject[] {
+  const inState = (state: ProjectState) => projects.filter((project) => project.state === state)
+  const taken = inState('chosen').toSorted((first, second) => GRADES.indexOf(first.priority) - GRADES.indexOf(second.priority))
+  return [...taken, ...inState('proposed'), ...inState('skipped'), ...inState('dropped')]
+}
+
 const plural = (amount: number, one: string, many: string) => (amount === 1 ? one : many)
 
 /** The line that sums up a group's yes, after a line for each row (`sumOf` in hobkin's `src/cli/work/merge-group.mjs`). */
@@ -100,10 +107,16 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
       return { state: { ...state, queue: moved(state.queue, row, action.action), queued }, message: '' }
     }
     case 'priority': {
-      // Projects stay in priority order, and the sort keeps the order of those that share one.
       const projects = state.projects.map((project) => (project.slug === action.slug ? { ...project, priority: action.priority } : project))
-      return { state: { ...state, projects: projects.toSorted((first, second) => GRADES.indexOf(first.priority) - GRADES.indexOf(second.priority)) }, message: '' }
+      return { state: { ...state, projects: inHobkinsOrder(projects) }, message: '' }
     }
+    case 'proposal': {
+      const answered: ProjectState = action.answer === 'take' ? 'chosen' : 'skipped'
+      const projects = state.projects.map((project) => (project.slug === action.slug ? { ...project, state: answered } : project))
+      return { state: { ...state, projects: inHobkinsOrder(projects) }, message: '' }
+    }
+    case 'agents':
+      return { state: { ...state, agents: action.agents, agentsAllowed: action.agents }, message: '' }
     case 'prs':
       return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, prMode: action.prs } : project)) }, message: '' }
     case 'change': {

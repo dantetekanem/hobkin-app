@@ -14,7 +14,6 @@ const COPY: Record<PlaceholderScreen, { mood: Mood; line: string; spec: string }
   routines: { mood: 'focused', line: 'Every routine, when it runs next, and what it found last time.', spec: '010-routines' },
   reports: { mood: 'searching', line: 'What finished runs brought back.', spec: '012-reports-actions' },
   actions: { mood: 'listening', line: 'Everything waiting on you, each with its choices written out.', spec: '012-reports-actions' },
-  pages: { mood: 'thinking', line: 'Pages hobkin draws for you.', spec: '013-hobkin-access' },
   integrations: { mood: 'hello', line: 'The services hobkin can reach, and the ones you can connect.', spec: '023-integrations' },
 }
 

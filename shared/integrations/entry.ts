@@ -1,4 +1,4 @@
-import type { CommandServerEntry, Fill, PiServerEntry, ServerKind } from './types.ts'
+import type { CatalogEntry, CommandServerEntry, Fill, PiServerEntry, ServerKind } from './types.ts'
 
 /**
  * Reading and filling an `mcpServers` entry. An entry may hold two kinds of stand-in:
@@ -79,6 +79,32 @@ export function fillValue(fill: Fill, typed: string): { value: string } | { prob
   }
   if (address.protocol !== 'http:' && address.protocol !== 'https:') return { problem: `An address such as ${fill.example}.` }
   return { value: value.replace(/\/+$/, '') }
+}
+
+/** The fills of a service that are missing or wrong, each with the reason. Empty when every one is fine. */
+export function fillProblems(entry: CatalogEntry, values: Readonly<Record<string, string>>): Record<string, string> {
+  const problems: Record<string, string> = {}
+  for (const fill of entry.connect.fills) {
+    const result = fillValue(fill, values[fill.key] ?? '')
+    if ('problem' in result) problems[fill.key] = result.problem
+  }
+  return problems
+}
+
+/**
+ * The entry a catalog service adds, with what the person filled in written into it. Null when a fill is missing or
+ * wrong, or when a value names a fill the service does not have: nothing but its own fills ever reaches the entry.
+ */
+export function buildEntry(entry: CatalogEntry, values: Readonly<Record<string, string>>): PiServerEntry | null {
+  const keys = new Set(entry.connect.fills.map((fill) => fill.key))
+  if (Object.keys(values).some((key) => !keys.has(key))) return null
+  const filled: Record<string, string> = {}
+  for (const fill of entry.connect.fills) {
+    const result = fillValue(fill, values[fill.key] ?? '')
+    if ('problem' in result) return null
+    filled[fill.key] = result.value
+  }
+  return fillEntry(entry.entry, filled)
 }
 
 /**

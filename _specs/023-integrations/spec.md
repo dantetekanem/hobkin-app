@@ -3,7 +3,7 @@
   "id": "023-integrations",
   "title": "Integrations",
   "kind": "work",
-  "status": "ready",
+  "status": "doing",
   "depends": ["002-host", "019-keyboard", "020-settings"],
   "updated": "2026-11-10"
 }
@@ -29,7 +29,12 @@ Integrations is a canvas screen where the user sees every service hobkin can rea
 - A tile opens to the service's detail: what hobkin can do with it, its tools marked as reading or changing, its state, the routines that use it, and its actions.
 - Look: tiles on the canvas in the manner of Settings, with a mark for each service drawn in the app's palette. A connected service shows life: a small pulse when one of its tools is in use.
 - Integrations opens from a tile in Settings and with Cmd+I. Everything works from the keyboard by the rule of `019-keyboard`.
-- In development and in tests the host reads and writes a Pi configuration inside the development home, never the real `~/.pi/agent`.
+- In development and in tests the host reads and writes a Pi configuration inside the development home, never the real `~/.pi/agent`. A live host uses Pi's own folder. A scripted host uses the folder named in `PI_CODING_AGENT_DIR` when one is named on purpose, and otherwise `<home>/client/scripted-agent`.
+- The host reads and writes Pi's configuration only through Pi's own code: `loadMcpConfig`, each server as `McpServerConnection` reaches it the way `pi mcp list` does, and `updateMcpServerConfig`, `addMcpServerConfig` and `removeMcpServerConfig` for changes. Pi does not export these by name, so the host imports them by their files next to Pi's entry, as it already does Pi's model resolver. A later Pi that moves them shows a message on the screen, not a crash.
+- It reads nothing and starts nothing until the screen asks. Opening the screen looks at the servers once, and not again within a minute. "Check again" looks again. A look connects to each server that is on, reports where it got to and its tools, and closes again. Only the user-level file is read.
+- Before anything leaves the host, entries and messages lose their secrets (`shared/integrations/redact.ts`). A value written into a header, an environment variable, a client secret, a secret option or the address shows as `[hidden]`, and so does anything shaped like a credential, or what a referenced variable holds, in Pi's messages. A reference such as `${NAME}` stays, since it holds no secret.
+- With a host connected the screen shows only what the host read from Pi. The sample is for a window with no host, and says so. Pulses of a tool in use and the routines that use a server are sample life, so a live screen leaves them out until the host reports them.
+- Connecting a catalog service writes the catalog's own entry, with only the values that entry asks for, such as an address or an app's client ID. Nothing typed in the app can stand where a key goes.
 
 ## Out of scope
 
@@ -49,6 +54,7 @@ Integrations is a canvas screen where the user sees every service hobkin can rea
 - A8. Every tile and action can be reached and used with the keyboard alone.
 - A9. No token, key or OAuth credential appears in any message to the UI or in the host's log.
 - A10. The host started in development never reads or writes `~/.pi/agent/mcp.json`.
+- A11. With a host connected, the screen shows only what the host read from Pi's configuration. Sample data shows only in a window with no host, and says so.
 
 ## Proof
 
@@ -62,15 +68,19 @@ Integrations is a canvas screen where the user sees every service hobkin can rea
 - A8. check: walk the screen with the keyboard.
 - A9. `host/test/integrations.test.ts` › "no credential reaches the socket or the log"
 - A10. `host/test/integrations.test.ts` › "development uses its own Pi configuration"
+- A11. `ui/test/integrations-live.test.ts` › "with a host, the screen shows only what the host read from Pi, never the sample"
 
 ## Steps
 
 - [x] S1 (A1). The catalog, with each entry's vendor source checked and recorded. 19 services, each from its maker's own page, checked 2026-11-09. Figma is listed as not usable: it lets only clients in its own catalog connect.
 - [x] S2 (A1, A7, A8). The screen on sample states: connected, catalog, own servers, and the detail. 43 tests pass; the keyboard walk was done in Chrome, not yet in the Mac window.
-- [ ] S3 (A2, A5, A6, A10). Host: read Pi's configuration and state, turn servers on and off, in a development configuration.
-- [ ] S4 (A3, A4, A9). Host: connect a service, with OAuth through Pi and with an environment reference.
+- [x] S3 (A2, A5, A6, A10, A11). Host: read Pi's configuration and state, turn servers on and off, in a development configuration. 8 host tests pass through Pi's own code against a test Pi folder and a local stdio server, with no network. On 2026-11-10, a scripted host on a test home and a test Pi folder was walked in Chrome: Pi's states and tools, off and on writing only `enabled`, a catalog service added and removed, a literal header shown as `[hidden]`.
+- [ ] S4 (A3, A4, A9). Host: connect a service, with OAuth through Pi and with an environment reference. Done: adding a catalog entry with references only (A4) and removing one, with secrets hidden throughout (A9). Not done: signing in from the app (A3). For now the detail names `pi mcp login <name>` to run in a terminal, and checks again.
 
 ## Open questions
 
 - Service marks: the vendors' own logos, or simple marks drawn in the app's palette? Logos are recognized at once, but each has its own usage terms. The first version draws its own.
+- Signing in from the app (A3): call Pi's own `signInMcpServer` from the host, which opens the browser and waits for its callback, or keep the terminal step (`pi mcp login`) that hobkin's setup already teaches? The first needs a check with the user present and a real service. The second works today and keeps every sign-in in Pi's hands.
+- Which routines use a server, and which tool is in use now: hobkin does not record either yet. Routine files that name `mcp__<server>__` tools, and the tool calls in the turns the host relays, could say. Until then a live screen shows neither.
+- The user's running host loads this code only after a restart. Until then a host connected to the window says it does not read Pi's configuration yet.
 - ~~Gmail and Calendar have no single vendor server that every account can use. The catalog entry must say which server it uses and who makes it.~~ Answered 2026-11-09: Google makes remote servers for Gmail, Calendar and Drive. They are in Developer Preview, need membership in Google Workspace's Developer Preview Program, and sign in through an OAuth client of the user's own. Gmail's has no send tool, only drafts, and Calendar's lists only read scopes.

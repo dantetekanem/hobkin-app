@@ -39,13 +39,17 @@ const refuseNetwork: typeof fetch = async () => {
 
 /**
  * hobkin acts on its surroundings. It drives the Herdr panes it finds itself in, and closes leftover ones when it
- * opens. Pi's extensions and `herdr` find those panes through the same variables. Every `hobkin` command an agent
- * runs works on the home `HOBKIN_HOME` names, or on `~/.hobkin`. A run that is not the real home, live, is kept to
- * its own home, for hobkin in this process and for every process it starts.
+ * opens. Pi's extensions and `herdr` find those panes through the same variables. The client runs agents as Pi
+ * jobs in the background and never in Herdr, so no home sees a pane, the real one included.
+ *
+ * Every `hobkin` command an agent runs works on the home `HOBKIN_HOME` names, or on `~/.hobkin`. A run that is not
+ * the real home, live, is kept to its own home. Both hold for hobkin in this process and for every process it starts.
  */
-function keepToHome(root: string): void {
-  for (const name of Object.keys(process.env)) if (name.startsWith('HERDR_')) delete process.env[name]
-  process.env.HOBKIN_HOME = root
+export function keepToSurroundings({ root, live, real }: { root: string; live: boolean; real: boolean }, env: Record<string, string | undefined> = process.env): void {
+  for (const name of Object.keys(env)) {
+    if (name.startsWith('HERDR_')) delete env[name]
+  }
+  if (!(live && real)) env.HOBKIN_HOME = root
 }
 
 /** The part of Pi's in-process session that a model choice changes, as hobkin's own `model_settings` tool changes it. */
@@ -170,8 +174,8 @@ export class HomeOwner {
 
   private async model(): Promise<OpenOptions> {
     const { root, live, real, scripted, tools = [] } = this.options
-    // Only the real home, live, may act on the real app's panes and on the real home.
-    if (!(live && real)) keepToHome(root)
+    // No home sees a Herdr pane, and only the real home, live, may act on the real home.
+    keepToSurroundings({ root, live, real })
     // hobkin enrolls a home with its server on its first tick unless upload is off or the network is taken away.
     const offline = real ? {} : { fetch: refuseNetwork }
 

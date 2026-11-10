@@ -5,7 +5,7 @@ import { dur, spring, staggerDelay, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useWidth } from './hooks.ts'
 import { hueOf, toneFill } from './look.ts'
-import { fractionAt, skyMarks, sunHeight, type Span } from './sky-math.ts'
+import { fractionAt, skyMarks, sunHeight, type SkyMark, type Span } from './sky-math.ts'
 import { GROUND, heightAt, HORIZON, RIDGES, sceneOf, SKY_HEIGHT, STARS, type PlacedBand, type PlacedMark, type Scene, type TimeLabel } from './sky-scene.ts'
 import type { Hold, Routine, RoutinesData } from './types.ts'
 import { clockText, outcomeOf, ownTime, type Tone } from './words.ts'
@@ -30,6 +30,11 @@ export interface SkyProps {
   holds: Record<string, Hold | null>
   /** The routine whose times are lit. The others step back. */
   lit: string | null
+  /** The marks and the scene, worked out ahead by the store. Without them the sky works them out as it draws. */
+  marks?: SkyMark[]
+  scene?: Scene | null
+  /** Told the sky's width whenever it is measured, so the next scene is drawn ahead for it. */
+  onWidth?: (width: number) => void
   onLight?: (id: string | null) => void
   onPick?: (id: string, key: string) => void
 }
@@ -51,16 +56,26 @@ const crossfade = {
 /** How long the marks take to land, one after another across the sky, when the sky first draws. */
 const LANDING = staggerDelay + dur.travel
 
-export function Sky({ span, detail, labels, now, zone, data, holds, lit, onLight, onPick }: SkyProps) {
+export function Sky({ span, detail, labels, now, zone, data, holds, lit, marks: preparedMarks, scene: preparedScene, onWidth, onLight, onPick }: SkyProps) {
   const box = useRef<HTMLDivElement | null>(null)
-  const width = useWidth(box)
+  const measured = useWidth(box)
   const arriving = useArriving()
+  useEffect(() => {
+    if (measured > 0) onWidth?.(measured)
+  }, [measured, onWidth])
 
-  const marks = useMemo(
-    () => skyMarks({ span, now, routines: data.routines, logs: data.logs, holds, detail }),
-    [span, now, data.routines, data.logs, holds, detail],
+  const ownMarks = useMemo(
+    () => (preparedMarks ? null : skyMarks({ span, now, routines: data.routines, logs: data.logs, holds, detail })),
+    [preparedMarks, span, now, data.routines, data.logs, holds, detail],
   )
-  const scene = useMemo(() => (width === 0 ? null : sceneOf({ span, width, zone, labels, now, marks })), [span, width, zone, labels, now, marks])
+  const marks = preparedMarks ?? ownMarks ?? []
+  const ownScene = useMemo(
+    () => (preparedScene !== undefined || measured === 0 ? null : sceneOf({ span, width: measured, zone, labels, now, marks })),
+    [preparedScene, span, measured, zone, labels, now, marks],
+  )
+  const scene = preparedScene ?? ownScene
+  // A scene drawn ahead is drawn for its own width, so nothing moves while the sky is measured again.
+  const width = scene?.width ?? measured
   const naming = useNaming(data.routines, zone)
 
   const sun = sunHeight(span, now)

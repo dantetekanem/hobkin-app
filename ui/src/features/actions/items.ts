@@ -66,6 +66,23 @@ const LONGEST_HEADING = 140
 
 const repeats = (heading: string, text: string) => heading.toLowerCase().includes(text.trim().toLowerCase())
 
+/**
+ * How a question is asked on the sheet: a heading of one line and a sensible length, and the rest as its summary.
+ * A question of several lines, or one long line, is headed by its short form, and its words become the summary.
+ * A short form that only repeats the heading is left out.
+ */
+export function headingOf(question: string, tldr = ''): { question: string; summary: string } {
+  const lines = question
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const whole = lines.join(' ')
+  const long = lines.length > 1 || whole.length > LONGEST_HEADING
+  const short = tldr.trim()
+  const heading = long ? short || lines[0] || '' : whole || short
+  return { question: heading, summary: long ? whole : short && !repeats(heading, short) ? short : '' }
+}
+
 /** The choice hobkin recommends, when it is one of the item's own. */
 const pickOf = (item: ActionItem) => item.choices.find((choice) => choice.value === item.recommended) ?? null
 
@@ -74,20 +91,13 @@ const pickOf = (item: ActionItem) => item.choices.find((choice) => choice.value 
  * A question of several lines, or one long line, is headed by its short form, and its words become the summary.
  */
 export function toQuestion(item: ActionItem): Question {
-  const lines = item.question
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-  const whole = lines.join(' ')
-  const long = lines.length > 1 || whole.length > LONGEST_HEADING
-  const short = item.tldr.trim()
-  const heading = long ? short || lines[0] || '' : whole || short
+  const { question: heading, summary: said } = headingOf(item.question, item.tldr)
   const pick = pickOf(item)
   const why = item.why?.trim() || null
   const changed = item.changed?.trim()
 
   const summary = [
-    long ? whole : short && !repeats(heading, short) ? short : '',
+    said,
     // The sheet shows a reason under hobkin's pick. With no pick, it goes with the summary.
     pick ? '' : (why ?? ''),
     changed ? `Changed: ${changed}` : '',
@@ -125,6 +135,10 @@ export interface WaitingRow {
   links: { label: string; url: string }[]
   /** The item as hobkin filed it. Null for a question from the sheet. */
   item: ActionItem | null
+  /** How hobkin takes the answer: its decision action, or its learning action for a proposal. Absent on sample rows. */
+  answers?: { by: 'decision' | 'learning'; id: string }
+  /** Something hobkin keeps elsewhere, which opens where it is handled instead of being answered here. */
+  opens?: { screen: 'reports'; report: string } | { screen: 'work' }
 }
 
 function itemRow(item: ActionItem, putOff: boolean): WaitingRow {

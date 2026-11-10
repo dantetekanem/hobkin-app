@@ -1,0 +1,112 @@
+/**
+ * Prepared reviews, kept in the home as artifacts so a review opens at once and survives a restart:
+ * `client/reviews/<folder>/` holds one review file and one files file per commit it was built from, and the
+ * reviewer's notes, sent or not. A new commit makes a new review, and the old one stays where it is.
+ */
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { reviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
+import type { NoteEntry } from '#shared/review/notes.ts'
+import type { Review, ReviewFileContents } from '#shared/review/types.ts'
+
+/** The reviewer's notes, sent and not, and the note they were writing. */
+export interface NotesFile {
+  entries: NoteEntry[]
+  draft: { intent: 'comment' | 'question'; text: string; editing?: string } | null
+}
+
+/** How a review came to be. */
+export interface ReviewMeta {
+  /** As an ISO time. */
+  preparedAt: string
+  /** The agent with the change-review skill arranged its story, or the host did alone because no model was asked. */
+  storyBy: 'agent' | 'host'
+}
+
+export interface Prepared {
+  review: Review
+  files: ReviewFileContents[]
+  meta: ReviewMeta | null
+}
+
+export interface ReviewStore {
+  /** The review built from this commit, with its files, or null when there is none. */
+  read(target: ReviewTarget, head: string): Prepared | null
+  /** The most recently prepared review of a target, whatever its commit. */
+  latest(target: ReviewTarget): Prepared | null
+  /** The most recently prepared review of a target without reading it: when it was written, in milliseconds, and how it came to be. */
+  newest(target: ReviewTarget): { at: number; meta: ReviewMeta | null } | null
+  /** A review was built from this commit. */
+  has(target: ReviewTarget, head: string): boolean
+  write(target: ReviewTarget, review: Review, files: ReviewFileContents[], meta?: ReviewMeta): void
+  notes(target: ReviewTarget): NotesFile
+  saveNotes(target: ReviewTarget, notes: NotesFile): void
+}
+
+const short = (head: string) => head.slice(0, 12)
+const NO_NOTES: NotesFile = { entries: [], draft: null }
+
+/** Written in full to a file beside it, then put in place, so a reader never sees half a file. */
+function writeWhole(file: string, text: string) {
+  const next = `${file}.${process.pid}.next`
+  writeFileSync(next, text, { mode: 0o600 })
+  renameSync(next, file)
+}
+
+function readJson<Value>(file: string): Value | null {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as Value
+  } catch {
+    return null
+  }
+}
+
+export function reviewStore(root: string): ReviewStore {
+  const folderOf = (target: ReviewTarget) => join(root, 'client', 'reviews', reviewFolder(target))
+  const readAt = (folder: string, name: string): Prepared | null => {
+    const review = readJson<Review>(join(folder, `review-${name}.json`))
+    const files = readJson<ReviewFileContents[]>(join(folder, `files-${name}.json`))
+    return review && files ? { review, files, meta: readJson<ReviewMeta>(join(folder, `meta-${name}.json`)) } : null
+  }
+  const newestIn = (folder: string) => {
+    if (!existsSync(folder)) return null
+    return (
+      readdirSync(folder)
+        .filter((name) => /^review-[0-9a-f]{12}\.json$/.test(name))
+        .map((name) => ({ name: name.slice('review-'.length, -'.json'.length), at: statSync(join(folder, name)).mtimeMs }))
+        .sort((a, b) => b.at - a.at)[0] ?? null
+    )
+  }
+
+  return {
+    read: (target, head) => readAt(folderOf(target), short(head)),
+    latest(target) {
+      const folder = folderOf(target)
+      const newest = newestIn(folder)
+      return newest ? readAt(folder, newest.name) : null
+    },
+    newest(target) {
+      const folder = folderOf(target)
+      const newest = newestIn(folder)
+      return newest ? { at: newest.at, meta: readJson<ReviewMeta>(join(folder, `meta-${newest.name}.json`)) } : null
+    },
+    has: (target, head) => existsSync(join(folderOf(target), `review-${short(head)}.json`)),
+    write(target, review, files, meta) {
+      const folder = folderOf(target)
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      // The files first: a review is never on disk without what it points into.
+      writeWhole(join(folder, `files-${short(review.change.head)}.json`), JSON.stringify(files))
+      if (meta) writeWhole(join(folder, `meta-${short(review.change.head)}.json`), JSON.stringify(meta))
+      writeWhole(join(folder, `review-${short(review.change.head)}.json`), JSON.stringify(review))
+    },
+    notes(target) {
+      const saved = readJson<Partial<NotesFile>>(join(folderOf(target), 'notes.json'))
+      return saved ? { entries: Array.isArray(saved.entries) ? saved.entries : [], draft: saved.draft ?? null } : NO_NOTES
+    },
+    saveNotes(target, notes) {
+      const folder = folderOf(target)
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      writeWhole(join(folder, 'notes.json'), JSON.stringify(notes))
+    },
+  }
+}
