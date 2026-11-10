@@ -55,13 +55,21 @@ export const timeOf = (at: ChatMessage['at']): number | null => {
 
 const DAY_MS = 86400000
 
-function dayLabel(at: number, day: string, today: string, timeZone?: string): string {
-  if (day === today) return 'Today'
+function dayLabels(today: string, timeZone?: string) {
   // Noon of today's date, a day back, is always yesterday's date, whatever the clocks did in between.
-  if (day === new Date(Date.parse(`${today}T12:00:00Z`) - DAY_MS).toISOString().slice(0, 10)) return 'Yesterday'
+  const yesterday = new Date(Date.parse(`${today}T12:00:00Z`) - DAY_MS).toISOString().slice(0, 10)
+  const options: Intl.DateTimeFormatOptions = { timeZone, weekday: 'short', month: 'short', day: 'numeric' }
+  let thisYear: Intl.DateTimeFormat | undefined
+  let otherYear: Intl.DateTimeFormat | undefined
 
-  const year = day.slice(0, 4) === today.slice(0, 4) ? {} : ({ year: 'numeric' } as const)
-  return new Intl.DateTimeFormat('en', { timeZone, weekday: 'short', month: 'short', day: 'numeric', ...year }).format(at)
+  return (at: number, day: string): string => {
+    if (day === today) return 'Today'
+    if (day === yesterday) return 'Yesterday'
+    const format = day.slice(0, 4) === today.slice(0, 4)
+      ? (thisYear ??= new Intl.DateTimeFormat('en', options))
+      : (otherYear ??= new Intl.DateTimeFormat('en', { ...options, year: 'numeric' }))
+    return format.format(at)
+  }
 }
 
 function entryOf(message: ChatMessage): Entry {
@@ -103,14 +111,15 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
   const days: DayGroup[] = []
   // Reuse the formatter while grouping; the next build picks up any system timezone change.
   let dates: Intl.DateTimeFormat | undefined
-  let today: string | undefined
+  let labelDay: ReturnType<typeof dayLabels> | undefined
   const dayKey = (at: number) => (dates ??= new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })).format(at)
   const place = (entry: Entry, at: number | null) => {
     const key = at === null ? null : dayKey(at)
     let day = days.at(-1)
     // A message with no time stays with the day before it.
     if (!day || (key !== null && key !== day.key)) {
-      day = { key: key ?? 'undated', label: at === null || key === null ? 'Earlier' : dayLabel(at, key, today ??= dayKey(now), timeZone), entries: [] }
+      const label = at === null || key === null ? 'Earlier' : (labelDay ??= dayLabels(dayKey(now), timeZone))(at, key)
+      day = { key: key ?? 'undated', label, entries: [] }
       days.push(day)
     }
     const previous = day.entries.at(-1)
