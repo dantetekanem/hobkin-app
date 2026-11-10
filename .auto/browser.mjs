@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,8 +8,15 @@ import tailwindcss from '@tailwindcss/vite'
 
 const out = path.resolve('.auto/out')
 await mkdir(out, { recursive: true })
+const baseSources = new Map()
+if (process.env.BASE_REV) {
+  const files = execFileSync('git', ['diff', '--name-only', process.env.BASE_REV, '--', 'ui/src'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean)
+  for (const file of files) baseSources.set(path.resolve(file), execFileSync('git', ['show', `${process.env.BASE_REV}:${file}`], { encoding: 'utf8' }))
+}
 await build({
-  configFile: false, root: process.cwd(), logLevel: 'error', plugins: [react(), tailwindcss()],
+  configFile: false, root: process.cwd(), logLevel: 'error', plugins: [
+    { name: 'benchmark-base-sources', enforce: 'pre', load: (id) => baseSources.get(id) }, react(), tailwindcss(),
+  ],
   resolve: { alias: { '@': path.resolve('ui/src') } },
   define: { 'process.env.NODE_ENV': '"production"', __HOBKIN_VERSION__: '"benchmark"', __HOBKIN_CORE_VERSION__: '"benchmark"' },
   build: { outDir: path.join(out, 'bundle'), emptyOutDir: true, minify: process.env.PROFILE !== '1',
@@ -95,6 +102,7 @@ try {
   await writeFile(path.join(out, process.env.HOLDOUT === '1' ? 'holdout.json' : 'latest.json'), JSON.stringify(report, null, 2) + '\n')
   for (const [name, value] of Object.entries(report.metrics)) console.log(`METRIC ${name}=${Number(value).toFixed(3)}`)
   console.log(`Browser: ${report.userAgent}; holdout=${report.holdout}; 3 repetitions, median per workload`)
+  console.log(`Motion checks: ${report.motionChecks.join(', ')}`)
 } finally {
   await call('Browser.close').catch(() => chrome.kill())
   if (chrome.exitCode === null) await new Promise((resolve) => chrome.once('exit', resolve))

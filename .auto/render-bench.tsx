@@ -1,3 +1,4 @@
+import { verifyMotion } from './motion-check.tsx'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { ChatColumn } from '../ui/src/features/chat/ChatColumn.tsx'
@@ -171,7 +172,8 @@ export async function runBenchmark(holdout = false) {
   metrics.render_ms = metrics.chat_mount_ms! + metrics.chat_update_ms! + metrics.reports_mount_ms! + metrics.reports_update_ms!
   metrics.update_p95_ms = durations.sort((a, b) => a - b)[Math.floor(durations.length * 0.95)]!
   await verifyReportChanges()
-  return { metrics, cases, holdout, userAgent: navigator.userAgent }
+  const motionChecks = await verifyMotion()
+  return { metrics, cases, holdout, motionChecks, userAgent: navigator.userAgent }
 }
 
 Object.assign(window, { runBenchmark })
