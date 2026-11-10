@@ -122,6 +122,28 @@ async function exerciseReports(count: number, holdout: boolean) {
   return { mount, update: samples.reduce((sum, value) => sum + value, 0), samples, nodes }
 }
 
+async function verifyReportChanges() {
+  const row: Report = { id: 'same-id', title: 'Original title', body: 'Useful: Original summary', outcome: 'completed', scheduleId: 'daily', at: new Date(NOW).toISOString() }
+  useReports.setState({ sample: false, inbox: createInbox([row]), kind: 'all', title: '', openId: null })
+  const container = document.getElementById('app')!
+  const root = createRoot(container)
+  const button = () => container.querySelector('[data-report-row="same-id"]')!
+  flushSync(() => root.render(<ReportsScreen />))
+  assert(button().textContent?.includes('unread'), 'new report is announced as unread')
+  flushSync(() => useReports.getState().open(row.id))
+  assert(!button().textContent?.includes('unread'), 'opening updates the accessible read mark')
+  const changed = { ...row, title: 'Corrected title', body: 'Critical: Corrected summary', scheduleId: 'work.changed-project.check', at: new Date(NOW + DAY).toISOString() }
+  flushSync(() => useReports.setState({ inbox: createInbox([changed], [changed.id]) }))
+  assert(button().textContent?.includes('Corrected title') && button().textContent?.includes('Corrected summary'), 'same-id report replacements update title and summary')
+  assert(button().textContent?.includes('Critical') && button().textContent?.includes('changed-project'), 'tone and source update')
+  assert(button().querySelector('time')?.dateTime === changed.at, 'timestamp updates')
+  flushSync(() => useReports.getState().close())
+  flushSync(() => button().dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  assert(useReports.getState().openId === changed.id, 'row click retains current callback')
+  flushSync(() => root.unmount())
+  await settle()
+}
+
 export async function runBenchmark(holdout = false) {
   useSettings.getState().setMovement(holdout ? 'still' : 'lively')
   await exerciseChat(7, holdout)
@@ -148,6 +170,7 @@ export async function runBenchmark(holdout = false) {
   }
   metrics.render_ms = metrics.chat_mount_ms! + metrics.chat_update_ms! + metrics.reports_mount_ms! + metrics.reports_update_ms!
   metrics.update_p95_ms = durations.sort((a, b) => a - b)[Math.floor(durations.length * 0.95)]!
+  await verifyReportChanges()
   return { metrics, cases, holdout, userAgent: navigator.userAgent }
 }
 
