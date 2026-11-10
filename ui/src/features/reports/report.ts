@@ -61,16 +61,19 @@ const withoutBold = (text: string) => text.replace(/\*\*$/, '').trim()
 /** The triage a completed run opened its report with, or null when it gave none. */
 export function triageOf(report: Report): Triage | null {
   if (report.outcome !== 'completed') return null
-  const [first = '', ...rest] = report.body
-    .trim()
-    .split('\n')
-    .map((line) => line.trim())
+  const lines: string[] = []
+  for (const [source] of report.body.matchAll(/[^\n]+/g)) {
+    const line = source.trim()
+    if (line) lines.push(line)
+    if (lines.length === 2) break
+  }
+  const [first = '', second] = lines
   if (NOTHING_NEW.test(first)) return { level: 'nothing' }
 
   const match = first.match(TALK_BACK)
   if (!match) return null
   // The next step counts only as the first thing said after the marker.
-  const next = rest.find(Boolean)?.match(NEXT)?.[1]
+  const next = second?.match(NEXT)?.[1]
   return {
     level: match[1]!.toLowerCase() as TriageLevel,
     message: withoutBold(match[2]!).slice(0, LONGEST_MESSAGE),

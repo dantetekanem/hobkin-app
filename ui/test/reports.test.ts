@@ -55,6 +55,17 @@ test("reads the triage from a report's first line", () => {
   assert.equal(triageOf(report('a', { body: 'Critical: said by a run that failed.', outcome: 'failed' })), null, 'only a completed run has a triage')
 })
 
+test('triage ignores blank lines but never reads a later next step from the report body', () => {
+  const details = '\n## Details\n' + 'A detailed finding with context.\n'.repeat(5000)
+  for (const gap of ['\n', '\r\n\r\n', '\n \t\n\u00a0\n']) {
+    const body = ` \t\n **Useful: Found the result.** ${gap} **Next:** Read the change. ${details}`
+    assert.deepEqual(triageOf(report('long', { body })), { level: 'useful', message: 'Found the result.', next: 'Read the change.' })
+    assert.deepEqual(triageOf(report('late', { body: `Useful: Found the result.${gap}First, some context.${gap}Next: This is too late.${details}` })), { level: 'useful', message: 'Found the result.' })
+  }
+  assert.equal(triageOf(report('empty', { body: '\r\n \t\u00a0' })), null)
+  assert.deepEqual(triageOf(report('bounded', { body: `Useful: ${'a'.repeat(2000)}\nNext: ${'b'.repeat(600)}` })), { level: 'useful', message: 'a'.repeat(1024), next: 'b'.repeat(300) })
+})
+
 test('a report wears the tone of its triage, or of how its run ended', () => {
   assert.equal(toneOf(report('a', { body: 'Critical: The secret leaked.' })), 'critical')
   assert.equal(toneOf(report('a', { body: 'Blocked: It needs a login.' })), 'blocked')

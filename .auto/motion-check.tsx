@@ -76,6 +76,14 @@ export async function verifyMotion() {
   assert(block && !atRest(block), 'streaming Markdown block starts displaced')
   await until(() => opacity(fresh) > 0.05 && opacity(fresh) < 0.98, 'fresh words fade in')
   await until(() => atRest(block) && opacity(block) >= 0.999, 'streamed block rise completes')
+  flushSync(() => hostStore.setState((state) => applyHostMessage(state, { type: 'turn', seq: 3, event: { kind: 'message-end', role: 'assistant', stop: 'stop' } }), true))
+  assert(!container.querySelector('[aria-busy="true"]') && container.textContent?.includes('Words arriving now.'), 'completed reply remains and is no longer announced as writing')
+  const edited = { ...first, role: 'assistant' as const, content: 'Corrected historical content', at: now + 60000, about: 'Corrected report', images: 2 }
+  flushSync(() => hostStore.setState({ messages: [edited], live: null }))
+  const changed = container.querySelector('[role="log"] > ol > li > ol > li')!
+  assert(changed.textContent?.includes('hobkin') && changed.textContent?.includes(edited.content), 'same-key role and text changes appear')
+  assert(changed.textContent?.includes('About Corrected report') && changed.textContent?.includes('2 images'), 'same-key metadata changes appear')
+  assert(changed.querySelector('time')?.dateTime === new Date(edited.at).toISOString(), 'same-key time changes appear')
   flushSync(() => root.unmount())
   return ['report row arrival', 'reader grow', 'page slide and exit', 'reader return', 'chat message rise', 'streaming block rise', 'fresh-word fade']
 }
