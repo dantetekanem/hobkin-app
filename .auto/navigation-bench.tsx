@@ -71,7 +71,7 @@ async function tab(to: 'reports' | 'routines', count: number, still: boolean) {
   outgoing.dispatchEvent(event)
   const dispatch = performance.now() - start
   assert(event.defaultPrevented && useView.getState().screen === to, `actual keyboard map opens ${to}`)
-  const samples: { elapsed: number; x: number; opacity: number }[] = []
+  const samples: { elapsed: number; x: number; opacity: number; rowY: number; rowOpacity: number; sunY?: number }[] = []
   const gaps: number[] = []
   let previous = start
   let present: number | null = null
@@ -91,7 +91,16 @@ async function tab(to: 'reports' | 'routines', count: number, still: boolean) {
       if (sawContent && present === null) present = now - start
       sawContent = true
       const style = getComputedStyle(incoming)
-      samples.push({ elapsed: now - start, x: new DOMMatrixReadOnly(style.transform).m41, opacity: Number(style.opacity) })
+      const row = incoming.querySelector(rowSelector(to))!
+      // Routines suppresses individual row arrival on initial mount; its enclosing Rise owns that entrance.
+      const reveal = to === 'routines' ? row.closest('ul')!.parentElement!.parentElement!.parentElement!.parentElement! : row.closest('li')!
+      const rowStyle = getComputedStyle(reveal)
+      const sun = incoming.querySelector('[aria-label="When routines run, in the sky"] > div.size-10')
+      samples.push({
+        elapsed: now - start, x: new DOMMatrixReadOnly(style.transform).m41, opacity: Number(style.opacity),
+        rowY: new DOMMatrixReadOnly(rowStyle.transform).m42, rowOpacity: Number(rowStyle.opacity),
+        ...(sun ? { sunY: new DOMMatrixReadOnly(getComputedStyle(sun).transform).m42 } : {}),
+      })
     }
   }
   assert(present !== null && incoming, `${to} reached a paint opportunity`)
@@ -103,7 +112,10 @@ async function tab(to: 'reports' | 'routines', count: number, still: boolean) {
   if (!still) {
     assert(samples.some((sample) => Math.abs(sample.x) > 8), `${to} travels horizontally`)
     assert(samples.some((sample) => Math.abs(sample.x) > 1 && Math.abs(sample.x) < 600), `${to} has intermediate travel frames`)
-  }
+    assert(samples.some((sample) => sample.rowY > 1 && sample.rowOpacity < 0.99), `${to} list arrival rises and fades in: ${JSON.stringify(samples.slice(0, 4))}`)
+    assert(Math.abs(last.rowY) < 1 && last.rowOpacity > 0.99, `${to} row settles`)
+    if (to === 'routines') assert(samples.some((sample) => sample.sunY !== undefined && sample.sunY > last.sunY! + 8), 'the sun rises from behind the hills')
+  } else assert(samples.every((sample) => Math.abs(sample.x) < 1), 'Still canvas fades without travelling')
   assert(Math.abs(last.x) < 1 && last.opacity > 0.99, `${to} finishes its screen transition`)
   return { to, present: present!, dispatch, maxGap: Math.max(...gaps), slowFrames: gaps.filter((gap) => gap > 34).length, first, last, frames: samples.length }
 }
@@ -122,7 +134,7 @@ async function verifyWeek() {
 }
 
 async function runBenchmark(holdout = false) {
-  useSettings.setState({ motion: holdout ? 'still' : 'lively' })
+  useSettings.getState().setMovement(holdout ? 'still' : 'lively')
   const container = document.getElementById('app')!
   container.style.width = holdout ? '1160px' : '1400px'
   const cases = holdout ? [[63, 11], [257, 31], [437, 53]] : [[48, 8], [464, 24], [512, 48]]
@@ -166,7 +178,7 @@ async function runBenchmark(holdout = false) {
       max_frame_gap_ms: Math.max(...visits.map((visit) => visit.maxGap)), slow_frames: visits.reduce((sum, visit) => sum + visit.slowFrames, 0), max_dom_nodes: maxNodes,
     },
     results, holdout, userAgent: navigator.userAgent,
-    motionChecks: ['actual Tab/Shift+Tab routing', 'focus transfer', 'outgoing screen retained during exit', ...(holdout ? [] : ['screen travel and intermediate frames']), 'settled screen geometry', 'complete row counts', 'week and all views'],
+    motionChecks: ['actual Tab/Shift+Tab routing', 'focus transfer', 'outgoing screen retained during exit', ...(holdout ? ['Still canvas fade without travel'] : ['screen travel and intermediate frames', 'report row and routine list rise/fade', 'sunrise behind hills']), 'settled screen geometry', 'complete row counts', 'week and all views'],
   }
 }
 Object.assign(window, { runBenchmark })
