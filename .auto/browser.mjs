@@ -108,10 +108,16 @@ try {
     if (!Number.isFinite(value) || value < 0) throw new Error(`Missing browser CPU metric ${source}`)
     report.metrics[name] = value
   }
+  if (process.env.REFLOW_CHECK === '1') {
+    const reflow = await call('Runtime.evaluate', { expression: 'window.verifyReportReflow()', awaitPromise: true, returnByValue: true }, sessionId)
+    if (reflow.exceptionDetails) throw new Error(reflow.exceptionDetails.exception?.description ?? JSON.stringify(reflow.exceptionDetails))
+    report.reflowChecks = reflow.result.value
+  }
   await writeFile(path.join(out, process.env.HOLDOUT === '1' ? 'holdout.json' : 'latest.json'), JSON.stringify(report, null, 2) + '\n')
   for (const [name, value] of Object.entries(report.metrics)) console.log(`METRIC ${name}=${Number(value).toFixed(3)}`)
   console.log(`Browser: ${report.userAgent}; holdout=${report.holdout}; 3 repetitions, median per workload`)
   console.log(`Motion checks: ${report.motionChecks.join(', ')}`)
+  if (report.reflowChecks) console.log(`Post-measurement reflow checks: ${report.reflowChecks.join(', ')}`)
 } finally {
   await call('Browser.close').catch(() => chrome.kill())
   if (chrome.exitCode === null) await new Promise((resolve) => chrome.once('exit', resolve))

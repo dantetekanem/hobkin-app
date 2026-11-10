@@ -1,4 +1,4 @@
-import { verifyMotion } from './motion-check.tsx'
+import { verifyMotion, verifyReportReflow } from './motion-check.tsx'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { ChatColumn } from '../ui/src/features/chat/ChatColumn.tsx'
@@ -176,4 +176,4 @@ export async function runBenchmark(holdout = false) {
   return { metrics, cases, holdout, motionChecks, userAgent: navigator.userAgent }
 }
 
-Object.assign(window, { runBenchmark })
+Object.assign(window, { runBenchmark, verifyReportReflow })

@@ -87,3 +87,31 @@ export async function verifyMotion() {
   flushSync(() => root.unmount())
   return ['report row arrival', 'reader grow', 'page slide and exit', 'reader return', 'chat message rise', 'streaming block rise', 'fresh-word fade']
 }
+
+export async function verifyReportReflow() {
+  useSettings.getState().setMovement('lively')
+  const container = document.getElementById('app')!
+  container.style.width = '960px'
+  const now = Date.now()
+  const reports = Array.from({ length: 6 }, (_, index) => ({ id: `reflow:${index}`, title: `${index % 2 ? 'Skip' : 'Keep'} ${index}`, body: 'Useful: A report to read.', outcome: 'completed', at: new Date(now - index * 60000).toISOString() }))
+  useReports.setState({ sample: false, inbox: createInbox(reports), kind: 'all', title: '', openId: null })
+  const root = createRoot(container)
+  flushSync(() => root.render(<ReportsScreen />))
+  const retained = container.querySelector('[data-report-row="reflow:4"]')!.parentElement!
+  const removed = container.querySelector('[data-report-row="reflow:1"]')!.parentElement!
+  await until(() => opacity(retained) >= 0.999 && atRest(retained), 'retained row initial spring settles')
+  const before = retained.getBoundingClientRect().top
+  flushSync(() => useReports.getState().setTitle('Keep'))
+  assert(removed.isConnected, 'filtered row stays for its fade-out')
+  await until(() => !atRest(retained), 'retained row animates into the filtered gap')
+  await until(() => opacity(removed) < 0.98, 'filtered row fades out')
+  await until(() => !removed.isConnected && atRest(retained), 'filter reflow completes')
+  assert(retained.getBoundingClientRect().top < before - 10, 'retained row settles in its new position')
+  flushSync(() => useReports.getState().setTitle(''))
+  const returning = container.querySelector('[data-report-row="reflow:1"]')!.parentElement!
+  assert(!atRest(returning), 'restored row starts its arrival transform')
+  await until(() => opacity(returning) > 0.05 && !atRest(returning), 'restored row rises and fades')
+  await until(() => opacity(returning) >= 0.999 && atRest(returning), 'restored row arrival completes')
+  flushSync(() => root.unmount())
+  return ['filtered-row exit', 'retained-row layout spring', 'restored-row arrival']
+}
