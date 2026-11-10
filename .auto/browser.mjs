@@ -86,6 +86,8 @@ try {
     await call('Profiler.enable', {}, sessionId)
     await call('Profiler.start', {}, sessionId)
   }
+  await call('Performance.enable', {}, sessionId)
+  const before = await call('Performance.getMetrics', {}, sessionId)
   const result = await call('Runtime.evaluate', {
     expression: `new Promise((resolve, reject) => {
       const run = () => { try { resolve(window.runBenchmark(${process.env.HOLDOUT === '1'})) } catch (error) { reject(error) } };
@@ -97,8 +99,15 @@ try {
     const { profile } = await call('Profiler.stop', {}, sessionId)
     await writeFile(path.join(out, 'profile.json'), JSON.stringify(profile))
   }
+  const after = await call('Performance.getMetrics', {}, sessionId)
   const report = result.result.value
   if (!report?.metrics || !Number.isFinite(report.metrics.render_ms) || report.metrics.render_ms <= 0) throw new Error('Missing benchmark result')
+  const metric = (snapshot, name) => snapshot.metrics.find((entry) => entry.name === name)?.value ?? NaN
+  for (const [source, name] of Object.entries({ TaskDuration: 'main_thread_ms', ScriptDuration: 'script_ms', LayoutDuration: 'layout_ms', RecalcStyleDuration: 'style_ms' })) {
+    const value = (metric(after, source) - metric(before, source)) * 1000
+    if (!Number.isFinite(value) || value < 0) throw new Error(`Missing browser CPU metric ${source}`)
+    report.metrics[name] = value
+  }
   await writeFile(path.join(out, process.env.HOLDOUT === '1' ? 'holdout.json' : 'latest.json'), JSON.stringify(report, null, 2) + '\n')
   for (const [name, value] of Object.entries(report.metrics)) console.log(`METRIC ${name}=${Number(value).toFixed(3)}`)
   console.log(`Browser: ${report.userAgent}; holdout=${report.holdout}; 3 repetitions, median per workload`)

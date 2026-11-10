@@ -1,4 +1,5 @@
-- Reuse day-key/date-label formatters per conversation build; today/yesterday calculations should not repeat per message. Preserve explicit and system time zones, DST, year boundaries and undated messages.
 - Isolate stable message contents from layout wrappers so streaming only rerenders the live reply without suppressing Motion layout updates for earlier rows. Object identity currently changes each build.
-- Profile Reports triage/summary extraction on long real-shaped bodies; parse only the first relevant lines instead of splitting every line repeatedly, if behavior permits.
-- Reports row memoization needs stable callbacks and correct read/selected state. Do not virtualize without preserving keyboard navigation, reader transitions and filtered exits.
+- Reports row memoization needs stable callbacks and correct read/selected state. Do not virtualize or suppress layout wrappers without proving every existing animation still runs. Static inner content is already memoized; whole-row memoization remains deferred.
+- CPU profile was dominated by getBoundingClientRect (~621 sampled ms) and document scroll measurement (~194ms), then animation callbacks. Investigate supported Motion batching/identity seams, not removed measurements or shortened animations.
+- Primitive Message props would remove the allocating Zustand shallow comparator from discarded run14, but the expected benefit is small; prefer a measured larger bottleneck first.
+- Phase2 tracks real renderer task time during animations. Consider stable transition object identities where identical transition descriptions are recreated per row; preserve every duration, delay, variant and interruption behavior.
