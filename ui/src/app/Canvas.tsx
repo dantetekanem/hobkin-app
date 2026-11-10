@@ -2,6 +2,8 @@ import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { lazy, Suspense, type ComponentType } from 'react'
 import { spring, stagger, staggerDelay, tween } from '@/lib/motion.ts'
 import { PagesScreen } from '@/features/pages/PagesScreen.tsx'
+import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
+import { RoutinesScreen } from '@/features/routines/RoutinesScreen.tsx'
 import { SettingsScreen } from '@/features/settings/SettingsScreen.tsx'
 import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { useHasHost } from '@/lib/host/index.ts'
@@ -22,10 +24,8 @@ export const REVIEW_KEEPS = 112
 const ActionsScreen = lazy(() => import('@/features/actions/ActionsScreen.tsx').then((module) => ({ default: module.ActionsScreen })))
 const GitHubScreen = lazy(() => import('@/features/github/GitHubScreen.tsx').then((module) => ({ default: module.GitHubScreen })))
 const IntegrationsScreen = lazy(() => import('@/features/integrations/IntegrationsScreen.tsx').then((module) => ({ default: module.IntegrationsScreen })))
-const ReportsScreen = lazy(() => import('@/features/reports/ReportsScreen.tsx').then((module) => ({ default: module.ReportsScreen })))
 const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').then((module) => ({ default: module.ReviewScreen })))
 const WorkScreen = lazy(() => import('@/features/work/WorkScreen.tsx').then((module) => ({ default: module.WorkScreen })))
-const RoutinesScreen = lazy(() => import('@/features/routines/RoutinesScreen.tsx').then((module) => ({ default: module.RoutinesScreen })))
 
 /**
  * Screens that so far can show only sample data. While a host is connected they are not drawn: the user's own
