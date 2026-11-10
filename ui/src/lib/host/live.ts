@@ -89,5 +89,6 @@ export function settleLive(live: LiveTurn | null, messages: readonly ChatMessage
 /** The stored messages to draw beside the live replies. A stored copy of a reply still being written waits for it to finish. */
 export function storedBesideLive(messages: readonly ChatMessage[], live: LiveTurn | null): readonly ChatMessage[] {
   if (!live) return messages
-  return messages.filter((message) => message.role !== 'assistant' || live.known.includes(message.id))
+  const known = new Set(live.known)
+  return messages.filter((message) => message.role !== 'assistant' || known.has(message.id))
 }

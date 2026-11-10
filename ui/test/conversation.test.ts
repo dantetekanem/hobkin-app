@@ -5,6 +5,7 @@ import type { ChatMessage } from '#shared/protocol/snapshot.ts'
 import type { TurnEvent } from '#shared/protocol/turn.ts'
 import { buildConversation, type Entry } from '../src/features/chat/conversation.ts'
 import { applyHostMessage, initialHostState, type HostState } from '../src/lib/host/state.ts'
+import { storedBesideLive } from '../src/lib/host/live.ts'
 
 const NOW = Date.parse('2026-11-09T15:00:00Z')
 const keys = (entries: Entry[]) => entries.map(({ key }) => key)
@@ -173,6 +174,20 @@ test('a turn of several replies shows each once, whichever arrives first', () =>
   state = applyHostMessage(state, { type: 'state', rev: 4, set: { busy: false } })
   assert.equal(state.live, null)
   assert.deepEqual(shown(state).at(-1), 'assistant: Found it.')
+})
+
+test('live replies hide only newly stored assistant messages, preserving stored order and objects', () => {
+  const messages: ChatMessage[] = [
+    { id: 'old', role: 'assistant', content: 'Earlier reply' },
+    { id: 'new', role: 'assistant', content: 'Still being streamed' },
+    { id: 'user', role: 'user', content: 'Another question' },
+    { id: 'notice', role: 'notice', content: 'A report arrived' },
+  ]
+  assert.equal(storedBesideLive(messages, null), messages)
+  const shown = storedBesideLive(messages, { known: ['old', 'old'], replies: [], opened: 0 })
+  assert.deepEqual(shown.map(({ id }) => id), ['old', 'user', 'notice'])
+  for (const message of shown) assert.equal(message, messages.find(({ id }) => id === message.id))
+  assert.equal(messages.length, 4, 'the source history is unchanged')
 })
 
 test('what the app says for the user only sits where it was said', () => {
