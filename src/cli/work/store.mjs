@@ -5,8 +5,8 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
 export const levels = {
-  // Super critical work runs on Claude whatever harness is set, in a pane, because nothing else can run it. Each run is the dearest there is, so its looks stay this far apart at any priority.
-  max: { rank: -1, priority: 'P0', fewestHoursBetweenLooks: 12, lookEffort: 'max', doEffort: 'max', model: 'claude-opus-5-5', harness: 'claude' },
+  // Super critical work goes ahead of critical, on the same model and effort, under limits of its own. Each run is the dearest there is, so its looks stay this far apart at any priority.
+  max: { rank: -1, priority: 'P0', fewestHoursBetweenLooks: 12, lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
   critical: { rank: 0, priority: 'P0', lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
   important: { rank: 1, priority: 'P1', lookEffort: 'medium', doEffort: 'high', model: 'main' },
   casual: { rank: 2, priority: 'P2', lookEffort: 'low', doEffort: 'medium', model: 'background' },
@@ -16,7 +16,6 @@ export const grades = ['P0', 'P1', 'P2', 'P3'];
 const hoursBetweenLooks = { P0: 1, P1: 24, P2: 72, P3: 168 };
 export const prModes = ['off', 'draft', 'published'];
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
-export const workHarnesses = ['pi', 'claude', 'codex'];
 // `branch` is finished on a branch with no PR. `stuck` is only ever on older records, and they run again like anything open.
 export const itemStates = ['open', 'doing', 'waiting', 'branch', 'pr', 'merged', 'done', 'declined', 'dropped', 'stuck', 'noted'];
 export const runnableStates = ['open', 'doing', 'stuck'];
@@ -121,7 +120,7 @@ function fold(events, identify) {
 /** `countedStarts` is what started by itself and spends its priority's runs, as `{ at, priority }`, kept only while its window lasts. */
 export function readMode(root) {
   const defaults = {
-    version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, harness: 'pi', dailyTokens: DEFAULT_DAILY_TOKENS,
+    version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, dailyTokens: DEFAULT_DAILY_TOKENS,
     startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [], countedStarts: [],
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
@@ -162,11 +161,6 @@ export function startWork(root, requested, { autoPick = false } = {}) {
 /** The user's own word on auto-pick, kept beside the switch, so turning work mode on again keeps it. Until they say, there is none. */
 export const chooseAutoPick = (root, on) => writeMode(root, { autoPick: on, autoPickChoice: on });
 
-export function setHarness(root, harness) {
-  if (!workHarnesses.includes(harness)) throw Error(`harness must be one of: ${workHarnesses.join(', ')}`);
-  return writeMode(root, { harness });
-}
-
 export function setAgents(root, agents) {
   if (!Number.isInteger(agents) || agents < 1 || agents > MAX_AGENTS) throw Error(`The number of agents must be between 1 and ${MAX_AGENTS}.`);
   return writeMode(root, { agents });
@@ -186,8 +180,7 @@ export function skipInQueue(root, key) {
 export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });
 
 /** What only the owner knows, left where a command in another process can read it. */
-/** Runs a closing hobkin left going in their panes, for the next one to pick up. Taking them empties the list, so each is picked up once. */
-export const writeHanded = (root, runs) => atomicJson(handedPath(root), runs);
+/** Runs an older hobkin left going in Herdr panes as it closed, for the next one to settle. Taking them empties the list, so each is taken once. */
 export function takeHanded(root) {
   const runs = readJson(handedPath(root), []);
   if (runs.length) atomicJson(handedPath(root), []);

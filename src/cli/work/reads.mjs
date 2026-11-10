@@ -62,7 +62,6 @@ export function statusView(root) {
     on: mode.enabled,
     owner: view.owner,
     folder: mode.folder,
-    harness: mode.harness,
     autoPick: mode.autoPick,
     paused: Boolean(pause),
     pausedBy: pause?.kind ?? null,
@@ -132,9 +131,9 @@ export function projectsView(root, state) {
 export function runningView(root, now = Date.now()) {
   const names = new Map(readProjects(root).map(project => [project.slug, nameOf(project)]));
   return ownerView(root, now).running.map(run => {
-    const { id, slug = null, item = null, title, lane, level = null, harness, pane, startedAt } = run;
+    const { id, slug = null, item = null, title, lane, level = null, harness, startedAt } = run;
     const seconds = Math.max(0, Math.round((now - Date.parse(startedAt)) / SECOND_MS));
-    return { id, project: names.get(slug) ?? null, slug, item, title, lane, level, harness, pane, seconds };
+    return { id, project: names.get(slug) ?? null, slug, item, title, lane, level, harness, seconds };
   });
 }
 

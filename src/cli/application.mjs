@@ -29,7 +29,6 @@ import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActions
 import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted } from './inbox.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
-import { insideHerdr, WorkPanes } from './work/panes.mjs';
 import { workStatus } from './work/commands.mjs';
 import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
@@ -226,14 +225,11 @@ export class HobkinApplication {
         runtime: app.runtime,
         runner: app.runner,
         ...(runHarness ? { runHarness } : {}),
-        panes: insideHerdr() ? new WorkPanes() : null,
         now: app.now,
         onChange: () => app.requestRefresh(),
         onDraftDone: draft => app.landOffers.add(draft),
       });
       signal?.throwIfAborted();
-      // A crash leaves what its runs had opened, and no run is left to take it away.
-      app.director.panes?.closeLeftovers();
       app.runner.start({ intervalMs });
       // `hobkin reports delete` runs in another process and changes no runtime state.
       app.deletionWatcher = watch(join(app.runtime.directory, 'runtime'), (event, name) => {
@@ -1111,15 +1107,10 @@ export class HobkinApplication {
     return result;
   }
 
-  /** Agents in panes can outlive hobkin, so these are what a quit has to ask about. */
-  agentsAtWork() {
-    return this.director?.agentsInPanes().length ?? 0;
-  }
-
-  close({ letFinish = false } = {}) {
+  /** Work agents are Pi jobs of this process, so they stop with it, and their items carry on from their branches on the next start. */
+  close() {
     if (!this.closing) {
       if (this.openedAt) recordEvent(this.runtime.directory, 'app_closed', { ms: this.now() - this.openedAt });
-      if (letFinish) this.director?.handOff();
       this.closing = (async () => {
         clearTimeout(this.refreshTimer);
         this.moods?.stop();

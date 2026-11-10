@@ -1,16 +1,13 @@
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
-import { followInBackground } from '../session.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
 import { forecastWork } from './forecast.mjs';
 import { offeredIn } from './land-offer.mjs';
 import { userTrouble } from './launches.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
-import { agentName, insideHerdr, SESSION_TAB, WorkPanes } from './panes.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
@@ -398,23 +395,15 @@ export function setGrade(root, reference, id, word) {
   return reply(`"${item.title}" on ${nameOf(project)} is now ${grade}${auto ? ', the grade the queue gives it' : ''}. It takes its new place on the next tick.`);
 }
 
-const diffPanes = () => (insideHerdr() ? new WorkPanes({ tab: SESSION_TAB }) : null);
-
-/** Shows a branch the way a reviewer sees it, in the repository that holds it: a project's own folder, or the clone Hobkin keeps of a URL. */
-export async function openDiff(root, reference, id, { panes = diffPanes(), follow = followInBackground } = {}) {
+/** Says how to see a branch the way a reviewer sees it, in the repository that holds it: a project's own folder, or the clone Hobkin keeps of a URL. Work mode opens no panes. */
+export async function openDiff(root, reference, id) {
   const project = findProject(root, reference);
   const { branch, title } = findItem(root, project, id);
   if (!branch) throw Error(`"${title}" has no branch yet, so there is no diff to show.`);
 
   const cwd = project.path ?? paths(root, project.slug).clone;
   const range = `${await defaultBranch(cwd)}...${branch}`;
-  if (!panes) return reply(`Outside Herdr there is no pane to open. Run Pi in ${shortPath(cwd)} and type /diff ${range}.`, { range, cwd });
-
-  // Herdr refuses a name already in use, and the same diff can be open twice.
-  const name = agentName('diff', `${randomBytes(2).toString('hex')}-${project.slug}`);
-  const { pane } = await panes.startDiff({ name, cwd, range });
-  follow({ name, pane });
-  return reply(`"${title}" is open in pi-coder, in pane ${pane}. It closes by itself a few minutes after you leave it.`, { range, cwd, pane });
+  return reply(`To see it in pi-coder, run Pi in ${shortPath(cwd)} and type /diff ${range}.`, { range, cwd });
 }
 
 /**
@@ -695,7 +684,7 @@ export function markMax(root, reference, id) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   updateItem(root, project.slug, item.id, { max: true });
-  return reply(`"${item.title}" on ${nameOf(project)} is now max: Claude Opus at max effort in a Herdr pane, whatever harness is set, and the normal harness at its best outside one.`);
+  return reply(`"${item.title}" on ${nameOf(project)} is now max: it goes ahead of critical work, one run at a time and six a day.`);
 }
 
 export function answerAllow(root, word) {

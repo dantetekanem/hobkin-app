@@ -1,14 +1,13 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
 import { buildContext } from '../context.mjs';
 import { recordEvent } from '../events.mjs';
-import { runHarness as defaultRunHarness, workDirections } from '../harnesses.mjs';
-import { followInBackground } from '../session.mjs';
+import { runHarness as defaultRunHarness } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { hourShareOf, withStart } from './budget.mjs';
@@ -17,42 +16,21 @@ import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { declineStopped, toldStop } from './controls.mjs';
 import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
-import { agentName, WorkPanes } from './panes.mjs';
 import { watchPile } from './pairs.mjs';
 import { countsAgainst, ideasWanted, planWork } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
   answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
-  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates, takeHanded, writeHanded,
+  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates, takeHanded,
   sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
-import { claudeSessionUsage, nextPause, usageLimitIn } from './usage.mjs';
+import { nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
-
-const handedRecord = ({ harnessId, slug, lane, item, title, level, kind, estimate, model, effort, sessionFile, paneId, report, harness, bound, startedAt, cwd, folder, tree, note }) => ({
-  harnessId,
-  slug,
-  lane,
-  item,
-  title,
-  level,
-  kind,
-  estimate,
-  model,
-  effort,
-  sessionFile,
-  paneId,
-  report,
-  paneKind: harness,
-  bound,
-  startedAt,
-  place: { cwd, folder, tree, note },
-});
 
 function withSessionCost(result, sessionFile) {
   const { usd, sessionId } = sessionUsage(sessionFile);
@@ -96,28 +74,16 @@ const readBounded = file => {
 const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
 const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim().slice(0, MAX_REASON_LENGTH);
 const runError = run => firstLine(run?.result?.error ?? run?.error);
-const paneBrief = (purpose, request, report) => `${workDirections(purpose)}
-
-## Your report
-
-You are working in a terminal pane the user can watch. Nobody answers in this pane, so never ask a question and never wait for a reply. When you are finished, write your final report to \`${report}\`, then stop. Hobkin reads that file to know you are done, so write it last, and write it even if the work is not finished.
-
-If the \`chrome_*\` tools say Chrome is locked in this pane, carry on without them and say so in your report.
-
-## The request
-
-\`\`\`json
-${request}
-\`\`\`
-`;
 const laneKey = (slug, lane) => `${slug}:${lane}`;
+// An older hobkin could leave an agent at work in a Herdr pane as it closed. Without its report there is no telling whether it still works there.
+const LEFT_IN_A_PANE = 'An older hobkin left this agent at work in a Herdr pane, and it wrote no report. hobkin no longer follows panes, so the item waits at the end of the queue with its branch as it is.';
 // A usage limit says nothing about the project, so it counts against nothing.
 const notTheWork = run => Boolean(run?.result?.usageLimit);
 
-/** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. */
+/** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. Every agent is a Pi job of the runner's, recorded with the other runs. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, panes = null, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, claudeProjects, follow = followInBackground, ownFolder = HOBKIN_FOLDER }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, panes, now, onChange, onDraftDone, gh, fetch, claudeProjects, follow, ownFolder });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, ownFolder = HOBKIN_FOLDER }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, now, onChange, onDraftDone, gh, fetch, ownFolder });
     this.active = new Map();
     // When the last run started survives a restart, so a new owner keeps the gap instead of starting two at once.
     this.lastStartAt = Date.parse(readMode(root).lastStartAt) || null;
@@ -131,7 +97,6 @@ export class WorkDirector {
       running: this.running(),
       checks: [...this.runner.jobs.keys()].filter(id => !id.startsWith('work:')).length,
       lastStartAt: this.lastStartAt,
-      panes: Boolean(this.panes),
     };
   }
 
@@ -276,7 +241,7 @@ export class WorkDirector {
 
   /**
    * Sessions are followed as they grow, so a long run counts while it runs. The final figure replaces this when it ends.
-   * A session that stops growing is a run that has hung. One with no session to read, such as a Claude or Codex pane, says nothing either way.
+   * A session that stops growing is a run that has hung. One with no session to read yet says nothing either way.
    */
   meterRuns() {
     const now = this.now();
@@ -381,14 +346,8 @@ export class WorkDirector {
     this.concludeDiscovery({ status: 'unfinished', folder, reason: 'The token limit stopped it.', nextAt: null });
   }
 
-  /** `max` is bound to Claude, which only a pane can run. Without panes it takes the best the normal harness has, and it still counts as `max`. */
-  settingsFor(level) {
-    return levels[level].harness && !this.panes ? levels.critical : levels[level];
-  }
-
   modelFor(level) {
-    const { model, harness } = this.settingsFor(level);
-    return harness ? model : this.config[model].model;
+    return this.config[levels[level].model].model;
   }
 
   command(subcommand) {
@@ -634,7 +593,7 @@ export class WorkDirector {
       level,
       ...cost,
       model: this.modelFor(level),
-      effort: this.settingsFor(level).lookEffort,
+      effort: levels[level].lookEffort,
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: entry => this.place(entry, { project, tree, writes: looksThatWrite.includes(focus) }),
       work: place => ({ lane: 'look', focus, tokens, place, ...ideas, ...this.describeLook(project, focus) }),
@@ -682,7 +641,7 @@ export class WorkDirector {
       level,
       ...cost,
       model: this.modelFor(level),
-      effort: this.settingsFor(level).doEffort,
+      effort: levels[level].doEffort,
       instructions: `Finish this item on ${project.name}: ${item.title}`,
       prepare: entry => this.place(entry, { project, tree, branch, resume, writes: item.kind === 'pr-fix' }),
       work: place => ({
@@ -697,7 +656,7 @@ export class WorkDirector {
   }
 
   // Closing Hobkin keeps the item, so it resumes, and so does anything that was not the item's doing.
-  // A pane closed by hand, or a folder moved under a run, only ended that run: the item stays in the plan.
+  // A folder moved under a run only ended that run: the item stays in the plan.
   // Cancelling one is the user's own stop, so it stays in sight at the end of the queue instead of starting again on the next tick.
   // Stopping one as not approved is the user's no, and it stands however the run ended and over whatever the run recorded on its way out.
   // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
@@ -736,7 +695,7 @@ export class WorkDirector {
       writeState(this.root, slug, { folderNote: 'The folder left the run\'s branch, so the run stopped. Nothing was forced.' });
       this.sayAboutFolder(slug, `${this.folderOf(slug)} left the branch for "${item.title}" while it ran, so that run stopped. Nothing was forced.`);
     }
-    if (moved || run?.result?.paneClosed) {
+    if (moved) {
       updateItem(this.root, slug, id, { state: 'open' }, this.now());
       return;
     }
@@ -749,15 +708,13 @@ export class WorkDirector {
     updateItem(this.root, slug, id, { state: 'open', attempts: (item.attempts ?? 0) + 1, lastError }, this.now());
   }
 
-  // Pi only reports that a run did not finish, so its own words come from the session. Only the first line of an error counts, because a pane's last lines can be about anything.
-  // A `max` run bound to Claude has Claude's limit, which says nothing about the subscription everything else runs on, so it pauses only `max` work.
-  noteUsageLimit(result, sessionFile, bound) {
+  // Pi only reports that a run did not finish, so its own words come from the session. Only the first line of an error counts.
+  noteUsageLimit(result, sessionFile) {
     if (result.status !== 'failed') return result;
-    const { usagePause, claudePause } = readMode(this.root);
+    const { usagePause } = readMode(this.root);
     const limit = usageLimitIn(sessionError(sessionFile) ?? firstLine(result.error), this.now());
     if (!limit) return result;
-    if (bound) writeMode(this.root, { claudePause: nextPause(claudePause, limit, this.now()) });
-    else writeMode(this.root, { usagePause: nextPause(usagePause, limit, this.now()) });
+    writeMode(this.root, { usagePause: nextPause(usagePause, limit, this.now()) });
     return { ...result, usageLimit: true };
   }
 
@@ -766,23 +723,10 @@ export class WorkDirector {
     if (usagePause && Date.parse(usagePause.until) <= this.now()) writeMode(this.root, { usagePause: null });
   }
 
-  /** Runs that can outlive hobkin: an agent working in a pane, briefed and on its way. Nothing else can carry on with hobkin gone. */
-  agentsInPanes() {
-    return this.running().filter(run => run.paneId);
-  }
-
-  /** Called as hobkin closes on the user's word. Each run is written down for the next hobkin, and a follower of its own sees it to the end. */
-  handOff() {
-    const runs = this.agentsInPanes();
-    if (!runs.length) return;
-
-    this.panes?.release();
-    for (const run of runs) run.handedOff = true;
-    writeHanded(this.root, runs.map(handedRecord));
-    for (const { pane, paneId, report } of runs) this.follow({ name: pane, pane: paneId, report, kind: 'handed' });
-  }
-
-  /** Each run comes back as it would have ended here, so its report, tokens and folder are settled the usual way. A look has nothing to restore. */
+  /**
+   * An older hobkin could leave agents at work in Herdr panes as it closed, and write them down for the next one. Each comes back as it
+   * would have ended here, so its report and tokens are settled the usual way. A look has nothing to restore.
+   */
   pickUpHanded() {
     if (this.pickedUp) return;
     this.pickedUp = true;
@@ -793,32 +737,10 @@ export class WorkDirector {
     }
   }
 
-  // A run's `pane` is the name its agent goes by, and only the pane's id answers whether it is still there.
-  async followHanded({ paneId, report, sessionFile }, signal) {
-    const panes = this.panes ?? new WorkPanes();
-    return withSessionCost(await panes.awaitHanded({ pane: paneId, report, signal }), sessionFile);
-  }
-
-  async runInPane({ slug, lane, harnessId, purpose, prompt, cwd, model, effort, sessionFile, signal, paneKind, bound, onStarted }) {
-    const directory = join(paths(this.root, slug).directory, 'runs');
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const brief = join(directory, `${harnessId}.md`);
-    const report = join(directory, `${harnessId}.report.md`);
-    writeFileSync(brief, paneBrief(purpose, prompt, report), { mode: 0o600 });
-    const result = await this.panes.run({
-      name: agentName(lane, slug),
-      kind: paneKind,
-      cwd,
-      model,
-      effort,
-      sessionFile,
-      brief,
-      report,
-      signal,
-      onStarted: pane => onStarted(pane, report),
-      ...(paneKind === 'claude' ? { claudeSession: harnessId, bound } : {}),
-    });
-    return withSessionCost(result, sessionFile);
+  // Its report says it finished. Without one it may still be at work in that pane, so nothing here touches its folder or starts it again.
+  handedOutcome({ report, sessionFile }) {
+    if (!report || !existsSync(report)) return { status: 'interrupted', cost: null, error: LEFT_IN_A_PANE };
+    return withSessionCost({ status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null }, sessionFile);
   }
 
   start({ key, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, instructions, prepare, work, settle, handed = null }) {
@@ -826,10 +748,6 @@ export class WorkDirector {
     // Its first run already ended in the record as left running, and an id is only ever used once.
     const id = `work:${slug ?? 'discover'}:${lane}:${handed ? randomUUID() : harnessId}`;
     const scheduleId = slug ? `work.${slug}.${lane}` : 'work.discover';
-    const inPane = Boolean(handed) || Boolean(slug && this.panes);
-    const pane = inPane ? agentName(lane, slug) : null;
-    const bound = handed?.bound ?? (inPane && Boolean(levels[level]?.harness));
-    const paneKind = handed?.paneKind ?? (!inPane ? 'pi' : bound ? levels[level].harness : readMode(this.root).harness);
     const request = {
       id,
       kind: 'background',
@@ -840,11 +758,15 @@ export class WorkDirector {
       effort,
       cwd,
       harnessId,
-      work: { slug, lane, item, ...(pane ? { pane } : {}) },
+      work: { slug, lane, item },
     };
     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
     const startedAt = handed?.startedAt ?? new Date(this.now()).toISOString();
-    const entry = { id, harnessId, kind, model, bound, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: paneKind, pane, startedAt, paneId: handed?.paneId, report: handed?.report };
+    const entry = { id, harnessId, kind, model, slug, lane, item, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: 'pi', startedAt, report: handed?.report };
+    // It takes messages while it works, as a running check does: `message_check` reaches it by its schedule. The runner closes its inbox when it ends.
+    const inbox = handed ? null : Promise.withResolvers();
+    inbox?.promise.catch(() => {});
+    if (inbox) this.runner.inboxes.set(id, inbox);
     const runIn = async (place, signal) => {
       const here = place.cwd;
       const schedule = { id: scheduleId, title, prompt: instructions, cwd: here, harness: 'pi', model, context: [] };
@@ -854,10 +776,6 @@ export class WorkDirector {
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work(place.folder ? 'folder' : 'tree'));
       mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
-      if (inPane) {
-        const onStarted = (paneId, report) => Object.assign(entry, { paneId, report });
-        return this.runInPane({ slug, lane, harnessId, purpose, prompt, cwd: here, model, effort, sessionFile, signal, paneKind, bound, onStarted });
-      }
       return this.runHarness({
         id: harnessId,
         harness: 'pi',
@@ -868,35 +786,31 @@ export class WorkDirector {
         prompt,
         sessionFile,
         signal,
-      }, { onEvent: event => this.runner.onActivity(id, event) });
+      }, { onEvent: event => this.runner.onActivity(id, event), onReady: send => inbox.resolve(send) });
     };
     const effect = async signal => {
       const place = handed?.place ?? (prepare ? await prepare(entry) : { cwd });
       Object.assign(entry, place);
+      let ended;
       try {
-        const ended = await (handed ? this.followHanded(entry, signal) : runIn(place, signal));
-        return this.noteUsageLimit(ended, sessionFile, bound);
+        ended = handed ? this.handedOutcome(entry) : await runIn(place, signal);
+        return this.noteUsageLimit(ended, sessionFile);
       } finally {
-        // A folder that went away during the run must not hide how the run ended. A run still going keeps its folder.
-        if (!entry.handedOff) await this.leave(slug, item, place).catch(() => {});
+        // A folder that went away during the run must not hide how the run ended. One an agent may still work in is left as it is.
+        if (!handed || ended?.status === 'completed') await this.leave(slug, item, place).catch(() => {});
       }
     };
     this.active.set(key, entry);
     const { work: finished } = this.runner.startTracked(request, effect);
     const closed = finished.then(run => {
       this.active.delete(key);
-      // It is still working, and the next hobkin counts what it spent once, when it ends.
-      if (entry.handedOff) return null;
-      const { tokens, cached } = paneKind === 'claude' ? claudeSessionUsage(harnessId, this.claudeProjects) : sessionUsage(sessionFile);
+      const { tokens, cached } = sessionUsage(sessionFile);
       recordEvent(this.root, 'run_tokens', { id, tokens, cached });
       // When it began goes with what it spent, so the forecast can time the next run like it.
       const facts = { slug, lane, kind, startedAt, ...(level ? { level } : {}) };
-      // Nothing can be read from a pane with no readable usage, so its run counts as what one like it costs, marked so nothing learns from it.
-      // A run with no `cwd` never got as far as a place to work, so it spent nothing, however often it comes round.
+      // A run with no tokens never got as far as a reply, so it spent nothing, however often it comes round.
       // It still leaves a mark, or its project stays left alone and takes every start. With no `level` it is no max run.
-      const unseen = paneKind !== 'pi' && Boolean(entry.cwd);
       if (tokens) recordTokens(this.root, { ...facts, tokens, cached }, this.now());
-      else if (unseen) recordTokens(this.root, { ...facts, tokens: estimate.fresh ?? 0, cached: estimate.cached ?? 0, estimated: true }, this.now());
       else recordTokens(this.root, { slug, lane, kind, tokens: 0, cached: 0, estimated: true }, this.now());
       if (run?.status === 'completed') this.clearUsagePause();
       // Deciding on a finished branch reads git, and a failure there costs its review, never the run's outcome.

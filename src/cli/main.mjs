@@ -55,18 +55,6 @@ export function parseArguments(args) {
   return options;
 }
 
-function quitQuestion(agents) {
-  const them = agents === 1 ? 'it' : 'them';
-  const working = agents === 1 ? '1 agent is' : `${agents} agents are`;
-  return {
-    question: `You are quitting, and ${working} still working. Stop ${them} or let ${them} finish? Whatever finishes, hobkin picks up the next time it opens.`,
-    choices: [
-      { value: 'finish', label: `Let ${them} finish` },
-      { value: 'stop', label: `Stop ${them} now` },
-    ],
-  };
-}
-
 const looksNew = ({ schedules, messages, userName }) => !schedules.length && !messages.length && !userName;
 
 /** What another process hands over goes only to a real workspace, so a wrong folder fails instead of starting one that no hobkin reads. */
@@ -80,34 +68,15 @@ async function connected(options, snapshot, dependencies) {
   const dataRoot = resolveDataRoot(options.root);
   const done = Promise.withResolvers();
   const cancellation = new AbortController();
-  // Nothing is asked of a signal, and an agent left going loses nothing, so that is what it gets.
-  let letFinish = false;
+  // Work agents are Pi jobs of this process, so a quit stops them, and their items carry on from their branches on the next start.
   const stop = () => {
     cancellation.abort();
     done.resolve();
   };
-  const stopBySignal = () => {
-    letFinish = true;
-    stop();
-  };
   let dashboard;
   let app;
-  let askingToQuit = false;
-  const quit = async () => {
-    const agents = app?.agentsAtWork() ?? 0;
-    if (askingToQuit) return;
-    if (agents) {
-      askingToQuit = true;
-      const answer = await dashboard.askQuestion(quitQuestion(agents));
-      askingToQuit = false;
-      // Esc keeps hobkin open. With another question already up nothing could be asked, and leaving them going costs nothing.
-      if (answer === null) return;
-      letFinish = answer !== 'stop';
-    }
-    stop();
-  };
-  signals.on('SIGINT', stopBySignal);
-  signals.on('SIGTERM', stopBySignal);
+  signals.on('SIGINT', stop);
+  signals.on('SIGTERM', stop);
   // A crash leaves a local draft for the next start to offer, and sends nothing.
   const stopCrashCapture = captureCrashes(dataRoot, signals);
   stayAwake();

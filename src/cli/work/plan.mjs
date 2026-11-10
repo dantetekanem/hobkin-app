@@ -336,9 +336,8 @@ const byGrade = (left, right) => gradeRank(left.grade) - gradeRank(right.grade)
   || entryOrder.indexOf(left.kind) - entryOrder.indexOf(right.kind)
   || (left.item?.at ?? '').localeCompare(right.item?.at ?? '');
 
-/** `max` work has limits of its own, because each run is the dearest there is. Without panes it runs on the normal harness, so Claude's limit says nothing about it. */
-function maxWait({ mode, now, running, budget, panes }) {
-  if (panes && mode.claudePause && Date.parse(mode.claudePause.until) > now) return 'Claude usage limit';
+/** `max` work has limits of its own, because each run is the dearest there is. */
+function maxWait({ running, budget }) {
   const runningNow = running.filter(run => run.level === 'max').length;
   if (runningNow >= MAX_RUNS_AT_ONCE) return 'one max run at a time';
   return budget.maxRuns + runningNow >= MAX_RUNS_A_DAY ? `${MAX_RUNS_A_DAY} max runs a day` : null;
@@ -510,12 +509,12 @@ export const startGap = ({ startGapMs }, running) => (running.length ? startGapM
 
 /**
  * One ranked list of everything that could run next. Pure code over what is on disk, so it spends no tokens and anyone can ask.
- * `running`, `checks` and `panes` come from the owner. Without them the list is what would run on an idle machine.
+ * `running` and `checks` come from the owner. Without them the list is what would run on an idle machine.
  */
-export function planWork(root, { mode = readMode(root), now = Date.now(), running = [], checks = 0, lastStartAt = null, panes = true } = {}) {
+export function planWork(root, { mode = readMode(root), now = Date.now(), running = [], checks = 0, lastStartAt = null } = {}) {
   const budget = budgetFor(root, mode, now, running);
   const reading = readSubscription(root);
-  const context = { root, mode, now, running, budget, reading, panes, spent: outOfStarts(mode.countedStarts, now) };
+  const context = { root, mode, now, running, budget, reading, spent: outOfStarts(mode.countedStarts, now) };
   const history = costHistory(root);
   const projects = chosenProjects(root).map(project => withPending(root, project));
   const shipping = shipFirst(readyItems(root, Infinity), mode, now);
@@ -538,7 +537,7 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   });
 
   const subscription = { known: Boolean(reading), windows: usageWindows(reading, now), ahead: aheadOfPace(reading, now) };
-  const agents = subscription.known && mode.harness === 'pi' ? mode.agents : 1;
+  const agents = subscription.known ? mode.agents : 1;
   const free = agents - running.length - checks;
   const startsAt = lastStartAt === null ? null : lastStartAt + startGap(mode, running);
   const stop = hardStop(context);

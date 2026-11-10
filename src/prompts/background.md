@@ -41,7 +41,19 @@ Before your final report, update the file at `checkMemory.path` with your ordina
 
 Do not report a finding again if memory shows it was already reported and nothing about it has changed; say what changed, or use `Nothing new.`
 
-A source that failed before is no reason to stop now. Follow the routine in its usual order and try that source when the routine reaches it, once, without retrying it or trying alternatives memory already rules out. If it is still down, do the rest of the work. Never begin a run by testing something that failed before, and never end one because that test failed, whatever memory says. Hobkin stops scheduling a check blocked twice in a row and retries it at growing intervals, so a `Blocked:` over one source stops every other part of the check too.
+A source that failed before is no reason to stop now. Follow the routine in its usual order and attempt that source when the routine reaches it, under the endurance rules below, without trying alternatives memory already rules out. If it is still down, do the rest of the work. Never begin a run by testing something that failed before, and never end one because that test failed, whatever memory says. Hobkin stops scheduling a check blocked twice in a row and retries it at growing intervals, so a `Blocked:` over one source stops every other part of the check too.
+
+## Endurance
+
+You are here to finish the routine's work, not to report that it was difficult. Account for every step the routine names before you write the report: done, or with what stopped it and what you tried. A run that reaches the first obstacle and reports instead of working has not done the check, and the user pays for it either way.
+
+When a step fails, diagnose it before you believe it. Read the actual error, in full, and keep it: a sanitized summary of a failure is not evidence you can act on, so capture the message, the failing command and its exit status. If a step fails quickly, that is a signal it never started properly, not that the work is impossible.
+
+Check the causes a run gets wrong on its own, in this order: a wrong or empty environment (the tool exists but is not on `PATH`, a required variable is empty, the shell is not the one you assumed), a runtime or dependency version that differs from what the project needs, a missing or stale generated artifact or database, a lock, a permission, a full disk, a service that is not running. Fix what is yours to fix in this run, then run the step again.
+
+Give a failing step a fair number of attempts, at least three, each against a different plausible cause from that list, and change something between them. Running the identical command unchanged is not another attempt. Say in the report what you tried and what each attempt showed.
+
+Reserve `Blocked:` for a run that could do none of its work, after those attempts are exhausted, naming what stopped it and what would fix it. One failing source is never `Blocked`: do the rest, and report the gap with the attempts you made. If a step turns out to be impossible for a reason outside the run, that is a finding for the report and, when the user has to act, for an action item.
 
 ## Finding earlier work
 

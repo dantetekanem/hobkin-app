@@ -17,7 +17,7 @@ import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
   agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
-  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, setHarness, tokenLabel, updateItem, writeMode,
+  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
@@ -27,10 +27,10 @@ const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the
 Read, as JSON, with nothing running:
   status                               on or off, pauses, tokens, limits, next
   projects [--state state]             chosen, proposed, skipped or dropped
-  running, queue                       agents and panes; the plan and its waits
+  running, queue                       agents at work; the plan and its waits
   items [project] [--state state]      state, grade, branch, PR, what is left
   ready                                what can land at its commit, and why not
-  pr, diff <project> <item>            a local PR; diff opens it in pi-coder
+  pr, diff <project> <item>            a local PR; diff says how to open it in pi-coder
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
   attention, offers                    what is left for the user; what can land
@@ -51,12 +51,12 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   trouble <project> <item> [severe] [why]  a merge went wrong: files the fix
   drop <project> [item]                stop work on it; branches and PRs stay
   grade <project> <item> <P0..P3|auto> set an item's grade; auto clears it
-  max <project> <item>                 make one item max: Claude Opus at max
+  max <project> <item>                 make one item max: ahead of critical
   level <project> <low..max>           casual (low), important, critical, max
   priority <project> <P0..P3>          how often it runs, and its queue place
   prs <project> <off|draft|published>  local PR, draft PR or published PR
   auto, reviews, ship [on|off]         pick alone; review; ship before new work
-  harness <pi|claude|codex>, agents <1-${MAX_AGENTS}>  which agent works, how many at once
+  agents <1-${MAX_AGENTS}>                         how many agents work at once
   tokens <number>, allow [number|no]   the daily limit; or a yes for today
   reset                                forget what it found; it must be off
 Used by agents inside a run:
@@ -159,12 +159,11 @@ export function workStatus(root, outlook = {}) {
       signal: readSignals(root, project.slug)?.signal ?? null,
     };
   });
-  const { enabled, folder, harness, autoPick } = mode;
+  const { enabled, folder, autoPick } = mode;
   const visible = entries.filter(entry => !entry.skipped).slice(0, MAX_PLAN_SENT);
   return {
     enabled,
     folder,
-    harness,
     autoPick,
     agents: plan.agents,
     agentsAllowed: mode.agents,
@@ -207,7 +206,7 @@ export function workStatus(root, outlook = {}) {
   };
 }
 
-/** Forgets what work mode found, so the next start looks from nothing. Everything it held moves aside and nothing is deleted. Its folder, harness, limits, directions and every branch stay. */
+/** Forgets what work mode found, so the next start looks from nothing. Everything it held moves aside and nothing is deleted. Its folder, limits, directions and every branch stay. */
 async function resetWork(root) {
   const mode = readMode(root);
   if (mode.enabled) throw Error('Turn work mode off first, so nothing is running in the trees this moves.');
@@ -301,7 +300,6 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       const { forgot, kept } = await resetWork(root);
       return reply(`Forgot ${forgot} projects. The next start looks from nothing, and everything they held is in ${kept}.`, { forgot, kept });
     }
-    case 'harness': return reply(`The next run uses ${setHarness(root, args[0]).harness}.`);
     case 'agents': return reply(`Up to ${setAgents(root, Number(args[0])).agents} agents may run at once, from the next start.`);
     case 'tokens': return reply(`The daily limit is ${tokenLabel(setDailyTokens(root, Number(args[0])).dailyTokens)} fresh tokens, from now on.`);
     case 'auto': {
