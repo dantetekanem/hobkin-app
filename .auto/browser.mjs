@@ -21,15 +21,16 @@ await build({
   resolve: { alias: { '@': path.resolve('ui/src') } },
   define: { 'process.env.NODE_ENV': '"production"', __HOBKIN_VERSION__: '"benchmark"', __HOBKIN_CORE_VERSION__: '"benchmark"' },
   build: { outDir: path.join(out, 'bundle'), emptyOutDir: true, minify: process.env.PROFILE !== '1',
-    lib: { entry: path.resolve(navigation ? '.auto/navigation-bench.tsx' : '.auto/render-bench.tsx'), name: 'RenderBenchmark', formats: ['iife'], fileName: () => 'bench.js', cssFileName: 'bench' } },
+    lib: { entry: path.resolve(navigation ? '.auto/navigation-bench.tsx' : '.auto/render-bench.tsx'), name: 'RenderBenchmark', formats: navigation ? ['es'] : ['iife'], fileName: () => 'bench.js', cssFileName: 'bench' } },
 })
 await writeFile(path.join(out, 'bundle/index.html'), `<!doctype html><html><head><meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data:; connect-src 'none'; script-src 'self' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src data:; font-src 'self' file: data:">
-<link rel="stylesheet" href="bench.css"></head><body><div id="app" style="height:800px"></div><script src="bench.js"></script></body></html>`)
+<link rel="stylesheet" href="bench.css"></head><body><div id="app" style="height:800px"></div><script ${navigation ? 'type="module"' : ''} src="bench.js"></script></body></html>`)
 
 // A short-lived headless browser with a private profile and a pipe: no server, no signed-in browser.
 const profile = await mkdtemp(path.join(out, 'chrome-'))
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+  ...(navigation ? ['--allow-file-access-from-files'] : []),
   '--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check',
   '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-extensions',
   '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--window-size=1440,1000', 'about:blank',
@@ -102,7 +103,7 @@ try {
   }
   const after = await call('Performance.getMetrics', {}, sessionId)
   const report = result.result.value
-  const primary = navigation ? 'tab_present_ms' : 'render_ms'
+  const primary = navigation ? 'navigation_ms' : 'render_ms'
   if (!report?.metrics || !Number.isFinite(report.metrics[primary]) || report.metrics[primary] <= 0) throw new Error('Missing benchmark result')
   const metric = (snapshot, name) => snapshot.metrics.find((entry) => entry.name === name)?.value ?? NaN
   for (const [source, name] of Object.entries({ TaskDuration: 'main_thread_ms', ScriptDuration: 'script_ms', LayoutDuration: 'layout_ms', RecalcStyleDuration: 'style_ms' })) {

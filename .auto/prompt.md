@@ -8,7 +8,14 @@ Improve the real app's rendering without changing what it shows or how it behave
 - Preserve ignored `goal.md`; older unrelated goals are unfinished. Never commit it.
 - No agents during autoresearch. No installs, pushes, host starts/restarts, real data writes, model calls or live host connections. Existing services and the user's signed-in browser are untouched.
 
-## Current target: Phase 3, Reports ↔ Routines Tab lag
+## Current target: Phase 4, first and repeated Reports ↔ Routines navigation
+- Phase3's median concealed a separate ~300ms first-visit Routines blank behind React.lazy/Suspense. The user reports Tab lag, not only warm CPU work. Phase4 corrects that blind spot rather than claiming warm timings describe first use.
+- `NAVIGATION=1 ./.auto/measure.sh` now uses Vite ES modules with real asynchronous chunks, not an IIFE with imports inlined. The isolated browser allows local file module reads, while CSP still blocks connections; no host/server starts. Measure the unchanged production baseline first.
+- Primary `navigation_ms` = previous six warm median subtotals (`tab_present_ms`) + first Routines visit (`first_routines_ms`). Same three count pairs and three round trips. Initial Reports waits for actual content before settling; switches still observe1250ms. This is a new workload/metric: initialize once, do not compare with Phase3 aggregate.
+- Additional monitors: `module_ready_ms` (entry module evaluated since navigation start) and `initial_reports_ms` (initial real Reports mount to paint opportunity). Eager loading must not hide a catastrophic startup regression. The benchmark shell replaces chat with its sized composer; these are not full-app startup numbers.
+- No timers/animation durations/choreography may change. Native Tauri/WebKit, network latency, GPU and pixels remain separate verification gaps.
+
+## Earlier target: Phase 3, Reports ↔ Routines Tab lag
 - User identified Tab switching between these two screens as especially laggy. NEVER sacrifice any animation.
 - Run `NAVIGATION=1 ./.auto/measure.sh`. Primary `tab_present_ms`: sum of median key-to-second-rAF-after-content latencies in both directions at three sizes. A paint opportunity, not an OS presentation timestamp. All transitions retain a fixed 1250ms observation window.
 - Actual Canvas, lazy screen boundaries, useFrameKeys, production MotionConfig and CSS; synthetic composer occupies chat width (chat rendering is not included). Production bundle inlines lazy imports, so this measures switching/mounting, not cold network/code-chunk loading.
@@ -52,6 +59,10 @@ Improve the real app's rendering without changing what it shows or how it behave
 - Each experiment budget: usually one hypothesis, <=2 production files and ~80 changed production lines; tests as needed. Reconsider rather than growing speculative abstractions.
 
 ## Findings / what's been tried
+- Phase3 setup #24 failed an overly strict focus assertion: useStops/Reports intentionally focus controls inside the incoming canvas. Corrected to containment, then valid baselines#25/#26=394.5/395.4ms. Dashboard zero-baseline percentages/confidence are invalid; never cite them.
+- Kept#27 e99eb46: one-line lazy calculation of seven-day data only when Routines view=week. Normal routines subtotal154.6–157.3→144.9–147.9ms; varied-window Still holdout184→142.8ms (total335.4→310.7). Reports variations are unrelated noise.89 focused tests/typecheck and keyboard/motion/week behavior pass.
+- Rejected#29:512-entry FIFO instantOf cache (zone+wall timestamp). Primary385.1 slower; routines148.7 no gain. Script time fell, but primary did not. Added repeated zone/date, DST gap/fold including Lord Howe, Kathmandu, epoch and600-key eviction tests passed before/after, then reverted with cache. Do not tune cache size against fixtures.
+- Kept#30 0b391b9: Reports root contain:layout only (no paint/size containment).367.5 vs372.1, tiny/unproven; replication#31=385.7. Ten earlier animation checks and actual Canvas checks pass. Before log `.auto/out/navigation-before-containment.log` needs interpretation. Do not claim replicated containment improvement yet.
 - Initial source inspection: buildConversation makes a new Intl.DateTimeFormat for every message's dayKey (and more for dayLabel), on every live delta. Candidate: reuse formatters within a build while preserving timezone and midnight/DST behavior.
 - MessageList rerenders all Row/Message motion trees on each streaming delta. Entry objects are rebuilt, so naive memo(Row) would not help. Markdown is already memoized. Need preserve layout propagation and verify corrected historical messages.
 - Reports renders every row and repeatedly derives triage for full bodies. Avoid changing keyboard navigation or motion to reduce row count.

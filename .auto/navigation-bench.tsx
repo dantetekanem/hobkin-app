@@ -13,6 +13,7 @@ import { hostStore } from '../ui/src/lib/host/client.ts'
 import { initialHostState } from '../ui/src/lib/host/state.ts'
 import '../ui/src/styles/globals.css'
 
+const moduleReadyAt = performance.now()
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve))
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message) }
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
@@ -130,7 +131,15 @@ async function runBenchmark(holdout = false) {
   for (const [reportCount, routineCount] of cases) {
     seed(reportCount!, routineCount!, holdout)
     const root = createRoot(container)
+    const mountStart = performance.now()
     flushSync(() => root.render(<NavigationFrame still={holdout} />))
+    while (!document.querySelector('[data-report-row]')) {
+      assert(performance.now() - mountStart < 10000, 'initial Reports appears')
+      await frame()
+    }
+    await frame()
+    await frame()
+    const initialReports = performance.now() - mountStart
     await pause(1600)
     assert(document.querySelectorAll('[data-report-row]').length === reportCount, 'initial Reports populated')
     const visits = []
@@ -139,7 +148,7 @@ async function runBenchmark(holdout = false) {
       visits.push(await tab('reports', reportCount!, holdout))
       maxNodes = Math.max(maxNodes, container.querySelectorAll('*').length)
     }
-    results.push({ reportCount, routineCount, visits })
+    results.push({ reportCount, routineCount, initialReports, visits })
     if (routineCount === cases.at(-1)![1]) await verifyWeek()
     flushSync(() => root.unmount())
     await frame()
@@ -147,9 +156,13 @@ async function runBenchmark(holdout = false) {
   const routinesMs = results.reduce((sum, result) => sum + median(result.visits.filter((visit) => visit.to === 'routines').map((visit) => visit.present)), 0)
   const reportsMs = results.reduce((sum, result) => sum + median(result.visits.filter((visit) => visit.to === 'reports').map((visit) => visit.present)), 0)
   const visits = results.flatMap((result) => result.visits)
+  const firstRoutines = results[0]!.visits[0]!.present
   return {
     metrics: {
-      tab_present_ms: routinesMs + reportsMs, to_routines_ms: routinesMs, to_reports_ms: reportsMs,
+      navigation_ms: routinesMs + reportsMs + firstRoutines,
+      tab_present_ms: routinesMs + reportsMs, first_routines_ms: firstRoutines,
+      module_ready_ms: moduleReadyAt, initial_reports_ms: results[0]!.initialReports,
+      to_routines_ms: routinesMs, to_reports_ms: reportsMs,
       max_frame_gap_ms: Math.max(...visits.map((visit) => visit.maxGap)), slow_frames: visits.reduce((sum, visit) => sum + visit.slowFrames, 0), max_dom_nodes: maxNodes,
     },
     results, holdout, userAgent: navigator.userAgent,
