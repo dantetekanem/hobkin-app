@@ -1,6 +1,7 @@
 import { verifyMotion, verifyReportReflow } from './motion-check.tsx'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
+import { MotionConfig } from 'motion/react'
 import { ChatColumn } from '../ui/src/features/chat/ChatColumn.tsx'
 import { ReportsScreen } from '../ui/src/features/reports/ReportsScreen.tsx'
 import { hostStore } from '../ui/src/lib/host/client.ts'
@@ -63,7 +64,7 @@ async function exerciseChat(count: number, holdout: boolean) {
     container.querySelector('[role="log"]')?.getBoundingClientRect()
     return performance.now() - start
   }
-  const mount = measure(() => root.render(<ChatColumn />))
+  const mount = measure(() => root.render(holdout ? <MotionConfig reducedMotion="always"><ChatColumn /></MotionConfig> : <ChatColumn />))
   await settle()
   const messageRows = container.querySelectorAll('[role="log"] > ol > li > ol > li').length
   assert(messageRows === count, `all stored messages are rendered: expected ${count}, got ${messageRows}`)
@@ -101,7 +102,7 @@ async function exerciseReports(count: number, holdout: boolean) {
     container.querySelector('[aria-label="Reports"]')?.getBoundingClientRect()
     return performance.now() - start
   }
-  const mount = measure(() => root.render(<ReportsScreen />))
+  const mount = measure(() => root.render(holdout ? <MotionConfig reducedMotion="always"><ReportsScreen /></MotionConfig> : <ReportsScreen />))
   await settle()
   assert(container.querySelectorAll('[data-report-row]').length === count, 'all reports are reachable')
   for (const index of [0, 1, Math.floor(count / 2), count - 1]) {

@@ -6,6 +6,7 @@ import { build } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+const navigation = process.env.NAVIGATION === '1'
 const out = path.resolve('.auto/out')
 await mkdir(out, { recursive: true })
 const baseSources = new Map()
@@ -20,7 +21,7 @@ await build({
   resolve: { alias: { '@': path.resolve('ui/src') } },
   define: { 'process.env.NODE_ENV': '"production"', __HOBKIN_VERSION__: '"benchmark"', __HOBKIN_CORE_VERSION__: '"benchmark"' },
   build: { outDir: path.join(out, 'bundle'), emptyOutDir: true, minify: process.env.PROFILE !== '1',
-    lib: { entry: path.resolve('.auto/render-bench.tsx'), name: 'RenderBenchmark', formats: ['iife'], fileName: () => 'bench.js', cssFileName: 'bench' } },
+    lib: { entry: path.resolve(navigation ? '.auto/navigation-bench.tsx' : '.auto/render-bench.tsx'), name: 'RenderBenchmark', formats: ['iife'], fileName: () => 'bench.js', cssFileName: 'bench' } },
 })
 await writeFile(path.join(out, 'bundle/index.html'), `<!doctype html><html><head><meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data:; connect-src 'none'; script-src 'self' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src data:; font-src 'self' file: data:">
@@ -97,11 +98,12 @@ try {
   if (result.exceptionDetails) throw new Error((result.exceptionDetails.exception?.description ?? JSON.stringify(result.exceptionDetails)) + '\nPage events: ' + JSON.stringify(events))
   if (process.env.PROFILE === '1') {
     const { profile } = await call('Profiler.stop', {}, sessionId)
-    await writeFile(path.join(out, 'profile.json'), JSON.stringify(profile))
+    await writeFile(path.join(out, navigation ? 'profile-navigation.json' : 'profile.json'), JSON.stringify(profile))
   }
   const after = await call('Performance.getMetrics', {}, sessionId)
   const report = result.result.value
-  if (!report?.metrics || !Number.isFinite(report.metrics.render_ms) || report.metrics.render_ms <= 0) throw new Error('Missing benchmark result')
+  const primary = navigation ? 'tab_present_ms' : 'render_ms'
+  if (!report?.metrics || !Number.isFinite(report.metrics[primary]) || report.metrics[primary] <= 0) throw new Error('Missing benchmark result')
   const metric = (snapshot, name) => snapshot.metrics.find((entry) => entry.name === name)?.value ?? NaN
   for (const [source, name] of Object.entries({ TaskDuration: 'main_thread_ms', ScriptDuration: 'script_ms', LayoutDuration: 'layout_ms', RecalcStyleDuration: 'style_ms' })) {
     const value = (metric(after, source) - metric(before, source)) * 1000
@@ -113,7 +115,7 @@ try {
     if (reflow.exceptionDetails) throw new Error(reflow.exceptionDetails.exception?.description ?? JSON.stringify(reflow.exceptionDetails))
     report.reflowChecks = reflow.result.value
   }
-  await writeFile(path.join(out, process.env.HOLDOUT === '1' ? 'holdout.json' : 'latest.json'), JSON.stringify(report, null, 2) + '\n')
+  await writeFile(path.join(out, `${navigation ? 'navigation-' : ''}${process.env.HOLDOUT === '1' ? 'holdout' : 'latest'}.json`), JSON.stringify(report, null, 2) + '\n')
   for (const [name, value] of Object.entries(report.metrics)) console.log(`METRIC ${name}=${Number(value).toFixed(3)}`)
   console.log(`Browser: ${report.userAgent}; holdout=${report.holdout}; 3 repetitions, median per workload`)
   console.log(`Motion checks: ${report.motionChecks.join(', ')}`)

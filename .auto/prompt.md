@@ -8,7 +8,17 @@ Improve the real app's rendering without changing what it shows or how it behave
 - Preserve ignored `goal.md`; older unrelated goals are unfinished. Never commit it.
 - No agents during autoresearch. No installs, pushes, host starts/restarts, real data writes, model calls or live host connections. Existing services and the user's signed-in browser are untouched.
 
-## Metrics
+## Current target: Phase 3, Reports ↔ Routines Tab lag
+- User identified Tab switching between these two screens as especially laggy. NEVER sacrifice any animation.
+- Run `NAVIGATION=1 ./.auto/measure.sh`. Primary `tab_present_ms`: sum of median key-to-second-rAF-after-content latencies in both directions at three sizes. A paint opportunity, not an OS presentation timestamp. All transitions retain a fixed 1250ms observation window.
+- Actual Canvas, lazy screen boundaries, useFrameKeys, production MotionConfig and CSS; synthetic composer occupies chat width (chat rendering is not included). Production bundle inlines lazy imports, so this measures switching/mounting, not cold network/code-chunk loading.
+- Fixed normal-motion cases: 48 Reports/8 Routines, 464/24, 512/48. Mixed daily/weekly/monthly schedules, multiple zones, disabled routines, varied report content. Three round trips per case. Checks enforce real Tab/Shift+Tab, focus, row counts, outgoing retention, intermediate travel frames, final geometry, and week/all view functionality.
+- Secondary `to_routines_ms`, `to_reports_ms`, `max_frame_gap_ms`, `slow_frames`, `max_dom_nodes`, renderer `main_thread_ms`, `script_ms`, `layout_ms`, `style_ms`. Browser counters include initial mounting and checks; primary only covers Tab response.
+- `HOLDOUT=1 NAVIGATION=1` varies sizes (63/11,257/31,437/53), zones (including half/quarter-hour offsets), recurring windows, width and existing Still setting. Never mix holdout values into primary.
+- `PROFILE=1 NAVIGATION=1` captures `.auto/out/profile-navigation.json`, unminified diagnostic only. Reset baseline via init_experiment because this is a different workload and primary metric; do not compare to Phase2 values.
+- Output `.auto/out/navigation-latest.json` or `navigation-holdout.json`. No production changes in baseline harness.
+
+## Earlier metrics
 - Phase 2 primary: `main_thread_ms` (ms, lower) = Chrome Performance.TaskDuration delta over the full fixed browser workload, including frames between updates and the real-motion acceptance flows. Excludes bundle/build/page-load time and Node checks. This measures active renderer task time rather than idle frame waits.
 - Secondary: `script_ms`, `layout_ms`, `style_ms`, plus Phase 1's `render_ms` and its components `chat_mount_ms`, `chat_update_ms`, `reports_mount_ms`, `reports_update_ms`, `update_p95_ms`, `max_dom_nodes`.
 - `render_ms` remains the sum of median synchronous render+commit+layout times across the multi-size workloads. Phase 2's primary covers all three repetitions, warmup, and end-of-run behavior/motion checks; it is not a median. Workload and check flow must stay fixed for comparable main-thread results.
@@ -21,12 +31,13 @@ Improve the real app's rendering without changing what it shows or how it behave
 - `BASE_REV=<commit> ./.auto/measure.sh` builds prior changed ui/src modules directly from git show in the isolated bundle only, without switching checkout or making a worktree. Use separate redirected logs for diagnostic comparisons, then run normal HEAD last for the logged metric.
 - `PROFILE=1` captures a separate unminified CPU sampling run in `.auto/out/profile.json`; never compare those profiled timings. `TRIAGE_CHECK=1` adds a parser-only before/after diagnostic in `.auto/out/triage-comparison.log`, excluded from browser timings.
 - `.auto/checks.sh` automatically runs typecheck and focused chat/Markdown/Reports tests after passing benchmarks.
-- `HOLDOUT=1 ./.auto/measure.sh` uses different sizes (23/91/337 chat, 41/157/431 reports), different wording/widths and Still motion. Compare it only to its own baseline; do not mix holdout numbers into the primary series. Use an auxiliary command within a measured run to retain primary comparable metrics when validating holdouts.
+- `HOLDOUT=1 ./.auto/measure.sh` uses different sizes (23/91/337 chat, 41/157/431 reports), different wording/widths and Still motion. IMPORTANT correction after #21: old holdouts set useSettings only, which reached Chat but NOT Reports (it reads MotionConfig from Frame). Holdout v2 wraps both actual screens in MotionConfig reducedMotion="always", matching Frame's Still setting. Rebaseline v2 against main before claiming Reports reduced-motion results. Do not compare old holdout numbers to v2 or mix holdout metrics into the primary series. The normal Lively primary workload is unchanged.
 - Raw per-case timings: `.auto/out/latest.json`; holdout: `.auto/out/holdout.json`. Generated bundles/browser profiles/output are ignored.
 
 ## Files in scope
 - `ui/src/features/chat/` for conversation building and message rendering.
 - `ui/src/features/reports/` for report derivation and screen rendering.
+- `ui/src/features/routines/` for routine schedule derivation and rendering, plus Canvas/keyboard call context in `ui/src/app/`. Do not alter animation definitions or navigation behavior.
 - `ui/src/lib/host/live.ts` or `hooks.ts` only for in-memory render preparation/subscription costs, not transport or host behavior.
 - Relevant focused `ui/test/` files. Existing Node test runner, no new dependencies.
 - `.auto/` playbook, benchmark and backlog. Freeze workload for comparable metrics; instrumentation may be added transparently. Reset the baseline if the timed workload changes.
@@ -53,4 +64,5 @@ Improve the real app's rendering without changing what it shows or how it behave
 - Kept #15 (`6b6af3a`): triage lazily reads two nonblank lines instead of splitting whole body. Primary 650.1ms vs 653.4ms is noise; matched replication before655.7/after661.4 did NOT establish an additional browser speedup. Separate 40-case parser diagnostic (0/20/200/2000-line reports, 5 balanced samples, exact output equality) was 20.79→0.47ms, parser only. Holdout full app532.3ms. New long-body/CRLF/Unicode blank-line/limit tests pass.
 - Kept #18 (`a30002a`): storedBesideLive uses a fresh local Set for membership, replacing quadratic repeated array scans. 647.1ms is within noise; no claimed standalone end-to-end gain. Identity/order/duplicate-ID characterization added.
 - Kept #19 (`6d77fcf`): chat day-label formatters and yesterday calculation scoped to the build, lazily created for current/other years. 644.5ms, chat updates135.7ms. Small increment requires replication. 45 focused tests/typecheck pass and all seven animation paths pass.
-- Phase 2 starts after #19: user emphasized never sacrificing animation and the synchronous micro-gains plateaued. Change the primary target to actual renderer task time including animation frames, using CDP Performance metrics. Call init_experiment once for this genuinely different metric. Do not compare new primary numbers to Phase1 render_ms. Old phase zeros are harness setup/admission failures, never performance evidence.
+- #22/#23: unchanged Phase2 repeats4164.064/4151.184ms. Rejected full ReportRow memoization + stable open callback because no gain; all ten motion checks passed. Corrected Still holdout v2 main622.1/current484.6ms synchronous, equal8929 DOM nodes; full renderer3536.210→2934.712ms. Old Still claims apply to Chat only, not Reports.
+- Phase 2 starts after #19: user emphasized never sacrificing animation and the synchronous micro-gains plateaued. Change the primary target to actual renderer task time including animation frames, using CDP Performance metrics. init_experiment was called for this genuinely different metric. Phase2 baseline #20 at source6d77fcf=4169.584ms; unchanged replication #21=4061.639ms (~2.6% variability). Do NOT init again unless the actual target changes. Do not compare new primary numbers to Phase1 render_ms. Old phase zeros are harness setup/admission failures, never performance evidence.
