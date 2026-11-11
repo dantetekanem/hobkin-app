@@ -1,5 +1,5 @@
 import { learningEnabled } from './config.mjs';
-import { openDecisions } from './decisions.mjs';
+import { actionReportIds, openDecisions } from './decisions.mjs';
 import { proposalQuestion } from './learning/lessons.mjs';
 import { learningState } from './learning/store.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
@@ -41,6 +41,7 @@ function pendingInputs(requestedRoot, { now, reports }) {
   return {
     ready: readyAndPulls(root),
     decisions: openDecisions(root),
+    linkedReports: actionReportIds(root),
     attention: attentionView(root),
     proposals: proposalsIn(root),
     launches: launchesIn(root),

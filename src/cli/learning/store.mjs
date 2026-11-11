@@ -70,6 +70,7 @@ export function readActions(root) {
   return {
     clears: ofType('clear'),
     answers: ofType('answer'),
+    covered: ofType('covered').filter(({ id, evidence }) => typeof id === 'string' && typeof evidence === 'string' && evidence.trim()),
     posted: ofType('posted'),
     rejected: new Set(ofType('reply').map(({ id }) => id)),
   };
@@ -82,7 +83,7 @@ export const clearedAt = (clears, scope) => Math.max(0, ...clears
 /** A clear or an answer shows at once, even with no owner running to work everything out again. */
 export function learningState(root) {
   const state = readState(root);
-  const { clears, answers } = readActions(root);
+  const { clears, answers, covered } = readActions(root);
   const stands = ({ scope, latest }) => Date.parse(latest) > clearedAt(clears, scope);
   // A later hides a proposal only until the learner raises it again, which gives it a newer time.
   const answered = ({ id, at }) => answers.some(answer => answer.id === id
@@ -90,7 +91,7 @@ export function learningState(root) {
   return {
     ...state,
     lessons: state.lessons.filter(stands),
-    proposals: state.proposals.filter(proposal => stands(proposal) && !answered(proposal)),
+    proposals: state.proposals.filter(proposal => stands(proposal) && !answered(proposal) && !covered.some(({ id }) => id === proposal.id)),
   };
 }
 

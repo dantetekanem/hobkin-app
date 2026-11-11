@@ -117,6 +117,39 @@ function fold(events, identify) {
   return [...folded.values()];
 }
 
+// Cache folded Work records, not entire histories or time-dependent scheduling decisions.
+const workRecords = new Map();
+const MAX_CACHED_WORK_BYTES = 8 * 1024 * 1024;
+const workVersion = stat => stat?.isFile()
+  ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
+
+function readWorkRecords(file, key) {
+  const version = workVersion(lstatSync(file, { throwIfNoEntry: false, bigint: true }));
+  const cached = workRecords.get(file);
+  workRecords.delete(file);
+  if (version === null) return [];
+  if (cached?.version === version) {
+    workRecords.set(file, cached);
+    return JSON.parse(cached.text);
+  }
+
+  const records = fold(parseEvents(file), event => event[key]);
+  // A concurrent append/replacement must not give a partial read a reusable version.
+  if (version !== workVersion(lstatSync(file, { throwIfNoEntry: false, bigint: true }))) return records;
+  const text = JSON.stringify(records);
+  const bytes = Buffer.byteLength(text);
+  if (bytes <= MAX_CACHED_WORK_BYTES) {
+    workRecords.set(file, { version, text, bytes });
+    let total = [...workRecords.values()].reduce((sum, entry) => sum + entry.bytes, 0);
+    while (workRecords.size > 64 || total > MAX_CACHED_WORK_BYTES) {
+      const oldest = workRecords.keys().next().value;
+      total -= workRecords.get(oldest).bytes;
+      workRecords.delete(oldest);
+    }
+  }
+  return records;
+}
+
 /** `countedStarts` is what started by itself and spends its priority's runs, as `{ at, priority }`, kept only while its window lasts. */
 export function readMode(root) {
   const defaults = {
@@ -340,7 +373,7 @@ export function tokensLastHour(root, now = Date.now()) {
     .reduce((sum, event) => sum + event.tokens, 0);
 }
 
-export const readProjects = root => fold(parseEvents(projectsPath(root)), event => event.slug);
+export const readProjects = root => readWorkRecords(projectsPath(root), 'slug');
 
 export function readProject(root, slug) {
   return readProjects(root).find(project => project.slug === slug) ?? null;
@@ -440,7 +473,7 @@ function answerProject(root, slug, state, now) {
 export const skipProject = (root, slug, now = Date.now()) => answerProject(root, slug, 'skipped', now);
 export const dropProject = (root, slug, now = Date.now()) => answerProject(root, slug, 'dropped', now);
 
-export const readItems = (root, slug) => fold(parseEvents(paths(root, slug).items), event => event.id);
+export const readItems = (root, slug) => readWorkRecords(paths(root, slug).items, 'id');
 
 export function fileItem(root, slug, item, now = Date.now()) {
   const { key, kind, title, brief, urgent = false, impact, effort, reopen, causedBy } = item;

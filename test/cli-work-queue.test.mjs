@@ -113,31 +113,6 @@ test('a look cut off by a usage limit comes round again, with no error on the pr
   assert.deepEqual([state.lastLensAt, state.lensIndex, state.lookError ?? null], [earlier, 2, null]);
 });
 
-test('a pane that fails on a limit on another harness stops work', async t => {
-  const h = director(t);
-  studied(h, 'api', 'critical');
-  fileItem(h.root, 'api', item('fix'), h.clock);
-  writeMode(h.root, { harness: 'codex' });
-  h.director.panes = { run: async () => ({ status: 'failed', cost: null, error: 'Usage limit reached.\n\nLast lines in the pane:\nThe agent stopped.' }) };
-
-  await h.tick();
-
-  assert.ok(readMode(h.root).usagePause);
-});
-
-test('the words of a limit in a pane\'s last lines stop nothing, because a pane can be showing anything', async t => {
-  const h = director(t);
-  studied(h, 'api', 'critical');
-  fileItem(h.root, 'api', item('fix'), h.clock);
-  writeMode(h.root, { harness: 'claude' });
-  h.director.panes = { run: async () => ({ status: 'failed', cost: null, error: 'The agent stopped.\n\nLast lines in the pane:\nAdded a test for the rate limit.' }) };
-
-  await h.tick();
-
-  assert.equal(readMode(h.root).usagePause ?? null, null);
-  assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['open', 1]], 'it is an ordinary failed try');
-});
-
 test('a scheduled check takes a place', async t => {
   const h = director(t);
   studied(h, 'api');
@@ -162,19 +137,6 @@ test('work starts while Chat is busy, because nothing waits for the main chat', 
   await h.tick();
 
   assert.equal(h.calls.length, 1);
-});
-
-test('a harness that cannot be measured is charged its estimate, marked so nothing learns from it', async t => {
-  const h = director(t);
-  studied(h, 'api');
-  fileItem(h.root, 'api', item('fix'), h.clock);
-  writeMode(h.root, { harness: 'codex' });
-  h.director.panes = { run: async () => ({ status: 'completed', text: 'Useful: Done.', cost: null }) };
-
-  await h.tick();
-
-  const [event] = readFileSync(join(h.root, 'work', 'tokens.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual([event.tokens, event.estimated, event.kind, event.level], [1000000, true, 'do', 'important']);
 });
 
 // In the project's own folder, on real repositories.
@@ -773,7 +735,7 @@ const finishes = h => request => {
   updateItem(h.root, project.slug, id, { state: 'done' }, h.clock);
 };
 
-test('what starts by itself spends its priority\'s runs: after 4 P1 starts in a day a P2 row goes, and a day on P1 starts again', async t => {
+test('automatic work fills available starts in priority order across P1 and P2 projects', async t => {
   const h = director(t);
   studied(h, 'tool');
   studied(h, 'site', 'casual');
@@ -782,37 +744,23 @@ test('what starts by itself spends its priority\'s runs: after 4 P1 starts in a 
   fileItem(h.root, 'site', item('site fix again'), h.clock);
   h.agent = finishes(h);
 
-  await h.ticks(6);
+  await h.ticks(8);
 
-  assert.deepEqual(h.calls.map(call => h.work(call).project.slug), ['tool', 'tool', 'tool', 'tool', 'site']);
-  assert.deepEqual(readMode(h.root).countedStarts.map(({ priority }) => priority), ['P1', 'P1', 'P1', 'P1', 'P2']);
-  assert.deepEqual(planWork(h.root, { now: h.clock }).entries.map(({ title, waiting }) => [title, waiting]), [
-    ['tool fix 4', 'P1 has had its 4 runs today'],
-    ['tool fix 5', 'P1 has had its 4 runs today'],
-    ['site fix again', 'P2 has had its run today'],
-  ]);
-
-  h.clock += 24 * HOUR;
-  await h.tick();
-
-  assert.deepEqual(h.calls.slice(5).map(call => h.work(call).project.slug), ['tool']);
+  assert.deepEqual(h.calls.map(call => h.work(call).project.slug), ['tool', 'tool', 'tool', 'tool', 'tool', 'tool', 'site', 'site']);
 });
 
-test('a pick and urgent work start whatever their priority has had, and neither spends its runs', async t => {
+test('a pick and urgent work precede eligible automatic work', async t => {
   const h = director(t);
   studied(h, 'tool');
   const picked = fileItem(h.root, 'tool', item('picked'), h.clock);
   fileItem(h.root, 'tool', item('main is broken', { urgent: true }), h.clock);
   fileItem(h.root, 'tool', item('new work'), h.clock);
-  const spent = [1, 2, 3, 4].map(hours => ({ at: new Date(h.clock - hours * HOUR).toISOString(), priority: 'P1' }));
-  writeMode(h.root, { countedStarts: spent });
   pickNext(h.root, `item:tool:${picked.id}`);
   h.agent = finishes(h);
 
   await h.ticks(3);
 
-  assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['picked', 'main is broken']);
-  assert.deepEqual(readMode(h.root).countedStarts, spent);
+  assert.deepEqual(h.calls.map(call => h.work(call).item.title), ['picked', 'main is broken', 'new work']);
 });
 
 test('a pick whose item finished another way leaves the pick list', async t => {
@@ -901,42 +849,17 @@ test('an item that keeps failing says why, and a retry starts it from nothing', 
   assert.deepEqual([attempts, lastError], [0, null]);
 });
 
-// `max`: Claude at its highest effort, whatever harness is set.
-
-const paneWith = (h, spy = () => {}) => {
-  h.panes = [];
-  h.director.panes = {
-    run: async options => {
-      h.panes.push(options);
-      await spy(options);
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
-  };
-};
-
-test('max runs on Claude Opus at max effort, whatever harness is set', async t => {
-  const h = director(t);
-  studied(h, 'api', 'max');
-  fileItem(h.root, 'api', item('fix'), h.clock);
-  paneWith(h);
-
-  await h.tick();
-
-  const [run] = h.panes;
-  assert.deepEqual([run.kind, run.model, run.effort, run.bound], ['claude', 'claude-opus-5-5', 'max', true]);
-  assert.ok(run.claudeSession);
-});
+// `max`: the normal Pi model at its highest effort.
 
 test('an item can be max on a project that is not', async t => {
   const h = director(t);
   studied(h, 'api', 'casual');
   const filed = fileItem(h.root, 'api', item('fix'), h.clock);
-  paneWith(h);
 
   await runWorkCommand(h.root, ['max', 'api', filed.id]);
   await h.tick();
 
-  assert.equal(h.panes[0].kind, 'claude');
+  assert.deepEqual([h.calls[0].harness, h.calls[0].model, h.calls[0].effort], ['pi', 'fixture/main', 'xhigh']);
 });
 
 test('an agent cannot make its own item max', async t => {
@@ -972,21 +895,22 @@ test('one max run at a time and six a day, and its count shows', async t => {
   fileItem(h.root, 'api', item('a'), h.clock);
   fileItem(h.root, 'api', item('b', { effort: 'medium' }), h.clock);
   const release = Promise.withResolvers();
-  paneWith(h, () => release.promise);
+  h.agent = () => release.promise;
+  t.after(() => release.resolve());
 
   await h.director.tick();
-  while (!h.panes.length) await new Promise(resolve => setTimeout(resolve, 10));
+  while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 10));
   await h.director.tick();
   await new Promise(resolve => setTimeout(resolve, 30));
 
-  assert.equal(h.panes.length, 1);
+  assert.equal(h.calls.length, 1);
   assert.equal(workStatus(h.root, { ...h.director.outlook(), now: h.clock }).maxRuns.running, 1);
 
   release.resolve();
   await h.settled();
   for (let index = 0; index < 6; index++) recordTokens(h.root, { slug: 'api', lane: 'do', level: 'max', tokens: 1000 }, h.clock - HOUR);
 
-  const { entries } = planWork(h.root, { now: h.clock, panes: true });
+  const { entries } = planWork(h.root, { now: h.clock });
   assert.equal(entries[0].waiting, '6 max runs a day');
 });
 
@@ -1029,17 +953,14 @@ test('a max run that hits a limit stops everything, because it ran on what every
   assert.equal(claudePause ?? null, null);
 });
 
-test('Claude\'s own transcript gives a max run real numbers, counted once for each request', async t => {
+test('a max run records Pi session tokens and cached tokens across replies', async t => {
   const h = director(t);
   studied(h, 'api', 'max');
   fileItem(h.root, 'api', item('fix'), h.clock);
-  paneWith(h, ({ claudeSession }) => {
-    const folder = join(h.base, 'claude-projects', '-some-project');
-    mkdirSync(folder, { recursive: true });
-    const line = (requestId, usage) => JSON.stringify({ type: 'assistant', requestId, message: { usage } });
-    const usage = { input_tokens: 10, cache_creation_input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 4000 };
-    writeFileSync(join(folder, `${claudeSession}.jsonl`), [line('a', usage), line('a', usage), line('b', usage)].join('\n'));
-  });
+  h.agent = ({ sessionFile }) => {
+    const line = () => JSON.stringify({ type: 'message', message: { role: 'assistant', usage: { input: 10, cacheWrite: 200, output: 30, cacheRead: 4000 } } });
+    writeFileSync(sessionFile, [line(), line()].join('\n'));
+  };
 
   await h.tick();
 
@@ -1051,30 +972,11 @@ test('with no transcript to read, a max run counts as an estimate', async t => {
   const h = director(t);
   studied(h, 'api', 'max');
   fileItem(h.root, 'api', item('fix'), h.clock);
-  paneWith(h);
 
   await h.tick();
 
   const [event] = readFileSync(join(h.root, 'work', 'tokens.jsonl'), 'utf8').trim().split('\n').map(text => JSON.parse(text));
   assert.equal(event.estimated, true);
-});
-
-test('Claude\'s usage limit pauses max work and nothing else', async t => {
-  const h = director(t);
-  studied(h, 'top', 'max');
-  studied(h, 'other', 'important');
-  fileItem(h.root, 'top', item('max fix'), h.clock);
-  fileItem(h.root, 'other', item('other fix'), h.clock);
-  h.director.panes = { run: async () => ({ status: 'failed', cost: null, error: 'Usage limit reached.\n\nLast lines in the pane:\nThe agent stopped.' }) };
-
-  await h.tick();
-
-  const { usagePause, claudePause } = readMode(h.root);
-  assert.equal(usagePause ?? null, null);
-  assert.ok(claudePause);
-  const { entries, next } = planWork(h.root, { now: h.clock, panes: true });
-  assert.equal(entries[0].waiting, 'Claude usage limit');
-  assert.equal(next.slug, 'other');
 });
 
 test('a proposal may suggest max and taking it keeps it, while an agent cannot move a chosen project', async t => {

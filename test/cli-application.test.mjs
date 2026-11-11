@@ -20,7 +20,8 @@ import { branched, git, repository } from './helpers/work-fixture.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { readActions, saveState } from '../src/cli/learning/store.mjs';
 import { startSession } from '../src/cli/session.mjs';
-import { sessionsToPost, sessionsToWake } from '../src/cli/session-log.mjs';
+import { recordSessionEnd, recordSessionStart, sessionsToPost, sessionsToWake } from '../src/cli/session-log.mjs';
+import { allCardActions, cardActionsToTell, markCardActionsHeard } from '../src/cli/work/card-actions.mjs';
 import { listTemplates } from '../src/cli/routine-templates.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
@@ -37,6 +38,204 @@ function fixture(t) {
     openApp: (options = {}) => HobkinApplication.open(root, { createMain: fake.createMain, ...options }),
   };
 }
+
+for (const launcher of [undefined, { command: ['fixture-pi'], managedExtensions: true }])
+test(`application forwards its trusted metrics root through routine, session and Work harnesses (launcher: ${Boolean(launcher)})`, async t => {
+  const h = fixture(t);
+  if (launcher) atomicJson(join(h.root, 'config.json'), { ...h.config, launcher });
+  const calls = [];
+  const app = await h.openApp({ intervalMs: 60000,
+    createMain: options => h.fake.createMain({ ...options, config: { ...options.config, launcher: undefined } }),
+    runHarness: async (request, options) => { calls.push({ request, options }); return request; } });
+  t.after(() => app.close());
+  const request = { id: 'fixture', metricsRoot: '/untrusted-request', sessionFile: '/untrusted/session.jsonl' };
+  const options = { metricsRoot: '/untrusted-option', onEvent() {}, onReady() {}, spawnProcess() {} };
+  for (const run of [app.runner.runHarness, app.delivery.delivery.runHarness, app.delivery.reflection.runHarness, app.director.runHarness]) {
+    const forwarded = launcher ? { ...request, launcher } : request;
+    assert.deepEqual(await run(request, options), forwarded);
+    assert.deepEqual(calls.at(-1), { request: forwarded, options: { ...options, metricsRoot: app.runtime.directory } });
+    await run(request);
+    assert.deepEqual(calls.at(-1), { request: forwarded, options: { metricsRoot: app.runtime.directory } });
+  }
+  assert.equal(options.metricsRoot, '/untrusted-option');
+});
+
+for (const lane of ['do', 'look', 'discover']) {
+  test(`main workload Stop confirms ${lane}, retains partial output and skips only the exact plan key across reopen`, { timeout: 10000 }, async t => {
+    const h = fixture(t);
+    let app = await h.openApp({ intervalMs: 60000 });
+    t.after(() => app.close());
+    const id = `work:owned:${lane}`;
+    const planKey = `${lane}:actual-plan-key`;
+    const ready = Promise.withResolvers();
+    const { work } = app.runner.startTracked({ id, kind: 'background', title: 'Owned parent', work: { lane, planKey } }, async signal => {
+      ready.resolve();
+      await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+      return { status: 'interrupted', text: 'Useful partial report.' };
+    });
+    app.director.active.set('internal-key', { id, title: 'Owned parent', lane, planKey });
+    await ready.promise;
+    const { createStopWorkloadTool } = await import('../src/cli/hobkin-tools.mjs');
+    const tool = createStopWorkloadTool(request => app.stopWorkload(request));
+    const execute = request => tool.execute('call', request);
+    assert.deepEqual((await execute({ action: 'list' })).details.running, [{ id, title: 'Owned parent', lane }]);
+    assert.equal((await app.runtime.state()).runs[id].mainStop, undefined);
+    for (const request of [{ action: 'stop', id, reason: ' ' }, { action: 'stop', id, reason: 'x', pid: 1 }, { action: 'stop', id: 'child', reason: 'x' }, { action: 'stop', id, reason: 'x'.repeat(201) }]) {
+      await assert.rejects(execute(request));
+    }
+    writeMode(h.root, { queueSkipped: ['pre-existing'], queueNext: ['unrelated'] });
+    const stopping = execute({ action: 'stop', id, reason: '  Safety limit reached.  ' });
+    const repeated = execute({ action: 'stop', id, reason: 'Again.' });
+    const receipt = (await stopping).details;
+    await assert.rejects(repeated);
+    await work;
+    assert.equal(receipt.stopped, true);
+    assert.equal(receipt.id, id);
+    assert.equal(receipt.reason, 'Safety limit reached.');
+    assert.equal(receipt.partialResult, true);
+    assert.equal(readFileSync(receipt.report, 'utf8'), 'Useful partial report.');
+    assert.equal(receipt.nestedCleanup, 'unconfirmed');
+    await assert.rejects(execute({ action: 'stop', id, reason: 'Again.' }));
+    const run = (await app.runtime.state()).runs[id];
+    assert.deepEqual(run.mainStop, { source: 'main', reason: 'Safety limit reached.' });
+    assert.equal(run.userStop, undefined);
+    assert.equal(run.result.text, 'Useful partial report.');
+    assert.equal(app.runtime.messages().length, 0);
+    await app.close();
+    app = await h.openApp({ intervalMs: 60000 });
+    const { readMode, pickNext } = await import('../src/cli/work/store.mjs');
+    assert.deepEqual(readMode(h.root).queueSkipped, ['pre-existing', planKey]);
+    assert.deepEqual(readMode(h.root).queueNext, ['unrelated']);
+    const notices = allCardActions(h.root).filter(action => action.mainStop);
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].id, `main-stop:${id}`);
+    const send = app.runtime.send.bind(app.runtime);
+    app.runtime.send = async () => { throw Error('Not admitted.'); };
+    await assert.rejects(app.send('Rejected'), /Not admitted/);
+    assert.ok(cardActionsToTell(h.root).some(action => action.mainStop));
+    app.runtime.send = send;
+    await app.send('What happened?');
+    await app.runtime.idle();
+    const text = app.runtime.messages().find(message => message.role === 'user').content;
+    const note = JSON.parse(text.match(/<hobkin-work>\n(.*)\n/)[1]);
+    assert.equal(note.mainStopped[0].mainStop.runId, id);
+    assert.equal(note.userDid, undefined);
+    assert.match(note.mainStopped[0].did, /Do not retry or restart/);
+    pickNext(h.root, planKey);
+    await app.close();
+    app = await h.openApp({ intervalMs: 60000 });
+    assert.equal(readMode(h.root).queueSkipped.includes(planKey), false);
+    assert.equal(cardActionsToTell(h.root).some(action => action.mainStop), false);
+  });
+}
+
+test('main workload Stop keeps discovery owned during pending settlement and persists its real planner key before release', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  const ready = Promise.withResolvers(), aborted = Promise.withResolvers(), settle = Promise.withResolvers();
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async ({ signal }) => {
+    ready.resolve();
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    aborted.resolve();
+    await settle.promise;
+    return { status: 'interrupted', text: 'Discovery partial.' };
+  } });
+  t.after(() => app.close());
+  writeMode(h.root, { enabled: true, folder: h.root, startGapMs: 0 });
+  const { planWork } = await import('../src/cli/work/plan.mjs');
+  const { readMode } = await import('../src/cli/work/store.mjs');
+  const plan = () => planWork(h.root, { ...app.director.outlook(), now: Date.now() + 2 * 86400000 });
+  const next = plan().next;
+  assert.equal(next.key, 'discover');
+  app.director.begin(next, plan().budget, readMode(h.root));
+  await ready.promise;
+  const id = app.director.running()[0].id;
+  assert.equal((await app.runtime.state()).runs[id].work.planKey, next.key);
+  const stopping = app.stopWorkload({ action: 'stop', id, reason: 'Safety.' });
+  await aborted.promise;
+  await app.director.tick();
+  assert.deepEqual(app.director.running().map(run => run.id), [id]);
+  assert.equal(plan().next, null);
+  assert.equal(readMode(h.root).queueSkipped.includes(next.key), false);
+  let heldBeforeRelease = false;
+  const publish = app.director.publish.bind(app.director);
+  app.director.publish = () => { if (!app.director.running().length) heldBeforeRelease = readMode(h.root).queueSkipped.includes(next.key); publish(); };
+  settle.resolve();
+  await stopping;
+  await app.director.closing;
+  assert.equal(heldBeforeRelease, true);
+  assert.equal(plan().entries.find(entry => entry.key === next.key).ownWait, 'skipped');
+  assert.equal(plan().next, null);
+});
+
+test('main workload Stop rejects unowned targets and completion/failure races without changing queue holds', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  const { readMode } = await import('../src/cli/work/store.mjs');
+  writeMode(h.root, { queueSkipped: ['pre-existing'], queueNext: ['unrelated'] });
+  for (const status of ['completed', 'failed']) {
+    const id = `work:race:${status}`;
+    const ready = Promise.withResolvers();
+    const { work } = app.runner.startTracked({ id, kind: 'background', title: id, work: { lane: 'look', planKey: status } }, async signal => {
+      ready.resolve();
+      await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+      writeMode(h.root, { queueSkipped: [...readMode(h.root).queueSkipped, `during-${status}`] });
+      return { status, text: 'Settled another way.' };
+    });
+    app.director.active.set(id, { id, lane: 'look', planKey: status });
+    await ready.promise;
+    await assert.rejects(app.stopWorkload({ action: 'stop', id, reason: 'Safety.' }), /not confirmed/);
+    await work;
+  }
+  const ready = Promise.withResolvers(), release = Promise.withResolvers();
+  const id = 'work:transport-error';
+  const { work } = app.runner.startTracked({ id, kind: 'background', title: id, work: { lane: 'look', planKey: 'transport-error' } }, async () => {
+    ready.resolve();
+    await release.promise;
+    return { status: 'completed' };
+  });
+  app.director.active.set(id, { id, lane: 'look', planKey: 'transport-error' });
+  await ready.promise;
+  const kill = app.runner.kill;
+  app.runner.kill = async () => { throw Error('Transport failed.'); };
+  await assert.rejects(app.stopWorkload({ action: 'stop', id, reason: 'Safety.' }), /Transport failed/);
+  app.runner.kill = kill;
+  release.resolve();
+  await work;
+  for (const id of ['message:main', 'routine:unrelated', 'work:another-team', 'helper-name', '1234']) {
+    app.director.active.set(id, { id, lane: 'look', planKey: 'fake' });
+    await assert.rejects(app.stopWorkload({ action: 'stop', id, reason: 'Safety.' }));
+  }
+  assert.deepEqual(readMode(h.root).queueSkipped, ['pre-existing', 'during-completed', 'during-failed']);
+  assert.deepEqual(readMode(h.root).queueNext, ['unrelated']);
+  assert.deepEqual(allCardActions(h.root), []);
+});
+
+test('main workload Stop recovers only confirmed missing notices and preserves heard and posted marks', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  let app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  await app.runtime.change(state => {
+    for (const id of ['missing', 'heard', 'abandoned', 'completed', 'mismatch']) {
+      state.runs[id] = { id, kind: 'background', title: id, status: 'interrupted', work: { planKey: id, lane: 'discover' }, result: { status: 'interrupted', text: 'Partial.' }, mainStop: { source: 'main', reason: 'Safety.' } };
+    }
+    delete state.runs.abandoned.result;
+    state.runs.completed.status = 'completed';
+    state.runs.mismatch.result.status = 'completed';
+  });
+  markCardActionsHeard(h.root, [{ id: 'main-stop:heard' }]);
+  await app.close();
+  app = await h.openApp({ intervalMs: 60000 });
+  const { readMode } = await import('../src/cli/work/store.mjs');
+  assert.deepEqual(readMode(h.root).queueSkipped.sort(), ['heard', 'missing']);
+  assert.deepEqual(cardActionsToTell(h.root).map(action => action.id), ['main-stop:missing']);
+  assert.deepEqual(allCardActions(h.root).map(action => action.id).sort(), ['main-stop:heard', 'main-stop:missing']);
+  await app.refresh();
+  const log = readFileSync(join(h.root, 'work/card-actions.jsonl'), 'utf8');
+  await app.close();
+  app = await h.openApp({ intervalMs: 60000 });
+  assert.equal(readFileSync(join(h.root, 'work/card-actions.jsonl'), 'utf8'), log);
+});
 
 test('presentation clear state is private, unions across writes and hides messages after reopen', t => {
   const h = fixture(t);
@@ -738,6 +937,154 @@ test('job activity is transient and quiet completion hands off exact saved Markd
   assert.equal((await app.refresh()).completedJobReports.unsaved, undefined);
 });
 
+test('completion outcomes replay delayed saved reports across refresh and reconnect within a bounded window', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  const options = { intervalMs: 60000, runHarness: async () => { throw Error('Unexpected launcher'); } };
+  const app = await h.openApp(options);
+  t.after(() => app.close());
+  await app.runtime.change(state => {
+    state.runs.delayed = backgroundRun('delayed');
+    state.runs.old = backgroundRun('old', { startedAt: '2020-01-01T00:00:00Z' });
+    for (let index = 0; index < 99; index++) state.runs[`recent-${index}`] = backgroundRun(`recent-${index}`);
+  });
+  saveReport(h.root, 'old', 'Outside the bounded window.');
+  assert.equal((await app.refresh()).completedJobReports.delayed, undefined);
+  saveReport(h.root, 'delayed', '# Actual delayed report\n');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const outcomes = (await app.refresh()).completedJobReports;
+    assert.equal(outcomes.delayed.body, '# Actual delayed report\n');
+    assert.equal(outcomes.old, undefined);
+  }
+  await app.close();
+  const reopened = await h.openApp(options);
+  try {
+    assert.equal((await reopened.refresh()).completedJobReports.delayed.body, '# Actual delayed report\n');
+  } finally {
+    await reopened.close();
+  }
+});
+
+test('completion outcomes prove absence only for quiet or deleted reports', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async () => { throw Error('Unexpected launcher'); } });
+  t.after(() => app.close());
+  await app.runtime.change(state => {
+    state.runs.quiet = backgroundRun('quiet', { result: { status: 'completed', text: 'Nothing new.' } });
+    state.runs.manual = backgroundRun('manual', { trigger: 'manual', result: { status: 'completed', text: 'Nothing new.' } });
+    state.runs.deleted = backgroundRun('deleted');
+    state.runs.unknown = backgroundRun('unknown', { status: 'failed' });
+    state.runs.running = backgroundRun('running', { status: 'running' });
+  });
+  saveReport(h.root, 'deleted', 'Previously available.');
+  deleteReports(h.root, ['deleted']);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.deepEqual((await app.refresh()).completedJobReports, { quiet: null, deleted: null });
+  }
+});
+
+test('scheduled ticks and sessions reserve two ordinary places independently of the Work pool', async t => {
+  const h = fixture(t);
+  h.config.concurrency = 2;
+  atomicJson(join(h.root, 'config.json'), h.config);
+  const gate = Promise.withResolvers();
+  const ready = Promise.withResolvers();
+  let calls = 0;
+  const app = await h.openApp({ intervalMs: 60000, now: () => new Date('2026-01-02T10:00:00Z'),
+    runHarness: async () => { if (++calls === 2) ready.resolve(); return gate.promise; } });
+  t.after(() => { gate.resolve({ status: 'completed', text: 'Done.' }); return app.close(); });
+  await app.runner.tick();
+  writeMode(h.root, { enabled: true, agents: 1 });
+  const work = app.runner.startTracked({ id: 'work:fixture', kind: 'background', work: { lane: 'do' } }, () => gate.promise).work;
+  const schedule = { id: 'check', title: 'Check', at: '09:00', timezone: 'UTC', cwd: h.root,
+    context: [], enabled: true, harness: 'pi', model: 'fixture/check', effort: 'medium' };
+  writeFileSync(join(h.root, 'routines/daily/check.md'), `---\n${JSON.stringify(schedule)}\n---\nCheck local state.\n`);
+  const sessions = [];
+  for (const title of ['Alpha', 'Beta']) sessions.push(await startSession({ root: h.root, title, brief: 'Inspect.', cwd: h.root }));
+  const tick = app.runner.tick();
+  const ended = app.tickSessions();
+  await Promise.all([tick, ready.promise]);
+  await app.runner.serialize(() => {});
+  assert.equal(calls, 2, 'one scheduled check and one session start');
+  assert.equal(app.runner.jobs.size, 3, 'Work retains its separate place');
+  assert.equal(app.runner.scheduledJobCount(await app.runtime.state()), 2, 'Work agents does not cap ordinary sessions');
+  assert.deepEqual(readdirSync(join(h.root, 'runtime/session-requests')), [`${sessions[1].name}.json`]);
+  gate.resolve({ status: 'completed', text: 'Done.' });
+  await Promise.all([ended, work, ...app.runner.jobs.values()]);
+  await app.tickSessions();
+  assert.equal(calls, 3);
+  assert.deepEqual(readdirSync(join(h.root, 'runtime/session-requests')), []);
+});
+
+for (const enabled of [false, true]) {
+  test(`queued sessions share ordinary check admission with Work ${enabled ? 'enabled' : 'disabled'}`, async t => {
+    const h = fixture(t);
+    h.config.concurrency = 1;
+    atomicJson(join(h.root, 'config.json'), h.config);
+    const calls = [];
+    const started = [0, 1, 2, 3].map(() => Promise.withResolvers());
+    const gates = started.map(() => Promise.withResolvers());
+    const app = await h.openApp({ intervalMs: 60000, now: () => new Date('2026-01-02T08:00:00Z'),
+      runHarness: async request => {
+        const index = calls.push(request) - 1;
+        request.signal.addEventListener('abort', () => gates[index].resolve({ status: 'interrupted', text: 'Partial.' }), { once: true });
+        started[index].resolve();
+        return gates[index].promise;
+      } });
+    t.after(() => { gates.forEach(gate => gate.resolve({ status: 'interrupted', text: '' })); return app.close(); });
+    await app.runner.tick();
+    writeMode(h.root, { enabled });
+    const schedule = { id: 'check', title: 'Check', at: '09:00', timezone: 'UTC', cwd: h.root,
+      context: [], enabled: true, harness: 'pi', model: 'fixture/check', effort: 'medium' };
+    writeFileSync(join(h.root, 'routines/daily/check.md'), `---\n${JSON.stringify(schedule)}\n---\nCheck local state.\n`);
+    const sessions = [];
+    for (const title of ['Alpha', 'Beta', 'Gamma']) {
+      sessions.push(await startSession({ root: h.root, title, brief: 'Inspect.', cwd: h.root }));
+    }
+    const pending = () => readdirSync(join(h.root, 'runtime/session-requests')).sort();
+    const expected = sessions.map(session => `${session.name}.json`).sort();
+    const routine = app.runner.trigger('check', 'first-routine');
+    const overflow = [app.tickSessions(), app.tickSessions()];
+    await Promise.all([routine, app.runner.tick()]);
+    await started[0].promise;
+    await app.runner.serialize(() => {});
+    assert.deepEqual(pending(), expected, 'competing routine reserves before requests are consumed');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(sessionsToPost(h.root), []);
+    const log = readFileSync(join(h.root, 'runtime/handoffs/sessions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(log.filter(event => event.endedAt).length, 0, 'pending requests have no end record');
+    assert.equal(Object.values((await app.runtime.state()).runs).filter(run => run.id.startsWith('session:')).length, 0);
+    const routineWork = [...app.runner.jobs.values()][0];
+    gates[0].resolve({ status: 'completed', text: 'Checked.' });
+    await routineWork;
+    await Promise.all(overflow);
+
+    const first = app.tickSessions();
+    const repeated = app.tickSessions();
+    const competing = assert.rejects(app.runner.trigger('check', 'second-routine'), /capacity is full/);
+    await Promise.all([app.runner.tick(), competing]);
+    await started[1].promise;
+    await app.runner.serialize(() => {});
+    assert.deepEqual(pending(), expected.slice(1), 'only the first pending session is consumed');
+    assert.equal(calls.length, 2, 'reentrant onTick and explicit calls cannot duplicate admission');
+    assert.equal(app.runner.scheduledJobCount(await app.runtime.state()), 1);
+    gates[1].resolve({ status: enabled ? 'failed' : 'completed', text: 'First outcome.' });
+    await Promise.all([first, repeated]);
+
+    const second = app.tickSessions();
+    await started[2].promise;
+    assert.deepEqual(pending(), expected.slice(2), 'completion or failure frees the next place');
+    assert.equal(await app.runner.kill(`session:${sessions[1].name}`, { source: 'user', reason: 'Stop exact session.' }), true);
+    await second;
+    const third = app.tickSessions();
+    await started[3].promise;
+    assert.deepEqual(pending(), [], 'confirmed cancellation frees the next place');
+    gates[3].resolve({ status: 'completed', text: 'Last outcome.' });
+    await third;
+    assert.equal(calls.length, 4);
+    assert.equal(app.runner.scheduledJobCount(await app.runtime.state()), 0);
+  });
+}
+
 test('a session `hobkin session` asked for runs as a job: it shows, streams, takes messages, and wakes its starter with the report', async t => {
   const h = fixture(t);
   const ready = Promise.withResolvers();
@@ -761,14 +1108,212 @@ test('a session `hobkin session` asked for runs as a job: it shows, streams, tak
   const run = live.runs.find(item => item.id === `session:${started.name}`);
   assert.deepEqual([run.state, run.kind, run.title, run.cwd], ['running', 'background', 'Review routines', h.root]);
   assert.equal(live.jobActivity[run.id][0].name, 'read');
-  await app.runner.messageCheck({ scheduleId: `session.${started.name}`, message: 'Also the weekly one.' });
-  assert.deepEqual(heard, ['Also the weekly one.']);
+  const noteId = '00000000-0000-4000-8000-000000000001';
+  await app.runner.messageCheck({ scheduleId: `session.${started.name}`, runId: run.id, noteId, message: 'Also the weekly one.' });
+  assert.equal(heard[0], `[hobkin-note:${noteId}]\nAlso the weekly one.`);
+  options.onEvent({ type: 'message_end', message: { role: 'user', content: heard[0] } });
+  const receiptView = await app.refresh();
+  assert.deepEqual(receiptView.steeringReceipts[run.id].map(({ noteId }) => noteId), [noteId]);
+  assert.deepEqual(Object.keys(receiptView.steeringReceipts[run.id][0]), ['noteId', 'at']);
+  assert.doesNotMatch(JSON.stringify(receiptView), /Also the weekly one|hobkin-note/);
+  assert.equal(Object.hasOwn(JSON.parse(readFileSync(join(h.root, 'runtime/view.json'), 'utf8')), 'steeringReceipts'), false);
 
   finish.resolve({ status: 'completed', text: 'Useful: Two routines overlap.', cost: null });
   await ended;
   assert.equal(readFileSync(started.report, 'utf8'), 'Useful: Two routines overlap.', 'its last reply is the report it never wrote');
   assert.deepEqual(sessionsToWake(h.root).map(({ name, said }) => [name, said]), [[started.name, 'Useful: Two routines overlap.']]);
   assert.deepEqual(sessionsToPost(h.root), [], 'the run posts its own notice, so the session log does not post it twice');
+});
+
+test('Reports prefer a session run over its log fallback and retain distinct same-title fallback reports', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  const title = 'Repeated session title';
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async () => ({ status: 'failed', text: 'Run failure details.' }) });
+  t.after(() => app.close());
+  const started = await startSession({ root: h.root, title, brief: 'Inspect.', cwd: h.root });
+  await app.tickSessions();
+  const runId = `session:${started.name}`;
+  const run = (await app.runtime.state()).runs[runId];
+  assert.equal(run.status, 'failed');
+  saveReport(h.root, runId, 'Run failure details.');
+
+  const legacyName = 'hobkin-legacy-0001';
+  const legacyReport = join(h.root, 'runtime', 'handoffs', `${legacyName}.report.md`);
+  recordSessionStart(h.root, { name: legacyName, title, report: legacyReport });
+  saveReport(h.root, `session:${legacyName}`, 'Legacy session report.');
+  recordSessionEnd({ name: legacyName, report: legacyReport });
+
+  const reports = (await app.refresh()).reports.filter(report => report.title === title);
+  assert.deepEqual(reports.map(({ id }) => id).sort(), [runId, `session:${legacyName}`].sort());
+  const failed = reports.find(({ id }) => id === runId);
+  assert.deepEqual([failed.outcome, failed.at, failed.body], ['failed', run.finishedAt, 'Run failure details.']);
+  const fallback = reports.find(({ id }) => id === `session:${legacyName}`);
+  assert.deepEqual([fallback.outcome, fallback.body], ['completed', 'Legacy session report.']);
+});
+
+test('user Stop tells main once across busy wake, repeated stop and reconnect, retaining partial session output', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  h.config.concurrency = 1;
+  atomicJson(join(h.root, 'config.json'), h.config);
+  const ready = Promise.withResolvers();
+  let app = await h.openApp({ intervalMs: 60000, runHarness: async ({ signal }) => {
+    ready.resolve();
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    return { status: 'interrupted', text: 'Partial findings remain.' };
+  } });
+  try {
+    const started = await startSession({ root: h.root, title: 'User-stopped review', brief: 'Review.', wake: true, cwd: h.root, env: {} });
+    const ended = app.tickSessions();
+    await ready.promise;
+    const id = `session:${started.name}`;
+    const main = h.fake.controls.get(h.fake.opened.at(-1));
+    main.gate = Promise.withResolvers();
+    main.started = Promise.withResolvers();
+    await app.send('busy now');
+    await main.started.promise;
+    assert.equal(await app.kill(id), true);
+    await ended;
+    assert.equal(await app.kill(id), false);
+    const run = (await app.runtime.state()).runs[id];
+    assert.equal(run.userStop.source, 'user');
+    assert.equal(run.result.text, 'Partial findings remain.');
+    assert.equal(readFileSync(started.report, 'utf8'), 'Partial findings remain.');
+    assert.match(sessionsToWake(h.root)[0].said, /user stopped.*session:.*Do not retry or restart/i);
+    app.tickWakes();
+    const queued = app.send('after stop');
+    main.gate.resolve();
+    await app.runtime.idle();
+    await queued;
+    await app.runtime.idle();
+    const texts = () => app.runtime.messages().filter(m => m.role === 'user').map(m => typeof m.content === 'string' ? m.content : m.content.filter(p => p.type === 'text').map(p => p.text).join(''));
+    assert.match(texts()[1], /user stopped.*session:/i, 'queued user message carries stop context even before wake');
+    assert.match(texts()[1], /Do not retry or restart/);
+    const send = app.runtime.send.bind(app.runtime);
+    app.runtime.send = async () => { throw Error('Wake not accepted.'); };
+    await app.tickWakes();
+    assert.equal(sessionsToWake(h.root).length, 1, 'rejected wake remains due');
+    app.runtime.send = send;
+    await Promise.all([app.tickWakes(), app.tickWakes()]);
+    await app.runtime.idle();
+    assert.equal(texts().length, 3, 'only the already-requested wake adds a turn');
+    assert.match(texts()[2], /user stopped.*session:.*Do not retry or restart/i);
+    assert.deepEqual(sessionsToWake(h.root), []);
+    await app.close();
+    app = await h.openApp({ intervalMs: 60000 });
+    await app.tickWakes();
+    await app.runtime.idle();
+    assert.equal(texts().length, 3, 'reconnect does not repeat the requested wake');
+  } finally { await app.close(); }
+});
+
+for (const wake of [true, false]) {
+  test(`confirmed Stop keeps ${wake ? 'requested wake' : 'next user message'} admission and notice`, { timeout: 10000 }, async t => {
+    const h = fixture(t);
+    const ready = Promise.withResolvers();
+    const app = await h.openApp({ intervalMs: 60000, runHarness: async ({ signal }) => {
+      ready.resolve();
+      await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+      return { status: 'interrupted', text: 'Partial result.' };
+    } });
+    t.after(() => app.close());
+    const started = await startSession({ root: h.root, title: 'Stopped exact job', brief: 'Inspect.', wake, cwd: h.root, env: {} });
+    const ended = app.tickSessions();
+    await ready.promise;
+    const id = `session:${started.name}`;
+    assert.equal(await app.runner.kill(id, { source: 'user', reason: 'Stop this expensive review.' }), true);
+    await ended;
+    const send = app.runtime.send.bind(app.runtime);
+    app.runtime.send = async () => { throw Error('Not admitted.'); };
+    await app.tickWakes();
+    assert.equal(cardActionsToTell(h.root).filter(action => action.userStop?.runId === id).length, 1);
+    assert.equal(sessionsToWake(h.root).length, wake ? 1 : 0);
+    assert.equal(app.runtime.messages().length, 0);
+    app.runtime.send = send;
+    await Promise.all([app.tickWakes(), app.tickWakes()]);
+    if (!wake) {
+      assert.equal(app.runtime.messages().length, 0, 'a nonwake Stop cannot start a turn');
+      await app.send('What happened?');
+    }
+    await app.runtime.idle();
+    assert.equal(cardActionsToTell(h.root).filter(action => action.userStop?.runId === id).length, 0);
+    const messages = app.runtime.messages().filter(message => message.role === 'user');
+    assert.equal(messages.length, 1);
+    assert.ok(JSON.stringify(messages[0]).includes(id));
+    assert.match(JSON.stringify(messages[0]), /Stop this expensive review\..*Do not retry or restart/);
+    await app.tickWakes();
+    await app.runtime.idle();
+    assert.equal(app.runtime.messages().filter(message => message.role === 'user').length, 1);
+  });
+}
+
+test('user Stop distinguishes confirmed cancellation, normal-completion race, and internal shutdown; rejected main sends retain notice', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  h.config.concurrency = 1;
+  atomicJson(join(h.root, 'config.json'), h.config);
+  let app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  for (const [id, status, user] of [['scheduled:one', 'interrupted', true], ['session:raced', 'completed', true], ['work:guard', 'interrupted', false]]) {
+    const ready = Promise.withResolvers();
+    const { work } = app.runner.startTracked({ id, kind: 'background', scheduleId: 'check', title: id }, async signal => {
+      ready.resolve();
+      await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+      return { status, text: 'Preserved partial output.' };
+    });
+    await ready.promise;
+    const first = user ? app.kill(id) : app.runner.kill(id);
+    const repeated = user ? app.kill(id) : app.runner.kill(id);
+    assert.equal(await first, status === 'interrupted');
+    assert.equal(await repeated, false);
+    await work;
+    assert.equal(await app.kill(id), false);
+  }
+  await app.close();
+  app = await h.openApp({ intervalMs: 60000 });
+  const realSend = app.runtime.send.bind(app.runtime);
+  app.runtime.send = async () => { throw Error('Message rejected before submission.'); };
+  await assert.rejects(app.send('first try'), /rejected/);
+  app.runtime.send = realSend;
+  await app.send('second try');
+  await app.runtime.idle();
+  await app.send('third try');
+  await app.runtime.idle();
+  const messages = app.runtime.messages().filter(m => m.role === 'user');
+  const first = JSON.stringify(messages[0]);
+  assert.match(first, /scheduled:one/);
+  assert.match(first, /Do not retry or restart/);
+  assert.doesNotMatch(first, /session:raced|work:guard/, 'race and guard are not confirmed user stops');
+  assert.doesNotMatch(JSON.stringify(messages[1]), /scheduled:one/);
+});
+
+test('confirmed Stop recovers missing notices on open without reviving heard or abandoned intents', async t => {
+  const h = fixture(t);
+  let app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  await app.runtime.change(state => {
+    for (const id of ['missing', 'heard', 'abandoned', 'pending', 'internal', 'completed', 'mismatch']) {
+      state.runs[id] = { id, kind: 'background', title: id, status: 'interrupted', result: { status: 'interrupted', text: 'Partial output.' }, userStop: { source: 'user', reason: 'Enough reviewing.' } };
+    }
+    delete state.runs.abandoned.result;
+    Object.assign(state.runs.pending, { status: 'running', result: undefined });
+    delete state.runs.internal.userStop;
+    state.runs.completed.status = state.runs.completed.result.status = 'completed';
+    state.runs.mismatch.result.status = 'completed';
+  });
+  markCardActionsHeard(h.root, [{ id: 'user-stop:heard' }]);
+  await app.close();
+  app = await h.openApp({ intervalMs: 60000 });
+  assert.deepEqual(allCardActions(h.root).map(action => action.id).sort(), ['user-stop:heard', 'user-stop:missing']);
+  assert.deepEqual(cardActionsToTell(h.root).map(action => action.id), ['user-stop:missing']);
+  assert.match(allCardActions(h.root).find(action => action.id === 'user-stop:heard').did, /heard.*Enough reviewing\..*Do not retry or restart/);
+  assert.equal((await app.runtime.state()).runs.missing.result.text, 'Partial output.');
+  await app.send('Continue the conversation.');
+  await app.runtime.idle();
+  assert.match(JSON.stringify(app.runtime.messages()), /missing.*Enough reviewing\..*Do not retry or restart/);
+  const log = readFileSync(join(h.root, 'work/card-actions.jsonl'), 'utf8');
+  await app.close();
+  app = await h.openApp({ intervalMs: 60000 });
+  assert.deepEqual(cardActionsToTell(h.root), []);
+  assert.equal(readFileSync(join(h.root, 'work/card-actions.jsonl'), 'utf8'), log);
 });
 
 test('spawned agents publish beside job activity, once more stopped when the run ends without their report', async t => {
@@ -965,6 +1510,8 @@ test('the live view carries memory size and report attention, and reads reach te
     const view = await app.refresh();
     assert.deepEqual(view.reportAttention.map(({ scheduleId, reports, read }) => [scheduleId, reports, read]), [['check', 1, 1]]);
     assert.match(readFileSync(join(h.root, 'runtime/telemetry.jsonl'), 'utf8'), /report_read/);
+    assert.equal(view.reports.find(({ id }) => id === 'run-1').readState, 'read');
+    assert.equal(readLocalView(h.root).reports.find(({ id }) => id === 'run-1').readState, 'read');
   } finally {
     await app.close();
   }

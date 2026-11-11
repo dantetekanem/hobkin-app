@@ -3,7 +3,7 @@ import { resolveDataRoot } from '../migration/admission.mjs';
 import { evidenceText, lessonLine, MAX_TOKENS, renderLessons, requestTokens } from './lessons.mjs';
 import { appendAction, learningState, readActions, readState } from './store.mjs';
 
-const USAGE = 'Usage: hobkin learning [on | off | clear <id> | clear all | answer <id> yes|later|no]';
+const USAGE = 'Usage: hobkin learning [on | off | clear <id> | clear all | answer <id> yes|later|no | cover <id> "evidence"]';
 const ANSWERS = ['yes', 'later', 'no'];
 // A no to work is a no for its whole repo, so the scope `work.<repo>.<kind>` is kept as the repo it names.
 const repoOf = scope => (/^work\.[^.]+\./.test(scope) ? scope.split('.').slice(0, 2).join('.') : null);
@@ -73,6 +73,14 @@ export function runLearningCommand(requestedRoot, [action, target, choice, ...ex
   if (action === 'on' || action === 'off') {
     if (target) throw Error(USAGE);
     return setLearning(root, action === 'on');
+  }
+  if (action === 'cover' && target) {
+    if (typeof choice !== 'string' || !choice.trim() || choice.length > 1000) throw Error('Coverage needs evidence of settled scope, up to 1000 characters.');
+    const proposal = readState(root).proposals.find(({ id }) => id === target);
+    if (!proposal) throw Error('No proposal has that ID.');
+    const { scope, kind, definition } = proposal;
+    appendAction(root, { type: 'covered', id: target, scope, kind, definition, evidence: choice.trim(), at: new Date(now).toISOString() });
+    return { covered: target, scope };
   }
   if (action === 'clear' && target && !choice) return clear(root, target);
   if (action === 'answer' && target) return answer(root, target, choice, now);

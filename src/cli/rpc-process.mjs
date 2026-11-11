@@ -76,12 +76,17 @@ export function startRpcProcess({
   const write = record => child.stdin.write(`${JSON.stringify(record)}\n`, error => {
     if (error && !stopping) fail(error);
   });
-  const request = (type, data = {}, onResponse) => {
+  const request = (type, data = {}, onResponse, onRequest) => {
     if (failure || exited || !child.stdin.writable) return Promise.reject(failure ?? Error(`${name} exited.`));
     const id = `hobkin-${++serial}`;
     const waiter = Promise.withResolvers();
+    try {
+      onRequest?.(id);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     pending.set(id, { ...waiter, onResponse });
-    write({ id, type, ...data });
+    write({ ...data, id, type });
     return waiter.promise;
   };
   const accept = record => {

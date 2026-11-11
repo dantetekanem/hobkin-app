@@ -268,6 +268,36 @@ test('moving the folder does not change a routine\'s fingerprint, so holds and a
   assert.notEqual(scheduleDefinition({ ...moved, prompt: 'Check more.' }), scheduleDefinition(routine));
 });
 
+test('deletion checks the exact definition and removes only the selected native file', t => {
+  const root = fixture(t);
+  initialize(root, { cwd: root });
+  const path = join(routinesFolder(root), 'once/recap.md');
+  writeFileSync(path, file({ date: '2026-11-11' }));
+  const target = loadSchedules(root).schedules[0];
+  const token = scheduleDefinition(target);
+  writeFileSync(join(routinesFolder(root), 'daily/other.md'), file({ id: 'other' }));
+  const history = join(root, 'checks/recap');
+  mkdirSync(history, { recursive: true });
+  writeFileSync(join(history, 'log.md'), 'Past report and receipt');
+  for (const change of [{ delete: '' }, { delete: token, enabled: false }]) {
+    assert.throws(() => changeSchedule(root, 'recap', change), /definition|Only/);
+  }
+  writeFileSync(path, file({ date: '2026-11-11', title: 'Changed' }));
+  assert.throws(() => changeSchedule(root, 'recap', { delete: token }), /definition/);
+  writeFileSync(path, file({ date: '2026-11-11' }));
+  const duplicate = join(routinesFolder(root), 'daily/duplicate.md');
+  writeFileSync(duplicate, file());
+  assert.throws(() => changeSchedule(root, 'recap', { delete: token }), /Unknown exact native/);
+  rmSync(duplicate);
+  symlinkSync(path, duplicate);
+  assert.throws(() => changeSchedule(root, 'recap', { delete: scheduleDefinition({ ...target, path: duplicate }) }), /definition/);
+  rmSync(duplicate);
+  assert.deepEqual(changeSchedule(root, 'recap', { delete: token }), { id: 'recap', deleted: true });
+  assert.deepEqual(loadSchedules(root).schedules.map(item => item.id), ['other']);
+  assert.equal(readFileSync(join(history, 'log.md'), 'utf8'), 'Past report and receipt');
+  assert.throws(() => changeSchedule(root, 'recap', { delete: token }), /Unknown exact native/);
+});
+
 test('a routine turns on or off and takes new times in its own file, and the rest of the file stays as written', t => {
   const root = fixture(t);
   initialize(root, { cwd: root });

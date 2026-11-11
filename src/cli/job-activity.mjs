@@ -11,6 +11,32 @@ const outputText = value => {
   return content.filter(part => part?.type === 'text' && part.display !== false)
     .map(part => clean(part.text)).join('\n');
 };
+const CODEMODE_STATUSES = new Set(['running', 'ok', 'error', 'cancelled']);
+const boundedText = (value, limit) => typeof value === 'string' ? clean(value).slice(0, limit) : undefined;
+const boundedNumber = value => Number.isFinite(value) && value >= 0 ? value : undefined;
+const codemodeDetails = details => {
+  if (!details || !Array.isArray(details.calls)) return undefined;
+  const calls = [];
+  for (const call of details.calls.slice(0, 100)) {
+    if (!call || typeof call !== 'object' || !CODEMODE_STATUSES.has(call.status)) return undefined;
+    const id = boundedText(call.id, 200);
+    const name = boundedText(call.name, 120);
+    const args = boundedText(call.args, 500);
+    if (!id || !name || args === undefined) return undefined;
+    const safe = { id, name, args, status: call.status };
+    const durationMs = boundedNumber(call.durationMs);
+    const cost = boundedNumber(call.cost);
+    const error = boundedText(call.error, 1000);
+    if (durationMs !== undefined) safe.durationMs = durationMs;
+    if (cost !== undefined) safe.cost = cost;
+    if (error !== undefined) safe.error = error;
+    calls.push(safe);
+  }
+  const metadata = { calls };
+  const fullOutputPath = boundedText(details.fullOutputPath, 1000);
+  if (fullOutputPath !== undefined) metadata.fullOutputPath = fullOutputPath;
+  return metadata;
+};
 const OUT = new Set(['queued', 'running']);
 // A field teams gave as words, terminal-safe, or nothing.
 const stated = value => typeof value === 'string' && value ? clean(value) : undefined;
@@ -142,6 +168,11 @@ export class JobActivity {
     entry.state = state;
     if (input !== undefined) entry.input = inputText(input);
     if (output !== undefined) entry.output = outputText(output);
+    if (name === 'codemode') {
+      const metadata = codemodeDetails(output?.details);
+      if (metadata) entry.codemode = metadata;
+      else delete entry.codemode;
+    } else delete entry.codemode;
   }
 
   reduce(event) {
@@ -200,5 +231,11 @@ export class JobActivity {
       || (message?.role === 'custom' && message.display === true));
   }
 
-  snapshot() { return this.entries.map(entry => ({ ...entry })); }
+  snapshot() { return this.entries.map(entry => ({
+    ...entry,
+    ...(entry.codemode ? { codemode: {
+      ...entry.codemode,
+      calls: entry.codemode.calls.map(call => ({ ...call })),
+    } } : {}),
+  })); }
 }

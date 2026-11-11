@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { extensionArguments, extensionPaths } from '../src/cli/pi-extensions.mjs';
+import { extensionArguments, extensionPaths, ownedExtensionArguments } from '../src/cli/pi-extensions.mjs';
 
 function agentHome(t, settings) {
   const home = mkdtempSync(join(tmpdir(), 'hobkin-extensions-'));
@@ -72,6 +72,17 @@ test('Pi is told to discover nothing and load exactly the named list', () => {
     extensionArguments(['/a/index.ts', 'builtin:mcp']),
     ['--no-extensions', '--extension', '/a/index.ts', '--extension', 'builtin:mcp'],
   );
+});
+
+test('owned children allow only their role tools with explicit extension exclusion', () => {
+  for (const role of ['read', 'write']) {
+    const args = ownedExtensionArguments(role);
+    assert.ok(args.includes('--no-extensions'));
+    assert.ok(args.includes('--no-mcp'));
+    assert.equal(args[args.indexOf('--extension') + 1].endsWith('/owned-agent-extension.mjs'), true);
+    assert.equal(args[args.indexOf('--tools') + 1].includes('bash'), role === 'write');
+    assert.equal(args[args.indexOf('--exclude-tools') + 1], 'mcp__*');
+  }
 });
 
 test('with no list, Pi keeps choosing for itself', () => {

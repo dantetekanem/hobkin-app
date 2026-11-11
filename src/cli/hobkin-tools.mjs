@@ -19,6 +19,30 @@ const settingsParameters = Type.Union([
 
 const forModel = details => JSON.parse(inRoutineWords(JSON.stringify(details)));
 
+export function createStopWorkloadTool(stopWorkload) {
+  const parameters = Type.Union([
+    Type.Object({ action: Type.Literal('list') }, { additionalProperties: false }),
+    Type.Object({
+      action: Type.Literal('stop'),
+      id: Type.String({ minLength: 1, maxLength: 200, pattern: '^work:[a-zA-Z0-9._:-]+$' }),
+      reason: Type.String({ minLength: 1, maxLength: 200 }),
+    }, { additionalProperties: false }),
+  ]);
+  return defineTool({
+    name: 'stop_workload',
+    label: 'Stop an owned Work parent',
+    description: 'List up to 20 active owned Work parent IDs, titles and lanes with action list. With action stop, stop one exact listed parent ID and give a nonempty reason. Main may stop its own Work for safety or on user request. No automatic restart; an explicit repick is required. Cannot target routines, the main chat, PIDs or named helpers. The receipt confirms only the parent interruption; nested helper cleanup is unconfirmed.',
+    parameters,
+    async execute(_id, request, signal) {
+      if (!Check(parameters, request) || (request.action === 'stop' && !request.reason.trim())) throw Error('Invalid workload Stop request.');
+      signal?.throwIfAborted();
+      if (!stopWorkload) throw Error('Stopping Work is unavailable.');
+      const details = await stopWorkload({ ...request, ...(request.action === 'stop' ? { reason: request.reason.trim() } : {}) });
+      return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
+    },
+  });
+}
+
 export function createScheduleTool(triggerSchedule) {
   const parameters = Type.Object({ routineId }, { additionalProperties: false });
   return defineTool({

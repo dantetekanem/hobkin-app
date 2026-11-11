@@ -96,6 +96,7 @@ test('main conversation uses Pi tools and MCP with native extension lifecycle', 
   });
   modelRuntime.streamSimple = () => { throw Error('No provider call is allowed in this fixture'); };
   const runtime = await HobkinRuntime.open(root, config, {
+    stopWorkload: async request => ({ action: request.action, running: [] }),
     createMain: options => openPiSession(options, {
       agentDir,
       createSession: options => createAgentSession({ ...options, agentDir, modelRuntime, model }),
@@ -108,9 +109,10 @@ test('main conversation uses Pi tools and MCP with native extension lifecycle', 
   const session = await runtime.connect();
 
   const activeTools = session.getActiveToolNames();
-  for (const name of ['read', 'bash', 'edit', 'write', 'ordinary_capability', 'codemode', 'tool_search', 'hobkin_memory']) {
+  for (const name of ['read', 'bash', 'edit', 'write', 'ordinary_capability', 'codemode', 'tool_search', 'hobkin_memory', 'stop_workload']) {
     assert.ok(activeTools.includes(name), `${name} should be available like normal Pi`);
   }
+  assert.deepEqual((await session.agent.state.tools.find(tool => tool.name === 'stop_workload').execute('list', { action: 'list' })).details, { action: 'list', running: [] });
   assert.equal(readFileSync(started, 'utf8'), 'start\n');
   assert.equal(existsSync(emoteLoaded), false, 'Hobkin never loads pi-emote');
   modelRuntime.checkAuth = async () => ({ available: true });

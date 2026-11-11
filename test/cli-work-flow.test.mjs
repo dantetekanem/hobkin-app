@@ -518,7 +518,7 @@ test('another process sees a real run and cancels it through the owner, and know
   let running = [];
   while (!running.length) running = await hobkinWork('running');
 
-  assert.deepEqual(running.map(run => [run.project, run.item, run.lane, run.level, run.harness, run.pane]), [['billing', filed.id, 'do', 'critical', 'pi', null]]);
+  assert.deepEqual(running.map(run => [run.project, run.item, run.lane, run.level, run.harness]), [['billing', filed.id, 'do', 'critical', 'pi']]);
   assert.equal((await hobkinWork('status')).owner, true);
 
   const { ok, message } = await hobkinWork('cancel', 'billing');
@@ -533,7 +533,7 @@ test('another process sees a real run and cancels it through the owner, and know
   assert.equal((await hobkinWork('status')).owner, false);
 });
 
-test('the main agent changes the harness when asked, and the tab shows it', async t => {
+test('the main agent changes the agent limit when asked', async t => {
   const h = fixture(t);
   chooseProject(h.root, '/repos/none');
   writeMode(h.root, { enabled: true, folder: h.folder, lastDiscoveryAt: new Date().toISOString() });
@@ -541,15 +541,13 @@ test('the main agent changes the harness when asked, and the tab shows it', asyn
   const hobkin = await openHobkin(h, {
     agent: async () => 'Nothing new.',
     chat: async () => {
-      await shell(`${quoted(process.execPath)} ${quoted(script)} work harness claude --home ${quoted(h.root)}`);
-      return 'It now runs on claude.';
+      await shell(`${quoted(process.execPath)} ${quoted(script)} work agents 3 --home ${quoted(h.root)}`);
+      return 'Work can now run three agents.';
     },
   });
   t.after(() => hobkin.close());
 
-  hobkin.send('use claude for work mode');
-  await hobkin.until(/It now runs on claude/);
-  hobkin.press(LEFT);
-
-  await hobkin.until(/● (active|paused) · claude/);
+  hobkin.send('let work mode use three agents');
+  await hobkin.until(/Work can now run three agents/);
+  assert.equal(readMode(h.root).agents, 3);
 });

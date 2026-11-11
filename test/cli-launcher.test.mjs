@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { atomicJson, initialize, loadConfig, validateConfig } from '../src/cli/config.mjs';
 import { buildInvocation, runHarness } from '../src/cli/harnesses.mjs';
 import { piCommand, piEnvironment, validateLauncher } from '../src/cli/launcher.mjs';
+import { createOwnedAgentAdapter } from '../src/cli/owned-agent-session.mjs';
 
 const launcher = { command: ['my-pi-launcher', 'pi'], env: { EXAMPLE_MODE: '1' }, managedExtensions: true };
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
@@ -125,6 +126,16 @@ test('a managed launcher never passes --no-extensions and still keeps the other 
   const ordinary = buildInvocation(request(t, { launcher }));
   assert.ok(!ordinary.args.includes('--no-extensions'));
   assert.ok(!ordinary.args.includes('--no-tools'));
+});
+
+test('owned admission explicitly refuses managed wrappers rather than weakening isolation', () => {
+  let starts = 0;
+  const adapter = createOwnedAgentAdapter({
+    bindingFor: () => ({ cwd: '/test', prompt: 'Inspect', model: 'test/model', effort: 'medium', role: 'write', parentRole: 'write', launcher }),
+    startProcess: () => { starts++; },
+  });
+  assert.throws(() => adapter.start({ id: 'child' }), /Managed launcher/);
+  assert.equal(starts, 0);
 });
 
 test('a dialog from any extension in a job is declined, so an unattended job never waits on a person', { timeout: 5000 }, async t => {

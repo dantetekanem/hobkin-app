@@ -7,6 +7,13 @@ import { Readable } from 'node:stream';
 import { buildContext } from '../src/cli/context.mjs';
 import { ACTION_CHOICES, answerDecision, handDecision, openDecisions, runActionCommand, runDecideCommand } from '../src/cli/decisions.mjs';
 import { pendingCard } from '../src/cli/pending.mjs';
+import { readPending } from '../src/cli/pending-read.mjs';
+import { Telemetry } from '../src/cli/telemetry.mjs';
+import { runLearningCommand } from '../src/cli/learning/commands.mjs';
+import { Learner } from '../src/cli/learning/learner.mjs';
+import { learningState, readActions, saveState } from '../src/cli/learning/store.mjs';
+import { attentionView, itemCounts } from '../src/cli/work/reads.mjs';
+import { chooseProject, fileItem, proposeProject, updateItem } from '../src/cli/work/store.mjs';
 import { fileTemplateNews, lookAfterRoutines } from '../src/cli/routine-care.mjs';
 
 const DAY_MS = 86400000;
@@ -17,6 +24,48 @@ function home(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
+
+test('explicit scope coverage hides only that learning proposal and survives regeneration without erasing lessons', t => {
+  const root = home(t);
+  const learner = new Learner({ root, telemetry: {}, now: () => NOW });
+  const subjects = ['work.discover', 'repo-spec-rollout', 'other'].map(scope => ({ scope, title: scope, conclusion: 'rethink', code: 'blocked', seen: 5, runs: 6, days: 3, latest: new Date(NOW).toISOString() }));
+  const saved = { proposals: [], lessons: subjects, pullRequests: {} };
+  const proposals = learner.proposalsFrom(subjects, saved, readActions(root));
+  saveState(root, { ...saved, proposals });
+  const discovery = proposals.find(p => p.scope === 'work.discover');
+  const rollout = proposals.find(p => p.scope === 'repo-spec-rollout');
+  learner.post = { proposal: discovery.id, id: 'notice', content: 'stale queued proposal' };
+  assert.throws(() => runLearningCommand(root, ['cover', discovery.id, ' ']), /evidence/);
+  runLearningCommand(root, ['cover', discovery.id, 'User finished discovery and selected exactly five projects.'], { now: NOW });
+  runLearningCommand(root, ['cover', rollout.id, 'Finite approved rollout already owns this scope.'], { now: NOW });
+  assert.deepEqual(learningState(root).proposals.map(p => p.scope), ['other']);
+  assert.equal(learningState(root).lessons.length, 3);
+  assert.deepEqual(learner.proposalsFrom(subjects, saved, readActions(root)).map(p => p.scope), ['other']);
+  assert.equal(learner.takePost(), null, 'a stale prepared chat notice cannot republish covered work');
+  const changed = [{ ...subjects[0], definition: 'new-user-approved-definition' }];
+  assert.equal(learner.proposalsFrom(changed, saved, readActions(root)).length, 1, 'materially changed scope is not covered by an old receipt');
+});
+
+test('done delivery disclaimers are history, while approvals, personal requirements and unknown work remain', t => {
+  const root = home(t);
+  proposeProject(root, { name: 'App', path: root, level: 'casual', summary: 'App' });
+  chooseProject(root, 'app');
+  const add = (key, left, extra = {}) => {
+    const item = fileItem(root, 'app', { key, kind: 'fix', title: key, brief: 'Fix with proof', impact: 'high', effort: 'small' });
+    updateItem(root, 'app', item.id, { state: 'done', left, ...extra });
+    return item;
+  };
+  const delivery = add('done', 'Nothing pushed, opened, merged, deployed or released; landing is off and the branch has no remote and no PR. No code review was run because reviewAsked was absent.');
+  add('approval', 'Publication and deployment of the approved revision remain outside this local-only run; landing is off, so nothing was pushed or deployed.');
+  add('unknown', 'The test still fails.');
+  add('personal', 'Provide access', { leftKind: 'personal' });
+  const rows = attentionView(root).filter(row => row.kind === 'item');
+  assert.deepEqual(rows.map(row => [row.title, row.attentionKind]), [['approval', 'approval'], ['unknown', 'work'], ['personal', 'personal']]);
+  assert.equal(itemCounts([{ ...delivery, state: 'done', left: 'Nothing pushed.' }]).left, 0);
+  assert.equal(itemCounts([{ ...delivery, state: 'stuck', left: 'Nothing pushed.' }]).left, 1, 'failed work is not completed by a disclaimer');
+  add('mixed', 'Nothing pushed. Fix the failing test.');
+  assert.ok(attentionView(root).some(row => row.title === 'mixed'));
+});
 
 const act = (root, item, args = ['routine', 'quality'], now = NOW) => runActionCommand(root, args, Readable.from([JSON.stringify(item)]), now);
 const retries = {
@@ -43,6 +92,37 @@ test('a routine files an action item that waits in Action Items with its links, 
   assert.equal(openDecisions(root).length, 1);
 });
 
+test('only the real action counts; report reads and later checks do not complete or reopen it', async t => {
+  const root = home(t);
+  const report = { id: 'mail:run', scheduleId: 'quality', title: 'Mail', at: new Date(NOW).toISOString(), outcome: 'completed', body: 'Useful: Signed.\nNext: Save and check the document.' };
+  const unrelated = { ...report, id: 'other:run', scheduleId: 'other' };
+  const filed = await act(root, { ...retries, reports: [report.id] });
+  assert.equal(readPending(root, { reports: [report, unrelated], now: NOW }).total, 1);
+  assert.equal(openDecisions(root)[0].id, filed.id);
+  Telemetry.open(root, NOW).recordReportRead({ id: report.id, dwellMs: 3000 }, NOW);
+  assert.equal(openDecisions(root).length, 1, 'reading is not completion');
+  assert.equal(readPending(root, { reports: [report, unrelated], now: NOW }).total, 1);
+  await act(root, { key: retries.key, done: 'User confirmed done.' });
+  assert.equal(readPending(root, { reports: [report, unrelated], now: NOW }).total, 0);
+  assert.deepEqual(openDecisions(root), []);
+  assert.equal((await act(root, retries)).answer, 'done');
+  assert.equal(readPending(root, { reports: [report, unrelated], now: NOW + 1000 }).total, 0);
+  const quiet = { ...report, id: 'quiet:run', at: new Date(NOW + 1000).toISOString(), body: 'Nothing new.' };
+  assert.equal(readPending(root, { reports: [report, quiet, unrelated], now: NOW + 1000 }).total, 0);
+});
+
+test('a historical report can be linked with evidence without reopening or replacing a done answer', async t => {
+  const root = home(t);
+  const filed = await act(root, retries);
+  answerDecision(root, filed.id, 'done', NOW);
+  await act(root, { reports: ['old:report'], evidence: 'Reviewed report asks for this exact action.' }, ['link', filed.id]);
+  assert.deepEqual(openDecisions(root), []);
+  const reports = [{ id: 'old:report', title: 'Old', at: new Date(NOW).toISOString(), outcome: 'completed', body: 'Useful: Done.\nNext: Do it.' }];
+  assert.equal(readPending(root, { reports, now: NOW }).total, 0);
+  await assert.rejects(act(root, { reports: ['old:report'], evidence: ' ' }, ['link', filed.id]), /evidence/);
+  await assert.rejects(act(root, { ...retries, reports: [''] }), /report/);
+});
+
 test('the routine closes its own item with what shows it is done, and closing one that is not open changes nothing', async t => {
   const root = home(t);
   await act(root, retries);
@@ -56,7 +136,26 @@ test('the routine closes its own item with what shows it is done, and closing on
   await assert.rejects(act(root, { key: 'retry-counter', done: ' ' }), /says what shows it is done/);
 });
 
-test('not doing it holds for good, and done holds for 30 days unless the routine says what changed', async t => {
+test('shared case steps deduplicate across routines, preserve done evidence and reopen only on material change', async t => {
+  const root = home(t);
+  const step = { ...retries, caseKey: 'letter:envelope-123:signature', reports: ['mail:1'] };
+  const first = await act(root, step);
+  const same = await act(root, { ...step, reports: ['legal:1'] }, ['routine', 'legal']);
+  assert.equal(same.id, first.id);
+  await act(root, { caseKey: step.caseKey, done: 'Provider completion notice confirms all signatures, not document contents.' }, ['routine', 'legal']);
+  assert.equal((await act(root, step, undefined, NOW + 60 * DAY_MS)).answer, 'done');
+  assert.deepEqual(openDecisions(root), []);
+  await act(root, { ...retries, caseKey: 'letter:envelope-123:contents' });
+  assert.equal(openDecisions(root).length, 1, 'signature evidence never settles content verification');
+  const reopened = await act(root, { ...step, changed: 'Provider voided the exact envelope.' });
+  assert.notEqual(reopened.id, first.id);
+  assert.equal(openDecisions(root).length, 2);
+  for (const caseKey of ['', {}, 'bad\nidentity']) {
+    await assert.rejects(act(root, { ...retries, caseKey }), /caseKey/);
+  }
+});
+
+test('not doing it and done hold unless material evidence permits reopening done', async t => {
   const root = home(t);
   const dropped = await act(root, retries);
   answerDecision(root, dropped.id, 'drop', NOW);
@@ -68,7 +167,7 @@ test('not doing it holds for good, and done holds for 30 days unless the routine
   const other = { ...retries, key: 'alert' };
   const done = await act(root, other);
   answerDecision(root, done.id, 'done', NOW);
-  assert.equal((await act(root, other, undefined, NOW + DAY_MS)).answer, 'done');
+  assert.equal((await act(root, other, undefined, NOW + 60 * DAY_MS)).answer, 'done');
   assert.ok((await act(root, { ...other, changed: 'The alert fired nowhere on Nov 12.' }, undefined, NOW + DAY_MS)).id);
   assert.equal(openDecisions(root).length, 1);
 });

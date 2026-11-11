@@ -6,6 +6,8 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { decidedSection, readDecided } from './decided.mjs';
 import { directionsSection, readDirections } from './directions.mjs';
 import { writePrivate } from './reports.mjs';
+import { readPersona } from './config.mjs';
+import { composePersonaPrompt } from './persona.mjs';
 
 const MAX_ITEMS = 20;
 const MAX_ITEM_LENGTH = 200;
@@ -82,17 +84,15 @@ export function createMemoryTool(root) {
 
 export const memorySection = items => `## Current memory\n\n${items.length ? bulletList(items) : 'Memory is empty.'}`;
 
-/**
- * Read each turn so a change or a hand edit applies without a restart. What the user decided goes in the system prompt, which Pi never keeps in
- * the conversation, so no compaction can retell it and it costs only its bytes in each request.
- */
+/** Capture current context and style once per run; changes apply at the next before_agent_start. */
 export const createMemoryExtension = root => pi => {
   pi.on('before_agent_start', event => {
+    const persona = readPersona(root);
     const sections = [
       directionsSection(readDirections(root)),
       memorySection(readMemory(root)),
       decidedSection(readDecided(root)),
     ];
-    return { systemPrompt: [event.systemPrompt, ...sections].join('\n\n') };
+    return { systemPrompt: composePersonaPrompt([event.systemPrompt, ...sections].join('\n\n'), persona) };
   });
 };

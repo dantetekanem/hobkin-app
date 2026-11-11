@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { extensionPaths, LEFT_OUT_OF_THE_MAIN_CHAT } from '../src/cli/pi-extensions.mjs';
+import { readEvents } from '../src/cli/events.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 function request(t, harness = 'pi') {
@@ -67,6 +68,52 @@ process.stdin.on('data', chunk => {
   }
 });
 `;
+
+for (const mode of ['completed', 'failed', 'interrupted', 'capture-only', 'storage-error']) {
+  test(`background metrics record locally after ${mode}`, { timeout: 3000 }, async t => {
+    const input = request(t), controller = new AbortController();
+    const message = { role: 'assistant', provider: 'test', model: 'model', timestamp: 1, responseId: 'response-1',
+      stopReason: 'stop', content: [{ type: 'text', text: 'Done' }], usage: { input: 2, output: 3 } };
+    const program = rpc(`
+      send({ type: 'message_end', message: ${JSON.stringify(message)} });
+      send({ type: 'agent_end', messages: [${JSON.stringify(message)}] });
+      ${mode === 'failed' ? 'process.exit(1);' : mode === 'interrupted' ? '' : "send({ type: 'agent_settled' });"}
+    `);
+    const metricsRoot = mode === 'capture-only' ? undefined : mode === 'storage-error' ? input.sessionFile : input.cwd;
+    if (mode === 'storage-error') writeFileSync(metricsRoot, 'not a directory');
+    const result = await runHarness({ ...input, signal: controller.signal }, { metricsRoot, spawnProcess: fake(program),
+      onEvent: event => { if (mode === 'interrupted' && event.type === 'message_end') controller.abort(); } });
+    assert.equal(result.status, ['failed', 'interrupted'].includes(mode) ? mode : 'completed');
+    assert.equal(result.performance.responses, 1);
+    assert.equal(result.performance.input.value, 2);
+    const saved = readEvents(input.cwd).filter(event => event.type === 'run_performance');
+    if (mode === 'capture-only' || mode === 'storage-error') assert.deepEqual(saved, []);
+    else {
+      assert.equal(saved.length, 1);
+      const { at, type, ...facts } = saved[0];
+      assert.deepEqual(facts, result.performance);
+      assert.equal(facts.runId, input.id);
+      assert.equal(facts.sessionId, 'pi-job');
+    }
+  });
+}
+
+for (const disposition of ['started', 'queued', 'handled', undefined]) {
+  test(`steering preserves the RPC disposition ${disposition} without inventing a receipt`, { timeout: 3000 }, async t => {
+    const response = disposition ? { disposition } : undefined;
+    const sent = Promise.withResolvers(), events = [];
+    const program = rpc(`if (cmd.streamingBehavior) {
+      if (${disposition !== 'handled'}) send({ type: 'message_end', message: { role: 'user', content: cmd.message } });
+      send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Done' }] } });
+      send({ type: 'agent_settled' });
+    }`).replace("reply({ disposition: 'started' });", `reply(cmd.streamingBehavior ? ${JSON.stringify(response) ?? 'undefined'} : { disposition: 'started' });`);
+    const result = await runHarness(request(t), { spawnProcess: fake(program), onEvent: event => events.push(event),
+      onReady: send => { send('A note').then(sent.resolve, sent.reject); } });
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(await sent.promise, response);
+    assert.equal(events.some(event => event.type === 'message_end' && event.message?.content === 'A note'), disposition !== 'handled');
+  });
+}
 
 test('harness argv keeps job identity controls and prompt text off the command line', t => {
   const pi = buildInvocation(request(t));
@@ -135,6 +182,85 @@ test('Pi checks effective model and thinking before submission and returns sessi
   assertOrdinaryPiDefaults(calls[0].args);
   assert.equal(calls[0].args[calls[0].args.indexOf('--model') + 1], 'test/model');
   assert.equal(calls[0].args[calls[0].args.indexOf('--thinking') + 1], 'high');
+});
+
+const metricMessage = (timestamp, extra = {}) => ({ role: 'assistant', provider: 'test', model: 'model', timestamp,
+  stopReason: 'stop', content: [{ type: 'text', text: 'PRIVATE answer' }], durationMs: 12,
+  usage: { input: 10, output: 5, cacheRead: 20, cacheWrite: 2, cost: { total: 0.1 } }, ...extra });
+
+test('background telemetry captures native session and deduplicates multiple responses without changing cumulative billing', { timeout: 3000 }, async t => {
+  const one = metricMessage(1), two = metricMessage(2);
+  const events = [
+    { type: 'message_start', message: one },
+    { type: 'message_update', usage: one.usage, assistantMessageEvent: { type: 'text_delta', delta: 'PRIVATE delta' } },
+    { type: 'message_end', message: one }, { type: 'message_end', message: structuredClone(one) },
+    { type: 'turn_end', message: one }, { type: 'agent_end', messages: [one] },
+    { type: 'message_start', message: two }, { type: 'message_end', message: two },
+    { type: 'agent_settled' },
+  ];
+  const seen = [];
+  const result = await runHarness({ ...request(t), purpose: 'work-do' }, {
+    spawnProcess: fake(rpc(events.map(event => `send(${JSON.stringify(event)});`).join('\n'))),
+    onEvent: event => seen.push(event),
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.performance.runId, id);
+  assert.equal(result.performance.sessionId, 'pi-job');
+  assert.equal(result.performance.responses, 2);
+  assert.deepEqual(result.performance.input, { value: 20, state: 'complete' });
+  assert.deepEqual(result.performance.cacheRead, { value: 40, state: 'complete' });
+  assert.deepEqual(result.performance.estimatedUsd, { value: 0.2, state: 'complete' });
+  assert.equal(result.performance.responseDurationMs.value, 24);
+  assert.ok(result.performance.firstObservedOutputMs >= 0);
+  assert.ok(result.performance.dispatchElapsedMs >= result.performance.firstObservedOutputMs);
+  assert.equal(result.tokens, 15);
+  assert.equal(result.cost.usd, 0.25);
+  assert.equal(result.cost.cumulative, true);
+  assert.equal(seen.find(event => event.type === 'message_update').message, undefined);
+  assert.ok(Object.isFrozen(result.performance));
+  assert.doesNotMatch(JSON.stringify(result.performance), /PRIVATE|content|provider|responseId/);
+});
+
+for (const ending of ['abort', 'exit', 'no-usage']) {
+  test(`background telemetry retains honest ${ending} facts`, { timeout: 3000 }, async t => {
+    const one = metricMessage(1), two = metricMessage(2, { usage: undefined });
+    const events = [ { type: 'message_end', message: one }, { type: 'message_start', message: two } ];
+    const finish = ending === 'exit' ? 'process.exit(2);' : ending === 'abort'
+      ? "send({ type: 'agent_settled', aborted: true });"
+      : `send(${JSON.stringify({ type: 'message_end', message: two })}); send({ type: 'agent_settled' });`;
+    const result = await runHarness(request(t), { spawnProcess: fake(rpc(events.map(event => `send(${JSON.stringify(event)});`).join('\n') + finish)) });
+    assert.equal(result.status, ending === 'abort' ? 'interrupted' : ending === 'exit' ? 'failed' : 'completed');
+    assert.deepEqual(result.performance.input, { value: 10, state: 'partial' });
+    assert.equal(result.performance.incomplete, ending !== 'no-usage');
+    assert.equal(result.performance.responses, ending === 'no-usage' ? 2 : 1);
+  });
+}
+
+test('background telemetry isolates child ownership and leaves missing usage unavailable', { timeout: 3000 }, async t => {
+  const first = metricMessage(1);
+  const second = metricMessage(2, { usage: undefined, durationMs: undefined });
+  const run = (sessionId, message) => runHarness(request(t), { spawnProcess: fake(rpc(`
+    send(${JSON.stringify({ type: 'message_start', message })});
+    send({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: ' ' } });
+    send(${JSON.stringify({ type: 'message_end', message })});
+    send({ type: 'agent_settled' });
+  `).replaceAll('pi-job', sessionId)) });
+  const a = await run('native-one', first);
+  const b = await run('native-two', second);
+  assert.equal(a.performance.sessionId, 'native-one');
+  assert.equal(b.performance.sessionId, 'native-two');
+  assert.equal(a.performance.input.value, 10);
+  assert.deepEqual(b.performance.input, { value: null, state: 'unavailable' });
+  assert.deepEqual(b.performance.estimatedUsd, { value: null, state: 'unavailable' });
+  assert.equal(b.performance.responses, 1);
+  assert.ok(b.performance.firstObservedOutputMs >= 0);
+  assert.equal(b.performance.incomplete, false);
+});
+
+test('background telemetry has no invented native identity before dispatch', { timeout: 3000 }, async t => {
+  const result = await runHarness(request(t), { spawnProcess: fake(rpc('', 'low')) });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.performance, undefined);
 });
 
 const teamEvents = `
@@ -309,14 +435,31 @@ test('a check trusts its own folder, so it has everything the user has', t => {
   assert.equal(buildInvocation(request(t)).args.includes('--approve'), true);
 });
 
-test('a work run keeps every tool and carries both the check directions and its own', t => {
+test('a work run keeps normal Pi permissions, tools and both sets of directions', async t => {
   for (const [purpose, heading] of [['work-discover', /find the user's projects/], ['work-look', /look at a project/], ['work-do', /finish one item/]]) {
-    const { args } = buildInvocation({ ...request(t), purpose });
+    const input = { ...request(t), purpose };
+    const { args } = buildInvocation(input);
 
-    assert.equal(args.includes('--no-tools'), false);
-    assert.equal(args.includes('--no-extensions'), false);
-    assert.equal(args.includes('--approve'), true);
-    const appended = args.flatMap((arg, index) => (arg === '--append-system-prompt' ? [args[index + 1]] : []));
+    assertOrdinaryPiDefaults(args);
+    const systemPrompts = args.flatMap((arg, index) => arg === '--append-system-prompt' ? [args[index + 1]] : []);
+    assert.deepEqual(args, [
+      '--mode', 'rpc', '--session', input.sessionFile, '--thinking', 'medium',
+      '--append-system-prompt', systemPrompts[0], '--append-system-prompt', systemPrompts[1],
+    ]);
+    const launcher = { command: ['fixture-pi', '--no-approve'] };
+    const configured = buildInvocation({ ...input, launcher, extensions: ['/fixture/teams.ts'] });
+    assert.equal(configured.command, 'fixture-pi');
+    assert.deepEqual(configured.args, [
+      '--no-approve', ...args.slice(0, 6), '--no-extensions', '--extension', '/fixture/teams.ts', ...args.slice(6),
+    ]);
+    const calls = [];
+    const result = await runHarness({ ...input, launcher, extensions: ['/fixture/teams.ts'] }, { spawnProcess: fake(rpc(`
+      send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Useful: Done.' }] } });
+      send({ type: 'agent_settled' });
+    `), calls) });
+    assert.equal(result.status, 'completed');
+    assert.deepEqual([calls[0].command, calls[0].args], [configured.command, configured.args]);
+    const appended = systemPrompts;
     assert.equal(appended.length, 2);
     assert.match(appended[0], /Hobkin background check/);
     assert.match(appended[1], heading);

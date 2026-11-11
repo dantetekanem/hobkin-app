@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { cadences, routinesFolder, validateBinding } from './schedules.mjs';
 import { validateLauncher } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
+import { validatePersona } from './persona.mjs';
+import { validateResourceSelection, resolveResourcePolicy } from './resource-policy.mjs';
 
 export const defaultRoot = () => process.env.HOBKIN_HOME || join(homedir(), '.hobkin');
 export const legacySources = (home = homedir()) => [
@@ -78,6 +80,37 @@ export const telemetryUploadEnabled = root => settingNotOff(root, 'telemetryUplo
 
 export const setTelemetryUpload = (root, enabled) => setSetting(root, 'telemetryUpload', enabled);
 
+export function readPersona(root) {
+  root = resolveDataRoot(root);
+  try {
+    return validatePersona(loadConfig(root).persona);
+  } catch (error) {
+    if (error.code === 'ENOENT' && error.path === join(root, 'config.json')) return 'Normal';
+    throw error;
+  }
+}
+
+export function setPersona(root, persona) {
+  persona = validatePersona(persona);
+  atomicJson(join(resolveDataRoot(root), 'config.json'), { ...loadConfig(root), persona });
+  return persona;
+}
+
+export function readResourceSelection(root, candidates) {
+  const selection = validateResourceSelection(loadConfig(root).resourceSelection);
+  resolveResourcePolicy(selection, 'main', candidates);
+  return selection;
+}
+
+export function setResourceSelection(root, selection, candidates) {
+  selection = validateResourceSelection(selection);
+  resolveResourcePolicy(selection, 'main', candidates);
+  const config = { ...loadConfig(root), resourceSelection: selection };
+  if (Buffer.byteLength(`${JSON.stringify(config, null, 2)}\n`) > 65536) throw Error('Resource selection exceeds bounded configuration size.');
+  atomicJson(join(resolveDataRoot(root), 'config.json'), config);
+  return selection;
+}
+
 export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   if (
     config.version !== 2
@@ -89,6 +122,8 @@ export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   validateBinding({ harness: 'pi', ...config.main }, { allowLegacyHarness });
   validateBinding(config.background, { allowLegacyHarness });
   validateLauncher(config.launcher);
+  validatePersona(config.persona);
+  validateResourceSelection(config.resourceSelection);
   // Jobs have no automatic deadline; a timeoutMs left in older configs is ignored.
   if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) {
     throw Error('Invalid execution limits.');

@@ -65,34 +65,27 @@ test('rows an agent is on, or that sit under another branch, ask nothing of the 
   assert.equal(card({ ready: [branch('a', { gap: 'closing' }), branch('b', { gap: 'stacked' })] }).total, 0);
 });
 
-test('only a report with a Next line counts, and only until it is read', () => {
+test('reports never become Action Items, even with a Next line', () => {
   const result = card({
     reports: [
       report('plain', 'Useful: The bank wrote.', { scheduleId: 'bank' }),
       report('quiet', 'Nothing new.', { scheduleId: 'news' }),
+      report('critical', 'Critical: The site is down.\nNext: Restart it.', { scheduleId: 'critical' }),
+      report('blocked', 'Blocked: Access failed.\nNext: Grant access.', { scheduleId: 'blocked' }),
       report('call', 'Useful: The bank wrote.\n\nNext: Reply by Friday.', { scheduleId: 'site' }),
       report('seen', 'Useful: Rent is due.\n\nNext: Pay it.', { scheduleId: 'rent' }),
     ],
     read: new Set(['seen']),
   });
 
-  assert.deepEqual(groupOf(result, 'read'), { name: 'read', count: 1, label: 'to read', fact: '1 report, oldest 1 hour' });
+  assert.deepEqual(result, { total: 0, groups: [] });
 });
 
-test('a routine that says the same thing every day is one call, its newest', () => {
-  const result = card({ reports: [
-    report('old', 'Useful: One.\n\nNext: Do it.', { at: ago(50) }),
-    report('new', 'Useful: Two.\n\nNext: Do it.', { at: ago(2) }),
-  ] });
-
-  assert.deepEqual(groupOf(result, 'read'), { name: 'read', count: 1, label: 'to read', fact: '1 report, oldest 2 hours' });
-});
-
-test('branches and reports to read share one row', () => {
+test('reports do not inflate the finished branches row', () => {
   const result = card({ ready: [branch('a', { size: size(50) })], reports: [report('call', 'Useful: Two.\n\nNext: Do it.')] });
 
-  assert.equal(groupOf(result, 'read').count, 2);
-  assert.equal(groupOf(result, 'read').fact, '50 lines in api, 1 report');
+  assert.equal(groupOf(result, 'read').count, 1);
+  assert.equal(groupOf(result, 'read').fact, '50 lines in api');
 });
 
 test('a launch in trouble stays on the card once its watch closes, until its fix is finished', () => {
@@ -110,13 +103,6 @@ test('trouble on a launch went wrong, and it says where and since when', () => {
   ] });
 
   assert.deepEqual(groupOf(result, 'wrong'), { name: 'wrong', count: 1, label: 'went wrong', fact: 'finboard, new error since 14:02' });
-});
-
-test('a critical or blocked report with a Next line went wrong, and is not also to read', () => {
-  const result = card({ reports: [report('bad', 'Critical: The site is down.\n\nNext: Restart it.')] });
-
-  assert.deepEqual(groupOf(result, 'wrong'), { name: 'wrong', count: 1, label: 'went wrong', fact: 'Mail: Restart it.' });
-  assert.equal(groupOf(result, 'read'), undefined);
 });
 
 test('questions are every open decision and ask, except those about branches that have their rows, or the old card', () => {
@@ -204,8 +190,8 @@ test('each thing the card counts is one row to list, by the same rules', () => {
   assert.equal(rows.yours[1].gap, 'land', 'a step on a finished branch keeps the branch, for its page');
   assert.deepEqual(rows.asks.map(({ kind }) => kind), ['allowance']);
   assert.deepEqual(rows.proposals.map(({ id }) => id), ['abc123']);
-  assert.deepEqual(rows.wrong.map(({ key }) => key), ['launch:finboard:abc', 'report:bad']);
-  assert.deepEqual(rows.reports.map(({ id }) => id), ['call']);
+  assert.deepEqual(rows.wrong.map(({ key }) => key), ['launch:finboard:abc']);
+  assert.deepEqual(rows.reports, []);
   const listed = Object.values(rows).reduce((sum, list) => sum + list.length, 0);
   assert.equal(listed, card(given).total, 'nothing the card counts is left out, and nothing is listed twice');
 });

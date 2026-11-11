@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, symlinkSync, unlinkSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { parseCompatibility } from './legacy-schedules.mjs';
 import { writePrivate } from './reports.mjs';
+import { scheduleDefinition } from './checks.mjs';
 
 const OLD_FOLDER = 'schedules';
 
@@ -138,10 +139,17 @@ export function formatSchedule(schedule) {
  * before it is written, and the rest of the file stays as it was. A routine from the old scheduler is not changed here.
  */
 export function changeSchedule(root, id, change) {
-  if (!Object.keys(change).length || Object.keys(change).some(key => !changeable.includes(key))) throw Error('Only enabled, at or window change here.');
+  const deleting = Object.hasOwn(change, 'delete');
+  if (deleting && Object.keys(change).length !== 1) throw Error('Only deletion may be requested with a definition.');
+  if (!deleting && (!Object.keys(change).length || Object.keys(change).some(key => !changeable.includes(key)))) throw Error('Only enabled, at or window change here.');
   const schedule = loadSchedules(root).schedules.find(item => item.id === id && item.cadence !== 'compatibility');
   if (!schedule) throw Error('Unknown exact native routine ID; list candidates first.');
 
+  if (deleting) {
+    if (change.delete !== scheduleDefinition(schedule)) throw Error('Routine definition changed; confirm the current routine before deleting.');
+    unlinkSync(schedule.path);
+    return { id: schedule.id, deleted: true };
+  }
   const [, front, body] = readFileSync(schedule.path, 'utf8').match(frontMatter);
   const metadata = JSON.parse(front);
   if ('at' in change) delete metadata.window;

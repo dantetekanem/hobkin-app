@@ -2,16 +2,17 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BRIDGE, serveBridge } from './bridge.mjs';
+import { readPersona } from './config.mjs';
 import { readDecided } from './decided.mjs';
 import { readDirections } from './directions.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { createMemoryTool, readMemory } from './memory.mjs';
-import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
+import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 
 export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
@@ -50,7 +51,7 @@ function applyUpdate(message, update) {
  * The main conversation as a Pi RPC child behind the configured launcher. It offers the surface of the
  * SDK session that the runtime uses, from a cache that events keep live and get_messages settles.
  */
-class PiRpcSession {
+export class PiRpcSession {
   messages = [];
   model = null;
   thinkingLevel = null;
@@ -58,9 +59,10 @@ class PiRpcSession {
   isCompacting = false;
   autoCompactionEnabled = true;
   hello = null;
+  bashIds = new Map();
 
-  constructor({ askQuestion, tools, memory, directions, decided, graceMs }) {
-    Object.assign(this, { askQuestion, tools, memory, directions, decided, graceMs });
+  constructor({ askQuestion, tools, memory, directions, decided, persona, graceMs }) {
+    Object.assign(this, { askQuestion, tools, memory, directions, decided, persona, graceMs });
     this.listeners = new Set();
     this.calls = new Set();
     this.waiters = new Set();
@@ -81,7 +83,9 @@ class PiRpcSession {
       this.waiters.clear();
       for (const resolve of this.idle) resolve();
       this.idle.clear();
+      this.bashIds.clear();
       this.isStreaming = false;
+      this.open = null;
       this.exit.resolve(this.disposed ? null : error);
     });
   }
@@ -124,7 +128,11 @@ class PiRpcSession {
       void this.dialog(record);
       return;
     }
-    if (record.type === 'response') return;
+    if (record.type === 'response') {
+      this.bashIds.delete(record.id);
+      return;
+    }
+    if (record.type === 'bash_execution_update' && this.bashIds.has(record.id)) record = { ...record, id: this.bashIds.get(record.id) };
     if (record.type === 'agent_start') this.isStreaming = true;
     else if (record.type === 'agent_settled') void this.settle();
     else if (record.type === 'compaction_start') this.isCompacting = true;
@@ -144,7 +152,8 @@ class PiRpcSession {
     }
     for (const listener of this.listeners) {
       try {
-        listener(record);
+        // Keep the public wire event unchanged; metrics can pair deltas with this stream's open message.
+        listener(record, record.type === 'message_update' ? this.open : undefined);
       } catch {
         // An observer cannot change what the child did.
       }
@@ -153,6 +162,7 @@ class PiRpcSession {
 
   async settle() {
     this.isStreaming = false;
+    this.open = null;
     const waiting = [...this.waiters];
     this.waiters.clear();
     let failure;
@@ -172,7 +182,12 @@ class PiRpcSession {
   async prompt(text, { images, preflightResult } = {}) {
     const run = Promise.withResolvers();
     run.promise.catch(() => {});
-    let disposition;
+    let disposition, preflightPublished = false;
+    const publishPreflight = result => {
+      if (preflightPublished) return;
+      preflightPublished = true;
+      preflightResult?.(result);
+    };
     try {
       await this.child.request('prompt', { message: text, images }, data => {
         disposition = data?.disposition ?? 'started';
@@ -181,17 +196,32 @@ class PiRpcSession {
           this.waiters.add(run);
           this.isStreaming = true;
         }
+        publishPreflight(disposition);
       });
     } catch (error) {
-      if (error.commandRejected) preflightResult?.(false);
+      if (error.commandRejected) publishPreflight(false);
       throw error;
     }
-    preflightResult?.(disposition);
+    publishPreflight(disposition);
     if (disposition !== 'handled') await run.promise;
   }
 
   async steer(text, images) {
     return (await this.child.request('steer', { message: text, images }))?.disposition;
+  }
+
+  async executeUserBash(command, { id } = {}) {
+    let wire;
+    const result = await this.child.request('bash', { command }, undefined, generated => {
+      wire = generated;
+      if (id !== undefined) this.bashIds.set(wire, id);
+    }).finally(() => this.bashIds.delete(wire));
+    await this.pull();
+    return result;
+  }
+
+  abortBash() {
+    return this.child.request('abort_bash');
   }
 
   clearQueue() {
@@ -253,10 +283,6 @@ class PiRpcSession {
       }
     }
     if (!dialogMethods.has(method)) return;
-    if (isChromeConsent({ method, title })) {
-      this.child.send({ type: 'extension_ui_response', id, confirmed: true });
-      return;
-    }
     const controller = new AbortController();
     this.calls.add(controller);
     let reply = { cancelled: true };
@@ -301,7 +327,7 @@ function within(promise, ms, message) {
 
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
-  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, prompts },
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts },
   { spawnProcess, startupTimeoutMs = 180000, graceMs } = {},
 ) {
   if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
@@ -314,11 +340,14 @@ export async function openRpcSession(
     memory: () => readMemory(root),
     directions: () => readDirections(root),
     decided: () => readDecided(root),
+    persona: () => readPersona(root),
   });
   session.tools = {
     ask_question: createQuestionTool(askQuestion, root),
     run_routine: createScheduleTool(triggerSchedule),
     message_check: createCheckMessageTool(messageCheck),
+    stop_workload: createStopWorkloadTool(stopWorkload),
+    owned_agent: createOwnedAgentSessionTool(ownedAgent),
     hobkin_memory: createMemoryTool(root),
     model_settings: createSettingsTool(request => runModelSettings({
       root,
@@ -359,8 +388,6 @@ export async function openRpcSession(
     }
     const missing = Object.keys(session.tools).filter(name => !session.hello?.tools?.includes(name));
     if (missing.length) throw Error(`The Hobkin extension did not activate its tools: ${missing.join(', ')}.`);
-    const { commands } = await session.child.request('get_commands');
-    if (offersChrome(commands)) await session.child.request('prompt', { message: CHROME_GRANT });
     session.absorb(state);
     await session.pull();
     return session;

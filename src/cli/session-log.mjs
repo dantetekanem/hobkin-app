@@ -21,7 +21,7 @@ function append(folder, event) {
 export const recordSessionStart = (root, { name, title, report, wake }, now = Date.now()) => append(folderOf(root), { name, title, report, ...(wake ? { wake } : {}), startedAt: new Date(now).toISOString() });
 
 /** Written when a session's job ends (`session-jobs.mjs`). A session's report sits beside this log. */
-export const recordSessionEnd = ({ name, report }, now = Date.now()) => append(dirname(report), { name, report, endedAt: new Date(now).toISOString() });
+export const recordSessionEnd = ({ name, report, userStop }, now = Date.now()) => append(dirname(report), { name, report, ...(userStop ? { userStop } : {}), endedAt: new Date(now).toISOString() });
 
 function readLog(root) {
   const file = join(folderOf(root), LOG);
@@ -105,11 +105,14 @@ export function sessionReports(root, deleted) {
     .map(({ session, body }) => reportOf(session, body));
 }
 
-const toldToMainAgent = ({ name, title, said, report, endedAt }) => ({
+const toldToMainAgent = ({ name, title, said, report, endedAt, userStop }) => ({
   name,
   title: title ?? name,
   endedAt,
-  said: said || 'It stopped without a report.',
+  said: userStop
+    ? `The user stopped run ${userStop.runId} (${title ?? name}). ${userStop.reason} Do not retry or restart this stopped work unless the user explicitly asks. Partial results are retained.`
+    : said || 'It stopped without a report.',
+  ...(userStop ? { stopRunId: userStop.runId } : {}),
   report: said ? report : null,
 });
 

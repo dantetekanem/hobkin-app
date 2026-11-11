@@ -60,6 +60,111 @@ const bridge = (fake, request) => {
 };
 const question = { question: 'Which?', choices: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] };
 
+function clientFixture(t, { hello = { version: 1, tools: ['client'] }, base, execute } = {}) {
+  const h = fixture(t, base === undefined ? {} : { hello: base });
+  h.dependencies.clientBridge = { tool: { name: 'client', execute }, extensionPath: '/fixture/client-bridge-extension.ts' };
+  h.dependencies.loadSdk = () => { throw Error('SDK loading is forbidden.'); };
+  h.dependencies.spawnProcess = (...args) => {
+    const child = h.fake.spawnProcess(...args);
+    if (hello !== null) child.emit_({ type: 'extension_ui_request', id: 'client-hello', method: 'setStatus',
+      statusKey: 'hobkin/bridge/client', statusText: JSON.stringify(hello) });
+    return child;
+  };
+  return h;
+}
+
+test('configured main client forwards list, describe and run with Pi call IDs to its captured host', { timeout: 10000 }, async t => {
+  const calls = [];
+  const h = clientFixture(t, { execute: async (id, params, signal) => {
+    calls.push({ id, params });
+    assert.equal(signal.aborted, false);
+    if (params.action === 'run' && params.args?.role) throw Error('Invalid client arguments.');
+    return { content: [{ type: 'text', text: params.action }], details: { action: params.action } };
+  } });
+  const runtime = await h.connected();
+  const args = h.fake.spawned[0].args;
+  assert.ok(args.includes('/fixture/client-bridge-extension.ts'));
+  assert.equal(args.filter(value => value === '--extension').length, 2);
+  for (const params of [{ action: 'list' }, { action: 'describe', name: 'app.state' }, { action: 'run', name: 'app.refresh', args: {} }]) {
+    const id = `pi-client-${params.action}`;
+    const { answer } = await bridge(h.fake, { op: 'tool', name: 'client', id, params });
+    assert.deepEqual(answer, { ok: true, result: { content: [{ type: 'text', text: params.action }], details: { action: params.action } } });
+    assert.deepEqual(calls.at(-1), { id, params });
+  }
+  const failed = await bridge(h.fake, { op: 'tool', name: 'client', id: 'bad', params: { action: 'run', args: { role: 'main' } } });
+  assert.deepEqual(failed.answer, { ok: false, error: 'Invalid client arguments.' });
+  assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+  assert.ok(runtime.main.hello.tools.includes('owned_agent'), 'client status cannot overwrite base attestation');
+});
+
+test('configured client activation is required separately from all native tools before any prompt', { timeout: 10000 }, async t => {
+  for (const hello of [null, { version: 2, tools: ['client'] }, { version: 1, tools: ['other'] }]) {
+    const h = clientFixture(t, { hello, execute() {} });
+    const runtime = await h.open();
+    t.after(() => runtime.close());
+    await assert.rejects(runtime.connect(), /client extension did not activate/);
+    assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+    assert.equal(h.fake.children[0].stdin.writableEnded, true);
+  }
+  const h = clientFixture(t, { base: ['client'], execute() {} });
+  const runtime = await h.open();
+  t.after(() => runtime.close());
+  await assert.rejects(runtime.connect(), /did not activate its tools: ask_question/);
+});
+
+test('configured main client abort reaches its captured host operation', { timeout: 10000 }, async t => {
+  const started = Promise.withResolvers();
+  const h = clientFixture(t, { execute: async (_id, _params, signal) => {
+    started.resolve(signal);
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    signal.throwIfAborted();
+  } });
+  const runtime = await h.connected();
+  const pending = bridge(h.fake, { op: 'tool', name: 'client', id: 'cancel-me', params: { action: 'run' } });
+  const signal = await started.promise;
+  await runtime.main.abort();
+  assert.equal(signal.aborted, true);
+  assert.equal((await pending).answer.ok, false);
+});
+
+test('a main without the optional capability refuses client calls and does not load its extension', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  await h.connected();
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'client', id: 'unowned', params: { action: 'list' } });
+  assert.deepEqual(answer, { ok: false, error: 'Invalid bridge request.' });
+  assert.equal(h.fake.spawned[0].args.filter(value => value === '--extension').length, 1);
+});
+
+test('configured client capability rejects a model-selected path or tool name before spawning', { timeout: 10000 }, async t => {
+  for (const capability of [
+    { tool: { name: 'client', execute() {} }, extensionPath: 'relative.ts' },
+    { tool: { name: 'owned_agent', execute() {} }, extensionPath: '/fixture/client.ts' },
+    { tool: { name: 'client' }, extensionPath: '/fixture/client.ts' },
+  ]) {
+    const h = fixture(t, {}, { dependencies: { clientBridge: capability } });
+    const runtime = await h.open();
+    t.after(() => runtime.close());
+    await assert.rejects(runtime.connect(), /Invalid configured client bridge/);
+    assert.equal(h.fake.spawned.length, 0);
+  }
+});
+
+test('main workload Stop uses the registered RPC bridge and refuses startup without that tool', async t => {
+  const h = fixture(t);
+  const calls = [];
+  await h.connected({ stopWorkload: async request => { calls.push(request); return { running: [] }; } });
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'stop_workload', id: 'list', params: { action: 'list' } });
+  assert.deepEqual(answer.result.details, { running: [] });
+  assert.deepEqual(calls, [{ action: 'list' }]);
+  const stopped = await bridge(h.fake, { op: 'tool', name: 'stop_workload', id: 'stop', params: { action: 'stop', id: 'work:parent', reason: ' Safety. ' } });
+  assert.equal(stopped.answer.ok, true);
+  assert.deepEqual(calls[1], { action: 'stop', id: 'work:parent', reason: 'Safety.' });
+  const missing = fixture(t, { hello: ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings'] });
+  const runtime = await missing.open();
+  t.after(() => runtime.close());
+  await assert.rejects(runtime.connect(), /did not activate its tools: stop_workload/);
+});
+
 test('the main chat starts as `<launcher> --mode rpc` with its session, binding, extension and prompts', async t => {
   const h = fixture(t);
   const runtime = await h.connected();
@@ -81,7 +186,7 @@ test('the main chat starts as `<launcher> --mode rpc` with its session, binding,
   assert.equal(main.sessionFile, join(h.root, 'sessions', 'main.jsonl'));
   assert.equal(runtime.main.sessionId, main.sessionId);
   assert.equal(runtime.main.model.id, 'local');
-  assert.deepEqual(h.fake.received.map(record => record.type), ['get_state', 'get_commands', 'get_state', 'get_messages', 'get_session_stats']);
+  assert.deepEqual(h.fake.received.map(record => record.type), ['get_state', 'get_state', 'get_messages', 'get_session_stats']);
   assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
 });
 
@@ -139,6 +244,50 @@ test('prompt dispositions: handled never waits, queued waits for the run, a reje
   await runtime.send('later', 'message:queued');
   await runtime.idle();
   assert.equal((await runtime.state()).runs['message:queued'].result.text, 'Reply: later');
+});
+
+test('main telemetry correlates delta-only RPC output and durable response facts across reconnect', { timeout: 5000 }, async t => {
+  const h = fixture(t, { script: { prompt: (reply, _reject, command, { emit, pi }) => {
+    reply({ disposition: 'started' });
+    const message = { role: 'assistant', provider: 'fixture', model: 'local', timestamp: pi.messages.length + 1,
+      content: [{ type: 'text', text: 'Reply' }], stopReason: 'stop', durationMs: 9,
+      usage: { input: 10, output: 4, cacheRead: 2, cacheWrite: 0, cost: { total: 0.5 } } };
+    if (command.message !== 'orphan') emit({ type: 'message_start', message: { ...message, content: [] } });
+    if (command.message !== 'unfinished') {
+      emit({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 0, delta: '{}' } });
+      emit({ type: 'message_end', message });
+      emit({ type: 'message_end', message });
+      pi.messages.push(message);
+    }
+    emit({ type: 'agent_settled' });
+  } } });
+  const runtime = await h.connected();
+  let clock = 10;
+  runtime.metricsNow = () => clock++;
+  const updates = [];
+  runtime.main.subscribe(event => { if (event.type === 'message_update') updates.push(event); });
+  await runtime.send('private words', 'metrics:rpc');
+  await runtime.idle();
+  const run = (await runtime.state()).runs['metrics:rpc'];
+  assert.equal(run.performance.responses, 1);
+  assert.equal(Object.hasOwn(updates[0], 'message'), false, 'ordinary observers still receive the original wire shape');
+  assert.equal(run.performance.firstObservedOutputMs, 1);
+  assert.equal(run.performance.dispatchElapsedMs, 2);
+  assert.deepEqual(run.performance.output, { value: 4, state: 'complete' });
+  assert.deepEqual(run.performance.responseDurationMs, { value: 9, state: 'complete' });
+  await runtime.send('unfinished', 'metrics:unfinished');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['metrics:unfinished'].performance.incomplete, true);
+  await runtime.send('orphan', 'metrics:orphan');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['metrics:orphan'].performance.firstObservedOutputMs, null,
+    'a new prompt cannot borrow the prior unfinished assistant identity');
+  await runtime.close();
+  const reopened = await h.open();
+  try {
+    await reopened.connect();
+    assert.deepEqual((await reopened.state()).runs['metrics:rpc'].performance, run.performance);
+  } finally { await reopened.close(); }
 });
 
 test('no conversation opens in this process while a launcher is configured', async t => {
@@ -520,32 +669,34 @@ test('model_settings through the bridge can target one schedule', async t => {
   assert.equal(h.fake.received.some(record => record.type === 'set_thinking_level'), false);
 });
 
-test('the launcher chat gets Chrome with no time limit when Pi offers it', async t => {
+test('the launcher chat never requests a Chrome grant at startup', async t => {
   const h = fixture(t, { script: { get_commands: reply => reply({ commands: [{ name: 'chrome' }] }) } });
 
   await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
 
   const prompts = h.fake.received.filter(record => record.type === 'prompt').map(record => record.message);
-  assert.deepEqual(prompts, ['/chrome authorize indefinite']);
+  assert.deepEqual(prompts, []);
 });
 
-test('the launcher chat answers the Chrome consent dialog itself', async t => {
-  const h = fixture(t, {
-    script: {
-      get_commands: reply => reply({ commands: [{ name: 'chrome' }] }),
-      prompt: (reply, _reject, command, { emit }) => {
-        if (!command.message.startsWith('/chrome')) return reply({ disposition: 'started' });
-        emit({ type: 'extension_ui_request', id: 'consent', method: 'confirm', title: 'Authorize pi-chrome control?' });
-        return reply({ disposition: 'handled' });
-      },
-    },
+for (const selected of ['yes', 'no', undefined]) {
+  test(`an explicit Chrome command uses the user's consent answer: ${selected}`, async t => {
+    const h = fixture(t, { script: { prompt: (reply, _reject, _command, { emit }) => {
+      emit({ type: 'extension_ui_request', id: 'consent', method: 'confirm', title: 'Authorize pi-chrome control?' });
+      reply({ disposition: 'handled' });
+    } } });
+    const questions = [];
+    const session = await openPiSession({ root: h.root, config: h.config, askQuestion: async question => {
+      questions.push(question);
+      return selected;
+    } }, h.dependencies);
+    t.after(() => closePiSession(session));
+    assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+    await session.prompt('/chrome authorize 5m');
+    const answer = await answerOf(h.fake, 'consent');
+    assert.deepEqual(questions, [{ question: 'Authorize pi-chrome control?', choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] }]);
+    assert.deepEqual(answer, { type: 'extension_ui_response', id: 'consent', ...(selected === undefined ? { cancelled: true } : { confirmed: selected === 'yes' }) });
   });
-
-  await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
-
-  const answer = h.fake.received.find(record => record.type === 'extension_ui_response');
-  assert.deepEqual([answer.id, answer.confirmed], ['consent', true]);
-});
+}
 
 test('the launcher chat sends nothing for Chrome when Pi does not offer it', async t => {
   const h = fixture(t);

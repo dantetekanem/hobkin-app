@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HobkinRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
 import { scheduleDefinition } from '../src/cli/checks.mjs';
+import { loadSchedules } from '../src/cli/schedules.mjs';
 import { LegacySchedules } from '../src/cli/legacy-schedules.mjs';
 import { sha256 } from '../src/cli/migration/inventory.mjs';
 
@@ -68,6 +69,58 @@ async function fixture(t, options = {}) {
   await save();
   return { root, schedule, save, runtime: new MemoryRuntime() };
 }
+
+test('deletion serializes with admission and changes, preserving runtime history', async t => {
+  const h = await fixture(t);
+  const runner = new HobkinRunner({ ...h, config });
+  const token = scheduleDefinition(loadSchedules(h.root).schedules[0]);
+  h.runtime.data.runs.old = { scheduleId: 'check', status: 'completed', result: { text: 'Report' } };
+  const before = structuredClone(h.runtime.data);
+  const change = runner.change('check', { enabled: false });
+  const stale = runner.change('check', { delete: token });
+  await change;
+  await assert.rejects(stale, /definition/);
+  const current = scheduleDefinition(runner.loaded.schedules[0]);
+  const deletion = runner.change('check', { delete: current });
+  const start = runner.trigger('check', 'after-delete');
+  assert.deepEqual(await deletion, { id: 'check', deleted: true });
+  await assert.rejects(start, /Unknown exact native/);
+  assert.deepEqual(h.runtime.data, before);
+  assert.deepEqual(runner.loaded.schedules, []);
+});
+
+test('deletion refuses a running once receipt even without an in-memory job', async t => {
+  const h = await fixture(t);
+  await mkdir(join(h.root, 'routines/once'));
+  await rm(join(h.root, 'routines/daily/check.md'));
+  await h.save({ ...h.schedule, cadence: 'once', date: '2026-11-11' });
+  h.runtime.data.runs.once = { scheduleId: 'check', status: 'running' };
+  const runner = new HobkinRunner({ ...h, config });
+  const token = scheduleDefinition(loadSchedules(h.root).schedules[0]);
+  await assert.rejects(runner.change('check', { delete: token }), /already running/);
+  assert.equal(loadSchedules(h.root).schedules[0].cadence, 'once');
+});
+
+test('deletion refuses a running routine admitted ahead of it', async t => {
+  const h = await fixture(t);
+  const finish = Promise.withResolvers();
+  const entered = Promise.withResolvers();
+  const runner = new HobkinRunner({ ...h, config, runHarness: async () => {
+    entered.resolve();
+    return finish.promise;
+  } });
+  t.after(async () => { finish.resolve({ status: 'completed', text: 'Done' }); await h.runtime.idle(); });
+  const token = scheduleDefinition(loadSchedules(h.root).schedules[0]);
+  const start = runner.trigger('check', 'before-delete');
+  const deletion = runner.change('check', { delete: token });
+  await start;
+  await assert.rejects(deletion, /already running/);
+  await entered.promise;
+  assert.equal(loadSchedules(h.root).schedules[0].id, 'check');
+  finish.resolve({ status: 'completed', text: 'Done' });
+  await h.runtime.idle();
+  assert.deepEqual(await runner.change('check', { delete: token }), { id: 'check', deleted: true });
+});
 
 test('harness previews bind to occurrence IDs, not fresh harness UUIDs, and observers cannot fail work', async t => {
   const h = await fixture(t);
@@ -551,6 +604,7 @@ test('tick returns before completion, deduplicates and exposes durable full repo
     model: 'test',
     sources: ['source'],
   });
+  assert.equal(envelope.reportId, 'check:2026-04-27', 'actions can link to the exact eventual report, not the harness session UUID');
   assert.equal(envelope.routine.instructions, fixtureData.schedule.prompt);
   assert.deepEqual(envelope.sources, [{ path: 'source', text: 'Selected source content' }]);
   assert.deepEqual(envelope.memory, ['Rent is due November 1']);
@@ -625,6 +679,83 @@ test('capacity is bounded, schedule runs never overlap, and stop cancels only ow
   assert.throws(() => new HobkinRunner({ ...fixtureData, config: { ...config, concurrency: 5 } }), /concurrency/);
 });
 
+test('steering receipts require the exact completed user body and run, before or after ACK', { timeout: 2000 }, async t => {
+  const runtime = new MemoryRuntime();
+  const runner = new HobkinRunner({ runtime, root: '/unused', config, now: () => new Date(123) });
+  const finish = Promise.withResolvers(), ack = Promise.withResolvers(), ready = Promise.withResolvers();
+  const sent = [];
+  runner.inboxes.set('run', { reject() {}, promise: Promise.resolve(async text => {
+    sent.push(text);
+    if (sent.length === 2) ready.resolve();
+    return ack.promise;
+  }) });
+  const { work } = runner.startTracked({ id: 'run', scheduleId: 'check' }, () => finish.promise);
+  t.after(async () => { ack.resolve({ disposition: 'queued' }); finish.resolve({ status: 'completed' }); await work; });
+  const ids = ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'];
+  const sends = ids.map(noteId => runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId, message: 'Same words' }));
+  await ready.promise;
+  assert.notEqual(sent[0], sent[1]);
+  const event = (content, type = 'message_end', role = 'user') => ({ type, message: { role, content } });
+  for (const [run, record] of [['other', event(sent[0])], ['run', event(sent[0], 'message_start')],
+    ['run', event(sent[0], 'message_end', 'assistant')], ['run', event('Same words')],
+    ['run', event(`${sent[0]} extra`)], ['run', event(sent[0].replace(ids[0], '00000000-0000-4000-8000-000000000003'))],
+    ['run', event([{ type: 'text', text: sent[0] }, { type: 'image', data: 'x' }])],
+    ['run', { type: 'queue_update', steering: [] }]]) runner.onActivity(run, record);
+  assert.deepEqual(runner.steeringReceipts(), {});
+  runner.onActivity('run', event([{ type: 'text', text: sent[0].slice(0, 12) }, { type: 'text', text: sent[0].slice(12) }]));
+  assert.deepEqual(runner.steeringReceipts(), { run: [{ noteId: ids[0], at: 123 }] });
+  ack.resolve({ disposition: 'queued' });
+  assert.ok((await Promise.all(sends)).every(result => result.status === 'queued'));
+  runner.onActivity('run', event(sent[1]));
+  assert.deepEqual(runner.steeringReceipts().run.map(note => note.noteId), ids);
+  await assert.rejects(runner.messageCheck({ scheduleId: 'check', runId: 'old-run', noteId: ids[0], message: 'No redirect' }), /not running/);
+  await assert.rejects(runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: ids[0], message: 'No reuse' }), /already/);
+  assert.equal(sent.length, 2);
+  const starting = Promise.withResolvers();
+  runner.inboxes.set('run', starting);
+  const late = runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: ids[1], message: 'No rollover' });
+  await Promise.resolve();
+  runtime.data.runs.run.status = 'completed';
+  runtime.data.runs.replacement = { id: 'replacement', scheduleId: 'check', status: 'running' };
+  starting.resolve(() => { throw Error('Must not send to ended run'); });
+  await assert.rejects(late, /has finished/);
+});
+
+test('steering dispositions, pending limits and run-end cleanup stay bounded', { timeout: 2000 }, async t => {
+  const runtime = new MemoryRuntime();
+  const runner = new HobkinRunner({ runtime, root: '/unused', config });
+  let response = { disposition: 'handled' }, marked;
+  runner.inboxes.set('run', { reject() {}, promise: Promise.resolve(async text => { marked = text; if (response instanceof Error) throw response; return response; }) });
+  const finish = Promise.withResolvers();
+  const { work } = runner.startTracked({ id: 'run', scheduleId: 'check' }, () => finish.promise);
+  t.after(async () => { finish.resolve({ status: 'completed' }); await work; });
+  const send = index => runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, message: 'Private' });
+  assert.equal((await send(0)).status, 'handled');
+  runner.onActivity('run', { type: 'message_end', message: { role: 'user', content: marked } });
+  assert.deepEqual(runner.steeringReceipts(), {});
+  response = Object.assign(Error('Rejected'), { commandRejected: true });
+  await assert.rejects(send(0), error => error.notQueued === true);
+  assert.equal(runner.pendingNotes.size, 0);
+  response = Error('Connection lost');
+  await assert.rejects(send(1), /Connection lost/);
+  response = undefined;
+  assert.equal((await send(2)).status, 'unconfirmed');
+  response = { disposition: 'queued' };
+  for (let index = 200; index <= 456; index++) {
+    await send(index);
+    runner.onActivity('run', { type: 'message_end', message: { role: 'user', content: marked } });
+  }
+  assert.equal(runner.steeringReceipts().run.length, 256);
+  assert.equal(runner.steeringReceipts().run[0].noteId.endsWith('201'), true);
+  for (let index = 3; index <= 128; index++) await send(index);
+  await assert.rejects(send(129), /pending/);
+  finish.resolve({ status: 'completed' });
+  await work;
+  assert.equal(runner.pendingNotes.size, 0);
+  runner.onActivity('run', { type: 'message_end', message: { role: 'user', content: marked } });
+  assert.equal(runner.steeringReceipts().run.length, 256);
+});
+
 test('a running check takes a message, and one that is not running says so', async t => {
   const fixtureData = await fixture(t);
   const received = [];
@@ -634,18 +765,18 @@ test('a running check takes a message, and one that is not running says so', asy
     config,
     now: () => new Date('2026-04-27T10:00:00Z'),
     runHarness: (_request, { onReady }) => {
-      onReady(async text => { received.push(text); });
+      onReady(async text => { received.push(text); return { disposition: 'queued' }; });
       return finish.promise;
     },
   });
-  t.after(() => runner.stop());
+  t.after(() => { finish.resolve({ status: 'completed' }); return runner.stop(); });
   await assert.rejects(runner.messageCheck({ scheduleId: 'check', message: 'hello' }), /not running/);
 
   await runner.tick();
 
   assert.deepEqual(await runner.messageCheck({}), { running: [{ scheduleId: 'check', title: 'Check' }] });
   await assert.rejects(runner.messageCheck({ scheduleId: 'check' }), /what to tell/);
-  assert.deepEqual(await runner.messageCheck({ scheduleId: 'check', message: 'look at the invoices' }), { scheduleId: 'check', status: 'delivered' });
+  assert.deepEqual(await runner.messageCheck({ scheduleId: 'check', message: 'look at the invoices' }), { scheduleId: 'check', status: 'queued' });
   assert.deepEqual(received, ['look at the invoices']);
 
   finish.resolve({ status: 'completed', text: 'Done' });
@@ -665,17 +796,17 @@ test('a message to a check that is still starting waits for it', async t => {
     now: () => new Date('2026-04-27T10:00:00Z'),
     runHarness: async (_request, { onReady }) => {
       await ready.promise;
-      onReady(async text => { received.push(text); });
+      onReady(async text => { received.push(text); return { disposition: 'queued' }; });
       return finish.promise;
     },
   });
-  t.after(() => runner.stop());
+  t.after(() => { ready.resolve(); finish.resolve({ status: 'completed' }); return runner.stop(); });
   await runner.tick();
 
   const sent = runner.messageCheck({ scheduleId: 'check', message: 'hello' });
   ready.resolve();
 
-  assert.deepEqual(await sent, { scheduleId: 'check', status: 'delivered' });
+  assert.deepEqual(await sent, { scheduleId: 'check', status: 'queued' });
   assert.deepEqual(received, ['hello']);
   finish.resolve({ status: 'completed', text: 'Done' });
   await Promise.all(runner.jobs.values());

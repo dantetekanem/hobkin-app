@@ -24,6 +24,9 @@
 !/src/prompts/routine-templates/
 /src/prompts/routine-templates/*
 !/src/prompts/routine-templates/*.md
+!/src/prompts/persona/
+/src/prompts/persona/*
+!/src/prompts/persona/*.md
 /test/*
 !/test/*.mjs
 !/test/helpers/

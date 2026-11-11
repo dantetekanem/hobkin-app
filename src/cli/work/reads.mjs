@@ -22,7 +22,18 @@ const MAX_READY_SENT = 50;
 
 export const NEEDS_AN_OWNER = 'Nothing runs until the dashboard is open.';
 
-const leftForTheUser = ({ left, state }) => Boolean(left) && !overStates.includes(state);
+// Legacy runs put negative delivery receipts in `left`. Recognize only complete disclaimer clauses, never arbitrary remaining work.
+const deliveryDisclaimer = left => String(left).split(/[.;]\s*/).filter(Boolean).every(clause =>
+  /^(?:nothing (?:pushed|opened|merged|deployed|released)(?:,? (?:or )?(?:pushed|opened|merged|deployed|released))*|landing is off(?: and the branch has no remote and no PR)?|no code review was run because reviewAsked was absent)$/i.test(clause.trim()));
+
+const leftForTheUser = item => Boolean(item.left) && !overStates.includes(item.state)
+  && !(item.state === 'done' && (item.leftKind === 'delivery' || deliveryDisclaimer(item.left)));
+
+/** Classification is presentation, not permission to ship or evidence that work finished. Unknown text stays visible. */
+export const attentionKind = ({ leftKind, left }) => {
+  if (['personal', 'approval', 'work'].includes(leftKind)) return leftKind;
+  return /^(?:publication|deployment|publication and deployment) of .+ remain(?:s)? outside this local-only run\b/i.test(left ?? '') ? 'approval' : 'work';
+};
 
 export const itemCounts = items => ({
   open: items.filter(item => runnableStates.includes(item.state)).length,
@@ -225,7 +236,8 @@ function readyRow(root, project, item, items, openUnits = []) {
     summary,
     about: aboutOf(prFile(root, project.slug, id), summary),
     proof: proof ? oneLine(proof, LONGEST_PROOF) : null,
-    left,
+    left: leftForTheUser(item) ? left : null,
+    attentionKind: attentionKind(item),
     at: updatedAt,
     behind,
     conflict,
@@ -509,7 +521,10 @@ export function attentionView(root) {
     .filter(({ state }) => state === 'chosen')
     .flatMap(({ slug }) => readItems(root, slug)
       .filter(leftForTheUser)
-      .map(({ id, title, left }) => row('item', title, `hobkin work done ${slug} ${id}, once it is sorted`, { slug, item: id, reason: left })));
+      .map(item => ({
+        ...row('item', item.title, `hobkin work done ${slug} ${item.id}, once it is sorted`, { slug, item: item.id, reason: item.left }),
+        attentionKind: attentionKind(item),
+      })));
 
   return [...modeWaits(readMode(root), row), ...paused, ...proposals, ...items];
 }

@@ -2,11 +2,13 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { validateBinding } from './schedules.mjs';
-import { CHROME_GRANT, isChromeConsent, offersChrome } from './chrome.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { keptEffort } from './model-settings.mjs';
 import { extensionArguments, extensionPaths } from './pi-extensions.mjs';
 import { clean, startRpcProcess } from './rpc-process.mjs';
+import { createTurnMetrics } from './turn-metrics.mjs';
+import { BRIDGE, serveBridge } from './bridge.mjs';
+import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || workPurposes.includes(purpose);
@@ -56,8 +58,11 @@ export function buildInvocation(request) {
       '--no-skills', '--no-prompt-templates', '--no-themes',
       '--no-context-files', '--no-approve',
       '--system-prompt', system,
-      // Nothing here can stop to ask, and a worktree is a new folder a saved trust decision would not reach.
-    ] : [...extensionArguments(request.extensions), '--append-system-prompt', system, '--approve']),
+    ] : [
+      ...extensionArguments(request.extensions), '--append-system-prompt', system,
+      // Work keeps the launcher's normal project-trust decision.
+      ...(isWork ? [] : ['--approve']),
+    ]),
     ...(isWork ? ['--append-system-prompt', prompt(request.purpose)] : []),
   ];
   if (request.model) args.push('--model', request.model);
@@ -71,7 +76,7 @@ export const namingExtensions = run => async (request, options) => {
 };
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {} } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, metricsRoot, ownedScope } = {}) {
   const invocation = buildInvocation(request);
   if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw Error('Invalid harness bounds.');
   const result = {
@@ -91,15 +96,40 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
   settled.promise.catch(() => {});
   let child;
   let assistant;
+  let metrics;
+  let metricIdentity;
+  let streamingMessage;
   // Agents live in this child and report as later turns, so a settled lead may not be finished.
   const agents = new Set();
   const extensionErrors = new Set();
-  let takesMessages = false;
+  let takesMessages = false, joining = false;
+  const tools = { owned_agent: createOwnedAgentSessionTool((params, signal) => ownedScope.request(params, signal)) };
+  const finishOwned = async () => {
+    if (joining) return;
+    joining = true;
+    try {
+      const facts = assistant?.stopReason === 'stop' ? await ownedScope?.join() : undefined;
+      request.signal?.throwIfAborted();
+      if (facts) { assistant = undefined; joining = false; await child.request('prompt', { message: facts }); }
+      else { takesMessages = false; settled.resolve(); }
+    } catch (error) { settled.reject(error); }
+    finally { joining = false; }
+  };
   const accept = record => {
-    // Nobody is watching a job, so a dialog from any extension is declined. Chrome's the user allowed for every run.
+    if (metrics) {
+      // RPC strips cumulative message snapshots from deltas. Retain only the current request's scalar identity.
+      if (record.type === 'message_start' && record.message?.role === 'assistant') {
+        const { role, provider, model, timestamp, responseId } = record.message;
+        streamingMessage = { role, provider, model, timestamp, responseId };
+      }
+      metrics.observe(record.type === 'message_update' ? { ...record, message: streamingMessage } : record, metricIdentity);
+      if (record.type === 'message_end' && record.message?.role === 'assistant') streamingMessage = undefined;
+    }
+    // Nobody is watching a job, so a dialog from any extension is declined.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
-      const answer = isChromeConsent(record) ? { confirmed: true } : { cancelled: true };
-      child.send({ type: 'extension_ui_response', id: record.id, ...answer });
+      if (record.method === 'input' && record.title === BRIDGE && ownedScope) {
+        void serveBridge(record.placeholder, { tools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
+      } else child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
     }
     if (record.type === 'message_end' && record.message?.role === 'assistant') {
       assistant = record.message;
@@ -120,15 +150,12 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     }
     if (record.type === 'agent_settled') {
       if (record.aborted === true) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
-      else if (!agents.size) {
-        takesMessages = false;
-        settled.resolve();
-      }
+      else if (!agents.size) void finishOwned();
     }
     onEvent(record);
   };
   try {
-    child = startRpcProcess({
+    child = startProcess({
       ...invocation,
       cwd: request.cwd,
       env: piEnvironment(request.launcher),
@@ -159,10 +186,8 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     }
     result.sessionId = state.sessionId;
     result.model = model;
-    if (usesTools(request.purpose)) {
-      const { commands } = await child.request('get_commands');
-      if (offersChrome(commands)) await child.request('prompt', { message: CHROME_GRANT });
-    }
+    metricIdentity = Object.freeze({ runId: request.id, sessionId: state.sessionId });
+    metrics = createTurnMetrics(metricIdentity);
     const response = await child.request('prompt', { message: request.prompt });
     if (response?.disposition === 'handled') {
       throw Error('Pi handled the prompt without starting an assistant response.');
@@ -170,8 +195,8 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     takesMessages = true;
     // A plain steer would sit unread while the lead waits on its agents, so this also starts a turn on an idle one.
     onReady(async message => {
-      if (!takesMessages) throw Error('That check has finished.');
-      await child.request('prompt', { message, streamingBehavior: 'steer' });
+      if (!takesMessages) throw Object.assign(Error('That check has finished.'), { notQueued: true });
+      return child.request('prompt', { message, streamingBehavior: 'steer' });
     });
     await settled.promise;
     result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
@@ -204,6 +229,10 @@ export async function runHarness(request, { spawnProcess = spawn, maxOutputBytes
     result.status = (child.failure ?? error).interrupted ? 'interrupted' : 'failed';
     result.error = clean((child.failure ?? error).message).slice(0, 2000);
   } finally {
+    if (metrics) {
+      result.performance = metrics.finish(metricIdentity);
+      if (metricsRoot) metrics.record(metricsRoot, metricIdentity);
+    }
     takesMessages = false;
     request.signal?.removeEventListener('abort', cancel);
     child.terminate();

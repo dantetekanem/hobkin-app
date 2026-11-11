@@ -119,13 +119,20 @@ const holdStart = (schedule, runs) => {
   return finished[start];
 };
 
+const noteUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const notQueued = message => Object.assign(Error(message), { notQueued: true });
+
 export class HobkinRunner {
+  pendingNotes = new Map();
+  receivedNotes = new Map();
+
   constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {} }) {
     if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) throw Error('concurrency must be 1–4');
     if (!Number.isFinite(new Date(config.initializedAt).getTime())) throw Error('Invalid scheduler configuration bounds');
     Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick });
     this.onActivity = (id, event) => {
       try {
+        this.receiveNote(id, event);
         onActivity(id, event);
       } catch {
         // Activity previews are best-effort and cannot fail scheduled work.
@@ -257,8 +264,13 @@ export class HobkinRunner {
 
   /** Changes one routine's file between ticks (`changeSchedule`), so the next snapshot already has it. */
   change(scheduleId, change) {
-    return this.serialize(() => {
+    return this.serialize(async () => {
       if (this.stopped) throw Error('Runner has stopped');
+      if (Object.hasOwn(change, 'delete')) {
+        const state = await this.runtime.state();
+        if (Object.values(state.runs).some(run => run.scheduleId === scheduleId && run.status === 'running')
+          || [...this.jobs.keys()].some(id => state.runs[id]?.scheduleId === scheduleId)) throw Error('Routine is already running.');
+      }
       const changed = changeSchedule(this.root, scheduleId, change);
       this.loaded = loadSchedules(this.root);
       return changed;
@@ -272,7 +284,7 @@ export class HobkinRunner {
       .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
     const decide = hobkinCommand(this.root, `decide routine ${schedule.id}`);
     const action = hobkinCommand(this.root, `action routine ${schedule.id}`);
-    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide, action });
+    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide, action, reportId: occurrence.id });
     const id = randomUUID();
     const directory = join(this.root, 'jobs');
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -334,6 +346,9 @@ export class HobkinRunner {
         this.jobs.delete(request.id);
         this.inboxes.get(request.id)?.reject(Error('That check has finished.'));
         this.inboxes.delete(request.id);
+        for (const [key, note] of this.pendingNotes) {
+          if (note.runId === request.id) this.pendingNotes.delete(key);
+        }
       });
     this.jobs.set(request.id, tracked);
     return { work: tracked };
@@ -454,28 +469,67 @@ export class HobkinRunner {
   }
 
   /** Stops one running scheduled job this runner owns; its schedule file stays unchanged. */
-  async kill(runId) {
+  async kill(runId, stop = {}) {
     if (!this.jobs.has(runId)) return false;
     const run = (await this.runtime.state()).runs[runId];
     if (run?.status !== 'running') return false;
     // A cancelled compatibility attempt finishes interrupted, so it still requires explicit reconciliation.
-    await this.runtime.cancel(runId);
-    return true;
+    return (await this.runtime.cancel(runId, stop)) !== false;
   }
 
   /** A check shows as running before Pi is ready for it, so a message sent that early waits. With no schedule named, lists what is running. */
-  async messageCheck({ scheduleId, message }) {
+  async messageCheck({ scheduleId, runId, noteId, message }) {
     const runs = Object.values((await this.runtime.state()).runs);
     const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id));
     if (!scheduleId) return { running: reachable.map(run => ({ scheduleId: run.scheduleId, title: run.title })) };
 
-    const run = reachable.find(item => item.scheduleId === scheduleId);
-    if (!run) throw Error('That check is not running.');
-    if (!message) throw Error('Say what to tell the check.');
+    const run = reachable.find(item => item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
+    if (!run) throw notQueued('That check is not running.');
+    if (typeof message !== 'string' || !message.trim() || message.length > 4096) throw notQueued('Say what to tell the check in at most 4096 characters.');
+    if (noteId !== undefined && (!runId || typeof noteId !== 'string' || !noteUuid.test(noteId))) throw notQueued('Invalid steering note identity.');
+    const inbox = this.inboxes.get(run.id);
+    const send = await inbox.promise;
+    const current = (await this.runtime.state()).runs[run.id];
+    if (current?.status !== 'running' || this.inboxes.get(run.id) !== inbox) throw notQueued('That check has finished.');
+    const key = JSON.stringify([run.id, noteId]);
+    const text = noteId === undefined ? message : `[hobkin-note:${noteId}]\n${message}`;
+    if (noteId !== undefined) {
+      if (this.pendingNotes.has(key) || this.receivedNotes.has(key)) throw notQueued('That note was already submitted.');
+      if (this.pendingNotes.size >= 128) throw notQueued('Too many pending steering notes.');
+      this.pendingNotes.set(key, { runId: run.id, noteId, text });
+    }
+    try {
+      const disposition = (await send(text))?.disposition;
+      if (disposition === 'handled') this.pendingNotes.delete(key);
+      return { scheduleId, status: disposition === 'started' || disposition === 'queued' ? 'queued' : disposition === 'handled' ? 'handled' : 'unconfirmed' };
+    } catch (error) {
+      if (error.commandRejected) {
+        this.pendingNotes.delete(key);
+        throw notQueued(error.message);
+      }
+      throw error;
+    }
+  }
 
-    const send = await this.inboxes.get(run.id).promise;
-    await send(message);
-    return { scheduleId, status: 'delivered' };
+  /** Receipt is admission into Pi's turn, not provider delivery or obedience. Never match a partial or augmented body. */
+  receiveNote(runId, event) {
+    if (event?.type !== 'message_end' || event.message?.role !== 'user') return;
+    const content = event.message.content;
+    const text = typeof content === 'string' ? content
+      : Array.isArray(content) && content.every(part => part?.type === 'text' && typeof part.text === 'string')
+        ? content.map(part => part.text).join('') : null;
+    for (const [key, note] of this.pendingNotes) {
+      if (note.runId !== runId || note.text !== text) continue;
+      this.pendingNotes.delete(key);
+      this.receivedNotes.set(key, { runId, noteId: note.noteId, at: new Date(this.now()).getTime() });
+      if (this.receivedNotes.size > 256) this.receivedNotes.delete(this.receivedNotes.keys().next().value);
+    }
+  }
+
+  steeringReceipts() {
+    const runs = Object.create(null);
+    for (const { runId, noteId, at } of this.receivedNotes.values()) (runs[runId] ??= []).push({ noteId, at });
+    return { ...runs };
   }
 
   async stop() {

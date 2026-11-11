@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { reportTriage } from './reports.mjs';
 import { usageLimitIn } from './work/usage.mjs';
@@ -91,6 +91,50 @@ export function readEvents(root, { since = 0 } = {}) {
     .flatMap(name => parseMonth(join(folder, name)))
     .filter(({ at }) => Date.parse(at) >= since)
     .toSorted((left, right) => Date.parse(left.at) - Date.parse(right.at));
+}
+
+const performanceCache = new Map();
+export const PERFORMANCE_TAIL_BYTES = 262144;
+
+/** A bounded fallback, not a complete history or accounting ledger. Unchanged tails are not reread. */
+export function recentPerformanceEvents(root) {
+  try {
+    const folder = eventsFolder(root);
+    const files = lstatSync(folder, { throwIfNoEntry: false })?.isDirectory() ? monthFiles(folder).slice(-2) : [];
+    const entries = files.map(name => ({ file: join(folder, name), stat: lstatSync(join(folder, name)) }));
+    const signature = JSON.stringify(entries.map(({ file, stat }) => [file, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]));
+    if (performanceCache.get(root)?.signature === signature) return performanceCache.get(root).result;
+    const events = new Map();
+    let truncated = false;
+    for (const { file, stat } of entries) {
+      if (!stat.isFile()) throw Error('Not a regular event file');
+      const start = Math.max(0, stat.size - PERFORMANCE_TAIL_BYTES);
+      truncated ||= start > 0;
+      const buffer = Buffer.alloc(Math.min(stat.size, PERFORMANCE_TAIL_BYTES));
+      const fd = openSync(file, 'r');
+      let bytes;
+      try { bytes = readSync(fd, buffer, 0, buffer.length, start); } finally { closeSync(fd); }
+      const lines = buffer.subarray(0, bytes).toString('utf8').split('\n');
+      if (start) lines.shift();
+      lines.pop(); // An append interrupted before its newline is not a settled event.
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line);
+          if (event?.type !== 'run_performance') continue;
+          const key = JSON.stringify([event.runId, event.sessionId]);
+          if (!events.has(key)) events.set(key, event);
+          if (events.size > 100) events.delete(events.keys().next().value);
+        } catch { /* A broken line cannot hide subsequent complete events. */ }
+      }
+    }
+    const result = { events: [...events.values()], state: 'available', truncated };
+    performanceCache.delete(root);
+    performanceCache.set(root, { signature, result });
+    if (performanceCache.size > 8) performanceCache.delete(performanceCache.keys().next().value);
+    return result;
+  } catch {
+    return { events: [], state: 'unavailable', truncated: true };
+  }
 }
 
 const countsOf = values => {

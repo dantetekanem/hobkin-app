@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import {
-  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
 import { forecastEachMinute } from './forecast.mjs';
@@ -47,6 +47,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   back <project> <look|study|item>     put a skipped row back
   retry, ask <project> <item> [note]    tries reset; ask runs your note first
   done, merge, decline <project> <item>  close; merge locally; or say no
+  publish <project> <item> [commit]    approved: push it at that commit, open its PR
   trust <pattern> <on|off>             the user's switch for a pattern's offers
   trouble <project> <item> [severe] [why]  a merge went wrong: files the fix
   drop <project> [item]                stop work on it; branches and PRs stay
@@ -288,6 +289,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'retry': return retryNow(root, ...args);
     case 'done': return markDone(root, ...args);
     case 'merge': return mergeItem(root, args[0], args[1]);
+    case 'publish': return publishItem(root, args[0], args[1], { head: args[2] ?? null });
     case 'decline': return declineItem(root, args[0], args[1]);
     case 'ask': return askAgent(root, args[0], args[1], args.slice(2).join(' '), QUEUED);
     case 'drop': return dropWork(root, ...args);

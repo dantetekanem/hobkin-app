@@ -113,7 +113,7 @@ export class Learner {
    * A no holds for good, and a no to work holds for its whole repo. A yes holds until the schedule changes, because then a new failure is a new
    * question. Later puts a question off for a week, after which it comes back to be answered.
    */
-  proposalsFrom(learned, saved, { answers }) {
+  proposalsFrom(learned, saved, { answers, covered = [] }) {
     const holds = (answer, { scope, conclusion, definition }) => {
       if (answer.answer === 'no' && answer.repo) return scope.startsWith(`${answer.repo}.`);
       if (answer.scope !== scope || answer.kind !== conclusion) return false;
@@ -133,6 +133,7 @@ export class Learner {
         const id = proposalId(item);
         return { ...keptLesson(item), id, kind: item.conclusion, definition: item.definition, at: raisedAt(id) };
       })
+      .filter(proposal => !covered.some(({ id }) => id === proposal.id))
       .toSorted(proposalOrder);
   }
 
@@ -156,6 +157,10 @@ export class Learner {
   takePost() {
     if (!this.post) return null;
     const { proposal, ...post } = this.post;
+    if (readActions(this.root).covered.some(({ id }) => id === proposal)) {
+      this.post = null;
+      return null;
+    }
     try {
       appendAction(this.root, { type: 'posted', id: proposal, at: post.at });
     } catch {

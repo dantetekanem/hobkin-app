@@ -1298,7 +1298,6 @@ test('the settings print ok and a message too, and only auto with no word is a r
   const root = home(t);
   mkdirSync(join(root, 'checks'));
 
-  await success(root, 'harness', 'claude');
   await success(root, 'agents', '3');
   await success(root, 'tokens', '250000');
   await success(root, 'auto', 'off');
@@ -1306,10 +1305,9 @@ test('the settings print ok and a message too, and only auto with no word is a r
   await success(root, 'allow', '5000000');
 
   const mode = readMode(root);
-  assert.deepEqual([mode.harness, mode.agents, mode.dailyTokens, mode.autoPick, mode.raisedTo], ['claude', 3, 250000, false, 5000000]);
+  assert.deepEqual([mode.agents, mode.dailyTokens, mode.autoPick, mode.raisedTo], [3, 250000, false, 5000000]);
   assert.deepEqual((await hobkin(root, 'auto')).json, { autoPick: false });
   assert.match((await failure(root, 'allow')).message, /Nothing is waiting/);
-  assert.match((await failure(root, 'harness', 'emacs')).message, /harness must be one of/);
 
   const { forgot } = await success(root, 'reset');
   assert.equal(forgot, 0);

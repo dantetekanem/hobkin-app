@@ -1,9 +1,11 @@
 import { BRIDGE, callBridge } from './bridge.mjs';
+import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { decidedSection } from './decided.mjs';
+import { composePersonaPrompt } from './persona.mjs';
 import { directionsSection } from './directions.mjs';
 import { createMemoryTool, memorySection } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 
 /**
  * Loaded with --extension by the Pi child that Hobkin starts for its main chat. The tools keep their
@@ -11,20 +13,25 @@ import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '
  * settings and memory. The model is Pi's, under whatever launcher started it.
  */
 export default function hobkin(pi) {
-  const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool()];
+  const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool()];
   for (const tool of tools) {
     pi.registerTool({
       ...tool,
       execute: (id, params, signal, _update, ctx) => callBridge(ctx, { op: 'tool', name: tool.name, id, params }, signal),
     });
   }
+  const ownedTool = createOwnedAgentSessionTool(async (params, signal, ctx, id) =>
+    (await callBridge(ctx, { op: 'tool', name: 'owned_agent', id, params }, signal)).details);
+  tools.push(ownedTool);
+  pi.registerTool(ownedTool);
   pi.on('before_agent_start', async (event, ctx) => {
+    const persona = await callBridge(ctx, { op: 'persona' });
     const sections = [
       directionsSection(await callBridge(ctx, { op: 'directions' })),
       memorySection(await callBridge(ctx, { op: 'memory' })),
       decidedSection(await callBridge(ctx, { op: 'decided' })),
     ];
-    return { systemPrompt: [event.systemPrompt, ...sections].join('\n\n') };
+    return { systemPrompt: composePersonaPrompt([event.systemPrompt, ...sections].join('\n\n'), persona) };
   });
   // Session start runs before Pi reads its input, so this one record is a status update, never a dialog.
   pi.on('session_start', (_event, ctx) => {

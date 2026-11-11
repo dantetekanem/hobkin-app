@@ -10,12 +10,10 @@ const ENOUGH_RUNS = 3;
 const DAY_MS = 24 * HOUR_MS;
 
 /**
- * The runs each priority starts by itself in any window this long, all its projects together, so a queue that never empties spreads over the days.
- * P0 starts whenever it is needed. A pick is the user's own word and closing work only lands what exists, so neither counts here.
+ * Only P3 has a start-count limit, across all its projects in a rolling week. P0, P1 and P2 use the token, start-gap and concurrency limits.
+ * A pick is the user's own word and closing work only lands what exists, so neither counts here.
  */
 export const startBudgets = {
-  P1: { runs: 4, withinMs: DAY_MS, period: 'today' },
-  P2: { runs: 1, withinMs: DAY_MS, period: 'today' },
   P3: { runs: 1, withinMs: 7 * DAY_MS, period: 'this week' },
 };
 

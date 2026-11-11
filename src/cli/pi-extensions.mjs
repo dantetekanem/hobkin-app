@@ -1,4 +1,8 @@
-import { sep } from 'node:path';
+import { isAbsolute, sep } from 'node:path';
+import { lstatSync, readFileSync } from 'node:fs';
+import { resolveResourcePolicy } from './resource-policy.mjs';
+import { fileURLToPath } from 'node:url';
+import { ownedRoleTools } from './owned-agent-extension.mjs';
 
 // Naming extensions turns off the ones Pi adds by itself, so its built-in ones are named too.
 const PI_BUILT_INS = ['llama.cpp', 'codemode', 'tool-search', 'mcp'];
@@ -21,6 +25,61 @@ export async function extensionPaths(cwd, { agentDir, builtIns = PI_BUILT_INS, l
   const manager = new DefaultPackageManager({ cwd, agentDir: directory, settingsManager, builtinExtensions: builtIns });
   const { extensions } = await manager.resolve(async () => 'skip');
   return extensions.filter(keptWithout([...LEFT_OUT, ...leaveOut])).map(({ path }) => path);
+}
+
+/** Trusted inventory metadata only; selections without a provider are unavailable, never discovered implicitly. */
+export function mainSdkResources(selection, candidates = []) {
+  const policy = resolveResourcePolicy(selection, 'main', candidates);
+  if (policy.selected.mcp.length || policy.selected.tools.length) throw Error('Selected MCP/tool binding is unavailable in the main SDK.');
+  const paths = kind => policy.selected[kind].map(id => {
+    const path = candidates.find(candidate => candidate.id === id)?.path;
+    if (typeof path !== 'string' || !isAbsolute(path) || !lstatSync(path).isFile()) {
+      throw Error('Selected resource requires an installed absolute regular-file path.');
+    }
+    return path;
+  });
+  const builtinPaths = ['builtin:codemode', 'builtin:tool-search'];
+  const instructions = paths('instructions').map(path => ({ path, content: readFileSync(path, 'utf8') }));
+  const skills = paths('skills'), templates = paths('templates'), extensions = paths('extensions');
+  const selectedOnly = (items, allowed, key) => {
+    if (items.some(item => !allowed.includes(item[key]))) throw Error('Unexpected inherited resource re-enabled.');
+    return items;
+  };
+  return {
+    builtinTools: policy.builtinTools,
+    assertLoaded(loader) {
+      const loaded = loader.getExtensions();
+      const skillResult = loader.getSkills(), promptResult = loader.getPrompts();
+      if (loaded.errors.length || [...skillResult.diagnostics, ...promptResult.diagnostics].some(item => item.type === 'error')) {
+        throw Error('Selected SDK resources failed to load; inspect resourceLoader diagnostics.');
+      }
+      for (const [expected, actual, key] of [
+        [[...builtinPaths, ...extensions], loaded.extensions, 'path'], [skills, skillResult.skills, 'filePath'], [templates, promptResult.prompts, 'filePath'],
+      ]) {
+        if (expected.some(path => !actual.some(item => item[key] === path))) throw Error('Selected SDK resource is unavailable after loading.');
+      }
+    },
+    loader: {
+      noExtensions: true, noSkills: true, noPromptTemplates: true, noContextFiles: true, noThemes: true,
+      additionalExtensionPaths: [...builtinPaths, ...extensions],
+      additionalSkillPaths: skills, additionalPromptTemplatePaths: templates,
+      agentsFilesOverride: () => ({ agentsFiles: instructions }),
+      systemPrompt: '', systemPromptOverride: () => undefined,
+      skillsOverride: base => ({ ...base, skills: selectedOnly(base.skills, skills, 'filePath') }),
+      promptsOverride: base => ({ ...base, prompts: selectedOnly(base.prompts, templates, 'filePath') }),
+      themesOverride: base => ({ ...base, themes: [] }),
+    },
+  };
+}
+
+/** Owned children never discover extensions; managed wrappers cannot promise this contract yet. */
+export function ownedExtensionArguments(role, launcher) {
+  if (launcher?.managedExtensions) throw Error('Managed launcher cannot isolate owned children');
+  return [
+    ...extensionArguments([fileURLToPath(new URL('./owned-agent-extension.mjs', import.meta.url))]),
+    '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes',
+    '--tools', ownedRoleTools(role).join(','), '--exclude-tools', 'mcp__*',
+  ];
 }
 
 // Pi cannot leave out one extension, so it is told to discover none and given the list.

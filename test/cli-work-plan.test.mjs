@@ -1002,7 +1002,7 @@ test('a row that keeps failing waits its own turn longer, and everything else go
   assert.equal(plan(root).next.title, 'failing', 'and a pick is the user\'s own word');
 });
 
-// What starts by itself is paced by its priority, over a rolling window.
+// P1 and P2 fill available slots; P3 retains its rolling weekly start limit.
 
 /** Runs that started by themselves and spent their priority's runs, each so many hours ago. */
 const startedBefore = (root, ...starts) => writeMode(root, {
@@ -1010,7 +1010,7 @@ const startedBefore = (root, ...starts) => writeMode(root, {
 });
 const waits = root => Object.fromEntries(plan(root).entries.map(({ title, waiting }) => [title, waiting]));
 
-test('P1 starts 4 runs by itself in any 24 hours, all its projects together, and then a P2 row goes while P1 says why it waits', t => {
+test('P1 and P2 histories leave eligible work ready in priority order', t => {
   const root = dataRoot(t);
   project(root, 'tool');
   project(root, 'web');
@@ -1021,18 +1021,18 @@ test('P1 starts 4 runs by itself in any 24 hours, all its projects together, and
   fileItem(root, 'site', item('site fix', { impact: 'high' }), now);
 
   startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 23]);
-  assert.equal(plan(root).next.title, 'tool fix', 'three leave a place');
+  assert.equal(plan(root).next.title, 'tool fix', 'priority order holds with existing starts');
 
-  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 5], ['P1', 23]);
-  assert.equal(plan(root).next.title, 'site fix');
+  startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 5], ['P1', 23], ['P2', 1]);
+  assert.equal(plan(root).next.title, 'tool fix');
   assert.deepEqual(waits(root), {
-    'tool fix': 'P1 has had its 4 runs today',
-    'web fix': 'P1 has had its 4 runs today',
+    'tool fix': null,
+    'web fix': null,
     'site fix': null,
   });
 });
 
-test('a start older than its window frees a place: P1 and P2 count the last 24 hours and P3 the last 7 days', t => {
+test('P3 waits for its rolling week while P1 and P2 remain eligible', t => {
   const root = dataRoot(t);
   project(root, 'tool');
   project(root, 'site', 'casual');
@@ -1045,8 +1045,8 @@ test('a start older than its window frees a place: P1 and P2 count the last 24 h
 
   startedBefore(root, ['P1', 1], ['P1', 2], ['P1', 3], ['P1', 23.9], ['P2', 23.9], ['P3', 167.9]);
   assert.deepEqual(waits(root), {
-    'tool fix': 'P1 has had its 4 runs today',
-    'site fix': 'P2 has had its run today',
+    'tool fix': null,
+    'site fix': null,
     'toy fix': 'P3 has had its run this week',
   });
 
@@ -1067,7 +1067,7 @@ test('discovery spends the runs of its own grade, so the daily look at P3 waits 
   }
 });
 
-test('the user\'s picks, closing work and P0 start whatever P1 has had, and with auto-pick off nothing waits on it', t => {
+test('picks, closing work and P0 keep their order with P1 history and auto-pick choices', t => {
   const root = dataRoot(t);
   project(root, 'tool');
   project(root, 'web');
@@ -1094,7 +1094,7 @@ test('the user\'s picks, closing work and P0 start whatever P1 has had, and with
     noted: null,
     started: null,
     'billing fix': null,
-    'new work': 'P1 has had its 4 runs today',
+    'new work': null,
   });
   assert.equal(countsAgainst({ kind: 'watch', focus: 'watch', priority: 'P1' }), null, 'a watch looks after what already landed');
 
@@ -1102,7 +1102,7 @@ test('the user\'s picks, closing work and P0 start whatever P1 has had, and with
   assert.equal(waits(root)['new work'], null);
 });
 
-test('a study its priority cannot start yet holds back no urgent item, because urgent work is never paced', t => {
+test('an eligible first study keeps its order before the item after four P1 starts', t => {
   const root = dataRoot(t);
   chooseProject(root, '/repos/api', 'important', now);
   fileItem(root, 'api', item('main is broken', { urgent: true }), now);
@@ -1110,8 +1110,8 @@ test('a study its priority cannot start yet holds back no urgent item, because u
 
   const { next, entries } = plan(root);
 
-  assert.equal(next.title, 'main is broken');
-  assert.deepEqual(entries.map(({ kind, waiting }) => [kind, waiting]), [['study', 'P1 has had its 4 runs today'], ['item', null]]);
+  assert.equal(next.title, 'first study');
+  assert.deepEqual(entries.map(({ kind, waiting }) => [kind, waiting]), [['study', null], ['item', 'needs its study']]);
 });
 
 test('with no reading of the subscription, one agent runs at a time, because the token limit alone cannot protect it', t => {

@@ -9,10 +9,11 @@ import {
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { BRIDGE, callBridge, serveBridge } from '../src/cli/bridge.mjs';
 import { readDecided } from '../src/cli/decided.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from '../src/cli/hobkin-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from '../src/cli/hobkin-tools.mjs';
 import hobkin from '../src/cli/hobkin-extension.mjs';
 import { createMemoryTool, readMemory } from '../src/cli/memory.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
+import { createOwnedAgentSessionTool } from '../src/cli/owned-agent-tool.mjs';
 import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
@@ -88,6 +89,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
         scheduled.push({ scheduleId, id });
         return { status: 'admitted', scheduleId };
       }),
+      stop_workload: createStopWorkloadTool(async request => ({ action: request.action, running: [] })),
       message_check: createCheckMessageTool(async ({ scheduleId }) => ({ scheduleId, status: 'delivered' })),
       hobkin_memory: createMemoryTool(root),
       model_settings: createSettingsTool(async request => ({ action: request.action, scope: request.scope })),
@@ -124,7 +126,7 @@ const toolResults = session => session.messages.filter(message => message.role =
 
 test('Pi registers the Hobkin tools with their ordinary definitions and reports them on start', async t => {
   const { session, statuses } = await fixture(t);
-  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool()];
+  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createOwnedAgentSessionTool()];
   const registered = session.agent.state.tools;
   for (const tool of originals) {
     const found = registered.find(item => item.name === tool.name);
@@ -160,6 +162,13 @@ test('a tool the model calls runs in the host through the input dialog and its r
   assert.deepEqual(scheduled, [{ scheduleId: 'daily-check', id: 'call-2' }]);
   assert.ok(dialogs.filter(dialog => dialog.title === BRIDGE).length >= 4);
   assert.equal(readMemory(root)[0], 'Rent is due November 1');
+});
+
+test('main workload Stop uses the same definition through the extension bridge', async t => {
+  const { session } = await fixture(t);
+  scriptedModel(session, [{ name: 'stop_workload', arguments: { action: 'list' } }]);
+  await session.prompt('List owned parents.', { preflightResult() {} });
+  assert.deepEqual(toolResults(session)[0].details, { action: 'list', running: [] });
 });
 
 test('a host error becomes an ordinary failed tool result, and an aborted call is cancelled', async t => {

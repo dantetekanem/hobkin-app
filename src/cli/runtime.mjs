@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import lockfile from 'proper-lockfile';
@@ -7,7 +7,9 @@ import { createModels } from '@earendil-works/pi-ai';
 import { createRegistry, defineDoc, Harness } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { compactionDue } from './compaction.mjs';
+import { allCardActions, recordCardAction } from './work/card-actions.mjs';
 import { doingAfter } from './doing.mjs';
+import { skipInQueue } from './work/store.mjs';
 import { JobActivity } from './job-activity.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
@@ -15,6 +17,7 @@ import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { isQuietRun, saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
+import { createTurnMetrics } from './turn-metrics.mjs';
 
 // The whole conversation is in its messages. This is a view of what it does now, so a long chat keeps only its latest steps.
 const MAIN_ACTIVITY_ENTRIES = 200;
@@ -40,14 +43,38 @@ const costOf = session => {
     ? { usd: stats.cost, kind: 'estimate', cumulative: true, sessionId: session.sessionId } : null;
 };
 
+function recordUserStop(root, run, actions) {
+  if (run.userStop?.source !== 'user' || run.status !== 'interrupted' || run.result?.status !== 'interrupted') return;
+  const id = `user-stop:${run.id}`;
+  const existing = (actions ?? allCardActions(root)).find(action => action.id === id);
+  if (existing?.userStop && existing.did && existing.line) return;
+  const did = `The user stopped run ${run.id} (${run.title}). ${run.userStop.reason} Do not retry or restart this stopped work unless the user explicitly asks. Partial results are retained.`;
+  recordCardAction(root, { id, at: existing?.at ?? run.finishedAt, userStop: { runId: run.id, ...run.userStop }, title: run.title, did, line: did });
+}
+
+function recordMainStop(root, run, actions) {
+  if (run.mainStop?.source !== 'main' || run.status !== 'interrupted' || run.result?.status !== 'interrupted' || !run.work?.planKey) return;
+  const id = `main-stop:${run.id}`;
+  const existing = (actions ?? allCardActions(root)).find(action => action.id === id);
+  if (existing?.mainStop && existing.did && existing.line) return;
+  // Only a confirmed interruption gains a hold. No speculative skip or rollback can overwrite another queue edit.
+  skipInQueue(root, run.work.planKey);
+  const did = `Hobkin stopped Work run ${run.id} (${run.title}) because ${run.mainStop.reason} Do not retry or restart this stopped work unless explicitly repicked. The parent interruption is confirmed; nested helper cleanup is unconfirmed. Partial results are retained.`;
+  recordCardAction(root, { id, at: existing?.at ?? run.finishedAt, mainStop: { runId: run.id, ...run.mainStop }, title: run.title, did, line: did });
+}
+
 export class HobkinRuntime {
-  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, editReport, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
+    this.metricsNow = metricsNow;
     this.askQuestion = askQuestion;
     this.triggerSchedule = triggerSchedule;
     this.messageCheck = messageCheck;
+    this.stopWorkload = stopWorkload;
+    this.ownedAgent = ownedAgent;
+    this.ownedLifecycle = ownedLifecycle;
     this.editReport = editReport;
     this.onChange = onChange;
     this.active = new Map();
@@ -87,21 +114,15 @@ export class HobkinRuntime {
       runtime.root = await runtime.harness.root(context, {
         init: async (tx, id) => { await tx.doc(RuntimeDoc, id); },
       });
-      const abandoned = await runtime.change(state => {
-        const stopped = Object.values(state.runs).filter(run => run.status === 'running');
-        for (const run of stopped) {
-          Object.assign(run, {
-            status: 'interrupted',
-            cost: null,
-            error: 'The previous owner stopped without a completion receipt. Not replayed.',
-            finishedAt: new Date().toISOString(),
-          });
-        }
-        return copy(stopped);
-      });
+      const abandoned = await runtime.interruptAbandonedRuns();
       for (const run of abandoned) {
         logRun(root, run);
         recordRunFinished(root, run);
+      }
+      const actions = allCardActions(root);
+      for (const run of Object.values((await runtime.state()).runs)) {
+        recordUserStop(root, run, actions);
+        recordMainStop(root, run, actions);
       }
       return runtime;
     } catch (error) {
@@ -110,6 +131,25 @@ export class HobkinRuntime {
       await runtime.release();
       throw error;
     }
+  }
+
+  interruptAbandonedRuns() {
+    return this.change(state => {
+      const stopped = Object.values(state.runs).filter(run => run.status === 'running');
+      for (const run of stopped) {
+        if (run.kind === 'main' && !run.parentRunId && run.sessionId) {
+          const identity = { runId: run.id, sessionId: run.sessionId };
+          // Recovery observes neither dispatch nor completion; never clock from restart or replay an append.
+          run.performance = { ...createTurnMetrics({ ...identity, now: () => NaN }).finish(identity), incomplete: true };
+        }
+        Object.assign(run, {
+          status: 'interrupted', cost: null,
+          error: 'The previous owner stopped without a completion receipt. Not replayed.',
+          finishedAt: new Date().toISOString(),
+        });
+      }
+      return copy(stopped);
+    });
   }
 
   check() {
@@ -149,7 +189,8 @@ export class HobkinRuntime {
   async connectMain(fresh = false) {
     const currentState = await this.state();
     const saved = fresh ? null : currentState.main;
-    const main = await this.createMain({
+    let main;
+    main = await this.createMain({
       root: this.directory,
       config: this.config,
       saved,
@@ -158,6 +199,12 @@ export class HobkinRuntime {
       askQuestion: this.askQuestion && ((request, signal) => this.askQuestion({ ...request, inChat: true }, signal)),
       triggerSchedule: (scheduleId, callId, signal) => this.triggerSchedule(scheduleId, `${this.main.sessionId}:${callId}`, signal),
       messageCheck: this.messageCheck,
+      stopWorkload: this.stopWorkload,
+      ownedAgent: this.ownedLifecycle ? (request, signal) => {
+        const turn = this.mainTurn;
+        if (!main || turn?.session !== main || !turn.owned || turn.preflight !== true || turn.stopping || this.resetting || this.closing) throw Error('No active admitted owned turn');
+        return turn.owned.request(request, signal);
+      } : this.ownedAgent,
     });
     if (this.closing || this.fault) {
       await closePiSession(main);
@@ -341,10 +388,12 @@ export class HobkinRuntime {
 
   // A steering message still being handed over gets into Pi's queue first, so nothing slips past the stop.
   async stopTurn(turn) {
+    const children = turn.owned?.cancel();
     await Promise.allSettled([...turn.steering]);
     const { steering = [], followUp = [] } = (await turn.session.clearQueue?.()) ?? {};
     this.active.get(turn.id)?.controller.abort();
     await turn.session.abort();
+    await children;
     await this.mainWork;
     return [...steering, ...followUp];
   }
@@ -387,11 +436,14 @@ export class HobkinRuntime {
         status: result.status,
         cost: result.cost ?? null,
         result: copy(result),
+        ...(result.performance ? { performance: copy(result.performance) } : {}),
         finishedAt: new Date().toISOString(),
       });
       return copy(run);
     });
     if (finished) {
+      recordUserStop(this.directory, finished);
+      recordMainStop(this.directory, finished);
       logRun(this.directory, finished);
       recordRunFinished(this.directory, finished);
     }
@@ -544,13 +596,26 @@ export class HobkinRuntime {
       model: `${session.model?.provider}/${session.model?.id}`,
       effort: session.thinkingLevel,
     }, async signal => {
+      const identity = { runId: id, sessionId: turn.sessionId };
+      const metrics = createTurnMetrics({ ...identity, now: this.metricsNow });
+      const unsubscribe = session.subscribe((event, message) => metrics.observe(message ? { ...event, message } : event, identity));
+      let outcome;
+      const cancelChildren = () => { void turn.owned?.cancel(); };
       try {
+        signal.throwIfAborted();
+        const directionsFile = join(this.directory, 'AGENTS.md');
+        turn.owned = this.ownedLifecycle?.register({ id, allowHelpers: true, binding: {
+          cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readFileSync(existsSync(directionsFile) ? directionsFile : new URL('../prompts/agents-default.md', import.meta.url)).subarray(0, 16384).toString('utf8') }),
+          model: `${session.model?.provider}/${session.model?.id}`, effort: session.thinkingLevel,
+          role: 'read', parentRole: 'read', launcher: this.config.launcher,
+        } });
+        signal.addEventListener('abort', cancelChildren, { once: true });
         await withPiCancellation(session, signal, () => session.prompt(text, {
           images,
           preflightResult: result => {
             disposition = result;
             preflight = result !== false;
-            turn.preflight = preflight;
+            turn.preflight = preflight && disposition !== 'handled';
             if (signal.aborted) {
               // Throwing here bypasses Pi's settlement cleanup after it has started the run.
               void session.abort().catch(() => {});
@@ -563,11 +628,16 @@ export class HobkinRuntime {
           },
         }));
         if (disposition === 'handled') {
-          return { status: 'completed', cost: costOf(session), text: '' };
+          return outcome = { status: 'completed', cost: costOf(session), text: '' };
         }
         if (disposition === 'queued') await session.waitForIdle();
+        const earlier = session.messages.filter(message => message.role === 'assistant').at(-1);
+        const facts = earlier?.stopReason === 'stop' ? await turn.owned?.join() : undefined;
+        signal.throwIfAborted();
+        if (facts) await withPiCancellation(session, signal, () => session.prompt(facts));
         const last = session.messages.filter(message => message.role === 'assistant').at(-1);
-        return {
+        if (facts && last === earlier) throw Error('Owned descendants require a later parent response');
+        return outcome = {
           status: last?.stopReason === 'stop' ? 'completed' : 'incomplete',
           stopReason: last?.stopReason,
           cost: costOf(session),
@@ -575,12 +645,20 @@ export class HobkinRuntime {
         };
       } catch (error) {
         accepted.reject(error);
-        return {
+        return outcome = {
           status: signal.aborted || preflight === true ? 'interrupted' : 'failed',
           noModel: preflight === false,
+          text: session.messages.filter(message => message.role === 'assistant').at(-1)?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n') ?? '',
           cost: preflight === false ? null : costOf(session),
           error: String(error.message ?? error),
         };
+      } finally {
+        signal.removeEventListener('abort', cancelChildren);
+        const cleanup = await turn.owned?.cancel();
+        if (outcome && cleanup) Object.assign(outcome, { ownedCleanupConfirmed: cleanup.confirmed, ownedChildren: cleanup.agents });
+        unsubscribe();
+        const performance = metrics.record(this.directory, identity);
+        if (outcome) outcome.performance = performance;
       }
     });
     this.mainWork = work.then(async run => {
@@ -601,14 +679,30 @@ export class HobkinRuntime {
     return accepted.promise;
   }
 
-  async cancel(id) {
+  async cancel(id, stop = {}) {
     const active = this.active.get(id);
-    if (!active) return;
+    if (!active || active.controller.signal.aborted || active.cancelling) return false;
+    active.cancelling = true;
+    const run = await this.change(state => {
+      const current = state.runs[id];
+      if (current?.status !== 'running' || active.controller.signal.aborted) return null;
+      if (stop.source === 'user') current.userStop = {
+        source: 'user', reason: String(stop.reason ?? 'Stopped by the user.').slice(0, 200),
+      };
+      if (stop.source === 'main') current.mainStop = { source: 'main', reason: stop.reason };
+      return copy(current);
+    }).catch(error => {
+      active.cancelling = false;
+      throw error;
+    });
+    if (!run) return false;
     active.controller.abort();
-    const run = (await this.state()).runs[id];
     if (run.kind === 'main') await this.main?.abort();
     await active.completion;
     if (run.kind === 'main') await this.mainWork;
+    const ended = (await this.state()).runs[id];
+    if (ended.status !== 'interrupted') return false;
+    return true;
   }
 
   async idle() {
@@ -620,9 +714,11 @@ export class HobkinRuntime {
     if (!this.closePromise) {
       this.closing = true;
       this.closePromise = (async () => {
+        const children = this.ownedLifecycle?.close();
         for (const { controller } of this.active.values()) controller.abort();
         await this.connecting?.catch(() => {});
         await this.main?.abort();
+        await children;
         await Promise.allSettled([this.mainWork, ...[...this.active.values()].map(item => item.completion)]);
         this.unsubscribe?.();
         await closePiSession(this.main);

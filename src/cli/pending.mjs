@@ -1,5 +1,4 @@
 import { isActionItem } from './decisions.mjs';
-import { reportTriage } from './reports.mjs';
 import { heldByItsGrade } from './work/reads.mjs';
 
 const MINUTE_MS = 60000;
@@ -9,7 +8,6 @@ const DAY_MS = 24 * HOUR_MS;
 export const PRESENT_MS = 2 * MINUTE_MS;
 
 const TO_READ = ['land', 'rebase', 'elsewhere', 'unlanded'];
-const WENT_WRONG = ['critical', 'blocked'];
 const ASKS = ['allowance', 'proposal'];
 // Each of these is about branches that already have their rows, or is the old card about the pile itself.
 const NOT_QUESTIONS = ['land', 'merge', 'read', 'pair', 'pending'];
@@ -45,27 +43,11 @@ const landsOnItsProof = row => row.proved !== false && !heldByItsGrade(row) && w
 const isReady = row => row.gap === 'land' && !row.left && (Boolean(row.offer) || landsOnItsProof(row));
 const isToRead = row => TO_READ.includes(row.gap) && !row.left && !isReady(row);
 
-/** Each routine's newest report speaks for it, so one that says the same thing every day is one call, and a later report with no call ends it. */
-function reportCalls(reports, read) {
-  const newest = new Map();
-  for (const report of reports) {
-    const routine = report.scheduleId ?? report.id;
-    const known = newest.get(routine);
-    if (!known || Date.parse(report.at) > Date.parse(known.at)) newest.set(routine, report);
-  }
-  return [...newest.values()]
-    .filter(({ id }) => !read.has(id))
-    .map(report => ({ ...report, triage: reportTriage({ status: report.outcome, result: { text: report.body } }) }))
-    .filter(({ triage }) => triage?.next);
-}
-
 const launchTrouble = ({ slug, project, item, note, liveAt, pushedAt, mergedAt }, now) => ({
   key: `launch:${slug}:${item}`,
   tab: 'work',
   fact: `${project}, ${note ?? 'trouble'}${sinceWhen(liveAt ?? pushedAt ?? mergedAt, now)}`,
 });
-
-const reportTrouble = ({ id, title, triage }) => ({ key: `report:${id}`, tab: 'reports', report: id, fact: `${title}: ${triage.next}` });
 
 // A step can be in both places. The finished-work row comes first and stays, because it has the branch its page shows.
 function yoursRows(ready, attention) {
@@ -78,13 +60,11 @@ function yoursRows(ready, attention) {
   return [...once.values()];
 }
 
-function readFact(branches, calls, now) {
-  const reports = calls.length ? plural(calls.length, 'report') : '';
-  if (!branches.length) return `${reports}, oldest ${oldest(calls, now)}`;
+function readFact(branches) {
   const projects = new Set(branches.map(({ project }) => project));
   const spread = projects.size === 1 ? `in ${branches[0].project}` : `across ${projects.size} projects`;
   const lines = linesIn(branches);
-  return [lines ? `${shortNumber(lines)} lines ${spread}` : spread, reports].filter(Boolean).join(', ');
+  return lines ? `${shortNumber(lines)} lines ${spread}` : spread;
 }
 
 function questionFact(questions, now) {
@@ -100,28 +80,23 @@ function readyFact(rows) {
 const row = (name, label, items, fact) => (items.length ? [{ name, count: items.length, label, fact: fact() }] : []);
 
 /**
- * Everything the card counts, one row each, for Action Items to list under the questions and items it already holds. A report that went wrong
- * keeps what opens it, `asks` are work mode's questions and `proposals` learning's. Nothing here reads or writes anything.
+ * Everything the card counts, one row each, for Action Items to list under the questions and items it already holds.
+ * `asks` are work mode's questions and `proposals` learning's. Nothing here reads or writes anything.
  */
-export function waitingRows({ ready = [], attention = [], proposals = [], launches = [], reports = [], read = new Set(), now }) {
-  const calls = reportCalls(reports, read);
-  const wentWrong = ({ triage }) => WENT_WRONG.includes(triage.level);
+export function waitingRows({ ready = [], attention = [], proposals = [], launches = [], now }) {
   return {
-    wrong: [
-      ...launches.filter(({ outcome, fixed }) => outcome === 'trouble' && !fixed).map(launch => launchTrouble(launch, now)),
-      ...calls.filter(wentWrong).map(reportTrouble),
-    ],
+    wrong: launches.filter(({ outcome, fixed }) => outcome === 'trouble' && !fixed).map(launch => launchTrouble(launch, now)),
     asks: attention.filter(({ kind }) => ASKS.includes(kind)),
     proposals,
     branches: ready.filter(entry => isReady(entry) || isToRead(entry)),
     yours: yoursRows(ready, attention),
-    reports: calls.filter(call => !wentWrong(call)),
+    reports: [],
   };
 }
 
 /** What waits on the user, across every routine and work mode, one row per group. Each fact is worked out from what is given, and nothing here reads or writes anything. */
 export function pendingCard({ decisions = [], now, ...given }) {
-  const { wrong, asks, proposals, branches, yours, reports } = waitingRows({ now, ...given });
+  const { wrong, asks, proposals, branches, yours } = waitingRows({ now, ...given });
   const landable = branches.filter(isReady);
   const branchesToRead = branches.filter(isToRead);
   const open = decisions.filter(({ answerTo }) => !NOT_QUESTIONS.includes(answerTo?.kind));
@@ -129,7 +104,7 @@ export function pendingCard({ decisions = [], now, ...given }) {
   const questions = [...open.filter(decision => !isActionItem(decision)), ...asks, ...proposals];
   const groups = [
     ...row('ready', 'ready', landable, () => readyFact(landable)),
-    ...row('read', 'to read', [...branchesToRead, ...reports], () => readFact(branchesToRead, reports, now)),
+    ...row('read', 'to read', branchesToRead, () => readFact(branchesToRead)),
     ...row('wrong', 'went wrong', wrong, () => wrong[0].fact),
     ...row('questions', questions.length === 1 ? 'question' : 'questions', questions, () => questionFact(questions, now)),
     ...row('todo', 'to do', toDo, () => toDo[0].tldr),

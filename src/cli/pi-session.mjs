@@ -7,12 +7,13 @@ import { readSource, sha256 } from './migration/inventory.mjs';
 import { routinesFolder, validateBinding } from './schedules.mjs';
 import { createMemoryExtension, createMemoryTool } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
-import { grantChrome } from './chrome.mjs';
-import { createCheckMessageTool, createScheduleTool, createSettingsTool } from './hobkin-tools.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { compactAtForceLevel } from './compaction.mjs';
-import { extensionPaths, LEFT_OUT_OF_THE_MAIN_CHAT } from './pi-extensions.mjs';
+import { mainSdkResources } from './pi-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
+import { attachUserBash } from './user-bash.mjs';
+import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { hobkinCommand } from './work/chat.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
 
@@ -55,7 +56,7 @@ export async function closePiSession(session) {
 
 /** Pi owns the transcript format. Durable stores only its identity and dispatch receipts. */
 export async function openPiSession(
-  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck },
+  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent },
   dependencies = {},
 ) {
   root = assertRuntimeAdmission(root);
@@ -74,6 +75,8 @@ export async function openPiSession(
       askQuestion,
       triggerSchedule,
       messageCheck,
+      stopWorkload,
+      ownedAgent,
       prompts: mainPrompts(root, config),
     }, dependencies);
   }
@@ -83,7 +86,7 @@ export async function openPiSession(
     expected,
     file,
     fresh,
-    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root)],
+    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createOwnedAgentSessionTool(ownedAgent)],
     modelSettings: { root, config },
   }, dependencies);
 }
@@ -232,23 +235,23 @@ export function followEntryLink(argv = process.argv) {
 
 async function openConversation(
   { root, config, expected, file, fresh = false, customTools = [], modelSettings },
-  { createSession, agentDir, modelRuntime: suppliedModelRuntime } = {},
+  { createSession, agentDir, resourceCandidates = [], modelRuntime: suppliedModelRuntime, loadSdk = () => import('@earendil-works/pi-coding-agent') } = {},
 ) {
   refuseInProcess(config);
   validateBinding({ harness: 'pi', ...config.main });
+  const resources = mainSdkResources(config.resourceSelection, resourceCandidates);
   followEntryLink();
   const {
     SessionManager,
     createAgentSession,
     createCodemodeExtension,
-    createMcpExtension,
     createToolSearchExtension,
     DefaultResourceLoader,
     ModelRuntime,
     resolveCliModel,
     SettingsManager,
     getAgentDir,
-  } = await import('@earendil-works/pi-coding-agent');
+  } = await loadSdk();
   claimSessionFile(file, { fresh, expected });
   const manager = SessionManager.open(file, dirname(file), config.main.cwd);
   if (expected && manager.getSessionId() !== expected.sessionId) throw Error('Main Pi conversation identity changed.');
@@ -258,22 +261,18 @@ async function openConversation(
   const builtIns = [
     { name: 'codemode', factory: createCodemodeExtension(), builtin: true, replaceable: true },
     { name: 'tool-search', factory: createToolSearchExtension(), builtin: true, replaceable: true },
-    { name: 'mcp', factory: createMcpExtension(), builtin: true, replaceable: true },
   ];
   const resourceLoader = new DefaultResourceLoader({
     cwd: config.main.cwd,
     agentDir: effectiveAgentDir,
-    settingsManager,
-    noExtensions: true,
-    additionalExtensionPaths: await extensionPaths(config.main.cwd, {
-      agentDir: effectiveAgentDir,
-      builtIns: builtIns.map(({ name }) => name),
-      leaveOut: LEFT_OUT_OF_THE_MAIN_CHAT,
-    }),
+    // The loader must not resolve/install configured packages, even with discovery flags off.
+    settingsManager: SettingsManager.inMemory({}),
+    ...resources.loader,
     extensionFactories: [...builtIns, createMemoryExtension(root)],
     appendSystemPrompt,
   });
   await resourceLoader.reload();
+  resources.assertLoaded(resourceLoader);
   let options = {
     cwd: config.main.cwd,
     sessionManager: manager,
@@ -302,6 +301,7 @@ async function openConversation(
     });
     options = { ...options, customTools: [...customTools, settingsTool] };
   }
+  options.tools = [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name)];
   const { session, modelFallbackMessage } = await (createSession ?? createAgentSession)(options);
   currentSession.current = session;
   if (modelFallbackMessage || !keptEffort(session.model, config.main.effort, session.thinkingLevel)
@@ -312,8 +312,11 @@ async function openConversation(
   compactAtForceLevel(settingsManager, [...(session.modelRuntime?.getAvailableSnapshot?.() ?? []), session.model].filter(Boolean));
   try {
     await session.bindExtensions({});
-    await grantChrome(session);
-    return session;
+    const active = session.getActiveToolNames();
+    if (active.some(name => !options.tools.includes(name)) || options.tools.some(name => !active.includes(name))) {
+      throw Error('Main SDK tools missing or unexpectedly re-enabled by an extension.');
+    }
+    return attachUserBash(session);
   } catch (error) {
     await closePiSession(session);
     throw error;

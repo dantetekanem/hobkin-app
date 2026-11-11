@@ -10,11 +10,11 @@ const NAME = /^hobkin-[a-z0-9-]{1,20}-[0-9a-f]{4}$/;
  * from the request: the brief and the report are where that command keeps them, and a request that does not hold up
  * is dropped.
  */
-export function takeSessionRequests(root) {
+export function takeSessionRequests(root, capacity = Infinity) {
   const folder = join(root, 'runtime', 'session-requests');
   if (!existsSync(folder)) return [];
   const handoffs = join(root, 'runtime', 'handoffs');
-  return readdirSync(folder).filter(file => file.endsWith('.json')).flatMap(file => {
+  return readdirSync(folder).filter(file => file.endsWith('.json')).slice(0, capacity).flatMap(file => {
     let request = null;
     try {
       request = JSON.parse(readFileSync(join(folder, file), 'utf8'));
@@ -54,7 +54,9 @@ export function startSessionJob({ root, runner, model, effort }, session) {
   return work.then(run => {
     // Its last reply is the report when it wrote none.
     if (!existsSync(session.report) && run?.result?.text) writeFileSync(session.report, run.result.text, { mode: 0o600 });
-    recordSessionEnd(session);
+    const userStop = run?.userStop && run.status === 'interrupted'
+      ? { runId: run.id, reason: run.userStop.reason } : undefined;
+    recordSessionEnd({ ...session, userStop });
     // The run posts its own notice and report, so the session log's would say it twice.
     markPosted(root, [session]);
   });

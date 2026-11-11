@@ -184,3 +184,79 @@ test('a child still out when its run ends is stopped, not reported', () => {
   ]);
   assert.equal(feed.children()[1].state, 'running', 'only the published copy says stopped');
 });
+
+test('codemode details preserve ordered call snapshots, including duplicate running ids', () => {
+  const feed = new JobActivity();
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'outer', toolName: 'codemode', args: { code: 'await Promise.all(...)' } });
+  const partial = calls => ({ content: [], details: { calls, fullOutputPath: '/tmp/codemode-output.txt', private: 'SECRET' } });
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'outer', toolName: 'codemode', partialResult: partial([
+    { id: 'outer/?', name: 'read', args: '{"path":"a"}', status: 'running', private: 'SECRET' },
+    { id: 'outer/?', name: 'grep', args: '{"pattern":"x"}', status: 'running' },
+  ]) });
+  const running = feed.snapshot().at(-1);
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'outer', toolName: 'codemode', partialResult: partial([
+    { id: 'outer/2', name: 'read', args: '{"path":"a"}', status: 'ok', durationMs: 12, cost: 0 },
+    { id: 'outer/?', name: 'grep', args: '{"pattern":"x"}', status: 'running' },
+  ]) });
+
+  const updated = feed.snapshot().at(-1);
+  assert.deepEqual(updated.codemode.calls.map(({ id, name, status }) => [id, name, status]), [
+    ['outer/2', 'read', 'ok'], ['outer/?', 'grep', 'running'],
+  ]);
+  assert.equal(running.codemode.calls[0].id, 'outer/?', 'prior snapshots are not rewritten');
+  assert.equal(updated.codemode.fullOutputPath, '/tmp/codemode-output.txt');
+  assert.doesNotMatch(JSON.stringify(updated.codemode), /SECRET|private/);
+  assert.deepEqual(Object.keys(updated.codemode.calls[0]).sort(), ['args', 'cost', 'durationMs', 'id', 'name', 'status']);
+  assert.equal(updated.codemode.calls[0].cost, 0);
+});
+
+test('codemode partial output and nested errors stay separate from parent failure', () => {
+  const feed = new JobActivity();
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'failed-script', toolName: 'codemode', args: { code: 'text(await tools.read(...))' } });
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'failed-script', toolName: 'codemode', partialResult: {
+    content: [{ type: 'text', text: 'partial script output' }],
+    details: { calls: [{ id: 'failed-script/1', name: 'read', args: '{}', status: 'error', error: 'read failed', durationMs: 4 }] },
+  } });
+  feed.accept({ type: 'tool_execution_end', toolCallId: 'failed-script', toolName: 'codemode', isError: true, result: {
+    content: [{ type: 'text', text: 'partial script output' }],
+    details: { calls: [{ id: 'failed-script/1', name: 'read', args: '{}', status: 'error', error: 'read failed', durationMs: 4 }] },
+  } });
+
+  const [entry] = feed.snapshot();
+  assert.equal(entry.state, 'failed');
+  assert.equal(entry.output, 'partial script output');
+  assert.equal(entry.codemode.calls[0].status, 'error');
+  assert.equal(entry.codemode.calls[0].error, 'read failed');
+});
+
+test('codemode metadata is bounded and private details from other tools remain excluded', () => {
+  const feed = new JobActivity();
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'other', toolName: 'read', partialResult: {
+    content: [{ type: 'text', text: 'public' }],
+    details: { calls: [{ id: 'secret', name: 'private', args: 'SECRET', status: 'ok' }], fullOutputPath: '/private/path' },
+  } });
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'bad-codemode', toolName: 'codemode', partialResult: {
+    content: [], details: { calls: 'malformed', private: 'SECRET' },
+  } });
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'bad-status', toolName: 'codemode', partialResult: {
+    content: [], details: { calls: [{ id: 'bad', name: 'read', args: '{}', status: 'unknown' }] },
+  } });
+  feed.accept({ type: 'tool_execution_update', toolCallId: 'bounded', toolName: 'codemode', partialResult: {
+    content: [], details: { calls: Array.from({ length: 150 }, (_, index) => ({
+      id: `outer/${index}`, name: 'x'.repeat(200), args: 'a'.repeat(2000), status: 'ok', durationMs: -1,
+      error: 'e'.repeat(2000), cost: Infinity, private: 'SECRET',
+    })) },
+  } });
+
+  const entries = feed.snapshot();
+  assert.equal(Object.hasOwn(entries[0], 'codemode'), false);
+  assert.equal(Object.hasOwn(entries[1], 'codemode'), false, 'malformed metadata is unknown');
+  assert.equal(Object.hasOwn(entries[2], 'codemode'), false, 'unknown statuses make metadata unknown');
+  assert.equal(entries[3].codemode.calls.length, 100);
+  assert.equal(entries[3].codemode.calls[0].name.length <= 120, true);
+  assert.equal(entries[3].codemode.calls[0].args.length <= 500, true);
+  assert.equal(entries[3].codemode.calls[0].error.length <= 1000, true);
+  assert.equal(Object.hasOwn(entries[3].codemode.calls[0], 'durationMs'), false);
+  assert.equal(Object.hasOwn(entries[3].codemode.calls[0], 'cost'), false);
+  assert.doesNotMatch(JSON.stringify(entries), /SECRET|private|Infinity/);
+});

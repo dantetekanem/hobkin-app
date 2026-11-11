@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
 import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES } from './runtime.mjs';
+import { createOwnedLifecycle } from './owned-agent-lifecycle.mjs';
 import { HobkinRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
@@ -31,7 +32,7 @@ import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInb
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, requestReview } from './work/controls.mjs';
+import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview } from './work/controls.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
@@ -50,13 +51,13 @@ import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
 } from './work/store.mjs';
 import { readingUsage } from './work/usage.mjs';
-import { atomicJson, learningEnabled, loadConfig, setLearning } from './config.mjs';
+import { atomicJson, learningEnabled, loadConfig, readPersona, setLearning } from './config.mjs';
 import { runLearningCommand } from './learning/commands.mjs';
 import { Learner, proposalMessage } from './learning/learner.mjs';
 import { learningState } from './learning/store.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
-import { readLocalView } from './view.mjs';
+import { projectPerformance, readLocalView } from './view.mjs';
 import { PastedImages } from './paste-image.mjs';
 import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
@@ -90,6 +91,13 @@ const chatMessage = (message, index, shown) => {
     ...(images ? { images } : {}),
   };
 };
+const visibleChatMessages = messages => messages
+  .filter(message => ['user', 'assistant', 'custom'].includes(message.role) && message.customType !== CHROME_NOTE)
+  .filter(message => message.display !== false)
+  .filter(message => !isHoldBrief(textOf(message)) && !isWakeBrief(textOf(message)))
+  .filter(message => !isQuietScheduledRun(message))
+  .slice(-100);
+const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 const isVisibleScheduledReport = run => run.kind === 'background'
   && typeof run.scheduleId === 'string' && run.scheduleId.length > 0
   && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual');
@@ -127,6 +135,26 @@ export class HobkinApplication {
   openedAt = Date.now();
   returnLookedAt = -Infinity;
 
+  /** Lazy bytes for an already-visible image, scoped to the selected main session. */
+  messageImage({ sessionId, messageId, ordinal } = {}) {
+    const main = this.runtime.main;
+    if (!main || typeof sessionId !== 'string' || /[/\\]/.test(sessionId) || !sessionId
+      || sessionId !== main.sessionId || !/^[a-f0-9]{64}$/.test(messageId)
+      || !Number.isInteger(ordinal) || ordinal < 0
+      || !this.snapshot.messages?.some(message => message.id === messageId)) return null;
+    const shown = visibleChatMessages(this.runtime.messages());
+    if (this.runtime.main !== main || main.sessionId !== sessionId) return null;
+    const index = shown.findIndex((message, index) => chatMessage(message, index, shown).id === messageId);
+    const part = shown[index]?.content?.filter?.(part => part.type === 'image')[ordinal];
+    if (!part || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(part.mimeType)
+      || typeof part.data !== 'string' || !part.data.length
+      || part.data.length > 4 * Math.ceil(MAX_PREVIEW_BYTES / 3)
+      || part.data.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(part.data)) return null;
+    const bytes = Buffer.from(part.data, 'base64');
+    if (bytes.length > MAX_PREVIEW_BYTES || bytes.toString('base64') !== part.data) return null;
+    return { mimeType: part.mimeType, data: part.data };
+  }
+
   observeActivity(id, event) {
     try {
       if (!this.jobActivity.has(id)) {
@@ -139,7 +167,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, showDone, showRow, presence, runHarness, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
+  static async open(root, { createMain, askQuestion, showDone, showRow, presence, runHarness, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -158,14 +186,31 @@ export class HobkinApplication {
       onChange: () => app.requestRefresh(),
     });
     app.runtime = await HobkinRuntime.open(root, app.config, {
+      ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle(),
       createMain,
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
       messageCheck: request => app.runner.messageCheck(request),
+      stopWorkload: request => app.stopWorkload(request),
       editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
       onChange: () => app.requestRefresh(),
     });
     try {
+      const run = runHarness, metricsRoot = app.runtime.directory;
+      runHarness = async (request, options) => {
+        const admission = Object.values((await app.runtime.state()).runs).find(item => item.harnessId === request.id && item.status === 'running');
+        // Checks prohibit helpers; Work stays closed until child accounting is integrated.
+        const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: admission.id, allowHelpers: false, binding: request });
+        const cancel = () => { void ownedScope?.cancel(); };
+        request.signal?.addEventListener('abort', cancel, { once: true });
+        try {
+          request.signal?.throwIfAborted();
+          return await run(request, { ...options, metricsRoot, ownedScope });
+        } finally {
+          request.signal?.removeEventListener('abort', cancel);
+          await ownedScope?.cancel();
+        }
+      };
       moveRoutinesFolder(app.runtime.directory);
       // Only a draft ever needs these, and a draft does not outlive the process.
       app.pastedImages = new PastedImages(app.runtime.directory, clipboard);
@@ -306,7 +351,14 @@ export class HobkinApplication {
           outcome: run.status,
         };
       });
-    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted)].toSorted((left, right) => (right.at ?? '').localeCompare(left.at ?? ''));
+    const reportIds = new Set();
+    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted)]
+      .filter(report => {
+        if (reportIds.has(report.id)) return false;
+        reportIds.add(report.id);
+        return true;
+      })
+      .toSorted((left, right) => (right.at ?? '').localeCompare(left.at ?? ''));
     const notices = (this.snapshot.messages ?? []).filter(isOwnPost);
     // What was in Chat when this process opened is not news. One that scrolled away is worked out again on each refresh, so a count needs a memory of its own.
     this.noticesCounted ??= new Set(notices.map(({ id }) => id));
@@ -428,14 +480,7 @@ export class HobkinApplication {
       noticeIds.add(id);
     }
     const messages = foldFinishedLines([
-      ...this.runtime.messages()
-        .filter(message => ['user', 'assistant', 'custom'].includes(message.role) && message.customType !== CHROME_NOTE)
-        // `display: false` is how an extension says a note is for the agent and not for the user.
-        .filter(message => message.display !== false)
-        .filter(message => !isHoldBrief(textOf(message)) && !isWakeBrief(textOf(message)))
-        .filter(message => !isQuietScheduledRun(message))
-        .slice(-100)
-        .map(chatMessage),
+      ...visibleChatMessages(this.runtime.messages()).map(chatMessage),
       ...notices,
     ].map((message, index) => ({ message, index, time: messageTime(message) }))
       .sort((left, right) => {
@@ -444,16 +489,25 @@ export class HobkinApplication {
         return left.time - right.time || left.index - right.index;
       })
       .map(({ message }) => message)).slice(-100);
+    const readReports = readReportIds(this.runtime.directory);
+    const currentAndRecentRuns = runs.filter((run, index) => run.status === 'running' || index < 100);
     const visible = {
       version: 1,
       savedAt: new Date().toISOString(),
+      // Saved selection for subsequent runs, not the active turn's applied voice.
+      persona: readPersona(this.runtime.directory),
+      telemetry: projectPerformance(this.runtime.directory, currentAndRecentRuns),
       // Every report is listed. The tab shows them a page at a time, so nothing needs cutting here.
-      reports: [...reports, ...this.snapshot.history.reports.filter(report => !deleted.has(report.id))],
+      reports: [...reports, ...this.snapshot.history.reports.filter(report => {
+        if (deleted.has(report.id) || reportIds.has(report.id)) return false;
+        reportIds.add(report.id);
+        return true;
+      })].map(report => readReports.has(report.id) ? { ...report, readState: 'read' } : report),
       messages,
       context: this.runtime.contextInfo(),
       runs: [
         ...loaded.errors.map(error => ({ title: `${error.path}: ${error.message}`, state: 'invalid' })),
-        ...runs.filter((run, index) => run.status === 'running' || index < 100).map(run => ({
+        ...currentAndRecentRuns.map(run => ({
           id: run.id,
           title: run.title ?? run.id,
           state: run.status,
@@ -491,9 +545,17 @@ export class HobkinApplication {
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
     const completedJobReports = {};
-    for (const id of this.activeJobIds) {
+    const completedIds = new Set([
+      ...runs.filter(run => run.kind === 'background' && run.status !== 'running').slice(0, 100).map(run => run.id),
+      ...this.activeJobIds,
+    ]);
+    for (const id of completedIds) {
       const run = state.runs[id];
       if (!run || run.status === 'running') continue;
+      if (deleted.has(id) || isQuietRun(run)) {
+        completedJobReports[id] = null;
+        continue;
+      }
       const body = readReport(this.runtime.directory, id, null);
       if (body !== null) {
         completedJobReports[id] = {
@@ -529,6 +591,7 @@ export class HobkinApplication {
       ...visible,
       jobActivity,
       jobChildren,
+      steeringReceipts: this.runner.steeringReceipts(),
       completedJobReports,
       counts: loaded.counts,
       schedules: loaded.schedules,
@@ -579,12 +642,35 @@ export class HobkinApplication {
     return sent;
   }
 
+  async stopWorkload(request) {
+    const { action, id, reason } = request;
+    if (!['list', 'stop'].includes(action) || Object.keys(request).some(key => !(action === 'list' ? ['action'] : ['action', 'id', 'reason']).includes(key))
+      || (action === 'stop' && (typeof id !== 'string' || !/^work:[a-zA-Z0-9._:-]{1,195}$/.test(id)
+        || typeof reason !== 'string' || !reason.trim() || reason.length > 200))) throw Error('Invalid workload Stop request.');
+    const { runs } = await this.runtime.state();
+    const owned = this.director.running().filter(entry => {
+      const run = runs[entry.id];
+      return this.runner.jobs.has(entry.id) && this.runtime.active.has(entry.id) && run?.status === 'running'
+        && run.kind === 'background' && run.work?.planKey && run.work.planKey === entry.planKey
+        && ['do', 'look', 'discover'].includes(entry.lane) && run.work.lane === entry.lane;
+    });
+    if (action === 'list') return { running: owned.slice(0, 20).map(({ id, title, lane }) => ({ id, title, lane })) };
+    if (!owned.some(entry => entry.id === id)) throw Error('That exact owned Work parent is not active.');
+    if (!await this.runner.kill(id, { source: 'main', reason: reason.trim() })) throw Error('Work parent interruption was not confirmed.');
+    const run = (await this.runtime.state()).runs[id];
+    if (run?.status !== 'interrupted' || run.result?.status !== 'interrupted' || run.mainStop?.reason !== reason.trim()) throw Error('Work parent interruption was not confirmed.');
+    return { stopped: true, id, reason: run.mainStop.reason, scope: 'parent Work run', nestedCleanup: 'unconfirmed',
+      report: savedReportPath(this.runtime.directory, id), partialResult: Boolean(run.result.text) };
+  }
+
   async deliver(text, report, images = []) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const sessions = sessionsToTell(this.runtime.directory);
-    const userDid = cardActionsToTell(this.runtime.directory);
+    const actions = cardActionsToTell(this.runtime.directory);
+    const userDid = actions.filter(action => !action.mainStop);
+    const mainStopped = actions.filter(action => action.mainStop);
     const handedOver = inboxToTell(this.runtime.directory, this.now());
-    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid, handed: inboxNews(handedOver) }, this.director.answerCommands());
+    const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid, mainStopped, handed: inboxNews(handedOver) }, this.director.answerCommands());
     const opening = note === this.workNoteSeen ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // "brief me" brings what a brief is written from, ahead of the words, in the room the work note and the words leave, and Chat shows only the words.
@@ -596,7 +682,7 @@ export class HobkinApplication {
     this.pastedImages.remove(images);
     this.workNoteSeen = note;
     markHeard(this.runtime.directory, sessions);
-    markCardActionsHeard(this.runtime.directory, userDid);
+    markCardActionsHeard(this.runtime.directory, actions);
     markInboxHeard(this.runtime.directory, handedOver);
     if (brief) writeBriefState(this.runtime.directory, { briefedAt: new Date(this.now()).toISOString() });
     if (report) {
@@ -623,7 +709,7 @@ export class HobkinApplication {
   pasteImage() { return this.pastedImages.paste(this.runtime.imageRefusal); }
   dropImages(images) { this.pastedImages.remove(images); }
 
-  kill(runId) { return this.runner.kill(runId); }
+  kill(runId) { return this.runner.kill(runId, { source: 'user', reason: 'Stopped from the agent view.' }); }
 
   /**
    * The user's Esc. Chat says so in one system line, and the main agent hears it with the next message, the way it hears what the user
@@ -752,7 +838,7 @@ export class HobkinApplication {
    * nothing waits for the turn. A failure counts only from this open on, because one from before it was told by the hobkin that saw it.
    */
   tickWakes() {
-    if (!this.canStartHoldTurn()) return;
+    if (this.waking || !this.canStartHoldTurn()) return;
     if (this.handOffs?.length) {
       void this.runtime.send(handOffBrief(this.handOffs.splice(0))).catch(() => {});
       return;
@@ -760,10 +846,13 @@ export class HobkinApplication {
     const root = this.runtime.directory;
     const sessions = sessionsToWake(root);
     if (sessions.length) {
-      markWoken(root, sessions);
-      markHeard(root, sessions);
-      void this.runtime.send(sessionsBrief(sessions)).catch(() => {});
-      return;
+      this.waking = true;
+      return this.runtime.send(sessionsBrief(sessions)).then(() => {
+        markWoken(root, sessions);
+        markHeard(root, sessions);
+        markCardActionsHeard(root, sessions.filter(session => session.stopRunId)
+          .map(session => ({ id: `user-stop:${session.stopRunId}` })));
+      }).catch(() => {}).finally(() => { this.waking = false; });
     }
     const failures = this.untoldFailures();
     if (!failures.length) return;
@@ -775,9 +864,23 @@ export class HobkinApplication {
   tickSessions() {
     const root = this.runtime.directory;
     const { model, effort } = this.config.background;
-    return Promise.all(takeSessionRequests(root).map(session => startSessionJob({ root, runner: this.runner, model, effort }, session)
-      .catch(() => {})
-      .finally(() => this.requestRefresh())));
+    return this.runner.serialize(async () => {
+      if (this.runner.stopped) return [];
+      const state = await this.runtime.state();
+      const capacity = Math.max(0, this.config.concurrency - this.runner.scheduledJobCount(state));
+      // Reserve synchronously, but release admission before waiting for any job to finish.
+      this.sessionJobs ??= new Set();
+      for (const session of takeSessionRequests(root, capacity)) {
+        const job = startSessionJob({ root, runner: this.runner, model, effort }, session)
+          .catch(() => {})
+          .finally(() => {
+            this.sessionJobs.delete(job);
+            this.requestRefresh();
+          });
+        this.sessionJobs.add(job);
+      }
+      return [...this.sessionJobs];
+    }).then(jobs => Promise.all(jobs));
   }
 
   /** Work the user chose on a card that work mode cannot start. The main agent gets it as soon as it is free, and hands it to a session. */
@@ -830,6 +933,8 @@ export class HobkinApplication {
       words: () => this.answerWords(slug, value),
       learning: () => this.answerLearning(slug, value),
       mergePr: () => mergePullRequest(root, slug, value, extra),
+      // The user approved a finished branch in a review: its PR opens at the commit they approved.
+      publish: () => publishItem(root, slug, value, { ...extra, now: this.now() }),
       refreshMerge: () => refreshThenMerge(root, slug, value, { ...extra, now: this.now() }),
       open: () => openPullRequest(root, slug, value),
       // A group's one yes comes as its rows, in the order they go, in place of a project.
@@ -840,7 +945,7 @@ export class HobkinApplication {
     for (const { action: walked, slug: project, item } of result?.walked ?? []) {
       if (WALK_EVENTS[walked]) recordEvent(root, WALK_EVENTS[walked], { project, item });
     }
-    for (const told of [result?.told ?? []].flat()) {
+    for (const told of [action === 'stop' ? [] : result?.told ?? []].flat()) {
       recordCardAction(root, told, this.now());
       this.moods.react({ event: 'card', did: told.did });
     }
@@ -938,7 +1043,7 @@ export class HobkinApplication {
     this.presenting = true;
     try {
       const { question, choices, id } = next;
-      const answer = this.runtime.mainTurn ? undefined : await this.askQuestion?.({ question, choices, other: true, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
+      const answer = this.runtime.mainTurn ? undefined : await this.askQuestion?.({ requestId: id, question, choices, other: true, whenQuiet: true, waitMs: QUESTION_WAIT_MS });
       if (answer?.typed) await this.answerInWords(next, answer.typed);
       else if (answer) await this.workAction('decide', id, answer);
       else if (answer === null || overdue) {
@@ -1137,7 +1242,8 @@ export class HobkinApplication {
         this.deletionWatcher?.close();
         try {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
-          await Promise.all([this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
+          const children = this.runtime.ownedLifecycle?.close();
+          await Promise.all([children, this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
           await this.delivery?.close();
           await this.runtime.idle();
           this.pastedImages?.clear();

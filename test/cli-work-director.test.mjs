@@ -15,7 +15,7 @@ import { WorkDirector } from '../src/cli/work/director.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
 import { recordSignals } from '../src/cli/work/signals.mjs';
 import {
-  answerAllowance, chooseProject, fileItem, itemTree, noteDiscovery, paths, pickNext, prFile, proposeProject, readDiscovery, readItems, readMode, readState, recordDiscovery,
+  answerAllowance, chooseProject, fileItem, itemTree, noteDiscovery, paths, pickNext, prFile, proposeProject, requestCancel, pendingCancels, readDiscovery, readItems, readMode, readState, recordDiscovery,
   recordTokens, setProjectPrMode, setProjectPriority, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { readUnmerged } from '../src/cli/work/unmerged.mjs';
@@ -53,6 +53,45 @@ class MemoryRuntime {
     await this.active.get(id)?.work;
   }
 }
+
+test('user Work Stop waits for settlement and refuses failed or stale kills', { timeout: 10000 }, async () => {
+  const run = { id: 'work:exact', title: 'Exact Work run', lane: 'discover' };
+  const settled = Promise.withResolvers();
+  const calls = [];
+  const director = new WorkDirector({ root: '/unused', config, runtime: {}, runner: {
+    kill: (...args) => { calls.push(args); return settled.promise; },
+  } });
+  director.active.set('discover', run);
+  let returned = false;
+  const stopping = director.stopFromScreen(run.id, 'later').then(result => { returned = true; return result; });
+  await Promise.resolve();
+  assert.equal(returned, false);
+  settled.resolve(false);
+  await assert.rejects(stopping, /nothing was stopped|already finished/i);
+  assert.deepEqual(calls, [[run.id, { source: 'user', reason: 'Stopped for now.' }]]);
+  director.runner.kill = async () => { throw Error('Stop failed'); };
+  await assert.rejects(director.stopFromScreen(run.id, 'later'), /Stop failed/);
+  director.runner.kill = async () => true;
+  assert.match((await director.stopFromScreen(run.id, 'later')).message, /Stopped "Exact Work run"/);
+});
+
+test('user Work cancel request reaches the exact run once without blocking the owner tick', { timeout: 10000 }, async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-stop-work-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const settled = Promise.withResolvers();
+  const calls = [];
+  const director = new WorkDirector({ root, config: { ...config, concurrency: 1 }, runtime: {}, runner: {
+    kill: (...args) => { calls.push(args); return settled.promise; },
+  } });
+  director.active.set('discover', { id: 'work:external', title: 'Exact queued cancellation', lane: 'discover' });
+  requestCancel(root, 'work:external');
+  director.answerCancels();
+  director.answerCancels();
+  assert.deepEqual(pendingCancels(root), []);
+  assert.deepEqual(calls, [['work:external', { source: 'user', reason: 'Stopped for now.' }]]);
+  settled.resolve(true);
+  await settled.promise;
+});
 
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 
@@ -131,6 +170,20 @@ const study = root => (request) => {
   }
 };
 
+test('main workload Stop plan keys cross begin and start unchanged for every Work lane', async t => {
+  const h = fixture(t);
+  const project = { slug: 'api', name: 'API', path: h.base };
+  const { proposeProject } = await import('../src/cli/work/store.mjs');
+  proposeProject(h.root, { ...project, level: 'casual', summary: 'Fixture.' });
+  const captured = [];
+  for (const name of ['startDiscovery', 'startLook', 'startDo']) h.director[name] = (...args) => captured.push(args.at(-1).planKey);
+  for (const lane of ['discover', 'look', 'do']) h.director.begin({ lane, slug: 'api', key: `actual:${lane}` }, { used: 0, limit: 100 }, { queueNext: [] });
+  assert.deepEqual(captured, ['actual:discover', 'actual:look', 'actual:do']);
+  h.director.start({ key: 'different-internal-key', planKey: 'actual:discover', lane: 'discover', title: 'Fixture', cwd: h.root, work: () => ({}) });
+  await h.settled();
+  assert.equal(Object.values(h.runtime.data.runs)[0].work.planKey, 'actual:discover');
+});
+
 test('nothing runs while work mode is off', async t => {
   const h = fixture(t);
   chooseProject(h.root, repository(h.base, 'api'));
@@ -185,15 +238,6 @@ test('turning work mode on sends the agent to the folder the user named, and a f
   h.clock += 25 * HOUR;
   await h.tick();
   assert.deepEqual(h.purposes(), ['work-discover']);
-});
-
-test('a discovery run is told what the user has authorized, as every other run is', async t => {
-  const h = fixture(t);
-  writeMode(h.root, { enabled: true, folder: '/repos' });
-
-  await h.tick();
-
-  assert.match(h.work(h.calls[0]).authorization, /already authorized everything this run needs/);
 });
 
 test('a failed discovery tries again soon instead of waiting a day', async t => {
@@ -1048,25 +1092,24 @@ test('a long run counts while it runs, and adds nothing more when it ends', asyn
   assert.deepEqual([after.used, after.cached], [800, 200]);
 });
 
-test('a pane run is costed from its session like any other', async t => {
+test('a background Pi run records its session tokens and harness cost', async t => {
   const h = fixture(t);
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
-  h.director.panes = {
-    run: async options => {
-      writeFileSync(options.sessionFile, [
-        { type: 'session', id: 'pane-session' },
-        { type: 'message', message: { role: 'assistant', usage: { input: 100, output: 50, cost: { total: 0.2 } } } },
-      ].map(entry => JSON.stringify(entry)).join('\n'));
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
+  const cost = { usd: 0.2, kind: 'estimate', cumulative: true, sessionId: 'work-session' };
+  h.agent = request => {
+    writeFileSync(request.sessionFile, [
+      { type: 'session', id: 'work-session' },
+      { type: 'message', message: { role: 'assistant', usage: { input: 100, output: 50 } } },
+    ].map(entry => JSON.stringify(entry)).join('\n'));
   };
+  h.result = { status: 'completed', text: 'Useful: Done.', cost };
 
   await h.tick();
   await new Promise(resolve => setImmediate(resolve));
 
   const run = Object.values(h.runtime.data.runs)[0];
-  assert.deepEqual(run.result.cost, { usd: 0.2, kind: 'estimate', cumulative: true, sessionId: 'pane-session' });
+  assert.deepEqual(run.result.cost, cost);
   assert.equal(tokensToday(h.root, h.clock), 150);
 });
 
@@ -1160,6 +1203,23 @@ const readyToDo = async h => {
 };
 const doRuns = h => h.calls.filter(call => call.purpose === 'work-do');
 
+for (const priority of ['P1', 'P2']) {
+  test(`${priority} starts eligible work after its former daily allowance`, async t => {
+    const h = fixture(t);
+    await readyToDo(h);
+    setProjectPriority(h.root, 'api', priority);
+    const weekly = { priority: 'P3', at: new Date(h.clock - HOUR).toISOString() };
+    const history = [weekly, ...Array.from({ length: 4 }, () => ({ priority, at: weekly.at }))];
+    writeMode(h.root, { countedStarts: history });
+    const before = doRuns(h).length;
+
+    await h.tick();
+
+    assert.equal(doRuns(h).length, before + 1);
+    assert.deepEqual(readMode(h.root).countedStarts, history);
+  });
+}
+
 /** A do run that ends the way an agent ends it, by recording its branch. */
 const endsOnABranch = h => request => {
   if (request.purpose !== 'work-do') return;
@@ -1195,7 +1255,7 @@ test('a work agent takes the user\'s words while it works, by its schedule, and 
   const finish = Promise.withResolvers();
   h.agent = async (request, { onReady }) => {
     if (request.purpose !== 'work-do') return;
-    onReady(async message => { heard.push(message); });
+    onReady(async message => { heard.push(message); return { disposition: 'queued' }; });
     ready.resolve();
     await finish.promise;
   };
@@ -1203,11 +1263,11 @@ test('a work agent takes the user\'s words while it works, by its schedule, and 
   await ready.promise;
 
   assert.deepEqual((await h.runner.messageCheck({})).running.map(({ scheduleId }) => scheduleId), ['work.api.do']);
-  assert.deepEqual(await h.runner.messageCheck({ scheduleId: 'work.api.do', message: 'Use the new client.' }), { scheduleId: 'work.api.do', status: 'delivered' });
-  assert.deepEqual(heard, ['Use the new client.']);
-
+  const queued = await h.runner.messageCheck({ scheduleId: 'work.api.do', message: 'Use the new client.' });
   finish.resolve();
   await h.settled();
+  assert.deepEqual(queued, { scheduleId: 'work.api.do', status: 'queued' });
+  assert.deepEqual(heard, ['Use the new client.']);
   await assert.rejects(h.runner.messageCheck({ scheduleId: 'work.api.do', message: 'Too late.' }), /not running/);
 });
 
@@ -1432,15 +1492,11 @@ test('a run with no session to read is left alone, however long it goes on', asy
   const h = fixture(t);
   onlyItemsDue(h);
   fileItem(h.root, 'api', item);
-  writeMode(h.root, { harness: 'claude' });
   const release = Promise.withResolvers();
   let signal;
-  h.director.panes = {
-    run: async options => {
-      ({ signal } = options);
-      await release.promise;
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
+  h.agent = async request => {
+    ({ signal } = request);
+    await release.promise;
   };
   await h.director.tick();
   while (!signal) await new Promise(resolve => setTimeout(resolve, 10));
@@ -1661,22 +1717,21 @@ test('a look that fails shows on its project until one works', async t => {
   assert.equal(readState(h.root, 'api').lookError, null);
 });
 
-test('a pane run says which pane it is in', async t => {
+test('a background Pi run is tracked by its app job and session', async t => {
   const h = fixture(t);
   const release = Promise.withResolvers();
-  h.director.panes = {
-    run: async () => {
-      await release.promise;
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
-  };
+  h.agent = () => release.promise;
+  t.after(() => release.resolve());
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
 
   await h.director.tick();
   while (!Object.keys(h.runtime.data.runs).length) await new Promise(resolve => setTimeout(resolve, 20));
 
-  assert.equal(Object.values(h.runtime.data.runs)[0].work.pane, 'work-look-api');
+  const [run] = Object.values(h.runtime.data.runs);
+  assert.deepEqual([run.status, run.harness, run.work.slug, run.work.lane], ['running', 'pi', 'api', 'look']);
+  assert.equal(h.director.running()[0].id, run.id);
+  assert.equal(h.director.running()[0].sessionFile, join(h.root, 'jobs', `${run.harnessId}.jsonl`));
   release.resolve();
   await h.settled();
 });
@@ -1700,67 +1755,60 @@ test('work runs do not take a place from ordinary checks', async t => {
   await h.settled();
 });
 
-test('lessons reach a work agent in its request, and in the brief of a pane on any harness', async t => {
+test('lessons reach a background Pi work agent in its request', async t => {
   const h = fixture(t);
   initialize(h.root, { cwd: h.base });
   setLearning(h.root, true);
   saveState(h.root, { lessons: [{ id: 'a', scope: 'site-audit', code: 'blocked', seen: 5, latest: new Date(h.clock).toISOString() }], proposals: [], pullRequests: {} });
-  const briefs = [];
-  h.director.panes = {
-    run: async options => {
-      briefs.push(readFileSync(options.brief, 'utf8'));
-      return { status: 'completed', text: 'Nothing new.', cost: null };
-    },
-  };
-  writeMode(h.root, { enabled: true, folder: h.base, harness: 'claude', lastDiscoveryAt: new Date(h.clock).toISOString() });
+  writeMode(h.root, { enabled: true, folder: h.base, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'billing'));
 
   await h.director.tick();
   await h.settled?.();
   await Promise.all([...h.runner.jobs.values()]);
 
-  assert.equal(briefs.length, 1);
-  assert.match(briefs[0], /"learning":\["learned: advice only[^"]*","-site-audit blocked x5: do the rest, name what stopped it"\]/);
+  assert.equal(h.calls.length, 1);
+  assert.match(h.calls[0].prompt, /"learning":\["learned: advice only[^"]*","-site-audit blocked x5: do the rest, name what stopped it"\]/);
 });
 
-test('a failed pane run counts against its item like any other', async t => {
+test('a failed background Pi run records its item error and attempt', async t => {
   const h = fixture(t);
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
   studied(h, 'api');
   writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
-  h.director.panes = { run: async () => ({ status: 'failed', cost: null, error: 'The agent exited.' }) };
+  h.result = { status: 'failed', cost: null, error: 'The agent exited.' };
 
   await h.tick();
 
   assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts, lastError }) => [state, attempts, lastError]), [['open', 1, 'The agent exited.']]);
 });
 
-test('a pane closed by hand only ended that run, so the item stays in the plan with nothing against it', async t => {
+test('an interrupted background Pi run reopens its item without a failed attempt', async t => {
   const h = fixture(t);
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'api'));
   fileItem(h.root, 'api', item);
   studied(h, 'api');
   writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
-  h.director.panes = { run: async () => ({ status: 'interrupted', cost: null, paneClosed: true, error: 'The pane was closed by hand.' }) };
+  h.result = { status: 'interrupted', cost: null, error: 'Harness cancelled.' };
 
   await h.tick();
 
-  assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['open', 0]]);
-  assert.deepEqual(readMode(h.root).queueSkipped, []);
+  const [filed] = readItems(h.root, 'api');
+  assert.deepEqual([filed.state, filed.attempts], ['open', 0]);
+  assert.deepEqual(readMode(h.root).queueSkipped, [`item:api:${filed.id}`]);
 });
 
-test('a run that never reached a pane costs nothing, however often it comes round', async t => {
+test('a run whose folder is gone spends no tokens, however often it comes round', async t => {
   const h = fixture(t);
   const checkout = repository(h.base, 'api');
-  writeMode(h.root, { enabled: true, harness: 'claude', lastDiscoveryAt: new Date(h.clock).toISOString() });
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, checkout);
   fileItem(h.root, 'api', item);
   studied(h, 'api');
   writeState(h.root, 'api', { lastIdeasAt: new Date(h.clock).toISOString() });
-  h.director.panes = { run: async () => assert.fail('No pane should open.') };
   rmSync(checkout, { recursive: true, force: true });
 
   for (let run = 0; run < 3; run++) {
@@ -1769,6 +1817,7 @@ test('a run that never reached a pane costs nothing, however often it comes roun
   }
 
   assert.deepEqual(readItems(h.root, 'api').map(({ state, attempts }) => [state, attempts]), [['open', 3]]);
+  assert.equal(h.calls.length, 0, 'folder preparation failed before the harness could start');
   assert.equal(tokensToday(h.root, h.clock), 0);
 });
 

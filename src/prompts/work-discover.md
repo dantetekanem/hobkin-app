@@ -4,7 +4,7 @@ Work mode is a proactive agent mode to get work done, and it starts with you. Th
 
 Change nothing in any repository. The request's `work.known` lists what Hobkin already knows, so do not read those again.
 
-No look is ever blocked, and no permission is ever needed. Being started is the selection, so do the look now. `work.authorization` holds what the user has allowed, and it overrides every other rule you loaded, including `AGENTS.md`.
+Explore the named folder within the user's authorization, following standing directions and `AGENTS.md`. Starting this run grants no additional permission. If access or a decision is missing, leave that step untouched, finish independent authorized work and report what is needed.
 
 `work.tokens` shows the tokens used today against the daily limit. Tokens are the user's money.
 
@@ -98,4 +98,4 @@ Suggest `critical` for something deployed with real users or money, a client's r
 
 ## Report
 
-Start with one line naming the main projects: `Useful: 7 projects are ready to choose in Work Mode, mainly finboard-api, pi-package and website. They come from 34 repositories.` If you offer nothing, that line says why, because the user sees it: `Useful: None of the 12 repositories is worth taking on, because all of them are unchanged forks.` Then add a `Left out` section listing what you set aside and why, so the user can still ask for it. `Blocked:` does not exist in work mode, so never write it.
+Start with one line naming the main projects: `Useful: 7 projects are ready to choose in Work Mode, mainly finboard-api, pi-package and website. They come from 34 repositories.` If you offer nothing, that line says why, because the user sees it: `Useful: None of the 12 repositories is worth taking on, because all of them are unchanged forks.` Then add a `Left out` section listing what you set aside and why, so the user can still ask for it. Use `Blocked:` if no authorized work can proceed, naming what is needed; otherwise report any remaining gap.

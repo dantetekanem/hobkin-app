@@ -11,8 +11,8 @@ import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, putBackInQueue, readItems, readMode, readProject, realFolder, requestCancel,
-  retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
+  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
+  requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
 import { changeFacts, closeMergedPull, ghWithin, landedRecord, landingTip, pullNow, readUnmerged, SHIP_KIND } from './unmerged.mjs';
@@ -517,6 +517,54 @@ export async function openPullRequest(root, reference, id, { open = url => run(b
   const { item } = prOf(root, reference, id);
   await open(item.pr);
   return reply(`Opened ${item.pr} in the browser.`);
+}
+
+const OPENED_PR = 'opened its PR';
+
+/** The open PR its host has for a branch, if any, so approving a branch twice never opens a second one. */
+async function openPullFor(repo, origin, branch, gh) {
+  const list = JSON.parse(await gh(['pr', 'list', '--repo', origin, '--head', branch, '--state', 'open', '--json', 'url,headRefOid'], repo));
+  return Array.isArray(list) ? list[0] ?? null : null;
+}
+
+/**
+ * The user approved a finished branch, and this opens its PR: the branch goes to the project's origin at exactly the commit they approved, and its
+ * host gets a PR for it, or the open one it already has is kept. The item then waits on its PR, as one a run opened does, so its card offers to merge
+ * that PR. Only ever the user's word. `head` is the commit they approved, so a branch that moved since opens nothing.
+ */
+export async function publishItem(root, reference, id, { head = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS), now = Date.now() } = {}) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  const { title, branch, state } = item;
+  assertNotRunning(root, project, item);
+  if (state === 'pr' && item.pr) return cardReply(project, item, OPENED_PR, named => `${named} has its PR open already.`);
+  if (!statesThatMerge.includes(state) || !branch) throw Error(`"${title}" is ${state}, so there is no finished branch to open a PR for.`);
+
+  const repo = project.path ?? paths(root, project.slug).clone;
+  const tip = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
+  if (!tip) throw Error(`"${title}" has no branch ${branch} here, so no PR was opened.`);
+  if (head && head !== tip) throw Error(`"${title}" moved since it was approved, so no PR was opened. It needs reading again.`);
+  const origin = await gitOrNothing(repo, 'remote', 'get-url', 'origin');
+  if (!origin) throw Error(`${nameOf(project)} has no origin to push to, so no PR was opened.`);
+
+  await run('git', ['-C', repo, 'push', 'origin', `${tip}:refs/heads/${branch}`], { timeout: MERGE_PR_TIMEOUT_MS }).catch(error => {
+    throw Error(`"${title}" was not pushed: ${firstLine(error.stderr || error.message)}`);
+  });
+  const open = await openPullFor(repo, origin, branch, gh);
+  let url = open?.url;
+  if (!url) {
+    const description = prFile(root, project.slug, item.id);
+    const body = existsSync(description) ? ['--body-file', description] : ['--body', item.brief ?? title];
+    const draft = project.prMode === 'draft' ? ['--draft'] : [];
+    const base = await defaultBranch(repo);
+    const created = await gh(['pr', 'create', '--repo', origin, '--head', branch, '--base', base, '--title', title, ...body, ...draft], repo).catch(error => {
+      throw Error(`"${title}" was pushed, and its PR did not open: ${firstLine(error.stderr || error.message)}`);
+    });
+    url = created.trim().split('\n').at(-1);
+  }
+
+  const waiting = updateItem(root, project.slug, item.id, { state: 'pr', pr: url }, now);
+  return cardReply(project, waiting, OPENED_PR, named => (open ? `${named} already had a PR open for its branch, and now waits on it.` : `Opened a PR for ${named}.`));
 }
 
 /**

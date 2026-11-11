@@ -189,7 +189,7 @@ test('with the mode off it counts what turning it on would start, which ends a p
 
 const countedAgo = (priority, hours) => ({ at: at(now - hours * HOUR), priority });
 
-test('a pile of 21 projects starts only the runs each priority has, and says that is what caps it', t => {
+test('a pile of 21 projects fills slots beyond the former daily caps and retains the P3 weekly cap', t => {
   const root = dataRoot(t);
   const pile = [...Array(14).fill('important'), ...Array(7).fill('casual')];
   for (const [index, level] of pile.entries()) {
@@ -200,23 +200,27 @@ test('a pile of 21 projects starts only the runs each priority has, and says tha
 
   const { jobs, grades, limit, line } = forecast(root);
 
-  assert.deepEqual(grades, { P0: 0, P1: 4, P2: 1, P3: 1 }, 'of 63 rows, four P1 starts, one P2 and one P3');
-  assert.deepEqual([jobs, limit], [6, 'priority']);
-  assert.equal(line, 'Next 8h: about 6 jobs · 4 P1 · 1 P2 · 1 P3 · 2 agents at a time. The pace by priority caps it.');
+  assert.ok(grades.P1 > 4);
+  assert.ok(grades.P2 > 1);
+  assert.equal(grades.P3, 1);
+  assert.equal(jobs, grades.P1 + grades.P2 + grades.P3);
+  assert.equal(limit, 'pace');
+  assert.match(line, /More is due than fits\.$/);
 });
 
-test('runs a priority has had stop counting as they pass their window, inside the 8 hours too', t => {
+test('P3 starts become eligible as their rolling week ends inside the forecast', t => {
   const root = dataRoot(t);
   project(root, 'api');
-  for (let index = 0; index < 6; index++) fileItem(root, 'api', item(`fix ${index}`), now);
-  writeMode(root, { countedStarts: [23, 22, 2, 1].map(hours => countedAgo('P1', hours)) });
+  setProjectPriority(root, 'api', 'P3');
+  for (let index = 0; index < 2; index++) fileItem(root, 'api', item(`fix ${index}`), now);
+  writeMode(root, { countedStarts: [countedAgo('P3', 167)] });
 
   const { jobs, grades, limit } = forecast(root);
 
-  assert.deepEqual([jobs, grades.P1, limit], [2, 2, 'priority'], 'places free at 13:00 and 14:00, and the next two not before tomorrow');
+  assert.deepEqual([jobs, grades.P3, limit], [1, 1, 'priority'], 'one place frees at 13:00, then the next waits a week');
 });
 
-test('with each priority\'s runs had, the plan starts only what is never paced, and the forecast counts the same', t => {
+test('old P1 and P2 histories allow ready work in both the plan and forecast', t => {
   const root = dataRoot(t);
   project(root, 'api');
   project(root, 'site', 'casual');
@@ -231,11 +235,11 @@ test('with each priority\'s runs had, the plan starts only what is never paced, 
   assert.equal(plan.next.title, 'Urgent fix');
   assert.deepEqual(plan.entries.map(({ title, waiting }) => [title, waiting]), [
     ['Urgent fix', null],
-    ['New work', 'P1 has had its 4 runs today'],
-    ['Site work', 'P2 has had its run today'],
+    ['New work', null],
+    ['Site work', null],
   ]);
-  assert.deepEqual([jobs, grades.P0, limit], [1, 1, 'priority']);
-  assert.equal(line, 'Next 8h: about 1 job · 1 P0 · 2 agents at a time. The pace by priority caps it.');
+  assert.deepEqual([jobs, grades, limit], [3, { P0: 1, P1: 1, P2: 1, P3: 0 }, null]);
+  assert.equal(line, 'Next 8h: about 3 jobs · 1 P0 · 1 P1 · 1 P2 · 2 agents at a time.');
 });
 
 test('the status works it out once a minute, and a change it counts shows at once', t => {

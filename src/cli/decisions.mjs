@@ -87,7 +87,7 @@ export function answeredByUser(root, since = 0) {
   return readAll(root).filter(({ id, answer }) => answer !== undefined && answeredIds.has(id));
 }
 
-function fileRecord(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null, links = [], shown = false }, now) {
+function fileRecord(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null, links = [], reports = [], shown = false }, now) {
   assertDecision({ question, choices, recommended });
   const known = key && openDecisions(root).find(decision => decision.key === key);
   const id = known?.id ?? randomUUID();
@@ -103,6 +103,7 @@ function fileRecord(root, { key = null, from, question, tldr, choices, answerTo 
     why: shortReason(why),
     changed: shortReason(changed),
     ...(links.length || known?.links ? { links: links.map(shortLink) } : {}),
+    ...(reports.length || known?.reports ? { reports: [...new Set([...(known?.reports ?? []), ...reports])] } : {}),
     at: known?.at ?? new Date(now).toISOString(),
     shown: known?.shown ?? shown,
   });
@@ -129,6 +130,31 @@ export const latestAnswer = (root, key) => readAll(root)
   .filter(decision => decision.key === key && decision.answeredAt)
   .toSorted((first, second) => first.answeredAt.localeCompare(second.answeredAt))
   .at(-1) ?? null;
+
+/** Report calls explicitly represented by actions, open or settled. Unknown answers do not settle a call. */
+export const actionReportIds = root => new Set(readAll(root)
+  .filter(item => isActionItem(item) && (item.answer === undefined || ['done', 'drop'].includes(item.answer)))
+  .flatMap(item => item.reports ?? []));
+
+function assertReports(reports) {
+  if (!Array.isArray(reports) || reports.length > 32 || reports.some(id => typeof id !== 'string' || !id.trim() || id.length > 256 || /[\x00-\x1f\x7f]/.test(id))) {
+    throw Error('`reports` is up to 32 nonempty report IDs.');
+  }
+}
+
+function linkReports(root, id, reports, evidence, now) {
+  assertReports(reports);
+  if (!reports.length || typeof evidence !== 'string' || !evidence.trim()) throw Error('Linking reports needs IDs and evidence that their call is this action.');
+  const item = readAll(root).find(item => item.id === id && isActionItem(item));
+  if (!item) throw Error('No action item has that ID.');
+  append(root, {
+    id,
+    reports: [...new Set([...(item.reports ?? []), ...reports])],
+    linkedAt: new Date(now).toISOString(),
+    linkEvidence: shortReason(evidence),
+  });
+  return { ok: true, id, message: 'Linked report calls; the action and its answer are unchanged.' };
+}
 
 /** What the user can do with something a routine found for them to do. With hobkin, it stays open until one of the other two. */
 export const ACTION_CHOICES = [
@@ -273,13 +299,12 @@ function readItem(text) {
   throw Error('hobkin action reads one JSON object on stdin.');
 }
 
-/** A routine asking again after the user's word gets that word back, and files nothing. Not doing it holds for good, and done holds 30 days unless `changed` says what shows it is not. */
-function standingAnswer(earlier, changed, now) {
+/** Time passing is not evidence that a completed action needs doing again. */
+function standingAnswer(earlier, changed) {
   if (earlier?.answer === 'drop') {
     return { ok: true, answer: 'drop', message: `The user said on ${dayOf(earlier)} that they are not doing this. Nothing was filed, and it will not be filed again.` };
   }
-  const recent = earlier?.answer === 'done' && now - Date.parse(earlier.answeredAt) < REMEMBERED_MS;
-  if (!recent || changed?.trim()) return null;
+  if (earlier?.answer !== 'done' || changed?.trim()) return null;
   return { ok: true, answer: 'done', message: `This was done on ${dayOf(earlier)}. Nothing was filed. If you see it is not done, file it again with \`changed\` saying what shows that.` };
 }
 
@@ -290,11 +315,16 @@ function standingAnswer(earlier, changed, now) {
 export async function runActionCommand(root, args, input, now = Date.now()) {
   let text = '';
   for await (const chunk of input) text += chunk;
-  const { key, done, changed, title, detail, why, links } = readItem(text);
+  const { key, caseKey, done, changed, title, detail, why, links, reports = [], evidence } = readItem(text);
+  if (caseKey !== undefined && (typeof caseKey !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9:._/-]{0,255}$/.test(caseKey))) {
+    throw Error('`caseKey` is a stable nonempty case-step identity, up to 256 plain characters.');
+  }
+  assertReports(reports);
+  if (args[0] === 'link' && args[1]) return linkReports(root, args[1], reports, evidence, now);
   if (args[0] === 'done' && args[1]) return settleById(root, args[1], done, now);
   const asker = filedBy(args);
-  if (!key && typeof title !== 'string') throw Error('An action item needs a title, or the key it was filed with.');
-  const scopedKey = ['action', ...args, key || keyOf(title)].join(':');
+  if (!key && !caseKey && typeof title !== 'string') throw Error('An action item needs a title, or the key it was filed with.');
+  const scopedKey = caseKey ? `action:case:${caseKey}` : ['action', ...args, key || keyOf(title)].join(':');
   const open = openDecisions(root).find(decision => decision.key === scopedKey);
   if (done !== undefined) {
     assertEvidence(done);
@@ -303,11 +333,13 @@ export async function runActionCommand(root, args, input, now = Date.now()) {
     recordEvent(root, 'action_settled', { id: open.id, routine: asker.answerTo.id }, now);
     return { ok: true, id: open.id, message: 'Closed in Action Items, with what showed it done.' };
   }
-  const standing = open ? null : standingAnswer(latestAnswer(root, scopedKey), changed, now);
+  const earlier = open ? null : latestAnswer(root, scopedKey);
+  const standing = standingAnswer(earlier, changed);
   if (standing) {
+    if (reports.length) linkReports(root, earlier.id, reports, 'Same explicit action identity; its recorded answer still stands.', now);
     recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id }, now);
-    return standing;
+    return { ...standing, id: earlier.id };
   }
-  const { id } = fileActionItem(root, { title, detail, why, links, ...asker, key: scopedKey, changed }, now);
+  const { id } = fileActionItem(root, { title, detail, why, links, reports, ...asker, key: scopedKey, changed }, now);
   return { ok: true, id, message: open ? 'Updated in Action Items.' : 'Filed in Action Items. Carry on: the user does it from there, and the answer reaches you later.' };
 }
