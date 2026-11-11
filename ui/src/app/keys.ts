@@ -1,8 +1,12 @@
 import { useEffect } from 'react'
+import { useChat } from '@/features/chat/chat-store.ts'
+import { toggleMind } from '@/features/main-agent/route.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { answerNext, runningAgents } from './running-agents.ts'
 import { resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
+import { inOverlay, installFrameKeys } from './key-page.ts'
+import { travel } from './location.ts'
 import { walkScreens, type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
 import { focusInput, messageInput, requestCanvasFocus } from './focus.ts'
@@ -16,8 +20,8 @@ export { focusCanvas, focusInput } from './focus.ts'
  */
 
 /**
- * The screens Tab walks and Command with a number opens, in order: the menu's own, then a review, Settings
- * or Integrations while one is open. Agents are not here. They are reached with Down and walked with Up and Down.
+ * The screens Command with a number opens, in order: the menu's own, then a review, Settings or Integrations while
+ * one is open. Agents are not here. They are reached with Down and walked with Up and Down.
  */
 export function visibleScreens(): ScreenId[] {
   const { openReview, screen } = useView.getState()
@@ -38,29 +42,31 @@ function zoneOf(target: EventTarget | null): Zone {
   return 'other'
 }
 
-/**
- * A dialog, menu or list that handles its own keys. The veil and the agents list are the frame's own, so they do not count.
- * An input that is showing completions (a combobox with its list open, such as the message input after a slash)
- * owns its keys too: there Tab completes instead of changing the screen.
- */
-function inOverlay(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false
-  if (target.matches('[role="combobox"][aria-expanded="true"]')) return true
-  return target.closest('[role="dialog"]:not([data-chat-veil]), [role="menu"], [role="listbox"]:not([data-agents-dock])') !== null
+/** A part of the page that fails to read is logged and taken as nothing, so the other keys keep working. */
+function safely<T>(read: () => T, otherwise: T): T {
+  try {
+    return read()
+  } catch (error) {
+    console.error('[keys]', error)
+    return otherwise
+  }
 }
 
+/** A text field, where Command with Left and Right move the caret to the ends of the line. */
+const typingIn = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'))
+
 function contextOf(target: EventTarget | null): KeyContext {
-  const { screen, previewReturn, veil } = useView.getState()
+  const { screen, veil } = useView.getState()
   return {
     zone: zoneOf(target),
     messageEmpty: (messageInput()?.value.length ?? 0) === 0,
     screens: visibleScreens(),
     screen,
-    under: screen === 'agent' ? (previewReturn ?? 'work') : undefined,
-    inOverlay: inOverlay(target),
+    inOverlay: safely(() => inOverlay(target, document), false),
     veilOpen: veil !== null,
-    asking: runningAgents().some((agent) => agent.asks),
+    asking: safely(() => runningAgents().some((agent) => agent.asks), false),
     githubInMenu: useSettings.getState().showGitHubInMenu,
+    typing: typingIn(target),
   }
 }
 
@@ -101,6 +107,12 @@ function perform(action: KeyAction): boolean {
       // It takes the keyboard itself as it opens, and gives it back when it closes.
       view.openSpotlight()
       return true
+    case 'open-prompt': {
+      // The editor takes the keyboard as it opens and gives it back to whatever had it when it closes.
+      const chat = useChat.getState()
+      if (chat.draft.place !== 'editor') chat.change({ type: 'editor-toggled' })
+      return true
+    }
     case 'open-integrations':
       view.closeVeil()
       view.toggleIntegrations()
@@ -131,10 +143,20 @@ function perform(action: KeyAction): boolean {
         focusInput()
       }
       return true
+    case 'toggle-mind':
+      toggleMind()
+      return true
     case 'reload':
       location.reload()
       return true
-    case 'hold':
+    case 'go-back':
+    case 'go-forward':
+      // As with Command and a number, the keyboard goes along into the canvas. At either end nothing moves, and the
+      // key is still the frame's: the window never leaves the app.
+      if (travel(action.do === 'go-back' ? -1 : 1)) {
+        view.engageCanvas()
+        requestCanvasFocus()
+      }
       return true
   }
 }
@@ -142,10 +164,13 @@ function perform(action: KeyAction): boolean {
 function onKeyDown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return
   const action = resolveKey(
-    { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey },
+    { key: event.key, code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey },
     contextOf(event.target),
   )
-  if (action && perform(action)) event.preventDefault()
+  if (!action || !perform(action)) return
+  event.preventDefault()
+  // Command+Enter has done its work. A control that reads any Enter, as the agents list steps in with it, must not see it too.
+  if (event.key === 'Enter' && event.metaKey) event.stopPropagation()
 }
 
 function onEscape(event: KeyboardEvent) {
@@ -154,16 +179,10 @@ function onEscape(event: KeyboardEvent) {
   if (action) perform(action)
 }
 
+/** The app starts with the keyboard in the message input. The listeners are the page's own, below. */
 export function useFrameKeys(): void {
-  useEffect(() => {
-    // Capture, so the map is decided before a focused control sees the key.
-    addEventListener('keydown', onKeyDown, true)
-    // Escape is read last, in the bubble phase, so whatever had the keyboard gets to use it first.
-    addEventListener('keydown', onEscape)
-    focusInput()
-    return () => {
-      removeEventListener('keydown', onKeyDown, true)
-      removeEventListener('keydown', onEscape)
-    }
-  }, [])
+  useEffect(focusInput, [])
 }
+
+// Each time this module loads, a hot update among them, the page's one pair of listeners starts calling these.
+installFrameKeys(window, { capture: onKeyDown, bubble: onEscape })

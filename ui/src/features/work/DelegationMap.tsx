@@ -7,6 +7,11 @@ import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { cn } from '@/lib/utils.ts'
+import type { RunChild } from '#shared/protocol/snapshot.ts'
+import { ChildFaces, ChildHood } from './ChildAgents.tsx'
+import { childHue, childLine, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
+import { useMainChildren, useRunChildren } from './children.ts'
 import { SaidLine } from './parts.tsx'
 import { runWork, useWorkUi } from './store.ts'
 
@@ -17,18 +22,31 @@ import { runWork, useWorkUi } from './store.ts'
  * drawn, free or taken. A node opens the agent's canvas. A work agent can be stopped from its node, the two ways
  * hobkin's k stops one.
  *
+ * The agents an agent spawned through pi-extended-teams sit to its right as small satellites, wired to it the way
+ * it is wired to hobkin, each with how it stands. A narrow map shows only their faces. A pulse runs back along a
+ * child's wire when it reports. They cannot be opened: hobkin has no way to reach them. The helpers hobkin's own
+ * chat spawned stand under its name, the same small faces, while any is out.
+ *
  * Positions ride transforms on one spring, so the nodes, their wires and hobkin move together and a change
  * mid-flight retargets. Under Still they are placed where they belong and only fade.
  */
 
 const NODE_H = 60
 const GAP = 10
-/** The map is never shorter than hobkin and its name. */
+/** The map is never shorter than hobkin and its name, and its helpers under it when it has any out. */
 const MIN_H = 150
+const MIN_H_HELPED = 184
 
 /** How the map sits in the width it has. A narrow canvas brings hobkin and the wires in closer. */
 const ROOMY = { left: 136, wire: 118, hob: 92 }
 const NARROW = { left: 84, wire: 56, hob: 64 }
+
+/** A node's satellites: rows this tall and apart, and as many as fit beside the node. */
+const SATELLITE = { row: 18, gap: 3, room: 3 }
+/** Below this width a node's satellites show only their faces, so the node keeps room for its own words. */
+const NAMED_FROM = 800
+const NAMED = { wire: 22, width: 216, named: true }
+const FACES = { wire: 14, width: 18, named: false }
 
 /** The nodes' spring: a new one bubbles up and overshoots a little, and a move between places settles the same way. */
 const NODE_SPRING = { type: 'spring', duration: 0.62, bounce: 0.32 } as const
@@ -40,9 +58,9 @@ const NODE_SPRING = { type: 'spring', duration: 0.62, bounce: 0.32 } as const
 const SVG_ORIGIN = { transformBox: 'view-box', originX: 0, originY: 0 } as const
 
 /** Where everything sits for this many places: the top of each place and hobkin's middle. */
-function layoutFor(places: number) {
+function layoutFor(places: number, helped: boolean) {
   const column = places * NODE_H + Math.max(0, places - 1) * GAP
-  const height = Math.max(column, MIN_H)
+  const height = Math.max(column, helped ? MIN_H_HELPED : MIN_H)
   const top = (height - column) / 2
   return { height, hobkinY: height / 2, placeY: (index: number) => top + index * (NODE_H + GAP) }
 }
@@ -77,11 +95,13 @@ interface MapProps {
 export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
   const still = useStill()
   const box = useRef<HTMLDivElement | null>(null)
-  const size = useWidth(box) < 560 ? NARROW : ROOMY
+  const width = useWidth(box)
+  const size = width < 560 ? NARROW : ROOMY
   const [stopping, setStopping] = useState<RunningAgent | null>(null)
   const said = useWorkUi((state) => state.said['map'])
+  const helpers = helpersNow(useMainChildren())
   const places = Math.max(agents.length, enabled ? capacity : 0)
-  const { height, hobkinY, placeY } = layoutFor(places)
+  const { height, hobkinY, placeY } = layoutFor(places, helpers.length > 0)
   const free = Array.from({ length: places - agents.length }, (_, index) => agents.length + index)
   const pinX = size.left - 4
   const nodeLeft = size.left + size.wire
@@ -110,8 +130,14 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
             animate={still ? {} : { transform: `translateY(${hobkinY - size.hob / 2}px)` }}
             transition={NODE_SPRING}
           >
-            <Hob mood={agents.length ? 'working' : enabled ? 'idle' : 'sleepy'} size={size.hob} stage="var(--background)" />
+            <Hob mood={agents.length || helpers.length ? 'working' : enabled ? 'idle' : 'sleepy'} size={size.hob} stage="var(--background)" />
             <span className="absolute top-full mt-1 font-heading text-[13px] font-semibold tracking-[-0.01em]">hobkin</span>
+            {helpers.length ? (
+              <span data-main-helpers="" className="absolute top-full mt-[27px]">
+                <span className="sr-only">{`hobkin's helpers: ${childrenSummary(helpers)}`}</span>
+                <ChildFaces spawned={helpers} hue={HOBKIN_HUE} />
+              </span>
+            ) : null}
           </motion.div>
 
           <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
@@ -136,12 +162,20 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
           </svg>
 
           {agents.map((agent, index) => (
-            <Pulse key={agent.id} agent={agent} {...wire} toY={placeY(index) + NODE_H / 2} heartbeat={!live} />
+            <Pulse
+              key={agent.id}
+              signal={`${agent.doing}|${agent.mood}|${agent.asks ?? ''}`}
+              hue={agent.hue}
+              quiet={Boolean(agent.asks)}
+              {...wire}
+              toY={placeY(index) + NODE_H / 2}
+              heartbeat={!live}
+            />
           ))}
 
           <AnimatePresence initial={false}>
             {agents.map((agent, index) => (
-              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} onStop={() => setStopping(agent)} />
+              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} helpers={width < NAMED_FROM ? FACES : NAMED} onStop={() => setStopping(agent)} />
             ))}
             {free.map((index) => (
               <Placed key={`free:${index}`} y={placeY(index)} left={nodeLeft} still={still} from={{ lift: 0, scale: 0.96 }}>
@@ -154,7 +188,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
 
           {places === 0 ? (
             <p className="absolute right-0 -translate-y-1/2 text-[13.5px] leading-snug text-muted-foreground" style={{ left: nodeLeft, top: hobkinY }}>
-              Nothing is running. The agents hobkin starts show here, wired to it.
+              {helpers.length ? "No agents are running. hobkin's own helpers work inside its chat, under it here." : 'Nothing is running. The agents hobkin starts show here, wired to it.'}
             </p>
           ) : null}
         </div>
@@ -230,27 +264,36 @@ function Wire({ from, toY, width, hue, still }: WireProps) {
 /** How often a sample agent reports back, give or take, so the map can be seen working with no host. */
 const SAMPLE_REPORT_MS = 5600
 
+interface PulseProps extends Omit<WireProps, 'hue'> {
+  /** What its agent last reported. A change sends a pulse. */
+  signal: string
+  hue: number
+  /** An agent waiting for the user does not report on its own. */
+  quiet?: boolean
+  heartbeat: boolean
+}
+
 /**
- * The pulse that runs back along a wire to hobkin when its agent reports: what it is doing or its mood changed.
- * With no host the sample agents report now and then on their own. Under Still nothing travels.
+ * The pulse that runs back along a wire when its agent reports: to hobkin when what an agent is doing or its mood
+ * changed, to an agent when its child sent its report. With no host the sample agents report now and then on their
+ * own. Under Still nothing travels.
  */
-function Pulse({ agent, from, toY, width, still, heartbeat }: Omit<WireProps, 'hue'> & { agent: RunningAgent; heartbeat: boolean }) {
+function Pulse({ signal, hue, quiet = false, from, toY, width, still, heartbeat }: PulseProps) {
   const [beat, setBeat] = useState(0)
-  const reported = useRef(`${agent.doing}|${agent.mood}|${agent.asks ?? ''}`)
+  const reported = useRef(signal)
 
   useEffect(() => {
-    const now = `${agent.doing}|${agent.mood}|${agent.asks ?? ''}`
-    if (now === reported.current) return
-    reported.current = now
+    if (signal === reported.current) return
+    reported.current = signal
     setBeat((count) => count + 1)
-  }, [agent.doing, agent.mood, agent.asks])
+  }, [signal])
 
   useEffect(() => {
-    if (!heartbeat || agent.asks) return
+    if (!heartbeat || quiet) return
     // Each agent keeps its own time, so no two report in step.
-    const timer = setInterval(() => setBeat((count) => count + 1), SAMPLE_REPORT_MS + (agent.hue % 9) * 470)
+    const timer = setInterval(() => setBeat((count) => count + 1), SAMPLE_REPORT_MS + (hue % 9) * 470)
     return () => clearInterval(timer)
-  }, [heartbeat, agent.asks, agent.hue])
+  }, [heartbeat, quiet, hue])
 
   if (still || beat === 0) return null
   // From the agent back to hobkin.
@@ -270,8 +313,13 @@ function Pulse({ agent, from, toY, width, still, heartbeat }: Omit<WireProps, 'h
   )
 }
 
-/** One agent's node. It opens the agent's canvas, and Right reaches Stop on a work agent. */
-function AgentNode({ agent, y, left, still, onStop }: { agent: RunningAgent; y: number; left: number; still: boolean; onStop: () => void }) {
+type Helpers = typeof NAMED
+
+/** One agent's node, with its children beside it. It opens the agent's canvas, and Right reaches Stop on a work agent. */
+function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningAgent; y: number; left: number; still: boolean; helpers: Helpers; onStop: () => void }) {
+  const spawned = useRunChildren(agent.id)
+  const summary = childrenSummary(spawned)
+  const said = agent.asks ? `${agent.title}, waiting for you: ${agent.asks}.` : `${agent.title}, ${agent.project}, ${agent.doing}.`
   const open = () => {
     useView.getState().openAgentCanvas(agent.id)
     // The keyboard goes along to the agent's canvas.
@@ -280,40 +328,97 @@ function AgentNode({ agent, y, left, still, onStop }: { agent: RunningAgent; y: 
 
   return (
     <Placed y={y} left={left} still={still} from={{ lift: 34, scale: 0.6 }}>
-      <div data-work-item="" className="group relative flex items-center gap-1 rounded-[14px] bg-surface pr-2 shadow-panel" style={{ height: NODE_H }}>
-        <span aria-hidden="true" className="absolute top-1/2 -left-1 size-2 -translate-y-1/2 rounded-full" style={{ background: `oklch(0.62 0.11 ${agent.hue})` }} />
-        <button
-          type="button"
-          data-stop=""
-          data-work-main=""
-          data-agent-node={agent.id}
-          onClick={open}
-          aria-label={agent.asks ? `${agent.title}, waiting for you: ${agent.asks}. Opens its canvas.` : `${agent.title}, ${agent.project}, ${agent.doing}. Opens its canvas.`}
-          className="flex h-full min-w-0 flex-1 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-[14px] pl-3 text-left outline-offset-[-2px]"
-        >
-          <span className="grid w-8 shrink-0 place-items-center">
-            <AgentHood hue={agent.hue} size={26} mood={agent.mood} asking={Boolean(agent.asks)} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13.5px] leading-tight font-medium">{agent.title}</span>
-            <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{agent.asks ?? `${agent.project} · ${agent.doing}`}</span>
-          </span>
-          <span className="shrink-0 rounded-full border border-border px-1.5 text-[10.5px] leading-4 font-medium text-muted-foreground">{agent.tier}</span>
-        </button>
-        {agent.kind === 'work' || agent.kind === 'routine' ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            tabIndex={-1}
-            data-row-control=""
-            onClick={onStop}
-            className="shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+      <div className="flex">
+        <div data-work-item="" className="group relative flex min-w-0 flex-1 items-center gap-1 rounded-[14px] bg-surface pr-2 shadow-panel" style={{ height: NODE_H }}>
+          <span aria-hidden="true" className="absolute top-1/2 -left-1 size-2 -translate-y-1/2 rounded-full" style={{ background: `oklch(0.62 0.11 ${agent.hue})` }} />
+          <button
+            type="button"
+            data-stop=""
+            data-work-main=""
+            data-agent-node={agent.id}
+            onClick={open}
+            aria-label={`${said}${summary ? ` ${summary}.` : ''} Opens its canvas.`}
+            className="flex h-full min-w-0 flex-1 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-[14px] pl-3 text-left outline-offset-[-2px]"
           >
-            Stop
-          </Button>
-        ) : null}
+            <span className="grid w-8 shrink-0 place-items-center">
+              <AgentHood hue={agent.hue} size={26} mood={agent.mood} asking={Boolean(agent.asks)} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] leading-tight font-medium">{agent.title}</span>
+              <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{agent.asks ?? `${agent.project} · ${agent.doing}`}</span>
+            </span>
+            <span className="shrink-0 rounded-full border border-border px-1.5 text-[10.5px] leading-4 font-medium text-muted-foreground">{agent.tier}</span>
+          </button>
+          {agent.kind === 'work' || agent.kind === 'routine' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              tabIndex={-1}
+              data-row-control=""
+              onClick={onStop}
+              className="shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              Stop
+            </Button>
+          ) : null}
+        </div>
+        {spawned.length ? <Satellites spawned={spawned} hue={agent.hue} still={still} {...helpers} /> : null}
       </div>
     </Placed>
+  )
+}
+
+/**
+ * An agent's children, to the right of its node and wired to its pin. Each sits in its place on the nodes' spring
+ * and moves with its node. A queued child's wire is dashed like a free place's, since it has not started.
+ */
+function Satellites({ spawned, hue, still, wire, width, named }: { spawned: readonly RunChild[]; hue: number; still: boolean } & Helpers) {
+  const { shown, more } = satellitesOf(spawned, SATELLITE.room)
+  const rows = shown.length + (more ? 1 : 0)
+  const top = (NODE_H - rows * SATELLITE.row - (rows - 1) * SATELLITE.gap) / 2
+  const middleOf = (index: number) => top + index * (SATELLITE.row + SATELLITE.gap) + SATELLITE.row / 2
+  const pin = { from: { x: 0, y: NODE_H / 2 }, width: wire, still }
+  const hueOf = (child: RunChild) => childHue(hue, spawned.indexOf(child))
+  const pill = cn('flex w-fit max-w-full items-center gap-1.5 rounded-full', named ? 'pr-2 pl-1' : 'px-[3px]')
+
+  return (
+    <div aria-hidden="true" className="relative shrink-0" style={{ width: wire + width, height: NODE_H }}>
+      <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+        <circle cx={0} cy={NODE_H / 2} r="2.5" style={{ fill: `oklch(0.62 0.11 ${hue})` }} />
+        <AnimatePresence initial={false}>
+          {shown.map((child, index) => (
+            <Wire key={child.name} {...pin} toY={middleOf(index)} hue={child.state === 'queued' ? undefined : hueOf(child)} />
+          ))}
+          {more ? <Wire key="more" {...pin} toY={middleOf(shown.length)} /> : null}
+        </AnimatePresence>
+      </svg>
+      {shown.map((child, index) => (
+        <Pulse key={child.name} signal={child.state === 'reported' || child.state === 'failed' ? child.state : 'out'} hue={hueOf(child)} {...pin} toY={middleOf(index)} heartbeat={false} />
+      ))}
+      <AnimatePresence initial={false}>
+        {shown.map((child, index) => (
+          <Placed key={child.name} y={middleOf(index) - SATELLITE.row / 2} left={wire} still={still} from={{ lift: 8, scale: 0.6 }}>
+            <div title={describeChild(child)} className={cn(pill, 'bg-surface shadow-panel')} style={{ height: SATELLITE.row }}>
+              <ChildHood child={child} hue={hueOf(child)} />
+              {named ? (
+                <>
+                  <span className="truncate text-[11px] leading-none font-medium">{child.name}</span>
+                  <span className="shrink-0 text-[10.5px] leading-none text-muted-foreground">{childLine(child)}</span>
+                </>
+              ) : null}
+            </div>
+          </Placed>
+        ))}
+        {more ? (
+          <Placed key="more" y={middleOf(shown.length) - SATELLITE.row / 2} left={wire} still={still} from={{ lift: 8, scale: 0.6 }}>
+            <div title={childrenSummary(spawned)} className={cn(pill, 'border border-dashed border-border text-[10.5px] text-muted-foreground tabular-nums')} style={{ height: SATELLITE.row }}>
+              +{more}
+              {named ? ' more' : ''}
+            </div>
+          </Placed>
+        ) : null}
+      </AnimatePresence>
+    </div>
   )
 }
 

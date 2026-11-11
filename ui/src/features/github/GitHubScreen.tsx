@@ -1,8 +1,11 @@
 import { CircleAlert, RotateCw } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { GITHUB_LIMIT, type GitHubConnection } from '#shared/protocol/github.ts'
+import { useRemembered } from '@/app/location.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
+import { useSettings } from '../settings/store.ts'
+import { SCREEN_COLUMN, SCREEN_SCROLLER_UNDER_SECOND_ROW, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -96,10 +99,11 @@ export function GitHubScreen() {
   useStops(root)
   useLanding(root)
   const github = useGitHub()
+  const inMenu = useSettings((settings) => settings.showGitHubInMenu)
   const hasHost = useHasHost()
   const still = useStill()
   const now = useNow(true, 30_000)
-  const [tab, setTab] = useState<'pulls' | 'issues'>('pulls')
+  const [tab, setTab] = useRemembered('githubTab')
 
   // Where the keyboard is in the screen: whether the screen holds it, and the place of the last row it was on.
   const keyboard = useRef({ held: false, row: 0 })
@@ -141,8 +145,8 @@ export function GitHubScreen() {
   const needsGh = github.connection === 'missing' || github.connection === 'signed-out'
 
   return (
-    <div ref={root} onKeyDown={onKeyDown} onFocus={onFocus} onBlur={onBlur} className="scroll-quiet h-full overflow-y-auto px-6 pt-[116px] pb-16">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-6">
+    <div ref={root} onKeyDown={onKeyDown} onFocus={onFocus} onBlur={onBlur} className={`${inMenu ? SCREEN_SCROLLER : SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-16`}>
+      <div className={`flex flex-col gap-6 ${SCREEN_COLUMN}`}>
         <Hero>
           <header className="px-3">
             <h1 className="eyebrow">GitHub</h1>

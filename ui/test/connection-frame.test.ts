@@ -11,6 +11,8 @@ test('the agents are the runs going on now, without hobkin itself', () => {
       { id: 'w1', title: 'Fix the login redirect', state: 'running', kind: 'background', effort: 'high', work: { slug: 'storefront', item: '3fa9c1' }, scheduleId: 'work' },
       { id: 'r1', title: 'Morning recap', state: 'running', kind: 'background', effort: 'low', scheduleId: 'morning-recap' },
       { id: 's1', title: 'Look into the flaky test', state: 'running', kind: 'background', cwd: '/Users/someone/code/billing-api' },
+      // A session hobkin ran as a job carries a schedule id of its own, and is still a session.
+      { id: 'session:hobkin-review-1a2b', title: 'Review routines', state: 'running', kind: 'background', effort: 'medium', scheduleId: 'session.hobkin-review-1a2b', cwd: '/Users/someone/.hobkin' },
       { id: 'old', title: 'Yesterday', state: 'completed', kind: 'background' },
       { title: 'routines/daily/broken.md: Invalid', state: 'invalid' },
     ],
@@ -30,6 +32,7 @@ test('the agents are the runs going on now, without hobkin itself', () => {
       { id: 'w1', title: 'Fix the login redirect', project: 'storefront', doing: 'running grep', tier: 'high', kind: 'work' },
       { id: 'r1', title: 'Morning recap', project: 'routine', doing: 'writing', tier: 'fast', kind: 'routine' },
       { id: 's1', title: 'Look into the flaky test', project: 'billing-api', doing: 'starting', tier: 'mid', kind: 'session' },
+      { id: 'session:hobkin-review-1a2b', title: 'Review routines', project: '.hobkin', doing: 'starting', tier: 'mid', kind: 'session' },
     ],
   )
   assert.equal(agents[0]!.mood, 'searching')
@@ -78,7 +81,6 @@ test('the connection says in a word where the data comes from', () => {
   assert.equal(status({ link: 'none' }), 'sample')
   assert.equal(status({ link: 'open', home: '/home', owner: { state: 'opening' } }), 'connecting')
   assert.equal(status({ link: 'open', home: '/home', owner: { state: 'live', limits: { images: 4, imageBytes: 67108864 } } }), 'live')
-  assert.equal(status({ link: 'open', home: '/home', owner: { state: 'read-only', holder: 'terminal', savedAt: null } }), 'read-only')
   assert.equal(status({ link: 'open', home: '/home', owner: { state: 'failed', message: 'No models available' } }), 'offline')
   assert.equal(status({ link: 'lost', home: '/home', owner: { state: 'live', limits: { images: 4, imageBytes: 67108864 } } }), 'offline', 'a host that went away is offline, not sample')
 })

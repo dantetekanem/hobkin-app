@@ -2,11 +2,6 @@
  * The parts of an agent's activity that the review's diff and Tailwind do not cover.
  */
 
-/* A diff inside the canvas scrolls the canvas on past its own end, unlike one in the review. */
-.aa-diff .dv {
-  overscroll-behavior: auto;
-}
-
 /* A hairline over the diff's own background, so it stands off a canvas of nearly the same color. */
 .aa-diff {
   position: relative;

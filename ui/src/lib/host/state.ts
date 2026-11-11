@@ -1,4 +1,4 @@
-import { applyActivity, type JobActivity } from '#shared/protocol/activity.ts'
+import { applyActivity, MAIN_ACTIVITY, type JobActivity } from '#shared/protocol/activity.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -13,7 +13,7 @@ import { applyTurnEvent, settleLive, type LiveTurn } from './live.ts'
 
 /**
  * Where the connection to the host stands.
- * `none`: no host has been found, so the frame draws sample data.
+ * `none`: no host has been found. A browser tab then draws sample data; the Mac window says it is connecting.
  * `lost`: there was a host and it went away. What it last sent stays on screen until it is back.
  */
 export type Link = 'none' | 'connecting' | 'open' | 'lost'
@@ -72,7 +72,13 @@ function applyState(state: HostState, message: StateMessage): HostState {
   const snapshot: WireSnapshot = { ...base.snapshot, ...message.set }
   for (const key of message.unset ?? []) delete snapshot[key]
   // Job activity comes as steps. A host from before them sends the whole key in `set`, applied just above.
-  if (message.activity) snapshot.jobActivity = applyActivity((snapshot.jobActivity ?? {}) as JobActivity, message.activity)
+  if (message.activity) {
+    const held = { ...(snapshot.jobActivity as JobActivity | undefined), ...(snapshot.mainActivity ? { [MAIN_ACTIVITY]: snapshot.mainActivity } : {}) }
+    const { [MAIN_ACTIVITY]: main, ...jobs } = applyActivity(held, message.activity)
+    snapshot.jobActivity = jobs
+    if (main) snapshot.mainActivity = main
+    else delete snapshot.mainActivity
+  }
   const messages = message.messages ? applyMessageOps(base.messages, message.messages) : base.messages
 
   return {

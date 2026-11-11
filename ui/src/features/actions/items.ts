@@ -219,6 +219,17 @@ export function tally(rows: readonly WaitingRow[]): Tally {
 }
 
 /**
+ * How an open item is answered, as hobkin takes it: a decision by one of its choices or in the user's own words
+ * (never both), a learning proposal by its three choices only, and what is handled elsewhere not here at all.
+ * A sample, which has no way to hobkin, is answered only while the screen shows samples.
+ */
+export function answersOf(row: WaitingRow, sample: boolean): { choices: Choice[]; words: boolean } {
+  if (row.opens || (!row.answers && !sample)) return { choices: [], words: false }
+  const choices = row.question.choices
+  return { choices, words: row.answers ? row.answers.by === 'decision' : choices.length > 0 }
+}
+
+/**
  * Left and Right inside a row: -1 is the row itself, and its own controls (Review, links) count from 0.
  * The walk stops at both ends.
  */

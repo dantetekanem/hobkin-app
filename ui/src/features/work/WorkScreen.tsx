@@ -1,15 +1,17 @@
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { Hero, Rise } from '@/app/Reveal.tsx'
+import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useRunningAgents } from '@/app/running-agents.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { rowVariants, useArriving } from '@/features/reports/list-motion.ts'
-import { useConnection, type WorkState } from '@/lib/host/index.ts'
+import type { WorkState } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { Discovery } from './Discovery.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
 import { SaidLine, Segmented } from './parts.tsx'
@@ -27,7 +29,8 @@ import { runWork, useWorkUi, useWorkView } from './store.ts'
  */
 export function WorkScreen() {
   const root = useRef<HTMLDivElement | null>(null)
-  useStops(root)
+  const main = useRef<HTMLDivElement | null>(null)
+  useStops(main)
   const { work, live } = useWorkView()
   // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
   const agents = useRunningAgents()
@@ -38,8 +41,16 @@ export function WorkScreen() {
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
   const keyboard = useRef({ held: false, at: 0 })
-  const stops = () => [...(root.current?.querySelectorAll<HTMLElement>('[data-stop]') ?? [])]
+  // Discovery slides over the screen: the main stops wait under it, and its trigger gets the keyboard back.
+  const [discovering, setDiscovering] = useState(false)
+  const trigger = useRef<HTMLButtonElement | null>(null)
+  const closeDiscovery = () => {
+    setDiscovering(false)
+    requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }))
+  }
+  const stops = () => [...(main.current?.querySelectorAll<HTMLElement>('[data-stop]') ?? [])]
   const onFocus = (event: FocusEvent<HTMLDivElement>) => {
+    if (!main.current?.contains(event.target)) return
     keyboard.current.held = true
     const at = stops().findIndex((stop) => stop === event.target || stop.contains(event.target))
     if (at >= 0) keyboard.current.at = at
@@ -49,6 +60,7 @@ export function WorkScreen() {
   }
   const keepKeyboard = () => {
     requestAnimationFrame(() => {
+      if (discovering) return
       const active = document.activeElement
       if (!keyboard.current.held || (active && active !== document.body)) return
       const all = stops()
@@ -97,14 +109,9 @@ export function WorkScreen() {
   const shared = { live, variants, turn }
 
   return (
-    <div
-      ref={root}
-      onKeyDownCapture={onKeyDownCapture}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      className="scroll-quiet h-full overflow-y-auto px-6 pt-[96px] pb-20"
-    >
-      <div className="mx-auto flex max-w-[880px] flex-col gap-10">
+    <div ref={root} onKeyDownCapture={onKeyDownCapture} onFocus={onFocus} onBlur={onBlur} className="relative h-full overflow-hidden">
+      <div ref={main} inert={discovering} className={`${SCREEN_SCROLLER} pb-20`}>
+      <div className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
         <Hero>
           <Header work={work} live={live} working={agents.length} />
         </Hero>
@@ -125,7 +132,7 @@ export function WorkScreen() {
               <QueueSection work={work} {...shared} />
             </Rise>
             <Rise>
-              <ProjectsSection work={work} now={now} {...shared} />
+              <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
             </Rise>
             <Rise>
               <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
@@ -133,6 +140,8 @@ export function WorkScreen() {
           </>
         ) : null}
       </div>
+      </div>
+      <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
     </div>
   )
 }
@@ -174,7 +183,6 @@ function controlsOf(item: HTMLElement): HTMLElement[] {
 
 /** What work mode is doing, in a line, with its switch. Turning it on starts nothing by itself. */
 function Header({ work, live, working }: { work: WorkState | null; live: boolean; working: number }) {
-  const connection = useConnection()
   const busy = useWorkUi((state) => Boolean(state.busy['mode']))
   const said = useWorkUi((state) => state.said['mode'])
   const [askingFolder, setAskingFolder] = useState(false)
@@ -189,13 +197,12 @@ function Header({ work, live, working }: { work: WorkState | null; live: boolean
   }
 
   if (!work) {
-    const terminal = connection.status === 'read-only'
     return (
       <header className="flex flex-col gap-2 px-1">
         <h1 className="eyebrow">Work</h1>
         <p className="font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]">Work mode is not known yet</p>
         <p className="max-w-[68ch] text-[13.5px] leading-relaxed text-muted-foreground">
-          {terminal ? 'hobkin is open in the terminal, and the view it saved has no work mode in it. It shows here once the terminal app closes.' : 'This host has not said anything about work mode yet.'}
+          This host has not said anything about work mode yet.
         </p>
       </header>
     )

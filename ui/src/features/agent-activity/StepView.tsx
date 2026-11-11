@@ -6,22 +6,20 @@ import { MessageText, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { diffOf, startView, unifiedRows, type FileSides } from '@/features/review/code/diff-rows.ts'
 import { DiffView } from '@/features/review/code/DiffView.tsx'
+import { languageOf } from '@/features/review/code/languages.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
+import { CodeText, MoreButton } from './CodeText.tsx'
+import { previewOf } from './preview.ts'
 import { foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
+import { useUnfold } from './unfold.ts'
 import type { EntryTime } from './use-agent-activity.ts'
 
 /** A running command shows at most this many of its last lines (021 A5). One that failed shows as many. */
 const TAIL_LINES = 12
 /** A finished command that stays open shows fewer. */
 const DONE_LINES = 6
-/** Rows of a diff are measured once drawn. Until then each is one line of code: 13px at a line height of 1.7. */
-const DIFF_ROW = 22.1
-/** A gap between the parts shown, as the diff estimates it. */
-const DIFF_GAP = 30
-/** A change is drawn this tall at most until it is opened, and the whole of it then scrolls inside the canvas's height. */
-const DIFF_CLOSED = 320
 
 type TimeOf = (id: string) => EntryTime | undefined
 
@@ -81,7 +79,7 @@ function duration(ms: number): string {
 }
 
 /** How a call stands, in a word and a mark. A running one breathes and counts its time. */
-function StateMark({ state, time, exitCode }: { state: CallState; time?: EntryTime; exitCode?: number }) {
+export function StateMark({ state, time, exitCode }: { state: CallState; time?: EntryTime; exitCode?: number }) {
   const running = state === 'running'
   const now = useNow(running && time?.started !== undefined, 1000)
   if (running) {
@@ -215,12 +213,13 @@ const firstLine = (text: string) => text.split('\n').find((line) => line.trim())
 /** One command: its line, its state and time, and the last of its output, all of which opens on request. */
 function CommandCard({ command, time, closed = false }: { command: Command; time?: EntryTime; closed?: boolean }) {
   const [shown, setShown] = useState(!closed)
-  const [all, setAll] = useState(false)
+  const { open: all, toggle, box } = useUnfold<HTMLDivElement>()
   const tail = tailOf(command.output, all ? Number.MAX_SAFE_INTEGER : command.state === 'done' ? DONE_LINES : TAIL_LINES)
   const lines = command.command.split('\n')
   const more = lines.length > 1
   return (
     <div
+      ref={box}
       className={cn(
         'min-w-0 rounded-2xl bg-code-bg text-code-text',
         // A hairline, so the card stands off a canvas of nearly its own color. A failed one also carries a red edge.
@@ -245,13 +244,13 @@ function CommandCard({ command, time, closed = false }: { command: Command; time
         <div className="px-3.5 pb-2.5">
           {tail.hidden && !all ? <p className="mb-0.5 text-[11px] opacity-50">{tail.hidden === 1 ? '1 line above' : `${tail.hidden.toLocaleString('en-US')} lines above`}</p> : null}
           {tail.lines.length ? (
-            <pre className={cn('scroll-quiet overflow-x-auto font-mono text-[12px] leading-[1.6] whitespace-pre opacity-75', all && 'max-h-[60vh] overflow-y-auto')}>{tail.lines.join('\n')}</pre>
+            <pre className="font-mono text-[12px] leading-[1.6] [overflow-wrap:anywhere] whitespace-pre-wrap opacity-75">{tail.lines.join('\n')}</pre>
           ) : null}
           {command.failure ? <p className="mt-1 font-mono text-[12px] text-bad-fg">{command.failure}</p> : null}
           {tail.hidden || all ? (
-            <button type="button" onClick={() => setAll(!all)} className="mt-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 transition-opacity duration-[160ms] ease-[ease] hover:opacity-100">
-              {all ? 'Show the last lines' : 'Show all output'}
-            </button>
+            <p className="mt-1.5">
+              <MoreButton open={all} count={tail.lines.length + tail.hidden} onToggle={toggle} />
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -263,8 +262,9 @@ function CommandCard({ command, time, closed = false }: { command: Command; time
 interface Part {
   key: string
   file: FileSides
-  /** How tall its rows are before they are measured, as the diff itself estimates them. */
-  height: number
+  /** The rows its diff starts with (lines and the gaps between them), and how many of them are lines. */
+  rows: number
+  lines: number
   additions: number
   deletions: number
   /** False for an edit: its place in the file is not known, so it gets no line numbers. */
@@ -274,8 +274,8 @@ interface Part {
 function partsOf(change: Change): Part[] {
   const part = (key: string, base: string | null, head: string, numbered: boolean): Part => {
     const diff = diffOf(base, head)
-    const height = unifiedRows(diff, startView(diff)).reduce((sum, item) => sum + (item.type === 'gap' ? DIFF_GAP : DIFF_ROW), 0)
-    return { key, file: { path: change.path, base, head, binary: false }, height, additions: diff.additions, deletions: diff.deletions, numbered }
+    const rows = unifiedRows(diff, startView(diff))
+    return { key, file: { path: change.path, base, head, binary: false }, rows: rows.length, lines: rows.filter((row) => row.type === 'line').length, additions: diff.additions, deletions: diff.deletions, numbered }
   }
   if (change.whole !== null) return [part('whole', null, change.whole, true)]
   return change.hunks.filter((hunk) => hunk.oldText !== hunk.newText).map((hunk, index) => part(`hunk${index}`, hunk.oldText, hunk.newText, false))
@@ -283,18 +283,19 @@ function partsOf(change: Change): Part[] {
 
 /**
  * A file the agent changed (021 A1, A2): the review's own diff, with syntax colors, added and removed lines tinted
- * and the words that changed marked. Edits to one file in a row are one change that updates in place.
+ * and the words that changed marked. Edits to one file in a row are one change that updates in place. It is as tall
+ * as its lines, wrapped: a long one shows its first lines across its parts and opens in place to all of them.
  */
 function ChangeBlock({ change }: { change: Change }) {
-  const [open, setOpen] = useState(false)
+  const { open, toggle, box } = useUnfold<HTMLDivElement>()
   const parts = useMemo(() => partsOf(change), [change])
   const additions = parts.reduce((sum, part) => sum + part.additions, 0)
   const deletions = parts.reduce((sum, part) => sum + part.deletions, 0)
-  const tall = parts.some((part) => part.height > DIFF_CLOSED)
+  const preview = previewOf(parts.map((part) => part.rows), open)
   const verb = change.whole !== null ? 'Wrote' : 'Edited'
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <FoldRow icon={FilePenLine} open={open} onToggle={tall ? () => setOpen(!open) : undefined} failed={change.state === 'failed'}>
+    <div ref={box} className="flex min-w-0 flex-col gap-1.5">
+      <FoldRow icon={FilePenLine} open={open} onToggle={preview.foldable ? toggle : undefined} failed={change.state === 'failed'}>
         <span className="shrink-0 font-medium">{change.state === 'running' ? (change.whole !== null ? 'Writing' : 'Editing') : change.state === 'failed' ? 'Could not change' : verb}</span>
         <code className="truncate font-mono text-[12px]">{change.path}</code>
         {additions || deletions ? (
@@ -304,16 +305,18 @@ function ChangeBlock({ change }: { change: Change }) {
         ) : null}
         {change.calls > 1 ? <span className="shrink-0 text-[11px] text-muted-foreground">{change.calls} edits</span> : null}
       </FoldRow>
-      {parts.map((part) => (
-        <div
-          key={part.key}
-          className="aa-diff overflow-hidden rounded-2xl"
-          data-numbers={part.numbered ? undefined : 'none'}
-          style={{ height: Math.min(part.height + 8, open ? Number.MAX_SAFE_INTEGER : DIFF_CLOSED), maxHeight: '70vh' }}
-        >
-          <DiffView file={part.file} className="py-1" />
-        </div>
-      ))}
+      {parts.map((part, index) =>
+        preview.shown[index] ? (
+          <div key={part.key} className="aa-diff overflow-hidden rounded-2xl" data-numbers={part.numbered ? undefined : 'none'}>
+            <DiffView file={part.file} natural rows={preview.shown[index]} className="py-1" />
+          </div>
+        ) : null,
+      )}
+      {preview.foldable ? (
+        <p className="pl-1">
+          <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} />
+        </p>
+      ) : null}
       {change.failures.map((failure, index) => (
         <p key={index} className="flex items-start gap-1.5 pl-2.5 text-[12px] text-bad-fg">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
@@ -349,6 +352,16 @@ function LookLine({ look }: { look: Look }) {
   )
 }
 
+/** What a read gave back, as a preview of the file in its colors that opens to the rest. */
+function ReadText({ look, className }: { look: Look; className: string }) {
+  if (!look.text) return null
+  return (
+    <div className={className}>
+      <CodeText text={look.text} language={languageOf(look.what)} from={look.from} label={`What ${look.what} holds`} note={look.notice} />
+    </div>
+  )
+}
+
 /** Reads and searches in a row (021 A7): one row that says how many, and opens to the list of what was read. */
 function Looks({ looks }: { looks: Look[] }) {
   const [open, setOpen] = useState(false)
@@ -356,9 +369,12 @@ function Looks({ looks }: { looks: Look[] }) {
   const latest = looks.at(-1)!
   if (looks.length === 1) {
     return (
-      <FoldRow icon={LOOK_ICON[latest.kind]} open={false} failed={failed > 0}>
-        <LookLine look={latest} />
-      </FoldRow>
+      <div className="flex flex-col gap-1">
+        <FoldRow icon={LOOK_ICON[latest.kind]} open={false} failed={failed > 0}>
+          <LookLine look={latest} />
+        </FoldRow>
+        <ReadText look={latest} className="pl-8" />
+      </div>
     )
   }
   return (
@@ -371,9 +387,10 @@ function Looks({ looks }: { looks: Look[] }) {
       {open ? (
         <Opened>
           {looks.map((look) => (
-            <span key={look.id} className="block px-2.5 py-0.5 text-[13px]">
+            <div key={look.id} className="flex flex-col gap-1 px-2.5 py-0.5 text-[13px]">
               <LookLine look={look} />
-            </span>
+              <ReadText look={look} className="pb-1" />
+            </div>
           ))}
         </Opened>
       ) : null}
@@ -384,7 +401,6 @@ function Looks({ looks }: { looks: Look[] }) {
 /** A tool the canvas has no words of its own for: its name, what it was given, and its output on request. */
 function OtherTool({ name, summary, state, output, failure }: { name: string; summary: string; state: CallState; output: string; failure?: string }) {
   const [open, setOpen] = useState(false)
-  const shown = tailOf(output, 40)
   return (
     <div className="flex flex-col gap-1">
       <FoldRow icon={Wrench} open={open} onToggle={output.trim() && !failure ? () => setOpen(!open) : undefined} failed={state === 'failed'}>
@@ -397,10 +413,9 @@ function OtherTool({ name, summary, state, output, failure }: { name: string; su
       </FoldRow>
       {failure ? <p className="pl-8 text-[12px] break-words whitespace-pre-wrap text-bad-fg">{failure}</p> : null}
       {open ? (
-        <pre className="scroll-quiet mx-2.5 max-h-[40vh] overflow-auto rounded-2xl bg-code-bg px-3.5 py-2 font-mono text-[12px] leading-[1.6] text-code-text shadow-[inset_0_0_0_1px_var(--hb-border)]">
-          {shown.hidden ? `${shown.hidden.toLocaleString('en-US')} lines above\n` : ''}
-          {shown.lines.join('\n')}
-        </pre>
+        <div className="mx-2.5">
+          <CodeText text={output} language={null} label={`Output of ${name}`} />
+        </div>
       ) : null}
     </div>
   )

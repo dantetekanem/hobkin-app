@@ -1,10 +1,10 @@
 /**
  * The review's keys. Tab belongs to the frame everywhere, so inside the review the rule is the terminal's:
- * Left and Right change the step, Up and Down move between nodes, Enter opens, Escape goes back.
+ * Left and Right change the step, Up and Down move between nodes, Enter opens.
  * See _specs/019-keyboard and the keys in _specs/007-review-story.
  *
- * A key that was used is prevented, and the frame then leaves it alone. An Escape with nothing left to
- * close is let through on purpose: the frame takes that one, and closes the review.
+ * A key that was used is prevented, and the frame then leaves it alone. Escape is the screen's own
+ * (`escapeReview` in entry.ts): it closes the editor, the finder or a wire, and otherwise the review.
  */
 import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
 import type { Session } from './state/session.ts'
@@ -39,17 +39,6 @@ function nextWire(session: Session): string | null {
 export function pressKey(session: Session, press: KeyPress, effects: KeyEffects): boolean {
   const { key, shift, alt } = press
   if (alt) return false
-
-  // Escape steps back one level at a time. With nothing left of the review's to step back from, it is the frame's.
-  if (key === 'Escape') {
-    if (session.editor) return session.closeEditor(), true
-    if (session.finder) return session.closeFinder(), true
-    if (session.wire) return session.openWire(null), true
-    if (session.selection) return session.selectLines(null), true
-    if (session.code) return session.closeCode(), true
-    if (session.story.detour != null) return session.back(), true
-    return session.leave()
-  }
 
   // An open wire takes its two letters first: Y to say yes to a proposed wire, R to remove it.
   const open = session.wire ? session.edgeOf.get(session.wire) : undefined

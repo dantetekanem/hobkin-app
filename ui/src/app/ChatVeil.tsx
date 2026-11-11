@@ -1,7 +1,11 @@
 import { AnimatePresence, motion, type Transition } from 'motion/react'
+import { useEffect, useState } from 'react'
+import { HistoryView, type HistoryViewProps } from '@/features/chat/HistoryView.tsx'
+import { clockTime, dayLabel } from '@/features/reports/time.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { useSessions } from '@/lib/host/index.ts'
+import { runCommand, useHasHost, useSessions } from '@/lib/host/index.ts'
+import { sampleMessages } from './sample.ts'
 import { stillVariants, useStill } from './still.ts'
 import { useView } from './view-store.ts'
 
@@ -23,7 +27,6 @@ const leave: Transition = { ...spring.sheet, duration: 0.3 }
  * works the same as its key.
  */
 export function ChatVeil() {
-  const sessions = useSessions()
   const still = useStill()
   const veil = useView((view) => view.veil)
   const closeVeil = useView((view) => view.closeVeil)
@@ -62,7 +65,7 @@ export function ChatVeil() {
             onClick={close}
           />
           <motion.div
-            className="relative overflow-hidden"
+            className="relative flex max-h-full flex-col overflow-hidden"
             variants={stillVariants(
               {
                 away: { opacity: 0, transform: 'translateY(-32px)', transition: leave },
@@ -71,24 +74,98 @@ export function ChatVeil() {
               still,
             )}
           >
-            <div role="listbox" aria-label="Earlier conversations" data-veil-list className="scroll-quiet max-h-full overflow-y-auto px-3 pt-2 pb-4">
-              <div className="mx-auto flex max-w-[640px] flex-col gap-0.5">
-                {sessions.map((session, row) => (
-                  <Row key={session.id} row={row} onChoose={close}>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15px] leading-tight">{session.title}</span>
-                      <span className="block truncate text-[12px] text-muted-foreground">
-                        {session.when} · {session.messages} messages
-                      </span>
-                    </span>
-                  </Row>
-                ))}
-              </div>
-            </div>
+            <Conversations onClose={close} />
           </motion.div>
         </motion.div>
       ) : null}
     </AnimatePresence>
+  )
+}
+
+/** A row of the list. `when` says "Now" for the conversation hobkin is in, which holds what `/clear` hid. */
+interface Listed {
+  id: string
+  title: string
+  when: string
+  messages: number
+}
+
+const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
+/** A host started before History existed refuses its commands by name. Say what to do instead of the refusal. */
+const listingRefusal = (error: unknown) =>
+  /no command named "?history\./i.test(reason(error)) ? 'History needs hobkin to restart once: the running host is older than History.' : reason(error)
+
+/** With no host, a row opens the chat's own sample conversation. */
+const SAMPLE: HistoryViewProps['conversation'] = {
+  messages: sampleMessages.flatMap(({ role, text }) => (role === 'notice' ? [] : [{ role: role === 'user' ? ('user' as const) : ('assistant' as const), text, at: null }])),
+  earlier: 0,
+  cut: false,
+}
+
+/**
+ * hobkin's main conversations, newest first, read from the host's home each time History opens. Choosing one opens
+ * it in place of the list. Its back arrow returns to the list at the same row.
+ */
+function Conversations({ onClose }: { onClose: () => void }) {
+  const live = useHasHost()
+  const sample = useSessions()
+  const setVeilActive = useView((view) => view.setVeilActive)
+  const [listed, setListed] = useState<Listed[] | string | null>(null)
+  const [opened, setOpened] = useState<{ row: number; chosen: Listed; conversation: HistoryViewProps['conversation']; error: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!live) return
+    let gone = false
+    const when = (at: number, current: boolean) => (current ? 'Now' : `${dayLabel(at, Date.now())}, ${clockTime(at)}`)
+    runCommand('history.list').then(
+      ({ conversations }) => gone || setListed(conversations.map(({ id, title, at, messages, current }) => ({ id, title, messages, when: when(at, current) }))),
+      (error: unknown) => gone || setListed(listingRefusal(error)),
+    )
+    return () => {
+      gone = true
+    }
+  }, [live])
+
+  const open = (row: number, chosen: Listed) => {
+    setOpened({ row, chosen, conversation: live ? null : SAMPLE, error: null })
+    if (!live) return
+    // An answer for a row that is no longer open is dropped.
+    const settle = (change: { conversation: HistoryViewProps['conversation'] } | { error: string }) =>
+      setOpened((now) => (now?.chosen.id === chosen.id ? { ...now, ...change } : now))
+    runCommand('history.open', { id: chosen.id }).then(
+      (conversation) => settle({ conversation }),
+      (error: unknown) => settle({ error: reason(error) }),
+    )
+  }
+
+  if (opened) {
+    const back = () => {
+      setVeilActive(opened.row)
+      setOpened(null)
+    }
+    return <HistoryView title={opened.chosen.title} when={opened.chosen.when} conversation={opened.conversation} error={opened.error} onBack={back} onClose={onClose} />
+  }
+
+  const rows = live ? listed : sample
+  return (
+    <div role="listbox" aria-label="Earlier conversations" data-veil-list className="scroll-quiet min-h-0 overflow-y-auto px-3 pt-2 pb-4">
+      <div className="mx-auto flex max-w-[640px] flex-col gap-0.5">
+        {typeof rows === 'string' || !rows?.length ? (
+          <p className="px-3 py-6 text-center text-[13px] text-muted-foreground">{typeof rows === 'string' ? rows : rows ? 'No conversations yet.' : 'Looking for conversations…'}</p>
+        ) : (
+          rows.map((session, row) => (
+            <Row key={session.id} row={row} onChoose={() => open(row, session)}>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] leading-tight">{session.title}</span>
+                <span className="block truncate text-[12px] text-muted-foreground">
+                  {session.when} · {session.messages} messages
+                </span>
+              </span>
+            </Row>
+          ))
+        )}
+      </div>
+    </div>
   )
 }
 

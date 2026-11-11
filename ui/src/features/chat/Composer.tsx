@@ -180,7 +180,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                 if (canSend) send()
               }}
             >
-              <AnimatePresence initial={false}>{report ? <ReportChip key={report.id} title={report.title} onDrop={dropReport} /> : null}</AnimatePresence>
+              <AnimatePresence initial={false}>{report ? <ReportChip key={`${report.kind ?? 'report'}:${report.id}`} title={report.title} onDrop={dropReport} /> : null}</AnimatePresence>
               <AttachmentTray attachments={attachments} onRemove={detach} />
               <div className="flex items-end gap-1">
                 <AttachButton picker={picker} disabled={!ready} onPick={attach} />
@@ -196,7 +196,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                   aria-disabled={!ready}
                   aria-label="Message hobkin"
                   // One line always. Why nothing can be sent is said once, in the status line above.
-                  placeholder={dropping ? 'Drop the image to attach it' : report ? 'Ask about this report' : 'Message hobkin'}
+                  placeholder={dropping ? 'Drop the image to attach it' : report ? (report.kind === 'routine' ? 'Ask about this routine' : 'Ask about this report') : 'Message hobkin'}
                   // While the list of commands is open the input is its combobox, which is also how the frame
                   // knows to leave Tab to the list.
                   {...(list ? { role: 'combobox', 'aria-expanded': true, 'aria-controls': listId, 'aria-autocomplete': 'list' as const } : {})}

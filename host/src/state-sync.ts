@@ -1,5 +1,5 @@
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
-import { diffActivity, resetActivity, type JobActivity } from '#shared/protocol/activity.ts'
+import { diffActivity, MAIN_ACTIVITY, resetActivity, type JobActivity } from '#shared/protocol/activity.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -15,12 +15,14 @@ import type { WorkState } from '#shared/protocol/work.ts'
  * imported archive, `presentation` is applied here, `messages` and `jobActivity` travel as steps, and `savedAt`
  * changes on every refresh without anything else changing.
  */
-const HOST_ONLY = new Set(['config', 'history', 'presentation', 'messages', 'jobActivity', 'savedAt', 'version'])
+const HOST_ONLY = new Set(['config', 'history', 'presentation', 'messages', 'jobActivity', 'mainActivity', 'savedAt', 'version'])
 
 /** Every job's activity in a snapshot. hobkin rebuilds it on each refresh, so it travels as steps (`shared/protocol/activity.ts`). */
 const activityOf = (snapshot: HobkinSnapshot | null): JobActivity => {
   const activity = snapshot?.jobActivity
-  return activity && typeof activity === 'object' ? (activity as JobActivity) : {}
+  const jobs = activity && typeof activity === 'object' ? (activity as JobActivity) : {}
+  // The main chat's own activity changes as often as a job's, so it travels the same way.
+  return Array.isArray(snapshot?.mainActivity) ? { ...jobs, [MAIN_ACTIVITY]: snapshot.mainActivity } : jobs
 }
 
 /**

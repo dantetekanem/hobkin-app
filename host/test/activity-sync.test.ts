@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { ActivityEntry } from '#shared/protocol/activity.ts'
+import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
+import { applyHostMessage, initialHostState } from '../../ui/src/lib/host/state.ts'
 import { ActivityKeeper } from '../src/activity.ts'
 import { StateSync } from '../src/state-sync.ts'
 
@@ -49,3 +50,30 @@ test('a new owner starts over with every job whole', () => {
   assert.equal(message?.reset, true)
   assert.deepEqual(message?.activity, [{ op: 'reset', job: 'r1', entries: [said('1:0', 'Hi')] }])
 })
+
+test('a run that ended keeps its spawned agents as hobkin last sent them, and a UI that connects later gets them whole', () => {
+  const keeper = new ActivityKeeper()
+  const sync = new StateSync({ owner, signIn, models: null })
+  const facts = (snapshot: object) => ({ owner, signIn, models: null, snapshot: keeper.keep(snapshot) })
+  const scout = { name: 'scout', role: 'read', state: 'running', startedAt: 1 } as const
+
+  assert.deepEqual(sync.update(facts({ jobActivity: { r1: [] }, jobChildren: { r1: [scout] } }))?.set?.jobChildren, { r1: [scout] })
+  // hobkin publishes an ended run once more, with what never reported marked stopped, then drops it.
+  sync.update(facts({ jobActivity: { r1: [] }, jobChildren: { r1: [{ ...scout, state: 'stopped' }] } }))
+  assert.equal(sync.update(facts({ jobActivity: {}, jobChildren: {} })), null, 'the ended run stands as it was sent')
+  assert.deepEqual(sync.full().set?.jobChildren, { r1: [{ ...scout, state: 'stopped' }] })
+  assert.deepEqual(keeper.keep({ busy: false }).jobChildren, { r1: [{ ...scout, state: 'stopped' }] }, 'a saved view changes nothing kept')
+})
+
+test("the main chat's activity travels as steps beside the jobs', and reaches the UI as its own key", () => {
+  const sync = new StateSync({ owner, signIn, models: null })
+  const facts = (mainActivity: ActivityEntry[]) => ({ owner, signIn, models: null, snapshot: { jobActivity: { r1: [said('1:0', 'Job')] }, mainActivity } })
+  let client = applyHostMessage({ ...initialHostState, home: '/h' }, sync.update(facts([said('2:0', 'I will')]))!)
+  const growing = sync.update(facts([said('2:0', 'I will look')]))
+  assert.deepEqual(growing, { type: 'state', rev: 2, activity: [{ op: 'update', job: MAIN_ACTIVITY, entry: said('2:0', 'I will look') }] }, 'never the whole key')
+  client = applyHostMessage(client, growing!)
+  assert.deepEqual(client.snapshot.mainActivity, [said('2:0', 'I will look')])
+  assert.deepEqual(Object.keys(client.snapshot.jobActivity ?? {}), ['r1'], 'it is no job')
+  assert.deepEqual(applyHostMessage({ ...initialHostState, home: '/h' }, sync.full()).snapshot.mainActivity, [said('2:0', 'I will look')], 'a UI that connects later gets it whole')
+})
+

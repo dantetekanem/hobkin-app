@@ -117,7 +117,7 @@ const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.sli
 /*
  * What an approval card says and offers, in hobkin's terminal words: `reviewLine`, `mergeLine`, `mergeWords` and
  * `cardChoices` in its `src/cli/ui.mjs`, which does not export them. They are written out here as they are there,
- * until hobkin exports them (host/proposed-hobkin-changes/03-work-cards.patch).
+ * until hobkin exports them.
  */
 
 const LONGEST_CARD_LINE = 280

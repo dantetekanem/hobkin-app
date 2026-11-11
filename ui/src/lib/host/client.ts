@@ -1,32 +1,65 @@
-import { createStore } from 'zustand/vanilla'
+import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { CommandArgs, CommandName, CommandResults } from '#shared/commands/registry.ts'
 import type { PresenceMessage } from '#shared/protocol/messages.ts'
 import type { QuestionReply } from '#shared/protocol/question.ts'
 import { HostConnection } from './connection.ts'
 import { discoverHost } from './discover.ts'
+import { explainRefusal } from './refusal.ts'
 import { applyHostMessage, applyLink, initialHostState, type HostState } from './state.ts'
 
+/** The window's one store and connection, and how many hold the connection open. */
+interface Kept {
+  store: StoreApi<HostState>
+  connection: HostConnection
+  holds: number
+}
+
+function keep(): Kept {
+  const store = createStore<HostState>(() => initialHostState)
+  const connection = new HostConnection({
+    discover: discoverHost,
+    onMessage: (message) => store.setState((state) => applyHostMessage(state, message), true),
+    onLink: (link) => store.setState((state) => applyLink(state, link), true),
+  })
+  return { store, connection, holds: 0 }
+}
+
+// The pair lives on globalThis, so when a hot update runs this file again it finds the running pair instead of
+// making a second one that nothing starts, which left the window on sample data. The window keeps the connection
+// code it opened with until it reloads. A copy of this file from before kept nothing here: its window reloads once.
+const holder = globalThis as { __hobkinHost?: Kept }
+if (!holder.__hobkinHost && typeof document !== 'undefined' && document.getElementById('root')?.hasChildNodes()) location.reload()
+const kept = (holder.__hobkinHost ??= keep())
+const { connection } = kept
+
 /** Everything the host has told this window. Components read it through the hooks in `hooks.ts`. */
-export const hostStore = createStore<HostState>(() => initialHostState)
+export const hostStore = kept.store
 
-const connection = new HostConnection({
-  discover: discoverHost,
-  onMessage: (message) => hostStore.setState((state) => applyHostMessage(state, message), true),
-  onLink: (link) => hostStore.setState((state) => applyLink(state, link), true),
-})
-
-/** Connects to the host and keeps the connection up. Returns how to stop. */
+/**
+ * Connects to the host and keeps the connection up. Returns how to let go of it. It closes a moment after the last
+ * hold lets go, so a hot update, which lets go and takes hold again at once, keeps it open.
+ */
 export function startHostConnection(): () => void {
+  kept.holds += 1
   connection.start()
-  return () => connection.stop()
+  let held = true
+  return () => {
+    if (!held) return
+    held = false
+    kept.holds -= 1
+    setTimeout(() => kept.holds === 0 && connection.stop(), 0)
+  }
 }
 
 /**
  * Runs a command from the registry in the host. Every click and key that changes something goes through here,
- * so hobkin can do the same thing by the same name. Rejects with the host's reason.
+ * so hobkin can do the same thing by the same name. Rejects with the host's reason, or with what fixes it when the
+ * running host is older than this window and does not know the command yet.
  */
 export function runCommand<Name extends CommandName>(name: Name, ...args: {} extends CommandArgs<Name> ? [args?: CommandArgs<Name>] : [args: CommandArgs<Name>]): Promise<CommandResults[Name]> {
-  return connection.command(name, (args[0] ?? {}) as CommandArgs<Name>)
+  return connection.command(name, (args[0] ?? {}) as CommandArgs<Name>).catch((error: unknown) => {
+    throw explainRefusal(error)
+  })
 }
 
 /** Tells hobkin whether the user is here, for its rules about when to ask something. */

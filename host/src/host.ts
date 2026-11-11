@@ -8,6 +8,7 @@ import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
+import { History } from './history.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
 import { Integrations, type McpSource } from './integrations.ts'
 import { piMcpSourceFor } from './integrations-pi.ts'
@@ -25,6 +26,8 @@ import { StateSync } from './state-sync.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
+import { routineHandlers } from './routines.ts'
+import { Appearance } from './appearance.ts'
 import { Canvas } from './canvas.ts'
 import { decisionHandlers } from './decisions.ts'
 import { workFrom, workHandlers } from './work.ts'
@@ -86,7 +89,6 @@ export interface RunningHost {
 }
 
 const whyNotLive = (owner: OwnerState): string => {
-  if (owner.state === 'read-only') return 'hobkin is open in the terminal, so this window is read-only until it closes there.'
   if (owner.state === 'failed') return `hobkin could not start: ${owner.message}`
   return 'hobkin is still starting.'
 }
@@ -184,6 +186,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // The canvas panel: the page hobkin shows beside the screens. The window draws it (030-canvas-panel).
   const canvas = new Canvas({ onChange: publish })
+  // The theme hobkin last set; publishing it to the window is not wired yet (#50).
+  const appearance = new Appearance({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
   // Change Review: reviews prepared in the background and kept in the home, and verdicts only on the user's word.
@@ -208,6 +212,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     work: owner.snapshot ? workFrom(owner.snapshot) : null,
     snapshot: owner.snapshot && activity.keep(owner.snapshot),
   })
+  // hobkin's main conversations, only read, from the home (014-continuity A8). The one its session has open is current.
+  const history = new History(root, () => (owner.app?.runtime.main as { sessionFile?: string } | undefined)?.sessionFile)
   const sync = new StateSync(facts())
   const lookAgain = () => void signIn.refresh().catch((error: unknown) => log(`Could not ask Pi about models: ${error instanceof Error ? error.message : String(error)}`))
 
@@ -275,8 +281,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'models.key-help': ({ provider }) => signIn.keyHelp(provider),
     'models.keychain': ({ provider }) => signIn.useKeychain(provider),
     'models.select': async ({ model, effort }) => {
-      // The terminal owns the home's configuration while it runs, and the script answers whatever is chosen.
-      if (owner.state.state === 'read-only') throw new Unavailable(whyNotLive(owner.state))
+      // A process that holds the home owns its configuration while it runs, and the script answers whatever is chosen.
+      if (owner.held) throw new Unavailable(whyNotLive(owner.state))
       if (!live) throw new Unavailable("The scripted model answers whatever is chosen, so nothing is saved. Start the host with --live to choose hobkin's model.")
       // Only a model Pi can use now: what the models slice lists, asked again.
       await signIn.refresh()
@@ -320,6 +326,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     'canvas.show': ({ url, title }) => canvas.show(url, title),
     'canvas.close': () => canvas.close(),
+    'appearance.set': ({ palette, name }) => appearance.set(palette, name),
     'file.read': ({ path }) => readTextFile(path),
     'file.open': async ({ path }) => {
       const real = await openablePath(path)
@@ -332,8 +339,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
     // Action Items answered from the window, each through hobkin's own decision or learning action (012).
     ...decisionHandlers({ app: hobkin }),
+    // A routine's switch, its times and Run now, each through hobkin's own runner (010-routines).
+    ...routineHandlers({ app: hobkin }),
     // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
     ...reviewHandlers(reviews),
+    'history.list': () => history.list(),
+    'history.open': ({ id }) => history.open(id),
   }
 
   const hello = (): HelloMessage => ({

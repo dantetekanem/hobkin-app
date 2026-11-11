@@ -7,6 +7,7 @@ import type { CatalogEntry } from '#shared/integrations/types.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
+import { SCREEN_COLUMN, SCREEN_SCROLLER_UNDER_SECOND_ROW } from '@/app/screen-layout.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useGitHub } from '@/lib/host/index.ts'
@@ -200,9 +201,9 @@ export function IntegrationsScreen() {
   return (
     <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} className="relative h-full outline-none">
       <LayoutGroup id="integrations">
-        <motion.div ref={scroller} layoutScroll inert={open !== null} className="scroll-quiet h-full overflow-y-auto px-6 pt-[116px] pb-12">
+        <motion.div ref={scroller} layoutScroll inert={open !== null} className={`${SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-12`}>
           {/* The screen loads on demand and may arrive after the canvas has played its entrance, so it starts its own. */}
-          <motion.div variants={pieces} initial="enter" animate="center" className="mx-auto flex max-w-[1040px] flex-col gap-10">
+          <motion.div variants={pieces} initial="enter" animate="center" className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
             {/* Above the parts below it, so a tile flying up from the catalog passes over the tiles it crosses. */}
             <Hero className="relative z-10">
               <Part

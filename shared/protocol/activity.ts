@@ -22,6 +22,12 @@ export interface ActivityEntry {
 export type JobActivity = Record<string, readonly ActivityEntry[]>
 
 /**
+ * The main chat's own activity (the snapshot's `mainActivity`) rides the same steps as one more job under this id,
+ * which no run id can be, and reaches the UI as `mainActivity` again.
+ */
+export const MAIN_ACTIVITY = '#main'
+
+/**
  * How job activity changes on the wire. hobkin rebuilds every job's whole list on each refresh, which is many
  * times a second while an agent writes, so the host sends only what differs: entries added at the end, an entry
  * changed in place, entries or a whole job gone. Anything else resends that one job.

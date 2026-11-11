@@ -1,8 +1,10 @@
 import { Minus, Plus, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
+import { KEY_LIST } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
+import { SCREEN_COLUMN, SCREEN_SCROLLER_UNDER_SECOND_ROW } from '@/app/screen-layout.ts'
 import { originOf, setThemeChoice, useTheme, useThemeChoice, type ThemeChoice } from '@/app/theme.ts'
 import { useStops } from '@/app/stops.ts'
 import { useView } from '@/app/view-store.ts'
@@ -17,7 +19,7 @@ import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { NerdStats } from './NerdStats.tsx'
 import { SetupAgainTile } from './SetupAgainTile.tsx'
-import { AGENTS, BUDGET, formatTokens } from './rules.ts'
+import { AGENTS, BUDGET, OPACITY, PALETTE_KEYS, formatTokens, paletteProblems, type Palette } from './rules.ts'
 import { useSettings, type Movement, type TypeFace } from './store.ts'
 
 /**
@@ -32,14 +34,15 @@ export function SettingsScreen() {
   return (
     <div
       ref={root}
-      className="scroll-quiet h-full overflow-y-auto px-6 pt-[116px] pb-6"
+      className={`${SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-6`}
     >
-      <div className="mx-auto grid max-w-[1040px] grid-cols-6 gap-3 @max-[820px]:grid-cols-2">
+      <div className={`grid grid-cols-6 gap-3 @max-[820px]:grid-cols-2 ${SCREEN_COLUMN}`}>
         <DayAndNight />
         <AgentsAtOnce />
         <Models />
         <IntegrationsTile />
         <TypeTile />
+        <OpacityTile />
         <DailyBudget />
         <MovementTile />
         <WhatLeaves />
@@ -131,6 +134,7 @@ const THEMES: readonly { value: ThemeChoice; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
   { value: 'system', label: 'Follow the Mac' },
+  { value: 'custom', label: 'Custom' },
 ]
 
 function DayAndNight() {
@@ -141,7 +145,7 @@ function DayAndNight() {
   return (
     <Tile
       name="Day and night"
-      value={choice === 'system' ? `Following the Mac, ${theme} now` : dark ? 'Dark' : 'Light'}
+      value={choice === 'system' ? `Following the Mac, ${theme} now` : choice === 'custom' ? 'Custom colors' : dark ? 'Dark' : 'Light'}
       className="col-span-4 row-span-2 @max-[820px]:col-span-2"
     >
       <div className="relative min-h-[150px] flex-1 overflow-hidden rounded-2xl bg-tone-2">
@@ -171,6 +175,114 @@ function DayAndNight() {
         </div>
       </div>
       <Choice label="Theme" value={choice} options={THEMES} onChoose={(value, element) => setThemeChoice(value, originOf(element))} />
+      {choice === 'custom' ? <CustomColors /> : null}
+    </Tile>
+  )
+}
+
+const PALETTE_NAMES: Record<keyof Palette, string> = { background: 'Background', surface: 'Cards', text: 'Text', muted: 'Muted text', accent: 'Accent' }
+
+/** The custom theme's colors. The app changes as they do. A color that would leave text unreadable is refused and said why. */
+function CustomColors() {
+  const palette = useSettings((state) => state.palette)
+  const setPalette = useSettings((state) => state.setPalette)
+  const [draft, setDraft] = useState(palette)
+  if (!draft) return null
+  const problems = paletteProblems(draft)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-1.5">
+        {PALETTE_KEYS.map((key) => (
+          <label key={key} className="flex cursor-pointer items-center gap-2 rounded-full bg-tone-1 py-1 pr-3 pl-1 text-[12px] font-medium">
+            <input
+              type="color"
+              data-stop=""
+              value={draft[key]}
+              onChange={(event) => {
+                const next = { ...draft, [key]: event.currentTarget.value }
+                setDraft(next)
+                setPalette(next)
+              }}
+              className="size-6 cursor-pointer rounded-full border border-border-strong bg-transparent p-0 outline-offset-2 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
+            />
+            {PALETTE_NAMES[key]}
+          </label>
+        ))}
+      </div>
+      <p role="status" className={cn('text-[12px]', problems.length ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+        {problems.length ? `${problems[0]} The last readable colors stay.` : 'Every text color reads at 4.5 to 1 or better. Light, Dark or Follow the Mac go back.'}
+      </p>
+    </div>
+  )
+}
+
+/** How much of the backgrounds and cards shows. The app is the preview: this tile fades with it, and its text does not. */
+function OpacityTile() {
+  const opacity = useSettings((state) => state.backgroundOpacity)
+  const setOpacity = useSettings((state) => state.setBackgroundOpacity)
+  const changeOpacity = useSettings((state) => state.changeBackgroundOpacity)
+  const track = useRef<HTMLDivElement | null>(null)
+  const words = opacity >= OPACITY.max ? 'Solid' : `${Math.round(opacity * 100)}%`
+  const share = (opacity - OPACITY.min) / (OPACITY.max - OPACITY.min)
+
+  const setFromPointer = (clientX: number) => {
+    const box = track.current?.getBoundingClientRect()
+    if (box) setOpacity(OPACITY.min + ((clientX - box.left) / box.width) * (OPACITY.max - OPACITY.min))
+  }
+
+  return (
+    <Tile name="Background opacity" value={words} className="col-span-6 @max-[820px]:col-span-2">
+      <div className="flex flex-1 items-center gap-5">
+        {/* Hills behind a card: the card lets them through, and its lines of text stay solid. */}
+        <div aria-hidden="true" className="relative h-[84px] w-[200px] shrink-0 overflow-hidden rounded-2xl">
+          <svg viewBox="0 0 200 84" preserveAspectRatio="none" className="absolute inset-0 size-full">
+            <path d="M0 34 Q50 12 100 30 T200 26 V84 H0 Z" fill="var(--hb-ridge-1)" />
+            <path d="M0 58 Q60 38 120 54 T200 52 V84 H0 Z" fill="var(--hb-ridge-3)" />
+          </svg>
+          <div className="absolute inset-x-5 inset-y-3.5 flex flex-col justify-center gap-1.5 rounded-xl bg-surface px-3">
+            <span className="h-1.5 w-3/4 rounded-full bg-foreground" />
+            <span className="h-1.5 w-1/2 rounded-full bg-muted-foreground" />
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div
+            ref={track}
+            role="slider"
+            aria-label="Background opacity"
+            aria-valuemin={OPACITY.min}
+            aria-valuemax={OPACITY.max}
+            aria-valuenow={opacity}
+            aria-valuetext={words}
+            tabIndex={0}
+            data-stop=""
+            className="relative h-9 cursor-ew-resize touch-none rounded-full bg-tone-1 outline-offset-2"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId)
+              setFromPointer(event.clientX)
+            }}
+            onPointerMove={(event) => {
+              if (event.buttons === 1) setFromPointer(event.clientX)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowRight') changeOpacity(1)
+              else if (event.key === 'ArrowLeft') changeOpacity(-1)
+              else return
+              event.preventDefault()
+            }}
+          >
+            <div className="absolute inset-0 overflow-hidden rounded-full">
+              <motion.div
+                className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-primary"
+                initial={false}
+                animate={{ transform: `scaleX(${0.06 + share * 0.94})` }}
+                transition={spring.follow}
+              />
+            </div>
+          </div>
+          <p className="text-[12px] text-muted-foreground">Backgrounds and cards fade to this. Text, icons and the focus ring stay solid.</p>
+        </div>
+      </div>
     </Tile>
   )
 }
@@ -425,7 +537,7 @@ function WhatLeaves() {
           label="Feedback"
           checked={feedback}
           onChange={setFeedback}
-          says="Only when you send it with /feedback, after you read exactly what goes."
+          says="Sending feedback from the app is not built yet. Nothing is sent until it is, and then only after you read exactly what goes."
         />
       </div>
       <p className="text-[12px] text-muted-foreground">Your model provider and the tools you connect also see what agents work on.</p>
@@ -445,24 +557,11 @@ function SwitchRow({ label, says, checked, onChange }: { label: string; says: st
   )
 }
 
-const KEYS: [keys: string, does: string][] = [
-  ['tab', 'Next screen, from anywhere. Shift+Tab goes back'],
-  ['↑ ↓', 'Move between things. In an empty message, ↓ enters the agents'],
-  ['← →', 'Change the thing that has the keyboard'],
-  ['⌘1 … ⌘9', 'Open a screen and step into it'],
-  ['⌘J', 'Step into the canvas'],
-  ['⌘L', 'Back to the message'],
-  ['⌘P  ⌘Y', 'Projects, History'],
-  ['⌘,  ⌘I', 'Settings, Integrations'],
-  ['⌃⌥P', 'Full prompt focus'],
-  ['esc', 'One step back toward the message'],
-]
-
 function Keys() {
   return (
     <Tile name="Keys" value="Everything from the keyboard" className="col-span-3 @max-[820px]:col-span-2">
       <ul className="grid flex-1 grid-cols-1 gap-x-4 gap-y-1.5 text-[12px]">
-        {KEYS.map(([keys, does]) => (
+        {KEY_LIST.map(({ keys, does }) => (
           <li key={keys} className="flex items-center gap-2">
             <Kbd className="shrink-0">{keys}</Kbd>
             <span className="text-muted-foreground">{does}</span>

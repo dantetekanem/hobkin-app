@@ -84,3 +84,13 @@ test('the sample answers as hobkin would: a refused merge keeps its card, and a 
   const on = applySample({ ...work, enabled: false, folder: null }, { do: 'mode', on: true })
   assert.ok('refused' in on, 'the first start needs a folder')
 })
+
+test('the main project list is the tracked ones by priority, and discovery holds the rest', async () => {
+  const { trackedProjects, discoverableProjects } = await import('../src/features/work/projects.ts')
+  const base = sampleWork().projects[0]!
+  const make = (slug: string, state: typeof base.state, priority: typeof base.priority, paused = false) => ({ ...base, slug, name: slug, state, priority, paused })
+  const all = [make('a', 'skipped', 'P0'), make('b', 'chosen', 'P2'), make('c', 'proposed', 'P1'), make('d', 'chosen', 'P0', true), make('e', 'dropped', 'P0'), make('f', 'chosen', 'P2'), make('g', 'proposed', 'P3')]
+  assert.deepEqual(trackedProjects(all).map(({ slug }) => slug), ['d', 'b', 'f'], 'paused stays, by priority, ties in hobkin order')
+  assert.deepEqual(discoverableProjects(all).map(({ slug }) => slug), ['c', 'g', 'a', 'e'])
+  assert.deepEqual(all.map(({ slug }) => slug), ['a', 'b', 'c', 'd', 'e', 'f', 'g'], 'the input is left as it was')
+})

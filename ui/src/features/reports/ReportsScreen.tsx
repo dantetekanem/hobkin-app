@@ -17,6 +17,7 @@ import { replyToReport } from './reply.ts'
 import { DayHeading, ReportRow } from './ReportRow.tsx'
 import { useStill } from './still.ts'
 import { useReports } from './store.ts'
+import { SCREEN_PANES } from '@/app/screen-layout.ts'
 
 /** Where the keyboard is, as the screen's key map counts it. */
 function whereOf(target: Element): Where {
@@ -290,10 +291,10 @@ export function ReportsScreen() {
   return (
     <div ref={root} className="relative h-full [contain:layout]" onKeyDownCapture={onKeyDownCapture}>
       {/* The content on the left and the list on the right, read left to right, as on every screen with a list beside it. */}
-      <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,380px)] grid-rows-1 gap-3 px-3 pt-[70px] pb-3 @max-[800px]:grid-cols-1">
+      <div className={`h-full min-h-0 ${SCREEN_PANES}`}>
         {/* The week, or the open report: cards side by side in one strip, which slides to show one or the other
             (slide.ts). First in reading order: it is the largest piece, so it lands first. */}
-        <div className="pointer-events-none relative col-start-1 row-start-1 min-h-0 overflow-hidden rounded-[28px] @max-[800px]:absolute @max-[800px]:inset-x-3 @max-[800px]:top-[70px] @max-[800px]:bottom-3 @max-[800px]:z-10">
+        <div className="pointer-events-none relative col-start-1 row-start-1 min-h-0 overflow-hidden rounded-[28px] @max-[800px]:absolute @max-[800px]:inset-x-6 @max-[800px]:top-[78px] @max-[800px]:bottom-3 @max-[800px]:z-10">
           <AnimatePresence custom={direction}>
             {/* Two cards: the week and the reader. Moving between reports keeps the reader's card, and slides inside it. */}
             <motion.div

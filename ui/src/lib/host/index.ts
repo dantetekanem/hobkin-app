@@ -1,6 +1,6 @@
 /**
  * The UI's side of the host: the connection, the state it feeds, and hooks that read it.
- * Each hook answers with live data once a host has connected and with the frame's sample data before that.
+ * Each hook answers with the host's data, and with the frame's sample data only in a browser tab no host has answered.
  */
 export { answerQuestion, deferQuestion, hostStore, reportPresence, runCommand, selectMainModel, startHostConnection, type MainEffort } from './client.ts'
 export { CommandError, type HostAddress } from './connection.ts'

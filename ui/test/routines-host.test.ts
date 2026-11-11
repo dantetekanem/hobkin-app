@@ -6,7 +6,7 @@ import { factsOf } from '../src/features/routines/rules.ts'
 
 const now = Date.parse('2026-11-10T12:00:00Z')
 mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now })
-const { useRoutines } = await import('../src/features/routines/store.ts')
+const { routinesHost, useRoutines } = await import('../src/features/routines/store.ts')
 const routine = {
   id: 'real-check', title: 'Real check', enabled: true,
   cadence: 'daily', at: '09:30', timezone: 'America/Toronto',
@@ -63,17 +63,50 @@ test('updates preserve navigation, removal closes detail, disconnect retains rea
   assert.equal(useRoutines.getState().openId, null)
 })
 
-test('real routines remain host-owned across actions and sample timer ticks', () => {
+test("Run now, the switch and new times go to hobkin, pending until it answers, and a refusal stays in hobkin's words", async () => {
   hello()
   snapshot([routine])
-  const before = data()
-  useRoutines.getState().runNow(routine.id)
-  useRoutines.getState().setEnabled(routine.id, false)
-  useRoutines.getState().changeTimes(routine.id, { at: '15:00' })
-  useRoutines.getState().showSample('full')
+  const calls: unknown[][] = []
+  let answer: (name: string) => Promise<unknown> = async () => ({ ok: true })
+  const real = routinesHost.run
+  routinesHost.run = ((name: string, args: unknown) => {
+    calls.push([name, args])
+    return answer(name)
+  }) as never
+  const state = () => useRoutines.getState()
+
+  // The switch shows where it is going until hobkin answers. By then its snapshot has the change.
+  const later = Promise.withResolvers<unknown>()
+  answer = () => later.promise
+  const switching = state().setEnabled(routine.id, false)
+  assert.deepEqual(state().pending, { [routine.id]: { action: 'enable', enabled: false } })
+  assert.equal(await state().changeTimes(routine.id, { at: '15:00' }), 'hobkin is still busy with this routine.')
+  snapshot([{ ...routine, enabled: false }], [], false)
+  later.resolve({ ok: true })
+  assert.equal(await switching, null)
+  assert.deepEqual(state().pending, {})
+  assert.equal(data().routines[0]?.enabled, false)
+
+  // A refusal comes back in hobkin's words: by the routine for Run now and the switch, to the form for its times.
+  answer = async (name) => {
+    throw Error(name === 'routine.run' ? 'Routine is already running.' : 'window may contain at most 48 checks per day')
+  }
+  assert.equal(await state().runNow(routine.id), 'Routine is already running.')
+  assert.deepEqual(state().refused, { [routine.id]: 'Routine is already running.' })
+  const window = { start: '08:00', end: '17:00', everyMinutes: 1 }
+  assert.equal(await state().changeTimes(routine.id, { window }), 'window may contain at most 48 checks per day')
+  assert.deepEqual(state().refused, {}, 'the next action clears the last refusal')
+  assert.deepEqual(calls, [
+    ['routine.enable', { id: routine.id, enabled: false }],
+    ['routine.run', { id: routine.id }],
+    ['routine.times', { id: routine.id, window }],
+  ])
+
+  // hobkin's routines never run on the sample's clock.
   mock.timers.tick(180_000)
-  assert.deepEqual(data(), before)
-  assert.equal(useRoutines.getState().sample, null)
+  assert.equal(state().sample, null)
+  assert.deepEqual(data().running, {})
+  routinesHost.run = real
 })
 
 test('host next-run times and held/running states override the local sample forecast', () => {

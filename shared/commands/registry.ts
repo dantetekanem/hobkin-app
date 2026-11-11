@@ -1,6 +1,7 @@
 import { Type, type Static, type TSchema } from 'typebox'
 import { Check, Errors } from 'typebox/value'
 import type { IntegrationsState } from '../integrations/wire.ts'
+import { paletteProblems } from '../protocol/appearance.ts'
 import type { CanvasState } from '../protocol/canvas.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
@@ -40,6 +41,9 @@ const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
 /** The commit a card showed. A merge pinned to it refuses a branch that moved since. */
 const commit = Type.String({ pattern: '^[0-9a-f]{7,64}$' })
+/** A routine by hobkin's id for it, and a time of day as its files write one (hobkin's `src/cli/schedules.mjs`). */
+const routineId = Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' })
+const clock = Type.String({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' })
 /** An MCP server by its name in Pi's configuration, which Pi limits to letters, digits, `_` and `-`. */
 const mcpServer = Type.Object({ name: Type.String({ pattern: '^[A-Za-z0-9_-]{1,64}$' }) }, { additionalProperties: false })
 /** A review by what it reviews: a finished change, `change:<slug>:<item>`, or a pull request, `pr:<owner>/<repo>/<number>`. */
@@ -252,6 +256,20 @@ export const COMMANDS = {
     args: nothing,
     hobkin: true,
   },
+  'appearance.set': {
+    description:
+      "Set the app's color theme from five colors, each #rrggbb: `background`, `surface` (cards), `text`, `muted` (secondary text), `accent`. Text and muted text must read on the background and on cards (4.5 to 1), or it is refused with the ratio so you can retry. `name` names the theme. Use it when the user asked for a theme, such as a Matrix one.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        palette: Type.Object(Object.fromEntries(['background', 'surface', 'text', 'muted', 'accent'].map((key) => [key, Type.String({ pattern: '^#[0-9a-fA-F]{6}$' })])) as Record<string, ReturnType<typeof Type.String>>, { additionalProperties: false }),
+        name: Type.Optional(words(60)),
+      },
+      { additionalProperties: false },
+    ),
+    rule: ({ palette }) => paletteProblems(palette).join(' ') || null,
+    hobkin: true,
+  },
   'file.read': {
     description: 'Read a file for the viewer: text only, up to 2 MB, a regular file only (links are followed). `path` is a full path or starts with ~/. Refused with a plain reason for anything else.',
     runs: 'host',
@@ -372,6 +390,31 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ run: words(256), text: words(4096) }, { additionalProperties: false }),
   },
+  'routine.run': {
+    description:
+      "Run a routine once now, by its id, as hobkin's run_routine does: even when it is off or not due, and no setting changes. hobkin refuses while it is already running or its background places are full. Answers once the run has started; its report comes later in Reports.",
+    runs: 'host',
+    args: Type.Object({ id: routineId }, { additionalProperties: false }),
+  },
+  'routine.enable': {
+    description: "Turn a routine on or off: hobkin writes `enabled` in the routine's file, and nothing else in it changes. Off, it never runs by itself.",
+    runs: 'host',
+    args: Type.Object({ id: routineId, enabled: Type.Boolean() }, { additionalProperties: false }),
+  },
+  'routine.times': {
+    description:
+      "Change when a routine runs: `at` is one time or a list of times, HH:mm in the routine's timezone, and `window` a start, an end and the minutes between two checks. hobkin checks the change as it checks any routine file, writes it in the file and keeps the rest. A change ends a hold.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        id: routineId,
+        at: Type.Optional(Type.Union([clock, Type.Array(clock, { minItems: 1, maxItems: 48 })])),
+        window: Type.Optional(Type.Object({ start: clock, end: clock, everyMinutes: Type.Integer({ minimum: 1, maximum: 1440 }) }, { additionalProperties: false })),
+      },
+      { additionalProperties: false },
+    ),
+    rule: ({ at, window }) => ((at === undefined) !== (window === undefined) ? null : 'need "at" or "window", and only one of them'),
+  },
   'decision.answer': {
     description:
       "Answer something waiting in Action Items with hobkin's own decision action, as its Decisions tab does: `value` is one of its choices, `typed` the user's own words, which whoever asked hears. What the answer then does, such as a merge or a note to the routine that asked, is hobkin's.",
@@ -384,6 +427,18 @@ export const COMMANDS = {
       "Answer one of hobkin's learning proposals with its own learning action: `yes` plans it with the main agent in Chat, `later` asks again in a week, and `no` does not ask it again.",
     runs: 'host',
     args: Type.Object({ id: Type.String({ pattern: '^[0-9a-f]{6}$' }), value: oneOf(['yes', 'later', 'no']) }, { additionalProperties: false }),
+  },
+  'history.list': {
+    description:
+      "List hobkin's main conversations from its home, newest first: the one it is in now, and each earlier one a /reset left behind. Each has when it last spoke, a title and how many messages it holds. It only reads.",
+    runs: 'host',
+    args: nothing,
+  },
+  'history.open': {
+    description:
+      "Read one of hobkin's main conversations by the `id` history.list gave it: its user and assistant messages as Chat shows them, without thinking or tool calls, the newest few hundred. It only reads, and never resumes the conversation.",
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.jsonl$' }) }, { additionalProperties: false }),
   },
 } as const satisfies Record<string, CommandDefinition>
 
@@ -416,6 +471,7 @@ export interface CommandResults {
   'system.open': { ok: true }
   'canvas.show': CanvasState
   'canvas.close': CanvasState
+  'appearance.set': { ok: true }
   'file.read': FileContent
   'file.open': { ok: true }
   'review.prepare': ReviewStatus
@@ -445,9 +501,48 @@ export interface CommandResults {
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
   'agent.say': { delivered: true }
+  /** The run hobkin started. */
+  'routine.run': { run: string }
+  'routine.enable': { ok: true }
+  'routine.times': { ok: true }
   /** What hobkin said of the answer, and whether the item went to the main agent in Chat and stays open until done. */
   'decision.answer': { message: string; handedOff: boolean }
   'learning.answer': { message: string }
+  'history.list': { conversations: HistoryEntry[] }
+  'history.open': HistoryConversation
+}
+
+/** One of hobkin's main conversations, as History lists it. */
+export interface HistoryEntry {
+  /** Its file in the home's `sessions` folder. */
+  id: string
+  /** Its name in Pi, or the first line the user wrote. */
+  title: string
+  /** When it last spoke, in milliseconds. */
+  at: number
+  /** The user and assistant messages Chat would show of it. */
+  messages: number
+  /** hobkin is in this conversation now. */
+  current: boolean
+  /** The file is longer than History reads, so only its start counts. */
+  cut: boolean
+}
+
+export interface HistoryMessage {
+  role: 'user' | 'assistant'
+  /** Markdown, as Chat shows it. */
+  text: string
+  at: number | null
+  /** The report the user's message was about. */
+  about?: string
+  images?: number
+}
+
+export interface HistoryConversation extends Omit<HistoryEntry, 'messages'> {
+  /** The newest messages, oldest first. */
+  messages: HistoryMessage[]
+  /** How many messages came before the first one here. */
+  earlier: number
 }
 
 export type ArgumentCheck = { ok: true } | { ok: false; code: 'unknown-command' | 'invalid-arguments'; message: string }

@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { setTimeout as pause } from 'node:timers/promises'
 import { test } from 'node:test'
 import { HobkinApplication } from 'hobkin/src/cli/application.mjs'
 import { initialize } from 'hobkin/src/cli/config.mjs'
 import { createScriptedModel } from '../src/scripted.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
-test('serves the saved view while locked and goes live when released', async (t) => {
+test('a home another process holds is a fault until it lets go, then the host opens it', async (t) => {
   const root = join(temporaryDirectory(t), 'home')
   initialize(root, { cwd: root })
 
-  // Another owner of the home, as the terminal app is: it holds hobkin's lock and has said something.
-  const model = await createScriptedModel(root, { reply: () => ({ text: 'Said in the terminal' }) })
-  const terminal = await HobkinApplication.open(root, {
+  // Another owner of the home: it holds hobkin's lock and has said something.
+  const model = await createScriptedModel(root, { reply: () => ({ text: 'Said elsewhere' }) })
+  const other = await HobkinApplication.open(root, {
     createMain: model.createMain,
     runHarness: model.runHarness,
     fetch: async () => {
@@ -20,42 +22,35 @@ test('serves the saved view while locked and goes live when released', async (t)
     },
   })
   let released = false
-  afterTest(t, () => (released ? undefined : terminal.close()))
-  await terminal.send('Hello from the terminal')
-  await terminal.runtime.idle()
-  await terminal.refresh()
+  afterTest(t, () => (released ? undefined : other.close()))
+  await other.send('Hello from elsewhere')
+  await other.runtime.idle()
 
   const host = await hostFor(t, { root, lockRetryMs: 200 })
   const client = await Client.connect(host)
   afterTest(t, () => client.close())
 
-  const saved = await client.until((view) => view.owner?.state === 'read-only', 'the saved view')
-  assert.deepEqual(saved.owner, { state: 'read-only', holder: 'terminal', savedAt: saved.owner?.state === 'read-only' ? saved.owner.savedAt : null })
-  assert.match(String(saved.owner?.state === 'read-only' && saved.owner.savedAt), /^\d{4}-\d{2}-\d{2}T/)
-  assert.deepEqual(saved.messages.map(({ content }) => content), ['Hello from the terminal', 'Said in the terminal'])
-  assert.equal(saved.snapshot.connection, 'offline')
+  const held = await client.until((view) => view.owner?.state === 'failed', 'the fault')
+  assert.match(held.owner?.state === 'failed' ? held.owner.message : '', /Another process holds this home/)
 
-  // Nothing can be sent into a home someone else owns, and the reason names who holds it.
+  // Nothing goes into a home someone else runs, its model included, and the reason says so.
   const refused = await client.command('conversation.send', { text: 'Can you hear me?' })
   assert.equal(!refused.ok && refused.error.code, 'unavailable')
-  assert.match(!refused.ok ? refused.error.message : '', /open in the terminal/)
-  // Nor can its model be chosen from here: the terminal owns its configuration while it runs.
+  assert.match(!refused.ok ? refused.error.message : '', /Another process holds this home/)
   const choosing = await client.command('models.select', { model: 'openai/gpt-test' })
-  assert.match(!choosing.ok ? choosing.error.message : '', /open in the terminal/)
+  assert.match(!choosing.ok ? choosing.error.message : '', /Another process holds this home/)
 
-  // What the other owner says next shows here too, still read-only.
-  await terminal.send('One more')
-  await terminal.runtime.idle()
-  await terminal.refresh()
-  await client.until((view) => view.messages.some(({ content }) => content === 'One more'), 'the newer saved view')
-  assert.equal(client.view.owner?.state, 'read-only')
+  // The host keeps looking and leaves the lock to its holder.
+  await pause(700)
+  assert.equal(client.view.owner?.state, 'failed')
+  assert.equal(existsSync(join(root, 'runtime.lock')), true)
 
   const releasedAt = performance.now()
-  await terminal.close()
+  await other.close()
   released = true
   const live = await client.live()
   assert.ok(performance.now() - releasedAt < 5000, 'live within five seconds of the release')
-  assert.equal(live.messages.filter(({ role }) => role === 'user').length, 2, 'the same conversation, now live')
+  assert.deepEqual(live.messages.map(({ content }) => content), ['Hello from elsewhere', 'Said elsewhere'], 'the same home, now live')
 
   const sent = await client.command('conversation.send', { text: 'And now from the client' })
   assert.equal(sent.ok, true)

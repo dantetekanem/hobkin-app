@@ -2,25 +2,27 @@ import { Play } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
-import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useClock } from './hooks.ts'
 import { chipMotion, groupVariants, rowMotion } from './look.ts'
 import { RoutineHood, StateChip } from './parts.tsx'
 import { byNextRun, type RoutineFacts } from './rules.ts'
+import type { Pending } from './store.ts'
 import type { TimelineDay, TimelineEntry } from './timeline.ts'
 import { RECURRENCES } from './types.ts'
 import { clockText, dateLabel, dayName, dayWord, elapsedText, everyText, holdEnds, howOften, RECURRENCE_TITLE, stateSentence, untilText, zoneText } from './words.ts'
 
 /**
  * The two lists under the sky: every routine grouped by how often it runs, and the next seven days in
- * time order. Each row is one stop for the keyboard. Enter or Right opens the routine, and the detail grows
- * out of the row that was chosen.
+ * time order. Each row is one stop for the keyboard. Enter or Right opens the routine, and its detail slides in
+ * as a Reports card does, with every routine listed beside it (`RoutineIndex`).
  */
 
 export interface ListActions {
-  readOnly?: boolean
-  /** Opens a routine's detail from the element with this layout id. */
+  /** What hobkin is doing for each routine now, and why it last refused, in its words. */
+  pending?: Record<string, Pending>
+  refused?: Record<string, string>
+  /** Opens a routine's detail. `from` is the row's anchor, where the keyboard comes back when it closes. */
   onOpen: (id: string, from: string) => void
   onRun: (id: string) => void
   onEnable: (id: string, enabled: boolean) => void
@@ -33,13 +35,11 @@ interface ListProps extends ListActions {
   zone: string
   /** False while the detail is open: the rows behind it are not walked. */
   walkable: boolean
-  /** The layout id the open detail grew from. That row gives its shape to the detail while it is open. */
-  openFrom: string | null
 }
 
 type RowProps = Omit<ListProps, 'facts'> & { facts: RoutineFacts }
 
-export function AllRoutines({ facts, now, zone, walkable, openFrom, ...actions }: ListProps) {
+export function AllRoutines({ facts, now, zone, walkable, ...actions }: ListProps) {
   return RECURRENCES.map((recurrence) => {
     const group = facts.filter((item) => item.routine.cadence === recurrence).toSorted(byNextRun)
     if (group.length === 0) return null
@@ -52,7 +52,7 @@ export function AllRoutines({ facts, now, zone, walkable, openFrom, ...actions }
         <ul className="flex flex-col gap-1.5">
           <AnimatePresence initial={false}>
             {group.map((item) => (
-              <RoutineRow key={item.routine.id} facts={item} now={now} zone={zone} walkable={walkable} openFrom={openFrom} {...actions} />
+              <RoutineRow key={item.routine.id} facts={item} now={now} zone={zone} walkable={walkable} {...actions} />
             ))}
           </AnimatePresence>
         </ul>
@@ -61,15 +61,14 @@ export function AllRoutines({ facts, now, zone, walkable, openFrom, ...actions }
   })
 }
 
-/** The shape a row shares with the detail. While the detail is open it is the detail's, and the row keeps an empty place. */
-function Shape({ layoutId, taken }: { layoutId: string; taken: boolean }) {
-  if (taken) return null
-  return <motion.div layoutId={layoutId} className="absolute inset-0 bg-background" style={{ borderRadius: 16 }} transition={spring.screen} />
+/** A row's card. */
+function Shape() {
+  return <div className="absolute inset-0 rounded-2xl bg-background" />
 }
 
 interface RowButtonProps {
   routineId: string
-  /** The row's layout id. The keyboard comes back to it when the detail closes. */
+  /** The keyboard comes back to it when the detail closes. */
   anchor: string
   label: string
   walkable: boolean
@@ -105,24 +104,27 @@ function RowButton({ routineId, anchor, label, walkable, onOpen, onLight }: RowB
   )
 }
 
-function RoutineRow({ facts, now, zone, walkable, openFrom, readOnly = false, onOpen, onRun, onEnable, onLight }: RowProps) {
+function RoutineRow({ facts, now, zone, walkable, pending = {}, refused = {}, onOpen, onRun, onEnable, onLight }: RowProps) {
   const { routine, state, hold } = facts
-  const layoutId = `routine-${routine.id}`
-  const taken = openFrom === layoutId && !walkable
+  const busy = pending[routine.id]
+  const refusal = refused[routine.id]
+  // While hobkin turns it on or off, the switch shows where it is going.
+  const enabled = busy?.action === 'enable' ? busy.enabled : routine.enabled
+  const anchor = `routine-${routine.id}`
   const otherZone = routine.timezone !== zone
 
   return (
     <motion.li layout="position" {...rowMotion} className="relative">
-      <Shape layoutId={layoutId} taken={taken} />
+      <Shape />
       <RowButton
         routineId={routine.id}
-        anchor={layoutId}
+        anchor={anchor}
         label={`${routine.title}. ${howOften(routine)}. ${stateSentence(facts, now, zone)}`}
         walkable={walkable}
-        onOpen={() => onOpen(routine.id, layoutId)}
+        onOpen={() => onOpen(routine.id, anchor)}
         onLight={onLight}
       />
-      <div className={cn('pointer-events-none relative flex min-h-[64px] items-center gap-3 py-2.5 pr-3 pl-2 transition-opacity duration-[160ms]', taken && 'opacity-0')}>
+      <div className="pointer-events-none relative flex min-h-[64px] items-center gap-3 py-2.5 pr-3 pl-2">
         <RoutineHood id={routine.id} state={state} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-heading text-[15px] leading-snug font-semibold tracking-[-0.015em]">{routine.title}</p>
@@ -131,6 +133,7 @@ function RoutineRow({ facts, now, zone, walkable, openFrom, readOnly = false, on
             {otherZone ? `, ${zoneText(routine.timezone, now)}` : ''}
           </p>
           {hold ? <p className="truncate text-[12.5px] text-warn-fg">{hold.reason}</p> : null}
+          {refusal ? <p className="truncate text-[12.5px] text-bad-fg" title={refusal}>{refusal}</p> : null}
         </div>
         <NextRun facts={facts} now={now} zone={zone} />
         <div className="pointer-events-auto flex shrink-0 items-center gap-2 pl-1">
@@ -140,7 +143,7 @@ function RoutineRow({ facts, now, zone, walkable, openFrom, readOnly = false, on
             tabIndex={-1}
             aria-label={`Run ${routine.title} now`}
             title="Run now"
-            disabled={readOnly || state === 'running'}
+            disabled={state === 'running' || busy !== undefined}
             onClick={() => onRun(routine.id)}
           >
             <Play className="size-3.5" aria-hidden="true" />
@@ -148,11 +151,12 @@ function RoutineRow({ facts, now, zone, walkable, openFrom, readOnly = false, on
           <Switch
             size="sm"
             tabIndex={-1}
-            checked={routine.enabled}
-            disabled={readOnly}
-            onCheckedChange={(enabled) => onEnable(routine.id, enabled)}
-            aria-label={routine.enabled ? `Turn ${routine.title} off` : `Turn ${routine.title} on`}
-            title={routine.enabled ? 'On' : 'Off'}
+            checked={enabled}
+            aria-busy={busy?.action === 'enable'}
+            className={cn(busy?.action === 'enable' && 'opacity-60')}
+            onCheckedChange={(next) => onEnable(routine.id, next)}
+            aria-label={enabled ? `Turn ${routine.title} off` : `Turn ${routine.title} on`}
+            title={enabled ? 'On' : 'Off'}
           />
         </div>
       </div>
@@ -256,7 +260,7 @@ function dayTitle(index: number, day: TimelineDay, zone: string, now: number): s
 }
 
 /** The next seven days, each with what runs on it, in time order. */
-export function NextSevenDays({ days, facts, now, zone, walkable, openFrom, ...actions }: WeekProps) {
+export function NextSevenDays({ days, facts, now, zone, walkable, ...actions }: WeekProps) {
   const byId = new Map(facts.map((item) => [item.routine.id, item]))
   const running = facts.filter((item) => item.state === 'running')
   const off = facts.filter((item) => item.state === 'off')
@@ -284,7 +288,6 @@ export function NextSevenDays({ days, facts, now, zone, walkable, openFrom, ...a
                     now={now}
                     zone={zone}
                     walkable={walkable}
-                    openFrom={openFrom}
                     afterHold={afterHold.has(entry.key)}
                     {...actions}
                   />
@@ -338,10 +341,9 @@ const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(
 /** "10 checks", or "4 checks left" once the window has started. */
 const checksText = (count: number, started: boolean) => `${count} ${count === 1 ? 'check' : 'checks'}${started ? ' left' : ''}`
 
-function EntryRow({ entry, facts, now, zone, walkable, openFrom, afterHold, onOpen, onLight }: RowProps & { entry: TimelineEntry; afterHold: boolean }) {
+function EntryRow({ entry, facts, now, zone, walkable, afterHold, onOpen, onLight }: RowProps & { entry: TimelineEntry; afterHold: boolean }) {
   const { routine, state } = facts
-  const layoutId = `entry-${entry.key}`
-  const taken = openFrom === layoutId && !walkable
+  const anchor = `entry-${entry.key}`
   const own = routine.timezone
   const window = entry.window
   // The week is laid out in the user's days, so its column of times is the time here. A routine from
@@ -355,16 +357,16 @@ function EntryRow({ entry, facts, now, zone, walkable, openFrom, afterHold, onOp
 
   return (
     <motion.li layout="position" {...rowMotion} className="relative">
-      <Shape layoutId={layoutId} taken={taken} />
+      <Shape />
       <RowButton
         routineId={routine.id}
-        anchor={layoutId}
+        anchor={anchor}
         label={entryLabel(entry, facts, now, zone)}
         walkable={walkable}
-        onOpen={() => onOpen(routine.id, layoutId)}
+        onOpen={() => onOpen(routine.id, anchor)}
         onLight={onLight}
       />
-      <div className={cn('pointer-events-none relative flex min-h-[56px] items-center gap-3 py-2 pr-4 pl-3 transition-opacity duration-[160ms]', taken && 'opacity-0')}>
+      <div className="pointer-events-none relative flex min-h-[56px] items-center gap-3 py-2 pr-4 pl-3">
         <div className="flex w-[4.25rem] shrink-0 flex-col">
           <span className="font-heading text-[17px] leading-none font-semibold tracking-[-0.02em] tabular-nums">{window && local ? window.start : clockText(entry.at, zone)}</span>
           {window && local ? <span className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">to {window.end}</span> : null}
@@ -389,5 +391,51 @@ function EntryRow({ entry, facts, now, zone, walkable, openFrom, afterHold, onOp
         </div>
       </div>
     </motion.li>
+  )
+}
+
+interface IndexProps {
+  /** Every routine, in the order All routines lists them. */
+  order: readonly RoutineFacts[]
+  openId: string
+  onOpen: (id: string) => void
+}
+
+/**
+ * Beside an open routine, every routine in one short list, as Reports lists its reports beside the open one.
+ * Choosing another slides its detail in. The open one's row wears the detail's own color.
+ */
+export function RoutineIndex({ order, openId, onOpen }: IndexProps) {
+  return (
+    <ul aria-label="Routines" className="scroll-quiet flex min-h-0 flex-col overflow-y-auto overscroll-contain px-1 pt-2 pb-6">
+      {order.map(({ routine, state }) => {
+        const open = routine.id === openId
+        return (
+          <li key={routine.id}>
+            <button
+              type="button"
+              data-stop=""
+              aria-current={open ? 'true' : undefined}
+              onClick={() => onOpen(routine.id)}
+              className="group relative isolate flex w-full cursor-default items-center gap-2.5 rounded-2xl px-2.5 py-2 text-left outline-offset-[-2px]"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'absolute inset-0 -z-10 rounded-2xl transition-opacity duration-[160ms] ease-[ease]',
+                  open ? 'bg-background opacity-100' : 'bg-surface-2 opacity-0 group-hover:opacity-60 group-focus-visible:opacity-100',
+                )}
+              />
+              <RoutineHood id={routine.id} state={state} size={20} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-heading text-[14px] leading-snug font-medium tracking-[-0.01em]">{routine.title}</span>
+                <span className="block truncate text-[12px] text-muted-foreground">{howOften(routine)}</span>
+              </span>
+              {state === 'on' ? null : <StateChip state={state} />}
+            </button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

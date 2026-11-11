@@ -55,13 +55,13 @@ interface SkyTileProps extends SkyProps {
   view: RoutinesView
   onView: (view: RoutinesView) => void
   walkable: boolean
-  onNewRoutine: () => void
+  /** Without it, the screen offers no new routine. */
+  onNewRoutine?: () => void
   empty: boolean
-  readOnly?: boolean
 }
 
 /** The sky with its headline over it, the choice of view and the way to a new routine. */
-export function SkyTile({ facts, view, onView, walkable, onNewRoutine, empty, readOnly = false, ...sky }: SkyTileProps) {
+export function SkyTile({ facts, view, onView, walkable, onNewRoutine, empty, ...sky }: SkyTileProps) {
   const { title, sub } = headlineOf(facts, sky.now, sky.zone)
 
   return (
@@ -74,14 +74,14 @@ export function SkyTile({ facts, view, onView, walkable, onNewRoutine, empty, re
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div key={title} initial={{ opacity: 0, transform: 'translateY(10px)' }} animate={{ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: tween.enter } }} exit={{ opacity: 0, transform: 'translateY(-8px)', transition: tween.exit }}>
               <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">{title}</p>
-              <p className="mt-0.5 text-[13px] text-muted-foreground">{readOnly && !facts.some((fact) => fact.next) ? 'No upcoming run in the host snapshot.' : sub}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">{sub}</p>
             </motion.div>
           </AnimatePresence>
         </div>
         {empty ? null : (
           <div className="flex flex-wrap items-center gap-2">
             <Choice label="Show" value={view} options={VIEWS} onChoose={onView} stop={walkable} />
-            {!readOnly ? (
+            {onNewRoutine ? (
               <Button variant="outline" {...stopIf(walkable)} onClick={onNewRoutine}>
                 <Plus aria-hidden="true" />
                 New routine

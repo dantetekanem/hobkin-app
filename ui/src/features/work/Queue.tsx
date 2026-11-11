@@ -1,11 +1,12 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, Ref } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
+import { discoverableProjects, trackedProjects } from './projects.ts'
 import { GradeChip, SaidLine, SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkUi } from './store.ts'
 
@@ -161,29 +162,29 @@ function factsOf(project: WorkProject, now: number): string {
   return [project.level, ...(facts.length ? facts : ['not looked at yet'])].join(' · ')
 }
 
-export function ProjectsSection({ work, live, now, variants, turn }: { work: WorkState; now: number } & Shared) {
-  const taken = work.projects.filter(({ state }) => state === 'chosen').length
-  const proposed = work.projects.filter(({ state }) => state === 'proposed').length
-  const tally = [`${taken} taken`, proposed ? `${proposed} proposed` : ''].filter(Boolean).join(' · ')
+export function ProjectsSection({ work, live, now, variants, turn, onDiscover, discoverRef }: { work: WorkState; now: number; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement> } & Shared) {
+  const tracked = trackedProjects(work.projects)
+  const waiting = discoverableProjects(work.projects)
+  const proposed = waiting.filter(({ state }) => state === 'proposed').length
 
   return (
     <section aria-label="Projects" className="flex flex-col gap-2">
-      <SectionHeading label="Projects" count={tally} />
-      {work.projects.length ? (
+      <SectionHeading label="Projects" count={`${tracked.length} taken`}>
+        <Button ref={discoverRef} variant="ghost" size="sm" data-stop="" className="ml-auto text-muted-foreground" onClick={onDiscover}>
+          Discover projects{waiting.length ? ` · ${waiting.length}${proposed ? `, ${proposed} proposed` : ''}` : ''}
+        </Button>
+      </SectionHeading>
+      {tracked.length ? (
         <ul className="relative flex flex-col gap-2">
           <AnimatePresence mode="popLayout">
-            {work.projects.map((project) =>
-              project.state === 'chosen' ? (
-                <ProjectItem key={project.slug} project={project} live={live} now={now} variants={variants} order={turn()} />
-              ) : (
-                <ProposalItem key={project.slug} project={project} live={live} variants={variants} order={turn()} />
-              ),
-            )}
+            {tracked.map((project) => (
+              <ProjectItem key={project.slug} project={project} live={live} now={now} variants={variants} order={turn()} />
+            ))}
           </AnimatePresence>
         </ul>
       ) : (
         <p className="px-1 text-[13.5px] leading-relaxed text-muted-foreground">
-          {work.folder ? `hobkin proposes the projects it finds in ${work.folder}, and they show here to take or skip.` : 'hobkin proposes the projects it finds once work mode is on.'}
+          {work.folder ? `No project is taken yet. Discover projects lists what hobkin found in ${work.folder}, to take or skip.` : 'hobkin proposes the projects it finds once work mode is on. Discover projects lists them.'}
         </p>
       )}
     </section>
@@ -200,7 +201,7 @@ const STATE_WORDS: Record<Exclude<WorkProject['state'], 'chosen'>, string> = {
  * A project hobkin knows and does not work on: a proposal waits for the user's yes or no, as y and n answer it in
  * the terminal, and a project left alone can be taken again. Enter on the row takes it.
  */
-function ProposalItem({ project, live, variants, order }: { project: WorkProject; live: boolean; variants: Variants; order: number }) {
+export function ProposalItem({ project, live, variants, order }: { project: WorkProject; live: boolean; variants: Variants; order: number }) {
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[project.slug]))
   const said = useWorkUi((state) => state.said[project.slug])

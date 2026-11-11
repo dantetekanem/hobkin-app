@@ -5,7 +5,7 @@
 import type { TimesEdit, WindowEdit } from './edit.ts'
 import { holdOf } from './holds.ts'
 import { clearOf, nextRun, type Occurrence } from './timeline.ts'
-import type { Hold, Routine, RoutineState, RoutinesData, RunLine, RunningRun, RunStatus } from './types.ts'
+import { RECURRENCES, type Hold, type Routine, type RoutineState, type RoutinesData, type RunLine, type RunningRun, type RunStatus } from './types.ts'
 
 /** How many runs a routine's detail shows. */
 export const RUNS_SHOWN = 20
@@ -60,6 +60,17 @@ export function factsOf(data: RoutinesData, now: number): RoutineFacts[] {
 export function byNextRun(first: RoutineFacts, second: RoutineFacts): number {
   const at = (facts: RoutineFacts) => facts.next?.at ?? Number.POSITIVE_INFINITY
   return at(first) - at(second) || first.routine.title.localeCompare(second.routine.title)
+}
+
+/** Every routine in the order All routines lists them: by how often it runs, then by when it runs next. */
+export function listOrder(facts: readonly RoutineFacts[]): RoutineFacts[] {
+  return RECURRENCES.flatMap((recurrence) => facts.filter((item) => item.routine.cadence === recurrence).toSorted(byNextRun))
+}
+
+/** Which way the detail slides to another routine: 1 brings one further down the list from the right, -1 one further up from the left. */
+export function slideBetween(order: readonly RoutineFacts[], from: string, to: string): 0 | 1 | -1 {
+  const at = (id: string) => order.findIndex((item) => item.routine.id === id)
+  return Math.sign(at(to) - at(from)) as 0 | 1 | -1
 }
 
 /** The newest runs first, as the detail lists them. */

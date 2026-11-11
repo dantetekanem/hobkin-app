@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { hostRows } from '../src/features/actions/host.ts'
+import { answersOf, waiting } from '../src/features/actions/items.ts'
+import { sampleItems } from '../src/features/actions/sample.ts'
+import { emptyQueue } from '../src/features/questions/queue.ts'
 
 const decision = (id: string, rest: Record<string, unknown> = {}) => ({
   id,
@@ -74,4 +77,25 @@ test('what waits elsewhere opens where it is handled: a report in Reports, work 
   assert.deepEqual(opens['Rotate the webhook secret'], { screen: 'work' })
   assert.deepEqual(opens['Raise the daily budget'], { screen: 'work' })
   assert.ok(rows.every((row) => row.answers === undefined), 'none of these is answered here')
+})
+
+test('an open item is answered as hobkin takes it: a decision by a choice or own words, a proposal by its choices only, the rest where it is handled', () => {
+  const [decided, proposal, report] = hostRows({
+    decisions: [decision('d1')],
+    waiting: {
+      proposals: [{ id: 'a1b2c3', title: 'Keep reports short', question: 'Shall hobkin plan it?', scope: 'morning-recap', at: '2026-11-09T09:00:00.000Z' }],
+      reports: [{ id: 'r1', title: 'Morning recap', at: '2026-11-09T10:00:00.000Z' }],
+    },
+  })
+
+  assert.deepEqual(answersOf(decided!, false), { choices: decided!.question.choices, words: true })
+  assert.deepEqual(answersOf(proposal!, false), { choices: proposal!.question.choices, words: false })
+  assert.deepEqual(answersOf(report!, false), { choices: [], words: false })
+})
+
+test('a sample item is answered on this screen only, and only while the screen shows samples', () => {
+  const [row] = waiting(sampleItems, emptyQueue)
+
+  assert.deepEqual(answersOf(row!, true), { choices: row!.question.choices, words: true })
+  assert.deepEqual(answersOf(row!, false), { choices: [], words: false }, 'without a way to hobkin, nothing is answered')
 })

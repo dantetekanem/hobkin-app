@@ -36,10 +36,15 @@ export const spring = {
   travel: { type: 'spring', duration: 0.65, bounce: 0 },
   /** Small playful things: the avatar, a node arriving. */
   alive: { type: 'spring', duration: 0.45, bounce: 0.18 },
-  /** A canvas screen arriving. It crosses the whole canvas and settles, and a new target mid-flight retargets it. */
+  /** Something large arriving: a sheet, the canvas growing over the chat. It settles, and a new target mid-flight retargets it. */
   screen: { type: 'spring', duration: 0.62, bounce: 0.14 },
-  /** A canvas screen leaving. Quicker than the arrival, so the new screen leads. */
+  /** Something large leaving. Quicker than an arrival, so what comes next leads. */
   screenExit: { type: 'spring', duration: 0.5, bounce: 0 },
+  /**
+   * Switching canvas screens: the arriving screen pushes the leaving one off the canvas. Both ride this one spring,
+   * side by side, and stop where they land, with no overshoot. A new target mid-flight retargets them.
+   */
+  push: { type: 'spring', duration: 0.42, bounce: 0 },
   /** The pill that follows the open menu item. A little overshoot makes it feel thrown. */
   pill: { type: 'spring', duration: 0.5, bounce: 0.22 },
   /** A piece of a screen rising into place after the screen arrives. */

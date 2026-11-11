@@ -1,5 +1,6 @@
 import type { ChatMessage, NoticeTone } from '#shared/protocol/snapshot.ts'
 import { replyText, storedBesideLive, type LiveTurn } from '../../lib/host/live.ts'
+import { splitRoutineReference } from '../reports/reply.ts'
 import type { OutboxEntry } from './outbox.ts'
 
 /** Something said in the conversation: by the user, by hobkin, or by an extension (`note`). */
@@ -72,6 +73,13 @@ function dayLabels(today: string, timeZone?: string) {
   }
 }
 
+/** A user message's words and what it is about; a routine reply's first line becomes the "About" context. */
+function asked(content: string, about?: string): { text: string; about?: string } {
+  const split = splitRoutineReference(content)
+  const title = about ?? split.about
+  return { text: split.text, ...(title ? { about: title } : {}) }
+}
+
 function entryOf(message: ChatMessage): Entry {
   const at = timeOf(message.at)
   if (message.role === 'notice' || message.role === 'system') {
@@ -81,9 +89,8 @@ function entryOf(message: ChatMessage): Entry {
     kind: 'message',
     key: message.id,
     role: message.role === 'user' || message.role === 'assistant' ? message.role : 'note',
-    text: message.content,
+    ...(message.role === 'user' ? asked(message.content, message.about) : { text: message.content, ...(message.about ? { about: message.about } : {}) }),
     at,
-    ...(message.about ? { about: message.about } : {}),
     ...(message.images ? { images: message.images } : {}),
   }
 }
@@ -141,8 +148,7 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
   }
   for (const sent of outbox) {
     const waiting = sent.accepted ? {} : { state: 'queued' as const }
-    const about = sent.about ? { about: sent.about } : {}
-    place({ kind: 'message', key: `outbox:${sent.id}`, role: 'user', text: sent.text, at: sent.at, ...(sent.images ? { images: sent.images } : {}), ...about, ...waiting }, sent.at)
+    place({ kind: 'message', key: `outbox:${sent.id}`, role: 'user', ...asked(sent.text, sent.about), at: sent.at, ...(sent.images ? { images: sent.images } : {}), ...waiting }, sent.at)
   }
   return days
 }

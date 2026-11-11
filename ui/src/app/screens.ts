@@ -1,4 +1,4 @@
-import { Bot, CalendarClock, FileText, GitPullRequest, Inbox, Plug, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
+import { Bot, Brain, CalendarClock, FileText, GitPullRequest, Inbox, Plug, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
 
 /** The screens, in menu order: the order of hobkin's terminal tabs, then GitHub. The order sets the direction a screen comes in from. */
 export const SCREENS = [
@@ -10,6 +10,7 @@ export const SCREENS = [
   { id: 'github', label: 'GitHub', icon: GitPullRequest },
   // These show in the menu only while something is open in them.
   { id: 'agent', label: 'Agent', icon: Bot, contextual: true },
+  { id: 'mind', label: "Hobkin's mind", icon: Brain, contextual: true },
   { id: 'review', label: 'Review', icon: Waypoints, contextual: true },
   { id: 'settings', label: 'Settings', icon: Settings2, contextual: true },
   { id: 'integrations', label: 'Integrations', icon: Plug, contextual: true },

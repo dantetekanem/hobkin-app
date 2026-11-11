@@ -8,6 +8,8 @@ import { createScriptedModel, SCRIPTED_MODEL, type ScriptedOptions, type Session
 
 /** What hobkin says when another process holds the home's lock (`src/cli/runtime.mjs`). */
 const LOCKED = 'Hobkin is already running for this home.'
+/** What the owner says while that lasts. */
+const HELD = 'Another process holds this home. hobkin opens it here once that process stops.'
 /** hobkin's lock is this folder, and it goes stale when its owner stops refreshing it. */
 const LOCK_STALE_MS = 300000
 const RETRY_MS = 1500
@@ -38,9 +40,9 @@ const refuseNetwork: typeof fetch = async () => {
 }
 
 /**
- * hobkin acts on its surroundings. It drives the Herdr panes it finds itself in, and closes leftover ones when it
- * opens. Pi's extensions and `herdr` find those panes through the same variables. The client runs agents as Pi
- * jobs in the background and never in Herdr, so no home sees a pane, the real one included.
+ * Herdr is not used: every agent runs as a Pi job in the background. pi-extended-teams, which hobkin's Pi sessions
+ * load, still has a legacy mode that starts agents in Herdr panes and closes them, and it picks that mode from the
+ * `HERDR_*` variables a process inherits. So no home passes them on, the real one included.
  *
  * Every `hobkin` command an agent runs works on the home `HOBKIN_HOME` names, or on `~/.hobkin`. A run that is not
  * the real home, live, is kept to its own home. Both hold for hobkin in this process and for every process it starts.
@@ -75,18 +77,20 @@ function answeredByScript(sessionManager: unknown): boolean {
 
 /**
  * Takes hobkin's lock on a home and keeps hobkin running in it. One process owns a home at a time: while another
- * holds the lock this serves the view that owner last saved, and takes over by itself once the lock is free.
+ * holds the lock that is a fault, and this looks again until the lock is free and opens by itself. It never takes
+ * a held lock: only hobkin takes one over, once its owner stopped refreshing it.
  */
 export class HomeOwner {
   state: OwnerState = { state: 'opening' }
   snapshot: HobkinSnapshot | null = null
   app: HobkinApplication | null = null
+  /** Another process holds the home's lock, and this looks again until it lets go. */
+  held = false
 
   private readonly options: OwnerOptions
   private timer: NodeJS.Timeout | undefined
   private opening: Promise<void> | null = null
   private closed = false
-  private viewStamp = 0
   private decisions: typeof import('hobkin/src/cli/decisions.mjs') | null = null
   /** The main conversation's newest Pi session, and the model runtime it shares with the window. */
   private main: PiMainSession | null = null
@@ -113,11 +117,11 @@ export class HomeOwner {
   }
 
   /**
-   * Starts opening, unless hobkin is already open, opening, or waiting for another owner to let go.
+   * Starts opening, unless hobkin is already open, opening, or waiting for another process to let go.
    * It is safe to ask again whenever something changed that could let hobkin open. The owner state says how it went.
    */
   start(): void {
-    if (this.closed || this.app || this.opening || this.state.state === 'read-only') return
+    if (this.closed || this.app || this.opening || this.held) return
     void this.attempt()
   }
 
@@ -149,8 +153,8 @@ export class HomeOwner {
     } catch (error) {
       if (this.closed) return
       const message = error instanceof Error ? error.message : String(error)
-      if (message === LOCKED) await this.serveSavedView()
-      else this.state = { state: 'failed', message }
+      this.state = { state: 'failed', message: message === LOCKED ? HELD : message }
+      if (message === LOCKED) this.retryLater()
     }
     this.options.onChange()
   }
@@ -174,7 +178,7 @@ export class HomeOwner {
 
   private async model(): Promise<OpenOptions> {
     const { root, live, real, scripted, tools = [] } = this.options
-    // No home sees a Herdr pane, and only the real home, live, may act on the real home.
+    // No home passes Herdr's variables on to pi-extended-teams, and only the real home, live, may act on the real home.
     keepToSurroundings({ root, live, real })
     // hobkin enrolls a home with its server on its first tick unless upload is off or the network is taken away.
     const offline = real ? {} : { fetch: refuseNetwork }
@@ -233,28 +237,16 @@ export class HomeOwner {
     return lock !== undefined && Date.now() - lock.mtimeMs < LOCK_STALE_MS
   }
 
-  /** The other owner keeps saving its view, so the copy shown here follows it. */
-  private async serveSavedView(): Promise<void> {
-    const { readLocalView } = await import('hobkin/src/cli/application.mjs')
-    const file = join(await this.dataRoot(), 'runtime', 'view.json')
-    const stamp = statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0
-    if (this.state.state !== 'read-only' || stamp !== this.viewStamp) {
-      this.viewStamp = stamp
-      this.snapshot = readLocalView(this.options.root)
-      this.state = { state: 'read-only', holder: 'terminal', savedAt: this.snapshot.savedAt ?? null }
-    }
-    this.retryLater()
-  }
-
   private retryLater() {
+    this.held = true
     clearTimeout(this.timer)
     this.timer = setTimeout(() => {
       if (this.closed) return
       // Looking at the lock is cheap. Opening is tried only once the lock looks free, and hobkin has the last word.
       const look = async () => {
-        if (!(await this.lockIsHeld())) return this.attempt()
-        await this.serveSavedView()
-        this.options.onChange()
+        if (await this.lockIsHeld()) return this.retryLater()
+        this.held = false
+        await this.attempt()
       }
       void look().catch(() => this.retryLater())
     }, this.options.retryMs ?? RETRY_MS)

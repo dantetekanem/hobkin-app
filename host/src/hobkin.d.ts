@@ -121,7 +121,6 @@ declare module 'hobkin/src/cli/application.mjs' {
     close(options?: { letFinish?: boolean }): Promise<void>
   }
 
-  export function readLocalView(root: string): HobkinSnapshot
 }
 
 declare module 'hobkin/src/cli/pi-session.mjs' {

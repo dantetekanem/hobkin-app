@@ -1,8 +1,10 @@
-import { AnimatePresence, motion, type Transition, type Variants } from 'motion/react'
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { AnimatePresence, motion, useIsPresent, type Transition, type Variants } from 'motion/react'
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { focusInput } from '@/app/focus.ts'
+import { stillVariants, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { spring, stagger, staggerDelay, tween } from '@/lib/motion.ts'
+import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
 import { canSendDraft, useChat } from './chat-store.ts'
@@ -12,26 +14,25 @@ import { LiveMarkdownField } from './LiveMarkdownField.tsx'
 /** How far the window blurs behind the editor, and how dark the scrim over it gets. */
 const BLUR = 'blur(14px)'
 
-// The blur's radius grows with the panel's travel. A parent's opacity over a blurred backdrop would pop.
-const arrive: Transition = spring.screen
+// It slides up from where the input is in one quick, continuous movement, and the window blurs behind it as it comes.
+// A parent's opacity over a blurred backdrop would pop, so the panel fades on its own.
+const slide: Transition = spring.sheet
 const leave: Transition = spring.screenExit
 
 const backdrop: Variants = {
+  below: { backdropFilter: 'blur(0px)' },
+  here: { backdropFilter: BLUR, transition: slide },
   away: { backdropFilter: 'blur(0px)', transition: leave },
-  here: { backdropFilter: BLUR, transition: spring.sheet },
 }
 const scrim: Variants = {
+  below: { opacity: 0 },
+  here: { opacity: 1, transition: slide },
   away: { opacity: 0, transition: leave },
-  here: { opacity: 1, transition: spring.sheet },
 }
-// It comes up from where the input is, with weight: a long way, a little small, settling on a spring.
 const panel: Variants = {
+  below: { opacity: 0, transform: 'translateY(96px) scale(1)' },
+  here: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: slide, opacity: tween.enter } },
   away: { opacity: 0, transform: 'translateY(96px) scale(0.92)', transition: { transform: leave, opacity: tween.exit } },
-  here: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: arrive, opacity: tween.enter, staggerChildren: stagger, delayChildren: staggerDelay } },
-}
-const piece: Variants = {
-  away: { opacity: 0, transform: 'translateY(26px) scale(0.98)' },
-  here: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } },
 }
 
 const CHOICES = [
@@ -49,9 +50,10 @@ const newId = () => crypto.randomUUID()
  * look as it is typed, and the drafts beside it. It edits the same draft as the small input, so nothing is
  * copied in or out, and a draft set aside waits in the list until it is opened, sent or deleted.
  *
- * Keys, as in pi-prompt: Enter adds a line, Control+Enter sends, Escape asks whether to keep the draft for later
- * or delete it, and a second Escape keeps it. Shift+Tab reaches the drafts, where Up and Down move and Enter
- * opens one. Control+Option+P goes back to the small input with the text as it is.
+ * Keys, as in pi-prompt: Control+Option+P opens it from every screen (the frame's map) and goes back with the text
+ * as it is. Enter adds a line, Control+Enter sends, Escape asks whether to keep the draft for later or delete it,
+ * and a second Escape keeps it. Shift+Tab reaches the drafts, where Up and Down move and Enter opens one.
+ * On the way out the keyboard goes back to whatever had it before.
  */
 export function PromptEditor() {
   const open = useChat((chat) => chat.draft.place === 'editor')
@@ -68,10 +70,13 @@ function Editor() {
   const attach = useChat((chat) => chat.attach)
   const detach = useChat((chat) => chat.detach)
   const canSend = canSendDraft({ text, attachments })
+  const still = useStill()
+  const present = useIsPresent()
 
   const input = useRef<HTMLTextAreaElement | null>(null)
   const box = useRef<HTMLDivElement | null>(null)
   const picker = useRef<HTMLInputElement | null>(null)
+  const opener = useRef<Element | null>(null)
   const [choice, setChoice] = useState(0)
 
   const writeAtEnd = () => {
@@ -80,15 +85,23 @@ function Editor() {
     element?.setSelectionRange(element.value.length, element.value.length)
   }
 
-  // The keyboard goes into the editor, at the end of what is written, and back to the message input on the way out.
-  useEffect(() => {
+  // The keyboard goes into the editor, at the end of what is written, remembering what had it. Only the first
+  // time: an effect run again (as React does in development) would find the editor's own text.
+  useLayoutEffect(() => {
+    opener.current ??= document.activeElement
     writeAtEnd()
-    return () => document.querySelector<HTMLTextAreaElement>('[data-chat-side] textarea')?.focus()
   }, [])
+  // As the editor starts to leave, the keyboard goes back there, or home when that is gone.
+  useEffect(() => {
+    if (present) return
+    const to = opener.current
+    if (to instanceof HTMLElement && to.isConnected && to !== document.body && !box.current?.contains(to)) to.focus({ preventScroll: true })
+    else focusInput()
+  }, [present])
   useEffect(() => {
     if (leaving) setChoice(0)
-    else input.current?.focus()
-  }, [leaving])
+    else if (present) input.current?.focus()
+  }, [leaving, present])
 
   const escape = () => change({ type: 'editor-escaped', at: Date.now(), id: newId() })
   const answer = (id: (typeof CHOICES)[number]['id']) => change(id === 'keep' ? { type: 'leave-kept', at: Date.now(), id: newId() } : { type: 'leave-discarded' })
@@ -152,7 +165,9 @@ function Editor() {
       role="dialog"
       aria-modal="true"
       aria-label="Full prompt"
-      initial="away"
+      // While it leaves, it takes no clicks and no keyboard.
+      inert={!present}
+      initial="below"
       animate="here"
       exit="away"
       className="fixed inset-0 z-50 grid place-items-center p-[4vmin]"
@@ -163,11 +178,11 @@ function Editor() {
 
       <motion.div
         ref={box}
-        variants={panel}
+        variants={stillVariants(panel, still)}
         style={{ transformOrigin: '30% 100%' }}
         className="@container relative flex h-full w-full max-w-[1280px] flex-col overflow-hidden rounded-[26px] bg-card shadow-float"
       >
-        <motion.header variants={piece} className="flex shrink-0 items-center gap-3 px-6 pt-4 pb-2">
+        <header className="flex shrink-0 items-center gap-3 px-6 pt-4 pb-2">
           <h2 className="text-[15px] font-semibold">Prompt</h2>
           <span className="ml-auto flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -183,16 +198,16 @@ function Editor() {
               <Kbd>⇧⇥</Kbd> drafts
             </span>
             <span className="flex items-center gap-1">
-              <Kbd>⌃⌥P</Kbd> back to the input
+              <Kbd>⌃⌥P</Kbd> back
             </span>
           </span>
-        </motion.header>
+        </header>
 
         <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,10rem)_minmax(0,1fr)] gap-px bg-border @3xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)] @3xl:grid-rows-1">
-          <motion.div variants={piece} className="flex min-h-0 flex-col bg-card">
+          <div className="flex min-h-0 flex-col bg-card">
             <DraftList current={{ text, images: attachments.length }} kept={kept} onOpen={open} onBack={writeAtEnd} />
-          </motion.div>
-          <motion.div variants={piece} className="flex min-h-0 flex-col bg-card">
+          </div>
+          <div className="flex min-h-0 flex-col bg-card">
             <LiveMarkdownField
               ref={input}
               value={text}
@@ -206,10 +221,10 @@ function Editor() {
               spellCheck
               className="flex-1"
             />
-          </motion.div>
+          </div>
         </div>
 
-        <motion.footer variants={piece} className="flex shrink-0 items-end gap-2 px-4 pt-2 pb-3">
+        <footer className="flex shrink-0 items-end gap-2 px-4 pt-2 pb-3">
           <AttachButton picker={picker} disabled={leaving} onPick={attach} />
           <div className="min-w-0 flex-1">
             <AttachmentTray attachments={attachments} onRemove={detach} />
@@ -259,7 +274,7 @@ function Editor() {
               </motion.button>
             )}
           </AnimatePresence>
-        </motion.footer>
+        </footer>
       </motion.div>
     </motion.div>
   )

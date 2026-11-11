@@ -55,6 +55,10 @@ export interface DiffViewProps {
   marks?: readonly LineMark[]
   /** Called once with how long the first lines took to be on screen, in milliseconds. */
   onFirstLines?: (ms: number) => void
+  /** Drawn whole at its own height, for a page that scrolls around it: no virtual list and no scrolling of its own. */
+  natural?: boolean
+  /** With `natural`, only the first this many rows are drawn. */
+  rows?: number
   ref?: Ref<DiffViewHandle>
   className?: string
 }
@@ -66,7 +70,7 @@ export interface DiffViewProps {
  * It stands alone: give it a file's two sides, or a patch. It knows nothing of the review or the graph.
  * Long files are drawn with a virtual list, and highlighting runs in a worker.
  */
-export function DiffView({ file, patch, emphasis, split = false, selection = null, onSelect, marks, onFirstLines, ref, className }: DiffViewProps) {
+export function DiffView({ file, patch, emphasis, split = false, selection = null, onSelect, marks, onFirstLines, natural = false, rows, ref, className }: DiffViewProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const started = useRef(performance.now())
   const description = useMemo(() => describeFile(file), [file])
@@ -86,7 +90,7 @@ export function DiffView({ file, patch, emphasis, split = false, selection = nul
   const pointing = (emphasis?.length ?? 0) > 0
 
   const virtual = useVirtualizer({
-    count: items.length,
+    count: natural ? 0 : items.length,
     getScrollElement: () => scroller.current,
     estimateSize: (index) => (items[index]?.type === 'gap' ? 30 : LINE_HEIGHT),
     overscan: 24,
@@ -180,10 +184,32 @@ export function DiffView({ file, patch, emphasis, split = false, selection = nul
     [diff, split, items, selection, onSelect],
   )
 
+  const draw = (item: DiffItem | SplitItem) =>
+    item.type === 'gap' ? (
+      <Gap item={item} whole={!diff.partial} onMore={(direction) => setView((now) => expandGap(now, item.id, direction))} onWhole={() => setView(showWholeFile)} />
+    ) : item.type === 'line' ? (
+      <Line line={item.line} numbers="both" base={base} head={head} dim={pointing} selection={selection} marks={marks} onPick={onSelect ? pick : undefined} />
+    ) : (
+      <div className="dv-split">
+        <Line line={item.left} numbers="old" base={base} head={head} dim={pointing} selection={selection} marks={marks} onPick={onSelect ? pick : undefined} />
+        <Line line={item.right} numbers="new" base={base} head={head} dim={pointing} selection={selection} marks={marks} onPick={onSelect ? pick : undefined} />
+      </div>
+    )
+
   if (description.note) {
     return (
       <div className={`dv ${className ?? ''}`}>
         <p className="dv-note">{description.note}</p>
+      </div>
+    )
+  }
+
+  if (natural) {
+    return (
+      <div className={`dv ${className ?? ''}`} style={{ height: 'auto', overflow: 'visible' }} aria-label={`Changes in ${description.title}`} data-rv-code>
+        {items.slice(0, rows).map((item) => (
+          <div key={item.key}>{draw(item)}</div>
+        ))}
       </div>
     )
   }
@@ -195,16 +221,7 @@ export function DiffView({ file, patch, emphasis, split = false, selection = nul
           const item = items[row.index]!
           return (
             <div key={row.key} ref={virtual.measureElement} data-index={row.index} className="dv-row" style={{ transform: `translateY(${row.start}px)` }}>
-              {item.type === 'gap' ? (
-                <Gap item={item} whole={!diff.partial} onMore={(direction) => setView((now) => expandGap(now, item.id, direction))} onWhole={() => setView(showWholeFile)} />
-              ) : item.type === 'line' ? (
-                <Line line={item.line} numbers="both" base={base} head={head} dim={pointing} selection={selection} marks={marks} onPick={onSelect ? pick : undefined} />
-              ) : (
-                <div className="dv-split">
-                  <Line line={item.left} numbers="old" base={base} head={head} dim={pointing} selection={selection} marks={marks} onPick={onSelect ? pick : undefined} />
-                  <Line line={item.right} numbers="new" base={base} head={head} dim={pointing} selection={selection} marks={marks} onPick={onSelect ? pick : undefined} />
-                </div>
-              )}
+              {draw(item)}
             </div>
           )
         })}

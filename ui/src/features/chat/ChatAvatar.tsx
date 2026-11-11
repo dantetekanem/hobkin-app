@@ -14,6 +14,10 @@ export interface ChatAvatarProps {
   typing: boolean
 }
 
+const SIZE = 104
+/** The hood's base is at y 188 of a view box that ends at 228. The art's empty edge below it hangs past the row, so the base sits on the input's bottom line. */
+const BASE_INSET = ((228 - 188) / 256) * SIZE
+
 /** hobkin's face beside the input. Its mood is hobkin's, with the user's pokes layered over it, as in the terminal app. */
 export function ChatAvatar({ followWithin, typing }: ChatAvatarProps) {
   const live = useHasHost()
@@ -50,8 +54,8 @@ export function ChatAvatar({ followWithin, typing }: ChatAvatarProps) {
   return (
     // Out of the keyboard's way: poking the face is play, and typing wakes it.
     // `data-hob-home` marks where hobkin's face lives, for pages that hand the face over to it, such as the first-run setup.
-    <button type="button" aria-label="hobkin" data-hob-home tabIndex={-1} className="mb-0.5 shrink-0 cursor-default rounded-full outline-offset-2" {...handlers}>
-      <Hob mood={mood} size={52} followWithin={followWithin} />
+    <button type="button" aria-label="hobkin" data-hob-home tabIndex={-1} className="shrink-0 cursor-default rounded-full outline-offset-2" style={{ marginBottom: -BASE_INSET }} {...handlers}>
+      <Hob mood={mood} size={SIZE} followWithin={followWithin} />
     </button>
   )
 }

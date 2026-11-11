@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { lazy, Suspense, type ComponentType } from 'react'
-import { spring, stagger, staggerDelay, tween } from '@/lib/motion.ts'
+import { spring, stagger, tween } from '@/lib/motion.ts'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
 import { RoutinesScreen } from '@/features/routines/RoutinesScreen.tsx'
 import { SettingsScreen } from '@/features/settings/SettingsScreen.tsx'
@@ -8,6 +8,10 @@ import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { useHasHost } from '@/lib/host/index.ts'
 import { SignInScreen } from '@/features/signin/SignInScreen.tsx'
 import { AgentScreen } from '@/features/work/AgentScreen.tsx'
+import { MainAgentScreen } from '@/features/main-agent/MainAgentScreen.tsx'
+import { WorkScreen } from '@/features/work/WorkScreen.tsx'
+import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
+import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
 import { CanvasPanel } from '@/features/canvas-panel/CanvasPanel.tsx'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
@@ -21,11 +25,10 @@ export const TALK_GROW = 132
 /** How much of the chat stays in view beside a review that has the user's attention, in pixels. */
 export const REVIEW_KEEPS = 112
 
-const ActionsScreen = lazy(() => import('@/features/actions/ActionsScreen.tsx').then((module) => ({ default: module.ActionsScreen })))
-const GitHubScreen = lazy(() => import('@/features/github/GitHubScreen.tsx').then((module) => ({ default: module.GitHubScreen })))
+// The menu's screens load with the frame. A screen loaded on demand slides in empty, and React shows it only once its
+// fallback has been up for a while, so its content would appear in place after the slide instead of sliding in.
 const IntegrationsScreen = lazy(() => import('@/features/integrations/IntegrationsScreen.tsx').then((module) => ({ default: module.IntegrationsScreen })))
 const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').then((module) => ({ default: module.ReviewScreen })))
-const WorkScreen = lazy(() => import('@/features/work/WorkScreen.tsx').then((module) => ({ default: module.WorkScreen })))
 
 /**
  * Screens that so far can show only sample data. While a host is connected they are not drawn: the user's own
@@ -42,6 +45,7 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   integrations: IntegrationsScreen,
   github: GitHubScreen,
   agent: AgentScreen,
+  mind: MainAgentScreen,
   review: ReviewScreen,
   settings: SettingsScreen,
 }
@@ -53,37 +57,34 @@ type Travel = ScreenMotion & { still: boolean }
 
 /**
  * A screen crosses the whole canvas. Along the menu it travels sideways, in the direction of its item.
- * Along the agents list it travels up and down, as the list does. The one leaving falls back and fades
- * while the new one arrives on a spring, so a second key press mid-flight simply retargets it.
+ * Along the agents list it travels up and down, as the list does. The new one pushes the one leaving off the
+ * canvas: both travel the full width together on one spring, so the eye follows them across, and a second key
+ * press mid-flight simply retargets them.
  */
 const travel: Variants = {
   enter: ({ axis, direction, still }: Travel) =>
-    still ? { opacity: 0 } : { opacity: 0, transform: axis === 'x' ? place(direction * 100, 0, 0.94) : place(0, direction * 100, 0.94) },
+    still ? { opacity: 0 } : { opacity: 1, transform: axis === 'x' ? place(direction * 100, 0, 1) : place(0, direction * 100, 1) },
   // Under Still a screen never travels, and one caught mid-travel when Still was chosen is set straight at once.
   center: ({ still }: Travel) => ({
     opacity: 1,
     transform: place(0, 0, 1),
-    transition: { transform: still ? { duration: 0 } : spring.screen, opacity: tween.enter, staggerChildren: stagger, delayChildren: staggerDelay },
+    transition: { transform: still ? { duration: 0 } : spring.push, opacity: tween.enter },
   }),
   exit: ({ axis, direction, still }: Travel) =>
     still
       ? { opacity: 0, transition: { opacity: { duration: 0.2, ease: 'linear' } } }
-      : {
-          opacity: 0,
-          transform: axis === 'x' ? place(-direction * 46, 0, 0.9) : place(0, -direction * 46, 0.9),
-          transition: { transform: spring.screenExit, opacity: { duration: 0.28, ease: 'linear' } },
-        },
+      : { transform: axis === 'x' ? place(-direction * 100, 0, 1) : place(0, -direction * 100, 1), transition: { transform: spring.push } },
 }
 
 /**
- * The pieces of a screen land one after another once it has arrived (Hero and Rise in Reveal.tsx). A screen
- * that loads on demand mounts after its section has already arrived, and its pieces would then wait for an
- * entrance that already happened and stay hidden. So every screen gets an entrance of its own, played when
- * the screen itself mounts, with the same timing as the section's.
+ * The pieces of a screen land one after another as it travels in (Hero and Rise in Reveal.tsx), so they are seen
+ * arriving with it. A screen that loads on demand mounts after its section has started, and its pieces would then
+ * wait for an entrance that already happened and stay hidden. So every screen gets an entrance of its own, played
+ * when the screen itself mounts.
  */
 const arrive: Variants = {
   enter: {},
-  center: { transition: { staggerChildren: stagger, delayChildren: staggerDelay } },
+  center: { transition: { staggerChildren: stagger } },
 }
 
 /**

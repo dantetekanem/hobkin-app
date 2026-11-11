@@ -1,12 +1,13 @@
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Reply } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
+import { nextReveal } from './stream-buffer.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -19,6 +20,9 @@ const isLive = (entry: Entry) => entry.key.startsWith('live:')
 
 /** Words that arrived within this long are still fading in. */
 const FRESH_MS = 400
+
+/** The least time between two pieces of a reply appearing. A line slower than this shows as soon as it is finished. */
+const CADENCE_MS = 140
 
 // What is above a new message glides up to make room. No bounce: it is the new message that lands.
 const makeRoom = { layout: spring.sheet }
@@ -57,11 +61,12 @@ export function MessageList({ days, epoch, scroll, empty, label }: MessageListPr
     return arriving++
   }
 
-  // Before the browser paints, and before the rows are measured for their move: the view goes to the newest
-  // message, so the rows above it are seen to travel there.
+  // Before the browser paints, and before the rows are measured for their move: when a message arrives or the
+  // conversation was replaced, the view goes to the newest message, so the rows above it are seen to travel there.
+  // A reply growing inside its row is followed by the scroll itself. `arriving` is counted while the rows are drawn.
   const { stick } = scroll
   useLayoutEffect(() => {
-    stick()
+    if (!moves || arriving > 0) stick()
   }, [days, stick])
 
   useEffect(() => {
@@ -129,6 +134,10 @@ export function MessageList({ days, epoch, scroll, empty, label }: MessageListPr
 /** One entry. `order` is its place among the entries arriving now, or null when it was already there. */
 function Row({ entry, order }: { entry: Entry; order: number | null }) {
   const still = useStill()
+  const writing = entry.kind === 'message' && entry.state === 'writing'
+  const text = useRevealed(entry.text, writing)
+  // As before the first word, nothing is drawn before the first finished line.
+  if (writing && !text) return null
   const mine = entry.kind === 'message' && entry.role === 'user'
   // Several arriving together land one after another.
   const delay = Math.min(order ?? 0, 6) * stagger
@@ -143,7 +152,7 @@ function Row({ entry, order }: { entry: Entry; order: number | null }) {
         style={{ transformOrigin: mine ? '100% 100%' : '0% 100%' }}
         className={cn('flex min-w-0', entry.kind === 'message' ? 'flex-col gap-1' : 'items-baseline gap-2', mine && 'items-end')}
       >
-        {entry.kind === 'message' ? <Message entry={entry} mine={mine} /> : <Notice entry={entry} />}
+        {entry.kind === 'message' ? <Message entry={{ ...entry, text }} mine={mine} /> : <Notice entry={entry} />}
       </motion.div>
     </motion.li>
   )
@@ -164,7 +173,12 @@ function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
           </time>
         )}
       </div>
-      {entry.about ? <div className="max-w-[92%] truncate text-[12px] text-muted-foreground">About {entry.about}</div> : null}
+      {entry.about ? (
+        <div className="mt-0.5 mb-1 flex max-w-[92%] items-center gap-1.5 text-[12px] text-code-fg">
+          <Reply aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="truncate">About {entry.about}</span>
+        </div>
+      ) : null}
       {entry.text ? (
         <div
           aria-busy={entry.state === 'writing' || undefined}
@@ -182,6 +196,25 @@ function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
       {entry.images ? <div className="text-[12px] text-muted-foreground">{entry.images === 1 ? '1 image' : `${entry.images} images`}</div> : null}
     </>
   )
+}
+
+/**
+ * What shows of a reply being written: whole lines and Markdown blocks, at most one piece every CADENCE_MS, so it
+ * grows in steps that read rather than letter by letter (`stream-buffer.ts`). A finished reply shows whole at once.
+ */
+function useRevealed(text: string, writing: boolean): string {
+  const [shown, setShown] = useState(() => nextReveal(text, '', !writing))
+  const last = useRef(0)
+  const next = writing ? nextReveal(text, shown, false) : text
+  useEffect(() => {
+    if (!writing || next === shown) return
+    const timer = setTimeout(() => {
+      last.current = performance.now()
+      setShown(next)
+    }, Math.max(0, last.current + CADENCE_MS - performance.now()))
+    return () => clearTimeout(timer)
+  }, [writing, next, shown])
+  return writing ? shown : text
 }
 
 /** A reply as it arrives. It remembers where the latest words began, so they can fade in while the rest stays still. */

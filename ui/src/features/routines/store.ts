@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { hostStore } from '../../lib/host/client.ts'
+import { hostStore, runCommand } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { routinesFromHost } from './host-data.ts'
 import type { TimesEdit, WindowEdit } from './edit.ts'
@@ -12,8 +12,9 @@ import { occurrencesBetween } from './timeline.ts'
 import type { RoutinesData } from './types.ts'
 
 /**
- * Host routines are read-only. Without a host, the explicit sample keeps its simulated actions.
- * Only the view is persisted; a host snapshot always owns the routine data.
+ * With a host, Run now, the switch and new times are hobkin's own commands, and its snapshot then shows what it did.
+ * Without a host, the explicit sample keeps its simulated actions. Only the view is persisted; a host snapshot always
+ * owns the routine data.
  *
  * What the screen draws is worked out here, ahead of time: whenever the data changes, on each minute, and when
  * the sky's width changes (`prepared`). Opening the screen then only draws what is ready.
@@ -24,6 +25,12 @@ export type RoutinesView = 'all' | 'week'
 
 /** The user's own timezone. The screen counts its days in it. */
 export const VIEW_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+/** A Run now, switch or change of times hobkin is making. The switch shows where it is going meanwhile. */
+export type Pending = { action: 'run' } | { action: 'enable'; enabled: boolean } | { action: 'times' }
+
+/** The host's commands, through the window's connection. A test hands in a host of its own. */
+export const routinesHost = { run: runCommand }
 
 const SECOND = 1000
 const MINUTE = 60 * SECOND
@@ -37,18 +44,23 @@ interface RoutinesState {
   view: RoutinesView
   /** The routine whose detail is open. */
   openId: string | null
-  /** The layout id of what the detail opened from, so it grows out of it and shrinks back into it. */
+  /** The row the detail opened from. The keyboard goes back to it when the detail closes. */
   openFrom: string | null
   /** The routine the pointer or the keyboard is on. Its times light up in the sky. */
   lit: string | null
+  /** What hobkin is doing for a routine now. One thing at a time for each routine. */
+  pending: Record<string, Pending>
+  /** Why hobkin did not do a routine's last Run now or switch, in its words, until the next action on it. */
+  refused: Record<string, string>
 
   setView: (view: RoutinesView) => void
   open: (id: string, from: string) => void
   close: () => void
   light: (id: string | null) => void
-  runNow: (id: string) => void
-  setEnabled: (id: string, enabled: boolean) => void
-  changeTimes: (id: string, edit: TimesEdit | WindowEdit) => void
+  /** Each answers with null once done, or with the reason it was not, in hobkin's words. */
+  runNow: (id: string) => Promise<string | null>
+  setEnabled: (id: string, enabled: boolean) => Promise<string | null>
+  changeTimes: (id: string, edit: TimesEdit | WindowEdit) => Promise<string | null>
   showSample: (sample: 'full' | 'empty') => void
   /** The sky measured its width. Its scenes are drawn again for it, and nothing else is worked out again. */
   setSkyWidth: (width: number) => void
@@ -72,6 +84,27 @@ function finishLater(id: string, afterMs: number, outcome: RunOutcome): void {
     useRoutines.setState((state) => ready(finishRun(state.data, id, Date.now(), outcome)))
   }, afterMs)
   finishing.set(id, timer)
+}
+
+/** One action on a host routine. It is pending until hobkin answers, and by then hobkin's snapshot has the change. */
+async function onHost(id: string, pending: Pending, call: () => Promise<unknown>): Promise<string | null> {
+  const before = useRoutines.getState()
+  if (before.pending[id]) return 'hobkin is still busy with this routine.'
+  const { [id]: _last, ...refused } = before.refused
+  useRoutines.setState({ pending: { ...before.pending, [id]: pending }, refused })
+
+  let refusal: string | null = null
+  try {
+    await call()
+  } catch (error) {
+    refusal = error instanceof Error ? error.message : String(error)
+  }
+  // A refused time shows in its form. Run now and the switch show theirs by the routine.
+  useRoutines.setState(({ pending: { [id]: _done, ...still }, refused: kept }) => ({
+    pending: still,
+    refused: refusal !== null && pending.action !== 'times' ? { ...kept, [id]: refusal } : kept,
+  }))
+  return refusal
 }
 
 function stopAllRuns(): void {
@@ -117,32 +150,39 @@ export const useRoutines = create<RoutinesState>()(
       openId: null,
       openFrom: null,
       lit: null,
+      pending: {},
+      refused: {},
 
       setView: (view) => set({ view }),
       open: (id, from) => set({ openId: id, openFrom: from, lit: id }),
-      // What it opened from stays known, so the detail can shrink back into it.
+      // What it opened from stays known, so the keyboard can go back to it.
       close: () => set({ openId: null, lit: null }),
       light: (lit) => {
         const { openId } = get()
         // While a detail is open, its routine stays lit.
         if (openId === null && get().lit !== lit) set({ lit })
       },
-      runNow: (id) => {
-        if (get().sample === null) return
+      runNow: async (id) => {
+        if (get().sample === null) return onHost(id, { action: 'run' }, () => routinesHost.run('routine.run', { id }))
         const { data } = get()
-        if (id in data.running) return
+        if (id in data.running) return null
         set(ready(startRun(data, id, Date.now(), 'manual')))
 
         // A sample run takes a few seconds and brings back the next outcome in turn.
         const outcome = SAMPLE_OUTCOMES[manualRuns % SAMPLE_OUTCOMES.length]!
         manualRuns += 1
         finishLater(id, 5 * SECOND + ((manualRuns * 1700) % 4000), outcome)
+        return null
       },
-      setEnabled: (id, enabled) => {
-        if (get().sample !== null) set(ready(setEnabled(get().data, id, enabled)))
+      setEnabled: async (id, enabled) => {
+        if (get().sample === null) return onHost(id, { action: 'enable', enabled }, () => routinesHost.run('routine.enable', { id, enabled }))
+        set(ready(setEnabled(get().data, id, enabled)))
+        return null
       },
-      changeTimes: (id, edit) => {
-        if (get().sample !== null) set(ready(changeTimes(get().data, id, edit, Date.now())))
+      changeTimes: async (id, edit) => {
+        if (get().sample === null) return onHost(id, { action: 'times' }, () => routinesHost.run('routine.times', { id, ...edit }))
+        set(ready(changeTimes(get().data, id, edit, Date.now())))
+        return null
       },
       showSample: (sample) => {
         if (get().sample === null) return
@@ -188,6 +228,7 @@ function syncRoutines(state: HostState, previous?: HostState): void {
     openId: contains(current.openId) ? current.openId : null,
     openFrom: contains(current.openId) ? current.openFrom : null,
     lit: contains(current.lit) ? current.lit : null,
+    ...(changedHome ? { pending: {}, refused: {} } : {}),
   })
 }
 

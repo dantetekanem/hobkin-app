@@ -5,7 +5,7 @@ import { initialize, setTelemetryUpload } from 'hobkin/src/cli/config.mjs'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { StateMessage } from '#shared/protocol/messages.ts'
 import { exchangeOf, pauseOf } from '../../ui/src/features/agent-activity/steps.ts'
-import { agentsFrom } from '../../ui/src/lib/host/frame.ts'
+import { agentsFrom, childrenFrom } from '../../ui/src/lib/host/frame.ts'
 import { applyHostMessage, initialHostState, type HostState } from '../../ui/src/lib/host/state.ts'
 import { ActivityKeeper } from '../src/activity.ts'
 import { createScriptedModel } from '../src/scripted.ts'
@@ -74,8 +74,6 @@ test('background Work streams through the application and host to the agent exch
     finish.resolve({ status: 'interrupted', text: 'Fixture cleanup.' })
     await app.close()
   })
-  // Even an inherited pane service cannot select the old dispatch path.
-  app.director.panes = { launch: () => { throw Error('Work must not launch Herdr.') } }
   app.director.start({
     key: 'fixture:do', lane: 'do', slug: 'fixture', item: 'fix', title: 'fixture: Fix login', purpose: 'work-do',
     cwd: root, level: 'important', model: 'fixture/model', effort: 'high', instructions: 'Fixture only.', work: () => ({}),
@@ -105,6 +103,10 @@ test('background Work streams through the application and host to the agent exch
   assert.equal(agentsFrom(client.snapshot)[0]?.doing, 'running read')
   await app.runner.messageCheck({ scheduleId: 'work.fixture.do', message: 'Keep the whitespace.' })
   assert.deepEqual(heard, ['Keep the whitespace.'])
+  // The lead spawns two teams agents in its own Pi. Only teams' spawn details reach this stream, never theirs.
+  callbacks.onEvent({ type: 'tool_execution_end', toolCallId: 'spawn', toolName: 'spawn_swarm_agents', isError: false, result: { content: [{ type: 'text', text: 'Spawned 2/2.' }], details: { session: 'private', spawned: [{ name: 'scout', role: 'read' }, { name: 'fixer', role: 'write', queued: true, queuePosition: 1 }], failed: [] } } })
+  await app.refresh()
+  assert.deepEqual(childrenFrom(client.snapshot, id).map(({ name, state }) => [name, state]), [['scout', 'running'], ['fixer', 'queued']])
 
   // Completion and its last events arrive before the coalesced application refresh.
   callbacks.onEvent({ type: 'tool_execution_end', toolCallId: 'read', toolName: 'read', isError: false, result: { content: [{ type: 'text', text: 'export const login = true\n' }] } })
@@ -117,14 +119,17 @@ test('background Work streams through the application and host to the agent exch
   assert.deepEqual(entries().map(({ kind, text, state, output }) => ({ kind, text, state, output })), [
     { kind: 'assistant', text: 'Reading **login**\n  now.', state: undefined, output: undefined },
     { kind: 'tool', text: undefined, state: 'completed', output: 'export const login = true\n' },
+    { kind: 'tool', text: undefined, state: 'completed', output: 'Spawned 2/2.' },
     { kind: 'assistant', text: 'Finished.\n\n  Exact final text.', state: undefined, output: undefined },
   ])
   assert.equal(agentsFrom(client.snapshot).length, 0)
   await app.refresh() // The application releases it; the host retains the final feed.
   client = applyHostMessage({ ...initialHostState, home: root }, JSON.parse(JSON.stringify(sync.full())))
+  assert.deepEqual(childrenFrom(client.snapshot, id).map(({ name, state }) => [name, state]), [['scout', 'stopped'], ['fixer', 'stopped']], 'a reconnect gets the ended run whole')
+  assert.doesNotMatch(JSON.stringify(client.snapshot.jobChildren), /private/)
   assert.equal(agentsFrom(client.snapshot, { includeEnded: true }).find((agent) => agent.id === id)?.title, 'fixture: Fix login')
   const exchange = exchangeOf(entries(), [], { ended: true, cwd: root, seenAt: () => undefined })
-  assert.deepEqual(exchange.map((step) => step.kind), ['says', 'looks', 'says'])
+  assert.deepEqual(exchange.map((step) => step.kind), ['says', 'looks', 'tool', 'says'])
   const last = exchange.at(-1)
   assert.equal(last?.kind === 'says' && last.text, 'Finished.\n\n  Exact final text.')
   assert.equal(pauseOf(entries(), { ended: true }), null)

@@ -1,16 +1,17 @@
+import { hasHost, IN_MAC_WINDOW } from '../../lib/host/frame.ts'
 import { canUseModel, type HostState } from '../../lib/host/state.ts'
 
 /** Whether a message can be sent now, and the reason shown in the input when it cannot. */
 export type Availability = { ready: true } | { ready: false; reason: string }
 
-export function availabilityOf(state: Pick<HostState, 'link' | 'home' | 'owner' | 'signIn' | 'models'>): Availability {
-  if (state.home === null) {
+export function availabilityOf(state: Pick<HostState, 'link' | 'home' | 'owner' | 'signIn' | 'models'>, macWindow = IN_MAC_WINDOW): Availability {
+  if (!hasHost(state, macWindow)) {
     return { ready: false, reason: state.link === 'connecting' ? 'Looking for hobkin.' : 'This is sample data. Start the host to talk to hobkin.' }
   }
-  if (state.link !== 'open') return { ready: false, reason: 'Disconnected from hobkin. Reconnecting.' }
+  if (state.home === null) return { ready: false, reason: 'Connecting to hobkin…' }
+  if (state.link !== 'open') return { ready: false, reason: 'Reconnecting to hobkin. You can send again once it is back.' }
 
   const { owner } = state
-  if (owner?.state === 'read-only') return { ready: false, reason: 'hobkin is open in the terminal. Close it there to write here.' }
   // A sign-in under way for a second provider takes nothing away: the first one still answers.
   const known = state.models !== null || state.signIn.status !== 'unknown'
   if (known && !canUseModel(state)) return { ready: false, reason: 'Connect a model to talk to hobkin.' }

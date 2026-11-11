@@ -1,0 +1,212 @@
+import { ArrowDown } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import type { ActivityEntry } from '#shared/protocol/activity.ts'
+import type { RunChild } from '#shared/protocol/snapshot.ts'
+import { handOffCanvasFocus } from '@/app/focus.ts'
+import { Rise } from '@/app/Reveal.tsx'
+import { holdStill, useStill } from '@/app/still.ts'
+import { Hob } from '@/avatar/Hob.tsx'
+import type { Mood } from '@/avatar/moods.tsx'
+import { Kbd } from '@/components/ui/kbd.tsx'
+import { callsOf } from '@/features/agent-activity/calls.ts'
+import { CallItem } from '@/features/agent-activity/CodeMode.tsx'
+import { sampleAt, sampleLength } from '@/features/agent-activity/sample.ts'
+import { familyOf, pauseOf, stepCount, stepsOf } from '@/features/agent-activity/steps.ts'
+import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import type { EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
+import { useFollow } from '@/features/agent-activity/use-follow.ts'
+import { doingNow as turnWord } from '@/features/chat/doing.ts'
+import { useNow } from '@/features/chat/use-now.ts'
+import { ChildFaces } from '@/features/work/ChildAgents.tsx'
+import { childrenSummary } from '@/features/work/child-summary.ts'
+import { useMainChildren } from '@/features/work/children.ts'
+import { useHasHost, useHost } from '@/lib/host/index.ts'
+import { spring, tween } from '@/lib/motion.ts'
+import { cn } from '@/lib/utils.ts'
+import { mainActivityOf } from './mind.ts'
+import { SAMPLE_MAIN } from './sample.ts'
+
+type Mode = 'transcript' | 'code'
+/** How the mind is read, kept while the window is open. */
+let lastMode: Mode = 'transcript'
+/** When the sample first played, so it plays on from there. */
+let sampleStart: number | undefined
+/** hobkin's hood, as its helpers' faces take their colors from it. */
+const HUE = 42
+
+/** When this window first saw each of the main agent's steps, and when a call it saw start ended. hobkin keeps no times. */
+const times = new Map<string, EntryTime>()
+const timeOf = (id: string) => times.get(id)
+function timeSteps(entries: readonly ActivityEntry[], now: number) {
+  for (const entry of entries) {
+    const time = times.get(entry.id)
+    const running = entry.kind === 'tool' && entry.state === 'running'
+    if (!time) times.set(entry.id, running ? { seen: now, started: now } : { seen: now })
+    else if (!running && time.started !== undefined && time.ended === undefined) time.ended = now
+  }
+}
+
+const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
+
+/** The face says what the steps say: a tool running, a pause between steps, or rest between turns. hobkin's thinking itself is never shown. */
+function moodOf(entries: readonly ActivityEntry[], busy: boolean): Mood {
+  if (!busy) return 'idle'
+  const last = entries.at(-1)
+  if (last?.kind !== 'tool' || last.state !== 'running') return 'thinking'
+  return ['read', 'search', 'list', 'fetch'].includes(familyOf(last.name)) ? 'searching' : 'working'
+}
+
+/** The main agent's steps, helpers and turn: the host's while one is connected, the sample's before. */
+function useMain() {
+  const live = useHasHost()
+  const hosted = useHost((state) => mainActivityOf(state.snapshot))
+  const hostedBusy = useHost((state) => state.snapshot.busy === true)
+  const hostedWord = useHost((state) => turnWord(state.snapshot))
+  const [start] = useState(() => (sampleStart ??= Date.now()))
+  const now = useNow(!live && Date.now() - start <= sampleLength(SAMPLE_MAIN), 500)
+  const playing = now - start < sampleLength(SAMPLE_MAIN)
+  const entries = live ? hosted : sampleAt(SAMPLE_MAIN, now - start)
+  useMemo(() => entries && timeSteps(entries, Date.now()), [entries])
+  return {
+    live,
+    entries,
+    children: useMainChildren(),
+    busy: live ? hostedBusy : playing,
+    word: live ? hostedWord : playing ? 'thinking' : null,
+    cwd: live ? undefined : SAMPLE_MAIN.cwd,
+  }
+}
+
+/**
+ * Hobkin's mind: its main agent, the one the chat talks to, as it works right now (Command+J). Its steps read as an
+ * agent's do, as a transcript or as code, at the newest unless the user scrolls up. The chat stays usable beside it.
+ */
+export function MainAgentScreen() {
+  const still = useStill()
+  const { live, entries, children, busy, word, cwd } = useMain()
+  const [mode, setMode] = useState<Mode>(lastMode)
+  const steps = entries ? stepCount(entries) : 0
+  const status = busy ? `${capital(word ?? 'thinking')}${steps ? ` · ${steps === 1 ? '1 step' : `${steps} steps`}` : ''}` : 'Waiting for your next message'
+
+  return (
+    <div className="relative flex h-full flex-col">
+      <Rise className="flex items-center gap-3 px-[10%] pt-[76px] pb-2">
+        <Hob mood={moodOf(entries ?? [], busy)} size={48} still={still} />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-heading text-[20px] font-semibold tracking-[-0.022em]">Hobkin's mind</h2>
+          <p className="truncate text-[13px] text-muted-foreground">{status}</p>
+        </div>
+        <ModeSwitch
+          mode={mode}
+          onChange={(next) => {
+            lastMode = next
+            setMode(next)
+          }}
+        />
+      </Rise>
+      {children.length ? <Helpers helpers={children} /> : null}
+      {entries === null ? (
+        <Blank>Hobkin's mind needs hobkin to restart once: the running hobkin is older than this view and does not send its main agent's steps.</Blank>
+      ) : entries.length === 0 ? (
+        <Blank>{busy ? `${capital(word ?? 'thinking')}. Its steps draw here as it works.` : 'No steps yet. They draw here as hobkin works on your next message.'}</Blank>
+      ) : (
+        <Exchange key={mode} entries={entries} mode={mode} ended={!busy} cwd={cwd} word={busy && pauseOf(entries) === 'thinking' ? (word ?? 'thinking') : null} sample={!live} />
+      )}
+    </div>
+  )
+}
+
+function Blank({ children }: { children: string }) {
+  return <p className="mx-auto mt-[18vh] max-w-[46ch] px-6 text-center text-[15px] leading-relaxed text-muted-foreground">{children}</p>
+}
+
+/** The agents the main agent spawned: their faces, each with its story on hover, and the count. They run inside its Pi, so none of their steps are here. */
+function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
+  const still = useStill()
+  return (
+    <motion.div className="flex items-center gap-2 px-[10%] pb-2 text-[12px] text-muted-foreground" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
+      <ChildFaces spawned={helpers} hue={HUE} />
+      <span className="truncate">{childrenSummary(helpers)}</span>
+    </motion.div>
+  )
+}
+
+function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
+  const still = useStill()
+  return (
+    <div role="group" aria-label="Show hobkin's work as" className="flex rounded-full bg-surface-2 p-0.5 text-[12px] font-medium">
+      {(['transcript', 'code'] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={mode === option}
+          onClick={() => onChange(option)}
+          className={cn('relative rounded-full px-3 py-1 transition-colors duration-[160ms] ease-[ease]', mode === option ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
+        >
+          {mode === option ? <motion.span layoutId="mind-mode" transition={still ? { duration: 0 } : spring.pill} className="absolute inset-0 rounded-full bg-background shadow-panel" /> : null}
+          <span className="relative">{option === 'transcript' ? 'Transcript' : 'Code'}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The main agent's steps, top to bottom, drawn as an agent's canvas draws them. It opens at the newest and stays there as
+ * steps arrive, unless the user scrolled up to read, and then offers the way back down. A keyboard handed to the mind
+ * lands here, so the arrows, Page keys, Home and End read it.
+ */
+function Exchange({ entries, mode, ended, cwd, word, sample }: { entries: readonly ActivityEntry[]; mode: Mode; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
+  const still = useStill()
+  const scroll = useFollow(still)
+  const steps = useMemo(() => (mode === 'transcript' ? stepsOf(entries, { ended, cwd }) : []), [entries, ended, cwd, mode])
+  const rows = useMemo(() => (mode === 'code' ? callsOf(entries, { ended, cwd }) : []), [entries, ended, cwd, mode])
+  scroll.note()
+  useLayoutEffect(scroll.settle, [steps, rows, word, scroll.settle])
+  useEffect(() => (scroll.scroller.current ? handOffCanvasFocus(scroll.scroller.current) : undefined), [scroll.scroller])
+
+  return (
+    <motion.div
+      ref={scroll.scroller}
+      onScroll={scroll.onScroll}
+      tabIndex={-1}
+      className="scroll-quiet relative min-h-0 flex-1 overflow-y-auto px-[10%] outline-none [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
+      animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
+    >
+      <motion.ol ref={scroll.content} style={{ y: scroll.y }} aria-label={mode === 'code' ? "hobkin's tool calls" : 'What hobkin has done'} className="flex min-h-full flex-col justify-end gap-3 pt-2 pb-10">
+        <AnimatePresence initial={false}>
+          {mode === 'code'
+            ? rows.map((row) => <CallItem key={row.key} row={row} timeOf={timeOf} ended={ended} />)
+            : steps.map((step) => <StepItem key={step.key} step={step} timeOf={timeOf} ended={ended} />)}
+        </AnimatePresence>
+        {word ? (
+          <li className="flex items-center gap-2 pl-2.5 text-[13px] text-muted-foreground">
+            <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
+            {capital(word)}
+          </li>
+        ) : null}
+        {sample ? <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is hobkin's own main agent, as it works.</li> : null}
+      </motion.ol>
+      <div className="pointer-events-none sticky bottom-4 z-10 flex h-0 justify-center">
+        <AnimatePresence>
+          {scroll.pinned ? null : (
+            <motion.button
+              type="button"
+              onClick={scroll.jumpToLatest}
+              initial={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)' }, still)}
+              animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }, still)}
+              exit={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)', transition: tween.exit }, still)}
+              className="pointer-events-auto absolute bottom-0 flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-3 text-[12px] font-medium shadow-panel transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
+            >
+              <ArrowDown className="size-3.5" aria-hidden="true" />
+              Newest
+              <Kbd>End</Kbd>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  )
+}

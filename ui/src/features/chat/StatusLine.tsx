@@ -4,8 +4,9 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { tween } from '@/lib/motion.ts'
+import { useChat } from './chat-store.ts'
 import { cn } from '@/lib/utils.ts'
-import { bubbleNow, nextBubbleChange, tipChoices } from './bubble.ts'
+import { bubbleNow, nextBubbleChange, reminderChoices, tipChoices, type Bubble } from './bubble.ts'
 import { doingNow, elapsed, turnStartedAt } from './doing.ts'
 import { SpeechBubble } from './SpeechBubble.tsx'
 import { useNow } from './use-now.ts'
@@ -43,7 +44,8 @@ export function StatusLine({ reason, problem, said, turnRunning, typing }: Statu
   const userName = useHost((state) => (typeof state.snapshot.userName === 'string' && state.snapshot.userName.trim() ? state.snapshot.userName.trim() : null))
   const learning = useHost((state) => state.snapshot.learning)
   const attention = useHost((state) => state.snapshot.reportAttention)
-  const tips = useMemo(() => tipChoices({ learning, reportAttention: attention }), [learning, attention])
+  const tips = useMemo(() => tipChoices({ learning }), [learning])
+  const reminders = useMemo(() => reminderChoices({ reportAttention: attention }), [attention])
   const working = turnRunning && doing !== null
   const now = useNow(working)
   const [openedAt] = useState(() => Date.now())
@@ -55,13 +57,18 @@ export function StatusLine({ reason, problem, said, turnRunning, typing }: Statu
   else seenAt.current ??= now
 
   const line = problem ? 'problem' : said ? 'said' : reason ? 'reason' : null
-  const bubble = bubbleNow({ doing: working ? doing : null, typing, line, userName, openedAt, now: clock, tips })
-  const shownLine = bubble ? null : line
+  const bubble = bubbleNow({ doing: working ? doing : null, typing, line, userName, openedAt, now: clock, tips, reminders })
+  // A thought being read stays until the pointer or the keyboard leaves it.
+  const [inspecting, setInspecting] = useState(false)
+  const lastThought = useRef<Bubble | null>(null)
+  if (bubble) lastThought.current = bubble
+  const shown = bubble ?? (inspecting && (lastThought.current?.kind === 'tip' || lastThought.current?.kind === 'reminder') ? lastThought.current : null)
+  const shownLine = shown ? null : line
 
   return (
     // The row's room is always there, so the input does not move when the bubble or a line comes and goes.
-    <div className="flex h-6 items-center gap-2 pl-[62px]">
-      <SpeechBubble bubble={bubble} />
+    <div className="relative flex h-6 items-center gap-2 pl-[112px]">
+      <SpeechBubble bubble={shown} onInspect={setInspecting} />
       {bubble?.kind === 'doing' ? (
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
           <span className="tabular-nums">{elapsed(startedAt ?? seenAt.current ?? now, now)}</span>
@@ -74,6 +81,11 @@ export function StatusLine({ reason, problem, said, turnRunning, typing }: Statu
         {shownLine === null ? null : (
           <motion.div
             key={shownLine}
+            // A problem goes by itself; while it is hovered or focused it stays so it can be read.
+            onPointerEnter={shownLine === 'problem' ? () => useChat.getState().readProblem(true) : undefined}
+            onPointerLeave={shownLine === 'problem' ? () => useChat.getState().readProblem(false) : undefined}
+            onFocus={shownLine === 'problem' ? () => useChat.getState().readProblem(true) : undefined}
+            onBlur={shownLine === 'problem' ? () => useChat.getState().readProblem(false) : undefined}
             role={shownLine === 'problem' ? 'alert' : 'status'}
             initial={holdStill({ opacity: 0, transform: 'translateY(6px)' }, still)}
             animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: tween.enter }, still)}

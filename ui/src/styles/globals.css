@@ -68,6 +68,25 @@
   --color-wire-active: var(--hb-wire-active);
   --color-scrim: var(--hb-scrim);
 
+  /*
+   * Background opacity. Tailwind reads --background-color-* for bg-* and gradient stops before --color-*, so the
+   * window's backgrounds and cards fade while text-*, fill-* and border-* keep the solid color. Popovers, which
+   * float over other text, and filled controls stay solid. At 1 each one is its solid color exactly.
+   */
+  --background-color-background: color-mix(in srgb, var(--background) var(--hb-see), transparent);
+  --background-color-card: color-mix(in srgb, var(--card) var(--hb-see), transparent);
+  --background-color-secondary: color-mix(in srgb, var(--secondary) var(--hb-see), transparent);
+  --background-color-muted: color-mix(in srgb, var(--muted) var(--hb-see), transparent);
+  --background-color-accent: color-mix(in srgb, var(--accent) var(--hb-see), transparent);
+  --background-color-sidebar: color-mix(in srgb, var(--sidebar) var(--hb-see), transparent);
+  --background-color-gap: color-mix(in srgb, var(--hb-gap) var(--hb-see), transparent);
+  --background-color-tone-1: color-mix(in srgb, var(--hb-tone-1) var(--hb-see), transparent);
+  --background-color-tone-2: color-mix(in srgb, var(--hb-tone-2) var(--hb-see), transparent);
+  --background-color-tone-3: color-mix(in srgb, var(--hb-tone-3) var(--hb-see), transparent);
+  --background-color-surface: color-mix(in srgb, var(--hb-surface) var(--hb-see), transparent);
+  --background-color-surface-2: color-mix(in srgb, var(--hb-surface-2) var(--hb-see), transparent);
+  --background-color-code-bg: color-mix(in srgb, var(--hb-code-bg) var(--hb-see), transparent);
+
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.72);
   --radius-lg: var(--radius);
@@ -92,11 +111,13 @@
   html {
     @apply font-sans;
     height: 100%;
-    background: var(--hb-bg);
+    /* The window's own background, faded by the background opacity. */
+    background: color-mix(in srgb, var(--hb-bg) var(--hb-see), transparent);
   }
 
   body {
-    @apply bg-background text-foreground;
+    /* No background of its own: html paints the same color under it, and two would fade as one thicker layer. */
+    @apply text-foreground;
     height: 100%;
     margin: 0;
     font-size: 14px;

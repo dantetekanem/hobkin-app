@@ -25,16 +25,17 @@ const SAMPLE: ChatMessage[] = sampleMessages.map((message, index) => ({
 /**
  * The conversation column. The frame mounts this file and it fills the space it is given.
  * It shows hobkin's stored conversation, the reply being written and what was just sent, and holds the input.
- * Until a host answers it shows the frame's sample conversation, labelled as sample data.
+ * A browser tab with no host shows the frame's sample conversation, labelled as sample data. The Mac window never
+ * does: until its host first answers it says it is connecting.
  */
 export function ChatColumn() {
   const column = useRef<HTMLDivElement | null>(null)
   const scroll = usePinnedScroll()
   const hasHost = useHasHost()
+  const connecting = useHost((state) => state.home === null)
   const messages = useHost((state) => state.messages)
   const live = useHost((state) => state.live)
   const epoch = useHost((state) => state.epoch)
-  const readOnly = useHost((state) => (state.owner?.state === 'read-only' ? state.owner : null))
   const outbox = useChat((chat) => chat.outbox.entries)
   const local = useChat((chat) => chat.local)
   usePresence(useChat((chat) => chat.draft.text.length > 0))
@@ -53,27 +54,11 @@ export function ChatColumn() {
           days={days}
           epoch={hasHost ? epoch : -1}
           scroll={scroll}
-          empty="Nothing has been said yet. Write to hobkin below."
+          empty={connecting ? 'Connecting to hobkin…' : 'Nothing has been said yet. Write to hobkin below.'}
           label={hasHost ? undefined : 'Sample data'}
         />
       </div>
-      {readOnly ? <ReadOnlyNotice savedAt={readOnly.savedAt} /> : null}
       <Composer scroll={scroll} followWithin={column} />
-    </div>
-  )
-}
-
-const savedTime = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
-
-/** Another process owns the home, so this is the last view it saved. The host takes over by itself when it lets go. */
-function ReadOnlyNotice({ savedAt }: { savedAt: string | null }) {
-  const at = Date.parse(savedAt ?? '')
-  return (
-    <div className="shrink-0 px-3 pb-1">
-      <p role="status" className="mx-auto max-w-[640px] rounded-2xl bg-surface-2 px-3.5 py-2 text-[13px] leading-snug">
-        hobkin is open in the terminal app. This is the conversation as it was last saved{Number.isFinite(at) ? ` at ${savedTime.format(at)}` : ''}, and it goes live here
-        when the terminal app closes.
-      </p>
     </div>
   )
 }

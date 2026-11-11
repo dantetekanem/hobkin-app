@@ -113,6 +113,41 @@
 }
 
 /*
+ * A custom theme (Settings). app/theme.ts puts the user's five colors on the root as --hb-custom-*, with the light
+ * or dark class that suits them, so status, code and hill colors come from that theme. The rest is mixed here.
+ */
+:root[data-palette="custom"] {
+  --hb-bg: var(--hb-custom-bg);
+  --hb-surface: var(--hb-custom-surface);
+  --hb-text: var(--hb-custom-text);
+  --hb-muted: var(--hb-custom-muted);
+  --hb-accent: var(--hb-custom-accent);
+  --hb-on-accent: var(--hb-custom-on-accent);
+  --hb-gap: color-mix(in oklab, var(--hb-bg) 88%, black);
+  --hb-tone-1: color-mix(in oklab, var(--hb-bg) 94%, var(--hb-text));
+  --hb-tone-2: color-mix(in oklab, var(--hb-bg) 50%, var(--hb-surface));
+  --hb-tone-3: color-mix(in oklab, var(--hb-bg) 90%, var(--hb-text));
+  --hb-surface-2: color-mix(in oklab, var(--hb-surface) 88%, var(--hb-text));
+  --hb-border: color-mix(in oklab, var(--hb-bg) 84%, var(--hb-text));
+  --hb-border-strong: color-mix(in oklab, var(--hb-bg) 45%, var(--hb-text));
+  --hb-focus: var(--hb-text);
+  --hb-mark: var(--hb-text);
+  --hb-mark-eye: var(--hb-accent);
+  --hb-sun: var(--hb-accent);
+  --hb-wire: var(--hb-border-strong);
+  --hb-wire-active: var(--hb-text);
+  --hb-wire-pulse: var(--hb-accent);
+}
+
+/*
+ * Background opacity (Settings), as a share for color-mix. app/theme.ts sets --hb-opacity on the root. Only the
+ * background utilities use it (globals.css), so text, icons, borders and the focus ring keep their solid colors.
+ */
+:root {
+  --hb-see: calc(var(--hb-opacity, 1) * 100%);
+}
+
+/*
  * Type. The text face is the user's choice (Settings). Space Grotesk stays for headings, labels and the wordmark.
  * Each face gets the weight and tracking it reads best at in a dense interface. Space Grotesk is a display
  * face: as text it needs a little more weight and tighter spacing than its default.

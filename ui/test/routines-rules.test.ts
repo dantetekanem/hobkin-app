@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { byNextRun, changeTimes, factsOf, finishRun, holdFor, latestRuns, RUNS_SHOWN, setEnabled, startRun, stateOf } from '../src/features/routines/rules.ts'
+import { byNextRun, changeTimes, factsOf, finishRun, holdFor, latestRuns, listOrder, RUNS_SHOWN, setEnabled, slideBetween, startRun, stateOf } from '../src/features/routines/rules.ts'
 import type { Routine, RoutinesData, RunLine, RunStatus } from '../src/features/routines/types.ts'
 
 const NOW = Date.parse('2026-11-09T22:40:00-05:00')
@@ -149,6 +149,19 @@ test('a group lists its routines by when they run next, with the ones that are o
   })
 
   assert.deepEqual(factsOf(mixed, NOW).toSorted(byNextRun).map((facts) => facts.routine.id), ['night', 'late', 'early', 'paused'])
+})
+
+test('an open routine lists the others as All routines does, and the detail slides in from the side the next one lies on', () => {
+  const mixed = data({
+    routines: [routine('weekly', { cadence: 'weekly', weekday: 1 }), routine('late', { at: '23:50' }), routine('early', { at: '06:00' })],
+    logs: {},
+  })
+  const order = listOrder(factsOf(mixed, NOW))
+
+  assert.deepEqual(order.map((facts) => facts.routine.id), ['late', 'early', 'weekly'])
+  assert.equal(slideBetween(order, 'late', 'weekly'), 1, 'one further down comes in from the right')
+  assert.equal(slideBetween(order, 'weekly', 'early'), -1, 'one further up comes in from the left')
+  assert.equal(slideBetween(order, 'early', 'early'), 0, 'the same routine does not slide')
 })
 
 test('the detail shows the last 20 runs, newest first', () => {

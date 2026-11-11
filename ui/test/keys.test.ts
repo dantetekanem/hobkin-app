@@ -9,15 +9,7 @@ function context(overrides: Partial<KeyContext> = {}): KeyContext {
   return { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: false, githubInMenu: true, ...overrides }
 }
 
-test('tab walks the menu and wraps', () => {
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context()), { do: 'open-screen', screen: 'routines', focusCanvas: true })
-  assert.deepEqual(resolveKey({ key: 'Tab', shift: true }, context({ screen: 'routines' })), { do: 'open-screen', screen: 'work', focusCanvas: true })
-
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context({ screen: 'github' })), { do: 'open-screen', screen: 'work', focusCanvas: true }, 'wraps forward')
-  assert.deepEqual(resolveKey({ key: 'Tab', shift: true }, context()), { do: 'open-screen', screen: 'github', focusCanvas: true }, 'wraps backward')
-})
-
-test('github is in the tab walk unless the menu leaves it out, and then only while it is open', () => {
+test('the numbered screens hold github unless the menu leaves it out, and then only while it is open', () => {
   const MAIN = ['reports', 'routines', 'actions', 'work'] as const
   assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: true }), [...MAIN, 'github'])
   assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: false }), MAIN, 'taken out of the menu')
@@ -25,36 +17,58 @@ test('github is in the tab walk unless the menu leaves it out, and then only whi
   assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'review', 'settings'], 'what is open only for now comes after')
 })
 
-test('tab changes the screen from anywhere, with or without text in the message', () => {
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context({ messageEmpty: false })), { do: 'open-screen', screen: 'routines', focusCanvas: true })
+test('control option p opens the full prompt from every screen, known by the key where P sits', () => {
+  // Option changes the character a key types on a Mac, so the press is matched by its code.
+  const press = { key: 'π', code: 'KeyP', ctrl: true, alt: true }
+  for (const screen of ['reports', 'work', 'review', 'agent'] as const) {
+    for (const zone of ['input', 'agents', 'veil', 'canvas', 'other'] as const) {
+      assert.deepEqual(resolveKey(press, context({ screen, zone, messageEmpty: false })), { do: 'open-prompt' }, `${zone} on ${screen}`)
+    }
+  }
+  assert.deepEqual(resolveKey({ ...press, key: 'p' }, context()), { do: 'open-prompt' }, 'whatever character it types')
+  assert.deepEqual(resolveKey(press, context({ zone: 'canvas', inOverlay: true })), { do: 'open-prompt' }, 'a panel of the screen, such as a routine detail')
 
-  for (const zone of ['input', 'veil', 'other'] as const) {
-    assert.deepEqual(resolveKey({ key: 'Tab' }, context({ zone })), { do: 'open-screen', screen: 'routines', focusCanvas: true }, zone)
-    assert.deepEqual(resolveKey({ key: 'Tab', shift: true }, context({ zone })), { do: 'open-screen', screen: 'github', focusCanvas: true }, `Shift+Tab in ${zone}`)
+  assert.equal(resolveKey(press, context({ zone: 'other', inOverlay: true })), null, 'a dialog over the window, the editor itself among them, keeps it')
+  assert.equal(resolveKey(press, context({ zone: 'input', inOverlay: true })), null, 'while completions own the message input, the input opens the editor itself')
+  for (const other of [{ ctrl: false }, { alt: false }, { meta: true }, { shift: true }, { code: 'KeyO' }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context()), null, JSON.stringify(other))
   }
 })
 
-test('tab from inside the canvas keeps the keyboard in the canvas', () => {
-  // The control that had the keyboard leaves with its screen, so the new screen takes it.
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context({ zone: 'canvas' })), { do: 'open-screen', screen: 'routines', focusCanvas: true })
-})
-
-test('tab includes a screen that is open only for now, such as a review', () => {
-  const screens = [...MENU, 'review'] as const
-
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context({ screens, screen: 'github' })), { do: 'open-screen', screen: 'review', focusCanvas: true })
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context({ screens, screen: 'review' })), { do: 'open-screen', screen: 'work', focusCanvas: true })
-})
-
-test('among the agents tab is held, and it is the menu\'s again once the keyboard has left them', () => {
-  for (const shift of [false, true]) {
-    assert.deepEqual(resolveKey({ key: 'Tab', shift }, context({ zone: 'agents', screen: 'agent', under: 'work' })), { do: 'hold' }, 'in the agents list')
-    assert.deepEqual(resolveKey({ key: 'Tab', shift }, context({ zone: 'canvas', screen: 'agent', under: 'work' })), { do: 'hold' }, 'talking to an agent')
+test("command j opens and closes hobkin's mind from every screen, known by the key where J sits", () => {
+  const press = { key: 'j', code: 'KeyJ', meta: true }
+  for (const screen of ['reports', 'work', 'agent', 'review', 'settings', 'mind'] as const) {
+    for (const zone of ['input', 'agents', 'veil', 'canvas', 'other'] as const) {
+      assert.deepEqual(resolveKey(press, context({ screen, zone, messageEmpty: false })), { do: 'toggle-mind' }, `${zone} on ${screen}`)
+    }
   }
+  assert.deepEqual(resolveKey(press, context({ zone: 'canvas', inOverlay: true })), { do: 'toggle-mind' }, 'a panel of the screen')
+  assert.equal(resolveKey(press, context({ zone: 'other', inOverlay: true })), null, 'a dialog over the window keeps it')
+  for (const other of [{ meta: false }, { ctrl: true }, { alt: true }, { shift: true }, { code: 'KeyK' }]) {
+    assert.notDeepEqual(resolveKey({ ...press, ...other }, context()), { do: 'toggle-mind' }, JSON.stringify(other))
+  }
+})
 
-  // Back in the message input with an agent still on the canvas, Tab counts from the screen under it.
-  assert.deepEqual(resolveKey({ key: 'Tab' }, context({ zone: 'input', screen: 'agent', under: 'work' })), { do: 'open-screen', screen: 'routines', focusCanvas: true })
-  assert.deepEqual(resolveKey({ key: 'Tab', shift: true }, context({ zone: 'input', screen: 'agent', under: 'routines' })), { do: 'open-screen', screen: 'work', focusCanvas: true })
+test('command enter goes to the message input from anywhere, and leaves the key to the input and to overlays', () => {
+  const press = { key: 'Enter', code: 'Enter', meta: true }
+  for (const screen of ['reports', 'work', 'agent', 'review', 'mind'] as const) {
+    for (const zone of ['agents', 'veil', 'canvas', 'other'] as const) {
+      assert.deepEqual(resolveKey(press, context({ screen, zone, messageEmpty: false })), { do: 'focus-input' }, `${zone} on ${screen}`)
+    }
+  }
+  assert.equal(resolveKey(press, context({ zone: 'input', messageEmpty: false })), null, 'the composer keeps it')
+  assert.equal(resolveKey(press, context({ zone: 'canvas', inOverlay: true })), null, 'the full prompt sends with it, and the models lightbox applies')
+  for (const other of [{ shift: true }, { alt: true }, { ctrl: true }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context({ zone: 'canvas' })), null, JSON.stringify(other))
+  }
+})
+
+test('escape leaves the mind for where the user was, unless something used it', () => {
+  for (const zone of ['input', 'agents', 'canvas', 'other'] as const) {
+    assert.deepEqual(resolveEscape(context({ screen: 'mind', zone }), false), { do: 'toggle-mind' }, zone)
+  }
+  assert.equal(resolveEscape(context({ screen: 'mind', zone: 'canvas' }), true), null)
+  assert.equal(resolveEscape(context({ screen: 'mind', zone: 'other', inOverlay: true }), false), null)
 })
 
 test('left and right never change the screen', () => {
@@ -107,12 +121,9 @@ test('command i opens integrations from anywhere', () => {
 test('command keys with another modifier belong to something else', () => {
   assert.equal(resolveKey({ key: 'y', meta: true, shift: true }, context()), null)
   assert.equal(resolveKey({ key: 'y', meta: true, alt: true }, context()), null)
-  assert.equal(resolveKey({ key: 'p', ctrl: true, alt: true }, context()), null, 'Ctrl+Option+P is the prompt editor, owned by the chat')
-  assert.equal(resolveKey({ key: 'Tab', ctrl: true }, context()), null)
 })
 
 test('a dialog or menu that owns the keyboard keeps every key', () => {
-  assert.equal(resolveKey({ key: 'Tab' }, context({ inOverlay: true })), null)
   assert.equal(resolveKey({ key: '1', meta: true }, context({ inOverlay: true })), null)
   assert.equal(resolveEscape(context({ zone: 'other', inOverlay: true }), false), null)
 })
@@ -129,9 +140,8 @@ test('with the veil open, up and down walk its list, enter chooses and escape cl
   }
 })
 
-test('with the veil open, tab still changes the screen and other keys still type', () => {
+test('with the veil open, other keys still type', () => {
   const open = context({ veilOpen: true })
-  assert.deepEqual(resolveKey({ key: 'Tab' }, open), { do: 'open-screen', screen: 'routines', focusCanvas: true })
   assert.equal(resolveKey({ key: 'a' }, open), null)
   assert.equal(resolveKey({ key: 'Enter', shift: true }, open), null, 'Shift+Enter is a new line in the message')
 })
@@ -166,11 +176,26 @@ test('command g goes to an agent that is waiting for the user, and is left alone
   assert.equal(resolveKey({ key: 'u', meta: true }, context({ asking: true })), null, 'command u stays the message input\'s')
 })
 
-test('command r reloads the window from anywhere, also from a dialog', () => {
+test('command r reloads the window from anywhere, a panel of the screen too, but not from a dialog over the window', () => {
   assert.deepEqual(resolveKey({ key: 'r', meta: true }, context()), { do: 'reload' })
   assert.deepEqual(resolveKey({ key: 'r', meta: true }, context({ zone: 'canvas', inOverlay: true })), { do: 'reload' })
   assert.deepEqual(resolveKey({ key: 'R', meta: true, shift: true }, context()), { do: 'reload' }, 'with Shift too, as in a browser')
   assert.equal(resolveKey({ key: 'r', meta: true, alt: true }, context()), null, 'command option r belongs to something else')
+  assert.equal(resolveKey({ key: 'r', meta: true }, context({ zone: 'other', inOverlay: true })), null, 'a modal dialog keeps it')
+})
+
+test('command left and right go back and forward, and stay text editing in any text field', () => {
+  for (const zone of ['agents', 'veil', 'canvas', 'other'] as const) {
+    assert.deepEqual(resolveKey({ key: 'ArrowLeft', meta: true }, context({ zone })), { do: 'go-back' }, zone)
+    assert.deepEqual(resolveKey({ key: 'ArrowRight', meta: true }, context({ zone })), { do: 'go-forward' }, zone)
+  }
+  assert.deepEqual(resolveKey({ key: 'ArrowLeft', meta: true }, context({ zone: 'canvas', inOverlay: true })), { do: 'go-back' }, 'a panel of the screen')
+  for (const key of ['ArrowLeft', 'ArrowRight']) {
+    assert.equal(resolveKey({ key, meta: true }, context({ zone: 'input' })), null, `${key}: the message input`)
+    assert.equal(resolveKey({ key, meta: true }, context({ zone: 'canvas', typing: true })), null, `${key}: a text field on a screen`)
+    assert.equal(resolveKey({ key, meta: true }, context({ zone: 'other', inOverlay: true })), null, `${key}: a dialog over the window`)
+    assert.equal(resolveKey({ key, meta: true, shift: true }, context({ zone: 'canvas' })), null, `Shift+Command+${key} selects`)
+  }
 })
 
 test('escape that nothing used leaves a screen that is open only for now', () => {

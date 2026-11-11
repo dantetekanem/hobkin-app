@@ -56,6 +56,12 @@ export interface Look {
   where?: string
   state: CallState
   failure?: string
+  /** What a read gave back: the file's text, without Pi's closing note. */
+  text?: string
+  /** The line that text starts at. */
+  from?: number
+  /** Pi's note that the read stopped short: "Showing lines 1-2000 of 5120. Use offset=2001 to continue." */
+  notice?: string
 }
 
 interface Base {
@@ -95,9 +101,9 @@ const READ = /^(read|read_?file|view)$/i
 const FETCH = /fetch|browse/i
 const SEARCH = /grep|find|glob|search/i
 
-type Family = 'shell' | 'change' | LookKind | 'other'
+export type Family = 'shell' | 'change' | LookKind | 'other'
 
-function familyOf(name: string | undefined): Family {
+export function familyOf(name: string | undefined): Family {
   const tool = name ?? ''
   if (SHELL.test(tool)) return 'shell'
   if (CHANGE.test(tool)) return 'change'
@@ -132,7 +138,7 @@ const textOf = (value: unknown): string | undefined => (typeof value === 'string
 const firstText = (args: Args, ...names: string[]): string | undefined => names.map((name) => textOf(args[name])).find((value) => value !== undefined)
 const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? ''
 
-function stateOf(entry: ActivityEntry, ended: boolean): CallState {
+export function stateOf(entry: ActivityEntry, ended: boolean): CallState {
   if (entry.state === 'failed') return 'failed'
   if (entry.state === 'running') return ended ? 'stopped' : 'running'
   return 'done'
@@ -153,7 +159,7 @@ function failureOf(entry: ActivityEntry): string | undefined {
 // How Pi's shell tools close what a failed command printed (`dist/core/tools/bash.js`).
 const STATUS = /(?:^|\n\n)(Command (?:exited with code (\d+)|timed out after [\d.]+ seconds|aborted|terminated without an exit code))\s*$/
 
-function commandOf(entry: ActivityEntry, ended: boolean): Command {
+export function commandOf(entry: ActivityEntry, ended: boolean): Command {
   const args = argsOf(entry)
   const state = stateOf(entry, ended)
   let output = entry.output ?? ''
@@ -224,12 +230,12 @@ function changeState(entries: readonly ActivityEntry[], ended: boolean): CallSta
   return states.includes('stopped') ? 'stopped' : 'done'
 }
 
-function pathOf(entry: ActivityEntry, cwd?: string): string {
+export function pathOf(entry: ActivityEntry, cwd?: string): string {
   const args = argsOf(entry)
   return shortPath(firstText(args, 'path', 'file_path', 'filePath', 'file') ?? '', cwd)
 }
 
-function lookOf(entry: ActivityEntry, kind: LookKind, options: ReadOptions): Look {
+export function lookOf(entry: ActivityEntry, kind: LookKind, options: ReadOptions): Look {
   const args = argsOf(entry)
   const state = stateOf(entry, options.ended ?? false)
   const failure = state === 'failed' ? failureOf(entry) : undefined
@@ -240,7 +246,8 @@ function lookOf(entry: ActivityEntry, kind: LookKind, options: ReadOptions): Loo
     const offset = typeof args.offset === 'number' ? args.offset : undefined
     const limit = typeof args.limit === 'number' ? args.limit : undefined
     const where = kind === 'read' && offset !== undefined ? (limit ? `lines ${offset} to ${offset + limit - 1}` : `from line ${offset}`) : undefined
-    return { ...base, what, ...(where ? { where } : {}) }
+    const read = kind === 'read' && state !== 'failed' && entry.output ? { ...readText(entry.output), from: offset ?? 1 } : {}
+    return { ...base, what, ...(where ? { where } : {}), ...read }
   }
   if (kind === 'fetch') {
     const urls = Array.isArray(args.urls) ? args.urls.filter((url): url is string => typeof url === 'string') : []
@@ -252,8 +259,17 @@ function lookOf(entry: ActivityEntry, kind: LookKind, options: ReadOptions): Loo
   return { ...base, what, ...(folder ? { where: `in ${path(folder)}` } : {}) }
 }
 
+// How Pi's read tool closes a file it read only part of (`dist/core/tools/read.js`).
+const READ_NOTICE = /\n\n\[((?:Showing lines \d+-\d+ of \d+|\d+ more lines in file)[^\]\n]*)\]\s*$/
+
+/** A read's output: the file's text, and Pi's closing note apart when it read only part of the file. */
+function readText(output: string): { text: string; notice?: string } {
+  const notice = READ_NOTICE.exec(output)
+  return notice ? { text: output.slice(0, notice.index), notice: notice[1]! } : { text: output }
+}
+
 /** The first thing a tool was given, for a tool the canvas has no words of its own for. */
-function summaryOf(entry: ActivityEntry, cwd?: string): string {
+export function summaryOf(entry: ActivityEntry, cwd?: string): string {
   const args = argsOf(entry)
   const first = Object.values(args).find((value) => typeof value === 'string' && value.trim()) as string | undefined
   const line = first ? shortPath(firstLine(first), cwd) : ''

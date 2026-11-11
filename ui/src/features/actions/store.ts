@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { emptyQueue } from '../questions/queue.ts'
+import { emptyQueue, type Answer, type QuestionQueue } from '../questions/queue.ts'
 import { useQuestions } from '../questions/store.ts'
 import { waiting, type ActionItem, type WaitingRow } from './items.ts'
 import { sampleItems } from './sample.ts'
@@ -11,10 +11,16 @@ import { hostRows } from './host.ts'
 /**
  * Real rows stay authoritative, including while disconnected. Local question state is sample-only. `answering` holds
  * the rows whose answer is on its way to hobkin: they leave the list at once, and come back if hobkin refuses.
+ * `answeredHere` holds sample answers, which never leave this window.
  */
-export const useActionItems = create<{ sample: boolean; items: ActionItem[]; rows: WaitingRow[]; answering: string[] }>()(() => ({
-  sample: true, items: sampleItems, rows: [], answering: [],
+export const useActionItems = create<{ sample: boolean; items: ActionItem[]; rows: WaitingRow[]; answering: string[]; answeredHere: QuestionQueue['answered'] }>()(() => ({
+  sample: true, items: sampleItems, rows: [], answering: [], answeredHere: [],
 }))
+
+/** A sample answered on this screen. It leaves the sample list, and nothing is sent. */
+export function answerSample(id: string, answer: Answer): void {
+  if (useActionItems.getState().sample) useActionItems.setState(({ answeredHere }) => ({ answeredHere: [...answeredHere, { id, answer }] }))
+}
 
 /** An answer went to hobkin: its row leaves until hobkin's own list says otherwise. */
 export function startAnswering(id: string): void {
@@ -45,13 +51,13 @@ import.meta.hot?.dispose(unsubscribe)
  * away and a question put off arrives.
  */
 export function useWaitingRows(): WaitingRow[] {
-  const { items, sample, rows, answering } = useActionItems()
+  const { items, sample, rows, answering, answeredHere } = useActionItems()
   // Only these two lists. The rest of the queue changes as its clock runs, and the rows do not depend on it.
   const answered = useQuestions((state) => state.queue.answered)
   const deferred = useQuestions((state) => state.queue.deferred)
   return useMemo(
-    () => (sample ? waiting(items, { ...emptyQueue, answered, deferred }) : rows.filter(({ id }) => !answering.includes(id))),
-    [sample, rows, items, answered, deferred, answering],
+    () => (sample ? waiting(items, { ...emptyQueue, answered: [...answered, ...answeredHere], deferred }) : rows.filter(({ id }) => !answering.includes(id))),
+    [sample, rows, items, answered, deferred, answering, answeredHere],
   )
 }
 

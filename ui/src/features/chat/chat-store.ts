@@ -1,13 +1,16 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { navigationGuide } from '@/app/key-list.ts'
+import { useView } from '@/app/view-store.ts'
 import { hostStore, runCommand } from '@/lib/host/client.ts'
 import { isLive } from '@/lib/host/state.ts'
 import type { SlashCommand } from '#shared/protocol/slash.ts'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
-import { useReportReply } from '@/features/reports/reply.ts'
+import { useReportReply, withRoutineReference } from '@/features/reports/reply.ts'
 import { attachmentRefusal, fileAsBase64 } from './attachments.ts'
 import { draftReducer, emptyDraft, storedDraft, type Attachment, type DraftAction, type DraftState } from './draft.ts'
 import { emptyOutbox, settleOutbox, type Outbox } from './outbox.ts'
+import { transientLine } from './transient-line.ts'
 import { closedSlash, slashCommandIn, slashKey, slashTyped, type SlashKey, type SlashState } from './slash.ts'
 
 interface ChatState {
@@ -39,11 +42,15 @@ interface ChatState {
   /** Moves the list's selection, as the pointer does. */
   reachCommand: (index: number) => void
   runCommand: (name: string, args: string) => void
+  /** Pauses or resumes the time the problem line has left, while it is being read. */
+  readProblem: (reading: boolean) => void
 }
 
 let sends = 0
 let uploads = 0
 let notes = 0
+// A problem is not kept: it goes by itself, and never reaches the conversation or its history.
+const problemLine = transientLine(() => useChat.setState({ problem: null }))
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const settled = (outbox: Outbox) => settleOutbox(outbox, hostStore.getState().messages, hostStore.getState().snapshot.busy === true)
 const limitsNow = () => {
@@ -91,9 +98,12 @@ export const useChat = create<ChatState>()(
         // The report the message is about goes with it, once, as in the terminal app.
         const report = useReportReply.getState().report
         if (report) useReportReply.getState().clear()
-        const entry = { id: ++sends, text: words, images: images.length, at: Date.now(), accepted: false, ...(report ? { about: report.title } : {}) }
+        // A routine goes as a line before the words, since hobkin's `about` only knows reports. The chat shows it as "About ...".
+        const routine = report?.kind === 'routine' && report.file
+        const sentText = routine && words ? withRoutineReference(report, words) : words
+        const entry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(report && !routine ? { about: report.title } : {}) }
         set(({ draft, outbox }) => ({ draft: draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
-        runCommand('conversation.send', { ...(words ? { text: words } : {}), ...(images.length ? { images } : {}), ...(report ? { report: report.id } : {}) }).then(
+        runCommand('conversation.send', { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...(report && !routine ? { report: report.id } : {}) }).then(
           () => {
             forget(attachments)
             // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it.
@@ -180,10 +190,19 @@ export const useChat = create<ChatState>()(
         return true
       },
 
+      readProblem: (reading) => (reading ? problemLine.hold() : problemLine.release()),
+
       reachCommand: (index) => set(({ slash }) => (slash.selected === index ? {} : { slash: { ...slash, selected: index } })),
 
       runCommand: (name, args) => {
         set({ problem: null, said: null })
+        // The walkthrough is built here from the list of keys: no host and no model.
+        // Work is a screen of this app: it opens here, and the host only counts the run.
+        if (name === '/work') useView.getState().openScreen('work')
+        if (name === '/navigate') {
+          set(({ local }) => ({ local: [...local, { id: `local:note:${++notes}`, role: 'assistant', content: navigationGuide(), at: Date.now() }] }))
+          return
+        }
         runCommand('slash.run', { name, ...(args ? { args } : {}) }).then(
           ({ said, shown }) => {
             set(({ local }) => ({
@@ -206,6 +225,12 @@ export const useChat = create<ChatState>()(
     },
   ),
 )
+
+useChat.subscribe((state, before) => {
+  if (state.problem === before.problem) return
+  if (state.problem) problemLine.show()
+  else problemLine.clear()
+})
 
 // The outbox follows the stored conversation, whoever changes it. The commands are asked for each time hobkin opens.
 let wasLive = false

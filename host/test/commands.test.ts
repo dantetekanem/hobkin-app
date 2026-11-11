@@ -74,7 +74,7 @@ test('running a command counts it, across restarts', async (t) => {
   const first = await open()
   const fresh = await first.list()
   // hobkin's own commands, in the terminal app's order, each with one line on what it does and nothing counted yet.
-  assert.deepEqual(fresh.filter(({ source }) => source === 'hobkin').map(({ name }) => name), ['/help', '/setup', '/clear', '/reset', '/work', '/learning', '/feedback'])
+  assert.deepEqual(fresh.filter(({ source }) => source === 'hobkin').map(({ name }) => name), ['/help', '/setup', '/clear', '/reset', '/navigate', '/work', '/learning', '/feedback'])
   assert.ok(fresh.every(({ description, count }) => description.length > 0 && count === 0))
 
   // Each run counts, whatever the command does.
@@ -91,6 +91,13 @@ test('running a command counts it, across restarts', async (t) => {
   assert.equal(unknown.ok, false)
   assert.deepEqual(await counts(first.list), { '/learning': 2, '/help': 1 })
 
+  // /work opens in the app and only counts here. /feedback is not built, and does not send anyone to the terminal.
+  assert.deepEqual(await first.client.run('slash.run', { name: '/work' }), {})
+  const feedback = await first.client.command('slash.run', { name: '/feedback' })
+  assert.equal(feedback.ok, false)
+  assert.match(JSON.stringify(feedback), /not built yet/)
+  assert.doesNotMatch(JSON.stringify(feedback), /terminal/)
+
   // /setup asks hobkin in the conversation, as the terminal app does.
   await first.client.run('slash.run', { name: '/setup' })
   const asked = await first.client.until((view) => view.snapshot.busy === false && view.messages.length === 2, 'the setup turn')
@@ -102,13 +109,21 @@ test('running a command counts it, across restarts', async (t) => {
 
   // The counts are in the home, readable by the user only, and the next host starts from them.
   const file = join(root, 'client', 'slash-counts.json')
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { version: 1, counts: { '/learning': 2, '/help': 1, '/setup': 1, '/clear': 1 } })
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { version: 1, counts: { '/learning': 2, '/help': 1, '/work': 1, '/setup': 1, '/clear': 1 } })
   assert.equal(statSync(file).mode & 0o777, 0o600)
   await first.host.close()
 
   const second = await open()
-  assert.deepEqual(await counts(second.list), { '/learning': 2, '/help': 1, '/setup': 1, '/clear': 1 })
+  assert.deepEqual(await counts(second.list), { '/learning': 2, '/help': 1, '/work': 1, '/setup': 1, '/clear': 1 })
   assert.deepEqual(second.client.view.messages, [], 'what was cleared stays hidden after a restart')
   await second.client.run('slash.run', { name: '/help' })
   assert.equal((await counts(second.list))['/help'], 2)
+})
+
+test('help does not list feedback, which the app cannot run, and the list says so', async () => {
+  const { helpGuide } = await import('../src/slash.ts')
+  const help = helpGuide()
+  assert.doesNotMatch(help, /`\/feedback`/)
+  assert.match(help, /`\/work`/)
+  assert.match(help, /`\/navigate`/)
 })

@@ -1,22 +1,28 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Hero, Rise } from '@/app/Reveal.tsx'
+import { SCREEN_COLUMN, SCREEN_PANES, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
+import { slideVariants } from '@/features/reports/slide.ts'
+import { useStill } from '@/features/reports/still.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { askForNewRoutine } from './ask.ts'
+import { reveal, slideTo } from './aside.ts'
 import { Detail } from './Detail.tsx'
 import { BrokenFiles, EmptyHome, SampleLine, SkyTile, Suggested, Templates } from './Extras.tsx'
 import { useClock } from './hooks.ts'
-import { AllRoutines, NextSevenDays } from './Lists.tsx'
+import { AllRoutines, NextSevenDays, RoutineIndex } from './Lists.tsx'
 import { selectPreparedView } from './prepare.ts'
+import { listOrder, slideBetween } from './rules.ts'
 import { useRoutines, VIEW_ZONE, type RoutinesView } from './store.ts'
 import './routines.css'
 
 /**
  * Routines, as time. The sky across the top shows the day rolling past (or the week ahead) with every
  * routine on the sun's path. Under it, the same routines as a list: grouped by how often they run, or the
- * next seven days in time order. A routine opens into its detail, which grows out of the row that was chosen.
+ * next seven days in time order. A routine opens as Reports opens a report: the screen slides aside, and the
+ * routine's card comes in with every routine listed beside it. Another routine from that list slides in the same way.
  *
  * Keys: Up and Down walk the screen. Left and Right change the view, or move between templates. Enter or
  * Right opens a routine. In its detail, Escape or Left goes back. Tab is the frame's, as everywhere.
@@ -64,17 +70,19 @@ function sourceOf(view: RoutinesView, routineId: string, markKey: string): strin
 
 export function Routines() {
   const root = useRef<HTMLDivElement | null>(null)
+  const home = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const now = useClock(30_000)
-  const { data, prepared, sample, view, openId, openFrom, lit } = useRoutines(
+  const { data, prepared, sample, view, openId, lit, pending, refused } = useRoutines(
     useShallow((state) => ({
       data: state.data,
       prepared: state.prepared,
       sample: state.sample,
       view: state.view,
       openId: state.openId,
-      openFrom: state.openFrom,
       lit: state.lit,
+      pending: state.pending,
+      refused: state.refused,
     })),
   )
   const actions = useRoutines(
@@ -91,11 +99,20 @@ export function Routines() {
     })),
   )
   const [direction, setDirection] = useState<1 | -1>(1)
+  // Which way the routine's card last slid, as in Reports: 1 in from the right, -1 from the left, 0 not yet, so a
+  // card already open when the screen arrives comes with it. `aside` is the same for the whole open layer.
+  const [step, setStep] = useState<0 | 1 | -1>(0)
+  const [aside, setAside] = useState<0 | 1 | -1>(0)
+  const still = useStill()
+  const slides = useMemo(() => slideVariants(still), [still])
   const [asked, setAsked] = useState(0)
   const screen = selectPreparedView(prepared, view)
   const { facts, holds } = screen
+  const order = useMemo(() => listOrder(facts), [facts])
 
-  const readOnly = sample === null
+  // hobkin's own routines come with their schedules only. The sample also has their runs, memory and reports, and the
+  // asks that put a message to hobkin in the input: a new routine, a template, a fix for a broken file.
+  const fromHost = sample === null
   const opened = facts.find((item) => item.routine.id === openId)
   const walkable = opened === undefined
   const empty = data.routines.length === 0 && data.errors.length === 0
@@ -114,22 +131,39 @@ export function Routines() {
     actions.setView(next)
   }
 
+  const openRoutine = (id: string, from: string) => {
+    setAside(1)
+    setStep(0)
+    actions.open(id, from)
+  }
+  // From the list beside an open card: the new card slides in from the side its routine lies on.
+  const switchTo = (id: string) => {
+    if (!openId || id === openId) return
+    setStep(slideBetween(order, openId, id) || 1)
+    const entry = screen.days.flatMap((day) => day.entries).find((item) => item.routineId === id)
+    actions.open(id, view === 'week' && entry ? `entry-${entry.key}` : `routine-${id}`)
+  }
   const closeRoutine = () => {
     const from = useRoutines.getState().openFrom
+    setAside(-1)
     actions.close()
     // The keyboard goes back to the row the detail came from, so Up and Down go on from there.
-    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(`[data-anchor="${from}"]`)?.focus({ preventScroll: true }))
+    requestAnimationFrame(() => {
+      const row = root.current?.querySelector<HTMLElement>(`[data-anchor="${from}"]`)
+      reveal(home.current, row)
+      row?.focus({ preventScroll: true })
+    })
   }
-  const pick = (routineId: string, markKey: string) => actions.open(routineId, sourceOf(view, routineId, markKey))
+  const pick = (routineId: string, markKey: string) => openRoutine(routineId, sourceOf(view, routineId, markKey))
 
   const listProps = {
     facts,
     now,
     zone: VIEW_ZONE,
     walkable,
-    openFrom,
-    readOnly,
-    onOpen: actions.open,
+    pending,
+    refused,
+    onOpen: openRoutine,
     onRun: actions.runNow,
     onEnable: actions.setEnabled,
     onLight: actions.light,
@@ -137,8 +171,10 @@ export function Routines() {
 
   return (
     <div ref={root} className="relative h-full" onKeyDown={pressOnEnter}>
-      <motion.div layoutScroll variants={pieces} inert={!walkable} className="scroll-quiet h-full overflow-y-auto px-6 pt-[78px] pb-6">
-        <div className="mx-auto flex max-w-[1040px] flex-col gap-3">
+      <motion.div ref={home} layoutScroll variants={pieces} inert={!walkable} className={`${SCREEN_SCROLLER} pb-6`}>
+        {/* The screen slides aside while a routine is open, as the week does in Reports, and stays as it was. It spans
+            the canvas, centered by its padding, so sliding its own width takes all of it out of view. */}
+        <motion.div className={`flex flex-col gap-3 ${SCREEN_COLUMN}`} initial={false} animate={slideTo(opened ? slides.exit : slides.center, 1)}>
           <Hero>
             <SkyTile
               facts={facts}
@@ -146,8 +182,7 @@ export function Routines() {
               onView={chooseView}
               walkable={walkable}
               empty={empty}
-              readOnly={readOnly}
-              onNewRoutine={() => {
+              onNewRoutine={fromHost ? undefined : () => {
                 askForNewRoutine()
                 onAsked()
               }}
@@ -167,15 +202,11 @@ export function Routines() {
             />
           </Hero>
 
-          {readOnly ? (
-            <p className="px-1 text-[12.5px] text-muted-foreground">
-              From your hobkin. Controls are read-only here; manage routines in hobkin. The sky and week show schedule times, not run receipts.
-            </p>
-          ) : empty ? null : <Suggested shown={asked > 0} />}
+          {fromHost || empty ? null : <Suggested shown={asked > 0} />}
 
           {data.errors.length ? (
             <Rise>
-              {readOnly ? data.errors.map((error, index) => (
+              {fromHost ? data.errors.map((error, index) => (
                 <p key={`${error.path}-${index}`} className="text-[13px] text-warn-fg">{error.path}: {error.message}</p>
               )) : <BrokenFiles errors={data.errors} walkable={walkable} onAsked={onAsked} />}
             </Rise>
@@ -183,7 +214,7 @@ export function Routines() {
 
           {empty ? (
             <Rise>
-              {readOnly ? <p className="text-[14px] text-muted-foreground">No routines in the current host snapshot.</p> : <EmptyHome walkable={walkable} onAsked={onAsked} asked={asked > 0} />}
+              {fromHost ? <p className="text-[14px] text-muted-foreground">No routines in the current host snapshot.</p> : <EmptyHome walkable={walkable} onAsked={onAsked} asked={asked > 0} />}
             </Rise>
           ) : (
             <Rise>
@@ -197,7 +228,7 @@ export function Routines() {
             </Rise>
           )}
 
-          {!readOnly && !empty && view === 'all' ? (
+          {!fromHost && !empty && view === 'all' ? (
             <Rise>
               <Templates templates={data.templates} walkable={walkable} onAsked={onAsked} />
             </Rise>
@@ -208,24 +239,44 @@ export function Routines() {
               <SampleLine sample={sample} walkable={walkable} onToggle={() => actions.showSample(sample === 'full' ? 'empty' : 'full')} />
             </Rise>
           ) : null}
-        </div>
+        </motion.div>
       </motion.div>
 
-      <AnimatePresence>
-        {opened && openFrom ? (
-          <Detail
-            key={opened.routine.id}
-            facts={opened}
-            data={data}
-            now={now}
-            zone={VIEW_ZONE}
-            from={openFrom}
-            readOnly={readOnly}
-            onClose={closeRoutine}
-            onRun={actions.runNow}
-            onEnable={actions.setEnabled}
-            onChangeTimes={actions.changeTimes}
-          />
+      {/* An open routine: its card on the left and every routine on the right, laid out as Reports is. */}
+      <AnimatePresence custom={aside}>
+        {opened ? (
+          <motion.div
+            key="open"
+            custom={aside}
+            variants={slides}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            className={`absolute inset-0 ${SCREEN_PANES}`}
+          >
+            <div className="relative min-h-0 overflow-hidden rounded-[28px]">
+              <AnimatePresence initial={false} custom={step}>
+                <motion.div key={opened.routine.id} custom={step} variants={slides} initial="enter" animate="center" exit="exit" className="absolute inset-0">
+                  <Detail
+                    facts={opened}
+                    data={data}
+                    now={now}
+                    zone={VIEW_ZONE}
+                    schedulesOnly={fromHost}
+                    pending={pending[opened.routine.id]}
+                    refused={refused[opened.routine.id]}
+                    onClose={closeRoutine}
+                    onRun={actions.runNow}
+                    onEnable={actions.setEnabled}
+                    onChangeTimes={actions.changeTimes}
+                  />
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            <div className="flex min-h-0 flex-col @max-[800px]:hidden" onKeyDown={(event) => { if (event.key !== 'Escape') return; event.preventDefault(); closeRoutine() }}>
+              <RoutineIndex order={order} openId={opened.routine.id} onOpen={switchTo} />
+            </div>
+          </motion.div>
         ) : null}
       </AnimatePresence>
     </div>

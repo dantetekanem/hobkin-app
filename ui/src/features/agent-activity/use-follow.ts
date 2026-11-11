@@ -1,6 +1,7 @@
 import { animate, useMotionValue, type MotionValue } from 'motion/react'
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { spring } from '@/lib/motion.ts'
+import { UNFOLD, UNFOLD_MS } from './unfold.ts'
 
 /** How close to the end still counts as being at the end, in pixels. */
 const SLACK = 48
@@ -57,9 +58,29 @@ export function useFollow(still: boolean): Follow {
     const observer = new ResizeObserver(() => {
       if (following.current) toEnd(true)
     })
+    // A box the user opens or closes is read where it is: the view holds still while it changes height, and follows
+    // again only if the end is still in view. A box closing from above the view is brought back into it.
+    let held: ReturnType<typeof setTimeout> | undefined
+    const unfold = (event: Event) => {
+      const element = scroller.current
+      if (!element) return
+      following.current = false
+      clearTimeout(held)
+      held = setTimeout(() => {
+        following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= SLACK
+        setPinned(following.current)
+      }, UNFOLD_MS + 50)
+      const above = (event.target as HTMLElement).getBoundingClientRect().top - element.getBoundingClientRect().top
+      if ((event as CustomEvent<{ closing: boolean }>).detail?.closing && above < 0) element.scrollBy({ top: above, behavior: still ? 'auto' : 'smooth' })
+    }
     observer.observe(list)
-    return () => observer.disconnect()
-  }, [toEnd])
+    list.addEventListener(UNFOLD, unfold)
+    return () => {
+      observer.disconnect()
+      list.removeEventListener(UNFOLD, unfold)
+      clearTimeout(held)
+    }
+  }, [toEnd, still])
 
   const onScroll = useCallback(() => {
     const element = scroller.current

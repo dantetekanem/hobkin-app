@@ -35,7 +35,7 @@ fn node() -> PathBuf {
 
 /// The home the app opens: the user's own ~/.hobkin, the one the terminal app uses, so the app is hobkin with all
 /// its routines, work and memory. HOBKIN_CLIENT_HOME points it elsewhere, such as the repository's .dev-home.
-/// Only one hobkin holds a home at a time: while the terminal app has it, the window is read-only until it closes there.
+/// Only one hobkin holds a home at a time: while another process has it, the window says so and opens it once it is free.
 fn home() -> Option<PathBuf> {
     std::env::var_os("HOBKIN_CLIENT_HOME")
         .map(PathBuf::from)

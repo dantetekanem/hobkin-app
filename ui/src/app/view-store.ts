@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { requestCanvasFocus } from './focus.ts'
 import { closeOver, depth, ground, toggleIntegrationsOver, toggleSettingsOver, type Over } from './overlays.ts'
 import { screenIndex, type ScreenId, type VeilSection } from './screens.ts'
+import type { Place } from '../features/main-agent/mind.ts'
 
 /** Width of the chat, in pixels. */
 export const CONVERSATION_WIDTH = { min: 360, initial: 460, max: 720 } as const
@@ -39,6 +40,8 @@ interface ViewState {
   settingsReturn: ScreenId | null
   /** While GitHub is open: the screen it was opened over. Closing a GitHub the menu leaves out returns there. */
   githubReturn: ScreenId | null
+  /** Where leaving hobkin's mind goes back to. A reload keeps it (location.ts). */
+  mindReturn: Place | null
   /**
    * True while the canvas has the user's attention: the keyboard is in it, or it was just clicked.
    * A review takes almost the whole window while it does, and gives the room back when the user returns to the chat.
@@ -118,6 +121,7 @@ export const useView = create<ViewState>()(
       agentTalk: false,
       settingsReturn: null,
       githubReturn: null,
+      mindReturn: null,
       canvasEngaged: false,
 
       openScreen: (screen) => {

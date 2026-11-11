@@ -27,9 +27,7 @@ export type OwnerState =
   | { state: 'opening' }
   /** This host owns the home and hobkin is running in it. `limits` are hobkin's own, so the UI can refuse a file before sending it. */
   | { state: 'live'; limits: ImageLimits }
-  /** Another process holds the home's lock, so this is the last view it saved. */
-  | { state: 'read-only'; holder: 'terminal'; savedAt: string | null }
-  /** hobkin could not open. */
+  /** hobkin could not open, or another process holds the home's lock and the host looks again until it lets go. */
   | { state: 'failed'; message: string }
 
 export interface HelloMessage {

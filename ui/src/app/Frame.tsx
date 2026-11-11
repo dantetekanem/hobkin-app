@@ -33,7 +33,8 @@ export function Frame() {
 
   return (
     <MotionConfig reducedMotion={movement === 'still' ? 'always' : movement === 'lively' ? 'never' : 'user'}>
-    <div className="flex h-full bg-background text-foreground">
+    {/* No background of its own: the page paints the one faded background, so the window's opacity is exactly the setting. */}
+    <div className="flex h-full text-foreground">
       <div data-chat-side className="relative flex h-full shrink-0 flex-col" style={{ width: conversationWidth }}>
         <ChatHeader />
         <section aria-label="Conversation" className="relative flex min-h-0 flex-1 flex-col">

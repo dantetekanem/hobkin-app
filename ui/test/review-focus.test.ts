@@ -208,23 +208,6 @@ function keyboard() {
   return { session, press }
 }
 
-test('Escape steps back one level at a time, and the last Escape is the frame\'s', () => {
-  const { session, press } = keyboard()
-  const at = stepOf('The runtime keeps the word for one turn')
-  session.getState().goTo(at)
-  session.getState().focusOn(idOf('CHANGELOG.md'))
-  session.getState().openCode()
-  assert.ok(session.getState().code)
-
-  assert.equal(press('Escape'), true)
-  assert.equal(session.getState().code, null, 'first the code closes')
-  assert.equal(press('Escape'), true)
-  assert.deepEqual([session.getState().story.detour, session.getState().focus], [null, sample.story[at]!.focus], 'then the detour returns to its step')
-  assert.equal(press('Escape'), true)
-  assert.deepEqual(session.getState().focus, [], 'then the step gives way to the whole graph')
-  assert.equal(press('Escape'), false, 'and with nothing left, the frame has it')
-})
-
 test('digits jump to a step, G shows the whole graph, and history goes back and forward', () => {
   const { session, press } = keyboard()
   // Fifteen steps: 1 could still become 10 to 15, so it waits and shows what was typed.

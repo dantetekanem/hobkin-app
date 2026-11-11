@@ -1,10 +1,11 @@
-import { History, Moon, Settings2, Sun } from 'lucide-react'
+import { Brain, History, Moon, Settings2, Sun } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Mark } from '@/components/Mark.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useConnection } from '@/lib/host/index.ts'
+import { toggleMind } from '@/features/main-agent/route.ts'
 import { Spotlight } from './Spotlight.tsx'
 import { originOf, toggleTheme, useTheme } from './theme.ts'
 import { useView } from './view-store.ts'
@@ -20,9 +21,11 @@ export function ChatHeader() {
   const closeVeil = useView((view) => view.closeVeil)
   const toggleSettings = useView((view) => view.toggleSettings)
   const settingsOpen = useView((view) => view.screen === 'settings')
-  // The dot says how the window is linked to hobkin: live, looking, read-only while the terminal has it, or not at all.
+  const mindOpen = useView((view) => view.screen === 'mind')
+  // The dot says how the window is linked to hobkin: live, looking, or not at all. Away from live it says so in a word.
   const connection = useConnection()
   const said = connection.detail ? `${connection.label}. ${connection.detail}` : connection.label
+  const word = connection.status === 'live' || connection.status === 'sample' ? null : connection.label
 
   return (
     <header data-tauri-drag-region className="select-none-chrome relative z-20 flex h-12 shrink-0 items-center gap-1 pr-2 pl-[var(--titlebar-inset,16px)]">
@@ -34,11 +37,37 @@ export function ChatHeader() {
           aria-label={said}
           className={cn(
             'ml-0.5 size-1.5 rounded-full transition-colors duration-[450ms] ease-[ease]',
-            connection.status === 'live' ? 'bg-ok' : connection.status === 'offline' ? 'bg-bad' : connection.status === 'read-only' ? 'bg-warn' : 'bg-border-strong',
+            connection.status === 'live' ? 'bg-ok' : connection.status === 'offline' ? 'bg-bad' : 'bg-border-strong',
           )}
         />
+        {word ? (
+          <span aria-hidden="true" className="text-[12px] text-muted-foreground">
+            {word}
+          </span>
+        ) : null}
       </div>
       <div data-tauri-drag-region className="flex-1 self-stretch" />
+      {/* Hobkin's mind: the main agent at work, on the canvas beside the chat. */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={toggleMind}
+              aria-label="Hobkin's mind"
+              aria-pressed={mindOpen}
+              className={cn(
+                'no-drag grid size-8 place-items-center rounded-full outline-offset-0 transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2 hover:text-foreground',
+                mindOpen ? 'bg-surface-2 text-foreground' : 'text-muted-foreground',
+              )}
+            />
+          }
+        >
+          <Brain className="size-4" aria-hidden="true" />
+        </TooltipTrigger>
+        <TooltipContent>Hobkin's mind ⌘J</TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger
           render={

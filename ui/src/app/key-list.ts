@@ -1,0 +1,45 @@
+/**
+ * The one list of keys the app shows: the hints under the chat, the Keys tile in Settings and the walkthrough that
+ * `/navigate` prints. Each entry is a key that works today (see `key-map.ts` and the controls named in `where`).
+ * `hint` marks the few that fit the line under the chat.
+ */
+export interface KeyEntry {
+  keys: string
+  does: string
+  where: string
+  hint?: string
+}
+
+export const KEY_LIST: readonly KeyEntry[] = [
+  { keys: '⌘1–5', does: 'Open a screen from the menu: Reports, Routines, Action Items, Work, GitHub', where: 'anywhere', hint: 'screens' },
+  { keys: '⌘K', does: 'Search everything and go there', where: 'anywhere', hint: 'search' },
+  { keys: '⌘Y', does: 'History', where: 'anywhere', hint: 'history' },
+  { keys: '⌘,', does: 'Settings', where: 'anywhere', hint: 'settings' },
+  { keys: '⌘I', does: 'Integrations', where: 'anywhere' },
+  { keys: '⌘J', does: "Hobkin's mind, its main agent at work. Again to close", where: 'anywhere' },
+  { keys: '⌘G', does: 'Go to the agent waiting on you', where: 'while an agent asks' },
+  { keys: '⌘L  ⌘↵', does: 'Back to the message input', where: 'anywhere' },
+  { keys: '↓', does: 'Enter the agents', where: 'an empty message input', hint: 'agents' },
+  { keys: '↑ ↓', does: 'Walk the agents. ↵ steps into one, ↑ from the first goes back', where: 'the agents list' },
+  { keys: 'x  i', does: 'x stops the agent. i would interrupt it, and says it is not supported yet', where: 'the agents list' },
+  { keys: '⌃⌥P', does: 'The full prompt editor', where: 'anywhere' },
+  { keys: '⌘U', does: 'Attach an image', where: 'the message input' },
+  { keys: '↑', does: 'Bring back the last message you sent', where: 'the message input' },
+  { keys: '⌘↓', does: 'Jump to the newest message', where: 'the message input' },
+  { keys: 'esc', does: 'One step back toward the message input. It also stops hobkin while it works', where: 'anywhere' },
+  { keys: 'tab', does: 'Move between controls. It never switches screens', where: 'anywhere' },
+]
+
+/** The keys for the line under the chat. */
+export const HINT_KEYS = KEY_LIST.filter((entry) => entry.hint)
+
+/** What `/navigate` shows in the chat: a short walkthrough from the list, no model involved. */
+export function navigationGuide(): string {
+  return [
+    'Everything here works from the keyboard. Start in the message input, where you are now.',
+    '',
+    ...KEY_LIST.map(({ keys, does, where }) => `- \`${keys}\` ${does} (${where})`),
+    '',
+    'Try ⌘1 to see your reports, then esc to come back to the message.',
+  ].join('\n')
+}

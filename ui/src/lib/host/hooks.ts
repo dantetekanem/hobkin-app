@@ -14,12 +14,12 @@ export function useHost<Selected>(selector: (state: HostState) => Selected): Sel
   return useStore(hostStore, selector)
 }
 
-/** False until a host has answered. The frame then draws sample data, labelled as such. */
+/** Whether this window has a host (`hasHost`): always in the Mac window. Without one the frame draws sample data, labelled as such. */
 export function useHasHost(): boolean {
   return useHost(hasHost)
 }
 
-/** Where the data on screen comes from: sample, a live host, a saved view, or a host that went away. */
+/** Where the data on screen comes from: sample, a live host, or a host that is starting or went away. */
 export function useConnection(): Connection {
   const link = useHost((state) => state.link)
   const home = useHost((state) => state.home)

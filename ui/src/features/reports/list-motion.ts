@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { Transition, Variants } from 'motion/react'
-import { spring, stagger, staggerDelay, tween } from '@/lib/motion.ts'
+import { spring, stagger, tween } from '@/lib/motion.ts'
 
 /**
  * How rows move in the screens' lists. Each row drives its own arrival (`initial="enter" animate="center"`),
  * because rows come and go long after the screen itself arrived: a filter, an undo, an answer. While the
- * screen is arriving they land one after another, after it. Later ones pop in from below at once. A row
+ * screen is arriving they land one after another, the first with it. Later ones pop in from below at once. A row
  * slides into the place a neighbor left, and leaves by `gone`.
  */
 
@@ -26,11 +26,11 @@ const rest = 'translateX(0px) translateY(0px) scale(1)'
  */
 export function rowVariants(still: boolean): Variants {
   return {
-    enter: still ? { opacity: 0 } : { opacity: 0, transform: 'translateX(0px) translateY(18px) scale(0.97)' },
+    enter: { opacity: 0, transform: still ? rest : 'translateX(0px) translateY(18px) scale(0.97)' },
     center: (order: number = -1) => {
-      const delay = order < 0 ? 0 : staggerDelay + Math.min(order, MOST_IN_TURN) * stagger
-      // Under Still there is no transform at either end: from none to one, the row would grow from nothing.
-      return { opacity: 1, ...(still ? {} : { transform: rest }), transition: { transform: { ...spring.rise, delay }, opacity: { ...tween.enter, delay } } }
+      const delay = order < 0 ? 0 : Math.min(order, MOST_IN_TURN) * stagger
+      // Under Still both ends hold the row where it rests, so a row caught mid-rise when Still was chosen is set straight at once.
+      return { opacity: 1, transform: rest, transition: { transform: still ? { duration: 0 } : { ...spring.rise, delay }, opacity: { ...tween.enter, delay } } }
     },
     gone: (leaving: Leaving = 'filtered') =>
       leaving !== 'filtered' && !still

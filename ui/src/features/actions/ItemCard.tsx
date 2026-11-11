@@ -1,11 +1,9 @@
-import { ArrowUpRight, ChevronDown, ChevronUp, ExternalLink, Waypoints } from 'lucide-react'
-import { AnimatePresence, motion, type Variants } from 'motion/react'
+import { ArrowUpRight, ExternalLink, Waypoints } from 'lucide-react'
+import { motion, type Variants } from 'motion/react'
 import { Fragment } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
-import { useStill } from '@/features/reports/still.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
-import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { WaitingRow } from './items.ts'
 import { KIND } from './kinds.ts'
@@ -16,25 +14,21 @@ interface ItemCardProps {
   variants: Variants
   /** Its turn in the screen's arrival, or -1 when it arrives on its own. */
   order: number
-  /** The whole question, why, and hobkin's pick are shown under the card. */
-  expanded?: boolean
   /** Kept for the screen that still passes it. A card is always actionable. */
   readOnly?: boolean
-  /** The card's own action: ask it on the question sheet, or open it where it is handled. */
+  /** The card's own action: open its whole decision, or open it where it is handled. */
   onAsk: (row: WaitingRow) => void
   onReview: (row: WaitingRow) => void
-  onReadMore?: (row: WaitingRow) => void
 }
 
 const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
 
 /**
  * One thing waiting on the user: what kind it is and who asks, the one line that says what it is, and its
- * choices in words, with hobkin's pick marked. The whole card is one button that asks the question, or opens it
- * where hobkin handles it. Its own controls (Read more, links, Review) sit on top, and Right reaches them.
+ * choices in words, with hobkin's pick marked. The whole card is one button that opens its whole decision, or
+ * opens it where hobkin handles it. Its own controls (links, Review) sit on top, and Right reaches them.
  */
-export function ItemCard({ row, now, variants, order, expanded = false, onAsk, onReview, onReadMore }: ItemCardProps) {
-  const still = useStill()
+export function ItemCard({ row, now, variants, order, onAsk, onReview }: ItemCardProps) {
   const { label, icon: Icon } = KIND[row.kind]
   const at = timeOf(row.at)
   const choices = row.question.choices
@@ -59,7 +53,6 @@ export function ItemCard({ row, now, variants, order, expanded = false, onAsk, o
         data-stop=""
         data-item-row={row.id}
         aria-label={`${action}: ${label}, from ${row.from}: ${row.summary}`}
-        aria-expanded={onReadMore ? expanded : undefined}
         onClick={() => onAsk(row)}
         className="absolute inset-0 cursor-default rounded-3xl bg-background transition-colors duration-[160ms] ease-[ease] hover:bg-tone-2"
       />
@@ -99,32 +92,7 @@ export function ItemCard({ row, now, variants, order, expanded = false, onAsk, o
               <span>{row.changed}</span>
             </p>
           ) : null}
-          <AnimatePresence initial={false}>
-            {expanded ? (
-              <motion.div
-                key="more"
-                className="mt-3 rounded-2xl bg-tone-1 px-4 py-3 text-[13.5px] leading-relaxed"
-                initial={still ? { opacity: 0 } : { opacity: 0, transform: 'translateY(-6px)' }}
-                animate={{ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: tween.enter } }}
-                exit={{ opacity: 0, transition: tween.exit }}
-              >
-                <More row={row} />
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-          <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            {onReadMore ? (
-              <button
-                type="button"
-                tabIndex={-1}
-                data-row-control=""
-                onClick={() => onReadMore(row)}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-sm text-[13px] font-medium text-foreground underline decoration-border-strong underline-offset-[3px] transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground"
-              >
-                {expanded ? 'Less' : 'Read more'}
-                {expanded ? <ChevronUp className="size-3.5" aria-hidden="true" /> : <ChevronDown className="size-3.5" aria-hidden="true" />}
-              </button>
-            ) : null}
+          <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 empty:hidden">
             {row.links.map((link) => (
               <a
                 key={link.url}
@@ -149,31 +117,5 @@ export function ItemCard({ row, now, variants, order, expanded = false, onAsk, o
         ) : null}
       </div>
     </motion.li>
-  )
-}
-
-/** Everything the card leaves out: the whole question as hobkin filed it, its summary, and hobkin's pick with the reason. */
-function More({ row }: { row: WaitingRow }) {
-  const whole = row.item?.question ?? row.question.question
-  const summary = row.question.tldr
-  const why = row.question.why ?? row.item?.why ?? null
-
-  return (
-    <>
-      <p className="whitespace-pre-line">{whole}</p>
-      {summary && summary !== whole ? <p className="mt-2 whitespace-pre-line text-muted-foreground">{summary}</p> : null}
-      {row.pick ? (
-        <p className="mt-2">
-          <span className="eyebrow mr-1.5 text-sun-fg">hobkin's pick</span>
-          <span className="font-medium">{row.pick}</span>
-          {why ? <span className="text-muted-foreground">. {why}</span> : null}
-        </p>
-      ) : why ? (
-        <p className="mt-2">
-          <span className="eyebrow mr-1.5">Why you</span>
-          <span className="text-muted-foreground">{why}</span>
-        </p>
-      ) : null}
-    </>
   )
 }

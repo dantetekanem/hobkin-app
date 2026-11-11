@@ -161,6 +161,23 @@ test('reads and searches in a row are one group', () => {
   assert.equal(looksSummary(group.looks.slice(2, 3)), 'Searched once')
 })
 
+test('a read keeps the text it gave back, from the line it started at, without Pi\'s closing note', () => {
+  const [group] = stepsOf([
+    tool('1', 'read', { path: 'src/a.ts', offset: 40, limit: 2 }, 'completed', 'const a = 1\nconst b = 2\n\n[3 more lines in file. Use offset=42 to continue.]'),
+    tool('2', 'read', { path: 'b.ts' }, 'completed', '# B'),
+    tool('3', 'read', { path: 'c.ts' }, 'running'),
+  ])
+  assert.ok(group?.kind === 'looks')
+  assert.deepEqual(
+    group.looks.map(({ text, from, notice }) => [text, from, notice]),
+    [
+      ['const a = 1\nconst b = 2', 40, '3 more lines in file. Use offset=42 to continue.'],
+      ['# B', 1, undefined],
+      [undefined, undefined, undefined],
+    ],
+  )
+})
+
 test('any other tool is one step with its name, its first argument and its output', () => {
   const [step] = stepsOf([tool('1', 'sparsity_scan', { path: 'src', depth: 2 }, 'failed', 'Scan stopped: too many files')])
   assert.ok(step?.kind === 'tool')

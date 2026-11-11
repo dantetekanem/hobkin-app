@@ -1,4 +1,4 @@
-import type { RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
+import type { RunChild, RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { SampleAgent, SampleProject, Tier } from '../../app/sample.ts'
 import type { HostState } from './state.ts'
 
@@ -39,7 +39,8 @@ function doingOf(activity: ActivityEntry[] | undefined): Pick<SampleAgent, 'doin
 
 function kindOf(run: RunSummary): SampleAgent['kind'] {
   if (run.work) return 'work'
-  return run.scheduleId ? 'routine' : 'session'
+  // `hobkin session` outside Herdr runs as a job on a schedule id of its own (`session-jobs.mjs` in hobkin).
+  return run.scheduleId && !run.scheduleId.startsWith('session.') ? 'routine' : 'session'
 }
 
 /** Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent. */
@@ -60,6 +61,14 @@ export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { i
       }
     })
 }
+
+const NO_CHILDREN: readonly RunChild[] = []
+
+/** The agents a run spawned through pi-extended-teams, ended runs included while the host keeps them. Its parent is the run. */
+export const childrenFrom = (snapshot: WireSnapshot, runId: string): readonly RunChild[] => snapshot.jobChildren?.[runId] ?? NO_CHILDREN
+
+/** The agents hobkin's own chat spawned through pi-extended-teams. Its parent is hobkin. */
+export const mainChildrenFrom = (snapshot: WireSnapshot): readonly RunChild[] => snapshot.mainChildren ?? NO_CHILDREN
 
 /** What waits on the user: open questions, plus every row hobkin counts as waiting (`decisionCount` in its `src/cli/ui.mjs`). */
 export function actionItemCountFrom(snapshot: WireSnapshot): number {
@@ -97,26 +106,33 @@ export function projectsFrom(snapshot: WireSnapshot): SampleProject[] {
     }))
 }
 
-export type ConnectionStatus = 'sample' | 'connecting' | 'live' | 'read-only' | 'offline'
+export type ConnectionStatus = 'sample' | 'connecting' | 'live' | 'offline'
 
 export interface Connection {
   status: ConnectionStatus
-  /** One or two words for the status. */
+  /** One or two words for the status. The header shows them beside the dot while the window is not live. */
   label: string
   /** A sentence for a tooltip, when there is more to say. */
   detail: string | null
 }
 
-/** Whether a host has ever answered. Before that the frame draws its sample data. */
-export const hasHost = (state: Pick<HostState, 'home'>): boolean => state.home !== null
+/** The Mac window, whose shell starts hobkin's host with it. A browser tab only has a host it finds. */
+export const IN_MAC_WINDOW = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
-export function connectionFrom(state: HostState): Connection {
-  if (!hasHost(state)) return { status: 'sample', label: 'Sample data', detail: 'No host is running, so this is sample data.' }
-  if (state.link !== 'open') return { status: 'offline', label: 'Offline', detail: 'The host went away. Reconnecting.' }
+/**
+ * Whether this window has a host, so everything on screen is hobkin's own: always in the Mac window, even before
+ * the host first answers, and in a browser tab once one has. Without one the frame draws its sample data. A host
+ * that went away is still the window's host, and what it last sent stays on screen.
+ */
+export const hasHost = (state: Pick<HostState, 'home'>, macWindow = IN_MAC_WINDOW): boolean => macWindow || state.home !== null
+
+export function connectionFrom(state: HostState, macWindow = IN_MAC_WINDOW): Connection {
+  if (!hasHost(state, macWindow)) return { status: 'sample', label: 'Sample data', detail: 'No host is running, so this is sample data.' }
+  if (state.home === null) return { status: 'connecting', label: 'Connecting…', detail: state.link === 'none' ? 'hobkin is not answering yet. The window keeps trying.' : null }
+  if (state.link !== 'open') return { status: 'offline', label: 'Reconnecting…', detail: 'hobkin went away. What it last sent stays on screen until it is back.' }
 
   const owner = state.owner
   if (owner?.state === 'live') return { status: 'live', label: 'Connected', detail: state.model === 'scripted' ? 'Scripted model. Nothing is spent.' : null }
-  if (owner?.state === 'read-only') return { status: 'read-only', label: 'Read-only', detail: 'hobkin is open in the terminal. This is the last view it saved.' }
   if (owner?.state === 'failed') return { status: 'offline', label: 'Offline', detail: owner.message }
   return { status: 'connecting', label: 'Starting', detail: null }
 }

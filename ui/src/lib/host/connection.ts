@@ -46,7 +46,7 @@ interface Waiting {
   reject: (error: Error) => void
 }
 
-/** One WebSocket to the host that comes back by itself. It carries state in and commands out. */
+/** One WebSocket to the host that comes back by itself. It carries state in and commands out. The window keeps one, in `client.ts`. */
 export class HostConnection {
   private readonly options: ConnectionOptions
   private socket: SocketLike | null = null

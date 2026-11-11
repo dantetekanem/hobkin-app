@@ -16,9 +16,10 @@ const HOBKIN_COMMANDS: readonly [name: string, description: string][] = [
   ['/setup', 'get hobkin ready'],
   ['/clear', 'hide visible chat'],
   ['/reset', 'start a fresh main context'],
-  ['/work', 'work mode'],
+  ['/navigate', 'teach me how to navigate'],
+  ['/work', 'work with agents on projects'],
   ['/learning', 'learn from outcomes'],
-  ['/feedback', 'report a bug or an idea'],
+  ['/feedback', 'report a bug or an idea (not built yet)'],
 ]
 
 // What the terminal app sends and says for these (`src/cli/ui.mjs`).
@@ -26,7 +27,14 @@ const SETUP_REQUEST = 'Help me set up hobkin.'
 const LEARNING_ON = 'Learning on. Every agent now gets what past outcomes taught. Run hobkin learning to see it.'
 const LEARNING_OFF = 'Learning off. Nothing is judged, and agents get nothing.'
 
-const helpGuide = () => readFileSync(fileURLToPath(import.meta.resolve('hobkin/src/prompts/help.md')), 'utf8').trim()
+/** The terminal app's help, without the command the app answers Unavailable for, and with the one the app adds. */
+export const helpGuide = () =>
+  readFileSync(fileURLToPath(import.meta.resolve('hobkin/src/prompts/help.md')), 'utf8')
+    .trim()
+    .split('\n')
+    .filter((line) => !/^- `\/feedback`/.test(line))
+    .flatMap((line) => (line.startsWith('- `/reset`') ? [line, '- `/navigate` teaches you how to get around with the keyboard'] : [line]))
+    .join('\n')
 
 interface PiCommand {
   name?: unknown
@@ -141,9 +149,12 @@ export class SlashCommands {
         return { said: 'Main context reset.' }
       case '/learning':
         return { said: (await app.toggleLearning()).enabled ? LEARNING_ON : LEARNING_OFF }
+      case '/work':
+        // The app opens its Work screen itself. The host only counts the run.
+        return {}
       default:
-        // Work mode starts agents in a folder, and feedback leaves this machine on a yes. Both wait for their own screens.
-        throw new Unavailable(`${name} is not in the app yet. Use it in the terminal app.`)
+        // Feedback leaves this machine on a yes, so it waits for its own screen.
+        throw new Unavailable('Sending feedback from the app is not built yet.')
     }
   }
 }

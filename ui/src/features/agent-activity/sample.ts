@@ -50,6 +50,23 @@ const REDIRECT_AFTER = lines(
   '}',
 )
 
+const REDIRECT_TEST = lines(
+  "import { describe, expect, it } from 'vitest'",
+  "import { redirectAfterSignIn } from './redirect.ts'",
+  '',
+  "const target = (returnTo: string) => redirectAfterSignIn(new Request(`https://shop.example/sign-in?returnTo=${encodeURIComponent(returnTo)}`)).headers.get('location')",
+  '',
+  "describe('redirectAfterSignIn', () => {",
+  "  it('goes to the account page by default', () => {",
+  "    expect(target('')).toBe('https://shop.example/account')",
+  '  })',
+  '',
+  "  it('follows returnTo after sign-in', () => {",
+  "    expect(target('/sign-in?step=2')).toBe('/sign-in?step=2')",
+  '  })',
+  '})',
+)
+
 const TEST_RUN = [
   '> storefront@4.2.0 test /Users/sample/code/storefront',
   '> vitest run',
@@ -105,6 +122,7 @@ const A1_DONE: ActivityEntry[] = [
     ),
   ),
   said('5:0', 'One test expected the old behavior: it followed a `returnTo` that pointed back at the sign-in page. That was the bug, so the test changes with it.'),
+  call('call_k2f9a6r', 'read', { path: '/Users/sample/code/storefront/src/auth/redirect.test.ts' }, 'completed', REDIRECT_TEST),
   call(
     'call_k2f9a7',
     'edit',
@@ -154,11 +172,38 @@ const A1: SampleActivity = {
 const RECAP = lines(
   '# Morning recap',
   '',
+  '## Work',
+  '',
   '- **storefront**: the login redirect fix is on its branch with passing tests.',
   '- **billing-api**: one dependency update changes how invoices round. It waits for you.',
   '- **docs-site**: the install guide still names Node 20.',
   '',
+  '## Deadlines',
+  '',
+  '- Passport renewal: December 3 at 9:40, at the consulate.',
+  '- Car inspection: before November 30.',
+  '- Quarterly taxes: January 15.',
+  '',
+  '## Reviews waiting',
+  '',
+  '- #482 Fix the login redirect loop',
+  '- #479 Faster cart totals',
+  '',
   'Nothing broke overnight.',
+)
+
+// A prose file, whose long lines wrap inside the diff.
+const DEADLINES_BEFORE = lines(
+  '- **Passport renewal**: the appointment at the consulate is on December 3 at 9:40. Bring the form, two photos and the old passport, or the slot is lost and the next free one is in February.',
+  '- **Car inspection**: due before the end of November. The garage on Elm Street takes walk-ins on weekday mornings, and the last inspection report is in the glove box.',
+  '- **Quarterly taxes**: the estimated payment is due on January 15. Last quarter it went out from the savings account, which needs a transfer two days ahead.',
+  '- **Dentist**: a cleaning is booked for December 12 at 14:00, and the clinic asks for a call a day ahead to confirm, or it gives the time away.',
+)
+const DEADLINES_AFTER = lines(
+  '- **Passport renewal**: the appointment at the consulate moved to December 4 at 10:20. Bring the form, two photos and the old passport, or the slot is lost and the next free one is in February.',
+  '- **Car inspection**: booked for November 27 at 8:00 at the garage on Elm Street. The last inspection report is in the glove box, and the visit takes about forty minutes.',
+  '- **Quarterly taxes**: the estimated payment is due on January 15. It now goes out from the checking account, so no transfer is needed ahead of it this time.',
+  '- **Dentist**: the cleaning on December 12 at 14:00 is confirmed. The clinic sent a reminder to call only if the time no longer works.',
 )
 
 const A3: SampleActivity = {
@@ -169,6 +214,7 @@ const A3: SampleActivity = {
     call('call_m4c1a2', 'read', { path: 'reports/2026-11-09.md' }, 'completed', '# Yesterday\n...'),
     call('call_m4c1a3', 'fetch_content', { url: 'https://status.example.com/history' }, 'completed', 'All systems operational.'),
     call('call_m4c1a4', 'read', { path: 'reports/missing-week.md' }, 'failed', 'ENOENT: no such file or directory, open reports/missing-week.md'),
+    call('call_m4c1a4e', 'edit', { path: '/Users/sample/hobkin/routines/calendar-deadlines.md', edits: [{ oldText: DEADLINES_BEFORE, newText: DEADLINES_AFTER }] }, 'completed', 'Successfully replaced 1 block(s) in routines/calendar-deadlines.md.'),
     said('3:0', 'Three things are worth a look this morning. Writing the recap.'),
   ],
   next: [[call('call_m4c1a5', 'write', { path: 'reports/morning-recap.md', content: RECAP }, 'running')], [call('call_m4c1a5', 'write', { path: 'reports/morning-recap.md', content: RECAP }, 'completed', 'Successfully wrote 312 bytes to reports/morning-recap.md')]],

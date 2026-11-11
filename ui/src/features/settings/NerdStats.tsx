@@ -74,6 +74,7 @@ export function NerdStats() {
   const theme = useTheme()
   const typeFace = useSettings((state) => state.typeFace)
   const movement = useSettings((state) => state.movement)
+  const hasHost = useHasHost()
   const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory
 
   return (
@@ -104,7 +105,7 @@ export function NerdStats() {
         {SAMPLE.runs.done} done, {SAMPLE.runs.failed} failed, {SAMPLE.runs.interrupted} interrupted
       </Stat>
       {memory ? <Stat name="memory">{Math.round(memory.usedJSHeapSize / 1_048_576)} MB of script heap</Stat> : null}
-      <Stat name="host">not connected</Stat>
+      <Stat name="host">{hasHost ? 'connected' : 'not connected'}</Stat>
     </dl>
   )
 }
