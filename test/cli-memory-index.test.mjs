@@ -613,14 +613,6 @@ class FakeTerminal {
   get kittyProtocolActive() { return false; }
 }
 
-function outsideHerdr(t) {
-  const saved = process.env.HERDR_ENV;
-  delete process.env.HERDR_ENV;
-  t.after(() => {
-    if (saved !== undefined) process.env.HERDR_ENV = saved;
-  });
-}
-
 /** The real `main()` on a fake terminal. */
 function openHobkin(root, { timing = FAST } = {}) {
   const signals = new EventEmitter();
@@ -661,7 +653,6 @@ function openHobkin(root, { timing = FAST } = {}) {
 }
 
 test('the dashboard opens and answers while qmd hangs, and a quit ends qmd', async t => {
-  outsideHerdr(t);
   const { root } = fixture(t);
   const qmd = fakeQmd(t);
   qmd.set('hold-update');
@@ -683,7 +674,6 @@ test('the dashboard opens and answers while qmd hangs, and a quit ends qmd', asy
 });
 
 test('a missing qmd reaches Chat as one quiet line and leaves the rest working', async t => {
-  outsideHerdr(t);
   const { root } = fixture(t);
   const saved = process.env.PATH;
   process.env.PATH = mkdtempSync(join(tmpdir(), 'hobkin-no-qmd-'));
@@ -701,7 +691,6 @@ test('a missing qmd reaches Chat as one quiet line and leaves the rest working',
 });
 
 test('the dashboard keeps the index current, and a signal stops it', async t => {
-  outsideHerdr(t);
   const { root } = fixture(t);
   const qmd = fakeQmd(t);
   const hobkin = openHobkin(root);

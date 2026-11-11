@@ -49,12 +49,6 @@ class FakeTerminal {
 }
 
 function fixture(t) {
-  // This runs the real app, and inside Herdr that would open real panes.
-  const herdr = process.env.HERDR_ENV;
-  delete process.env.HERDR_ENV;
-  t.after(() => {
-    if (herdr !== undefined) process.env.HERDR_ENV = herdr;
-  });
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-hold-flow-')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   isolatePiHome(t, join(base, 'agent'));

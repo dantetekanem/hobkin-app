@@ -11,7 +11,7 @@ import { FACE_COLUMNS, faceLines, supportsOctants } from './face.mjs';
 import { isActionItem } from './decisions.mjs';
 import { FaceReactions } from './face-reactions.mjs';
 import { feedbackQuestion } from './feedback/draft.mjs';
-import { FaceImages, IMAGE_FACE_COLUMNS, faceFrameLimit, supportsFaceImages } from './face-images.mjs';
+import { FaceImages, IMAGE_FACE_COLUMNS, supportsFaceImages } from './face-images.mjs';
 import { shownMood } from './mood.mjs';
 import { FRAME_MS, Slide, fadeColors } from './motion.mjs';
 import { IMAGE_ONLY_TEXT, MAX_IMAGES, previewRows } from './paste-image.mjs';
@@ -571,10 +571,7 @@ const jobActivityLines = ({ run, blocks, inner, clock, frame, markdown }) => {
       content.push('');
     }
   }
-  const pane = run?.work?.pane;
-  const silence = pane ? `This agent runs in pane ${pane} of the Work Mode tab in Herdr. Watch it there, or press k to stop it.`
-    : 'No parent activity received yet.';
-  if (!blocks.length) content.push(...wrapped(silence, inner).map(dim));
+  if (!blocks.length) content.push(...wrapped('No parent activity received yet.', inner).map(dim));
   return content;
 };
 // Critical, blocked and useful report messages read as messages; other notices stay quiet.
@@ -3251,7 +3248,7 @@ function readingFocus(terminal, onFocus) {
 
 export function startDashboard(snapshot, handlers = {}, options = {}) {
   const images = options.images ?? (!options.terminal && supportsFaceImages()
-    ? new FaceImages({ write: data => tui.terminal.write(data), frameLimit: faceFrameLimit() })
+    ? new FaceImages({ write: data => tui.terminal.write(data) })
     : null);
   // Left to itself, the screen code deletes every image on the terminal at each full redraw, and it does not know about these.
   if (images) setCapabilityOverrides({ images: null });

@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
@@ -18,7 +16,6 @@ import { foldFinishedLines, finishedLine } from '../src/cli/work/chat.mjs';
 import { chooseProject, fileItem, paths, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { repository } from './helpers/work-fixture.mjs';
-import { WorkPanes } from '../src/cli/work/panes.mjs';
 
 function fixture(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-back-')));
@@ -54,29 +51,11 @@ const chat = view => view.messages.filter(message => message.role === 'notice');
 test('a session writes down its title when it starts, so the ending can say it', async t => {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-back-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const exec = async (_command, args) => JSON.stringify({ result: { tabs: [], root_pane: { pane_id: 'w1:p9' } }, args });
-  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
 
-  const { name, report } = await startSession({ root, title: 'Land the finboard work', cwd: root, brief: 'Go.', env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }, panes });
+  const { name, report } = await startSession({ root, title: 'Land the finboard work', cwd: root, brief: 'Go.' });
 
   const [line] = readFileSync(join(handoffs(root), 'sessions.jsonl'), 'utf8').trim().split('\n').map(text => JSON.parse(text));
   assert.deepEqual([line.name, line.title, line.report], [name, 'Land the finboard work', report]);
-});
-
-test('the follower records the ending in its own process, with or without a report', t => {
-  const folder = mkdtempSync(join(tmpdir(), 'hobkin-follow-'));
-  t.after(() => rmSync(folder, { recursive: true, force: true }));
-  writeFileSync(join(folder, 'herdr'), '#!/bin/sh\necho \'{"result":{}}\'\n', { mode: 0o755 });
-  const report = join(folder, 'job.report.md');
-  writeFileSync(report, 'Done.');
-  const script = fileURLToPath(new URL('../src/cli/session-follow.mjs', import.meta.url));
-
-  const { status, stderr } = spawnSync(process.execPath, [script, 'job', 'w1:p9', report], { env: { ...process.env, PATH: `${folder}:${process.env.PATH}` }, encoding: 'utf8' });
-
-  assert.equal(status, 0, stderr);
-  const [ending] = readFileSync(join(folder, 'sessions.jsonl'), 'utf8').trim().split('\n').map(text => JSON.parse(text));
-  assert.equal(ending.name, 'job');
-  assert.ok(ending.endedAt);
 });
 
 test('a session that ended tells Chat once, with its title and what happened, and joins Reports', async t => {
@@ -160,9 +139,7 @@ test('the main agent hears of a finished session with the next message, once', a
 test('--wake goes on the record, and only for a session that ends', async t => {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-back-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const exec = async (_command, args) => JSON.stringify({ result: { tabs: [], root_pane: { pane_id: 'w1:p9' } }, args });
-  const panes = new WorkPanes({ workspace: 'w1', exec, tab: 'Hobkin' });
-  const start = options => startSession({ root, title: 'Prepare teams', cwd: root, brief: 'Go.', env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }, panes, ...options });
+  const start = options => startSession({ root, title: 'Prepare teams', cwd: root, brief: 'Go.', ...options });
 
   await start({ wake: true });
 

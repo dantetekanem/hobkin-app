@@ -990,7 +990,7 @@ test('one max run at a time and six a day, and its count shows', async t => {
   assert.equal(entries[0].waiting, '6 max runs a day');
 });
 
-test('outside Herdr max runs on the normal harness and model, at an effort Pi has, and still counts as max', async t => {
+test('max runs on the normal harness and model, at an effort Pi has, and still counts as max', async t => {
   const h = director(t);
   studied(h, 'api', 'max');
   fileItem(h.root, 'api', item('fix'), h.clock);
@@ -1001,10 +1001,10 @@ test('outside Herdr max runs on the normal harness and model, at an effort Pi ha
   const [run] = h.calls;
   assert.deepEqual([run.harness, run.model, run.effort], ['pi', 'fixture/main', 'xhigh']);
   assert.doesNotThrow(() => validateBinding(run));
-  assert.equal(planWork(h.root, { now: h.clock, panes: false }).budget.maxRuns, 1);
+  assert.equal(planWork(h.root, { now: h.clock }).budget.maxRuns, 1);
 });
 
-test('outside Herdr a look on a max project runs on the normal model too', async t => {
+test('a look on a max project runs on the normal model too', async t => {
   const h = director(t);
   studied(h, 'api', 'max');
   writeState(h.root, 'api', { lastLensAt: null });
@@ -1016,7 +1016,7 @@ test('outside Herdr a look on a max project runs on the normal model too', async
   assert.doesNotThrow(() => validateBinding(run));
 });
 
-test('outside Herdr a max run that hits a limit stops everything, because it ran on what everything else runs on', async t => {
+test('a max run that hits a limit stops everything, because it ran on what everything else runs on', async t => {
   const h = director(t);
   studied(h, 'api', 'max');
   fileItem(h.root, 'api', item('fix'), h.clock);

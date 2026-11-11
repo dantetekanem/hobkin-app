@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
   paths, prFile, priorityOf, proposeProject, readDiscovery, readItems, readLaunches, readMode, readProject, readProjects, recordDiscovery, recordLaunch, recordTokens, retryItem, sessionError, sessionUsage, setAgents,
-  setDailyTokens, setHarness, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  setDailyTokens, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -162,16 +162,6 @@ test('a proposal whose first work could not be filed is refused, so taking it ne
   assert.throws(() => proposeProject(root, { ...proposal, first: [{ ...item, kind: 'someday' }] }), /kind must be/);
 
   assert.deepEqual(readProjects(root), []);
-});
-
-test('Pi is the default harness, and the user can pick another that Herdr knows', t => {
-  const root = dataRoot(t);
-  assert.equal(readMode(root).harness, 'pi');
-
-  assert.equal(setHarness(root, 'claude').harness, 'claude');
-
-  assert.equal(readMode(root).harness, 'claude');
-  assert.throws(() => setHarness(root, 'notepad'), /harness must be one of/);
 });
 
 test('a session\'s fresh tokens are counted without the cache reads that repeat earlier context', t => {

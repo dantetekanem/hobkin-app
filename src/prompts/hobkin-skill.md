@@ -71,7 +71,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin work search <text>` | Finds projects by name or path, and items by title, summary, `left` or last error. |
 | `hobkin work ready` | What can land now, each pinned to its commit, and why the rest cannot. Work with proof lands with or without a grade, and only a review that rated its commit below safe holds it back. Grades come from reviews of that exact commit, so never take one from an item's summary. |
 | `hobkin work pr <project> <item>` | A local PR: a local `hobkin/*` branch and its saved description, for the user to review. |
-| `hobkin work diff <project> <item>` | Opens that branch's diff in pi-coder, in a Herdr pane in front of the user. Outside Herdr it says what to type in Pi. |
+| `hobkin work diff <project> <item>` | Says how to see that branch's diff in pi-coder: the folder to run Pi in and the `/diff` to type there. |
 | `hobkin work review <project> <item>` | Asks for a code review of that branch, about $2 and 14 minutes of a worker. Reviews run only when asked for, and `hobkin work reviews on` gives each finished branch one by itself. |
 | `hobkin work merge <project> <item>` | Merges a finished branch on this machine and pushes nothing, only on the user's word. |
 | `hobkin work decline <project> <item>` | Says no to it, on the user's word. Its branch stays. |

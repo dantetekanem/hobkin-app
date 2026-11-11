@@ -133,6 +133,7 @@ function mainFactory(control = {}) {
     createSession: async ({ sessionManager, resourceLoader }) => {
       control.resources = resourceLoader;
       const listeners = new Set();
+      control.emit = event => { for (const callback of listeners) callback(event); };
       const session = {
         sessionId: sessionManager.getSessionId(),
         sessionFile: sessionManager.getSessionFile(),
@@ -179,6 +180,54 @@ function mainFactory(control = {}) {
     },
   });
 }
+
+test('agents the main chat spawns through teams stand as teams says, and a reset ends the old ones unreported', async t => {
+  const { root, config } = home(t);
+  const control = {};
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(control) });
+  t.after(() => runtime.close());
+  await runtime.connect();
+  assert.deepEqual(runtime.mainChildren(), []);
+  control.emit({ type: 'tool_execution_end', toolCallId: 's', toolName: 'spawn_swarm_agents', isError: false, result: { details: {
+    session: 'private', spawned: [{ name: 'scout', role: 'read', modelSlot: 'read-collect' }, { name: 'fixer', role: 'write' }], failed: [] } } });
+  control.emit({ type: 'message_end', message: { role: 'custom', customType: 'pi-extended-teams-report', display: true, content: 'Private report', details: { name: 'scout', ok: true } } });
+  const states = () => runtime.mainChildren().map(({ name, state }) => [name, state]);
+  assert.deepEqual(states(), [['scout', 'reported'], ['fixer', 'running']]);
+  assert.doesNotMatch(JSON.stringify(runtime.mainChildren()), /private|Private report/i);
+  // The old session's agents live inside it and end with it, without a report.
+  const createMain = runtime.createMain;
+  const opening = Promise.withResolvers();
+  runtime.createMain = async options => { await opening.promise; return createMain(options); };
+  const reset = runtime.reset();
+  assert.deepEqual(states(), [['scout', 'reported'], ['fixer', 'stopped']]);
+  opening.resolve();
+  await reset;
+  assert.deepEqual(runtime.mainChildren(), [], 'a fresh session starts with none');
+  control.emit({ type: 'tool_execution_end', toolCallId: 'n', toolName: 'spawn_agent', isError: false, result: { details: { name: 'next', role: 'read' } } });
+  assert.deepEqual(states(), [['next', 'running']]);
+  runtime.mainFault = Error('Main Pi exited.');
+  assert.deepEqual(states(), [['next', 'stopped']], 'a main Pi that stopped took its agents with it');
+  runtime.mainFault = null;
+});
+
+test('the main chat keeps its own recent activity like a job does, never its thinking, and a reset starts it over', async t => {
+  const { root, config } = home(t);
+  const control = {};
+  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(control) });
+  t.after(() => runtime.close());
+  await runtime.connect();
+  control.emit({ type: 'message_start', message: { role: 'assistant', content: [] } });
+  control.emit({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0, delta: 'private reasoning' } });
+  control.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 1, delta: 'Looking.' } });
+  control.emit({ type: 'tool_execution_start', toolCallId: 'r', toolName: 'read', args: { path: 'notes.md' } });
+  assert.deepEqual(runtime.mainActivity().map(({ kind, text, name, state }) => [kind, text ?? name, state]), [['assistant', 'Looking.', undefined], ['tool', 'read', 'running']]);
+  assert.doesNotMatch(JSON.stringify(runtime.mainActivity()), /private reasoning/);
+  for (let index = 0; index < 250; index++) control.emit({ type: 'tool_execution_end', toolCallId: `t${index}`, toolName: 'grep', result: { content: [] } });
+  assert.equal(runtime.mainActivity().length, 200, 'a long chat keeps its latest steps');
+  assert.equal(runtime.mainActivity().at(-1).id, 'tool:t249');
+  await runtime.reset();
+  assert.deepEqual(runtime.mainActivity(), []);
+});
 
 test('main SDK receives Hobkin context and ordinary project resources without an initial model turn', async t => {
   const { root, config } = home(t);

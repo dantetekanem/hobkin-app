@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hobkinCommand } from './work/chat.mjs';
-import { loadSchedules, scheduleDate, scheduleTimes } from './schedules.mjs';
+import { changeSchedule, loadSchedules, scheduleDate, scheduleTimes } from './schedules.mjs';
 import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { buildContext } from './context.mjs';
 import { readMemory } from './memory.mjs';
@@ -252,6 +252,16 @@ export class HobkinRunner {
       return Promise.race([accepted.promise, work.then(() => {
         throw Error(this.lastError ?? 'Dispatch failed before admission.');
       })]).then(() => ({ id, status: 'running' }));
+    });
+  }
+
+  /** Changes one routine's file between ticks (`changeSchedule`), so the next snapshot already has it. */
+  change(scheduleId, change) {
+    return this.serialize(() => {
+      if (this.stopped) throw Error('Runner has stopped');
+      const changed = changeSchedule(this.root, scheduleId, change);
+      this.loaded = loadSchedules(this.root);
+      return changed;
     });
   }
 

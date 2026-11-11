@@ -139,7 +139,7 @@ export function pendingCard({ decisions = [], now, ...given }) {
   return { total, groups };
 }
 
-/** The user is there for two minutes after a key, a click or gaining focus. A key or a click is enough, because Herdr may never pass focus reports on. */
+/** The user is there for two minutes after a key, a click or gaining focus. A key or a click is enough, because a terminal may never pass focus reports on. */
 export const isPresent = ({ seenAt, away }, now) => !away && now - seenAt < PRESENT_MS;
 
 /** A question comes to a user who is there and whose screen is free. */

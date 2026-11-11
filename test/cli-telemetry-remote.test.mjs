@@ -13,8 +13,6 @@ import { RemoteSender, runUploadCommand, sendTelemetry, uploadStatus } from '../
 import { fakePi } from './helpers/pi-session.mjs';
 import { credentialValues, fakeServer, provision, reply } from './fixtures/hobkin-api/fake-server.mjs';
 
-for (const name of Object.keys(process.env).filter(key => key.startsWith('HERDR_'))) delete process.env[name];
-
 // A byte-for-byte copy of /Users/someone/Poetry/hobkin-api/docs/telemetry-v1.json, the server's catalog of what it takes.
 // Every event this client builds is checked against it, so a changed copy fails here before the client drifts from the server.
 const CATALOG = new URL('./fixtures/hobkin-api/telemetry-v1.json', import.meta.url);

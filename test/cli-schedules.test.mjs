@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { scheduleDefinition } from '../src/cli/checks.mjs';
 import { initialize, loadConfig, validateConfig } from '../src/cli/config.mjs';
-import { parseSchedule, loadSchedules, formatSchedule, moveRoutinesFolder, routinesFolder, validateBinding, whenItRuns } from '../src/cli/schedules.mjs';
+import { changeSchedule, parseSchedule, loadSchedules, formatSchedule, moveRoutinesFolder, routinesFolder, validateBinding, whenItRuns } from '../src/cli/schedules.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-cli-'));
@@ -266,4 +266,31 @@ test('moving the folder does not change a routine\'s fingerprint, so holds and a
   assert.equal(scheduleDefinition(moved), scheduleDefinition(routine));
   assert.equal(scheduleDefinition(routine), createHash('sha256').update(JSON.stringify(routine)).digest('hex'), 'runs already saved keep matching');
   assert.notEqual(scheduleDefinition({ ...moved, prompt: 'Check more.' }), scheduleDefinition(routine));
+});
+
+test('a routine turns on or off and takes new times in its own file, and the rest of the file stays as written', t => {
+  const root = fixture(t);
+  initialize(root, { cwd: root });
+  const folder = join(routinesFolder(root), 'daily');
+  const path = join(folder, 'recap.md');
+  const body = 'Read the approved notes.\n\nReport useful changes.';
+  writeFileSync(path, file({}, body));
+  const before = parseSchedule(readFileSync(path, 'utf8'), 'daily', path);
+  const window = { start: '08:00', end: '17:00', everyMinutes: 60 };
+  const { at: _at, ...withoutTimes } = before;
+
+  assert.deepEqual(changeSchedule(root, 'recap', { enabled: true }), { ...before, enabled: true });
+  assert.deepEqual(changeSchedule(root, 'recap', { window }), { ...withoutTimes, enabled: true, window });
+  assert.deepEqual(changeSchedule(root, 'recap', { at: ['08:00', '13:00'] }), { ...before, enabled: true, at: ['08:00', '13:00'] });
+  const source = readFileSync(path, 'utf8');
+  assert.deepEqual(loadSchedules(root).schedules, [parseSchedule(source, 'daily', path)]);
+  assert.ok(source.endsWith(`\n---\n${body}\n`), 'its instructions stay as written');
+
+  // A change hobkin would not load is refused in its own words, and the file stays as it was.
+  assert.throws(() => changeSchedule(root, 'recap', { window: { ...window, everyMinutes: 1 } }), { message: 'window may contain at most 48 checks per day' });
+  assert.throws(() => changeSchedule(root, 'recap', { at: '25:00' }), { message: 'at must be HH:mm or a list of 1–48 unique HH:mm times' });
+  assert.throws(() => changeSchedule(root, 'recap', { title: 'Other' }), { message: 'Only enabled, at or window change here.' });
+  assert.throws(() => changeSchedule(root, 'missing', { enabled: false }), { message: 'Unknown exact native routine ID; list candidates first.' });
+  assert.equal(readFileSync(path, 'utf8'), source);
+  assert.deepEqual(readdirSync(folder).filter(name => name.endsWith('.tmp')), []);
 });

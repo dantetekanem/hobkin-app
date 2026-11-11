@@ -155,38 +155,7 @@ test('projects go by priority, then by name', async t => {
   assert.deepEqual((await hobkin(root, 'projects')).json.map(({ slug, priority }) => [slug, priority]), [['billing', 'P0'], ['alpha', 'P1'], ['zeta', 'P1'], ['site', 'P2']]);
 });
 
-test('running names each agent from another process', async t => {
-  const h = owned(t);
-  studied(h, 'api', 'max');
-  const filed = fileItem(h.root, 'api', item('Fix login'), h.clock);
-  const release = Promise.withResolvers();
-  let opened = false;
-  h.director.panes = {
-    run: async () => {
-      opened = true;
-      await release.promise;
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
-  };
-
-  await h.director.tick();
-  while (!opened) await wait(10);
-
-  const { json } = await hobkin(h.root, 'running');
-
-  assert.equal(json.length, 1);
-  const [run] = json;
-  assert.match(run.id, /^work:api:do:/);
-  assert.deepEqual([run.project, run.slug, run.item, run.lane, run.level, run.harness, run.pane], ['api', 'api', filed.id, 'do', 'max', 'claude', 'work-do-api']);
-  assert.ok(run.seconds >= 0 && run.seconds < 60);
-  assert.equal((await hobkin(h.root, 'status')).json.running, 1);
-
-  release.resolve();
-  await h.settled();
-  assert.deepEqual((await hobkin(h.root, 'running')).json, []);
-});
-
-test('a run outside a pane has no pane to name, and runs on Pi', async t => {
+test('a run is named with its harness and level, and runs on Pi', async t => {
   const h = owned(t);
   studied(h, 'api');
   fileItem(h.root, 'api', item('Fix login'), h.clock);
@@ -195,7 +164,7 @@ test('a run outside a pane has no pane to name, and runs on Pi', async t => {
 
   const { json: [run] } = await hobkin(h.root, 'running');
 
-  assert.deepEqual([run.harness, run.pane, run.level], ['pi', null, 'important']);
+  assert.deepEqual([run.harness, run.level], ['pi', 'important']);
   await hobkin(h.root, 'cancel', 'api');
   await h.tick();
 });
@@ -401,37 +370,10 @@ test('there is nothing to review on an item with no branch, or one that is over'
   assert.match((await failure(root, 'review', 'api', id)).message, /merged/);
 });
 
-test('a local PR opens its diff against the default branch, in the project\'s own folder', async t => {
-  const { root, checkout, id } = localPr(t);
-  const opened = [];
-  const followed = [];
-  const panes = { startDiff: async request => { opened.push(request); return { name: request.name, pane: 'w1:p9' }; } };
-
-  const { ok, range } = await openDiff(root, 'api', id, { panes, follow: session => followed.push(session) });
-
-  assert.equal(ok, true);
-  assert.equal(range, 'main...hobkin/login');
-  assert.equal(opened[0].cwd, checkout);
-  assert.equal(opened[0].range, 'main...hobkin/login');
-  assert.deepEqual(followed, [{ name: opened[0].name, pane: 'w1:p9' }], 'something has to close the pane, whatever the user does');
-});
-
-test('each diff gets its own agent, because Herdr refuses a name already taken', async t => {
-  const { root, id } = localPr(t);
-  const names = [];
-  const panes = { startDiff: async ({ name }) => { names.push(name); return { name, pane: 'w1:p9' }; } };
-
-  await openDiff(root, 'api', id, { panes, follow: () => {} });
-  await openDiff(root, 'api', id, { panes, follow: () => {} });
-
-  assert.notEqual(names[0], names[1]);
-  assert.ok(names.every(name => /^[a-z][a-z0-9_-]{0,31}$/.test(name)), names.join());
-});
-
-test('outside Herdr there is no pane to open, so a diff says how to get there by hand', async t => {
+test('a diff says how to see it by hand, in the project\'s own folder', async t => {
   const { root, checkout, id } = localPr(t);
 
-  const { message } = await openDiff(root, 'api', id, { panes: null });
+  const { message } = await openDiff(root, 'api', id);
 
   assert.match(message, /\/diff main\.\.\.hobkin\/login/);
   assert.ok(message.includes(checkout.split('/').at(-1)), message);
@@ -442,7 +384,7 @@ test('an item with no branch has no diff, and says so', async t => {
   chooseProject(root, repository(root, 'api'), 'important');
   const { id } = fileItem(root, 'api', item('Fix login'));
 
-  await assert.rejects(openDiff(root, 'api', id, { panes: null }), /no branch/);
+  await assert.rejects(openDiff(root, 'api', id), /no branch/);
 });
 
 test('what a run left for the user stays listed on a done item, until the user marks it done', async t => {

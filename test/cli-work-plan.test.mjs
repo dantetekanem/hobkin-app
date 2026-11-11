@@ -868,46 +868,36 @@ test('a project left alone puts up the row behind a skipped started item, becaus
   assert.match(entries[0].why, /^left alone/);
 });
 
-test('outside Herdr a max row does not wait for a pane, and is next', t => {
+test('a max row waits for nothing else, and is next', t => {
   const root = dataRoot(t);
   project(root, 'api', 'max');
   fileItem(root, 'api', item('fix'), now);
 
-  const { next, entries } = plan(root, { panes: false });
+  const { next, entries } = plan(root);
 
   assert.equal(next.title, 'fix');
   assert.equal(entries[0].waiting, null);
 });
 
-test('a max project with no study yet can start outside Herdr', t => {
+test('a max project with no study yet can start', t => {
   const root = dataRoot(t);
   chooseProject(root, '/repos/api', 'max', now);
 
-  assert.equal(plan(root, { panes: false }).next.kind, 'study');
+  assert.equal(plan(root).next.kind, 'study');
 });
 
-test('outside Herdr max keeps its limits', t => {
+test('max keeps its limits', t => {
   const root = dataRoot(t);
   project(root, 'api', 'max');
   fileItem(root, 'api', item('fix'), now);
 
   const running = [{ slug: 'other', lane: 'do', level: 'max' }];
-  assert.equal(plan(root, { panes: false, running }).entries[0].waiting, 'one max run at a time');
+  assert.equal(plan(root, { running }).entries[0].waiting, 'one max run at a time');
 
   for (let run = 0; run < 6; run++) recordTokens(root, { slug: 'other', lane: 'do', level: 'max', tokens: 1000 }, now - HOUR);
-  const { next, entries } = plan(root, { panes: false });
+  const { next, entries } = plan(root);
   assert.equal(entries[0].waiting, '6 max runs a day');
   assert.equal(next, null);
-});
-
-test('Claude\'s usage limit says nothing about a max row outside Herdr, because it does not run on Claude there', t => {
-  const root = dataRoot(t);
-  project(root, 'api', 'max');
-  fileItem(root, 'api', item('fix'), now);
-  writeMode(root, { claudePause: { at: new Date(now).toISOString(), until: new Date(now + HOUR).toISOString(), reason: 'Usage limit reached.', strikes: 1 } });
-
-  assert.equal(plan(root, { panes: true }).entries[0].waiting, 'Claude usage limit');
-  assert.equal(plan(root, { panes: false }).next.title, 'fix');
 });
 
 test('a run on a project makes small work there wait, and medium work may share it from a worktree', t => {
@@ -1137,13 +1127,6 @@ test('with no reading of the subscription, one agent runs at a time, because the
   assert.equal(blind.agents, 1);
   assert.equal(blind.next, null);
   assert.equal(blind.subscription.known, false);
-});
-
-test('a harness Hobkin cannot measure runs one agent at a time', t => {
-  const root = dataRoot(t);
-  writeMode(root, { harness: 'claude' });
-
-  assert.equal(plan(root).agents, 1);
 });
 
 const dayLimited = (root, used, limit = 1000000) => {

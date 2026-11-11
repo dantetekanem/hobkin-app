@@ -1,4 +1,4 @@
-// Hobkin's face, drawn with block characters. Animated images flicker inside multiplexers such as Herdr; text cells never do.
+// Hobkin's face, drawn with block characters. Animated images can flicker inside terminal multiplexers; text cells never do.
 const WIDTH = 24;
 const HEIGHT = 20;
 const HOOD_WIDTH = 13;

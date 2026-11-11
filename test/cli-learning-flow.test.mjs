@@ -18,7 +18,6 @@ import { appendAction, injectedLessons, learningState, saveState } from '../src/
 import { main } from '../src/cli/main.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
-import { WorkPanes } from '../src/cli/work/panes.mjs';
 import { chooseProject, writeMode } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -52,11 +51,6 @@ class FakeTerminal {
 }
 
 function fixture(t) {
-  const saved = process.env.HERDR_ENV;
-  delete process.env.HERDR_ENV;
-  t.after(() => {
-    if (saved !== undefined) process.env.HERDR_ENV = saved;
-  });
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-learning-flow-')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const root = join(base, 'home');
@@ -268,16 +262,9 @@ test('from /learning to lessons in every session: a proposal in Chat, an answer 
   assert.deepEqual(request(asked.find(run => run.purpose === 'work-look')).learning, lines);
   writeMode(h.root, { enabled: false });
 
-  // And a pane handed a brief.
-  const calls = [];
-  const exec2 = async (_command, args) => {
-    calls.push(args);
-    return JSON.stringify({ result: args[1] === 'list' ? { tabs: [] } : { root_pane: { pane_id: 'w1:p9' } } });
-  };
-  await startSession({
-    root: h.root, cwd: h.base, brief: 'Rebuild it.', env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w1' }, panes: new WorkPanes({ workspace: 'w1', exec: exec2, tab: 'Hobkin' }),
-  });
-  const brief = readFileSync(/^Read (.+) and follow it\.$/.exec(calls.at(-1)[3])[1], 'utf8');
+  // And a session handed a brief.
+  const { name } = await startSession({ root: h.root, cwd: h.base, brief: 'Rebuild it.' });
+  const brief = readFileSync(join(h.root, 'runtime', 'handoffs', `${name}.md`), 'utf8');
   assert.ok(brief.startsWith(`Rebuild it.\n\n## Learned\n\n${lines.join('\n')}\n`), brief);
 
   // Off: the marker goes, what the main agent still holds is taken back once, and everything else is as before.

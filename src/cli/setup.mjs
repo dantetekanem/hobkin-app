@@ -7,7 +7,6 @@ import { loadConfig } from './config.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { loadSchedules } from './schedules.mjs';
-import { insideHerdr } from './work/panes.mjs';
 
 const PI_PACKAGE = '@earendil-works/pi-coding-agent';
 // `gh` reaches GitHub, and no tool may hold up a report.
@@ -24,8 +23,6 @@ const INSTALL_PI = `Run \`npm install -g --ignore-scripts ${PI_PACKAGE}@${PI_VER
 const MATCH_PI = `${INSTALL_PI} \`pi update\` moves Pi past that version, so skip it. To run a patched Pi, point \`launcher\` in config.json at it: docs/guide.md explains how, under "Start Pi through a launcher".`;
 const SIGN_IN = 'Run `hobkin login` and pick a provider. It is the same sign-in as /login in `pi`.';
 const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host works without it, through that host\'s own CLI, with less to read.';
-const HERDR_ADDS = 'With it, work mode runs in panes you can watch and big jobs get a Pi session of their own. Without it, work runs in the background.';
-const INSTALL_HERDR = 'Run `curl -fsSL https://herdr.dev/install.sh | sh`, then start Hobkin inside `herdr`.';
 const INSTALL_QMD = 'Run `npm install -g @tobilu/qmd`. Hobkin finds it the next time it opens, and qmd downloads a 330 MB model the first time it indexes.';
 const PI_CODER_ADDS = 'With it, d on a local PR opens the branch\'s diff.';
 const INSTALL_PI_CODER = 'Run `pi install npm:pi-coder`.';
@@ -232,15 +229,6 @@ function schedulesRow({ schedules, errors }) {
   );
 }
 
-async function herdrRow(ask, env) {
-  if (insideHerdr(env)) return ready('Herdr', `You are inside it. ${HERDR_ADDS}`);
-
-  const answer = await ask('herdr', ['--version']);
-  if (answer.failed) return optional('Herdr', `${trouble(answer, 'herdr --version')} ${HERDR_ADDS}`, INSTALL_HERDR);
-
-  return ready('Herdr', `Installed. ${HERDR_ADDS}`, 'Run `herdr` and start Hobkin in one of its panes.');
-}
-
 async function qmdRow(ask) {
   const answer = await ask('qmd', ['--version']);
   if (!answer.failed) return ready('qmd', 'Installed. Agents can search what Hobkin keeps.');
@@ -262,7 +250,6 @@ const grouped = (rows, group) => rows.map(item => ({ ...item, group }));
 /** Reads only, so it is safe at any time, on a home that does not exist yet too. */
 export async function setupChecks(root, {
   exec = defaultExec,
-  env = process.env,
   nodeVersion = process.versions.node,
   piSdkVersion = installedPiSdk(),
 } = {}) {
@@ -284,7 +271,6 @@ export async function setupChecks(root, {
     schedulesRow(home),
   ]);
   const extras = await Promise.all([
-    herdrRow(ask, env),
     qmdRow(ask),
     piCoderRow(ask, launcher),
   ]);

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { moods } from '../src/cli/face.mjs';
-import { FaceImages, IMAGE_FACE_ROWS, WORDMARK_COLUMNS, faceFrameLimit, supportsFaceImages } from '../src/cli/face-images.mjs';
+import { FaceImages, IMAGE_FACE_ROWS, WORDMARK_COLUMNS, supportsFaceImages } from '../src/cli/face-images.mjs';
 
 const transmissions = text => text.match(/\x1b_G[^;]*a=T[^;]*;/g) ?? [];
 // The picture each transmission carries, for frames small enough to go in one piece.
@@ -148,39 +148,6 @@ test('the animation loops at the speed the design set', () => {
   }
 });
 
-test('with a frame limit a long mood shows that many of its pictures, evenly spread over the same loop, and a short one keeps all of its own', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'hobkin-faces-'));
-  try {
-    mkdirSync(join(directory, 'dark'));
-    const frames = count => Array.from({ length: count }, (_, index) => Buffer.from(`frame ${index}`).toString('base64'));
-    writeFileSync(join(directory, 'dark/idle.json'), JSON.stringify({ seconds: 4, frames: frames(32) }));
-    writeFileSync(join(directory, 'dark/happy.json'), JSON.stringify({ seconds: 1, frames: frames(4) }));
-    const { faces, written } = images({ directory, frameLimit: 16 });
-    const id = milliseconds => imageIdOf(faces.lines('idle', milliseconds)[0]);
-
-    const first = id(0);
-
-    const sent = written.join('');
-    assert.deepEqual(sentPictures(sent), frames(32).filter((_, index) => index % 2 === 0));
-    assert.equal(faces.frameMs('idle'), 250);
-    assert.equal(id(249), first);
-    assert.equal(id(250), first + 1);
-    assert.equal(id(3999), first + 15);
-    assert.equal(id(4000), first, 'the loop still takes the 4 seconds the design set');
-
-    written.length = 0;
-    faces.lines('happy', 0);
-    assert.equal(transmissions(written.join('')).length, 4);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test('inside Herdr a mood gets at most 16 pictures, the most Herdr keeps on the terminal while they are hidden, and elsewhere every one', () => {
-  assert.equal(faceFrameLimit({ HERDR_ENV: '1', GHOSTTY_RESOURCES_DIR: '/x' }), 16);
-  assert.equal(faceFrameLimit({ GHOSTTY_RESOURCES_DIR: '/x' }), Infinity);
-});
-
 test('a big frame goes out in chunks the protocol allows', () => {
   const directory = mkdtempSync(join(tmpdir(), 'hobkin-faces-'));
   try {
@@ -269,7 +236,7 @@ test('forgetting pictures deletes them from the terminal, and only them', () => 
 });
 
 test('images need a terminal that draws them, and a way out', () => {
-  assert.equal(supportsFaceImages({ GHOSTTY_RESOURCES_DIR: '/Applications/Ghostty.app', HERDR_ENV: '1' }), true);
+  assert.equal(supportsFaceImages({ GHOSTTY_RESOURCES_DIR: '/Applications/Ghostty.app' }), true);
   assert.equal(supportsFaceImages({ KITTY_WINDOW_ID: '1' }), true);
   assert.equal(supportsFaceImages({ TERM_PROGRAM: 'Apple_Terminal' }), false);
   assert.equal(supportsFaceImages({ GHOSTTY_RESOURCES_DIR: '/x', TMUX: '/tmp/tmux' }), false, 'tmux would need its own wrapping');

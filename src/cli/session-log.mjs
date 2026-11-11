@@ -17,10 +17,10 @@ function append(folder, event) {
   appendFileSync(join(folder, LOG), `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
 
-/** The title has to outlive the command that started the session, and its follower only knows the name. */
+/** The title has to outlive the command that started the session, and the job that runs it only knows the name. */
 export const recordSessionStart = (root, { name, title, report, wake }, now = Date.now()) => append(folderOf(root), { name, title, report, ...(wake ? { wake } : {}), startedAt: new Date(now).toISOString() });
 
-/** Written by the follower, which runs in a process of its own and can outlive hobkin. A session's report sits beside this log. */
+/** Written when a session's job ends (`session-jobs.mjs`). A session's report sits beside this log. */
 export const recordSessionEnd = ({ name, report }, now = Date.now()) => append(dirname(report), { name, report, endedAt: new Date(now).toISOString() });
 
 function readLog(root) {

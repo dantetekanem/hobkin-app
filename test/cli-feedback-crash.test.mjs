@@ -12,9 +12,6 @@ import { deliverFeedback, listFeedback, outboxFolder } from '../src/cli/feedback
 import { fakePi } from './helpers/pi-session.mjs';
 import { fakeServer, provision, receiptFor, reply } from './fixtures/hobkin-api/fake-server.mjs';
 
-// Opening an app inside Herdr would start and close real panes in front of the user.
-for (const name of Object.keys(process.env).filter(key => key.startsWith('HERDR_'))) delete process.env[name];
-
 const NOW = Date.parse('2026-11-03T12:00:00Z');
 
 function fixture(t) {

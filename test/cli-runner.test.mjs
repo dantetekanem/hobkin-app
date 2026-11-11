@@ -952,3 +952,16 @@ test('directory context and nested symlinks cannot cross explicit source permiss
     assert.ok((await runner.snapshot()).errors.length);
   }
 });
+
+test('a routine changed through the runner shows in its snapshot at once, without waiting for a tick', async t => {
+  const h = await fixture(t);
+  const runner = new HobkinRunner({ ...h, config, now: () => new Date('2026-01-02T08:00:00Z'), runHarness: async () => ({ status: 'completed', text: 'Done' }) });
+  await runner.tick();
+
+  await runner.change('check', { enabled: false });
+  assert.deepEqual((await runner.snapshot()).schedules[0].nextRun, { state: 'paused', at: null });
+  await runner.change('check', { enabled: true, at: '10:00' });
+  assert.deepEqual((await runner.snapshot()).schedules[0].nextRun, { state: 'scheduled', at: '2026-01-02T10:00:00.000Z' });
+  await assert.rejects(runner.change('check', { at: '25:00' }), { message: 'at must be HH:mm or a list of 1–48 unique HH:mm times' });
+  assert.equal((await runner.snapshot()).schedules[0].at, '10:00');
+});

@@ -180,7 +180,7 @@ export function skipInQueue(root, key) {
 export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });
 
 /** What only the owner knows, left where a command in another process can read it. */
-/** Runs an older hobkin left going in Herdr panes as it closed, for the next one to settle. Taking them empties the list, so each is taken once. */
+/** Runs an older hobkin left going in terminal panes as it closed, for the next one to settle. Nothing writes these now. Taking them empties the list, so each is taken once. */
 export function takeHanded(root) {
   const runs = readJson(handedPath(root), []);
   if (runs.length) atomicJson(handedPath(root), []);

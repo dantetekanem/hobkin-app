@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, symlinkSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { parseCompatibility } from './legacy-schedules.mjs';
+import { writePrivate } from './reports.mjs';
 
 const OLD_FOLDER = 'schedules';
 
@@ -12,6 +13,8 @@ const legacyClaudeEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
 const fields = new Set(['id', 'title', 'at', 'window', 'timezone', 'enabled', 'harness', 'model', 'effort', 'cwd', 'context', 'weekday', 'day', 'date']);
 const controls = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
 const text = value => typeof value === 'string' && value.trim().length > 0 && !controls.test(value);
+const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
+const changeable = ['enabled', 'at', 'window'];
 
 export function validateBinding(binding, { allowLegacyHarness = false } = {}) {
   let supportedEfforts;
@@ -82,7 +85,7 @@ export function parseSchedule(source, cadence, path) {
   try {
     if (Buffer.byteLength(source) > 65536) throw Error('routine is too large');
     if (!cadences.includes(cadence)) throw Error('unknown recurrence folder');
-    const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+    const match = source.match(frontMatter);
     if (!match) throw Error('expected JSON metadata between --- lines');
     const value = JSON.parse(match[1]);
     if (!value || Array.isArray(value) || typeof value !== 'object') throw Error('metadata must be an object');
@@ -128,6 +131,27 @@ export function parseSchedule(source, cadence, path) {
 export function formatSchedule(schedule) {
   const { cadence, path, prompt, ...metadata } = schedule;
   return `---\n${JSON.stringify(metadata, null, 2)}\n---\n${prompt}\n`;
+}
+
+/**
+ * Turns one routine on or off, or gives it new times, in its own file. The change is checked as any routine file is
+ * before it is written, and the rest of the file stays as it was. A routine from the old scheduler is not changed here.
+ */
+export function changeSchedule(root, id, change) {
+  if (!Object.keys(change).length || Object.keys(change).some(key => !changeable.includes(key))) throw Error('Only enabled, at or window change here.');
+  const schedule = loadSchedules(root).schedules.find(item => item.id === id && item.cadence !== 'compatibility');
+  if (!schedule) throw Error('Unknown exact native routine ID; list candidates first.');
+
+  const [, front, body] = readFileSync(schedule.path, 'utf8').match(frontMatter);
+  const metadata = JSON.parse(front);
+  if ('at' in change) delete metadata.window;
+  if ('window' in change) delete metadata.at;
+  Object.assign(metadata, change);
+  scheduleTimes(metadata);
+  const source = `---\n${JSON.stringify(metadata, null, 2)}\n---\n${body}`;
+  const changed = parseSchedule(source, schedule.cadence, schedule.path);
+  writePrivate(schedule.path, source);
+  return changed;
 }
 
 /** A home keeps its old folder until a dashboard opens it, so a CLI call can never pull the folder out from under a running one. */

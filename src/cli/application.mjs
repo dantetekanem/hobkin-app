@@ -22,6 +22,7 @@ import { editReport } from './report-editor.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
+import { startSessionJob, takeSessionRequests } from './session-jobs.mjs';
 import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
@@ -129,7 +130,7 @@ export class HobkinApplication {
   observeActivity(id, event) {
     try {
       if (!this.jobActivity.has(id)) {
-        this.jobActivity.set(id, new JobActivity());
+        this.jobActivity.set(id, new JobActivity({ now: this.now }));
       }
       this.jobActivity.get(id).accept(event);
       this.requestRefresh();
@@ -201,6 +202,7 @@ export class HobkinApplication {
           await app.tickRefreshed();
           await app.tickHolds();
           app.tickWakes();
+          void app.tickSessions();
           app.tickCompaction();
           retireOffers(app.runtime.directory, app.now());
           retirePickUp(app.runtime.directory, app.now());
@@ -508,6 +510,10 @@ export class HobkinApplication {
     const jobActivity = Object.fromEntries(
       [...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()]),
     );
+    // The agents each job spawned through pi-extended-teams, only for jobs that spawned any.
+    const jobChildren = Object.fromEntries([...this.jobActivity]
+      .map(([id, feed]) => [id, feed.children({ ended: !active.has(id) })])
+      .filter(([, children]) => children.length));
     for (const id of this.jobActivity.keys()) {
       if (!active.has(id)) this.jobActivity.delete(id);
     }
@@ -522,6 +528,7 @@ export class HobkinApplication {
       ...this.snapshot,
       ...visible,
       jobActivity,
+      jobChildren,
       completedJobReports,
       counts: loaded.counts,
       schedules: loaded.schedules,
@@ -537,6 +544,8 @@ export class HobkinApplication {
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
       doing: this.runtime.mainDoing ?? null,
+      mainChildren: this.runtime.mainChildren(),
+      mainActivity: this.runtime.mainActivity(),
       learning: learningEnabled(this.runtime.directory),
       userName: callName(readProfile(this.runtime.directory)),
       main: {
@@ -760,6 +769,15 @@ export class HobkinApplication {
     if (!failures.length) return;
     for (const failure of failures) this.failuresTold.add(failureKey(failure));
     void this.runtime.send(scheduledBrief(failures)).catch(() => {});
+  }
+
+  /** Sessions `hobkin session` asked for start here as background jobs, on the checks' model. Resolves once they have all ended. */
+  tickSessions() {
+    const root = this.runtime.directory;
+    const { model, effort } = this.config.background;
+    return Promise.all(takeSessionRequests(root).map(session => startSessionJob({ root, runner: this.runner, model, effort }, session)
+      .catch(() => {})
+      .finally(() => this.requestRefresh())));
   }
 
   /** Work the user chose on a card that work mode cannot start. The main agent gets it as soon as it is free, and hands it to a session. */

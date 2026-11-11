@@ -1211,7 +1211,7 @@ test('a work agent takes the user\'s words while it works, by its schedule, and 
   await assert.rejects(h.runner.messageCheck({ scheduleId: 'work.api.do', message: 'Too late.' }), /not running/);
 });
 
-/** What an older hobkin wrote down as it closed, for an agent it left at work in a Herdr pane, and a new hobkin on that home. */
+/** What an older hobkin, which ran work in terminal panes, wrote down as it closed for an agent it left at work, and a new hobkin on that home. */
 async function leftInAPane(t, { reported = null } = {}) {
   const first = fixture(t);
   await readyToDo(first);
@@ -1227,7 +1227,7 @@ async function leftInAPane(t, { reported = null } = {}) {
   return { next: fixture(t, undefined, first), id };
 }
 
-test('an agent an older hobkin left in a Herdr pane is settled from its report, with no new run for it', async t => {
+test('an agent an older hobkin left at work as it closed is settled from its report, with no new run for it', async t => {
   const { next } = await leftInAPane(t, { reported: 'Useful: Finished.\n' });
   const offered = [];
   next.director.onDraftDone = draft => offered.push(draft);
@@ -1241,7 +1241,7 @@ test('an agent an older hobkin left in a Herdr pane is settled from its report, 
   assert.deepEqual(JSON.parse(readFileSync(join(next.root, 'work', 'handed.json'), 'utf8')), [], 'it is picked up only once');
 });
 
-test('one with no report waits at the end of the queue for the user, since hobkin no longer follows a pane to see it end', async t => {
+test('one with no report waits at the end of the queue for the user, since hobkin cannot see it end', async t => {
   const { next, id } = await leftInAPane(t);
 
   await next.tick();
@@ -1721,31 +1721,6 @@ test('lessons reach a work agent in its request, and in the brief of a pane on a
 
   assert.equal(briefs.length, 1);
   assert.match(briefs[0], /"learning":\["learned: advice only[^"]*","-site-audit blocked x5: do the rest, name what stopped it"\]/);
-});
-
-test('in Herdr, project work runs in panes on the chosen harness while discovery stays hidden', async t => {
-  const h = fixture(t);
-  const runs = [];
-  h.director.panes = {
-    run: async options => {
-      runs.push({ ...options, briefText: readFileSync(options.brief, 'utf8') });
-      return { status: 'completed', text: 'Useful: Done.', cost: null };
-    },
-  };
-  writeMode(h.root, { enabled: true, folder: h.base, harness: 'claude' });
-  chooseProject(h.root, repository(h.base, 'api'));
-
-  await h.ticks(2);
-
-  assert.deepEqual(h.purposes(), ['work-discover']);
-  assert.equal(runs.length, 1);
-  const [look] = runs;
-  assert.deepEqual([look.kind, look.name, look.cwd], ['claude', 'work-look-api', paths(h.root, 'api').lookTree]);
-  assert.equal(look.effort, 'medium');
-  assert.match(look.briefText, /Hobkin background check/);
-  assert.match(look.briefText, /look at a project/);
-  assert.ok(look.briefText.includes(look.report), 'the brief names where to write the report');
-  assert.match(look.briefText, /"focus":"study"/);
 });
 
 test('a failed pane run counts against its item like any other', async t => {

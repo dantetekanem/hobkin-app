@@ -8,12 +8,16 @@ import { createRegistry, defineDoc, Harness } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { compactionDue } from './compaction.mjs';
 import { doingAfter } from './doing.mjs';
+import { JobActivity } from './job-activity.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { isQuietRun, saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
+
+// The whole conversation is in its messages. This is a view of what it does now, so a long chat keeps only its latest steps.
+const MAIN_ACTIVITY_ENTRIES = 200;
 
 export const MAIN_BUSY = 'Main conversation is busy.';
 export const MAX_MESSAGE_BYTES = 65536;
@@ -171,8 +175,11 @@ export class HobkinRuntime {
     }
 
     let unsubscribe;
+    // What this session does and the agents it spawns, kept like a job's. A fresh session starts with none.
+    const feed = new JobActivity({ most: MAIN_ACTIVITY_ENTRIES });
     try {
       unsubscribe = main.subscribe(event => {
+        feed.accept(event);
         if (event.type === 'tool_execution_start') this.mainTool = event.toolName;
         this.mainDoing = doingAfter(this.mainDoing, event);
         if (event.type === 'compaction_start') {
@@ -213,6 +220,7 @@ export class HobkinRuntime {
     const previous = this.main;
     const unsubscribePrevious = this.unsubscribe;
     this.main = main;
+    this.mainFeed = feed;
     this.unsubscribe = unsubscribe;
     this.mainFault = null;
     // A child Pi that exits unasked ends the chat until a restart; scheduled checks keep running.
@@ -242,6 +250,10 @@ export class HobkinRuntime {
   }
 
   messages() { return this.main?.messages ?? []; }
+  /** The agents the main chat spawned through pi-extended-teams. A reset or a main Pi that stopped ends any still out unreported. */
+  mainChildren() { return this.mainFeed?.children({ ended: this.resetting || Boolean(this.mainFault) }) ?? []; }
+  /** The main chat's latest words and tool calls, as a job's activity is kept: never its thinking. */
+  mainActivity() { return this.mainFeed?.snapshot() ?? []; }
   get mainBusy() { return Boolean(this.main && this.busySessions.has(this.main.sessionId)); }
   sessionReady(sessionId) { return !this.closing && !this.fault && !this.busySessions.has(sessionId); }
   /** Whether a new turn would start at once. `send` steers a live turn instead, and Pi refuses a prompt during compaction. */

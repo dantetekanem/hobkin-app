@@ -58,17 +58,7 @@ class FakeTerminal {
   get kittyProtocolActive() { return false; }
 }
 
-// This runs the real app, and inside Herdr that would open real panes.
-function outsideHerdr(t) {
-  const saved = process.env.HERDR_ENV;
-  delete process.env.HERDR_ENV;
-  t.after(() => {
-    if (saved !== undefined) process.env.HERDR_ENV = saved;
-  });
-}
-
 function fixture(t) {
-  outsideHerdr(t);
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-flow-')));
   t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }));
   const root = join(base, 'home');

@@ -19,6 +19,8 @@ import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode 
 import { branched, git, repository } from './helpers/work-fixture.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
 import { readActions, saveState } from '../src/cli/learning/store.mjs';
+import { startSession } from '../src/cli/session.mjs';
+import { sessionsToPost, sessionsToWake } from '../src/cli/session-log.mjs';
 import { listTemplates } from '../src/cli/routine-templates.mjs';
 import { stripTerminalSequences } from '@earendil-works/pi-tui';
 
@@ -734,6 +736,54 @@ test('job activity is transient and quiet completion hands off exact saved Markd
   await app.refresh();
   await app.runtime.change(state => { state.runs.unsaved.status = 'failed'; });
   assert.equal((await app.refresh()).completedJobReports.unsaved, undefined);
+});
+
+test('a session `hobkin session` asked for runs as a job: it shows, streams, takes messages, and wakes its starter with the report', async t => {
+  const h = fixture(t);
+  const ready = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const heard = [];
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async (request, options) => {
+    options.onReady(async message => { heard.push(message); });
+    ready.resolve({ request, options });
+    return finish.promise;
+  } });
+  t.after(() => { finish.resolve({ status: 'interrupted', text: '' }); return app.close(); });
+  const started = await startSession({ root: h.root, title: 'Review routines', brief: 'Review my routines.', wake: true, cwd: h.root, env: {} });
+
+  const ended = app.tickSessions();
+  const { request, options } = await ready.promise;
+  assert.equal(request.prompt, `Read ${join(h.root, 'runtime', 'handoffs', `${started.name}.md`)} and follow it.`);
+  assert.equal(request.sessionFile, join(h.root, 'jobs', `${request.id}.jsonl`));
+  assert.deepEqual(readdirSync(join(h.root, 'runtime', 'session-requests')), [], 'each request starts once');
+  options.onEvent({ type: 'tool_execution_start', toolCallId: 'r', toolName: 'read', args: { path: 'routines.md' } });
+  const live = await app.refresh();
+  const run = live.runs.find(item => item.id === `session:${started.name}`);
+  assert.deepEqual([run.state, run.kind, run.title, run.cwd], ['running', 'background', 'Review routines', h.root]);
+  assert.equal(live.jobActivity[run.id][0].name, 'read');
+  await app.runner.messageCheck({ scheduleId: `session.${started.name}`, message: 'Also the weekly one.' });
+  assert.deepEqual(heard, ['Also the weekly one.']);
+
+  finish.resolve({ status: 'completed', text: 'Useful: Two routines overlap.', cost: null });
+  await ended;
+  assert.equal(readFileSync(started.report, 'utf8'), 'Useful: Two routines overlap.', 'its last reply is the report it never wrote');
+  assert.deepEqual(sessionsToWake(h.root).map(({ name, said }) => [name, said]), [[started.name, 'Useful: Two routines overlap.']]);
+  assert.deepEqual(sessionsToPost(h.root), [], 'the run posts its own notice, so the session log does not post it twice');
+});
+
+test('spawned agents publish beside job activity, once more stopped when the run ends without their report', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  await app.runtime.admit({ id: 'lead', kind: 'background', scheduleId: 'check', title: 'Check' });
+  app.observeActivity('lead', { type: 'tool_execution_end', toolCallId: 'spawn', toolName: 'spawn_agent', isError: false, result: { details: { name: 'scout', role: 'read', session: 'private' } } });
+  const live = await app.refresh();
+  assert.deepEqual(live.jobChildren.lead.map(({ name, role, state }) => ({ name, role, state })), [{ name: 'scout', role: 'read', state: 'running' }]);
+  assert.deepEqual(live.mainChildren, [], "a job's agents are not the main chat's");
+  await app.runtime.finish('lead', { status: 'interrupted', text: 'Stopped.' });
+  assert.equal((await app.refresh()).jobChildren.lead[0].state, 'stopped');
+  assert.deepEqual((await app.refresh()).jobChildren, {});
+  assert.equal(Object.hasOwn(JSON.parse(readFileSync(join(h.root, 'runtime/view.json'), 'utf8')), 'jobChildren'), false);
 });
 
 for (const status of ['completed', 'failed', 'interrupted']) {

@@ -122,3 +122,65 @@ test('unsafe, hidden and malformed records are ignored; visible content stays te
   assert.equal(feed.snapshot()[1].input, '{\n  "path": "file.txt"\n}');
   assert.equal(feed.snapshot()[1].output, 'File content');
 });
+
+const spawned = (toolName, details, isError = false) => ({ type: 'tool_execution_end', toolCallId: toolName, toolName, isError, result: { content: [{ type: 'text', text: 'Spawned.' }], details } });
+const said = (customType, details, display = true) => ({ type: 'message_end', message: { role: 'custom', customType, display, content: 'Report body', details } });
+
+test('spawned teams agents stand by their own spawn details and reports, never their transcripts', () => {
+  let clock = 100;
+  const feed = new JobActivity({ now: () => clock });
+  feed.accept(spawned('spawn_agent', { name: 'scout', role: 'read', modelSlot: 'read-collect', model: 'm', sessionContext: 'full', session: 'session-x', queued: false }));
+  feed.accept(spawned('spawn_agent', { name: 'fixer', role: 'write', modelSlot: 'write-feature', queued: true, queuePosition: 2 }));
+  feed.accept(spawned('spawn_agent', { name: 'refused' }, true));
+  assert.deepEqual(feed.children(), [
+    { name: 'scout', role: 'read', modelSlot: 'read-collect', state: 'running', startedAt: 100 },
+    { name: 'fixer', role: 'write', modelSlot: 'write-feature', state: 'queued', queuePosition: 2, startedAt: 100 },
+  ]);
+  clock = 250;
+  feed.accept(said('pi-extended-teams-report', { name: 'scout', ok: true, summary: 'Found it' }));
+  feed.accept(said('pi-extended-teams-report', { name: 'fixer', ok: false }));
+  feed.accept(said('pi-extended-teams-report', { name: 'stranger', ok: true }));
+  assert.deepEqual(feed.children().map(({ name, state, endedAt, queuePosition }) => ({ name, state, endedAt, queuePosition })), [
+    { name: 'scout', state: 'reported', endedAt: 250, queuePosition: undefined },
+    { name: 'fixer', state: 'failed', endedAt: 250, queuePosition: undefined },
+  ]);
+  assert.doesNotMatch(JSON.stringify(feed.children()), /session|Report body|Found it|"m"/);
+});
+
+test('a grouped swarm finishes on its own wake; status results refine only agents it spawned', () => {
+  const feed = new JobActivity({ now: () => 5 });
+  feed.accept(spawned('spawn_swarm_agents', {
+    session: 'session-x', completionGroup: { groupId: 'g1', journalPath: '/private/journal.json' },
+    spawned: [{ name: 'a', role: 'read', queued: false }, { name: 'b', role: 'read', queued: true, queuePosition: 1 }],
+    failed: [{ name: 'c', error: 'capacity' }],
+  }));
+  feed.accept({ type: 'tool_execution_end', toolCallId: 's', toolName: 'get_agent_status', result: { details: { statuses: [
+    { name: 'a', role: 'read', phase: 'working', activeTool: 'grep', progress: 'private progress' },
+    { name: 'b', role: 'read', phase: 'starting' },
+    { name: 'grandchild', role: 'read', phase: 'working' },
+  ] } } });
+  assert.deepEqual(feed.children(), [
+    { name: 'a', role: 'read', state: 'running', group: 'g1', startedAt: 5, phase: 'working', activeTool: 'grep' },
+    { name: 'b', role: 'read', state: 'running', group: 'g1', startedAt: 5, phase: 'starting' },
+    { name: 'c', state: 'failed', group: 'g1', endedAt: 5 },
+  ]);
+  feed.accept(said('pi-extended-teams-wake', { completionGroup: { teamName: 't', groupId: 'other', deliveryId: 'd' } }, false));
+  assert.deepEqual(feed.children().map(child => child.state), ['running', 'running', 'failed']);
+  feed.accept(said('pi-extended-teams-wake', { completionGroup: { teamName: 't', groupId: 'g1', deliveryId: 'd' } }, false));
+  assert.deepEqual(feed.children().map(child => [child.state, child.activeTool]), [['reported', undefined], ['reported', undefined], ['failed', undefined]]);
+  assert.doesNotMatch(JSON.stringify(feed.children()), /journal|private|grandchild|capacity/);
+});
+
+test('a child still out when its run ends is stopped, not reported', () => {
+  const feed = new JobActivity({ now: () => 1 });
+  feed.accept(spawned('spawn_agent', { name: 'done', role: 'read' }));
+  feed.accept(spawned('spawn_agent', { name: 'busy', role: 'write' }));
+  feed.accept(spawned('spawn_agent', { name: 'waiting', role: 'read', queued: true, queuePosition: 1 }));
+  feed.accept(said('pi-extended-teams-report', { name: 'done', ok: true }));
+  assert.deepEqual(feed.children({ ended: true }).map(({ name, state, queuePosition }) => ({ name, state, queuePosition })), [
+    { name: 'done', state: 'reported', queuePosition: undefined },
+    { name: 'busy', state: 'stopped', queuePosition: undefined },
+    { name: 'waiting', state: 'stopped', queuePosition: undefined },
+  ]);
+  assert.equal(feed.children()[1].state, 'running', 'only the published copy says stopped');
+});

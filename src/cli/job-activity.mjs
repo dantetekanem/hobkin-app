@@ -11,6 +11,87 @@ const outputText = value => {
   return content.filter(part => part?.type === 'text' && part.display !== false)
     .map(part => clean(part.text)).join('\n');
 };
+const OUT = new Set(['queued', 'running']);
+// A field teams gave as words, terminal-safe, or nothing.
+const stated = value => typeof value === 'string' && value ? clean(value) : undefined;
+
+/**
+ * Agents a Pi session spawned through pi-extended-teams, by name, read from teams' spawn and status results and its
+ * report and wake messages only, never their content. They run inside that session, so it is their parent; an
+ * agent's own read agents never reach its stream and are not listed. A job's run and the main chat each keep one.
+ */
+export class SpawnedAgents {
+  agents = new Map();
+
+  constructor({ now = Date.now } = {}) {
+    this.now = now;
+  }
+
+  accept(event) {
+    try {
+      this.follow(event);
+    } catch {
+      /* Display data must not fail execution. */
+    }
+  }
+
+  follow(event) {
+    if (event?.type === 'tool_execution_end' && !event.isError && event.result?.details) {
+      const { details } = event.result;
+      if (event.toolName === 'spawn_agent') this.spawned(details);
+      if (event.toolName === 'spawn_swarm_agents') {
+        const group = stated(details.completionGroup?.groupId);
+        for (const agent of details.spawned ?? []) this.spawned(agent, group);
+        for (const agent of details.failed ?? []) this.spawned(agent, group, 'failed');
+      }
+      if (event.toolName === 'get_agent_status') for (const status of details.statuses ?? []) this.refine(status);
+    } else if (event?.type === 'message_end') {
+      const { customType, details } = event.message ?? {};
+      if (customType === 'pi-extended-teams-report') this.finish(this.agents.get(stated(details?.name)), details?.ok === false ? 'failed' : 'reported');
+      // A grouped swarm reports once for all its agents, which says nothing of each one's success.
+      const group = customType === 'pi-extended-teams-wake' && stated(details?.completionGroup?.groupId);
+      for (const agent of group ? this.agents.values() : []) if (agent.group === group) this.finish(agent, 'reported');
+    }
+  }
+
+  spawned(details, group, state = details?.queued === true ? 'queued' : 'running') {
+    const name = stated(details?.name);
+    if (!name) return;
+    const agent = { name, role: stated(details.role), modelSlot: stated(details.modelSlot), state };
+    if (state === 'queued' && Number.isInteger(details.queuePosition)) agent.queuePosition = details.queuePosition;
+    if (group) agent.group = group;
+    agent[state === 'failed' ? 'endedAt' : 'startedAt'] = this.now();
+    this.agents.set(name, Object.fromEntries(Object.entries(agent).filter(([, value]) => value !== undefined)));
+  }
+
+  refine(status) {
+    const agent = this.agents.get(stated(status?.name));
+    if (!agent || !OUT.has(agent.state) || !stated(status.phase)) return;
+    agent.phase = stated(status.phase);
+    agent.state = status.phase === 'queued' ? 'queued' : 'running';
+    if (stated(status.activeTool)) agent.activeTool = stated(status.activeTool);
+    else delete agent.activeTool;
+    if (agent.state === 'queued' && Number.isInteger(status.queuePosition)) agent.queuePosition = status.queuePosition;
+    else delete agent.queuePosition;
+  }
+
+  finish(agent, state) {
+    if (!agent || !OUT.has(agent.state)) return;
+    delete agent.queuePosition;
+    delete agent.phase;
+    delete agent.activeTool;
+    Object.assign(agent, { state, endedAt: this.now() });
+  }
+
+  /** The session's agents. Once it has ended, one still out never reported, so how it ended is unknown: `stopped`. */
+  children({ ended = false } = {}) {
+    return [...this.agents.values()].map(agent => {
+      if (!ended || !OUT.has(agent.state)) return { ...agent };
+      const { queuePosition, phase, activeTool, ...left } = agent;
+      return { ...left, state: 'stopped' };
+    });
+  }
+}
 
 /** Allowlisted, disposable display data; never retains harness records. */
 export class JobActivity {
@@ -18,13 +99,24 @@ export class JobActivity {
   message = 0;
   hidden = false;
 
+  /** `most` keeps only the latest entries, for a feed with no end such as the main chat's. */
+  constructor({ now, most = Infinity } = {}) {
+    this.spawned = new SpawnedAgents({ now });
+    this.most = most;
+  }
+
   accept(event) {
     try {
       this.reduce(event);
+      if (this.entries.length > this.most) this.entries.splice(0, this.entries.length - this.most);
     } catch {
       /* Display data must not fail execution. */
     }
+    this.spawned.accept(event);
   }
+
+  /** The agents this run spawned. */
+  children(options) { return this.spawned.children(options); }
 
   text(index, value, append = false) {
     if (!Number.isInteger(index) || index < 0 || typeof value !== 'string') return;

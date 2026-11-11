@@ -25,7 +25,6 @@ const installed = {
   'git --version': 'git version 2.50.1 (Apple Git-155)\n',
   'hobkin --help': 'Hobkin\nUsage: hobkin [command] [options]\n',
   'gh auth status': 'github.com\n  Logged in to github.com account someone\n',
-  'herdr --version': 'herdr 0.9.5\n',
   'qmd --version': 'qmd 2.1.0\n',
   'pi list': 'User packages:\n  npm:pi-coder\n',
 };
@@ -68,7 +67,7 @@ const addSchedule = (root, id, enabled) => writeFileSync(join(root, 'routines', 
 })}\n---\nCheck something.\n`);
 
 async function checks(root, { tools, ...options } = {}) {
-  const rows = await setupChecks(root, { exec: fakeTools(tools).exec, env: {}, nodeVersion: minimumNode, piSdkVersion: pinned, ...options });
+  const rows = await setupChecks(root, { exec: fakeTools(tools).exec, nodeVersion: minimumNode, piSdkVersion: pinned, ...options });
   return Object.fromEntries(rows.map(row => [row.name, row]));
 }
 
@@ -90,16 +89,15 @@ test('a ready machine reads as ok, and setup only asks tools about themselves', 
   const { exec, calls } = fakeTools();
   const rows = await setupChecks(root, {
     exec,
-    env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w' },
     nodeVersion: minimumNode,
     piSdkVersion: pinned,
   });
 
   assert.deepEqual(rows.filter(row => row.state !== 'ok'), []);
-  const optionalRows = rows.slice(-3);
-  assert.deepEqual(optionalRows.map(row => row.name), ['Herdr', 'qmd', 'pi-coder']);
+  const optionalRows = rows.slice(-2);
+  assert.deepEqual(optionalRows.map(row => row.name), ['qmd', 'pi-coder']);
   assert.ok(optionalRows.every(row => row.group === 'optional'));
-  assert.ok(rows.slice(0, -3).every(row => row.group === 'needed'));
+  assert.ok(rows.slice(0, -2).every(row => row.group === 'needed'));
   assert.deepEqual(calls.toSorted(), [
     'gh auth status',
     'git --version',
@@ -296,23 +294,6 @@ test('schedules: a file that cannot be read is counted and pointed at', async t 
   assert.match(row.fix, /hobkin routines/);
 });
 
-test('Herdr is optional: inside it, installed, or not there', async t => {
-  const root = home(t);
-
-  const inside = (await checks(root, { env: { HERDR_ENV: '1', HERDR_WORKSPACE_ID: 'w' }, tools: { 'herdr --version': absent } })).Herdr;
-  assert.equal(inside.state, 'ok');
-  assert.equal(inside.fix, null);
-
-  const outside = (await checks(root)).Herdr;
-  assert.equal(outside.state, 'ok');
-  assert.match(outside.fix, /herdr/);
-
-  const notThere = (await checks(root, { tools: { 'herdr --version': absent } })).Herdr;
-  assert.equal(notThere.state, 'optional');
-  assert.match(notThere.fix, /https:\/\/herdr\.dev\/install\.sh/);
-  for (const row of [inside, outside, notThere]) assert.match(row.detail, /panes/, 'says what it adds');
-});
-
 test('qmd is optional: search works with it and agents read files without it', async t => {
   const root = home(t);
   assert.equal((await checks(root)).qmd.state, 'ok');
@@ -332,7 +313,7 @@ test('pi-coder is optional: it is how a local PR\'s diff opens, and setup says h
 });
 
 test('a tool that is missing or broken never throws', async t => {
-  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'Herdr', 'qmd', 'pi-coder'];
+  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'qmd', 'pi-coder'];
 
   for (const answer of [absent, broken]) {
     const rows = await checks(home(t), { tools: everyToolIs(answer) });
@@ -344,8 +325,8 @@ test('a tool that is missing or broken never throws', async t => {
 });
 
 test('a broken optional tool is not called absent', async t => {
-  const rows = await checks(home(t), { tools: { 'qmd --version': broken, 'herdr --version': broken, 'git --version': broken } });
-  for (const name of ['qmd', 'Herdr', 'git']) assert.doesNotMatch(rows[name].detail, /Not installed/, name);
+  const rows = await checks(home(t), { tools: { 'qmd --version': broken, 'git --version': broken } });
+  for (const name of ['qmd', 'git']) assert.doesNotMatch(rows[name].detail, /Not installed/, name);
 });
 
 test('a home that does not exist yet is reported and left alone', async t => {
@@ -375,7 +356,7 @@ test('the report groups needed and optional rows, and names the guide last', () 
   const rows = [
     { name: 'Pi', state: 'missing', detail: 'Not there.', fix: 'Install it.', group: 'needed' },
     { name: 'Node', state: 'ok', detail: '26.0.0.', fix: null, group: 'needed' },
-    { name: 'Herdr', state: 'optional', detail: 'Adds panes.', fix: 'Get it.', group: 'optional' },
+    { name: 'pi-coder', state: 'optional', detail: 'Adds diffs.', fix: 'Get it.', group: 'optional' },
     { name: 'qmd', state: 'ok', detail: 'Has search.', fix: 'Type /help.', group: 'optional' },
   ];
 
@@ -384,7 +365,7 @@ test('the report groups needed and optional rows, and names the guide last', () 
   const [neededPart, optionalPart] = text.split('\nOptional\n');
   assert.match(neededPart, /\/some\/home/);
   assert.match(neededPart, /\nNeeded\n {2}missing\s+Pi: Not there\.\n\s+Fix: Install it\.\n {2}ok\s+Node: 26\.0\.0\.\n/);
-  assert.match(optionalPart, /^ {2}optional\s+Herdr: Adds panes\.\n\s+To add: Get it\.\n {2}ok\s+qmd: Has search\.\n\s+Next: Type \/help\.\n/);
+  assert.match(optionalPart, /^ {2}optional\s+pi-coder: Adds diffs\.\n\s+To add: Get it\.\n {2}ok\s+qmd: Has search\.\n\s+Next: Type \/help\.\n/);
   assert.match(optionalPart, /1 needed thing is missing/);
   assert.equal(text.trimEnd().split('\n').at(-1), `Setup guide: ${setupGuide}`);
 
@@ -400,7 +381,7 @@ test('hobkin setup is a report: it exits 0 with things missing, and changes noth
   const output = { text: '', write(text) { this.text += text; } };
   const { exec } = fakeTools(everyToolIs(absent));
 
-  assert.equal(await main(['setup', '--home', root], output, { exec, env: {} }), 0);
+  assert.equal(await main(['setup', '--home', root], output, { exec }), 0);
 
   assert.match(output.text, /^Needed$/m);
   assert.match(output.text, /^Optional$/m);

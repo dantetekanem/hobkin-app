@@ -8,7 +8,6 @@ import { ExperienceStore } from './experience.ts';
 import { registerReinforcement, type ReinforcementPaths } from './reinforcement.ts';
 import { scheduledTasks } from './review-scheduler.ts';
 import { controlSchedules, countSchedules, type SchedulerPaths } from './scheduler.ts';
-import { hobkinTailNotice, saveHobkinLocation } from './tail.ts';
 import { LegacyOwner, legacyIsFenced } from './cli/migration/fence.mjs';
 
 const instructions = () => [
@@ -16,7 +15,7 @@ const instructions = () => [
   readFileSync(new URL('./prompts/taste.md', import.meta.url), 'utf8'),
 ].join('\n\n');
 
-type Paths = SchedulerPaths & ReinforcementPaths & { locationRoot?: string };
+type Paths = SchedulerPaths & ReinforcementPaths;
 export function registerHobkin(pi: ExtensionAPI, paths: Paths): void {
   let owner: LegacyOwner | undefined;
   let opening: Promise<LegacyOwner> | undefined;
@@ -52,7 +51,6 @@ export function registerHobkin(pi: ExtensionAPI, paths: Paths): void {
     }
   };
   let generation = 0;
-  let tailPending = true;
   let control: Promise<void> | undefined;
   const sessionId = (ctx: ExtensionContext) => ctx.sessionManager.getSessionId();
   const storeFor = (ctx: ExtensionContext) => new Store(paths.root, sessionId(ctx));
@@ -174,10 +172,8 @@ export function registerHobkin(pi: ExtensionAPI, paths: Paths): void {
   };
   pi.on('before_agent_start', (_event, ctx) => {
     if (closed || fenced()) return;
-    const tail = tailPending ? hobkinTailNotice(paths) : undefined;
-    tailPending = false;
     const state = storeFor(ctx).load();
-    const content = [tail, state.experience ? reinforcement.context(ctx) : undefined].filter(Boolean).join('\n\n');
+    const content = state.experience ? reinforcement.context(ctx) : undefined;
     if (content) return { message: { customType: 'hobkin-tail', content, display: false } };
   });
   pi.on('session_start', async (_event, ctx) => {
@@ -186,7 +182,6 @@ export function registerHobkin(pi: ExtensionAPI, paths: Paths): void {
       closed = false;
       if (fenced()) return;
       const token = generation;
-      tailPending = true;
       await withOwner(ctx, async () => {
         const state = storeFor(ctx).load();
         if (state.started && !state.experience) {
@@ -276,7 +271,6 @@ export function registerHobkin(pi: ExtensionAPI, paths: Paths): void {
               await controls.routines('start', signal);
             }
             const stillStarted = () => active() && storeFor(ctx).load().experience?.enabled === true;
-            if (stillStarted()) await saveHobkinLocation(pi, paths, stillStarted);
             if (!stillStarted()) return;
             const setupNeeded = opened ? await opened.claimSetup() : needsSetup && !storeFor(ctx).load().started;
             if (!opened) {

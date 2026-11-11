@@ -75,8 +75,8 @@ const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
 const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim().slice(0, MAX_REASON_LENGTH);
 const runError = run => firstLine(run?.result?.error ?? run?.error);
 const laneKey = (slug, lane) => `${slug}:${lane}`;
-// An older hobkin could leave an agent at work in a Herdr pane as it closed. Without its report there is no telling whether it still works there.
-const LEFT_IN_A_PANE = 'An older hobkin left this agent at work in a Herdr pane, and it wrote no report. hobkin no longer follows panes, so the item waits at the end of the queue with its branch as it is.';
+// An older hobkin ran work in terminal panes and could leave an agent at work there as it closed. Without its report there is no telling whether it still works.
+const LEFT_WITHOUT_REPORT = 'An older hobkin left this agent at work in a terminal pane as it closed, and it wrote no report. hobkin now runs work only as its own jobs, so the item waits at the end of the queue with its branch as it is.';
 // A usage limit says nothing about the project, so it counts against nothing.
 const notTheWork = run => Boolean(run?.result?.usageLimit);
 
@@ -724,8 +724,9 @@ export class WorkDirector {
   }
 
   /**
-   * An older hobkin could leave agents at work in Herdr panes as it closed, and write them down for the next one. Each comes back as it
-   * would have ended here, so its report and tokens are settled the usual way. A look has nothing to restore.
+   * An older hobkin ran work in terminal panes and could leave agents at work there as it closed, written down for the next one. Nothing
+   * writes that list now, but a home may still hold one, so each comes back once as it would have ended here, and its report and tokens are
+   * settled the usual way. A look has nothing to restore.
    */
   pickUpHanded() {
     if (this.pickedUp) return;
@@ -737,9 +738,9 @@ export class WorkDirector {
     }
   }
 
-  // Its report says it finished. Without one it may still be at work in that pane, so nothing here touches its folder or starts it again.
+  // Its report says it finished. Without one it may still be at work, so nothing here touches its folder or starts it again.
   handedOutcome({ report, sessionFile }) {
-    if (!report || !existsSync(report)) return { status: 'interrupted', cost: null, error: LEFT_IN_A_PANE };
+    if (!report || !existsSync(report)) return { status: 'interrupted', cost: null, error: LEFT_WITHOUT_REPORT };
     return withSessionCost({ status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null }, sessionFile);
   }
 
