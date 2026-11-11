@@ -16,7 +16,7 @@ export function fakePi(root, controls = new Map()) {
   const opened = [];
   const dependencies = {
     agentDir: join(root, 'test-agent'),
-    createSession: async ({ sessionManager, thinkingLevel, resourceLoader }) => {
+    createSession: async ({ sessionManager, thinkingLevel, resourceLoader, tools }) => {
       const id = sessionManager.getSessionId();
       const control = controls.get(id) ?? {};
       const listeners = new Set();
@@ -76,6 +76,7 @@ export function fakePi(root, controls = new Map()) {
           control.gate?.resolve();
         },
         async bindExtensions() {},
+        getActiveToolNames() { return [...tools]; },
         dispose() { control.disposed = true; },
       };
       controls.set(id, control);

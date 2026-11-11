@@ -157,9 +157,9 @@ export class HobkinRuntime {
     if (this.closing) throw Error('hobkin is closing.');
   }
 
-  notify() {
+  notify(activityOnly = false) {
     try {
-      this.onChange();
+      this.onChange(activityOnly);
     } catch {
       // UI observers cannot change a committed receipt.
     }
@@ -242,7 +242,7 @@ export class HobkinRuntime {
           };
           recordEvent(this.directory, 'compaction_finished', { reason: event.reason, status: this.lastCompaction.status, ms: Date.now() - this.compactingSince });
         }
-        this.notify();
+        this.notify(event.type === 'message_update' || event.type === 'tool_execution_update');
       });
       await this.change(state => {
         if (fresh || !state.main) {

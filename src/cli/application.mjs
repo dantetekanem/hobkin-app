@@ -161,7 +161,7 @@ export class HobkinApplication {
         this.jobActivity.set(id, new JobActivity({ now: this.now }));
       }
       this.jobActivity.get(id).accept(event);
-      this.requestRefresh();
+      this.requestRefresh(true);
     } catch {
       /* Preview observers cannot fail a job. */
     }
@@ -193,7 +193,7 @@ export class HobkinApplication {
       messageCheck: request => app.runner.messageCheck(request),
       stopWorkload: request => app.stopWorkload(request),
       editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
-      onChange: () => app.requestRefresh(),
+      onChange: activityOnly => app.requestRefresh(activityOnly),
     });
     try {
       const run = runHarness, metricsRoot = app.runtime.directory;
@@ -299,19 +299,39 @@ export class HobkinApplication {
     }
   }
 
-  requestRefresh() {
+  requestRefresh(activityOnly = false) {
     if (this.closing || !this.runner) return;
-    this.refreshDirty = true;
+    if (!activityOnly) this.refreshDirty = true;
     if (this.refreshTimer) return;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      void this.refresh().catch(error => {
+      const update = this.refreshDirty ? this.refresh() : Promise.resolve().then(() => this.publishActivity());
+      void update.catch(error => {
         this.snapshot = { ...this.snapshot, error: error.message };
         recordEvent(this.runtime.directory, 'error_shown', { from: 'refresh' });
         this.onChange?.(this.snapshot);
       });
     }, 25);
     this.refreshTimer.unref();
+  }
+
+  // Streaming does not change receipts, reports or the Work plan. Publish its in-memory feed only.
+  publishActivity() {
+    if (this.closing) return;
+    this.snapshot = {
+      ...this.snapshot,
+      jobActivity: Object.fromEntries([...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()])),
+      jobChildren: Object.fromEntries([...this.jobActivity]
+        .map(([id, feed]) => [id, feed.children()])
+        .filter(([, children]) => children.length)),
+      mainActivity: this.runtime.mainActivity(),
+      mainChildren: this.runtime.mainChildren(),
+      busy: this.runtime.mainBusy,
+      searching: searchingTool(this.runtime.mainTool),
+      tooling: Boolean(this.runtime.mainTool),
+      doing: this.runtime.mainDoing ?? null,
+    };
+    this.onChange?.(this.snapshot);
   }
 
   refresh() {
