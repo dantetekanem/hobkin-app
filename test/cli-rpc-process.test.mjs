@@ -119,6 +119,97 @@ test('closing stdin asks the child to exit, signals only after the grace period,
   second.handle.send({ type: 'extension_ui_response', id: 'late', cancelled: true });
 });
 
+test('TERM-ignore escalates to KILL without treating either signal as a close receipt', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = standIn(), signals = [];
+  const { handle } = start(child, { signalProcess: (captured, signal) => { assert.equal(captured, child); signals.push(signal); } });
+  t.after(() => child.emit('close', null, 'SIGKILL'));
+  let closed = false;
+  handle.closed.then(() => { closed = true; });
+  handle.terminate();
+  assert.deepEqual(signals, ['SIGTERM']);
+  t.mock.timers.tick(500);
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+  await Promise.resolve();
+  assert.equal(closed, false);
+  child.emit('close', null, 'SIGKILL');
+  await handle.closed;
+  handle.terminate();
+  assert.equal(signals.length, 2);
+});
+
+test('a captured close cancels TERM escalation without claiming detached cleanup', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = standIn(), signals = [];
+  const { handle } = start(child, { signalProcess: (_child, signal) => signals.push(signal) });
+  t.after(() => child.emit('close', 0, null));
+  handle.terminate(); child.emit('close', 0, null); await handle.closed;
+  t.mock.timers.tick(500); handle.force();
+  assert.deepEqual(signals, ['SIGTERM']);
+});
+
+test('exit revokes Force, timers and exit-reaping authority while close remains unconfirmed', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const mode of ['idle', 'grace', 'term']) {
+    const child = standIn(), signals = [];
+    const { handle } = start(child, { signalProcess: (_child, signal) => signals.push(signal) });
+    t.after(() => child.emit('close', 0, null));
+    let closed = false;
+    handle.closed.then(() => { closed = true; });
+    if (mode === 'grace') void handle.shutdown(1000);
+    if (mode === 'term') handle.terminate();
+    child.emit('exit', 0, null);
+    t.mock.timers.tick(5000);
+    handle.terminate(); handle.force();
+    process.listeners('exit').find(listener => listener.name === 'reapAtExit')();
+    await Promise.resolve();
+    assert.deepEqual({ signals, reaped: child.signals, closed }, {
+      signals: mode === 'term' ? ['SIGTERM'] : [], reaped: [], closed: false,
+    }, mode);
+    assert.equal(handle.exited, true);
+    child.emit('close', 0, null);
+    const receipt = await handle.closed;
+    assert.equal(receipt.code, 0);
+    assert.equal(closed, true);
+    handle.force();
+    assert.deepEqual(signals, mode === 'term' ? ['SIGTERM'] : []);
+  }
+});
+
+test('a childless spawn error still settles on close without an exit event', async () => {
+  const child = standIn(), error = Error('spawn failed');
+  const { handle } = start(child, { signalProcess: () => {} });
+  child.emit('error', error);
+  child.emit('close', -2, null);
+  assert.equal((await handle.closed).error, error);
+  assert.equal(handle.exited, true);
+});
+
+test('Force bypasses grace and the TERM latch, interrupts RPC, and never signals a closed child', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const duringTerm of [false, true]) {
+    const child = standIn(), signals = [];
+    const { handle, records } = start(child, { signalProcess: (_child, signal) => signals.push(signal) });
+    t.after(() => child.emit('close', null, 'SIGKILL'));
+    const pending = assert.rejects(handle.request('abort'), error => error.interrupted === true);
+    pending.catch(() => {}); // Keep cleanup from leaking a second failure if Force is absent.
+    if (duringTerm) handle.terminate();
+    else void handle.shutdown(2000);
+    assert.equal(handle.force(), undefined, 'a signal request is not a close receipt');
+    assert.deepEqual(signals, duringTerm ? ['SIGTERM', 'SIGKILL'] : ['SIGKILL']);
+    await pending;
+    assert.equal(handle.exited, false);
+    child.stdout.write('{"type":"message_end","text":"late"}\n');
+    assert.deepEqual(records, []);
+    await assert.rejects(handle.request('get_state'), error => error.interrupted === true);
+    child.emit('close', null, 'SIGKILL');
+    await handle.closed;
+    handle.force();
+    t.mock.timers.tick(5000);
+    assert.equal(signals.length, duringTerm ? 2 : 1);
+  }
+});
+
 test('stderr is kept as a bounded tail for the exit error and invalid output ends the child', async () => {
   const failing = standIn();
   const { handle } = start(failing);

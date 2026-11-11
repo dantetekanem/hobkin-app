@@ -18,13 +18,14 @@ function transportFactory(hang = false) {
   const children = [];
   const startProcess = options => {
     const closed = Promise.withResolvers(), requests = [], responses = [];
-    const child = { options, closed, requests, responses, shutdowns: 0,
+    const child = { options, closed, requests, responses, shutdowns: 0, forces: 0,
       emit: record => options.onRecord(record),
       request: async (type, data) => { requests.push({ type, data }); return type === 'get_state'
         ? { sessionId: String(children.indexOf(child)), model: { provider: 'test', id: 'model' }, thinkingLevel: 'medium' }
         : type === 'get_session_stats' ? { sessionId: String(children.indexOf(child)) } : { disposition: 'started' }; },
       send: record => responses.push(record),
       shutdown() { child.shutdowns++; if (!hang) closed.resolve({ code: 0 }); return closed.promise; }, terminate() {},
+      force() { child.forces++; },
     };
     children.push(child);
     return { ...child, closed: closed.promise };
@@ -131,6 +132,34 @@ test('unknown teardown stays occupied; joining never hangs behind it and retains
   assert.equal(f.children.length, 1);
   const cleanup = (await life.close())[0];
   assert.equal(cleanup.confirmed, false); assert.equal(cleanup.agents[0].report, 'partial');
+});
+
+test('host Force remains available after invalidation and reports only captured helper closure', { timeout: 1000 }, async () => {
+  const f = transportFactory(true), life = createOwnedLifecycle({ startProcess: f.startProcess, stopMs: 5 });
+  const root = life.register({ id: 'root', allowHelpers: true, binding });
+  const other = life.register({ id: 'other', allowHelpers: true, binding });
+  const child = root.request({ action: 'spawn', name: 'target' });
+  const outside = other.request({ action: 'spawn', name: 'outside' }); await tick();
+  f.children[0].emit(end('partial'));
+  const old = await root.cancel();
+  assert.equal(old.confirmed, false);
+  await assert.rejects(life.force('root', outside.id), /scope/);
+  await assert.rejects(life.force('unowned'), /identity/);
+  const pending = life.force('root');
+  assert.equal(f.children[0].forces, 1);
+  assert.equal(f.children[1].forces, 0);
+  assert.equal((await pending).confirmed, false);
+  f.children[0].closed.resolve({ code: 0 }); await tick();
+  f.children[0].emit(end('late success'));
+  const reconciled = await life.force('root', child.id);
+  assert.equal(reconciled.confirmed, true);
+  assert.equal(reconciled.cleanupScope, 'captured-rpc-children'); assert.equal(reconciled.detachedCleanup, 'unknown');
+  assert.deepEqual(reconciled.agents.map(agent => [agent.status, agent.report]), [['cancelled', 'partial']]);
+  assert.equal(f.children[0].forces, 1);
+  assert.equal(old.confirmed, false); assert.equal(old.agents[0].status, 'unknown');
+  assert.throws(() => root.request({ action: 'spawn', name: 'restart' }), /active/);
+  assert.equal(other.request({ action: 'status', id: outside.id }).status, 'running');
+  f.children[1].closed.resolve({ code: 0 }); await life.close();
 });
 
 test('nested completion forwards bounded terminal facts, then only the later parent text', { timeout: 1000 }, async () => {

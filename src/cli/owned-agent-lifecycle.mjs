@@ -93,6 +93,14 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
       tree.registerRoot({ id, allowHelpers }); roots.add(id);
       return scope(id, { ...binding, allowHelpers });
     },
+    async force(scopeId, id = scopeId) {
+      tree.status(scopeId, id); // Captured identity remains authoritative after its model scope is invalidated.
+      for (const node of [tree.status(scopeId, id), ...tree.list(id)]) scopes.get(node.id)?.finish();
+      try {
+        const result = await tree.force(scopeId, id);
+        return { ...result, agents: result.agents.filter(node => !node.root).map(fact) };
+      } finally { notify(); }
+    },
     async close() { closing = true; return Promise.all([...roots].map(id => scopes.get(id).cancel())); },
   };
 }

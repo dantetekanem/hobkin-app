@@ -6,7 +6,7 @@ export function createOwnedAgents({ adapter, maxRunning = 4, maxQueued = 8, maxD
     if (!Number.isSafeInteger(limit) || limit < 1) throw Error('Invalid owned-agent limit');
   }
   if (typeof adapter?.start !== 'function') throw Error('Owned adapter required');
-  const nodes = new Map(), handles = new Map(), stops = new Map();
+  const nodes = new Map(), handles = new Map(), stops = new Map(), forces = new Map();
   const occupied = node => !node.root && ['running', 'cancelling', 'unknown'].includes(node.status);
   const snapshot = node => ({ ...node });
   function get(id) {
@@ -84,15 +84,40 @@ export function createOwnedAgents({ adapter, maxRunning = 4, maxQueued = 8, maxD
     await Promise.all(branch.map(async node => {
       if (node.status !== 'cancelling') return;
       if (!stops.has(node.id)) stops.set(node.id, (async () => {
-        try { node.status = await handles.get(node.id)?.cancel() === true ? 'cancelled' : 'unknown'; }
-        catch { node.status = 'unknown'; }
-        handles.delete(node.id);
+        let confirmed = false;
+        try { confirmed = await handles.get(node.id)?.cancel() === true; } catch { /* Retain custody. */ }
+        if (occupied(node)) node.status = confirmed ? 'cancelled' : 'unknown';
+        if (node.status === 'cancelled') handles.delete(node.id);
       })());
       await stops.get(node.id);
     }));
     drain();
     return { id, confirmed: branch.every(node => !['unknown', 'cancelling'].includes(node.status)), agents: branch.map(snapshot) };
   }
+  async function force(scopeId, id) {
+    const target = scoped(scopeId, id);
+    const branch = [...nodes.values()].filter(node => within(target.id, node));
+    for (const node of branch) {
+      if (node.status === 'queued' || (node.root && node.status === 'running')) node.status = 'cancelled';
+      else if (occupied(node)) node.status = 'cancelling';
+    }
+    // Invoke every captured member before awaiting any receipt; ordinary stops may never return.
+    const receipts = branch.filter(occupied).map(node => {
+      if (!forces.has(node.id)) {
+        let receipt;
+        try { receipt = handles.get(node.id)?.force?.(); } catch { receipt = false; }
+        forces.set(node.id, Promise.resolve(receipt).catch(() => false).then(confirmed => {
+          if (occupied(node)) node.status = confirmed === true ? 'cancelled' : 'unknown';
+          if (node.status === 'cancelled') handles.delete(node.id);
+        }).finally(() => { forces.delete(node.id); }));
+      }
+      return forces.get(node.id);
+    });
+    await Promise.all(receipts);
+    drain();
+    return { id, confirmed: branch.every(node => !occupied(node)), agents: branch.map(snapshot),
+      cleanupScope: 'captured-rpc-children', detachedCleanup: 'unknown' };
+  }
   // Roots consume no child capacity, including when several host runs share this tree.
-  return { registerRoot, spawn, list, status: (scopeId, id) => snapshot(scoped(scopeId, id)), cancel };
+  return { registerRoot, spawn, list, status: (scopeId, id) => snapshot(scoped(scopeId, id)), cancel, force };
 }

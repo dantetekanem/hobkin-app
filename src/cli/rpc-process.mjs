@@ -24,7 +24,7 @@ const reapAtExit = () => {
  * It never retries; failure, cancellation and exit end every waiter, and only this handle stops the child.
  */
 export function startRpcProcess({
-  command, args, cwd, env, spawnProcess = spawn, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
+  command, args, cwd, env, spawnProcess = spawn, signalProcess = signalGroup, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
 }) {
   const child = spawnProcess(command, args, {
     cwd,
@@ -52,19 +52,22 @@ export function startRpcProcess({
   let stopping = false;
   let killTimer;
   let graceTimer;
+  const kill = signal => {
+    if (exited) return;
+    try {
+      signalProcess(child, signal);
+    } catch (error) {
+      if (error.code !== 'ESRCH') failure ??= error;
+    }
+  };
   const terminate = () => {
     if (stopping || exited) return;
     stopping = true;
-    const kill = signal => {
-      try {
-        signalGroup(child, signal);
-      } catch (error) {
-        if (error.code !== 'ESRCH') failure ??= error;
-      }
-    };
     kill('SIGTERM');
-    killTimer = setTimeout(() => kill('SIGKILL'), 500);
-    killTimer.unref();
+    if (!exited) {
+      killTimer = setTimeout(() => kill('SIGKILL'), 500);
+      killTimer.unref();
+    }
   };
   const fail = error => {
     failure ??= error;
@@ -157,11 +160,16 @@ export function startRpcProcess({
   child.stderr.on('data', chunk => { stderr = (stderr + clean(chunk)).slice(-2000); });
   child.stdin.on('error', error => { if (!stopping) fail(error); });
   child.on('error', fail);
-  child.on('close', (code, signal) => {
+  // Exit revokes PID/PGID authority; only close confirms captured stdio closure.
+  const markExited = () => {
     exited = true;
     live.delete(child);
     clearTimeout(killTimer);
     clearTimeout(graceTimer);
+  };
+  child.on('exit', markExited);
+  child.on('close', (code, signal) => {
+    markExited();
     const error = failure ?? Error(`${name} exited before completion (${code ?? signal}). ${stderr}`);
     for (const waiter of pending.values()) waiter.reject(error);
     pending.clear();
@@ -173,6 +181,18 @@ export function startRpcProcess({
     send: record => { if (!failure && !exited && child.stdin.writable) write(record); },
     fail,
     terminate,
+    // A signal request is not a close receipt, nor proof about detached tool groups.
+    force() {
+      if (exited) return;
+      stopping = true;
+      clearTimeout(graceTimer);
+      clearTimeout(killTimer);
+      const error = Object.assign(Error(`${name} interrupted by user force.`), { interrupted: true });
+      failure ??= error;
+      for (const waiter of pending.values()) waiter.reject(error);
+      pending.clear();
+      kill('SIGKILL');
+    },
     /** Closing stdin asks Pi to dispose its runtime and exit; the signals only follow a missed grace period. */
     shutdown(graceMs = 5000) {
       if (!exited && !stopping) {

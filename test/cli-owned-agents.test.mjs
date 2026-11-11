@@ -111,6 +111,72 @@ test('overlapping cancellation calls share teardown and late completion cannot i
   assert.throws(() => tree.spawn('root', { name: 'overflow' }), /capacity/);
 });
 
+test('host Force captures a whole branch before waits, retains unknown custody and leaves unrelated roots alone', { timeout: 1000 }, async () => {
+  const starts = [], forces = [], receipts = new Map(), results = new Map();
+  const tree = createOwnedAgents({ maxRunning: 4, adapter: { start(agent) {
+    starts.push(agent.id);
+    const result = Promise.withResolvers(); results.set(agent.id, result);
+    receipts.set(agent.id, Promise.withResolvers());
+    return { result: result.promise, cancel: () => agent.name === 'stuck' ? new Promise(() => {}) : false,
+      force() { forces.push(agent.id); return receipts.get(agent.id).promise; } };
+  } } });
+  tree.registerRoot({ id: 'root', allowHelpers: true }); tree.registerRoot({ id: 'other', allowHelpers: true });
+  const outside = tree.spawn('other', { name: 'outside' });
+  const parent = tree.spawn('root', { name: 'stuck' });
+  const nested = tree.spawn(parent.id, { name: 'nested' });
+  const unknown = tree.spawn(parent.id, { name: 'unknown' });
+  const queued = tree.spawn(nested.id, { name: 'queued' });
+  const old = await tree.cancel('root', unknown.id);
+  assert.equal(old.confirmed, false);
+  void tree.cancel('root', parent.id); // This parent never answers ordinary cancellation.
+  await assert.rejects(tree.force('root', outside.id), /scope/);
+  assert.throws(() => createOwnedAgentTool(tree, 'root')({ action: 'force', id: parent.id }), /request/);
+  const first = tree.force('root', parent.id), duplicate = tree.force('root', parent.id);
+  assert.deepEqual(forces, [parent.id, nested.id, unknown.id]);
+  assert.equal(tree.status('root', queued.id).status, 'cancelled');
+  assert.throws(() => tree.spawn(nested.id, { name: 'late' }), /active/);
+  receipts.get(parent.id).resolve(true); receipts.get(nested.id).resolve(true); receipts.get(unknown.id).resolve(false);
+  const receipt = await first;
+  assert.equal(receipt.confirmed, false); assert.equal((await duplicate).confirmed, false);
+  assert.equal(receipt.cleanupScope, 'captured-rpc-children'); assert.equal(receipt.detachedCleanup, 'unknown');
+  assert.equal(tree.status('other', outside.id).status, 'running');
+  assert.equal(starts.length, 4);
+  results.get(unknown.id).resolve('late success'); await tick();
+  assert.equal(tree.status('root', unknown.id).status, 'unknown');
+  const retry = Promise.withResolvers(); retry.resolve(true); receipts.set(unknown.id, retry);
+  assert.equal((await tree.force('root', parent.id)).confirmed, true);
+  assert.deepEqual(forces, [parent.id, nested.id, unknown.id, unknown.id]);
+  assert.equal(old.agents[0].status, 'unknown');
+  assert.equal(receipt.agents.find(node => node.id === unknown.id).status, 'unknown');
+  assert.equal(tree.status('root', unknown.id).status, 'cancelled');
+});
+
+test('failed Force keeps its slot and can retry; a late ordinary failure cannot undo confirmed closure', { timeout: 1000 }, async () => {
+  const ordinary = Promise.withResolvers(); let attempts = 0, starts = 0;
+  const tree = createOwnedAgents({ maxRunning: 1, adapter: { start() {
+    starts++;
+    return { result: new Promise(() => {}), cancel: () => ordinary.promise, force() {
+      if (++attempts === 1) throw Error('signal denied');
+      return attempts === 2 ? Promise.reject(Error('unconfirmed')) : Promise.resolve(true);
+    } };
+  } } });
+  tree.registerRoot({ id: 'root', allowHelpers: true });
+  const child = tree.spawn('root', { name: 'child' });
+  const queued = tree.spawn('root', { name: 'queued' });
+  const stopping = tree.cancel('root', child.id);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.equal((await tree.force('root', child.id)).confirmed, false);
+    assert.equal(tree.status('root', child.id).status, 'unknown');
+    assert.equal(tree.status('root', queued.id).status, 'queued');
+  }
+  assert.equal(starts, 1);
+  assert.equal((await tree.force('root', child.id)).confirmed, true);
+  ordinary.resolve(false); await stopping;
+  assert.equal(tree.status('root', child.id).status, 'cancelled');
+  assert.equal(tree.status('root', queued.id).status, 'running');
+  assert.equal(starts, 2);
+});
+
 test('synchronous launch failure is terminal and never retried', () => {
   let calls = 0;
   const tree = createOwnedAgents({ adapter: { start() { calls++; throw Error('launch failed'); } } });

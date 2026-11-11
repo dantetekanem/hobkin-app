@@ -26,7 +26,7 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
     const result = Promise.withResolvers();
     // Consumers may attach after a synchronous startup failure; never leak an unhandled rejection.
     result.promise.catch(() => {});
-    let transport, closed, stopping, exit, sessionId, joining = false, cancelled = false, finished = false, report = '', finalError;
+    let transport, closed, stopping, forcing, exit, sessionId, joining = false, cancelled = false, finished = false, report = '', finalError;
     const controller = new AbortController();
     const tools = { owned_agent: createOwnedAgentSessionTool((request, signal) => ownedAgent?.(identity, request, signal)) };
     const emit = event => { try { onEvent(identity, event); } catch { /* Observers do not own lifecycle. */ } };
@@ -126,7 +126,21 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       if (transport) void fail(error);
       else { finished = true; result.reject(error); }
     }
-    return { result: result.promise, async cancel() {
+    return { result: result.promise,
+      force() {
+        if (forcing) return forcing;
+        cancelled = true;
+        controller.abort();
+        try { if (!exit) transport?.force?.(); } catch { /* Still require captured closure. */ }
+        forcing = bounded(closed ?? new Promise(() => {}), stopMs, false).then(value => {
+          if (value === false) return false;
+          finished = true;
+          result.reject(Error('Owned child cancelled'));
+          return true;
+        }).finally(() => { forcing = undefined; });
+        return forcing;
+      },
+      async cancel() {
       cancelled = true;
       controller.abort();
       const confirmed = await stop();

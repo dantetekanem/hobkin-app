@@ -9,7 +9,7 @@ const binding = { cwd: '/isolated/project', model: 'test/model', effort: 'medium
 function fixture(options = {}) {
   const closed = Promise.withResolvers(), state = Promise.withResolvers();
   const requests = [], calls = [];
-  let callbacks, shutdowns = 0, terminations = 0;
+  let callbacks, shutdowns = 0, terminations = 0, forces = 0;
   const transport = {
     closed: closed.promise,
     request: async (type, data) => {
@@ -20,6 +20,7 @@ function fixture(options = {}) {
     },
     shutdown() { shutdowns++; if (!options.hang) closed.resolve({ code: options.exitCode ?? 0 }); return closed.promise; },
     terminate() { terminations++; },
+    force() { forces++; },
   };
   const adapter = createOwnedAgentAdapter({
     bindingFor: () => ({ ...binding, ...options.binding }), startupMs: 30, stopMs: 15,
@@ -27,7 +28,7 @@ function fixture(options = {}) {
     onEvent: options.onEvent, onStats: options.onStats,
   });
   return { adapter, calls, requests, state, closed, emit: event => callbacks.onRecord(event),
-    get shutdowns() { return shutdowns; }, get terminations() { return terminations; } };
+    get shutdowns() { return shutdowns; }, get terminations() { return terminations; }, get forces() { return forces; } };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const end = text => ({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'thinking', thinking: 'private' }, { type: 'text', text }] } });
@@ -91,6 +92,31 @@ test('unconfirmed close is bounded, retains core capacity, and is not revived by
   await tick();
   assert.equal(tree.status('root', child.id).status, 'unknown');
   assert.equal(tree.spawn('root', { name: 'second' }).status, 'queued');
+});
+
+test('Force bypasses pending cancellation, coalesces attempts and explicitly reconciles a later close', { timeout: 1000 }, async () => {
+  const events = [], f = fixture({ hang: true, waitState: true, onEvent: (_id, event) => events.push(event) });
+  const handle = f.adapter.start(identity);
+  let settled = false;
+  handle.result.catch(() => { settled = true; });
+  const ordinary = handle.cancel();
+  const first = handle.force(), duplicate = handle.force();
+  assert.equal(f.forces, 1, 'signal request happens before awaiting ordinary cancellation');
+  assert.equal(await first, false);
+  assert.equal(await duplicate, false);
+  assert.equal(await ordinary, false);
+  assert.equal(settled, false, 'signals and timeout do not confirm closure');
+  assert.equal(await handle.force(), false);
+  assert.equal(f.forces, 2, 'unknown is retryable');
+  f.closed.resolve({ code: 0 });
+  await tick();
+  f.emit(end('late')); f.emit({ type: 'agent_settled' });
+  assert.equal(await handle.force(), true);
+  await assert.rejects(handle.result, /cancelled/);
+  assert.equal(f.forces, 2, 'observed closure cannot signal a stale PID');
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(events, []);
+  assert.deepEqual(f.requests.map(request => request.type), ['get_state']);
 });
 
 test('startup timeout and unexpected exit fail only after cleanup is observed', { timeout: 1000 }, async () => {
