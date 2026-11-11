@@ -80,9 +80,13 @@ test('late preview replies stay cancelled, and effect reconnect allows a fresh e
   assert.ok(f.verdict.getState().preview)
 })
 
-test('Escape dismisses a child editor or popover first, otherwise exits without walking graph levels', () => {
+test('Escape dismisses a child editor, popover, line selection or open code first, otherwise exits without walking graph levels', () => {
   const calls: string[] = []
-  const session = { editor: null as unknown, finder: false, wire: null as string | null, closeEditor: () => calls.push('editor'), closeFinder: () => calls.push('finder'), openWire: () => calls.push('wire') }
+  const session = {
+    editor: null as unknown, finder: false, wire: null as string | null, code: null as string | null, selection: null as unknown,
+    closeEditor: () => calls.push('editor'), closeFinder: () => calls.push('finder'), openWire: () => calls.push('wire'),
+    selectLines: () => calls.push('selection'), closeCode: () => calls.push('code'),
+  }
   const close = () => calls.push('exit')
   escapeReview(session, close)
   session.editor = {}
@@ -91,7 +95,11 @@ test('Escape dismisses a child editor or popover first, otherwise exits without 
   escapeReview(session, close)
   session.finder = false; session.wire = 'wire'
   escapeReview(session, close)
-  assert.deepEqual(calls, ['exit', 'editor', 'finder', 'wire'])
+  session.wire = null; session.code = 'u1'; session.selection = {}
+  escapeReview(session, close)
+  session.selection = null
+  escapeReview(session, close)
+  assert.deepEqual(calls, ['exit', 'editor', 'finder', 'wire', 'selection', 'code'])
 })
 
 test('finished identity names the actual change; explicit sample stays sample-only', () => {

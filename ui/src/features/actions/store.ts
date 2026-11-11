@@ -6,6 +6,7 @@ import { waiting, type ActionItem, type WaitingRow } from './items.ts'
 import { sampleItems } from './sample.ts'
 import { hostStore } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
+import { hasHost } from '../../lib/host/frame.ts'
 import { hostRows } from './host.ts'
 
 /**
@@ -36,7 +37,7 @@ export function stopAnswering(id: string): void {
 function syncActions(state: HostState, previous?: HostState): void {
   if (previous && state.home === previous.home && state.snapshot.decisions === previous.snapshot.decisions &&
     state.snapshot.waiting === previous.snapshot.waiting && state.epoch === previous.epoch) return
-  const sample = state.home === null
+  const sample = !hasHost(state)
   const changedHome = previous !== undefined && state.home !== previous.home
   useActionItems.setState({ sample, rows: sample || changedHome ? [] : hostRows(state.snapshot) })
 }

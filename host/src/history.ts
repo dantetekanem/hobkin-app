@@ -10,7 +10,10 @@ import { reportText, splitReportReference } from 'hobkin/src/cli/reports.mjs'
 import { isWakeBrief } from 'hobkin/src/cli/wake.mjs'
 import { withoutWorkNote } from 'hobkin/src/cli/work/chat.mjs'
 import type { HistoryConversation, HistoryEntry, HistoryMessage } from '#shared/commands/registry.ts'
+import { shellFields } from '#shared/protocol/snapshot.ts'
 import { Unavailable } from './commands.ts'
+import { rasterImage } from './message-images.ts'
+import type { StoredImage } from '#shared/commands/registry.ts'
 
 /** hobkin's names for its main conversations: `mainSessionFile` and `openImportedPiSession` in its `src/cli/pi-session.mjs`. */
 const MAIN = /^(?:main(?:-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})?|legacy-[\da-f]{64})\.jsonl$/i
@@ -35,13 +38,14 @@ interface PiEntry {
   parentId?: unknown
   timestamp?: unknown
   name?: unknown
-  message?: { role?: unknown; content?: unknown; display?: unknown; timestamp?: unknown }
+  message?: { role?: unknown; content?: unknown; display?: unknown; timestamp?: unknown; [key: string]: unknown }
 }
 interface Read {
   title: string
   at: number
   cut: boolean
   messages: HistoryMessage[]
+  image?: StoredImage | null
 }
 type Found = { id: string; file: string; size: number; changed: number }
 
@@ -57,22 +61,26 @@ const wordsOf = (content: unknown) =>
 /** A message as hobkin's Chat shows it, or null for one Chat leaves out. */
 function shown(entry: PiEntry): HistoryMessage | null {
   const { message } = entry
-  if (entry.type !== 'message' || (message?.role !== 'user' && message?.role !== 'assistant') || message.display === false) return null
+  if (entry.type !== 'message' || !message || message.display === false) return null
+  const shell = shellFields(message)
+  if (shell) return { id: typeof entry.id === 'string' ? entry.id : undefined, role: 'bashExecution', ...shell, text: shell.output, at: timeOf(message.timestamp) ?? timeOf(entry.timestamp) }
+  if (message.role !== 'user' && message.role !== 'assistant') return null
   const words = wordsOf(message.content)
   if (isHoldBrief(words) || isWakeBrief(words)) return null
   const { text, about } = splitReportReference(withoutBriefNote(withoutLearningNote(withoutWorkNote(words))))
   const said = reportText(text).slice(0, LONGEST)
   const images = parts(message.content).filter((part) => part?.type === 'image').length
   if (!said && !images) return null
-  return { role: message.role, text: said, at: timeOf(message.timestamp) ?? timeOf(entry.timestamp), ...(about ? { about } : {}), ...(images ? { images } : {}) }
+  return { id: typeof entry.id === 'string' ? entry.id : undefined, role: message.role, text: said, at: timeOf(message.timestamp) ?? timeOf(entry.timestamp), ...(about ? { about } : {}), ...(images ? { images } : {}) }
 }
 
 /** One conversation, read from its start up to the limit: Pi's header, then the branch its last entry is on. Null for a file that is not one. */
-async function readConversation({ file, size, changed }: Found, bytes: number): Promise<Read | null> {
+async function readConversation({ file, size, changed }: Found, bytes: number, wanted?: { messageId: string; ordinal: number }): Promise<Read | null> {
   const input = createReadStream(file, { encoding: 'utf8', end: Math.max(0, bytes - 1) })
   let header: PiEntry | null = null
   let name: string | null = null
   let last: string | null = null
+  let image: StoredImage | null = null
   const entries = new Map<string, { parent: unknown; message: HistoryMessage | null }>()
   try {
     for await (const line of createInterface({ input, crlfDelay: Infinity })) {
@@ -89,6 +97,7 @@ async function readConversation({ file, size, changed }: Found, bytes: number): 
       } else if (typeof entry?.id === 'string') {
         if (entry.type === 'session_info') name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : null
         entries.set(entry.id, { parent: entry.parentId, message: shown(entry) })
+        if (wanted?.messageId === entry.id) image = rasterImage(parts(entry.message?.content).filter((part) => part?.type === 'image')[wanted.ordinal])
         last = entry.id
       }
     }
@@ -109,6 +118,7 @@ async function readConversation({ file, size, changed }: Found, bytes: number): 
     at: messages.at(-1)?.at ?? timeOf(header.timestamp) ?? changed,
     cut: size > bytes,
     messages,
+    ...(wanted ? { image } : {}),
   }
 }
 
@@ -155,6 +165,14 @@ export class History {
     const current = this.current()
     const earlier = Math.max(0, read.messages.length - this.limits.messages)
     return { id, ...read, messages: read.messages.slice(earlier), earlier, current: !!current && resolve(current) === file }
+  }
+
+  async image(id: string, messageId: string, ordinal: number): Promise<StoredImage | null> {
+    if (!MAIN.test(id) || !Number.isSafeInteger(ordinal) || ordinal < 0) return null
+    const file = join(this.folder(), id)
+    const stat = await lstat(file).catch(() => null)
+    const read = stat?.isFile() ? await readConversation({ id, file, size: stat.size, changed: stat.mtimeMs }, this.limits.bytes, { messageId, ordinal }) : null
+    return read?.messages.slice(-this.limits.messages).some((message) => message.id === messageId) ? read.image ?? null : null
   }
 
   private folder(): string {

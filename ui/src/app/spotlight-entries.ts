@@ -13,9 +13,9 @@ import type { Routine } from '@/features/routines/types.ts'
 import { howOften } from '@/features/routines/words.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useGitHub, type GitHubState } from '@/lib/host/index.ts'
-import { requestCanvasFocus } from './focus.ts'
+import { activeCanvasScreen, requestCanvasFocus } from './focus.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
-import { inMenu, SCREENS, type ScreenId } from './screens.ts'
+import { SCREENS, walkScreens, type ScreenId } from './screens.ts'
 import type { SpotlightEntry } from './spotlight-search.ts'
 import { isStill } from './still-rule.ts'
 import { useView } from './view-store.ts'
@@ -39,6 +39,7 @@ export interface SpotlightTarget extends SpotlightEntry {
 
 /** Other names for the screens, so they are found by what they hold. */
 const SCREEN_WORDS: Partial<Record<ScreenId, string[]>> = {
+  home: ['dashboard', 'briefing', 'ideas'],
   reports: ['runs', 'results'],
   routines: ['schedules', 'jobs'],
   actions: ['decisions', 'questions', 'waiting'],
@@ -49,6 +50,7 @@ const SCREEN_WORDS: Partial<Record<ScreenId, string[]>> = {
 }
 
 const SCREEN_LINE: Partial<Record<ScreenId, string>> = {
+  home: 'Ideas and your briefing',
   reports: 'What finished runs brought back',
   routines: 'Every routine and when it runs next',
   actions: 'Everything waiting on you',
@@ -59,7 +61,7 @@ const SCREEN_LINE: Partial<Record<ScreenId, string>> = {
 }
 
 /** The screens the spotlight goes to. A review and an agent need something to show, so they are found as what they show. */
-const PLACES: readonly ScreenId[] = ['reports', 'routines', 'actions', 'work', 'github', 'settings', 'integrations']
+const PLACES: readonly ScreenId[] = ['home', 'reports', 'routines', 'actions', 'work', 'github', 'settings', 'integrations']
 
 /** The tiles of Settings, by the name each one shows, with the words that find them. */
 const SETTINGS: readonly { name: string; words: string[] }[] = [
@@ -77,6 +79,7 @@ const SETTINGS: readonly { name: string; words: string[] }[] = [
 
 /** How long the spotlight waits for a screen that loads on demand to draw what it goes to: about a second. */
 const MOST_FRAMES = 60
+let cancelLanding: (() => void) | undefined
 
 function stillNow(): boolean {
   const macAsksForLess = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -94,15 +97,44 @@ function enter(): void {
  * demand can take a few frames; if the thing never comes, the keyboard stays where the screen put it.
  */
 function landOn(find: (screen: HTMLElement) => HTMLElement | null | undefined): void {
-  const attempt = (left: number) => {
-    const screen = [...document.querySelectorAll<HTMLElement>('[data-canvas-screen]')].at(-1)
+  cancelLanding?.()
+  const screenAtRequest = useView.getState().screen
+  let framesLeft = MOST_FRAMES
+  let frame: number | undefined
+  let unsubscribe = () => {}
+  const events = ['focusin', 'pointerdown', 'input'] as const
+  let pending = true
+  const cleanup = () => {
+    if (!pending) return
+    pending = false
+    events.forEach((event) => document.removeEventListener(event, onUserIntent, true))
+    unsubscribe()
+    if (frame !== undefined) cancelAnimationFrame(frame)
+    if (cancelLanding === cleanup) cancelLanding = undefined
+  }
+  const onUserIntent = (event: Event) => {
+    // Entering the canvas is part of this handoff; any other focus belongs to the user.
+    if (event.type !== 'focusin' || event.target !== activeCanvasScreen()) cleanup()
+  }
+  unsubscribe = useView.subscribe((state) => {
+    if (state.screen !== screenAtRequest) cleanup()
+  })
+  events.forEach((event) => document.addEventListener(event, onUserIntent, true))
+  cancelLanding = cleanup
+
+  const attempt = () => {
+    frame = undefined
+    if (!pending) return
+    const screen = activeCanvasScreen()
     const target = screen ? find(screen) : null
     if (target) {
+      cleanup()
       target.focus({ preventScroll: true })
       target.scrollIntoView({ block: 'center', behavior: stillNow() ? 'auto' : 'smooth' })
-    } else if (left > 0) requestAnimationFrame(() => attempt(left - 1))
+    } else if (--framesLeft > 0) frame = requestAnimationFrame(attempt)
+    else cleanup()
   }
-  requestAnimationFrame(() => attempt(MOST_FRAMES))
+  frame = requestAnimationFrame(attempt)
 }
 
 function goToScreen(id: ScreenId): void {
@@ -129,7 +161,7 @@ function goToSetting(name: string): void {
 }
 
 function screenTargets(githubInMenu: boolean): SpotlightTarget[] {
-  const menu = SCREENS.filter(({ id }) => inMenu(id, githubInMenu)).map(({ id }) => id)
+  const menu = walkScreens({ screen: 'home', reviewOpen: false, githubInMenu })
   const KEYS: Partial<Record<ScreenId, string>> = { settings: '⌘,', integrations: '⌘I' }
   return PLACES.map((id) => {
     const screen = SCREENS.find((entry) => entry.id === id)!

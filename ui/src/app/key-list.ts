@@ -11,9 +11,24 @@ export interface KeyEntry {
 }
 
 export const KEY_LIST: readonly KeyEntry[] = [
-  { keys: '⌘1–5', does: 'Open a screen from the menu: Reports, Routines, Action Items, Work, GitHub', where: 'anywhere', hint: 'screens' },
+  {
+    keys: '⌘1, ⌘2, …',
+    does: 'Open the screen at that position in the visible navigation; Home is first.',
+    where: 'anywhere',
+    hint: 'screens',
+  },
   { keys: '⌘K', does: 'Search everything and go there', where: 'anywhere', hint: 'search' },
   { keys: '⌘Y', does: 'History', where: 'anywhere', hint: 'history' },
+  {
+    keys: '⌘R',
+    does: 'Reload the window and return to this place',
+    where: 'when no overlay owns the keyboard',
+  },
+  {
+    keys: '⌘←  ⌘→',
+    does: 'Go back or forward through places in this window',
+    where: 'outside text fields, including the message input, when no overlay owns the keyboard',
+  },
   { keys: '⌘,', does: 'Settings', where: 'anywhere', hint: 'settings' },
   { keys: '⌘I', does: 'Integrations', where: 'anywhere' },
   { keys: '⌘J', does: "Hobkin's mind, its main agent at work. Again to close", where: 'anywhere' },
@@ -40,6 +55,6 @@ export function navigationGuide(): string {
     '',
     ...KEY_LIST.map(({ keys, does, where }) => `- \`${keys}\` ${does} (${where})`),
     '',
-    'Try ⌘1 to see your reports, then esc to come back to the message.',
+    'Try ⌘1 to open Home, first in the visible navigation, then esc to come back to the message.',
   ].join('\n')
 }

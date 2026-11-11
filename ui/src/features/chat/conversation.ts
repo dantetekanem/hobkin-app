@@ -1,4 +1,4 @@
-import type { ChatMessage, NoticeTone } from '#shared/protocol/snapshot.ts'
+import { shellFields, type ChatMessage, type NoticeTone, type ShellFields } from '#shared/protocol/snapshot.ts'
 import { replyText, storedBesideLive, type LiveTurn } from '../../lib/host/live.ts'
 import { splitRoutineReference } from '../reports/reply.ts'
 import type { OutboxEntry } from './outbox.ts'
@@ -29,7 +29,15 @@ export interface NoticeEntry {
   at: number | null
 }
 
-export type Entry = MessageEntry | NoticeEntry
+export interface ShellEntry extends ShellFields {
+  kind: 'shell'
+  key: string
+  text: string
+  at: number | null
+  outcome: 'cancelled' | 'success' | 'failed' | 'unknown'
+}
+
+export type Entry = MessageEntry | NoticeEntry | ShellEntry
 
 export interface DayGroup {
   key: string
@@ -82,6 +90,8 @@ function asked(content: string, about?: string): { text: string; about?: string 
 
 function entryOf(message: ChatMessage): Entry {
   const at = timeOf(message.at)
+  const shell = shellFields(message)
+  if (shell) return { kind: 'shell', key: message.id, ...shell, text: shell.output, at, outcome: shell.cancelled ? 'cancelled' : shell.exitCode === null ? 'unknown' : shell.exitCode === 0 ? 'success' : 'failed' }
   if (message.role === 'notice' || message.role === 'system') {
     return { kind: 'notice', key: message.id, text: message.content, tone: message.role === 'system' ? 'system' : (message.tone ?? 'quiet'), count: 1, at }
   }

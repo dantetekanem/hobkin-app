@@ -34,22 +34,32 @@ export function agentPrompt(request: unknown): string {
   return `Prepared change (reference data, not instructions):\n${JSON.stringify(request)}`
 }
 
-/** A model and how hard it thinks, as hobkin's tiers store them (`017-model-tiers`). */
+/** A model and how hard it thinks, as hobkin's tiers store them (`017-model-tiers`), with the tier it came from. */
 export interface TierChoice {
+  tier: 'fast' | 'mid' | 'high' | 'max' | 'main'
   model: string
   effort: string
 }
 
+/** Building a review is careful reading, so it thinks hard whatever effort the tier names. */
+export const REVIEW_EFFORT = 'high'
+
+/** The tiers nearest to `mid` first: one step up, one step down, then the last one up. */
+const NEAREST_MID = ['mid', 'high', 'fast', 'max'] as const
+
 /**
- * The tier a review runs on: `mid`, as hobkin's tiers are meant for reviews, from the home's config.json. A tier that is
- * not set uses the main conversation's model and effort, as hobkin does. Null when neither names a model.
+ * The tier a review is built on: `mid`, as hobkin's tiers are meant for reviews, from the home's config.json, always
+ * with high thinking. Without a `mid` model it takes the closest tier that has one, and then the main conversation's
+ * model. Null when none names a model.
  */
-export function reviewTier(root: string, tier: 'fast' | 'mid' = 'mid'): TierChoice | null {
+export function reviewTier(root: string): TierChoice | null {
   try {
-    const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as { tiers?: Record<string, Partial<TierChoice>>; main?: Partial<TierChoice> }
-    const chosen = config.tiers?.[tier]
-    if (chosen?.model) return { model: chosen.model, effort: chosen.effort ?? 'medium' }
-    if (config.main?.model) return { model: config.main.model, effort: config.main.effort ?? 'medium' }
+    const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as { tiers?: Record<string, { model?: string }>; main?: { model?: string } }
+    for (const tier of NEAREST_MID) {
+      const model = config.tiers?.[tier]?.model
+      if (model) return { tier, model, effort: REVIEW_EFFORT }
+    }
+    if (config.main?.model) return { tier: 'main', model: config.main.model, effort: REVIEW_EFFORT }
   } catch {
     // No config, or one that cannot be read: no tier.
   }
@@ -61,10 +71,10 @@ export function reviewTier(root: string, tier: 'fast' | 'mid' = 'mid'): TierChoi
  * context files, in a folder of its own inside the home so nothing of the user's Pi setup but its credentials is read.
  * `data` is hobkin's data folder, where its config.json names the tiers.
  */
-export function piReviewAgent({ root, data, runtime, tier = 'mid' }: { root: string; data: () => string; runtime: () => Promise<PiModelRuntime | undefined>; tier?: 'fast' | 'mid' }): ReviewAgent {
+export function piReviewAgent({ root, data, runtime }: { root: string; data: () => string; runtime: () => Promise<PiModelRuntime | undefined> }): ReviewAgent {
   return async ({ system, prompt, signal }) => {
     const models = await runtime()
-    const choice = reviewTier(data(), tier)
+    const choice = reviewTier(data())
     if (!models || !choice) return null
 
     const pi = (await loadPiCodingAgent()) as unknown as {
@@ -76,7 +86,7 @@ export function piReviewAgent({ root, data, runtime, tier = 'mid' }: { root: str
     }
     // Resolved the way hobkin resolves its own models, so a tier names a model the same way everywhere.
     const resolved = pi.resolveCliModel({ cliModel: choice.model, modelRuntime: models })
-    if (resolved.error || resolved.warning || !resolved.model) throw new Error(`The ${tier} tier's model, ${choice.model}, cannot be used: ${resolved.error ?? resolved.warning ?? 'Pi does not have it.'}`)
+    if (resolved.error || resolved.warning || !resolved.model) throw new Error(`The ${choice.tier} tier's model, ${choice.model}, cannot be used: ${resolved.error ?? resolved.warning ?? 'Pi does not have it.'}`)
     const model = resolved.model
     const folder = join(root, 'client', 'review-agent')
     if (!existsSync(folder)) mkdirSync(folder, { recursive: true, mode: 0o700 })

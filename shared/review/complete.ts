@@ -5,6 +5,7 @@
  * every node gets a story step, the story is framed, the graph is laid out, and the result must pass the validator.
  */
 import { anchorOf, edgeId, unchangedFile, type Draft } from './draft.ts'
+import { testPaths } from './flow.ts'
 import { layoutReview } from './layout.ts'
 import { readModelPass, type ModelContext } from './model.ts'
 import { cleanProse, isSafePath, listed } from './prose.ts'
@@ -111,6 +112,14 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
 
   const resolve = (id: string) => alias.get(id) ?? (byId.has(id) ? id : undefined)
 
+  // What goes in and comes out, in the model's words where it has them, the host's signature where it has not.
+  // Read after context, so the model can name context it found by its own id.
+  for (const [id, words] of model.io) {
+    const node = byId.get(resolve(id) ?? '')
+    if (!node) corrections.push(`What goes in and out names ${id}, which is not a node. It was dropped.`)
+    else if (node.kind !== 'criterion') node.io = { in: words.in || node.io?.in || '', out: words.out || node.io?.out || '' }
+  }
+
   // Wires the model proposed.
   const joined = new Map(edges.map((edge) => [`${edge.from}>${edge.to}`, edge]))
   for (const proposal of model.wires) {
@@ -160,6 +169,7 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
   }
   nodes = nodes.filter((node) => byId.has(node.id))
 
+  const paths = testPaths(nodes, edges)
   const story = buildStory()
 
   function buildStory(): StoryStep[] {
@@ -181,9 +191,10 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
       const inFocus = new Set(focus)
       return [...criteria].filter((id) => inFocus.has(id) || edges.some((edge) => edge.from === id && inFocus.has(edge.to)))
     }
-    const walk = (focus: string[], title: string, text: string, given: readonly string[] = [], specStep?: string) => {
-      steps.push({ id: `s${steps.length}`, kind: 'walk', title, text, focus, criteria: given.length > 0 ? [...given] : served(focus), ...(specStep ? { specStep } : {}) })
+    const walk = (focus: string[], title: string, text: string, given: readonly string[] = [], specStep?: string, path?: string) => {
+      steps.push({ id: `s${steps.length}`, kind: 'walk', title, text, focus, criteria: given.length > 0 ? [...given] : served(focus), ...(specStep ? { specStep } : {}), ...(path ? { path } : {}) })
     }
+    const pathIds = new Set(paths.map((path) => path.id))
     const hostTitle = (focus: readonly string[]) => cleanProse(listed(focus.map(titleOf)), PROSE_LIMIT.title)
     const hostText = (focus: readonly string[]) =>
       cleanProse(focus.length === 1 ? byId.get(focus[0]!)!.summary : focus.map((id) => `${titleOf(id)}: ${byId.get(id)!.summary}`).join(' '), PROSE_LIMIT.stepText)
@@ -205,7 +216,8 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
       const known = proposal.criteria.filter((id) => criteria.has(id))
       for (const id of proposal.criteria) if (!criteria.has(id)) corrections.push(`${named} serves ${id}, which is not an acceptance line. That id was dropped.`)
       if (proposal.specStep && !specSteps.has(proposal.specStep)) corrections.push(`${named} names the spec step ${proposal.specStep}, which the spec does not have. It was dropped.`)
-      walk(kept, proposal.title || hostTitle(kept), proposal.text, known, specSteps.has(proposal.specStep) ? proposal.specStep : undefined)
+      if (proposal.path && !pathIds.has(proposal.path)) corrections.push(`${named} walks the path ${proposal.path}, which this review does not have. It was dropped.`)
+      walk(kept, proposal.title || hostTitle(kept), proposal.text, known, specSteps.has(proposal.specStep) ? proposal.specStep : undefined, pathIds.has(proposal.path) ? proposal.path : undefined)
     }
 
     // Whatever the model left out still gets a step, so no node is outside the story.
@@ -219,6 +231,14 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
     const follow = (id: string, kind: EdgeKind, direction: 'from' | 'to') =>
       edges.filter((edge) => edge.kind === kind && edge[direction] === id).map((edge) => edge[direction === 'from' ? 'to' : 'from'])
 
+    // Tests first: each test's path, hop by hop, with the acceptance lines the test proves beside it.
+    for (const path of paths) {
+      path.hops.forEach((hop, index) => {
+        if (!pending.has(hop)) return
+        const focus = take(index === 0 ? [hop, ...follow(hop, 'proves', 'to')] : [hop])
+        walk(focus, hostTitle(focus), hostText(focus), [], undefined, path.id)
+      })
+    }
     // An acceptance line goes with the tests that prove it, and code with the tests that exercise it.
     for (const node of nodes) {
       if (!pending.has(node.id)) continue
@@ -281,6 +301,7 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
     nodes,
     edges,
     story,
+    paths,
     summary: model.summary || cleanProse(input.change.title, PROSE_LIMIT.stepText),
     notices: draft.notices,
   }

@@ -4,7 +4,7 @@ import { HistoryView, type HistoryViewProps } from '@/features/chat/HistoryView.
 import { clockTime, dayLabel } from '@/features/reports/time.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { runCommand, useHasHost, useSessions } from '@/lib/host/index.ts'
+import { hostStore, runCommand, useHasHost, useHost, useSessions } from '@/lib/host/index.ts'
 import { sampleMessages } from './sample.ts'
 import { stillVariants, useStill } from './still.ts'
 import { useView } from './view-store.ts'
@@ -110,10 +110,13 @@ function Conversations({ onClose }: { onClose: () => void }) {
   const live = useHasHost()
   const sample = useSessions()
   const setVeilActive = useView((view) => view.setVeilActive)
+  const home = useHost((state) => state.home), epoch = useHost((state) => state.epoch)
   const [listed, setListed] = useState<Listed[] | string | null>(null)
-  const [opened, setOpened] = useState<{ row: number; chosen: Listed; conversation: HistoryViewProps['conversation']; error: string | null } | null>(null)
+  const [opened, setOpened] = useState<{ home: string | null; epoch: number; row: number; chosen: Listed; conversation: HistoryViewProps['conversation']; error: string | null } | null>(null)
 
   useEffect(() => {
+    setOpened(null)
+    setListed(null)
     if (!live) return
     let gone = false
     const when = (at: number, current: boolean) => (current ? 'Now' : `${dayLabel(at, Date.now())}, ${clockTime(at)}`)
@@ -124,21 +127,25 @@ function Conversations({ onClose }: { onClose: () => void }) {
     return () => {
       gone = true
     }
-  }, [live])
+  }, [live, home, epoch])
 
   const open = (row: number, chosen: Listed) => {
-    setOpened({ row, chosen, conversation: live ? null : SAMPLE, error: null })
+    setOpened({ home, epoch, row, chosen, conversation: live ? null : SAMPLE, error: null })
     if (!live) return
-    // An answer for a row that is no longer open is dropped.
-    const settle = (change: { conversation: HistoryViewProps['conversation'] } | { error: string }) =>
+    // A late answer cannot cross the selected row or the host's source generation.
+    const source = hostStore.getState()
+    const settle = (change: { conversation: HistoryViewProps['conversation'] } | { error: string }) => {
+      const current = hostStore.getState()
+      if (current.home !== source.home || current.epoch !== source.epoch || current.link !== 'open') return
       setOpened((now) => (now?.chosen.id === chosen.id ? { ...now, ...change } : now))
+    }
     runCommand('history.open', { id: chosen.id }).then(
       (conversation) => settle({ conversation }),
       (error: unknown) => settle({ error: reason(error) }),
     )
   }
 
-  if (opened) {
+  if (opened && opened.home === home && opened.epoch === epoch) {
     const back = () => {
       setVeilActive(opened.row)
       setOpened(null)

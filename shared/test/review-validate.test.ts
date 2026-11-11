@@ -104,7 +104,8 @@ test('the model is sent prepared ids, the wires already drawn and the changed li
   const request = modelRequest(draft)
   const doing = request.nodes.find((node) => node.title === 'doingAfter')!
 
-  assert.deepEqual(Object.keys(doing).sort(), ['changes', 'id', 'kind', 'path', 'title'])
+  assert.deepEqual(Object.keys(doing).sort(), ['changes', 'id', 'io', 'kind', 'path', 'title'])
+  assert.deepEqual(doing.io, { in: 'previous: string, event: Event', out: '' })
   assert.match(doing.changes, /^- export function doingAfter\(previous: string\) \{\n\+ export function doingAfter\(previous: string, event: Event\) \{/)
   assert.deepEqual(request.spec?.acceptance.map((line) => line.id), ['A1', 'A2'])
   assert.equal(request.wires.length, 6)

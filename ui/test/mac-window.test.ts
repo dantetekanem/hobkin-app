@@ -13,7 +13,8 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 test('the Mac window has a host from the start, so it never draws sample data', () => {
   assert.equal(hasHost(initialHostState, true), true)
-  assert.equal(hasHost({ ...initialHostState, link: 'none' }, true), true, 'a host that is slow to answer is still coming')
+  const waiting = { ...initialHostState, link: 'none' } as const
+  assert.equal(hasHost(waiting, true), true, 'a host that is slow to answer is still coming')
   assert.deepEqual(
     [connectionFrom(initialHostState, true), connectionFrom({ ...initialHostState, link: 'none' }, true)].map(({ status, label }) => ({ status, label })),
     [{ status: 'connecting', label: 'Connecting…' }, { status: 'connecting', label: 'Connecting…' }],

@@ -197,6 +197,32 @@ export interface PlacedBand {
   bottom: number
 }
 
+export interface TipPlacement {
+  align: 'start' | 'center' | 'end'
+  maxWidth: number
+  left?: number
+  right?: number
+}
+
+const TIP_GUTTER = 4
+const TIP_CENTER_MIN_WIDTH = 160
+
+/** Center a tip only while both sides leave enough room; otherwise pin it to the chart edge. */
+export function tipPlacementAt(parentLeft: number, parentWidth: number, width: number, scale = 1): TipPlacement {
+  const x = Math.max(0, Math.min(width, parentLeft + parentWidth / 2))
+  const sideRoom = Math.max(0, Math.min(x, width - x) - TIP_GUTTER)
+  const centeredWidth = sideRoom * 2
+  if (centeredWidth >= TIP_CENTER_MIN_WIDTH || x === width / 2) return { align: 'center', maxWidth: centeredWidth / scale }
+
+  const maxWidth = Math.max(0, width - TIP_GUTTER * 2) / scale
+  if (x < width / 2) {
+    const left = x + (TIP_GUTTER - x) / scale
+    return { align: 'start', left: left - parentLeft, maxWidth }
+  }
+  const right = x + (width - TIP_GUTTER - x) / scale
+  return { align: 'end', right: parentLeft + parentWidth - right, maxWidth }
+}
+
 export interface Scene {
   /** The width it was drawn for, in CSS pixels. */
   width: number

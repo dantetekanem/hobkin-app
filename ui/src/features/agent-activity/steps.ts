@@ -72,6 +72,7 @@ interface Base {
 }
 
 export type Step =
+  | (Base & { kind: 'codemode'; state: CallState })
   | (Base & { kind: 'says'; text: string })
   | (Base & { kind: 'shell'; commands: Command[] })
   | (Base & { kind: 'change'; change: Change })
@@ -284,6 +285,10 @@ export function stepsOf(entries: readonly ActivityEntry[], options: ReadOptions 
     const last = steps.at(-1)
     if (entry.kind !== 'tool') {
       if (entry.text?.trim()) steps.push({ kind: 'says', key: entry.id, entries: [entry], text: entry.text })
+      continue
+    }
+    if (entry.name === 'codemode') {
+      steps.push({ kind: 'codemode', key: entry.id, entries: [entry], state: stateOf(entry, ended) })
       continue
     }
     const family = familyOf(entry.name)

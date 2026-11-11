@@ -1,15 +1,18 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { lazy, Suspense, type ComponentType } from 'react'
 import { spring, stagger, tween } from '@/lib/motion.ts'
+import { HomeScreen } from '@/features/home/HomeScreen.tsx'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
 import { RoutinesScreen } from '@/features/routines/RoutinesScreen.tsx'
 import { SettingsScreen } from '@/features/settings/SettingsScreen.tsx'
 import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { useHasHost } from '@/lib/host/index.ts'
 import { SignInScreen } from '@/features/signin/SignInScreen.tsx'
+import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentScreen } from '@/features/work/AgentScreen.tsx'
 import { MainAgentScreen } from '@/features/main-agent/MainAgentScreen.tsx'
 import { WorkScreen } from '@/features/work/WorkScreen.tsx'
+import { WorldScreen } from '@/features/work/WorldScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
 import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
 import { CanvasPanel } from '@/features/canvas-panel/CanvasPanel.tsx'
@@ -38,7 +41,9 @@ const NOT_WIRED: ReadonlySet<ScreenId> = new Set<ScreenId>([])
 
 /** Each canvas screen. A feature replaces its placeholder here when it is built. */
 const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
+  home: HomeScreen,
   work: WorkScreen,
+  world: WorldScreen,
   routines: RoutinesScreen,
   reports: ReportsScreen,
   actions: ActionsScreen,
@@ -53,7 +58,7 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
 const place = (x: number, y: number, scale: number) => `translateX(${x}%) translateY(${y}%) scale(${scale})`
 
 /** Where a screen travels from and to, and whether it may travel at all: under Still it only fades. */
-type Travel = ScreenMotion & { still: boolean }
+type Travel = ScreenMotion & { still: boolean; agent: boolean }
 
 /**
  * A screen crosses the whole canvas. Along the menu it travels sideways, in the direction of its item.
@@ -65,15 +70,15 @@ const travel: Variants = {
   enter: ({ axis, direction, still }: Travel) =>
     still ? { opacity: 0 } : { opacity: 1, transform: axis === 'x' ? place(direction * 100, 0, 1) : place(0, direction * 100, 1) },
   // Under Still a screen never travels, and one caught mid-travel when Still was chosen is set straight at once.
-  center: ({ still }: Travel) => ({
+  center: ({ still, agent }: Travel) => ({
     opacity: 1,
     transform: place(0, 0, 1),
-    transition: { transform: still ? { duration: 0 } : spring.push, opacity: tween.enter },
+    transition: entryTransition(agent, still, { transform: still ? { duration: 0 } : spring.push, opacity: tween.enter }),
   }),
-  exit: ({ axis, direction, still }: Travel) =>
+  exit: ({ axis, direction, still, agent }: Travel) =>
     still
-      ? { opacity: 0, transition: { opacity: { duration: 0.2, ease: 'linear' } } }
-      : { transform: axis === 'x' ? place(-direction * 100, 0, 1) : place(0, -direction * 100, 1), transition: { transform: spring.push } },
+      ? { opacity: 0, transition: entryTransition(agent, still, { opacity: { duration: 0.2, ease: 'linear' } }) }
+      : { transform: axis === 'x' ? place(-direction * 100, 0, 1) : place(0, -direction * 100, 1), transition: entryTransition(agent, still, { transform: spring.push }) },
 }
 
 /**
@@ -104,7 +109,8 @@ export function Canvas() {
   const needsModel = useNeedsSignIn()
   const hasHost = useHasHost()
   const still = useStill()
-  const travelOf: Travel = { ...motionOf, still }
+  const enteringAgent = screen === 'agent' && !needsModel
+  const travelOf: Travel = { ...motionOf, still, agent: enteringAgent }
   const View = needsModel ? SignInScreen : SCREEN_VIEWS[screen]
   // A review that has the user's attention takes almost the whole window. Talking to an agent takes a little.
   const grow = screen === 'review' && engaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : talking ? TALK_GROW : 0
@@ -118,7 +124,7 @@ export function Canvas() {
       // The canvas takes room from the chat by sliding its left edge over it. The chat itself does not move.
       initial={false}
       animate={{ marginLeft: -grow }}
-      transition={still ? { duration: 0 } : spring.screen}
+      transition={entryTransition(enteringAgent, still, still ? { duration: 0 } : spring.screen)}
       // A click in the canvas is as good as stepping into it with the keyboard.
       onPointerDown={engageCanvas}
     >
@@ -141,7 +147,7 @@ export function Canvas() {
           >
             <ScreenBoundary>
               <Suspense fallback={null}>
-                <motion.div className="h-full" variants={arrive} initial="enter" animate="center">
+                <motion.div className="h-full" variants={enteringAgent ? { enter: {}, center: { transition: agentEntry(still) } } : arrive} initial="enter" animate="center">
                   {hasHost && !needsModel && NOT_WIRED.has(screen) ? <NotWiredYet screen={screen} /> : <View />}
                 </motion.div>
               </Suspense>

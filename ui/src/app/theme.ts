@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
+import { borderColors } from '#shared/protocol/appearance.ts'
 import { DARK_PALETTE, LIGHT_PALETTE, isDarkPalette, onAccent, readablePalette, stepOpacity, type Palette } from '@/features/settings/rules.ts'
-import { useSettings } from '@/features/settings/store.ts'
+import { useSettings, watchAppearance } from '@/features/settings/store.ts'
+import { hostStore } from '@/lib/host/client.ts'
 
 export type Theme = 'light' | 'dark'
 /** What the user chose. `system` follows the Mac's appearance. `custom` is the user's own colors, from Settings. */
@@ -69,7 +71,12 @@ function apply(theme: Theme, palette: Palette | null = null) {
   root.classList.toggle('dark', theme === 'dark')
   root.classList.toggle('light', theme === 'light')
   for (const name of Object.keys(customVars(DARK_PALETTE))) root.style.removeProperty(name)
+  root.style.removeProperty('--hb-border')
+  root.style.removeProperty('--hb-border-strong')
   if (palette) {
+    const borders = borderColors(useSettings.getState())
+    if (borders?.border) root.style.setProperty('--hb-border', borders.border)
+    if (borders?.borderStrong) root.style.setProperty('--hb-border-strong', borders.borderStrong)
     for (const [name, value] of Object.entries(customVars(palette))) root.style.setProperty(name, value)
     root.dataset.palette = 'custom'
   } else {
@@ -150,12 +157,21 @@ system.addEventListener('change', (event) => {
 // Opacity and the custom colors apply as they change, without the reveal: they move in small steps.
 useSettings.subscribe((state, before) => {
   if (state.backgroundOpacity !== before.backgroundOpacity) showOpacity(state.backgroundOpacity)
-  const palette = state.customTheme && state.palette !== before.palette ? customPalette() : null
+  const palette = state.customTheme && (state.palette !== before.palette || state.border !== before.border || state.borderStrong !== before.borderStrong) ? customPalette() : null
   if (palette) {
     remember(baseOf(palette))
     apply(baseOf(palette), palette)
+  } else if (
+    state.appearanceHome !== before.appearanceHome &&
+    before.customTheme &&
+    !state.customTheme
+  ) {
+    apply(saved() ?? current(), null)
   }
 })
+
+const stopAppearance = watchAppearance(hostStore)
+import.meta.hot?.dispose(stopAppearance)
 
 // What was saved, before the first render. index.html has already put on the light or dark under it.
 showOpacity(useSettings.getState().backgroundOpacity)

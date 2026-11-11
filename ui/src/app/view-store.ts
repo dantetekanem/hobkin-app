@@ -34,6 +34,8 @@ interface ViewState {
   openAgent: string | null
   /** While the user walks the agents list, the screen to return to when they leave it. */
   previewReturn: ScreenId | null
+  /** The screen under an agent, kept when its preview becomes a canvas. */
+  agentReturn: ScreenId | null
   /** True while the user has stepped into an agent to talk to it: the canvas grows over the chat and gets its own input. */
   agentTalk: boolean
   /** While Settings or Integrations is open: the screen under both, which closing returns to. */
@@ -108,7 +110,7 @@ export const useView = create<ViewState>()(
   persist(
     (set, get) => ({
       // The first item of the menu.
-      screen: 'reports',
+      screen: 'home',
       screenMotion: { axis: 'x', direction: 1 },
       veil: null,
       veilActive: 0,
@@ -118,6 +120,7 @@ export const useView = create<ViewState>()(
       reviewReturn: null,
       openAgent: null,
       previewReturn: null,
+      agentReturn: null,
       agentTalk: false,
       settingsReturn: null,
       githubReturn: null,
@@ -168,11 +171,12 @@ export const useView = create<ViewState>()(
         set({ openReview: null, reviewReturn: null })
       },
       previewAgent: (agentId, direction) => {
-        const { screen, previewReturn, openAgent } = get()
+        const { screen, previewReturn, openAgent, agentReturn } = get()
         if (screen === 'agent' && openAgent === agentId) return
         set({
           // Remember where the canvas was only on the way in, not while moving between agents.
           previewReturn: previewReturn ?? (screen === 'agent' ? null : screen),
+          agentReturn: screen === 'agent' ? agentReturn : screen,
           openAgent: agentId,
           screen: 'agent',
           // Agents are a vertical list under the input, so their canvases travel vertically too.
@@ -183,28 +187,30 @@ export const useView = create<ViewState>()(
         const { previewReturn, agentTalk } = get()
         // Stepping into an agent takes the keyboard out of the list without ending the preview.
         if (previewReturn === null || agentTalk) return
-        set({ screen: previewReturn, openAgent: null, previewReturn: null, screenMotion: { axis: 'y', direction: -1 } })
+        set({ screen: previewReturn, openAgent: null, previewReturn: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
       },
       enterAgentTalk: (agentId) => {
-        const { screen, openAgent, previewReturn } = get()
+        const { screen, openAgent, previewReturn, agentReturn } = get()
         const same = screen === 'agent' && openAgent === agentId
         set({
           openAgent: agentId,
           screen: 'agent',
           agentTalk: true,
+          agentReturn: screen === 'agent' ? (agentReturn ?? previewReturn) : screen,
           previewReturn: previewReturn ?? (screen === 'agent' ? null : screen),
           ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }),
         })
       },
       leaveAgentTalk: () => set({ agentTalk: false }),
       openAgentCanvas: (agentId) => {
-        const { screen, openAgent } = get()
+        const { screen, openAgent, previewReturn, agentReturn } = get()
         const same = screen === 'agent' && openAgent === agentId
-        set({ openAgent: agentId, screen: 'agent', previewReturn: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) })
+        set({ openAgent: agentId, screen: 'agent', agentReturn: screen === 'agent' ? (agentReturn ?? previewReturn) : screen, previewReturn: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) })
       },
       closeAgentCanvas: () => {
-        if (get().screen === 'agent') set({ screen: 'work', screenMotion: { axis: 'y', direction: -1 } })
-        set({ openAgent: null, previewReturn: null, agentTalk: false })
+        const { screen, agentReturn, previewReturn } = get()
+        if (screen !== 'agent') return
+        set({ screen: agentReturn ?? previewReturn ?? 'work', openAgent: null, previewReturn: null, agentReturn: null, agentTalk: false, screenMotion: { axis: 'y', direction: -1 } })
       },
       // Settings and Integrations come down over whatever is showing, and lift away again when they are left.
       // The way back is in overlays.ts.

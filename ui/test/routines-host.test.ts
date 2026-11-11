@@ -3,6 +3,7 @@ import { after, afterEach, mock, test } from 'node:test'
 import { hostStore } from '../src/lib/host/client.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 import { factsOf } from '../src/features/routines/rules.ts'
+import { useView } from '../src/app/view-store.ts'
 
 const now = Date.parse('2026-11-10T12:00:00Z')
 mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now })
@@ -27,6 +28,8 @@ afterEach(() => {
 after(() => mock.timers.reset())
 
 test('host schedules replace samples, preserving enabled, paused, window and recurrence settings', () => {
+  assert.equal(useRoutines.getState().sample, 'full', 'a plain browser starts in sample mode')
+  assert.ok(data().routines.length > 0)
   hello()
   assert.deepEqual(data().routines, [])
   const { at: _at, ...base } = routine
@@ -76,13 +79,14 @@ test("Run now, the switch and new times go to hobkin, pending until it answers, 
   const state = () => useRoutines.getState()
 
   // The switch shows where it is going until hobkin answers. By then its snapshot has the change.
-  const later = Promise.withResolvers<unknown>()
-  answer = () => later.promise
+  let resolve!: (value: unknown) => void
+  const later = new Promise<unknown>((done) => { resolve = done })
+  answer = () => later
   const switching = state().setEnabled(routine.id, false)
   assert.deepEqual(state().pending, { [routine.id]: { action: 'enable', enabled: false } })
   assert.equal(await state().changeTimes(routine.id, { at: '15:00' }), 'hobkin is still busy with this routine.')
   snapshot([{ ...routine, enabled: false }], [], false)
-  later.resolve({ ok: true })
+  resolve({ ok: true })
   assert.equal(await switching, null)
   assert.deepEqual(state().pending, {})
   assert.equal(data().routines[0]?.enabled, false)
@@ -107,6 +111,89 @@ test("Run now, the switch and new times go to hobkin, pending until it answers, 
   assert.equal(state().sample, null)
   assert.deepEqual(data().running, {})
   routinesHost.run = real
+})
+
+test('delete confirmation cancels without a command, pins the definition, and requires a matching receipt', async () => {
+  hello(); snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }])
+  const state = () => useRoutines.getState()
+  state().open(routine.id, 'row')
+  const calls: unknown[] = []
+  const real = routinesHost.run
+  routinesHost.run = (async (name: string, args: unknown) => { calls.push([name, args]); return { id: routine.id, deleted: true } }) as never
+  try {
+    state().askDelete(routine.id); state().cancelDelete()
+    assert.equal(await state().confirmDelete(), 'Confirm this routine first.')
+    assert.deepEqual(calls, [])
+    state().askDelete(routine.id)
+    assert.equal(await state().confirmDelete(), null)
+    assert.deepEqual(calls, [['routine.delete', { id: routine.id, expectedDefinition: 'a'.repeat(64) }]])
+    assert.equal(state().openId, null)
+    assert.equal(data().routines.length, 1, 'only host snapshots remove data')
+    state().open(routine.id, 'row'); state().askDelete(routine.id)
+    routinesHost.run = (async () => { throw Error('Routine is running.') }) as never
+    assert.equal(await state().confirmDelete(), 'Routine is running.')
+    assert.equal(state().openId, routine.id)
+    routinesHost.run = (async () => ({ id: 'other', deleted: true })) as never
+    assert.match((await state().confirmDelete())!, /confirm/)
+  } finally { routinesHost.run = real }
+})
+
+test('deletion refuses changed definitions, homes, resets, offline, running and old-host/sample data', async () => {
+  const state = () => useRoutines.getState()
+  const real = routinesHost.run
+  routinesHost.run = (async () => { assert.fail('invalid confirmation must not send') }) as never
+  try {
+    for (const change of [
+      () => snapshot([{ ...routine, expectedDefinition: 'b'.repeat(64) }], [], false),
+      () => hello('/different'), () => snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }]),
+      () => hostStore.setState({ link: 'lost' }),
+      () => snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64), nextRun: { state: 'running', at: null } }], [], false),
+    ]) {
+      hello(); snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }]); state().open(routine.id, 'row'); state().askDelete(routine.id)
+      change(); const refusal = await state().confirmDelete(); assert.ok(refusal)
+      if (state().deletion) assert.equal(state().deletion?.refusal, refusal)
+    }
+    hello(); snapshot([routine]); state().open(routine.id, 'row')
+    assert.ok(state().askDelete(routine.id))
+    hostStore.setState(initialHostState, true)
+    assert.ok(state().askDelete(routine.id))
+  } finally { routinesHost.run = real }
+})
+
+test('late deletion replies after away-and-back cannot clear a newer confirmation', async () => {
+  hello(); snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }])
+  const state = () => useRoutines.getState()
+  const real = routinesHost.run
+  let resolve!: (value: unknown) => void
+  routinesHost.run = (() => new Promise((done) => { resolve = done })) as never
+  try {
+    for (const leave of [
+      () => { state().close(); state().open(routine.id, 'row') },
+      () => { useView.setState({ screen: 'reports' }); useView.setState({ screen: 'routines' }) },
+      () => snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }]),
+      () => snapshot([{ ...routine, expectedDefinition: 'b'.repeat(64) }], [], false),
+      () => { hello('/other'); snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }]) },
+      () => { hostStore.setState({ link: 'lost' }); hello() },
+    ]) {
+      hello(); snapshot([{ ...routine, expectedDefinition: 'a'.repeat(64) }]); useView.setState({ screen: 'routines' })
+      state().open(routine.id, 'row'); state().askDelete(routine.id)
+      const deletion = state().confirmDelete()
+      assert.equal(state().deletion?.pending, true)
+      assert.ok(state().askDelete(routine.id), 'cannot replace an in-flight operation')
+      leave(); assert.equal(state().deletion, null)
+      state().open(routine.id, 'row'); state().askDelete(routine.id)
+      const newer = state().deletion
+      resolve({ id: routine.id, deleted: true }); await deletion
+      assert.equal(state().deletion, newer)
+      assert.equal(state().openId, routine.id)
+    }
+    state().cancelDelete(); state().askDelete(routine.id)
+    const disappearing = state().confirmDelete()
+    snapshot([], [], false)
+    assert.equal(state().openId, null, 'the authoritative snapshot closes a removed routine')
+    resolve({ id: routine.id, deleted: true }); await disappearing
+    assert.equal(state().deletion, null)
+  } finally { routinesHost.run = real }
 })
 
 test('host next-run times and held/running states override the local sample forecast', () => {

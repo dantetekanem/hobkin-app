@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { reviewMemory } from './state/context.tsx'
 import { createVerdict, type VerdictCommands } from './verdict.ts'
 
-const LABEL: Record<Verdict, string> = { comment: 'Comment', approve: 'Approve', 'request-changes': 'Request changes' }
+const LABEL: Record<Verdict, string> = { comment: 'Comment', approve: 'Approve', 'approve-merge': 'Approve and merge', 'request-changes': 'Request changes' }
 
 /** The host's exact preview, followed by a separate, explicit send. Opening this panel sends nothing. */
 export function VerdictPanel({ review, command, saveNotes, current }: { review: Review; command: VerdictCommands; saveNotes: () => Promise<void>; current: () => boolean }) {

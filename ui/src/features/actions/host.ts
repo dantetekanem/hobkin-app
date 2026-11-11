@@ -19,6 +19,12 @@ function isDecision(value: unknown): value is ActionItem {
     })
 }
 
+const ATTENTION_KINDS = new Map<string, ItemKind>([
+  ['personal', 'yours'],
+  ['approval', 'approval'],
+  ['work', 'work'],
+])
+
 const GROUPS: [string, ItemKind][] = [
   ['wrong', 'work'],
   ['asks', 'question'],
@@ -77,7 +83,7 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
       const proposal = group === 'proposals' && /^[0-9a-f]{6}$/.test(text(entry.id))
       rows.push({
         id,
-        kind,
+        kind: group === 'yours' ? ATTENTION_KINDS.get(text(entry.attentionKind)) ?? 'work' : kind,
         from,
         summary,
         at: text(entry.at) || null,

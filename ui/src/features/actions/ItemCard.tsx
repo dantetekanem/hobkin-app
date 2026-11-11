@@ -16,9 +16,13 @@ interface ItemCardProps {
   order: number
   /** Kept for the screen that still passes it. A card is always actionable. */
   readOnly?: boolean
+  /** It opens here to be read, though it is handled elsewhere: work mode is off. Where it is handled is then a link of its own. */
+  reads?: boolean
   /** The card's own action: open its whole decision, or open it where it is handled. */
   onAsk: (row: WaitingRow) => void
   onReview: (row: WaitingRow) => void
+  /** Opens it where it is handled, from its own link. */
+  onOpenElsewhere?: (row: WaitingRow) => void
 }
 
 const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
@@ -28,13 +32,13 @@ const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
  * choices in words, with hobkin's pick marked. The whole card is one button that opens its whole decision, or
  * opens it where hobkin handles it. Its own controls (links, Review) sit on top, and Right reaches them.
  */
-export function ItemCard({ row, now, variants, order, onAsk, onReview }: ItemCardProps) {
+export function ItemCard({ row, now, variants, order, reads = false, onAsk, onReview, onOpenElsewhere }: ItemCardProps) {
   const { label, icon: Icon } = KIND[row.kind]
   const at = timeOf(row.at)
   const choices = row.question.choices
   // "Routine inbox-sweep" already says it is a routine.
   const source = row.from.toLowerCase().startsWith(label.toLowerCase()) ? row.from : `${label} · ${row.from}`
-  const action = row.opens ? OPENS_IN[row.opens.screen] : 'Answer'
+  const action = reads ? 'Read' : row.opens ? OPENS_IN[row.opens.screen] : 'Answer'
 
   return (
     <motion.li
@@ -69,11 +73,25 @@ export function ItemCard({ row, now, variants, order, onAsk, onReview }: ItemCar
           {row.opens ? (
             <p className="mt-1.5 flex items-center gap-1 text-[13px] leading-snug text-muted-foreground">
               {row.question.tldr ? <span className="min-w-0 truncate">{row.question.tldr}</span> : null}
-              <span className="flex shrink-0 items-center gap-0.5 font-medium text-foreground">
-                {row.question.tldr ? <span aria-hidden="true" className="font-normal text-muted-foreground"> · </span> : null}
-                {OPENS_IN[row.opens.screen]}
-                <ArrowUpRight className="size-3.5" aria-hidden="true" />
-              </span>
+              {row.question.tldr ? <span aria-hidden="true" className="shrink-0"> · </span> : null}
+              {reads ? (
+                // Read here, the row opens the item, and where it is handled is a link of its own.
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  data-row-control=""
+                  onClick={() => onOpenElsewhere?.(row)}
+                  className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-sm font-medium text-foreground underline decoration-border-strong underline-offset-[3px] hover:decoration-foreground"
+                >
+                  {OPENS_IN[row.opens.screen]}
+                  <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                </button>
+              ) : (
+                <span className="flex shrink-0 items-center gap-0.5 font-medium text-foreground">
+                  {OPENS_IN[row.opens.screen]}
+                  <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                </span>
+              )}
             </p>
           ) : (
             <p className="mt-1.5 text-[13px] leading-snug text-muted-foreground">

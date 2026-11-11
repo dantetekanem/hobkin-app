@@ -58,7 +58,7 @@ test('all waiting groups carry real summaries without invented choices or review
     asks: [{ id: 'ask', question: 'Which account?' }],
     proposals: [{ id: 'proposal', title: 'An idea', reason: 'Needs approval' }],
     branches: [{ slug: 'app', item: 'abc', title: 'Ready branch', summary: 'Exact branch detail', at: '2026-11-07T08:00:00Z' }],
-    yours: [{ slug: 'app', item: 'def', title: 'Your task', reason: 'Needs your access' }],
+    yours: [{ slug: 'app', item: 'def', title: 'Your task', reason: 'Needs your access', attentionKind: 'personal' }],
     reports: [{ id: 'recap', title: 'Recap', next: 'Check the finding' }],
   } })
   assert.equal(actual.length, 7)
@@ -66,6 +66,16 @@ test('all waiting groups carry real summaries without invented choices or review
   assert.equal(actual.find(({ kind }) => kind === 'yours')?.question.tldr, 'Needs your access')
   assert.equal(actual.find(({ id }) => id === 'waiting:reports:recap')?.question.tldr, 'Check the finding')
   assert.ok(actual.filter(({ item }) => item === null).every(({ question, branch }) => question.choices.length === 0 && !branch))
+})
+
+test('work approvals and unknown steps do not acquire a personal-only label or shipping command', () => {
+  const rows = hostRows({ waiting: { yours: [
+    { slug: 'app', item: 'ship', title: 'Ship exact head', attentionKind: 'approval', head: 'abc123' },
+    { slug: 'app', item: 'unknown', title: 'Investigate remaining work' },
+    { slug: 'app', item: 'access', title: 'Provide access', attentionKind: 'personal' },
+  ] } })
+  assert.deepEqual(rows.map(row => row.kind), ['approval', 'work', 'yours'])
+  assert.ok(rows.every(row => row.opens?.screen === 'work' && !row.answers && row.question.choices.length === 0))
 })
 
 test('host rows ignore local answers and deferred sample questions', () => {

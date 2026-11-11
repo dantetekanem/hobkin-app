@@ -3,12 +3,15 @@ import { CLOSE, PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type Ho
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
 import { Attachments } from './attachments.ts'
+import { appStateHandlers } from './app-state.ts'
 import { createClientTool } from './client-tool.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
 import { History } from './history.ts'
+import { mainImage } from './message-images.ts'
+import { readJobSession } from './job-session.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
 import { Integrations, type McpSource } from './integrations.ts'
 import { piMcpSourceFor } from './integrations-pi.ts'
@@ -27,11 +30,13 @@ import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
 import { routineHandlers } from './routines.ts'
-import { Appearance } from './appearance.ts'
+import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
 import { Canvas } from './canvas.ts'
 import { decisionHandlers } from './decisions.ts'
+import { reportHandlers } from './reports.ts'
 import { workFrom, workHandlers } from './work.ts'
 import type { GhCall } from './review/gh.ts'
+import { reviewBrief } from './review/guide.ts'
 import { hostReviews, reviewHandlers, toPrepare } from './review/seat.ts'
 
 export interface HostOptions {
@@ -145,6 +150,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   // hobkin reaches the app through one tool, which runs the same commands a click does (`013-hobkin-access`).
   const client = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
 
+  // Load optional styling before any owner startup; canonical data comes from root admission.
+  const appearance = await loadHostAppearance(root, publish, log)
   const owner = new HomeOwner({
     root,
     live,
@@ -186,8 +193,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // The canvas panel: the page hobkin shows beside the screens. The window draws it (030-canvas-panel).
   const canvas = new Canvas({ onChange: publish })
-  // The theme hobkin last set; publishing it to the window is not wired yet (#50).
-  const appearance = new Appearance({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
   // Change Review: reviews prepared in the background and kept in the home, and verdicts only on the user's word.
@@ -208,6 +213,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     github: github.state,
     integrations: integrations.state,
     canvas: canvas.state,
+    appearance: appearanceRequest(appearance),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workFrom(owner.snapshot) : null,
     snapshot: owner.snapshot && activity.keep(owner.snapshot),
@@ -238,11 +244,17 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   const done = { ok: true } as const
   const handlers: HostHandlers = {
-    'conversation.send': async ({ text, images = [], report }) => {
+    ...appStateHandlers({ root, owner, revision: () => sync.full().rev }),
+    'conversation.send': async ({ text, images = [], report, review, item }) => {
       const app = hobkin()
       const pictures = attachments.handles(images)
       // The report goes as hobkin's terminal app sends it: the whole report, from hobkin's own list, ahead of the words.
-      const about = report === undefined ? undefined : ((owner.snapshot?.reports ?? []) as { id?: unknown }[]).find(({ id }) => id === report)
+      // A message written during a review carries where the user is in it, and a reply to an action item that item, the same way.
+      const about =
+        report !== undefined ? ((owner.snapshot?.reports ?? []) as { id?: unknown }[]).find(({ id }) => id === report)
+        : review ? reviewBrief(reviews, review)
+        : item ? { id: `item:${item.id}`, title: `Action item: ${item.title}`, body: item.body }
+        : undefined
       if (report !== undefined && !about) throw new Unavailable("That report is not in hobkin's list any more.")
       // A turn needs words, so a message of pictures alone gets hobkin's own.
       const words = text?.trim() ? text : pictures.length ? owner.imageOnlyText : null
@@ -250,6 +262,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       const accepted = await app.send(words, about, pictures)
       attachments.sent(images)
       return { id: accepted.id, queued: accepted.queued === true }
+    },
+    'conversation.image': ({ messageId, ordinal }) => mainImage(hobkin, sync.shown(), messageId, ordinal),
+    'history.image': async ({ id, messageId, ordinal }) => {
+      const app = owner.app, main = app?.runtime.main
+      const sessionId = (main as { sessionId?: string } | null)?.sessionId
+      const image = await history.image(id, messageId, ordinal)
+      return owner.app === app && app?.runtime.main === main && (main as { sessionId?: string } | null)?.sessionId === sessionId ? image : null
     },
     'conversation.attach': ({ name, data }) => attachments.attach(hobkin(), limits(), { name, bytes: Buffer.from(data, 'base64') }),
     'conversation.detach': ({ id }) => {
@@ -339,10 +358,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
     // Action Items answered from the window, each through hobkin's own decision or learning action (012).
     ...decisionHandlers({ app: hobkin }),
+    ...reportHandlers({ app: hobkin }),
     // A routine's switch, its times and Run now, each through hobkin's own runner (010-routines).
     ...routineHandlers({ app: hobkin }),
     // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
     ...reviewHandlers(reviews),
+    'agent.session': ({ report }) => readJobSession({ data: () => hobkin().runtime.directory, snapshot: () => ({ reports: owner.snapshot?.reports, completedJobReports: owner.snapshot?.completedJobReports }), state: () => hobkin().runtime.state() }, report),
     'history.list': () => history.list(),
     'history.open': ({ id }) => history.open(id),
   }

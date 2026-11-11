@@ -25,7 +25,7 @@ function reviewsIn(home: string, actions: unknown[][] = []) {
         return { message: 'hobkin sent the change back with your notes.' }
       },
     }),
-    card: () => ({ landing: 'merge', yes: 'Merge it.' }),
+    card: () => ({ landing: 'merge', yes: 'Merge it.', branch: 'hobkin/7d02c9', pr: null }),
     now: () => 2000,
   })
 }
@@ -72,7 +72,7 @@ test('ask for changes sends selected notes with their targets', async (t) => {
   const reviews = reviewsIn(home, actions)
   reviews.saveNotes(ID, { entries: [note('n1', { text: 'Clear it where it is set.' }), note('n2', { intent: 'question', text: 'Only for hobkin.' })].map((entry) => ({ op: 'put', note: entry })), draft: null })
 
-  const preview = reviews.preview(ID, 'request-changes', 'One thing.')
+  const preview = await reviews.preview(ID, 'request-changes', 'One thing.')
   assert.equal(preview.note, ['One thing.', '', `1. Step ${sample.story.indexOf(step) + 1} of ${sample.story.length}, "${step.title}".`, '   Clear it where it is set.'].join('\n'))
   await reviews.verdict(ID, 'request-changes', 'One thing.', preview.confirm)
 

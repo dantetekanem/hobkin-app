@@ -8,6 +8,7 @@ import type { PrepareInput } from '#shared/review/draft.ts'
 import { pullUrl, type ReviewTarget } from '#shared/review/ids.ts'
 import { fileRole } from '#shared/review/paths.ts'
 import { SIZE_LIMIT } from '#shared/review/types.ts'
+import type { Vicinity } from '#shared/review/vicinity.ts'
 import { ghText, type GhCall } from './gh.ts'
 import { gitReader, type GitReader } from './git.ts'
 
@@ -44,6 +45,7 @@ export function changeSource({
   repoOf,
   baseOf,
   git = gitReader,
+  vicinity,
 }: {
   /** The change as the Work screen has it, or null when hobkin no longer lists it. */
   find: (slug: string, item: string) => ChangeFacts | null
@@ -52,6 +54,8 @@ export function changeSource({
   /** The branch everything starts from in a repository. */
   baseOf: (repo: string) => Promise<string>
   git?: (repo: string) => GitReader
+  /** The unchanged code around the change, from a call-graph scan of the repository. Without it the review shows none. */
+  vicinity?: (repo: string, base: string, head: string) => Promise<Vicinity>
 }): ReviewSource {
   const where = (target: ReviewTarget) => {
     if (target.kind !== 'change') throw new Error('Not a finished change.')
@@ -79,6 +83,7 @@ export function changeSource({
         capture,
         spec: specPath && specText != null ? { path: specPath, text: specText } : null,
         readHead: (path) => reader.text(head, path),
+        ...(vicinity ? { vicinity: await vicinity(repo, base, head) } : {}),
       }
     },
   }
@@ -166,6 +171,7 @@ export function pullSource({ gh, limit = SIZE_LIMIT }: { gh: GhCall; limit?: { f
       const specFile = specPath ? await fetchFile(head, specPath) : null
       return {
         change: { project: `${pull.owner}/${pull.repo}`, item: `#${pull.number}`, title: details.title, branch: details.head.ref },
+        vicinity: { links: [], notice: 'Callers and callees are not shown: a pull request is read from GitHub, with no checkout to scan.' },
         capture,
         spec: specPath && specFile?.kind === 'text' ? { path: specPath, text: specFile.text } : null,
         readHead: async (path) => {

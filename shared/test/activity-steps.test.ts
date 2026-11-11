@@ -61,6 +61,17 @@ test('a new step is appended alone, a job that ended sends nothing more, and a j
   assert.deepEqual(diffActivity({ r1: [said('1')] }, { r1: [said('2'), said('1')] }), [{ op: 'reset', job: 'r1', entries: [said('2'), said('1')] }], 'anything but adding at the end resends the job')
 })
 
+test('equivalent codemode metadata avoids churn while nested changes send an update', () => {
+  const entry: ActivityEntry = { ...ran('cm'), name: 'codemode', codemode: { calls: [{ id: 'cm/?', name: 'read', args: 'x', status: 'running' }] } }
+  const before = { job: [entry] }
+  const equal = structuredClone(before)
+  assert.deepEqual(diffActivity(before, equal), [])
+  equal.job[0]!.codemode!.calls[0]!.status = 'ok'
+  const delta = diffActivity(before, equal)
+  assert.equal(delta.length, 1)
+  assert.deepEqual(applyActivity(before, delta), equal)
+})
+
 test('a connection that holds nothing gets every job whole', () => {
   const activity: JobActivity = { r1: [said('1')], r2: [] }
   assert.deepEqual(resetActivity(activity), [

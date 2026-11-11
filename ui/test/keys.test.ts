@@ -3,18 +3,21 @@ import { test } from 'node:test'
 import { resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { walkScreens } from '../src/app/screens.ts'
 
-const MENU = ['work', 'routines', 'reports', 'actions', 'github'] as const
+const MENU = ['home', 'reports', 'routines', 'actions', 'work', 'github'] as const
 
 function context(overrides: Partial<KeyContext> = {}): KeyContext {
   return { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: false, githubInMenu: true, ...overrides }
 }
 
-test('the numbered screens hold github unless the menu leaves it out, and then only while it is open', () => {
-  const MAIN = ['reports', 'routines', 'actions', 'work'] as const
+test('numbered screens follow the menu rows currently visible', () => {
+  const MAIN = ['home', 'reports', 'routines', 'actions', 'work'] as const
   assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: true }), [...MAIN, 'github'])
-  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: false }), MAIN, 'taken out of the menu')
+  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: false }), MAIN, 'GitHub is hidden')
   assert.deepEqual(walkScreens({ screen: 'github', reviewOpen: false, githubInMenu: false }), [...MAIN, 'github'], 'opened anyway')
-  assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'review', 'settings'], 'what is open only for now comes after')
+  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github'], 'a retained review is not visible')
+  assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'settings'], 'Settings is the only visible contextual row')
+  assert.deepEqual(walkScreens({ screen: 'review', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'review'], 'the active review is visible')
+  assert.deepEqual(walkScreens({ screen: 'integrations', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'settings', 'integrations'], 'Integrations shows the Settings breadcrumb first')
 })
 
 test('control option p opens the full prompt from every screen, known by the key where P sits', () => {
@@ -87,10 +90,18 @@ test('down enters the agents only when the message is empty', () => {
   assert.equal(resolveKey({ key: 'ArrowDown' }, context({ zone: 'canvas' })), null, 'only from the message input')
 })
 
-test('command keys open a screen with the keyboard in it, and return home', () => {
-  assert.deepEqual(resolveKey({ key: '2', meta: true }, context()), { do: 'open-screen', screen: 'routines', focusCanvas: true })
-  assert.deepEqual(resolveKey({ key: '5', meta: true }, context({ zone: 'canvas' })), { do: 'open-screen', screen: 'github', focusCanvas: true })
-  assert.equal(resolveKey({ key: '9', meta: true }, context()), null, 'no ninth screen in the menu')
+test('command-number opens the screen at its visible menu position', () => {
+  assert.deepEqual(resolveKey({ key: '1', meta: true }, context()), { do: 'open-screen', screen: 'home', focusCanvas: true })
+  assert.deepEqual(resolveKey({ key: '2', meta: true }, context()), { do: 'open-screen', screen: 'reports', focusCanvas: true })
+  assert.deepEqual(resolveKey({ key: '5', meta: true }, context({ zone: 'canvas' })), { do: 'open-screen', screen: 'work', focusCanvas: true })
+  assert.deepEqual(resolveKey({ key: '6', meta: true }, context()), { do: 'open-screen', screen: 'github', focusCanvas: true })
+  assert.equal(resolveKey({ key: '7', meta: true }, context()), null, 'there is no seventh visible item')
+
+  const settings = walkScreens({ screen: 'settings', reviewOpen: true, githubInMenu: true })
+  assert.deepEqual(resolveKey({ key: '7', meta: true }, context({ screens: settings })), { do: 'open-screen', screen: 'settings', focusCanvas: true })
+  const integrations = walkScreens({ screen: 'integrations', reviewOpen: true, githubInMenu: true })
+  assert.deepEqual(resolveKey({ key: '7', meta: true }, context({ screens: integrations })), { do: 'open-screen', screen: 'settings', focusCanvas: true })
+  assert.deepEqual(resolveKey({ key: '8', meta: true }, context({ screens: integrations })), { do: 'open-screen', screen: 'integrations', focusCanvas: true })
 
   assert.deepEqual(resolveKey({ key: 'l', meta: true }, context({ zone: 'canvas' })), { do: 'focus-input' })
   assert.deepEqual(resolveKey({ key: 'y', meta: true }, context({ zone: 'veil' })), { do: 'open-veil', section: 'history' })

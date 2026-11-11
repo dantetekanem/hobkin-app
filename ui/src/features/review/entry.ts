@@ -7,10 +7,25 @@ export function finishedReviewId(change: { slug: string; item: string }, live: b
   return targetOfReviewId(id) ? id : null
 }
 
-/** Child editors and popovers leave first. Graph focus and code panes never trap the screen's exit. */
-export function escapeReview(session: { editor: unknown; finder: boolean; wire: string | null; closeEditor(): void; closeFinder(): void; openWire(id: string | null): void }, close: () => void): void {
+interface EscapableSession {
+  editor: unknown
+  finder: boolean
+  wire: string | null
+  code: string | null
+  selection: unknown
+  closeEditor(): void
+  closeFinder(): void
+  openWire(id: string | null): void
+  selectLines(selection: null): void
+  closeCode(): void
+}
+
+/** Escape closes the innermost thing first: the note editor, the finder, an open wire, selected lines, then the code. Graph focus never traps the screen's exit. */
+export function escapeReview(session: EscapableSession, close: () => void): void {
   if (session.editor) session.closeEditor()
   else if (session.finder) session.closeFinder()
   else if (session.wire) session.openWire(null)
+  else if (session.selection) session.selectLines(null)
+  else if (session.code != null) session.closeCode()
   else close()
 }

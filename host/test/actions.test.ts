@@ -5,8 +5,22 @@ import { initialize } from 'hobkin/src/cli/config.mjs'
 import { fileDecision, openDecisions } from 'hobkin/src/cli/decisions.mjs'
 import { runCommand } from '../src/commands.ts'
 import { decisionHandlers } from '../src/decisions.ts'
+import { reportHandlers } from '../src/reports.ts'
 import type { WorkApp } from '../src/work.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
+
+test('report reads persist telemetry only for listed reports and cannot answer an action', async () => {
+  const reads: unknown[] = []
+  const handlers = reportHandlers({ app: () => ({ snapshot: { reports: [{ id: 'report-1' }] }, recordReportRead: (read) => { reads.push(read) } }) })
+  assert.deepEqual(await runCommand(handlers, 'report.read', { id: 'report-1', dwellMs: 3000 }), { ok: true, value: { ok: true } })
+  assert.deepEqual(reads, [{ id: 'report-1', dwellMs: 3000 }])
+  const missing = await runCommand(handlers, 'report.read', { id: 'missing', dwellMs: 3000 })
+  assert.equal(missing.ok, false)
+  for (const dwellMs of [0, 2999, -1, 3000.5, 86400001]) {
+    assert.equal((await runCommand(handlers, 'report.read', { id: 'report-1', dwellMs })).ok, false)
+  }
+  assert.equal(reads.length, 1)
+})
 
 /** Stands in for hobkin's application: it writes down every action it is asked for, and answers as told. */
 function fakeHobkin(answer: (action: string) => unknown = (action) => ({ ok: true, message: `hobkin did ${action}.` })) {

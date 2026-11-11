@@ -13,7 +13,7 @@ import { Elapsed } from './Lists.tsx'
 import { OutcomeChip, RoutineHood, StateChip } from './parts.tsx'
 import { Prose } from './Prose.tsx'
 import { latestRuns, RUNS_SHOWN, type RoutineFacts } from './rules.ts'
-import type { Pending } from './store.ts'
+import { useRoutines, type Pending } from './store.ts'
 import { clearOf, nextRun, occurrencesBetween } from './timeline.ts'
 import type { Routine, RoutinesData, RunLine } from './types.ts'
 import { clockText, costText, dayNames, dayWord, durationText, holdEnds, howOften, outcomeOf, routinePath, untilText, whenText, zoneText } from './words.ts'
@@ -156,11 +156,25 @@ export function Detail({ facts, data, now, zone, schedulesOnly = false, pending,
             </Section>
           </div>
 
+          <DeleteRoutine id={routine.id} />
           <KeyLine />
         </div>
       </div>
     </div>
   )
+}
+
+function DeleteRoutine({ id }: { id: string }) {
+  const { deletion, askDelete, cancelDelete, confirmDelete } = useRoutines()
+  const confirmation = deletion?.id === id ? deletion : null
+  return <section aria-label="Delete routine" className="flex flex-wrap items-center gap-2" data-stop="">
+    {confirmation ? <>
+      <p>Delete this routine? Its reports and run history stay.</p>
+      <Button variant="outline" disabled={confirmation.pending} onClick={() => void confirmDelete()}>{confirmation.pending ? 'Deleting…' : 'Confirm delete'}</Button>
+      <Button variant="ghost" disabled={confirmation.pending} onClick={cancelDelete}>Cancel</Button>
+      <p role="status">{confirmation.refusal}</p>
+    </> : <Button variant="outline" onClick={() => askDelete(id)}>Delete routine</Button>}
+  </section>
 }
 
 interface HeaderProps {

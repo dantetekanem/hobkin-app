@@ -1,7 +1,8 @@
-import { Bot, Brain, CalendarClock, FileText, GitPullRequest, Inbox, Plug, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
+import { Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
 
-/** The screens, in menu order: the order of hobkin's terminal tabs, then GitHub. The order sets the direction a screen comes in from. */
+/** The screens in menu order. The order sets the direction a screen comes in from. */
 export const SCREENS = [
+  { id: 'home', label: 'Home', icon: House },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'routines', label: 'Routines', icon: CalendarClock },
   { id: 'actions', label: 'Action Items', icon: Inbox },
@@ -9,6 +10,7 @@ export const SCREENS = [
   // Issues and pull requests through the user's own gh (024-github). The user can take it out of the menu, in Integrations.
   { id: 'github', label: 'GitHub', icon: GitPullRequest },
   // These show in the menu only while something is open in them.
+  { id: 'world', label: 'World', icon: Workflow, contextual: true },
   { id: 'agent', label: 'Agent', icon: Bot, contextual: true },
   { id: 'mind', label: "Hobkin's mind", icon: Brain, contextual: true },
   { id: 'review', label: 'Review', icon: Waypoints, contextual: true },
@@ -42,15 +44,11 @@ export interface WalkView {
   githubInMenu: boolean
 }
 
-/**
- * The screens Tab walks and Command with a number opens, in menu order: the menu's own, then a review, Settings or
- * Integrations while one is open. A GitHub the menu leaves out is walked only while it is open. Agents are never
- * here: they are reached with Down and walked with Up and Down.
- */
-export function walkScreens({ screen, reviewOpen, githubInMenu }: WalkView): ScreenId[] {
+/** Numbered shortcuts follow the top menu and the contextual row the screen menu currently shows. */
+export function walkScreens({ screen, githubInMenu }: WalkView): ScreenId[] {
   const openNow: Partial<Record<ScreenId, boolean>> = {
-    review: reviewOpen,
-    settings: screen === 'settings',
+    review: screen === 'review',
+    settings: screen === 'settings' || screen === 'integrations',
     integrations: screen === 'integrations',
     github: screen === 'github',
   }

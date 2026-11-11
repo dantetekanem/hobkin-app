@@ -9,7 +9,7 @@ import type { HostHandlers } from './commands.ts'
  * in hobkin's words. Spec: 010-routines.
  */
 
-type RoutineChange = { enabled: boolean } | Pick<CommandArgs<'routine.times'>, 'at' | 'window'>
+type RoutineChange = { delete: string } | { enabled: boolean } | Pick<CommandArgs<'routine.times'>, 'at' | 'window'>
 
 /** What the host needs of hobkin's application for its routines. */
 export interface RoutinesApp {
@@ -24,7 +24,7 @@ interface RoutineRunner {
 }
 const runnerOf = (hobkin: RoutinesApp) => hobkin.runner as RoutineRunner
 
-export function routineHandlers({ app }: { app: () => RoutinesApp }): Pick<HostHandlers, 'routine.run' | 'routine.enable' | 'routine.times'> {
+export function routineHandlers({ app }: { app: () => RoutinesApp }): Pick<HostHandlers, 'routine.run' | 'routine.enable' | 'routine.times' | 'routine.delete'> {
   const change = async (id: string, to: RoutineChange) => {
     const hobkin = app()
     await runnerOf(hobkin).change(id, to)
@@ -39,6 +39,13 @@ export function routineHandlers({ app }: { app: () => RoutinesApp }): Pick<HostH
       const started = await runnerOf(hobkin).trigger(id, `client:${randomUUID()}`)
       await hobkin.refresh()
       return { run: started.id }
+    },
+    'routine.delete': async ({ id, expectedDefinition }) => {
+      const hobkin = app()
+      const receipt = await runnerOf(hobkin).change(id, { delete: expectedDefinition }) as { id?: string; deleted?: boolean } | null
+      if (receipt?.id !== id || receipt.deleted !== true) throw Error('hobkin did not confirm deletion of this routine.')
+      await hobkin.refresh()
+      return { id, deleted: true }
     },
     'routine.enable': ({ id, enabled }) => change(id, { enabled }),
     'routine.times': ({ id, at, window }) => change(id, window ? { window } : { at }),

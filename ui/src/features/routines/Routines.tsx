@@ -221,7 +221,7 @@ export function Routines() {
               <div className="relative">
                 <AnimatePresence mode="popLayout" initial={false} custom={direction}>
                   <motion.div key={view} custom={direction} variants={slide} initial="from" animate="here" exit="gone" className="flex flex-col gap-2">
-                    {view === 'all' ? <AllRoutines {...listProps} /> : <NextSevenDays days={screen.days} {...listProps} />}
+                    {view === 'all' ? <AllRoutines marks={screen.marks} openId={openId} {...listProps} /> : <NextSevenDays days={screen.days} {...listProps} />}
                   </motion.div>
                 </AnimatePresence>
               </div>

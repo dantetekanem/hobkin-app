@@ -3,13 +3,13 @@ import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
-import { Hero, Rise } from '@/app/Reveal.tsx'
 import { agentControls, answerAgent, questionOf, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { ActivityModeSwitch } from '@/features/agent-activity/ActivityModeSwitch.tsx'
 import { callsOf, type CallRow } from '@/features/agent-activity/calls.ts'
 import { CallItem } from '@/features/agent-activity/CodeMode.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
@@ -26,6 +26,7 @@ import { ChildCluster, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, satellitesOf } from './child-summary.ts'
 import { useRunChildren } from './children.ts'
 import { sayToAgent } from './say.ts'
+import { agentEntry, agentReading } from './agent-entry.ts'
 
 /** Where the small screen's header starts, below the menu and its second row. */
 const HEADER_TOP = 152
@@ -37,43 +38,16 @@ const SWITCH_TOP = 214
 /** Where the exchange starts below the shrunken header and the switch, and the room always kept for the input. */
 const EXCHANGE_TOP = 252
 const INPUT_ROOM = 124
-/** While the user walks the agents list, how long they rest on an agent before its transcript is drawn (011 A19). */
-const SETTLE_MS = 420
 
 type Mode = 'transcript' | 'code'
 /** How runs are read, the same for every agent while the window is open. */
 const useMode = create<{ mode: Mode; setMode: (mode: Mode) => void }>((set) => ({ mode: 'transcript', setMode: (mode) => set({ mode }) }))
 
-const walkingTheList = () => document.activeElement?.closest('[data-agents-dock]') != null
-
-/**
- * Whether the agent's transcript is drawn. Opened from the map, the menu or the spotlight, it is at once. While the user
- * walks the agents list, an agent they pass shows only its small screen, and its transcript is drawn once they rest on
- * it, so walking stays the same light movement however long each exchange is. Talking to the agent always draws it.
- */
-function useReading(agentId: string | null, present: boolean): boolean {
-  const [settled, setSettled] = useState(() => (walkingTheList() ? null : agentId))
-  useEffect(() => {
-    if (!present || !agentId || settled === agentId) return
-    const timer = setTimeout(() => setSettled(agentId), walkingTheList() ? SETTLE_MS : 0)
-    return () => clearTimeout(timer)
-  }, [present, agentId, settled])
-  return settled === agentId
-}
-
 /**
  * One agent's canvas. This file is the entry the frame mounts. Specs: 011-work, 021-agent-rendering.
  *
- * While the user walks the agents list, each agent shows its small screen: its face, its title, what it is
- * on, and its question, or what it is doing this moment with how many steps it has taken. It is the same size
- * for every agent however long its work is, so moving between agents is always the same light movement, and
- * nothing long is drawn for an agent the user only passes.
- *
- * Resting on it, or opening it any other way, draws its transcript: the agent's steps as they happen (what it said,
- * its commands, its changes, what it read) with the user's messages where they were sent, or the same run as code,
- * each tool call with its parameters and output. The header shrinks into a bar at the top and the exchange rises in
- * below it already at its newest step. Stepping in (Enter on it in the list, or Command+G when it waits for the user)
- * also raises an input into the room always kept for it, and Escape steps back out to reading.
+ * Every entry route draws existing activity immediately, already anchored to its newest step. An empty agent
+ * shows its face and current task. Stepping in raises an input into the room kept for it; Escape returns to reading.
  * Only transforms and opacity move, and steps out of view are not drawn.
  */
 export function AgentScreen() {
@@ -94,15 +68,12 @@ export function AgentScreen() {
   const activity = useAgentActivity(agentId)
   const notes = useAgentThreads((threads) => (agentId ? threads.notes[agentId] : undefined))
   const still = useStill()
-  const settled = useReading(agentId, present)
-  // An agent with something to read is the shrunken header from the first frame, so switching to it never animates:
-  // only an agent's first step, arriving under its small screen, shrinks it. Its exchange draws once it is settled.
-  const compact = talking || (Boolean(agent && agentId) && ((activity?.entries.length ?? 0) > 0 || Boolean(notes?.length) || Boolean(question)))
-  const reading = Boolean(agent && agentId) && compact && (talking || settled)
-  // Opened shrunken, its header is drawn in place rather than rising in with the screen.
-  const [opened] = useState(compact)
-  const Lead = opened ? Plain : Hero
-  const Lift = opened ? Plain : Rise
+  const reading = agentReading(Boolean(agent && agentId), (activity?.entries.length ?? 0) > 0 || Boolean(notes?.length) || Boolean(question), talking)
+  const compact = talking || reading
+  // The canvas supplies the entry movement; snapshot content never waits for a second entrance.
+  const Lead = Plain
+  const Lift = Plain
+  const Rise = Plain
 
   return (
     // A click inside a canvas previewed from the agents list keeps it open: the list losing the keyboard ends a preview.
@@ -112,7 +83,7 @@ export function AgentScreen() {
         style={{ top: HEADER_TOP }}
         initial={false}
         animate={{ transform: compact ? COMPACT : FULL }}
-        transition={still ? { duration: 0 } : spring.screen}
+        transition={agentEntry(still)}
       >
         {agent ? (
           <Lead>
@@ -127,7 +98,7 @@ export function AgentScreen() {
           className={cn('flex w-full flex-col items-center gap-4', compact && 'pointer-events-none')}
           initial={false}
           animate={{ opacity: compact ? 0 : 1 }}
-          transition={{ duration: compact ? 0.14 : 0.24, ease: 'linear' }}
+          transition={agentEntry(still)}
         >
           {agent ? (
             <Rise>
@@ -157,7 +128,7 @@ export function AgentScreen() {
             className="absolute inset-x-0 flex justify-center"
             style={{ top: SWITCH_TOP }}
             initial={holdStill({ opacity: 0 }, still)}
-            animate={holdStill({ opacity: 1, transition: { ...tween.enter, delay: 0.08 } }, still)}
+            animate={holdStill({ opacity: 1, transition: agentEntry(still) }, still)}
             exit={holdStill({ opacity: 0, transition: tween.exit }, still)}
           >
             <ModeSwitch />
@@ -180,7 +151,7 @@ export function AgentScreen() {
   )
 }
 
-const Plain = ({ children }: { children: ReactNode }) => <div>{children}</div>
+const Plain = ({ children, className }: { children: ReactNode; className?: string }) => <div className={className}>{children}</div>
 
 /** An agent previewed from the list stays open, as one chosen in the menu does, so the list's blur does not end it. */
 function keepPreview(agentId: string) {
@@ -373,22 +344,7 @@ function ModeSwitch() {
   const still = useStill()
   const mode = useMode((state) => state.mode)
   const setMode = useMode((state) => state.setMode)
-  return (
-    <div role="group" aria-label="Show the run as" className="flex rounded-full bg-surface-2 p-0.5 text-[12px] font-medium">
-      {(['transcript', 'code'] as const).map((option) => (
-        <button
-          key={option}
-          type="button"
-          aria-pressed={mode === option}
-          onClick={() => setMode(option)}
-          className={cn('relative rounded-full px-3 py-1 transition-colors duration-[160ms] ease-[ease]', mode === option ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
-        >
-          {mode === option ? <motion.span layoutId="agent-mode" transition={still ? { duration: 0 } : spring.pill} className="absolute inset-0 rounded-full bg-background shadow-panel" /> : null}
-          <span className="relative">{option === 'transcript' ? 'Transcript' : 'Code'}</span>
-        </button>
-      ))}
-    </div>
-  )
+  return <ActivityModeSwitch mode={mode} onChange={setMode} label="Show the run as" layoutId="agent-mode" transition={agentEntry(still)} />
 }
 
 const RISE_IN = {
@@ -464,10 +420,10 @@ function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId
       ref={scroll.scroller}
       onScroll={scroll.onScroll}
       // Steps scrolled up under the switch fade out rather than being cut.
-      className="scroll-quiet absolute inset-x-0 bottom-0 overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      className="scroll-quiet absolute inset-x-0 bottom-0 overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
       style={{ top: EXCHANGE_TOP, paddingBottom: INPUT_ROOM }}
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
-      animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
+      animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: agentEntry(still) }, still)}
       exit={holdStill({ opacity: 0, transform: 'translateY(16px)', transition: { duration: 0.16, ease: 'linear' } } as const, still)}
     >
       <motion.ol ref={scroll.content} style={{ y: scroll.y }} data-agent-exchange onKeyDown={walkSteps} aria-label={mode === 'code' ? "The agent's tool calls" : 'What the agent has done'} className="flex min-h-full flex-col justify-end gap-3 pt-2">
@@ -483,7 +439,7 @@ function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId
             : items.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
         </AnimatePresence>
         {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
-        {thinking ? <Thinking activity={activity} /> : null}
+        <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>
         {activity?.sample ? (
           <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is the agent's own work, as it happens.</li>
         ) : !live && notes?.length ? (
@@ -503,7 +459,7 @@ function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId
               className="pointer-events-auto absolute bottom-0 flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-3 text-[12px] font-medium shadow-panel transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
             >
               <ArrowDown className="size-3.5" aria-hidden="true" />
-              Newest
+              Newest message
               <Kbd>End</Kbd>
             </motion.button>
           )}
@@ -548,6 +504,16 @@ function Said({ note }: { note: AgentNote }) {
       className="max-w-[72%] self-end rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
     >
       {note.text}
+      {note.delivery ? (
+        <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'refused' || note.delivery === 'unconfirmed' ? 'text-bad-fg' : 'text-muted-foreground')}>
+          {note.delivery === 'sending' ? 'Sending · waiting for the host.'
+            : note.delivery === 'received' ? 'Received · admitted into a Pi turn.'
+            : note.delivery === 'waiting' ? 'Waiting · queued for the agent’s next step; receipt not yet confirmed.'
+              : note.delivery === 'refused' ? `Not sent · ${note.why}`
+                : note.delivery === 'unconfirmed' ? `Delivery not confirmed · ${note.why}`
+                  : 'Sample message · kept in this window only.'}
+        </p>
+      ) : null}
     </motion.li>
   )
 }
@@ -556,7 +522,7 @@ function Said({ note }: { note: AgentNote }) {
 function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean; walkable: boolean }) {
   const leaveAgentTalk = useView((view) => view.leaveAgentTalk)
   const still = useStill()
-  const say = useAgentThreads((threads) => threads.say)
+  const sendNote = useAgentThreads((threads) => threads.send)
   const live = useHasHost()
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
@@ -573,16 +539,15 @@ function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: 
     if (!canSend) return
     const text = draft.trim()
     setProblem(null)
-    // With a host the words reach the running agent as steering. They show here only once they were sent.
-    const result = await sayToAgent(agentId, text, { live })
+    // Record before awaiting: changing canvases must not hide a pending message or lose a refusal.
+    setDraft('')
+    const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId }))
     if (!result.sent) {
       setProblem(result.why)
       return
     }
-    say(agentId, text)
-    // The answer is what the agent was waiting for: it gets on with its work.
-    if (answering) answerAgent(agentId)
-    setDraft('')
+    // The sample question is local; real questions remain owned by the host.
+    if (answering && !live) answerAgent(agentId)
   }
 
   const stepOut = () => {
@@ -597,8 +562,8 @@ function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: 
     <motion.div
       className="absolute inset-x-0 bottom-0 px-[10%] pt-2 pb-5"
       initial={holdStill({ opacity: 0, transform: 'translateY(100%)' }, still)}
-      animate={holdStill({ opacity: 1, transform: 'translateY(0%)', transition: { transform: spring.screen, opacity: tween.enter } }, still)}
-      exit={holdStill({ opacity: 0, transform: 'translateY(100%)', transition: { transform: spring.screenExit, opacity: { duration: 0.2 } } }, still)}
+      animate={holdStill({ opacity: 1, transform: 'translateY(0%)', transition: agentEntry(still) }, still)}
+      exit={holdStill({ opacity: 0, transform: 'translateY(100%)', transition: agentEntry(still) }, still)}
     >
       <form
         className="flex items-end gap-2 rounded-[26px] border-[1.5px] border-input bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring"

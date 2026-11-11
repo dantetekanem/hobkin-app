@@ -9,6 +9,7 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { ActivityModeSwitch } from '@/features/agent-activity/ActivityModeSwitch.tsx'
 import { callsOf } from '@/features/agent-activity/calls.ts'
 import { CallItem } from '@/features/agent-activity/CodeMode.tsx'
 import { sampleAt, sampleLength } from '@/features/agent-activity/sample.ts'
@@ -23,7 +24,6 @@ import { childrenSummary } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
-import { cn } from '@/lib/utils.ts'
 import { mainActivityOf } from './mind.ts'
 import { SAMPLE_MAIN } from './sample.ts'
 
@@ -134,22 +134,7 @@ function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
 
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
   const still = useStill()
-  return (
-    <div role="group" aria-label="Show hobkin's work as" className="flex rounded-full bg-surface-2 p-0.5 text-[12px] font-medium">
-      {(['transcript', 'code'] as const).map((option) => (
-        <button
-          key={option}
-          type="button"
-          aria-pressed={mode === option}
-          onClick={() => onChange(option)}
-          className={cn('relative rounded-full px-3 py-1 transition-colors duration-[160ms] ease-[ease]', mode === option ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
-        >
-          {mode === option ? <motion.span layoutId="mind-mode" transition={still ? { duration: 0 } : spring.pill} className="absolute inset-0 rounded-full bg-background shadow-panel" /> : null}
-          <span className="relative">{option === 'transcript' ? 'Transcript' : 'Code'}</span>
-        </button>
-      ))}
-    </div>
-  )
+  return <ActivityModeSwitch mode={mode} onChange={onChange} label="Show hobkin's work as" layoutId="mind-mode" transition={still ? { duration: 0 } : spring.pill} />
 }
 
 /**
@@ -171,7 +156,7 @@ function Exchange({ entries, mode, ended, cwd, word, sample }: { entries: readon
       ref={scroll.scroller}
       onScroll={scroll.onScroll}
       tabIndex={-1}
-      className="scroll-quiet relative min-h-0 flex-1 overflow-y-auto px-[10%] outline-none [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      className="scroll-quiet relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-[10%] outline-none [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
     >

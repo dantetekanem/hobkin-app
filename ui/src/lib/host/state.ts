@@ -1,4 +1,5 @@
 import { applyActivity, MAIN_ACTIVITY, type JobActivity } from '#shared/protocol/activity.ts'
+import type { AppearanceRequest } from '#shared/protocol/appearance.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -36,6 +37,7 @@ export interface HostState {
   work: WorkState | null
   /** The canvas panel hobkin opened. Null until the host says, and always from a host that has none. */
   canvas: CanvasState | null
+  appearance: AppearanceRequest | null
   /** hobkin's snapshot, by top-level key. */
   snapshot: WireSnapshot
   /** The stored conversation. */
@@ -59,6 +61,7 @@ export const initialHostState: HostState = {
   integrations: null,
   work: null,
   canvas: null,
+  appearance: null,
   snapshot: {},
   messages: [],
   live: null,
@@ -95,6 +98,7 @@ function applyState(state: HostState, message: StateMessage): HostState {
     // Work mode comes whole with every reset that has it, and null once hobkin's snapshot has none.
     work: message.work !== undefined ? message.work : message.reset ? null : state.work,
     canvas: message.canvas ?? (message.reset ? null : state.canvas),
+    appearance: message.appearance !== undefined ? message.appearance : message.reset ? null : state.appearance,
     live: settleLive(message.reset ? null : state.live, messages, snapshot.busy),
     epoch: message.reset ? state.epoch + 1 : state.epoch,
   }

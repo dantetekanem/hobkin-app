@@ -6,6 +6,7 @@
 declare module 'hobkin/src/cli/application.mjs' {
   export interface HobkinSnapshot {
     messages?: unknown[]
+    reports?: unknown[]
     presentation?: { hiddenMessageIds?: string[] }
     savedAt?: string
     [key: string]: unknown
@@ -13,6 +14,8 @@ declare module 'hobkin/src/cli/application.mjs' {
 
   /** What hobkin asks the user. `whenQuiet` questions wait for nobody and may be skipped. */
   export interface QuestionRequest {
+    /** Trusted runtime-only identity of a pending filed decision; independent asks omit it. */
+    requestId?: string
     question: string
     choices: { value: string; label: string }[]
     other?: boolean
@@ -99,6 +102,8 @@ declare module 'hobkin/src/cli/application.mjs' {
       directory: string
       /** The main Pi session: in this process, or a child process behind a launcher. */
       main: unknown
+      /** Read-only persisted run metadata, including native Pi job ownership. */
+      state(): Promise<{ runs: Record<string, { kind?: string; harness?: string; harnessId?: string; legacy?: boolean; result?: { sessionId?: string | null } }> }>
       /** Resolves once no turn and no run is under way. */
       idle(): Promise<void>
       /** Gives the main session a message as it is, with none of hobkin's notes ahead of it. */
@@ -107,6 +112,7 @@ declare module 'hobkin/src/cli/application.mjs' {
     moods: { react(moment: { event: string; [key: string]: unknown }): void }
     /** Resolves when the turn is accepted, not when it ends. During a turn the message steers it. */
     send(text: string, report?: unknown, images?: ImageHandle[]): Promise<{ id: string; queued?: boolean }>
+    messageImage(args: { sessionId: string; messageId: string; ordinal: number }): { mimeType: string; data: string } | null
     /** Takes the image on the clipboard into the draft. With no `image`, `notice` says why not. */
     pasteImage(): Promise<{ image?: ImageHandle; notice?: string; tone?: string }>
     /** Deletes images taken into the draft and not sent. */
@@ -117,6 +123,7 @@ declare module 'hobkin/src/cli/application.mjs' {
     reset(): Promise<{ sessionId: string; sessionFile: string }>
     /** Turns learning from outcomes on or off, and says which it is now. */
     toggleLearning(): Promise<{ enabled: boolean }>
+    recordReportRead(read: { id: string; dwellMs: number }): void
     refresh(): Promise<HobkinSnapshot>
     close(options?: { letFinish?: boolean }): Promise<void>
   }
@@ -134,6 +141,10 @@ declare module 'hobkin/src/cli/pi-session.mjs' {
     options: MainSessionOptions,
     dependencies?: { agentDir?: string; modelRuntime?: unknown; createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }> },
   ): Promise<MainSession>
+}
+
+declare module 'hobkin/src/cli/checks.mjs' {
+  export function scheduleDefinition(schedule: Record<string, unknown>): string
 }
 
 declare module 'hobkin/src/cli/view.mjs' {

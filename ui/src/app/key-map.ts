@@ -126,7 +126,7 @@ function veilKey(key: string): KeyAction | null {
   return null
 }
 
-const OPEN_FOR_NOW: readonly ScreenId[] = ['review', 'settings', 'integrations']
+const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations']
 
 /** A review, Settings and Integrations are open only for now, and so is a GitHub opened while the menu leaves it out. */
 function openForNow({ screen, githubInMenu }: KeyContext): boolean {

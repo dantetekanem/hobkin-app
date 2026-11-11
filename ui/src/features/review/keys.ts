@@ -4,8 +4,9 @@
  * See _specs/019-keyboard and the keys in _specs/007-review-story.
  *
  * A key that was used is prevented, and the frame then leaves it alone. Escape is the screen's own
- * (`escapeReview` in entry.ts): it closes the editor, the finder or a wire, and otherwise the review.
+ * (`escapeReview` in entry.ts): it closes the editor, the finder, a wire, selected lines or the code, and otherwise the review.
  */
+import type { Verdict } from '#shared/review/verdict.ts'
 import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
 import type { Session } from './state/session.ts'
 
@@ -20,8 +21,10 @@ export interface KeyEffects {
   panelKey(key: string, shift: boolean): boolean
   /** Goes to the steps panel, or back from it to the graph. */
   toggleSteps(): void
-  /** Hands the questions over to hobkin. */
-  discuss(): void
+  /** Goes to the box where the reviewer talks to hobkin. */
+  talk(): void
+  /** Shows what a verdict would do, ready for the reviewer's yes. */
+  verdict(kind: Verdict): void
 }
 
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
@@ -108,9 +111,20 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
     case 'd':
     case 'D':
       return session.startNote('question'), true
+    // H talks to hobkin about what the reviewer is on.
     case 'h':
     case 'H':
-      return effects.discuss(), true
+      return effects.talk(), true
+    // The verdicts, each shown first and sent only on a second yes: A approves, M approves and merges, X sends the fixes.
+    case 'a':
+    case 'A':
+      return effects.verdict('approve'), true
+    case 'm':
+    case 'M':
+      return effects.verdict('approve-merge'), true
+    case 'x':
+    case 'X':
+      return effects.verdict('request-changes'), true
     default:
       return session.code ? effects.panelKey(key, false) : false
   }

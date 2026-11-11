@@ -5,7 +5,8 @@ import type { ItemKind } from './items.ts'
 export const KIND: Record<ItemKind, { label: string; icon: LucideIcon }> = {
   merge: { label: 'Finished branch', icon: GitMerge },
   yours: { label: 'Only you can do this', icon: Hand },
-  work: { label: 'Work question', icon: Workflow },
+  approval: { label: 'Shipping approval', icon: GitMerge },
+  work: { label: 'Work needs attention', icon: Workflow },
   routine: { label: 'Routine', icon: CalendarClock },
   pickup: { label: 'What to start', icon: ListStart },
   question: { label: 'Question', icon: MessageCircleQuestionMark },
@@ -15,12 +16,13 @@ const PHRASE: Record<ItemKind, [one: string, many: string]> = {
   merge: ['finished branch', 'finished branches'],
   yours: ['step only you can take', 'steps only you can take'],
   work: ['work question', 'work questions'],
+  approval: ['shipping approval', 'shipping approvals'],
   routine: ['from a routine', 'from routines'],
   pickup: ['pick of what to start', 'picks of what to start'],
   question: ['question', 'questions'],
 }
 
-const ORDER: readonly ItemKind[] = ['merge', 'yours', 'work', 'routine', 'pickup', 'question']
+const ORDER: readonly ItemKind[] = ['merge', 'approval', 'yours', 'work', 'routine', 'pickup', 'question']
 
 /** What waits, said in one line: "2 finished branches, 1 work question and 3 from routines". */
 export function breakdown(kinds: Partial<Record<ItemKind, number>>): string {

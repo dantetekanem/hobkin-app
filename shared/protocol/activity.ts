@@ -3,6 +3,11 @@
  * call with its arguments, its output and how it ended. hobkin never keeps the agent's thinking or a tool's
  * private details. The snapshot's `jobActivity` holds one list per run id.
  */
+export interface CodemodeMetadata {
+  calls: { id: string; name: string; args: string; status: 'running' | 'ok' | 'error' | 'cancelled'; durationMs?: number; error?: string; cost?: number }[]
+  fullOutputPath?: string
+}
+
 export interface ActivityEntry {
   /** `message:<n>:<part>` for the agent's words, `tool:<call id>` for a tool call. */
   id: string
@@ -16,6 +21,8 @@ export interface ActivityEntry {
   input?: string
   /** What the tool gave back so far, as text. A failed tool's output is its error. */
   output?: string
+  /** Bounded codemode operation previews, never nested result bodies. */
+  codemode?: CodemodeMetadata
 }
 
 /** Every job's activity, by run id. */
@@ -47,7 +54,14 @@ export type ActivitySteps = ActivityStep[]
 export function sameEntry(left: ActivityEntry, right: ActivityEntry): boolean {
   if (left === right) return true
   const keys = Object.keys(left) as (keyof ActivityEntry)[]
-  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key])
+  return keys.length === Object.keys(right).length && keys.every((key) => key === 'codemode' ? sameCodemode(left.codemode, right.codemode) : left[key] === right[key])
+}
+
+function sameCodemode(left: CodemodeMetadata | undefined, right: CodemodeMetadata | undefined): boolean {
+  if (left === right) return true
+  if (!left || !right || left.fullOutputPath !== right.fullOutputPath || left.calls.length !== right.calls.length) return false
+  const fields = ['id', 'name', 'args', 'status', 'durationMs', 'error', 'cost'] as const
+  return left.calls.every((call, index) => fields.every(field => call[field] === right.calls[index]![field]))
 }
 
 function jobSteps(job: string, previous: readonly ActivityEntry[], next: readonly ActivityEntry[]): ActivityStep[] {

@@ -19,7 +19,8 @@ import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { NerdStats } from './NerdStats.tsx'
 import { SetupAgainTile } from './SetupAgainTile.tsx'
-import { AGENTS, BUDGET, OPACITY, PALETTE_KEYS, formatTokens, paletteProblems, type Palette } from './rules.ts'
+import { useChat } from '@/features/chat/chat-store.ts'
+import { AGENTS, BUDGET, OPACITY, askLine, formatTokens, themeRequestText } from './rules.ts'
 import { useSettings, type Movement, type TypeFace } from './store.ts'
 
 /**
@@ -180,40 +181,32 @@ function DayAndNight() {
   )
 }
 
-const PALETTE_NAMES: Record<keyof Palette, string> = { background: 'Background', surface: 'Cards', text: 'Text', muted: 'Muted text', accent: 'Accent' }
-
-/** The custom theme's colors. The app changes as they do. A color that would leave text unreadable is refused and said why. */
+/** A plain request goes through main chat without borrowing its draft. */
 function CustomColors() {
-  const palette = useSettings((state) => state.palette)
-  const setPalette = useSettings((state) => state.setPalette)
-  const [draft, setDraft] = useState(palette)
-  if (!draft) return null
-  const problems = paletteProblems(draft)
+  const request = useSettings((state) => state.request)
+  const [text, setText] = useState(request?.text ?? '')
+  const [sending, setSending] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const send = async () => {
+    if (sending || !text.trim()) return
+    setSending(true)
+    setProblem(null)
+    const accepted = await useChat.getState().send(themeRequestText(text))
+    if (accepted) useSettings.getState().ask(text)
+    else setProblem(useChat.getState().problem ?? 'Not sent. Try again when hobkin is connected.')
+    setSending(false)
+  }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1.5">
-        {PALETTE_KEYS.map((key) => (
-          <label key={key} className="flex cursor-pointer items-center gap-2 rounded-full bg-tone-1 py-1 pr-3 pl-1 text-[12px] font-medium">
-            <input
-              type="color"
-              data-stop=""
-              value={draft[key]}
-              onChange={(event) => {
-                const next = { ...draft, [key]: event.currentTarget.value }
-                setDraft(next)
-                setPalette(next)
-              }}
-              className="size-6 cursor-pointer rounded-full border border-border-strong bg-transparent p-0 outline-offset-2 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
-            />
-            {PALETTE_NAMES[key]}
-          </label>
-        ))}
+    <form className="flex flex-col gap-2" onSubmit={(event) => { event.preventDefault(); void send() }}>
+      <label htmlFor="custom-theme-request" className="text-[12px] font-medium">Ask hobkin for colors</label>
+      <div className="flex gap-2">
+        <input id="custom-theme-request" data-stop="" value={text} onChange={(event) => setText(event.currentTarget.value)} placeholder="A quiet forest at night" className="min-w-0 flex-1 rounded-xl border border-border-strong bg-tone-1 px-3 py-2 text-[13px]" />
+        <Button type="submit" disabled={sending || !text.trim()}>{sending ? 'Sending…' : 'Send'}</Button>
       </div>
-      <p role="status" className={cn('text-[12px]', problems.length ? 'font-medium text-foreground' : 'text-muted-foreground')}>
-        {problems.length ? `${problems[0]} The last readable colors stay.` : 'Every text color reads at 4.5 to 1 or better. Light, Dark or Follow the Mac go back.'}
-      </p>
-    </div>
+      <p role="status" className="text-[12px] text-muted-foreground">{problem ?? (request ? askLine(request) : 'Describe the theme. hobkin will choose readable colors.')}</p>
+    </form>
   )
 }
 
@@ -424,21 +417,24 @@ function DailyBudget() {
         }}
       >
         <div className="absolute inset-0 overflow-hidden rounded-full">
-          {/* The budget fills from the left. Today's use lies over it, darker. */}
+          {/* The measured usage overlay appears only when the host provides it. */}
           <motion.div
             className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-primary"
             initial={false}
             animate={{ transform: `scaleX(${0.06 + share(dailyTokens) * 0.94})` }}
             transition={spring.follow}
           />
-          <div
-            className="absolute inset-y-0 left-0 origin-left rounded-full bg-foreground/25"
-            style={{ width: `${Math.min(100, (usedToday / BUDGET.max) * 100)}%` }}
-          />
+          {usedToday !== null && (
+            <div
+              className="absolute inset-y-0 left-0 origin-left rounded-full bg-foreground/25"
+              style={{ width: `${Math.min(100, (usedToday / BUDGET.max) * 100)}%` }}
+            />
+          )}
         </div>
       </div>
       <p className="text-[12px] text-muted-foreground">
-        {formatTokens(usedToday)} used today. Work mode stops starting new work once the day's budget is spent.
+        {usedToday === null ? 'Usage unavailable.' : `${formatTokens(usedToday)} used today.`}{' '}
+        This local budget does not change Work mode.
       </p>
     </Tile>
   )

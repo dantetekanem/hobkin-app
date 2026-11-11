@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
+import { focusInput } from '@/app/keys.ts'
 import { useRemembered } from '@/app/location.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
@@ -23,6 +24,8 @@ import { PileTile } from './Pile.tsx'
 import { sampleReviewFor } from './sample.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { answerSample, startAnswering, stopAnswering, useActionItems, useWaitingRows } from './store.ts'
+import { readsHere, replyToItem } from './read.ts'
+import { useWorkView } from '@/features/work/store.ts'
 
 /**
  * Action Items: everything waiting on the user, the one that has waited longest first. A row opens as Reports opens
@@ -52,6 +55,8 @@ export function ActionsScreen() {
   const open = rows.find((row) => row.id === openId) ?? null
   const variants = useMemo(() => rowVariants(still), [still])
   const arriving = useArriving()
+  // While work mode is off, what would open in Work is read here, and replied to in chat.
+  const workOn = useWorkView().work?.enabled ?? false
   const now = Date.now()
   let order = 0
 
@@ -130,14 +135,14 @@ export function ActionsScreen() {
   }
 
   const openItem = (row: WaitingRow) => {
-    if (row.opens) return openWhereHandled(row.opens)
+    if (row.opens && !readsHere(row, workOn)) return openWhereHandled(row.opens)
     setAside(1)
     setStep(0)
     setOpenId(row.id)
   }
   // From the list beside the card: the next card slides in from the side its item lies on.
   const switchTo = (row: WaitingRow) => {
-    if (row.opens) return openWhereHandled(row.opens)
+    if (row.opens && !readsHere(row, workOn)) return openWhereHandled(row.opens)
     const at = (id: string | null) => rows.findIndex((each) => each.id === id)
     if (row.id !== openId) setStep(at(row.id) > at(openId) ? 1 : -1)
     setOpenId(row.id)
@@ -155,6 +160,16 @@ export function ActionsScreen() {
     if (row.answers) giveToHobkin(row, given)
     else answerSample(row.id, given)
     close((list[at + 1] ?? list[at - 1])?.id ?? null)
+  }
+
+  /** The item goes with the next message to the main agent, as a report does, and the keyboard goes to the message. */
+  const replyInChat = (row: WaitingRow) => {
+    replyToItem(row)
+    setLine({ key: lineKey.current++, kind: 'replying', title: row.summary })
+    focusInput()
+  }
+  const openElsewhere = (row: WaitingRow) => {
+    if (row.opens) openWhereHandled(row.opens)
   }
 
   const askSample = () => {
@@ -223,8 +238,10 @@ export function ActionsScreen() {
                   now={now}
                   variants={variants}
                   order={arriving ? order++ : -1}
+                  reads={readsHere(row, workOn)}
                   onAsk={openItem}
                   onReview={review}
+                  onOpenElsewhere={openElsewhere}
                 />
               ))}
             </AnimatePresence>
@@ -259,6 +276,9 @@ export function ActionsScreen() {
             onClose={() => close()}
             onAnswer={answer}
             onReview={review}
+            reads={readsHere(open, workOn)}
+            onReply={replyInChat}
+            onOpenElsewhere={openElsewhere}
           />
         ) : null}
       </AnimatePresence>

@@ -3,11 +3,10 @@ import { MotionConfig, useMotionValueEvent } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
+import type { Verdict } from '#shared/review/verdict.ts'
 import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
-import { createReviewLoader } from './loader.ts'
+import { createReviewLoader, type ReviewLoader } from './loader.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
-import { VerdictPanel } from './VerdictPanel.tsx'
-import type { VerdictCommands } from './verdict.ts'
 import { escapeReview } from './entry.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
@@ -24,7 +23,8 @@ import { Finder } from './graph/Finder.tsx'
 import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
 import { pressKey } from './keys.ts'
-import { STEPS_STRIP, StepsPanel, stepsPanelWidth } from './panel/StepsPanel.tsx'
+import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './panel/StepsPanel.tsx'
+import { Shortcuts } from './Shortcuts.tsx'
 import './review.css'
 import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
 import { reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
@@ -51,14 +51,6 @@ export function ReviewScreen() {
   const closeReview = useView((view) => view.closeReview)
   const home = useHost((state) => state.home)
   const live = Boolean(home) && !SAMPLE_REVIEWS.includes(reviewId ?? 'sample')
-  const verdict = useMemo(() => {
-    const current = () => hostStore.getState().home === home && useView.getState().screen === 'review' && useView.getState().openReview === reviewId
-    const command: VerdictCommands = (name, args) => {
-      if (!home || !current()) return Promise.reject(new Error('The review or connected host changed. Reopen this review.'))
-      return runCommand(name, args)
-    }
-    return { command, current }
-  }, [home, reviewId])
   const loader = useMemo(() => createReviewLoader({
     id: reviewId ?? 'sample', scope: live ? `host:${home}` : 'sample', memory: reviewMemory,
     ...(live ? { command: (name, args) => {
@@ -69,18 +61,19 @@ export function ReviewScreen() {
 
   useEffect(() => {
     void loader.load()
+    // While it is being prepared it is loaded again. Once open, the host is asked how it stands: whether the change
+    // moved on, where hobkin moved the view, and whether hobkin left notes.
     const timer = setInterval(() => {
       const { status, preparation } = loader.getState()
       if (status === 'preparing' || preparation?.phase) void loader.load()
-    }, 1500)
+      else if (status === 'ready' && live) void loader.check()
+    }, 1000)
     return () => { clearInterval(timer); loader.dispose() }
-  }, [loader])
+  }, [loader, live])
 
   return <ReviewLoad loader={loader} renderReview={(review) => (
     <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}`}>
-      <Stage review={review} source={loader.source} />
-      <div className="absolute left-4 top-28 z-30"><Button variant="outline" onClick={closeReview}>Close review · Esc</Button></div>
-      {live ? <VerdictPanel key={memoryKey(review)} review={review} {...verdict} saveNotes={loader.saveNotes} /> : <div className="absolute right-4 top-28 z-30 flex flex-col items-end gap-1"><Button disabled>Submit review</Button><span className="text-xs text-muted-foreground">Sample only. Nothing is sent.</span></div>}
+      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} />
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => (
     <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />
@@ -115,14 +108,28 @@ function ReviewWaiting({ status, reason, closeReview }: { status: string; reason
   )
 }
 
-function Stage({ review, source }: { review: Review; source: ReviewSource }) {
+function Stage({ review, source, loader, live, close }: { review: Review; source: ReviewSource; loader: ReviewLoader; live: boolean; close: () => void }) {
   const root = useRef<HTMLDivElement>(null)
+  const [shortcuts, setShortcuts] = useState(false)
+  const preparation = useStore(loader, (state) => state.preparation)
+
+  const chrome = useMemo<PanelChrome>(() => ({ live, preparation, rebuild: () => void loader.refresh(), close }), [live, preparation, loader, close])
   const graph = useRef<HTMLDivElement>(null)
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
   const [session] = useState(() => createSession(review, reviewMemory))
   useEffect(() => session.connect(), [session])
+  // hobkin moves the reviewer's view through the host: a step or a node newer than what was there when the review opened.
+  const cursor = preparation?.cursor
+  const followed = useRef(cursor?.at ?? 0)
+  useEffect(() => {
+    if (!cursor || cursor.at <= followed.current) return
+    followed.current = cursor.at
+    const state = session.getState()
+    if (cursor.step != null) state.goTo(Math.min(cursor.step, state.view.story.length) - 1)
+    else if (cursor.node != null && state.nodeOf.has(cursor.node)) state.focusOn(cursor.node)
+  }, [cursor, session])
 
   const [canvas, setCanvas] = useState<Size>({ width: 0, height: 0 })
   const [windowHeight, setWindowHeight] = useState(() => innerHeight)
@@ -189,13 +196,22 @@ function Stage({ review, source }: { review: Review; source: ReviewSource }) {
     const releaseFocus = handOffCanvasFocus(element)
 
     const onKeyDown = (event: KeyboardEvent) => {
+      // ⌘? shows every key of the review, and hides them again.
+      if (!event.defaultPrevented && event.metaKey && !event.ctrlKey && (event.key === '?' || (event.shiftKey && event.key === '/'))) {
+        setShortcuts((open) => !open)
+        event.preventDefault()
+        return
+      }
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing) return
       const target = event.target as HTMLElement
       if (event.key === 'Escape') {
         // Fields in the note editor/finder handle Escape themselves, preserving their draft before leaving.
         if (target.closest('input, textarea') && (session.getState().editor || session.getState().finder)) return
         if (target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return
-        escapeReview(session.getState(), () => useView.getState().closeReview())
+        let left = false
+        escapeReview(session.getState(), () => { left = true; useView.getState().closeReview() })
+        // Whatever closed may have held the keyboard, such as the code panel. It stays in the review.
+        if (!left && !element.contains(document.activeElement)) element.focus({ preventScroll: true })
         event.preventDefault()
         return
       }
@@ -206,18 +222,22 @@ function Stage({ review, source }: { review: Review; source: ReviewSource }) {
       if (target.closest('[data-rv-code]') && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(event.key) && !event.shiftKey) return
       const steps = element.querySelector<HTMLElement>('[data-rv-steps]')
       const inSteps = steps?.contains(target) ?? false
-      // Inside the steps panel, Up and Down walk its controls.
+      // Inside the panel, Up and Down are its own.
       if (inSteps && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey) return
       const used = pressKey(session.getState(), { key: event.key, shift: event.shiftKey, alt: event.altKey }, {
         panelKey,
         toggleSteps: () => {
-          // The 1 key goes to the panel and keeps it open, or comes back from it and lets it tuck away.
+          // S keeps the panel open, with the keyboard in the box to hobkin, or lets it tuck away again.
           const keep = !reviewMemory.getState().panelPinned
           reviewMemory.getState().setPanelPinned(keep)
-          if (keep) requestAnimationFrame(() => steps?.querySelector<HTMLElement>('[aria-current="step"]')?.focus({ preventScroll: true }))
+          if (keep) requestAnimationFrame(() => steps?.dispatchEvent(new Event('rv-talk')))
           else element.focus({ preventScroll: true })
         },
-        discuss: () => steps?.dispatchEvent(new Event('rv-discuss')),
+        talk: () => steps?.dispatchEvent(new Event('rv-talk')),
+        verdict: (kind: Verdict) => {
+          // The keyboard goes to the choice, which opens the panel. Enter makes it: one key alone asks hobkin nothing.
+          steps?.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)?.focus({ preventScroll: true })
+        },
       })
       if (used) event.preventDefault()
     }
@@ -242,8 +262,16 @@ function Stage({ review, source }: { review: Review; source: ReviewSource }) {
             <WireCard />
             <Finder />
             <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} />
-            <StepsPanel canvas={canvas} />
+            <StepsPanel canvas={canvas} chrome={chrome} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} />
+            {shortcuts ? (
+              <Shortcuts
+                onClose={() => {
+                  setShortcuts(false)
+                  root.current?.focus({ preventScroll: true })
+                }}
+              />
+            ) : null}
             {import.meta.env.DEV ? <DevTools onReplay={() => setEntrance(planEntrance(session.getState().view.nodes, session.getState().view.edges))} /> : null}
           </div>
         </EntranceContext.Provider>

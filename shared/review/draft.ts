@@ -5,10 +5,13 @@
 import { parseSpec, type Spec, type SpecProof } from '../spec/parse.ts'
 import { sideText, type Capture, type CapturedFile } from './capture.ts'
 import { hashLines, splitLines } from './lines.ts'
+import { testPaths } from './flow.ts'
 import { fileName } from './paths.ts'
 import { cleanProse, count } from './prose.ts'
-import { HOST_TEXT_LIMIT, NO_SPEC_NOTICE, SIZE_LIMIT, TITLE_LIMIT, type EdgeKind, type NodeStatus, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewNode } from './types.ts'
+import { declaredSignature } from './signature.ts'
+import { HOST_TEXT_LIMIT, NO_SPEC_NOTICE, SIZE_LIMIT, TITLE_LIMIT, type EdgeKind, type NodeIO, type NodeStatus, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewNode, type ReviewPath } from './types.ts'
 import { findDeclaration, mergeTestSupport, pairTests, prepareUnits, unitReferences, type Unit, type UnitRange } from './units.ts'
+import { addVicinity, type Vicinity } from './vicinity.ts'
 
 export interface PrepareInput {
   id: string
@@ -20,6 +23,8 @@ export interface PrepareInput {
   readHead(path: string): Promise<string | null>
   /** Test results from the item's proof, keyed `path › name`. A test that is not named counts as not run. */
   results?: Readonly<Record<string, 'passed' | 'failed'>>
+  /** The unchanged code around the change, from a call-graph scan, when one could run. */
+  vicinity?: Vicinity
 }
 
 /** A connection the host saw by name but could not confirm. The model may propose it. */
@@ -153,6 +158,13 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
   const units = mergeTestSupport(extracted)
   const isChanged = changedLookup(capture)
   const nodes: ReviewNode[] = units.map((unit) => unitNode(unit, fileOf.get(unit.fileId)!, isChanged, input.results))
+  // What goes in and out of each changed declaration, from its parameters and return type.
+  units.forEach((unit, index) => {
+    if (unit.role !== 'code' || unit.loose || unit.summarized) return
+    const side = unit.ranges.some((range) => range.side === 'added') ? 'added' : 'deleted'
+    const io = declaredSignature(sideText(fileOf.get(unit.fileId)!, side), unit.symbol)
+    if (io && (io.in || io.out)) nodes[index]!.io = io
+  })
   const covered = new Set(units.map((unit) => unit.fileId))
   let whole = 0
   for (const file of capture.files) if (!covered.has(file.id)) nodes.push(wholeFileNode(`f${(whole += 1)}`, file))
@@ -176,6 +188,11 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
       } else if (reference.certain) wire(reference.kind, unit.id, reference.to)
       else candidates.push({ from: unit.id, to: reference.to, kind: reference.kind })
     }
+  }
+
+  if (input.vicinity) {
+    await addVicinity(input.vicinity, { capture, nodes, files, headFiles, readHead: input.readHead, wire })
+    if (input.vicinity.notice) notices.push(cleanProse(input.vicinity.notice, HOST_TEXT_LIMIT))
   }
 
   const summarized = capture.files.filter((file) => file.summarized).length
@@ -270,15 +287,23 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
 }
 
 export interface ModelRequest {
-  change: { title: string }
-  spec: { outcome: string; acceptance: { id: string; text: string }[]; steps: { id: string; serves: string[]; text: string }[] } | null
-  /** Every node the host prepared. `changes` holds its changed lines, removed before added. */
-  nodes: { id: string; kind: string; path: string; title: string; changes: string }[]
+  change: { title: string; risk?: string }
+  spec: { outcome: string; acceptance: { id: string; text: string }[]; steps: { id: string; serves: string[]; text: string }[]; outOfScope: string[]; openQuestions: string[] } | null
+  /**
+   * Every node the host prepared. `changes` holds its changed lines, removed before added. `io` is what the host read
+   * from the declaration, and `code` the first lines of an unchanged context node.
+   */
+  nodes: { id: string; kind: string; path: string; title: string; changes: string; io?: NodeIO; code?: string; status?: NodeStatus; warning?: string }[]
   /** Wires the host already drew. */
   wires: CandidateWire[]
   /** Connections the host saw by name and could not confirm. */
   candidates: CandidateWire[]
+  /** Each test's path through the code, along the host's wires. */
+  paths: ReviewPath[]
 }
+
+/** How many lines of an unchanged context node the model reads. */
+const CONTEXT_LINES = 12
 
 /**
  * What the model is given: prepared ids, the wires already drawn, the candidate wires and the spec.
@@ -312,14 +337,37 @@ export function modelRequest(draft: Draft): ModelRequest {
   }
 
   return {
-    change: { title: draft.input.change.title },
+    change: { title: draft.input.change.title, ...(draft.input.change.risk ? { risk: draft.input.change.risk } : {}) },
     spec: draft.spec && {
       outcome: draft.spec.outcome,
       acceptance: draft.spec.acceptance.filter((line) => !line.retired).map(({ id, text }) => ({ id, text })),
       steps: draft.spec.steps.filter((step) => !step.retired).map(({ id, serves, text }) => ({ id, serves, text })),
+      outOfScope: draft.spec.outOfScope,
+      openQuestions: draft.spec.openQuestions,
     },
-    nodes: draft.nodes.map((node) => ({ id: node.id, kind: node.kind, path: node.subtitle ?? '', title: node.title, changes: node.kind === 'criterion' ? '' : changesOf(node) })),
+    nodes: draft.nodes.map((node) => ({
+      id: node.id,
+      kind: node.kind,
+      path: node.subtitle ?? '',
+      title: node.title,
+      changes: node.kind === 'criterion' || node.kind === 'context' ? '' : changesOf(node),
+      ...(node.io ? { io: node.io } : {}),
+      ...(node.kind === 'context' ? { code: contextCode(node) } : {}),
+      ...(node.status ? { status: node.status } : {}),
+      ...(node.warning ? { warning: node.warning } : {}),
+    })),
     wires: draft.edges.map(({ from, to, kind }) => ({ from, to, kind })),
     candidates: draft.candidates,
+    paths: testPaths(draft.nodes, draft.edges),
+  }
+
+  function contextCode(node: ReviewNode): string {
+    const anchor = node.anchors[0]
+    const text = anchor && (fileOf.get(anchor.fileId)?.head ?? draft.headFiles.get(anchor.fileId))
+    if (!anchor || text == null) return ''
+    return splitLines(text)
+      .slice(anchor.startLine - 1, Math.min(anchor.endLine, anchor.startLine - 1 + CONTEXT_LINES))
+      .map((line) => line.slice(0, 200))
+      .join('\n')
   }
 }

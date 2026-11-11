@@ -29,12 +29,16 @@ export interface ModelStep {
   focus: string[]
   criteria: string[]
   specStep: string
+  /** The path the step walks, such as `p1`. Empty when it walks none. */
+  path: string
 }
 
 export interface ModelPass {
   summary: string
   /** Node id to its one-line summary. */
   summaries: Map<string, string>
+  /** Node id to what goes in and what comes out, in plain words. Either may be empty. */
+  io: Map<string, { in: string; out: string }>
   context: ModelContext[]
   wires: ModelWire[]
   story: ModelStep[]
@@ -45,10 +49,10 @@ export interface ModelPass {
 /** The shape the model is asked to return, before it is read. Every field is optional. */
 export interface ModelPassInput {
   summary?: string
-  nodes?: Record<string, { summary?: string }>
+  nodes?: Record<string, { summary?: string; in?: string; out?: string }>
   context?: { id?: string; path?: string; symbol?: string; summary?: string }[]
   wires?: { from?: string; to?: string; kind?: string; label?: string }[]
-  story?: { title?: string; text?: string; focus?: string[]; criteria?: string[]; specStep?: string }[]
+  story?: { title?: string; text?: string; focus?: string[]; criteria?: string[]; specStep?: string; path?: string }[]
   closing?: string
 }
 
@@ -71,14 +75,18 @@ export function readModelPass(output: unknown): ModelPass {
   const root = record(value) ?? {}
 
   const summaries = new Map<string, string>()
+  const io = new Map<string, { in: string; out: string }>()
   for (const [nodeId, raw] of Object.entries(record(root.nodes) ?? {})) {
     const summary = cleanProse(record(raw)?.summary ?? raw, PROSE_LIMIT.summary)
     if (summary) summaries.set(nodeId, summary)
+    const words = { in: cleanProse(record(raw)?.in, PROSE_LIMIT.io), out: cleanProse(record(raw)?.out, PROSE_LIMIT.io) }
+    if (words.in || words.out) io.set(nodeId, words)
   }
 
   return {
     summary: cleanProse(root.summary, PROSE_LIMIT.stepText),
     summaries,
+    io,
     context: list(root.context).flatMap((raw) => {
       const entry = record(raw)
       const context = { id: id(entry?.id), path: typeof entry?.path === 'string' ? entry.path : '', symbol: id(entry?.symbol), summary: cleanProse(entry?.summary, PROSE_LIMIT.summary) }
@@ -91,7 +99,7 @@ export function readModelPass(output: unknown): ModelPass {
     story: list(root.story).flatMap((raw) => {
       const entry = record(raw)
       if (!entry) return []
-      return [{ title: cleanProse(entry.title, PROSE_LIMIT.title), text: cleanProse(entry.text, PROSE_LIMIT.stepText), focus: ids(entry.focus), criteria: ids(entry.criteria), specStep: id(entry.specStep) }]
+      return [{ title: cleanProse(entry.title, PROSE_LIMIT.title), text: cleanProse(entry.text, PROSE_LIMIT.stepText), focus: ids(entry.focus), criteria: ids(entry.criteria), specStep: id(entry.specStep), path: id(entry.path) }]
     }),
     closing: cleanProse(root.closing, PROSE_LIMIT.stepText),
   }

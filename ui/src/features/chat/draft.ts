@@ -71,6 +71,10 @@ const MOST_REMEMBERED = 50
 const MOST_KEPT = 50
 
 const hasDraft = ({ text, attachments }: Pick<DraftState, 'text' | 'attachments'>) => text.trim().length > 0 || attachments.length > 0
+const withUploadHandle = (attachments: readonly Attachment[], id: string, handle: string) =>
+  attachments.map((attachment) => (attachment.id === id ? { ...attachment, handle } : attachment))
+const withoutAttachment = (attachments: readonly Attachment[], id: string) =>
+  attachments.filter((attachment) => attachment.id !== id)
 
 /** The kept drafts with the one being written set aside on top, under its own name when it was opened from the list. */
 function setAside(state: DraftState, at: number, id: string): readonly KeptDraft[] {
@@ -132,9 +136,23 @@ export function draftReducer(state: DraftState, action: DraftAction): DraftState
     case 'attached':
       return { ...state, attachments: [...state.attachments, action.attachment] }
     case 'uploaded':
-      return { ...state, attachments: state.attachments.map((attachment) => (attachment.id === action.id ? { ...attachment, handle: action.handle } : attachment)) }
+      return {
+        ...state,
+        attachments: withUploadHandle(state.attachments, action.id, action.handle),
+        kept: state.kept.map((entry) => ({
+          ...entry,
+          attachments: withUploadHandle(entry.attachments, action.id, action.handle),
+        })),
+      }
     case 'detached':
-      return { ...state, attachments: state.attachments.filter(({ id }) => id !== action.id) }
+      return {
+        ...state,
+        attachments: withoutAttachment(state.attachments, action.id),
+        kept: state.kept.map((entry) => ({
+          ...entry,
+          attachments: withoutAttachment(entry.attachments, action.id),
+        })),
+      }
     case 'editor-toggled':
       return { ...state, place: state.place === 'editor' ? 'input' : 'editor', leaving: false }
     case 'editor-escaped':

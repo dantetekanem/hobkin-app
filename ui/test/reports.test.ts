@@ -77,20 +77,24 @@ test('a report wears the tone of its triage, or of how its run ended', () => {
   assert.equal(toneOf(report('a', { body: '# Notes\n\nNo marker here.' })), 'plain')
 })
 
-test('a report from work mode counts as work done', () => {
+test('a work or session report counts as done', () => {
   assert.equal(kindOf(report('a', { scheduleId: 'work.storefront.build' })), 'done')
   assert.equal(kindOf(report('a', { scheduleId: 'work.discover' })), 'done')
+  assert.equal(kindOf(report('a', { scheduleId: 'session.alex' })), 'done')
+  assert.equal(kindOf(report('a', { scheduleId: 'sessionary' })), 'scheduled')
   assert.equal(kindOf(report('a', { scheduleId: 'morning-recap' })), 'scheduled')
-  assert.equal(kindOf(report('a', { scheduleId: 'workout-plan' })), 'scheduled', 'only the work. prefix counts')
+  assert.equal(kindOf(report('a', { scheduleId: 'workout-plan' })), 'scheduled', 'a work prefix must include its dot')
   assert.equal(kindOf(report('a', { scheduleId: undefined })), 'scheduled')
 })
 
-test('a report names the routine or project it came from', () => {
+test('a report names its routine or source', () => {
   assert.equal(sourceOf(report('a', { scheduleId: 'morning-recap' })), 'morning-recap', 'a routine by its name')
   assert.equal(sourceOf(report('a', { scheduleId: 'work.storefront.do' })), 'storefront', 'work by its project')
   assert.equal(sourceOf(report('a', { scheduleId: 'work.billing-api.look' })), 'billing-api')
   assert.equal(sourceOf(report('a', { scheduleId: 'work.discover' })), 'Work mode', 'a look for projects belongs to no project')
   assert.equal(sourceOf(report('a', { scheduleId: 'work.session' })), 'Another session', 'a session that ended with a report')
+  assert.equal(sourceOf(report('a', { scheduleId: 'session.alex' })), 'Another session', 'a native session report')
+  assert.equal(sourceOf(report('a', { scheduleId: 'sessionary' })), 'sessionary', 'only the session. prefix counts')
   assert.equal(sourceOf(report('a', { scheduleId: undefined })), 'hobkin')
 })
 

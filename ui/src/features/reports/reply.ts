@@ -6,9 +6,11 @@ export interface ReplyTo {
   id: string
   title: string
   /** What it is about. A report when left out. */
-  kind?: 'report' | 'routine'
+  kind?: 'report' | 'routine' | 'item'
   /** A routine's file, from the routines folder down. */
   file?: string
+  /** An action item's own words, which go to hobkin with the message since hobkin keeps no item to look up by id. */
+  body?: string
 }
 
 interface ReportReplyState {

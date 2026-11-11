@@ -11,11 +11,14 @@ import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { HostHandlers } from '../commands.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { noReviewAgent, piReviewAgent } from './agent.ts'
+import { reviewCode, reviewMap } from './guide.ts'
 import type { GhCall } from './gh.ts'
 import { Reviews, type Watched } from './reviews.ts'
 import { sampleReviewSource } from './sample-source.ts'
+import { gitPublisher } from './publish.ts'
 import { changeSource, pullSource } from './sources.ts'
 import { reviewStore } from './store.ts'
+import { scanVicinity } from './vicinity-scan.ts'
 
 export interface ReviewSeat {
   root: string
@@ -40,6 +43,12 @@ const finishedIn = (work: WorkState | null): FinishedChange[] => (work?.finished
 
 export function hostReviews(seat: ReviewSeat): Reviews {
   const find = (slug: string, item: string) => finishedIn(seat.work()).find((change) => change.slug === slug && change.item === item) ?? null
+  // hobkin's own rule: the folder the project was chosen from, or hobkin's own copy of it.
+  const repoOf = (slug: string) => {
+    const data = seat.data()
+    const repo = readProject(data, slug)?.path ?? paths(data, slug).clone
+    return existsSync(repo) ? repo : null
+  }
   return new Reviews({
     store: reviewStore(seat.root),
     sources: {
@@ -48,24 +57,23 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           const change = find(slug, item)
           return change && { project: change.project, title: change.title, branch: change.branch, head: change.head }
         },
-        // hobkin's own rule: the folder the project was chosen from, or hobkin's own copy of it.
-        repoOf: (slug) => {
-          const data = seat.data()
-          const repo = readProject(data, slug)?.path ?? paths(data, slug).clone
-          return existsSync(repo) ? repo : null
-        },
+        repoOf,
         baseOf: defaultBranch,
+        // The call-graph scan runs only where reviews are real, never for the scripted host.
+        ...(seat.live ? { vicinity: (repo: string, base: string, head: string) => scanVicinity({ repo, base, head }) } : {}),
       }),
       pull: seat.gh ? pullSource({ gh: seat.gh }) : sampleReviewSource(),
     },
     agent: seat.live ? piReviewAgent({ root: seat.root, data: seat.data, runtime: seat.runtime }) : noReviewAgent,
     work: seat.app,
+    // A finished change's commit is on its card already. A pull request's is asked of GitHub when its review is open.
+    head: (target) => (target.kind === 'change' ? (find(target.slug, target.item)?.head ?? null) : null),
     card: (slug, item) => {
       const change = find(slug, item)
-      return change && { landing: change.landing, yes: change.yes }
+      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr }
     },
-    // Only a live host posts to GitHub, and only a verdict the user confirmed.
-    ...(seat.live && seat.gh ? { gh: seat.gh } : {}),
+    // Only a live host posts to GitHub or opens a pull request, and only for a verdict the user confirmed.
+    ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),
     log: seat.log,
   })
 }
@@ -85,18 +93,26 @@ export function toPrepare(work: WorkState | null, github: GitHubState): Watched[
   return [...changes, ...pulls]
 }
 
-type ReviewCommand = 'review.prepare' | 'review.status' | 'review.get' | 'review.file' | 'review.notes' | 'review.preview' | 'review.verdict'
+type ReviewCommand = 'review.prepare' | 'review.status' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
 
 export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewCommand> {
   return {
     'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh }),
-    'review.status': ({ id }) => reviews.status(id),
+    'review.status': ({ id }) => {
+      // An open review asks now and then, so it can say when its change has moved on.
+      void reviews.lookAgain(id)
+      return reviews.status(id)
+    },
     'review.get': ({ id }) => reviews.get(id),
     'review.file': ({ id, fileId }) => reviews.file(id, fileId),
     'review.notes': ({ id, entries, draft }) => {
       reviews.saveNotes(id, { entries, draft })
       return { ok: true }
     },
+    'review.map': ({ id }) => reviewMap(reviews, id),
+    'review.code': ({ id, node }) => reviewCode(reviews, id, node),
+    'review.show': ({ id, step, node }) => reviews.show(id, { step, node }),
+    'review.note': ({ id, ...note }) => ({ id: reviews.note(id, note).id }),
     'review.preview': ({ id, verdict, summary }) => reviews.preview(id, verdict, summary),
     'review.verdict': ({ id, verdict, summary, confirm }) => reviews.verdict(id, verdict, summary, confirm),
   }

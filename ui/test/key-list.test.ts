@@ -7,9 +7,7 @@ import { SCREENS, inMenu } from '../src/app/screens.ts'
 const MENU = SCREENS.filter(({ id }) => inMenu(id, true)).map(({ id }) => id)
 const context: KeyContext = { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: true, githubInMenu: true }
 
-test('the numbered range in the list is the screens the menu really has', () => {
-  const range = KEY_LIST.find(({ keys }) => keys.startsWith('⌘1'))!.keys
-  assert.equal(range, `⌘1–${MENU.length}`)
+test('numbered commands resolve only within the current menu', () => {
   assert.equal(resolveKey({ key: String(MENU.length), meta: true }, context)?.do, 'open-screen')
   assert.equal(resolveKey({ key: String(MENU.length + 1), meta: true }, context), null)
 })

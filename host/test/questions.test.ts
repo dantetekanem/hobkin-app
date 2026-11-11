@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import { fileDecision } from 'hobkin/src/cli/decisions.mjs'
 import type { AskMessage } from '#shared/protocol/messages.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
-import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
+import { Questions } from '../src/questions.ts'
 
 const QUESTION = 'The staging deploy is ready. Promote it to production?'
 const CHOICES = [
@@ -14,6 +13,8 @@ const CHOICES = [
 
 /** A host with someone at the window, and a way to file a question the way another session does with `hobkin decide`. */
 async function questionHost(t: TestContext, questionWaitMs?: number) {
+  const { afterTest, Client, hostFor, temporaryDirectory } = await import('./support.ts')
+  const { fileDecision } = await import('hobkin/src/cli/decisions.mjs')
   const root = join(temporaryDirectory(t), 'home')
   const host = await hostFor(t, { root, questionWaitMs })
   const client = await Client.connect(host)
@@ -32,6 +33,32 @@ async function questionHost(t: TestContext, questionWaitMs?: number) {
   const waiting = () => (client.view.snapshot.decisions ?? []) as { id: string; shown?: boolean; question: string }[]
   return { client, asked, gone, file, waiting }
 }
+
+test('trusted request identity stays with its open ask; independent asks stay distinct', { timeout: 1000 }, async (t) => {
+  const questions = new Questions({ onChange: () => {}, canShow: () => true, typing: () => false })
+  t.after(() => questions.close())
+  const request = { question: QUESTION, choices: CHOICES, requestId: 'filed:one' }
+  const answer = questions.ask(request)
+  assert.equal(questions.current()?.id, request.requestId)
+  assert.equal(questions.current()?.id, request.requestId, 'replaying current state retains the identity')
+  questions.answer(request.requestId, { value: 'wait' })
+  assert.equal(await answer, 'wait')
+  assert.throws(() => questions.answer(request.requestId, { value: 'wait' }), /no longer open/)
+
+  const first = questions.ask({ question: QUESTION, choices: CHOICES })
+  const firstId = questions.current()!.id
+  questions.defer(firstId)
+  assert.equal(await first, null)
+  const second = questions.ask({ question: QUESTION, choices: CHOICES })
+  const secondId = questions.current()!.id
+  assert.notEqual(secondId, firstId, 'identical words do not correlate independent asks')
+  for (const stale of [request.requestId, firstId, 'foreign-home:request']) {
+    assert.throws(() => questions.answer(stale, { value: 'wait' }), /no longer open/)
+    assert.equal(questions.current()?.id, secondId)
+  }
+  questions.answer(secondId, { value: 'wait' })
+  assert.equal(await second, 'wait')
+})
 
 test('a question times out to action items and an answer resolves it', async (t) => {
   // hobkin keeps a question up for 30 seconds. The test does not wait that long.
@@ -86,6 +113,7 @@ test('a question takes the user\'s own words, or waits for later', async (t) => 
 })
 
 test('a UI that connects while a question is up gets it', async (t) => {
+  const { afterTest, Client } = await import('./support.ts')
   const { client, asked, file } = await questionHost(t)
   file()
   const question = await asked()

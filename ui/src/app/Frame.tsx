@@ -1,5 +1,8 @@
 import { MotionConfig } from 'motion/react'
 import { useEffect } from 'react'
+import { hostStore } from '@/lib/host/client.ts'
+import { useChat } from '@/features/chat/chat-store.ts'
+import { startAgentCompletion } from './agent-completion.ts'
 import { ChatColumn } from '@/features/chat/ChatColumn.tsx'
 import { useSettings } from '@/features/settings/store.ts'
 import { AgentsDock } from './AgentsDock.tsx'
@@ -24,6 +27,12 @@ export function Frame() {
   const movement = useSettings((state) => state.movement)
   const typeFace = useSettings((state) => state.typeFace)
   useFrameKeys()
+  useEffect(() => startAgentCompletion({
+    host: hostStore,
+    notice: (content) => useChat.setState(({ local }) => ({ local: [...local, {
+      id: `local:completion:${crypto.randomUUID()}`, role: 'notice', content, at: Date.now(),
+    }] })),
+  }), [])
   useEffect(() => {
     document.documentElement.dataset.motion = movement
   }, [movement])

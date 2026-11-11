@@ -8,7 +8,12 @@ export type Palette = Record<(typeof PALETTE_KEYS)[number], string>
 
 
 /** A theme hobkin asked for. A new `id` is a new request, so the window applies each one once. */
-export interface AppearanceRequest {
+export interface BorderColors {
+  border?: string
+  borderStrong?: string
+}
+
+export interface AppearanceRequest extends BorderColors {
   id: number
   /** What hobkin calls the theme, or null. */
   name: string | null
@@ -18,6 +23,18 @@ export interface AppearanceRequest {
 /** Reading text needs 4.5 to 1 (WCAG AA). */
 const READABLE = 4.5
 const HEX = /^#[0-9a-f]{6}$/i
+
+/** Only literal border colors may reach inline properties or the first-paint cache. */
+export function borderColors(value: BorderColors): BorderColors | null {
+  const result: BorderColors = {}
+  for (const key of ['border', 'borderStrong'] as const) {
+    const color = value[key]
+    if (color === undefined) continue
+    if (typeof color !== 'string' || !HEX.test(color)) return null
+    result[key] = color.toLowerCase()
+  }
+  return result
+}
 
 export function luminance(hex: string): number {
   const int = Number.parseInt(hex.slice(1), 16)

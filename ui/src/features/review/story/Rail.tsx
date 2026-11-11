@@ -6,8 +6,8 @@ import { spring } from '@/lib/motion.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 
 /**
- * The story rail: one segment per step, in the style of the rail on hobkin.dev. The current segment is wide
- * and accented, the steps already seen are filled, and the arrows at its ends move one step.
+ * The story bar in the middle of the footer: Prev and Next at its ends, and between them one segment per step, in
+ * the style of the rail on hobkin.dev. The current segment is wide and accented, and the steps already seen are filled.
  *
  * The segments change width by layout animation, which Motion plays as a transform. spring.pill, the same
  * spring as the pill in the screen menu, so a fast run of key presses carries on from where it is.
@@ -23,9 +23,10 @@ export function Rail() {
   const last = steps.length - 1
 
   return (
-    <nav aria-label="Story" className="rv-float pointer-events-auto flex h-10 w-full max-w-[560px] min-w-0 items-center gap-1 rounded-full px-1.5">
+    <nav aria-label="Story" className="rv-float pointer-events-auto flex h-10 w-full max-w-[640px] min-w-0 items-center gap-1 rounded-full px-1.5">
       <RailArrow label="Previous step" keys="←" disabled={current === 0 && !away} onClick={() => store.getState().step(-1)}>
         <ChevronLeft />
+        <span>Prev</span>
       </RailArrow>
       <LayoutGroup>
         <ol className="flex min-w-0 flex-1 items-center gap-[5px] px-1">
@@ -71,6 +72,7 @@ export function Rail() {
         )}
       </span>
       <RailArrow label="Next step" keys="→" disabled={current === last && !away} onClick={() => store.getState().step(1)}>
+        <span>Next</span>
         <ChevronRight />
       </RailArrow>
     </nav>
@@ -87,7 +89,7 @@ function RailArrow({ label, keys, disabled, onClick, children }: { label: string
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
-            className="grid size-7 shrink-0 place-items-center rounded-full text-foreground transition-[background-color,transform,opacity] duration-[160ms] ease-[var(--ease-out)] hover:bg-secondary active:scale-[0.94] disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4"
+            className="flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2 font-heading text-[12.5px] font-medium text-foreground transition-[background-color,transform,opacity] duration-[160ms] ease-[var(--ease-out)] hover:bg-secondary active:scale-[0.96] disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4"
           />
         }
       >

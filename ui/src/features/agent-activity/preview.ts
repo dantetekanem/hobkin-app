@@ -1,6 +1,6 @@
 /**
- * How much of a long box a transcript shows before it is opened. Nothing in a transcript scrolls by itself: a box is as
- * tall as what it shows, and a long one shows its first lines with a way to show all of them in place.
+ * How much of a long box a transcript shows before it is opened. A long one shows its first lines with a way to show
+ * all of them, and a box never grows past one height (`.aa-box`): past it, it scrolls inside.
  */
 
 /** Lines a box shows until it is opened. */

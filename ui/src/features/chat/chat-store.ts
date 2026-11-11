@@ -30,7 +30,11 @@ interface ChatState {
 
   change: (action: DraftAction) => void
   /** Sends the draft with its images, or runs it when it is a command. Nothing happens while it is empty or an image is still on its way to hobkin. */
-  send: () => void
+  send: {
+    (): Promise<boolean>
+    /** Sends plain text without borrowing the current draft or report reply. True only after host acceptance. */
+    (text: string): Promise<boolean>
+  }
   stop: () => void
   /** Attaches images to the draft: pasted, dropped or picked. Each one hobkin would refuse is turned away with the reason. */
   attach: (files: readonly File[]) => void
@@ -58,6 +62,9 @@ const limitsNow = () => {
   return link === 'open' && owner?.state === 'live' ? owner.limits : null
 }
 const forget = (attachments: readonly Attachment[]) => attachments.forEach(({ preview }) => URL.revokeObjectURL(preview))
+const retainsAttachment = (draft: DraftState, id: string) =>
+  draft.attachments.some((attachment) => attachment.id === id) ||
+  draft.kept.some((entry) => entry.attachments.some((attachment) => attachment.id === id))
 
 /** Whether the draft can go: it has words or an image, and hobkin holds every image. */
 export const canSendDraft = ({ text, attachments }: Pick<DraftState, 'text' | 'attachments'>): boolean =>
@@ -82,41 +89,50 @@ export const useChat = create<ChatState>()(
           return { draft: next, problem: null, said: null, slash: next.text === draft.text ? slash : slashTyped(slash, next.text) }
         }),
 
-      send: () => {
-        const { text, attachments } = get().draft
-        if (!canSendDraft({ text, attachments })) return
+      send: async (message?: string) => {
+        // Settings can send a plain request without consuming the user's draft, images or report reply.
+        const plain = typeof message === 'string'
+        const { text, attachments } = plain ? { text: message, attachments: [] } : get().draft
+        if (!canSendDraft({ text, attachments })) return false
 
         // A command written out with what follows it, such as "/feedback the list flickers", runs as that command.
-        const command = attachments.length ? null : slashCommandIn(text.trim(), get().commands)
+        const command = plain || attachments.length ? null : slashCommandIn(text.trim(), get().commands)
         if (command) {
           get().change({ type: 'sent' })
-          return get().runCommand(command.name, command.args)
+          get().runCommand(command.name, command.args)
+          return false
         }
 
         const words = text.trim()
         const images = attachments.map(({ handle }) => handle as string)
         // The report the message is about goes with it, once, as in the terminal app.
-        const report = useReportReply.getState().report
+        const report = plain ? null : useReportReply.getState().report
         if (report) useReportReply.getState().clear()
         // A routine goes as a line before the words, since hobkin's `about` only knows reports. The chat shows it as "About ...".
         const routine = report?.kind === 'routine' && report.file
         const sentText = routine && words ? withRoutineReference(report, words) : words
-        const entry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(report && !routine ? { about: report.title } : {}) }
-        set(({ draft, outbox }) => ({ draft: draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
-        runCommand('conversation.send', { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...(report && !routine ? { report: report.id } : {}) }).then(
+        // An action item goes whole, as the host has no item to look up: hobkin gets it the way it gets a report.
+        const item = report?.kind === 'item' ? { id: report.id, title: report.title, body: report.body ?? '' } : null
+        const about = item ? `Action item: ${item.title}` : report && !routine ? report.title : null
+        const entry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(about ? { about } : {}) }
+        set(({ draft, outbox }) => ({ draft: plain ? draft : draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
+        const attached = item ? { item } : report && !routine ? { report: report.id } : {}
+        return runCommand('conversation.send', { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...attached }).then(
           () => {
             forget(attachments)
             // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it.
             set(({ outbox }) => ({ outbox: settled({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...sent, accepted: true } : sent)) }) }))
+            return true
           },
           (error) => {
             // A message that did not go takes its report back, unless another one was chosen meanwhile.
             if (report && !useReportReply.getState().report) useReportReply.getState().attach(report)
             set(({ draft, outbox }) => ({
               outbox: { ...outbox, entries: outbox.entries.filter((sent) => sent.id !== entry.id) },
-              draft: draftReducer(draft, { type: 'restored', text, attachments }),
+              draft: plain ? draft : draftReducer(draft, { type: 'restored', text, attachments }),
               problem: `Not sent: ${reason(error)}`,
             }))
+            return false
           },
         )
       },
@@ -149,8 +165,10 @@ export const useChat = create<ChatState>()(
             .then((data) => runCommand('conversation.attach', { name: attachment.name, data }))
             .then(
               ({ id: handle }) => {
-                // Removed while it was on its way: hobkin lets go of it too.
-                if (!get().draft.attachments.some(({ id }) => id === attachment.id)) return void runCommand('conversation.detach', { id: handle }).catch(() => {})
+                if (!retainsAttachment(get().draft, attachment.id)) {
+                  void runCommand('conversation.detach', { id: handle }).catch(() => {})
+                  return
+                }
                 set(({ draft }) => ({ draft: draftReducer(draft, { type: 'uploaded', id: attachment.id, handle }) }))
               },
               (error) => {

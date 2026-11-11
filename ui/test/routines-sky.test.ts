@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fractionAt, rollingSpan, skyMarks, spanOf, sunHeight } from '../src/features/routines/sky-math.ts'
+import { tipPlacementAt } from '../src/features/routines/sky-scene.ts'
 import type { Routine, RunLine } from '../src/features/routines/types.ts'
 
 const TORONTO = 'America/Toronto'
@@ -162,4 +163,34 @@ test('a held routine has no marks until its hold ends', () => {
   const marks = skyMarks({ span, now: NOW, routines: [routine({ id: 'recap' })], logs: {}, holds: { recap: { until: '2026-11-12T00:00:00.000Z', reason: 'x' } }, detail: false })
 
   assert.equal(marks.filter((mark) => mark.kind === 'due').length, 4, 'Thursday to Sunday')
+})
+
+function assertTipWithinChart(parentLeft: number, parentWidth: number, width: number, scale = 1) {
+  const anchorX = parentLeft + parentWidth / 2
+  const placement = tipPlacementAt(parentLeft, parentWidth, width, scale)
+  const left = placement.align === 'center'
+    ? anchorX - placement.maxWidth / 2
+    : placement.align === 'start'
+      ? parentLeft + placement.left!
+      : parentLeft + parentWidth - placement.right! - placement.maxWidth
+  const renderedLeft = anchorX + (left - anchorX) * scale
+
+  assert.ok(renderedLeft >= 4 - 1e-9, `tip starts inside chart: ${renderedLeft}`)
+  assert.ok(renderedLeft + placement.maxWidth * scale <= width - 4 + 1e-9, `tip ends inside chart: ${renderedLeft + placement.maxWidth * scale}`)
+  return placement
+}
+
+test('nearby sky tips and narrow-chart tips stay within the visible width', () => {
+  const band = assertTipWithinChart(100, 288, 321)
+  const point = assertTipWithinChart(238, 20, 321, 1.18)
+  assert.equal(band.align, 'end')
+  assert.equal(point.align, 'end')
+  assert.equal(band.maxWidth, 313)
+  assert.equal(assertTipWithinChart(312, 14, 321).align, 'end')
+
+  assert.equal(assertTipWithinChart(8, 20, 321).align, 'start')
+  assert.equal(assertTipWithinChart(150, 20, 321).align, 'center')
+  const narrow = assertTipWithinChart(50, 20, 120)
+  assert.equal(narrow.align, 'center')
+  assert.equal(narrow.maxWidth, 112)
 })

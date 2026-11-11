@@ -82,6 +82,7 @@ function perform(action: KeyAction): boolean {
       } else view.disengageCanvas()
       return true
     case 'focus-input':
+      view.closeAgentCanvas()
       view.closeVeil()
       // Going home gives the chat its room back.
       view.disengageCanvas()
@@ -129,7 +130,8 @@ function perform(action: KeyAction): boolean {
     case 'answer-agent':
       return answerNext()
     case 'leave-screen':
-      if (view.screen === 'review') view.closeReview()
+      if (view.screen === 'agent') view.closeAgentCanvas()
+      else if (view.screen === 'review') view.closeReview()
       else if (view.screen === 'integrations') view.toggleIntegrations()
       else if (view.screen === 'github') view.closeGitHub()
       else view.closeSettings()
@@ -181,7 +183,11 @@ function onEscape(event: KeyboardEvent) {
 
 /** The app starts with the keyboard in the message input. The listeners are the page's own, below. */
 export function useFrameKeys(): void {
-  useEffect(focusInput, [])
+  useEffect(() => {
+    // A reload restores an agent too; startup focus must not look like a request to leave it.
+    if (useView.getState().screen === 'agent') requestCanvasFocus()
+    else focusInput()
+  }, [])
 }
 
 // Each time this module loads, a hot update among them, the page's one pair of listeners starts calling these.

@@ -11,6 +11,8 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
 import { CodeText, MoreButton } from './CodeText.tsx'
+import { BOX } from './boxes.ts'
+import { CodemodeCall } from './CodemodeCall.tsx'
 import { previewOf } from './preview.ts'
 import { foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
 import { useUnfold } from './unfold.ts'
@@ -41,8 +43,10 @@ export const StepItem = memo(
         initial={holdStill(sunk, still)}
         animate={holdStill({ ...risen, transition: arriving }, still)}
         style={{ transformOrigin: '0% 100%' }}
+        // Every step shares one inset, so text, rows and boxes start on one line. The step paints only inside itself
+        // (content-visibility), and the inset leaves room for a glyph's edge and for a row's hover to bleed into.
         className={cn(
-          'w-full min-w-0 rounded-[18px] text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+          'w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
           step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : step.kind === 'change' ? '[contain-intrinsic-size:auto_220px]' : '[contain-intrinsic-size:auto_44px]',
         )}
       >
@@ -55,6 +59,8 @@ export const StepItem = memo(
 
 function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
   switch (step.kind) {
+    case 'codemode':
+      return <CodemodeCall entry={step.entries[0]!} ended={step.state === 'stopped'} />
     case 'says':
       return (
         <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
@@ -136,7 +142,8 @@ function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { ico
       {onToggle ? <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-90')} aria-hidden="true" /> : null}
     </>
   )
-  const look = 'flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px]'
+  // Its icon sits on the steps' line, and its hover reaches out into their inset.
+  const look = '-mx-2.5 flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px]'
   if (!onToggle) return <div className={look}>{content}</div>
   return (
     <button type="button" data-step-toggle aria-expanded={open} onClick={onToggle} className={cn(look, 'transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1')}>
@@ -149,7 +156,8 @@ function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { ico
 function Opened({ children }: { children: ReactNode[] }) {
   const still = useStill()
   return (
-    <ul className="flex flex-col gap-1 pl-6">
+    // Lined up under the row's words, past its icon.
+    <ul className="flex flex-col gap-1 pl-[22px]">
       {children.map((child, index) => (
         <motion.li
           key={index}
@@ -244,7 +252,9 @@ function CommandCard({ command, time, closed = false }: { command: Command; time
         <div className="px-3.5 pb-2.5">
           {tail.hidden && !all ? <p className="mb-0.5 text-[11px] opacity-50">{tail.hidden === 1 ? '1 line above' : `${tail.hidden.toLocaleString('en-US')} lines above`}</p> : null}
           {tail.lines.length ? (
-            <pre className="font-mono text-[12px] leading-[1.6] [overflow-wrap:anywhere] whitespace-pre-wrap opacity-75">{tail.lines.join('\n')}</pre>
+            <div {...{ [BOX]: '' }} className="aa-box scroll-quiet">
+              <pre className="font-mono text-[12px] leading-[1.6] [overflow-wrap:anywhere] whitespace-pre-wrap opacity-75">{tail.lines.join('\n')}</pre>
+            </div>
           ) : null}
           {command.failure ? <p className="mt-1 font-mono text-[12px] text-bad-fg">{command.failure}</p> : null}
           {tail.hidden || all ? (
@@ -308,17 +318,19 @@ function ChangeBlock({ change }: { change: Change }) {
       {parts.map((part, index) =>
         preview.shown[index] ? (
           <div key={part.key} className="aa-diff overflow-hidden rounded-2xl" data-numbers={part.numbered ? undefined : 'none'}>
-            <DiffView file={part.file} natural rows={preview.shown[index]} className="py-1" />
+            <div {...{ [BOX]: '' }} className="aa-box scroll-quiet">
+              <DiffView file={part.file} natural rows={preview.shown[index]} className="py-1" />
+            </div>
           </div>
         ) : null,
       )}
       {preview.foldable ? (
-        <p className="pl-1">
+        <p>
           <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} />
         </p>
       ) : null}
       {change.failures.map((failure, index) => (
-        <p key={index} className="flex items-start gap-1.5 pl-2.5 text-[12px] text-bad-fg">
+        <p key={index} className="flex items-start gap-1.5 pl-[22px] text-[12px] text-bad-fg">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 break-words whitespace-pre-wrap">{failure}</span>
         </p>
@@ -373,7 +385,7 @@ function Looks({ looks }: { looks: Look[] }) {
         <FoldRow icon={LOOK_ICON[latest.kind]} open={false} failed={failed > 0}>
           <LookLine look={latest} />
         </FoldRow>
-        <ReadText look={latest} className="pl-8" />
+        <ReadText look={latest} className="" />
       </div>
     )
   }
@@ -387,7 +399,7 @@ function Looks({ looks }: { looks: Look[] }) {
       {open ? (
         <Opened>
           {looks.map((look) => (
-            <div key={look.id} className="flex flex-col gap-1 px-2.5 py-0.5 text-[13px]">
+            <div key={look.id} className="flex flex-col gap-1 py-0.5 text-[13px]">
               <LookLine look={look} />
               <ReadText look={look} className="pb-1" />
             </div>
@@ -411,12 +423,8 @@ function OtherTool({ name, summary, state, output, failure }: { name: string; su
           <StateMark state={state} />
         </span>
       </FoldRow>
-      {failure ? <p className="pl-8 text-[12px] break-words whitespace-pre-wrap text-bad-fg">{failure}</p> : null}
-      {open ? (
-        <div className="mx-2.5">
-          <CodeText text={output} language={null} label={`Output of ${name}`} />
-        </div>
-      ) : null}
+      {failure ? <p className="pl-[22px] text-[12px] break-words whitespace-pre-wrap text-bad-fg">{failure}</p> : null}
+      {open ? <CodeText text={output} language={null} label={`Output of ${name}`} /> : null}
     </div>
   )
 }

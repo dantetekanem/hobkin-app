@@ -356,7 +356,7 @@ function fakeAgents({ reachable = [] as string[] } = {}) {
         calls.push(['messageCheck', request])
         if (!request.scheduleId) return { running: reachable.map((scheduleId) => ({ scheduleId, title: scheduleId })) }
         if (!reachable.includes(request.scheduleId)) throw Error('That check is not running.')
-        return { scheduleId: request.scheduleId, status: 'delivered' }
+        return { scheduleId: request.scheduleId, status: 'queued' }
       },
     },
   }
@@ -384,11 +384,13 @@ test('stopping an agent ends its run as stopped', async () => {
   ])
 })
 
-test('a message to a running agent is delivered as steering, and refused once it finished', async () => {
+test('a message to a running agent is queued as steering, and refused once it finished', async () => {
   // Today hobkin's runner takes messages for the routines it runs, and not yet for work agents (proposed hobkin change 03).
   const today = fakeAgents({ reachable: ['morning-recap'] })
-  assert.deepEqual(await runCommand(today.handlers, 'agent.say', { run: 'once:recap', text: 'Keep it to the calendar.' }), { ok: true, value: { delivered: true } })
-  assert.deepEqual(today.calls.at(-1), ['messageCheck', { scheduleId: 'morning-recap', message: 'Keep it to the calendar.' }])
+  const noteId = '00000000-0000-4000-8000-000000000001'
+  assert.deepEqual(await runCommand(today.handlers, 'agent.say', { run: 'once:recap', text: 'Keep it to the calendar.', noteId }), { ok: true, value: { queued: true } })
+  assert.deepEqual(today.calls.at(-1), ['messageCheck', { scheduleId: 'morning-recap', runId: 'once:recap', message: 'Keep it to the calendar.', noteId }])
+  assert.equal((await runCommand(today.handlers, 'agent.say', { run: 'once:recap', text: 'Invalid', noteId: 'not-a-uuid' })).ok, false)
 
   const workAgent = await runCommand(today.handlers, 'agent.say', { run: 'work:storefront:do:1', text: 'Keep the old cart for one release.' })
   assert.deepEqual(workAgent, { ok: false, error: { code: 'unavailable', message: 'hobkin cannot pass a message to this agent while it runs.' } })
@@ -397,12 +399,23 @@ test('a message to a running agent is delivered as steering, and refused once it
   // With work agents taking messages, the same words go to the work agent's run.
   const patched = fakeAgents({ reachable: ['morning-recap', 'work.storefront.do'] })
   assert.equal((await runCommand(patched.handlers, 'agent.say', { run: 'work:storefront:do:1', text: 'Keep the old cart for one release.' })).ok, true)
-  assert.deepEqual(patched.calls.at(-1), ['messageCheck', { scheduleId: 'work.storefront.do', message: 'Keep the old cart for one release.' }])
+  assert.deepEqual(patched.calls.at(-1), ['messageCheck', { scheduleId: 'work.storefront.do', runId: 'work:storefront:do:1', message: 'Keep the old cart for one release.', noteId: undefined }])
 
   // Once it has finished, the words go nowhere and the user is told.
   const calls = patched.calls.length
   assert.deepEqual(await runCommand(patched.handlers, 'agent.say', { run: 'old', text: 'Are you still there?' }), { ok: false, error: { code: 'unavailable', message: 'It has finished, so nothing was sent.' } })
   assert.equal(patched.calls.length, calls)
+})
+
+test('steering handled input is refused and unknown acknowledgements stay uncertain', async () => {
+  const fake = fakeAgents({ reachable: ['morning-recap'] })
+  const original = fake.app.runner.messageCheck
+  for (const status of ['handled', 'unconfirmed']) {
+    fake.app.runner.messageCheck = request => request.scheduleId ? Promise.resolve({ status }) : original(request)
+    const result = await runCommand(fake.handlers, 'agent.say', { run: 'once:recap', text: 'Wait' })
+    if (status === 'handled') assert.equal(result.ok, false)
+    else assert.deepEqual(result, { ok: true, value: { queued: false } })
+  }
 })
 
 test('job activity is forwarded and kept', () => {

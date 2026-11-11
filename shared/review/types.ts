@@ -26,9 +26,10 @@ export type NodeStatus = 'proven' | 'unproven' | 'passed' | 'failed' | 'not-run'
  * the wire leaves, and `to` is the node on the right, whose left pin it enters. Read left to right, the graph says:
  * an acceptance line, the test that proves it, the code that test exercises, the code that code calls.
  * For `proves` and `implements` the verb belongs to the node on the right: the test proves the line,
- * and the code implements it. `WIRE_PHRASE` gives each kind in reading order.
+ * and the code implements it. `called-by` reads the same way: changed code on the left is called by unchanged code
+ * on the right, so a caller sits in the context column. `WIRE_PHRASE` gives each kind in reading order.
  */
-export type EdgeKind = 'proves' | 'exercises' | 'implements' | 'calls' | 'uses' | 'renders' | 'imports' | 'configures' | 'replaces'
+export type EdgeKind = 'proves' | 'exercises' | 'implements' | 'calls' | 'called-by' | 'uses' | 'renders' | 'imports' | 'configures' | 'replaces'
 
 /** Which side of a file an anchor reads: `added` is the file at head, `deleted` the file at base. */
 export type AnchorSide = 'added' | 'deleted'
@@ -55,6 +56,11 @@ export interface ReviewNode {
   stats?: { additions: number; deletions: number }
   /** One line on what this node is or what changed in it. For an acceptance line, the line itself. */
   summary: string
+  /**
+   * What goes into this node and what comes out of it. The host reads the parameters and the return type from the
+   * declaration, and the model's plain words replace them when it has some.
+   */
+  io?: NodeIO
   status?: NodeStatus
   /** For an acceptance line: its Proof line, as written. */
   proof?: string
@@ -63,6 +69,12 @@ export interface ReviewNode {
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }
+}
+
+/** What goes in and what comes out, in a few words each. Either may be empty. */
+export interface NodeIO {
+  in: string
+  out: string
 }
 
 export interface ReviewEdge {
@@ -95,6 +107,19 @@ export interface StoryStep {
   criteria: string[]
   /** The spec step this one belongs to, such as `S2`. */
   specStep?: string
+  /** The path this step walks, such as `p1`. */
+  path?: string
+}
+
+/**
+ * How one piece of functionality goes through the code, starting from the test that proves it: the test, then each
+ * node it reaches along the wires, depth first, the way a request travels. Every hop after the first is wired to an
+ * earlier one. Computed by the host from the wires, never written by the model.
+ */
+export interface ReviewPath {
+  id: string
+  test: string
+  hops: string[]
 }
 
 export type FileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'unchanged'
@@ -148,6 +173,8 @@ export interface Review {
   nodes: ReviewNode[]
   edges: ReviewEdge[]
   story: StoryStep[]
+  /** The tests' paths, test first. Missing in reviews prepared before paths existed. */
+  paths?: ReviewPath[]
   summary: string
   /** Plain statements about the review itself: "This change has no spec.", "12 files are summarized." */
   notices: string[]
@@ -176,6 +203,7 @@ export const EDGE_KINDS = [
   'exercises',
   'implements',
   'calls',
+  'called-by',
   'uses',
   'renders',
   'imports',
@@ -189,6 +217,7 @@ export const WIRE_PHRASE: Record<EdgeKind, string> = {
   exercises: 'exercises',
   implements: 'is carried by',
   calls: 'calls',
+  'called-by': 'is called by',
   uses: 'uses',
   renders: 'renders',
   imports: 'imports',
@@ -205,6 +234,7 @@ export const WIRE_RULES: Record<EdgeKind, { from: readonly NodeKind[]; to: reado
   implements: { from: ['criterion'], to: ['code', 'file'] },
   exercises: { from: ['test'], to: ['code', 'file', 'context'] },
   calls: { from: ['code'], to: ['code', 'context'] },
+  'called-by': { from: ['code'], to: ['context'] },
   uses: { from: ['code', 'file'], to: ['code', 'file', 'context'] },
   renders: { from: ['code'], to: ['code', 'context'] },
   imports: { from: ['code', 'file'], to: ['code', 'file', 'context'] },
@@ -213,7 +243,7 @@ export const WIRE_RULES: Record<EdgeKind, { from: readonly NodeKind[]; to: reado
 }
 
 /** Model prose is display text. These are the most characters each kind may have. */
-export const PROSE_LIMIT = { title: 80, stepText: 600, summary: 200, label: 60 } as const
+export const PROSE_LIMIT = { title: 80, stepText: 600, summary: 200, label: 60, io: 160 } as const
 
 /** A change larger than this keeps its first files in detail and summarizes the rest as `file` nodes. */
 export const SIZE_LIMIT = { files: 60, changedLines: 4000 } as const

@@ -10,6 +10,15 @@ const signIn = { status: 'signed-in' } as const
 const said = (id: string, text: string): ActivityEntry => ({ id: `message:${id}`, kind: 'assistant', text })
 const read = (id: string, output: string): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'read', state: 'completed', input: JSON.stringify({ path: `src/${id}.ts` }, null, 2), output })
 
+test('steering receipt IDs and times reach snapshots and reconnects without message bodies', () => {
+  const sync = new StateSync({ owner, signIn, models: null })
+  const steeringReceipts = { run: [{ noteId: '00000000-0000-4000-8000-000000000001', at: 123 }] }
+  const message = sync.update({ owner, signIn, models: null, snapshot: { steeringReceipts } })!
+  assert.deepEqual(applyHostMessage(initialHostState, message).snapshot.steeringReceipts, steeringReceipts)
+  assert.deepEqual(sync.full().set?.steeringReceipts, steeringReceipts)
+  assert.deepEqual(Object.keys(message.set!.steeringReceipts!.run![0]!), ['noteId', 'at'])
+})
+
 test('job activity travels as steps: the growing entry alone, never the whole key', () => {
   const sync = new StateSync({ owner, signIn, models: null })
   const facts = (jobActivity: Record<string, ActivityEntry[]>) => ({ owner, signIn, models: null, snapshot: { busy: true, jobActivity } })

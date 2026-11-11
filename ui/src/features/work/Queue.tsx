@@ -223,6 +223,7 @@ export function ProposalItem({ project, live, variants, order }: { project: Work
         data-stop=""
         tabIndex={-1}
         role="group"
+        data-world-project={project.slug}
         aria-label={`${project.name}, ${standing.toLowerCase()}, ${project.level}. Enter takes it.`}
         onKeyDown={onKeyDown}
         className="flex scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-4 gap-y-2 rounded-3xl border border-dashed border-border px-5 py-3.5 outline-offset-[-2px] focus-visible:bg-surface-2"
@@ -262,7 +263,7 @@ function ProjectItem({ project, live, now, variants, order }: { project: WorkPro
 
   return (
     <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4">
+      <div data-world-project={project.slug} data-stop="" data-work-item="" data-work-main="" tabIndex={-1} role="group" aria-label={`${project.name} project controls`} className="flex scroll-mt-[124px] flex-wrap items-center gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4 outline-offset-2">
         <div className="min-w-[180px] flex-1">
           <p className="flex items-baseline gap-2 font-heading text-[15px] leading-tight font-semibold tracking-[-0.015em]">
             {project.name}

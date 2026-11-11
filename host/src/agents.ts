@@ -11,7 +11,7 @@ import { Unavailable, type HostHandlers } from './commands.ts'
 export interface AgentsApp {
   workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>
   kill(runId: string): Promise<boolean>
-  runner: { messageCheck(request: { scheduleId?: string; message?: string }): Promise<unknown> }
+  runner: { messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string }): Promise<unknown> }
 }
 
 export interface AgentsSeat {
@@ -56,16 +56,21 @@ export function agentHandlers({ app, runs }: AgentsSeat): Pick<HostHandlers, 'ag
       if (!stopped) throw new Unavailable('It had already finished, so nothing was stopped.')
       return { message: `Stopped "${run.title}".` }
     },
-    'agent.say': async ({ run: id, text }) => {
+    'agent.say': async ({ run: id, text, noteId }) => {
       const run = running(id, 'It has finished, so nothing was sent.')
 
-      // hobkin passes words to a running job as steering, read at its next step, and only to the jobs that take
-      // messages. It names them by schedule, and a schedule runs once at a time.
+      // The exact run is checked again by the runner, so a schedule rollover cannot redirect the note.
       const reachable = run.scheduleId !== undefined && (await takingMessages()).includes(run.scheduleId)
       if (!reachable) throw new Unavailable('hobkin cannot pass a message to this agent while it runs.')
 
-      await app().runner.messageCheck({ scheduleId: run.scheduleId, message: text })
-      return { delivered: true }
+      try {
+        const result = await app().runner.messageCheck({ scheduleId: run.scheduleId, runId: id, noteId, message: text }) as { status?: string } | null
+        if (result?.status === 'handled') throw new Unavailable('Pi handled the input without queuing this note.')
+        return { queued: result?.status === 'queued' }
+      } catch (error) {
+        if (error instanceof Error && 'notQueued' in error && error.notQueued === true) throw new Unavailable(error.message)
+        throw error
+      }
     },
   }
 }

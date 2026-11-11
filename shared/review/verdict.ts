@@ -6,7 +6,14 @@
 import { whereInWords, type Note } from './notes.ts'
 import type { Review } from './types.ts'
 
-export type Verdict = 'comment' | 'approve' | 'request-changes'
+/**
+ * `approve` on a pull request is a GitHub review, and on a finished hobkin change the yes to open its pull request.
+ * `approve-merge` is only for a finished change: it lands it as its card does.
+ */
+export type Verdict = 'comment' | 'approve' | 'approve-merge' | 'request-changes'
+
+/** The verdicts a pull request from GitHub can get here: a review. */
+export type PullVerdict = Exclude<Verdict, 'approve-merge'>
 
 /** One GitHub review: `POST /repos/{owner}/{repo}/pulls/{number}/reviews`. */
 export interface PullReviewPost {
@@ -39,7 +46,7 @@ const aboutOnly = (review: Review, note: Note) => whereInWords(review, note).rep
  * A pull request review: the comments on lines become line comments, and the rest go in its body with what each is
  * about written out. `detached` holds the notes whose lines have changed since, which go in the body instead.
  */
-export function pullReviewPost(review: Review, notes: readonly Note[], verdict: Verdict, summary: string, detached: ReadonlySet<string> = new Set()): PullReviewPost {
+export function pullReviewPost(review: Review, notes: readonly Note[], verdict: PullVerdict, summary: string, detached: ReadonlySet<string> = new Set()): PullReviewPost {
   const lines: PullReviewPost['comments'] = []
   const loose: string[] = []
   for (const note of inStoryOrder(review, comments(notes))) {

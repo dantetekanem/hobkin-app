@@ -1,6 +1,7 @@
 import { ArrowDown, Reply } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, stagger, tween } from '@/lib/motion.ts'
@@ -9,11 +10,12 @@ import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { nextReveal } from './stream-buffer.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
+import { StoredImages } from './StoredImages.tsx'
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
 /** What an entry says, whatever its key. A reply keeps it when its stored copy takes the place of the one written live. */
-const wordsOf = (entry: Entry) => (entry.kind === 'message' ? `${entry.role}\n${entry.text}` : `${entry.tone}\n${entry.text}`)
+const wordsOf = (entry: Entry) => entry.kind === 'shell' ? `shell\n${entry.command}\n${entry.text}` : (entry.kind === 'message' ? `${entry.role}\n${entry.text}` : `${entry.tone}\n${entry.text}`)
 
 /** A reply still held live: being written, or finished and waiting for hobkin to store it. Its blocks do the moving. */
 const isLive = (entry: Entry) => entry.key.startsWith('live:')
@@ -150,11 +152,31 @@ function Row({ entry, order }: { entry: Entry; order: number | null }) {
         transition={{ transform: { ...spring.rise, delay }, opacity: { ...tween.enter, delay } }}
         // A message grows from the side it was said on.
         style={{ transformOrigin: mine ? '100% 100%' : '0% 100%' }}
-        className={cn('flex min-w-0', entry.kind === 'message' ? 'flex-col gap-1' : 'items-baseline gap-2', mine && 'items-end')}
+        className={cn('flex min-w-0', entry.kind !== 'notice' ? 'flex-col gap-1' : 'items-baseline gap-2', mine && 'items-end')}
       >
-        {entry.kind === 'message' ? <Message entry={{ ...entry, text }} mine={mine} /> : <Notice entry={entry} />}
+        {entry.kind === 'shell' ? <ShellTranscript message={{ role: 'bashExecution', ...entry }} at={entry.at} /> : entry.kind === 'message' ? <Message entry={{ ...entry, text }} mine={mine} /> : <Notice entry={entry} />}
       </motion.div>
     </motion.li>
+  )
+}
+
+/** Current chat and saved History share the same literal native shell presentation. */
+export function ShellTranscript({ message, at }: { message: unknown; at?: number | null }) {
+  const shell = shellFields(message)
+  if (!shell) return null
+  const outcome = shell.cancelled ? 'Cancelled' : shell.exitCode === null ? 'Outcome unknown' : shell.exitCode === 0 ? 'Succeeded (exit 0)' : `Failed (exit ${shell.exitCode})`
+  return (
+    <section aria-label="Shell command" className="min-w-0 rounded-lg border border-border bg-surface-2 p-3">
+      <div className="eyebrow mb-2 flex items-baseline gap-2">
+        <span>Shell · {outcome}</span>
+        {at == null ? null : <time dateTime={new Date(at).toISOString()}>{clock.format(at)}</time>}
+      </div>
+      <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[13px]">{shell.command}</pre>
+      {shell.commandPreviewCut ? <p className="text-[12px] text-muted-foreground">Command preview cut</p> : null}
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[13px]">{shell.output || '(no output)'}</pre>
+      {shell.truncated ? <p className="text-[12px] text-muted-foreground">Pi truncated the captured output</p> : null}
+      {shell.outputPreviewCut ? <p className="text-[12px] text-muted-foreground">Output preview cut</p> : null}
+    </section>
   )
 }
 
@@ -193,7 +215,7 @@ function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
           {isLive(entry) ? <WritingText text={entry.text} /> : <MessageText text={entry.text} role={entry.role} />}
         </div>
       ) : null}
-      {entry.images ? <div className="text-[12px] text-muted-foreground">{entry.images === 1 ? '1 image' : `${entry.images} images`}</div> : null}
+      {entry.images ? entry.key.startsWith('outbox:') ? <div className="text-[12px] text-muted-foreground">{entry.images === 1 ? '1 image' : `${entry.images} images`}</div> : <StoredImages messageId={entry.key} count={entry.images} /> : null}
     </>
   )
 }

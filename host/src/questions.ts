@@ -55,7 +55,7 @@ export class Questions {
       const waitMs = request.waitMs ? Math.min(request.waitMs, this.options.maxWaitMs ?? Infinity) : null
       const open: Open = {
         question: {
-          id: randomUUID(),
+          id: request.requestId ?? randomUUID(),
           from: 'hobkin',
           question: request.question,
           choices: request.choices.map(({ value, label }) => ({ value, label })),

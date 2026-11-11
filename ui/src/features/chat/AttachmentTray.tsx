@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { spring, tween } from '@/lib/motion.ts'
 import { IMAGE_ACCEPT } from './attachments.ts'
 import type { Attachment } from './draft.ts'
+import { ImagePreview } from './ImagePreview.tsx'
 
 /** The images attached to the draft, as thumbnails. Each can be removed before sending. */
 export function AttachmentTray({ attachments, onRemove }: { attachments: readonly Attachment[]; onRemove: (id: string) => void }) {
@@ -24,7 +25,7 @@ export function AttachmentTray({ attachments, onRemove }: { attachments: readonl
               exit={{ opacity: 0, transform: 'translateY(0px) scale(0.96)', transition: tween.exit }}
               className="group relative size-14"
             >
-              <img src={attachment.preview} alt={attachment.name} className="size-14 rounded-xl border border-border object-cover" />
+              <ImagePreview attachment={attachment} />
               <button
                 type="button"
                 onClick={() => onRemove(attachment.id)}

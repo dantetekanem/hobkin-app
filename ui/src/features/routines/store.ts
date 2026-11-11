@@ -3,6 +3,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { hostStore, runCommand } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
+import { hasHost } from '../../lib/host/frame.ts'
+import { useView } from '../../app/view-store.ts'
 import { routinesFromHost } from './host-data.ts'
 import type { TimesEdit, WindowEdit } from './edit.ts'
 import { prepareRoutines, withSkyWidth, type PreparedRoutines } from './prepare.ts'
@@ -35,7 +37,19 @@ export const routinesHost = { run: runCommand }
 const SECOND = 1000
 const MINUTE = 60 * SECOND
 
+type Deletion = { id: string; expectedDefinition: string; home: string; epoch: number; navigation: number; pending: boolean; refusal?: string }
+const definitionOf = (id: string): string | undefined => {
+  const rows = hostStore.getState().snapshot.schedules
+  const row = Array.isArray(rows) ? rows.find((row) => row?.id === id) : undefined
+  return typeof row?.expectedDefinition === 'string' && /^[a-f0-9]{64}$/.test(row.expectedDefinition) ? row.expectedDefinition : undefined
+}
+
 interface RoutinesState {
+  navigation: number
+  deletion: Deletion | null
+  askDelete: (id: string) => string | null
+  cancelDelete: () => void
+  confirmDelete: () => Promise<string | null>
   data: RoutinesData
   /** The screen worked out from `data` for the current minute. */
   prepared: PreparedRoutines
@@ -89,7 +103,7 @@ function finishLater(id: string, afterMs: number, outcome: RunOutcome): void {
 /** One action on a host routine. It is pending until hobkin answers, and by then hobkin's snapshot has the change. */
 async function onHost(id: string, pending: Pending, call: () => Promise<unknown>): Promise<string | null> {
   const before = useRoutines.getState()
-  if (before.pending[id]) return 'hobkin is still busy with this routine.'
+  if (before.pending[id] || before.deletion?.pending && before.deletion.id === id) return 'hobkin is still busy with this routine.'
   const { [id]: _last, ...refused } = before.refused
   useRoutines.setState({ pending: { ...before.pending, [id]: pending }, refused })
 
@@ -147,6 +161,8 @@ export const useRoutines = create<RoutinesState>()(
       ...ready(freshSample()),
       sample: 'full',
       view: 'all',
+      navigation: 0,
+      deletion: null,
       openId: null,
       openFrom: null,
       lit: null,
@@ -154,9 +170,48 @@ export const useRoutines = create<RoutinesState>()(
       refused: {},
 
       setView: (view) => set({ view }),
-      open: (id, from) => set({ openId: id, openFrom: from, lit: id }),
+      open: (id, from) => set({ openId: id, openFrom: from, lit: id, navigation: get().navigation + 1, deletion: null }),
       // What it opened from stays known, so the keyboard can go back to it.
-      close: () => set({ openId: null, lit: null }),
+      close: () => set({ openId: null, lit: null, navigation: get().navigation + 1, deletion: null }),
+      askDelete: (id) => {
+        const host = hostStore.getState()
+        const expectedDefinition = definitionOf(id)
+        const routine = get().data.routines.find((row) => row.id === id)
+        if (get().sample !== null || host.link !== 'open' || !host.home || !expectedDefinition || !routine ||
+          get().openId !== id || get().pending[id] || get().deletion?.pending || routine.nextRun?.state === 'running' || id in get().data.running) {
+          const refusal = 'Cannot delete now: connect to a current host and stop this routine first.'
+          set({ refused: { ...get().refused, [id]: refusal } })
+          return refusal
+        }
+        set({ deletion: { id, expectedDefinition, home: host.home, epoch: host.epoch, navigation: get().navigation, pending: false } })
+        return null
+      },
+      cancelDelete: () => { if (!get().deletion?.pending) set({ deletion: null }) },
+      confirmDelete: async () => {
+        const pinned = get().deletion
+        if (!pinned) return 'Confirm this routine first.'
+        if (pinned.pending) return 'hobkin is still deleting this routine.'
+        const host = hostStore.getState()
+        if (host.home !== pinned.home || host.epoch !== pinned.epoch || get().navigation !== pinned.navigation ||
+          definitionOf(pinned.id) !== pinned.expectedDefinition || host.link !== 'open' || get().sample !== null ||
+          get().openId !== pinned.id || get().pending[pinned.id] || pinned.id in get().data.running ||
+          get().data.routines.find((row) => row.id === pinned.id)?.nextRun?.state === 'running') {
+          const refusal = 'This confirmation is no longer current.'
+          set({ deletion: { ...pinned, refusal } })
+          return refusal
+        }
+        const operation = { ...pinned, pending: true }
+        set({ deletion: operation })
+        let refusal: string | null = null
+        try {
+          const receipt = await routinesHost.run('routine.delete', { id: pinned.id, expectedDefinition: pinned.expectedDefinition })
+          if (receipt?.id !== pinned.id || receipt.deleted !== true) throw Error('hobkin did not confirm deletion of this routine.')
+        } catch (error) { refusal = error instanceof Error ? error.message : String(error) }
+        if (get().deletion !== operation) return refusal
+        if (refusal) set({ deletion: { ...pinned, pending: false, refusal } })
+        else { set({ deletion: null }); if (get().openId === pinned.id) get().close() }
+        return refusal
+      },
       light: (lit) => {
         const { openId } = get()
         // While a detail is open, its routine stays lit.
@@ -213,12 +268,12 @@ export const useRoutines = create<RoutinesState>()(
 function syncRoutines(state: HostState, previous?: HostState): void {
   if (previous && state.home === previous.home &&
     state.snapshot.schedules === previous.snapshot.schedules &&
-    state.snapshot.errors === previous.snapshot.errors && state.epoch === previous.epoch) return
+    state.snapshot.errors === previous.snapshot.errors && state.epoch === previous.epoch && state.link === previous.link) return
 
   stopAllRuns()
   const changedHome = previous !== undefined && state.home !== previous.home
   const current = useRoutines.getState()
-  const sample = state.home === null ? 'full' : null
+  const sample = !hasHost(state) ? 'full' : null
   // Hello still carries the previous home's snapshot until the following state message.
   const data = sample ? freshSample() : routinesFromHost(changedHome ? {} : state.snapshot)
   const contains = (id: string | null) => !changedHome && data.routines.some((routine) => routine.id === id)
@@ -229,11 +284,17 @@ function syncRoutines(state: HostState, previous?: HostState): void {
     openFrom: contains(current.openId) ? current.openFrom : null,
     lit: contains(current.lit) ? current.lit : null,
     ...(changedHome ? { pending: {}, refused: {} } : {}),
+    ...(current.deletion && (changedHome || state.link !== 'open' || state.epoch !== current.deletion.epoch ||
+      (definitionOf(current.deletion.id) !== current.deletion.expectedDefinition &&
+        !(current.deletion.pending && !data.routines.some((row) => row.id === current.deletion!.id)))) ? { deletion: null } : {}),
   })
 }
 
 syncRoutines(hostStore.getState())
 const unsubscribe = hostStore.subscribe(syncRoutines)
+const unsubscribeNavigation = useView.subscribe((view, before) => {
+  if (view.screen !== before.screen) useRoutines.setState((state) => ({ navigation: state.navigation + 1, deletion: null }))
+})
 
 /** Each minute the screen is worked out again for the new time, whether it is open or not. */
 let minuteTimer: ReturnType<typeof setTimeout> | undefined
@@ -302,4 +363,5 @@ import.meta.hot?.dispose(() => {
   clearTimeout(minuteTimer)
   stopAllRuns()
   unsubscribe()
+  unsubscribeNavigation()
 })

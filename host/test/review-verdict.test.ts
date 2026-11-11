@@ -5,7 +5,7 @@ import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { GhOutcome } from '../src/github-gh.ts'
-import { Reviews, type ChangeCard } from '../src/review/reviews.ts'
+import { Reviews, type ChangeCard, type Publisher } from '../src/review/reviews.ts'
 import { changeSource, pullSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
@@ -16,7 +16,7 @@ const step = sample.story.find((entry) => entry.title === 'The runtime keeps the
 const sendNode = sample.nodes.find((node) => node.title === 'send')!.id
 
 /** Reviews over a review already in the home, with a fake hobkin and a fake gh that only write down what they were asked. */
-function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.' } as ChangeCard | null } = {}) {
+function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish }: { card?: ChangeCard | null; publish?: Publisher } = {}) {
   const home = temporaryDirectory(t)
   const store = reviewStore(home)
   const target = targetOfReviewId(id)!
@@ -36,6 +36,7 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
       },
     }),
     card: () => card,
+    ...(publish ? { publish } : {}),
     gh: async (args, input): Promise<GhOutcome> => {
       posts.push({ args, input })
       return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#pullrequestreview-1' }) }
@@ -48,25 +49,56 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
 
 const note = (id: string, rest: Partial<Note>): Note => ({ id, step: step.id, target: { kind: 'step' }, intent: 'comment', text: 'x', author: 'user', at: 1, ...rest })
 
-test("merge calls the card's action and passes its refusal through", async (t) => {
+test("approve and merge calls the card's action and passes its refusal through", async (t) => {
   const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
   const { reviews, actions, refuse } = seated(t, id)
 
-  const preview = reviews.preview(id, 'approve', '')
+  const preview = await reviews.preview(id, 'approve-merge', '')
   assert.deepEqual(preview.lines[0], 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.')
   assert.deepEqual(actions, [], 'a preview does nothing')
 
   // The yes lands it the way its card would, pinned to the commit the review was built from.
-  assert.deepEqual(await reviews.verdict(id, 'approve', '', preview.confirm), { message: 'hobkin did merge.' })
+  assert.deepEqual(await reviews.verdict(id, 'approve-merge', '', preview.confirm), { message: 'hobkin did merge.' })
   assert.deepEqual(actions, [['merge', 'hobkin', '7d02c9', { head: sample.change.head }]])
 
   // hobkin's own refusal, such as a branch that moved, comes back as it is.
   refuse('The branch moved since the card was shown.')
-  await assert.rejects(reviews.verdict(id, 'approve', '', preview.confirm), /The branch moved since the card was shown\./)
+  await assert.rejects(reviews.verdict(id, 'approve-merge', '', preview.confirm), /The branch moved since the card was shown\./)
   // A verdict that was not shown first does not go.
-  await assert.rejects(reviews.verdict(id, 'approve', '', 'not-the-token'), /has changed since it was shown/)
+  await assert.rejects(reviews.verdict(id, 'approve-merge', '', 'not-the-token'), /has changed since it was shown/)
   // A finished change has nobody to comment to.
-  assert.throws(() => reviews.preview(id, 'comment', ''), /nobody to comment to/)
+  await assert.rejects(reviews.preview(id, 'comment', ''), /nobody to comment to/)
+})
+
+test('approving a finished change opens its pull request at the reviewed commit, and only after the yes', async (t) => {
+  const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
+  const opened: unknown[] = []
+  const publish: Publisher = {
+    plan: async (slug, branch) => ({ repo: 'acme/shop', base: 'main', branch, slug }),
+    open: async (plan, pull) => {
+      opened.push({ plan, pull })
+      return { url: 'https://github.com/acme/shop/pull/9' }
+    },
+  }
+  const { reviews, actions } = seated(t, id, { publish })
+
+  const preview = await reviews.preview(id, 'approve', '')
+  assert.deepEqual(preview.lines, [
+    `Push hobkin/7d02c9-say-what-hobkin-is-doing at ${sample.change.head.slice(0, 7)} to acme/shop on GitHub, as you.`,
+    'Open a pull request from it into main, titled as this change.',
+    'Nothing is merged.',
+  ])
+  assert.deepEqual(opened, [], 'a preview opens nothing')
+
+  assert.deepEqual(await reviews.verdict(id, 'approve', '', preview.confirm), { message: 'Opened https://github.com/acme/shop/pull/9' })
+  assert.deepEqual(opened, [{ plan: { repo: 'acme/shop', base: 'main', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', slug: 'hobkin' }, pull: { head: sample.change.head, title: sample.change.title, body: sample.summary } }])
+  assert.deepEqual(actions, [])
+
+  // A change whose pull request is open already has nothing to open: it can be merged, or sent back.
+  const open = seated(t, id, { publish, card: { landing: 'mergePr', yes: 'Merge its PR.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: 'https://github.com/acme/shop/pull/8' } })
+  await assert.rejects(open.reviews.preview(id, 'approve', ''), /already open: https:\/\/github\.com\/acme\/shop\/pull\/8/)
+  // A host that cannot publish says so.
+  await assert.rejects(seated(t, id).reviews.preview(id, 'approve', ''), /cannot open pull requests/)
 })
 
 test('a pull request gets one GitHub review through gh, exactly as it was shown, and only after the yes', async (t) => {
@@ -78,7 +110,7 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
     note('n3', { intent: 'question', text: 'For hobkin only.' }),
   ])
 
-  const preview = reviews.preview(id, 'request-changes', 'Two things.')
+  const preview = await reviews.preview(id, 'request-changes', 'Two things.')
   assert.equal(posts.length, 0, 'nothing is posted to show what would be')
   assert.equal(preview.post?.event, 'REQUEST_CHANGES')
   assert.equal(preview.post?.commit_id, sample.change.head)
@@ -96,5 +128,7 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   // The comments went with it, so they are marked sent and are not posted again. The question stays for hobkin.
   const after = store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null))
   assert.deepEqual(after, [['n1', 1000], ['n2', 1000], ['n3', null]])
-  assert.match(reviews.preview(id, 'comment', '').post!.body, /^Commented\.$/)
+  assert.match((await reviews.preview(id, 'comment', '')).post!.body, /^Commented\.$/)
+  // A pull request from GitHub gets a review here. Merging it is GitHub's.
+  await assert.rejects(reviews.preview(id, 'approve-merge', ''), /Merge it on GitHub/)
 })

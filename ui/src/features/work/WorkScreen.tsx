@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { requestCanvasFocus } from '@/app/focus.ts'
+import { useView } from '@/app/view-store.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useRunningAgents } from '@/app/running-agents.ts'
@@ -16,7 +18,7 @@ import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
 import { SaidLine, Segmented } from './parts.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
-import { runWork, useWorkUi, useWorkView } from './store.ts'
+import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 
 /**
  * Work: hobkin and the agents it started, live, with the queue, the projects and the finished changes. It draws
@@ -32,6 +34,8 @@ export function WorkScreen() {
   const main = useRef<HTMLDivElement | null>(null)
   useStops(main)
   const { work, live } = useWorkView()
+  const worldAvailable = new Set(work?.projects.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)).size >= 3
+  useLayoutEffect(() => bindWorldProject(main.current), [])
   // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
   const agents = useRunningAgents()
   const still = useStill()
@@ -114,6 +118,11 @@ export function WorkScreen() {
       <div className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
         <Hero>
           <Header work={work} live={live} working={agents.length} />
+          {worldAvailable ? <Button data-stop="" data-opens="world" onClick={() => {
+            useView.getState().openScreen('world')
+            useView.getState().engageCanvas()
+            requestCanvasFocus()
+          }}>Open world</Button> : null}
         </Hero>
         <Rise>
           <section aria-label="At work" className="flex flex-col gap-3">

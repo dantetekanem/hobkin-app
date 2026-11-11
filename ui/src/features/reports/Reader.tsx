@@ -1,7 +1,9 @@
 import { ChevronLeft, ChevronRight, Reply, Trash, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { slideVariants } from './slide.ts'
+import { SavedRun } from './SavedRun.tsx'
+import { watchReportRead } from './store.ts'
 import { useStill } from './still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -30,12 +32,24 @@ interface ReaderProps {
  * clipped by the box. Nothing else moves on its own. The box holds the keyboard while it is open.
  */
 export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply, onDelete }: ReaderProps) {
+  const [saved, setSaved] = useState<string | null>(null)
+  useEffect(() => setSaved(null), [report.id])
+  useEffect(() => watchReportRead(report.id), [report.id])
+  const backToReport = () => {
+    setSaved(null)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-reader="${CSS.escape(report.id)}"]`)?.focus({ preventScroll: true }))
+  }
   const still = useStill()
   const slides = useMemo(() => slideVariants(still), [still])
 
   return (
     <div
       data-reader={report.id}
+      onKeyDownCapture={event => {
+        if (event.key === 'v' && !event.metaKey && !event.ctrlKey && !event.altKey && !(event.target as Element).closest('[data-saved-run]')) {
+          event.preventDefault(); event.stopPropagation(); setSaved(report.id)
+        }
+      }}
       tabIndex={-1}
       role="region"
       aria-label={report.title}
@@ -54,9 +68,11 @@ export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply
           className="scroll-quiet absolute inset-0 overflow-y-auto overscroll-contain px-8 pt-[72px] pb-14 @max-[800px]:px-6"
         >
           <Page report={report} />
+          <div className="mx-auto mt-6 max-w-[660px]"><Button variant="outline" size="sm" onClick={() => setSaved(report.id)} title="View saved run (v)">View saved run <Kbd>v</Kbd></Button></div>
         </motion.div>
       </AnimatePresence>
       <Toolbar at={at} of={of} onStep={onStep} onClose={onClose} onReply={onReply} onDelete={onDelete} />
+      {saved === report.id ? <SavedRun key={report.id} report={report.id} onBack={backToReport} /> : null}
     </div>
   )
 }

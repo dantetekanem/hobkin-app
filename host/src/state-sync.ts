@@ -1,5 +1,7 @@
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
+import { scheduleDefinition } from 'hobkin/src/cli/checks.mjs'
 import { diffActivity, MAIN_ACTIVITY, resetActivity, type JobActivity } from '#shared/protocol/activity.ts'
+import type { AppearanceRequest } from '#shared/protocol/appearance.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -7,7 +9,7 @@ import { diffMessages } from '#shared/protocol/message-ops.ts'
 import type { OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
-import type { ChatMessage, WireSnapshot } from '#shared/protocol/snapshot.ts'
+import { shellFields, type ChatMessage, type WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 
 /**
@@ -34,7 +36,20 @@ export function toWire(snapshot: HobkinSnapshot, cleared: ReadonlySet<string> = 
   // hobkin reads what was cleared when it opens. What is cleared after that is known here.
   const hidden = new Set([...(snapshot.presentation?.hiddenMessageIds ?? []), ...cleared])
   const values = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => !HOST_ONLY.has(key) && value !== undefined))
-  const messages = ((snapshot.messages ?? []) as ChatMessage[]).filter((message) => !hidden.has(message.id) && String(message.content ?? '').trim())
+  if (Array.isArray(values.schedules)) values.schedules = values.schedules.map((row: unknown) => {
+    if (!row || typeof row !== 'object') return row
+    const { nextRun: _next, ...definition } = row as Record<string, unknown>
+    return { ...row, expectedDefinition: scheduleDefinition(definition) }
+  })
+  const messages = ((snapshot.messages ?? []) as ChatMessage[]).flatMap((message): ChatMessage[] => {
+    if (hidden.has(message.id)) return []
+    if (message.role === 'bashExecution') {
+      const shell = shellFields(message)
+      const at = message.at ?? (message as ChatMessage & { timestamp?: string | number }).timestamp
+      return shell ? [{ id: message.id, role: 'bashExecution', content: shell.output, ...shell, ...(at === undefined ? {} : { at }) }] : []
+    }
+    return String(message.content ?? '').trim() ? [message] : []
+  })
   return { values, messages }
 }
 
@@ -51,6 +66,7 @@ export interface HostFacts {
   work?: WorkState | null
   /** The canvas panel. Left out by a host that has none. */
   canvas?: CanvasState
+  appearance?: AppearanceRequest | null
   /** hobkin's snapshot, or null while there is none to show. */
   snapshot: HobkinSnapshot | null
 }
@@ -72,10 +88,12 @@ export class StateSync {
   private integrations: IntegrationsState | null
   private work: WorkState | null = null
   private canvas: CanvasState | null = null
+  private appearance: AppearanceRequest | null = null
   private readonly cleared = new Set<string>()
 
-  constructor({ owner, signIn, models, github, integrations, canvas }: Omit<HostFacts, 'snapshot'>) {
+  constructor({ owner, signIn, models, github, integrations, canvas, appearance }: Omit<HostFacts, 'snapshot'>) {
     this.canvas = canvas ?? null
+    this.appearance = appearance ?? null
     this.owner = owner
     this.signIn = signIn
     this.models = models
@@ -109,11 +127,12 @@ export class StateSync {
       ...(this.integrations ? { integrations: this.integrations } : {}),
       ...(this.work ? { work: this.work } : {}),
       ...(this.canvas ? { canvas: this.canvas } : {}),
+      appearance: this.appearance,
     }
   }
 
   /** What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source. */
-  update({ owner, signIn, models, github, integrations, work = null, canvas, snapshot }: HostFacts): StateMessage | null {
+  update({ owner, signIn, models, github, integrations, work = null, canvas, appearance, snapshot }: HostFacts): StateMessage | null {
     const ownerChanged = JSON.stringify(owner) !== JSON.stringify(this.owner)
     const signInChanged = JSON.stringify(signIn) !== JSON.stringify(this.signIn)
     const modelsChanged = models !== null && JSON.stringify(models) !== JSON.stringify(this.models)
@@ -121,6 +140,7 @@ export class StateSync {
     const integrationsChanged = integrations !== undefined && JSON.stringify(integrations) !== JSON.stringify(this.integrations)
     const workChanged = JSON.stringify(work) !== JSON.stringify(this.work)
     const canvasChanged = canvas !== undefined && JSON.stringify(canvas) !== JSON.stringify(this.canvas)
+    const appearanceChanged = appearance !== undefined && JSON.stringify(appearance) !== JSON.stringify(this.appearance)
     const startOver = owner.state !== this.owner.state
     this.owner = owner
     this.signIn = signIn
@@ -128,6 +148,7 @@ export class StateSync {
     if (github) this.github = github
     if (integrations) this.integrations = integrations
     if (canvas) this.canvas = canvas
+    if (appearance !== undefined) this.appearance = appearance
     this.work = work
 
     const { values, messages } = snapshot ? toWire(snapshot, this.cleared) : { values: {}, messages: [] }
@@ -151,6 +172,7 @@ export class StateSync {
       !integrationsChanged &&
       !workChanged &&
       !canvasChanged &&
+      !appearanceChanged &&
       !changed.length &&
       !unset.length &&
       !steps.length &&
@@ -176,6 +198,7 @@ export class StateSync {
       // Work mode goes whole, and null once the snapshot has none, so a UI never keeps one that is gone.
       ...(workChanged || (startOver && this.work) ? { work: this.work } : {}),
       ...(this.canvas && (canvasChanged || startOver) ? { canvas: this.canvas } : {}),
+      ...(appearanceChanged || startOver ? { appearance: this.appearance } : {}),
     }
   }
 }

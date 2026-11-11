@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { walkScreens } from '../src/app/screens.ts'
 
-const MAIN = ['reports', 'routines', 'actions', 'work'] as const
+const MAIN = ['home', 'reports', 'routines', 'actions', 'work'] as const
 
 test('the saved GitHub menu preference controls screen traversal', async () => {
   const values = new Map<string, string>()

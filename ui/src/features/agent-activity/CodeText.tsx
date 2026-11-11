@@ -6,6 +6,7 @@ import { useHighlighted } from '@/features/review/code/use-highlighted.ts'
 import { cn } from '@/lib/utils.ts'
 import { PREVIEW_LINES, previewOf } from './preview.ts'
 import { useUnfold } from './unfold.ts'
+import { BOX } from './boxes.ts'
 
 const linesOf = (text: string) => text.replace(/\n+$/, '').split('\n')
 
@@ -52,7 +53,7 @@ export function CodeText({ text, language, from, label, note, most = PREVIEW_LIN
   const all = useHighlighted(open && foldable ? text : null, language)
   return (
     <div ref={box} className="min-w-0 overflow-hidden rounded-xl bg-code-bg text-code-text shadow-[inset_0_0_0_1px_var(--hb-border)]">
-      <div role="region" aria-label={label} className="py-1.5 font-mono text-[12px] leading-[1.6]">
+      <div role="region" aria-label={label} {...{ [BOX]: '' }} className="aa-box scroll-quiet py-1.5 font-mono text-[12px] leading-[1.6]">
         {lines.slice(0, count).map((line, index) => {
           const source = all.lines[index] ? all : head
           return (

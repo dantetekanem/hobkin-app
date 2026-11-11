@@ -1,4 +1,4 @@
-import { type AppearanceRequest, type Palette, contrast, luminance, readablePalette } from '#shared/protocol/appearance.ts'
+import { type AppearanceRequest, type Palette, borderColors, contrast, luminance, readablePalette } from '#shared/protocol/appearance.ts'
 
 export { PALETTE_KEYS, contrast, paletteProblems, readablePalette, type Palette } from '#shared/protocol/appearance.ts'
 
@@ -80,13 +80,14 @@ export function askLine(ask: ThemeAsk): string {
  */
 export function receiveAppearance(
   state: { request: ThemeAsk | null; appearanceId: number },
-  { id, name, palette }: AppearanceRequest,
+  { id, name, palette, border, borderStrong }: AppearanceRequest,
   now: number,
 ) {
   const readable = readablePalette(palette)
-  if (id <= state.appearanceId || !readable) return null
+  const borders = borderColors({ border, borderStrong })
+  if (id <= state.appearanceId || !readable || !borders) return null
   const { request } = state
-  return { palette: readable, customTheme: true, appearanceId: id, request: request && request.appliedAt === null ? { ...request, appliedAt: now, name } : request }
+  return { palette: readable, border: borders.border, borderStrong: borders.borderStrong, customTheme: true, appearanceId: id, request: request && request.appliedAt === null ? { ...request, appliedAt: now, name } : request }
 }
 
 /** Settings saved before version 2 gain background opacity and the custom theme (what cannot be used is dropped), and before version 3 no ask. */
@@ -94,5 +95,7 @@ export function migrateSettings(saved: unknown): Record<string, unknown> {
   const state = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>) : {}
   const palette = readablePalette(state.palette)
   const opacity = typeof state.backgroundOpacity === 'number' && state.backgroundOpacity <= OPACITY.max ? state.backgroundOpacity : OPACITY.initial
-  return { ...state, backgroundOpacity: stepOpacity(opacity, 0), palette, customTheme: state.customTheme === true && palette !== null, request: state.request ?? null, appearanceId: typeof state.appearanceId === 'number' ? state.appearanceId : 0 }
+  const borders = palette ? { ...borderColors({ border: state.border as string }), ...borderColors({ borderStrong: state.borderStrong as string }) } : {}
+  const { border: _border, borderStrong: _strong, ...rest } = state
+  return { ...rest, ...borders, backgroundOpacity: stepOpacity(opacity, 0), palette, customTheme: state.customTheme === true && palette !== null, request: state.request ?? null, appearanceId: typeof state.appearanceId === 'number' ? state.appearanceId : 0 }
 }

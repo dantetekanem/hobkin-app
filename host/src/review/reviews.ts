@@ -9,8 +9,8 @@
 import { createHash } from 'node:crypto'
 import { completeReview, draftReview, modelRequest } from '#shared/review/prepare.ts'
 import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
-import { detached as detachedNotes, foldNotes, type NoteEntry } from '#shared/review/notes.ts'
-import { IDLE_STATUS, type OpenedReview, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
+import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { askForChanges, pullReviewPost, type Verdict } from '#shared/review/verdict.ts'
@@ -33,6 +33,26 @@ export interface ChangeCard {
   landing: 'merge' | 'mergePr' | 'refreshMerge'
   /** What a yes does, in hobkin's words. */
   yes: string
+  /** Its branch, when it has one. */
+  branch: string | null
+  /** Its pull request's address, once one is open. */
+  pr: string | null
+}
+
+/** Where a finished change's pull request goes: its GitHub repository as `owner/name`, the branch it merges into, and its own. */
+export interface PublishPlan {
+  slug: string
+  repo: string
+  base: string
+  branch: string
+}
+
+/** Opens a finished change's pull request once the review says yes. */
+export interface Publisher {
+  /** Where the pull request would go. Throws, with the reason, when the change cannot have one. */
+  plan(slug: string, branch: string): Promise<PublishPlan>
+  /** Pushes the branch at the reviewed commit and opens the pull request. */
+  open(plan: PublishPlan, pull: { head: string; title: string; body: string }): Promise<{ url: string }>
 }
 
 export interface ReviewsOptions {
@@ -45,6 +65,10 @@ export interface ReviewsOptions {
   card: (slug: string, item: string) => ChangeCard | null
   /** gh, for a verdict on a pull request. A host given none posts nothing. */
   gh?: GhCall
+  /** Opens a finished change's pull request. A host given none opens none. */
+  publish?: Publisher
+  /** The commit a change is at now, as the app already knows it without asking anyone. Null when it does not know. */
+  head?: (target: ReviewTarget) => string | null
   onChange?: () => void
   log?: (line: string) => void
   /** The skill, so a test can hand in its own. */
@@ -60,6 +84,9 @@ interface Job {
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 
+/** How often an opened review asks where its change is now, when the app does not already know. */
+export const LOOK_AGAIN_MS = 60_000
+
 /** Every review the host has prepared or is preparing, and what to do with them. */
 export class Reviews {
   private readonly statuses = new Map<string, ReviewStatus>()
@@ -70,6 +97,10 @@ export class Reviews {
   private readonly watched = new Map<string, string>()
   private readonly controller = new AbortController()
   private working = false
+  /** When each review last asked where its change is now. */
+  private readonly lookedAt = new Map<string, number>()
+  /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
+  private written = 0
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
@@ -77,7 +108,7 @@ export class Reviews {
   }
 
   private set(id: string, change: Partial<ReviewStatus>) {
-    this.statuses.set(id, { ...(this.statuses.get(id) ?? IDLE_STATUS(id)), ...change })
+    this.statuses.set(id, { ...this.stored(id), ...change })
     this.options.onChange?.()
   }
 
@@ -87,14 +118,43 @@ export class Reviews {
     return target
   }
 
-  /** How a review's preparation stands. */
-  status(id: string): ReviewStatus {
+  /** What this host knows of a review's preparation, before asking where its change is now. */
+  private stored(id: string): ReviewStatus {
     const known = this.statuses.get(id)
     if (known) return known
     // A review prepared before the host started is ready from its file.
     const newest = this.options.store.newest(this.target(id))
     if (!newest) return IDLE_STATUS(id)
     return { ...IDLE_STATUS(id), state: 'ready', preparedAt: newest.meta?.preparedAt ?? new Date(newest.at).toISOString(), storyBy: newest.meta?.storyBy ?? null }
+  }
+
+  /**
+   * How a review's preparation stands. A ready review is outdated when its change is at a commit no review was built
+   * for: it still opens, and says so, until a newer one is ready.
+   */
+  status(id: string): ReviewStatus {
+    const target = this.target(id)
+    const known = this.stored(id)
+    const head = this.options.head?.(target) ?? known.head
+    return { ...known, head, stale: known.state === 'ready' && head != null && !this.options.store.has(target, head) }
+  }
+
+  /**
+   * Asks where the change is now, at most once a minute for each review, so an opened review can say it is outdated.
+   * A pull request is asked of GitHub. Nothing is prepared here: the reviewer chooses when to rebuild.
+   */
+  async lookAgain(id: string, now: () => number = this.options.now ?? Date.now): Promise<void> {
+    const target = this.target(id)
+    const at = now()
+    const last = this.lookedAt.get(id)
+    if (last != null && at - last < LOOK_AGAIN_MS) return
+    this.lookedAt.set(id, at)
+    try {
+      const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
+      if (head && head !== this.stored(id).head) this.set(id, { head })
+    } catch (error) {
+      this.options.log?.(`Review ${id} could not look up its commit: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /**
@@ -198,6 +258,8 @@ export class Reviews {
   /** The prepared review, with the reviewer's notes. */
   get(id: string): OpenedReview {
     const { review } = this.loaded(id)
+    // Opening a review is when its change is looked up, when the app does not already know where it is.
+    if (!this.options.head?.(this.target(id))) void this.lookAgain(id)
     const status = this.status(id)
     return { review, notes: this.options.store.notes(this.target(id)), status: { ...status, stale: status.head != null && status.head !== review.change.head } }
   }
@@ -209,17 +271,64 @@ export class Reviews {
     return file
   }
 
-  /** Keeps the reviewer's notes in the home, sent or not, so they come back after a restart. */
+  /**
+   * Keeps the reviewer's notes in the home, sent or not, so they come back after a restart. The window's log is laid
+   * over what the home has, so a note hobkin left that the window has not seen yet stays, and one the window removed goes.
+   */
   saveNotes(id: string, notes: ReviewNotes): void {
+    const target = this.target(id)
+    const saved = this.options.store.notes(target).entries as NoteEntry[]
     // Folded, so the file holds each note once however often it was changed.
-    this.options.store.saveNotes(this.target(id), { entries: foldNotes(notes.entries).map((note) => ({ op: 'put', note })), draft: notes.draft })
+    const merged = foldNotes([...saved, ...notes.entries])
+    this.options.store.saveNotes(target, { entries: merged.map((note) => ({ op: 'put', note })), draft: notes.draft })
+  }
+
+  /** Moves the reviewer's view to a step, by its number from 1, or to a node. The window follows. */
+  show(id: string, place: { step?: number; node?: string }): ReviewCursor {
+    const { review } = this.loaded(id)
+    const { step, node } = place
+    if ((step == null) === (node == null)) throw new Unavailable('Name a step or a node to show, and only one.')
+    if (step != null && !(Number.isInteger(step) && step >= 1 && step <= review.story.length)) throw new Unavailable(`This review has ${review.story.length} steps.`)
+    if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
+    const cursor: ReviewCursor = { ...(step != null ? { step } : {}), ...(node != null ? { node } : {}), at: (this.options.now ?? Date.now)() }
+    this.set(id, { cursor })
+    return cursor
+  }
+
+  /**
+   * A note hobkin leaves on a review, signed as hobkin: on a node, on a wire, or on a step. It is taken on the step
+   * that shows what it is about, so it reads in the story where the reviewer meets it.
+   */
+  note(id: string, { intent, text, step, node, wire }: { intent: NoteIntent; text: string; step?: number; node?: string; wire?: string }): Note {
+    const target = this.target(id)
+    const { review } = this.loaded(id)
+    const edge = wire == null ? undefined : review.edges.find((entry) => entry.id === wire)
+    if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
+    if (wire != null && !edge) throw new Unavailable(`This review has no wire ${wire}.`)
+    if (step != null && !(Number.isInteger(step) && step >= 1 && step <= review.story.length)) throw new Unavailable(`This review has ${review.story.length} steps.`)
+    const about: NoteTarget = node != null ? { kind: 'node', node } : edge ? { kind: 'wire', wire: edge.id } : { kind: 'step' }
+    const shown = [node, edge?.from, edge?.to].filter((entry): entry is string => entry != null)
+    const cursor = this.stored(id).cursor?.step
+    const taken =
+      (step != null ? review.story[step - 1] : undefined) ??
+      review.story.find((entry) => entry.focus.some((focused) => shown.includes(focused))) ??
+      (cursor != null ? review.story[cursor - 1] : undefined) ??
+      review.story.find((entry) => entry.kind === 'walk') ??
+      review.story[0]!
+    const at = (this.options.now ?? Date.now)()
+    const note: Note = { id: `hobkin-${at.toString(36)}-${(this.written += 1)}`, step: taken.id, target: about, intent, text: text.trim(), author: 'hobkin', at }
+    const saved = this.options.store.notes(target)
+    const notes = foldNotes([...(saved.entries as NoteEntry[]), { op: 'put', note }])
+    this.options.store.saveNotes(target, { entries: notes.map((entry) => ({ op: 'put', note: entry })), draft: saved.draft })
+    this.set(id, { notesAt: at })
+    return note
   }
 
   /**
    * What a verdict will do, built from the review and the notes in the home, with the token that lets it go.
    * Nothing is sent here.
    */
-  preview(id: string, verdict: Verdict, summary: string): VerdictPreview {
+  async preview(id: string, verdict: Verdict, summary: string): Promise<VerdictPreview> {
     const target = this.target(id)
     const { review, files } = this.loaded(id)
     const notes = foldNotes(this.options.store.notes(target).entries as NoteEntry[])
@@ -227,6 +336,7 @@ export class Reviews {
     const loose = new Set(detachedNotes(notes, (fileId, side) => (side === 'added' ? byId.get(fileId)?.head : byId.get(fileId)?.base) ?? null))
 
     if (target.kind === 'pull') {
+      if (verdict === 'approve-merge') throw new Unavailable('A pull request from GitHub gets a review here. Merge it on GitHub.')
       const post = pullReviewPost(review, notes, verdict, summary, loose)
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
       const lines = [
@@ -239,8 +349,17 @@ export class Reviews {
 
     const card = this.options.card(target.slug, target.item)
     if (!card) throw new Unavailable('hobkin no longer lists this change as finished.')
-    if (verdict === 'comment') throw new Unavailable('A finished change has nobody to comment to. Approve it, or ask for changes.')
+    if (verdict === 'comment') throw new Unavailable('A finished change has nobody to comment to. Approve it, approve and merge it, or ask for changes.')
     if (verdict === 'approve') {
+      const { plan, pull } = await this.publication(target.slug, card, review)
+      const lines = [
+        `Push ${plan.branch} at ${pull.head.slice(0, 7)} to ${plan.repo} on GitHub, as you.`,
+        `Open a pull request from it into ${plan.base}, titled as this change.`,
+        'Nothing is merged.',
+      ]
+      return { verdict, lines, confirm: sha256(JSON.stringify(['change', id, verdict, plan, pull])) }
+    }
+    if (verdict === 'approve-merge') {
       return { verdict, lines: [card.yes, `At commit ${review.change.head.slice(0, 7)}, the one this review was built from. A branch that moved since is refused.`], confirm: sha256(JSON.stringify(['change', id, verdict, card.landing, review.change.head])) }
     }
     const note = askForChanges(review, notes, summary)
@@ -253,7 +372,7 @@ export class Reviews {
    * gets one GitHub review through gh, and a finished change one of hobkin's own work actions.
    */
   async verdict(id: string, verdict: Verdict, summary: string, confirm: string): Promise<{ message: string }> {
-    const preview = this.preview(id, verdict, summary)
+    const preview = await this.preview(id, verdict, summary)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')
     const target = this.target(id)
 
@@ -267,17 +386,36 @@ export class Reviews {
 
     const { review } = this.loaded(id)
     const card = this.options.card(target.slug, target.item)!
+    if (verdict === 'approve') {
+      const { plan, pull } = await this.publication(target.slug, card, review)
+      const { url } = await this.options.publish!.open(plan, pull)
+      return { message: `Opened ${url}` }
+    }
     const said =
-      verdict === 'approve'
+      verdict === 'approve-merge'
         ? await this.options.work().workAction(card.landing, target.slug, target.item, { head: review.change.head })
         : await this.options.work().workAction('ask', target.slug, target.item, preview.note ?? '')
     this.markSent(target, verdict)
     return { message: String((said as { message?: unknown } | null)?.message ?? 'Done.') }
   }
 
+  /** Where a finished change's pull request would go, and what it would say. Refused, with the reason, when it cannot have one. */
+  private async publication(slug: string, card: ChangeCard, review: Review): Promise<{ plan: PublishPlan; pull: { head: string; title: string; body: string } }> {
+    if (card.pr) throw new Unavailable(`The pull request for this change is already open: ${card.pr}. Approve and merge it, or ask for changes.`)
+    if (!this.options.publish) throw new Unavailable('This host cannot open pull requests.')
+    if (!card.branch) throw new Unavailable('This change has no branch to push.')
+    let plan: PublishPlan
+    try {
+      plan = await this.options.publish.plan(slug, card.branch)
+    } catch (error) {
+      throw new Unavailable(error instanceof Error ? error.message : String(error))
+    }
+    return { plan, pull: { head: review.change.head, title: review.change.title, body: review.summary } }
+  }
+
   /** A verdict that went takes its comments with it: they are marked sent, so they are never sent twice. */
   private markSent(target: ReviewTarget, verdict: Verdict) {
-    if (verdict === 'approve' && target.kind === 'change') return
+    if ((verdict === 'approve' || verdict === 'approve-merge') && target.kind === 'change') return
     const saved = this.options.store.notes(target)
     const at = (this.options.now ?? Date.now)()
     const entries = foldNotes(saved.entries as NoteEntry[]).map((note) => ({ op: 'put' as const, note: note.intent === 'comment' && note.sent == null ? { ...note, sent: at } : note }))

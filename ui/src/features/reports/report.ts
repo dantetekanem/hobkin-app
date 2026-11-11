@@ -8,7 +8,7 @@ export interface Report {
   id: string
   /** The routine's title, or the title of the work item. */
   title: string
-  /** The routine the run belongs to. Work mode's runs are `work.<project>.<lane>`. */
+  /** The routine or source the run belongs to. Native sessions use `session.<name>`. */
   scheduleId?: string
   /** When the run finished, as an ISO date. */
   at?: string
@@ -18,7 +18,7 @@ export interface Report {
   outcome: string
 }
 
-/** Scheduled: a routine ran. Done: work mode finished something. */
+/** Scheduled: a routine ran. Done: work mode or another session finished something. */
 export type ReportKind = 'scheduled' | 'done'
 
 export type TriageLevel = 'critical' | 'blocked' | 'useful' | 'nothing'
@@ -34,17 +34,20 @@ export interface Triage {
 export type Tone = TriageLevel | 'plain'
 
 export function kindOf({ scheduleId }: Report): ReportKind {
-  return String(scheduleId ?? '').startsWith('work.') ? 'done' : 'scheduled'
+  const schedule = String(scheduleId ?? '')
+  const isFinishedRun = schedule.startsWith('work.') || schedule.startsWith('session.')
+  return isFinishedRun ? 'done' : 'scheduled'
 }
 
 /**
- * Where a report came from: the routine's name, or the project work mode did it for. Work mode's schedules are
- * `work.<project>.<lane>`, `work.discover` when it looks for projects, and `work.session` for another session.
+ * Where a report came from: the routine's name, the project work mode or another session. Work mode's schedules are
+ * `work.<project>.<lane>`, `work.discover` when it looks for projects, and `work.session` for another session; native
+ * session reports use `session.<name>`.
  */
 export function sourceOf({ scheduleId }: Report): string {
   if (!scheduleId) return 'hobkin'
   if (scheduleId === 'work.discover') return 'Work mode'
-  if (scheduleId === 'work.session') return 'Another session'
+  if (scheduleId === 'work.session' || scheduleId.startsWith('session.')) return 'Another session'
   const work = /^work\.(.+)\.[^.]+$/.exec(scheduleId)
   return work ? work[1]! : scheduleId
 }

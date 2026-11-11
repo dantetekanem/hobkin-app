@@ -44,3 +44,13 @@
     animation: none;
   }
 }
+
+/*
+ * A box of the transcript (a command's output, a file read, a diff, a tool's output) never grows past one height. Past
+ * it, the box scrolls inside, and the transcript around it keeps one rhythm however long the output.
+ */
+.aa-box {
+  max-height: min(22rem, 42vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+}

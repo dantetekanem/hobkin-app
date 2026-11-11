@@ -5,6 +5,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useTiers } from '@/features/tiers/store.ts'
 import { ChildCluster, ChildFaces } from '@/features/work/ChildAgents.tsx'
+import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
@@ -66,12 +67,9 @@ export function AgentsDock() {
     if (onAgent && openAgent) follow(openAgent)
   }, [onAgent, openAgent])
 
-  /** Brings an agent's row to the middle of the list, gliding unless the user asked for stillness. */
+  /** Selection is visible immediately; browser-defined smooth scrolling has no entry deadline. */
   const follow = (agentId: string) => {
-    requestAnimationFrame(() => {
-      const still = document.documentElement.dataset.motion === 'still'
-      list.current?.querySelector(`[data-agent-row="${agentId}"]`)?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' })
-    })
+    list.current?.querySelector(`[data-agent-row="${agentId}"]`)?.scrollIntoView({ block: 'center', behavior: 'instant' })
   }
 
   if (agents.length === 0 && helpers.length === 0) return null
@@ -104,7 +102,7 @@ export function AgentsDock() {
               key="helpers"
               data-main-helpers
               initial={holdStill({ opacity: 0, transform: 'translateY(34px) scale(0.5)' }, still)}
-              animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { type: 'spring', duration: 0.62, bounce: 0.48 } } as const, still)}
+              animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }, still)}
               exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still)}
               className="flex items-center gap-2.5 px-2 py-1.5"
             >
@@ -148,7 +146,13 @@ export function AgentsDock() {
               onFocus={() => {
                 if (at === null) select(0, 1)
               }}
-              onBlur={() => {
+              onBlur={(event) => {
+                const next = event.relatedTarget
+                if (next instanceof Element && next.closest('[data-canvas-screen^="agent:"]')) {
+                  const view = useView.getState()
+                  if (view.openAgent) view.openAgentCanvas(view.openAgent)
+                  return
+                }
                 // Stepping into an agent takes the keyboard to its input. The list keeps its place for the way back.
                 if (useView.getState().agentTalk || useAgentControl.getState().target) return
                 // Leaving the list by any other road ends the preview, and the list drifts back to its top.
@@ -178,7 +182,8 @@ export function AgentsDock() {
                   return (
                     <motion.div
                       key={agent.id}
-                      layout="position"
+                      layout={still ? false : 'position'}
+                      transition={agentEntry(still)}
                       id={`${id}-${agent.id}`}
                       role="option"
                       aria-selected={selected}
@@ -188,7 +193,7 @@ export function AgentsDock() {
                       data-asking={asks ? true : undefined}
                       // A new agent bubbles up from below and overshoots a little, like a bubble reaching the surface.
                       initial={holdStill({ opacity: 0, transform: 'translateY(34px) scale(0.5)' }, still)}
-                      animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { type: 'spring', duration: 0.62, bounce: 0.48 } } as const, still)}
+                      animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }, still)}
                       exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still)}
                       // The row keeps the keyboard where it is: a click must not blur the list and end a preview first.
                       onMouseDown={(event) => event.preventDefault()}

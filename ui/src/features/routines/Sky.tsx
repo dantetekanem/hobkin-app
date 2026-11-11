@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils.ts'
 import { useWidth } from './hooks.ts'
 import { hueOf, toneFill } from './look.ts'
 import { fractionAt, skyMarks, sunHeight, type SkyMark, type Span } from './sky-math.ts'
-import { GROUND, heightAt, HORIZON, RIDGES, sceneOf, SKY_HEIGHT, STARS, type PlacedBand, type PlacedMark, type Scene, type TimeLabel } from './sky-scene.ts'
+import { GROUND, heightAt, HORIZON, RIDGES, sceneOf, SKY_HEIGHT, STARS, tipPlacementAt, type PlacedBand, type PlacedMark, type Scene, type TimeLabel, type TipPlacement } from './sky-scene.ts'
 import type { Hold, Routine, RoutinesData } from './types.ts'
 import { clockText, outcomeOf, ownTime, type Tone } from './words.ts'
 
@@ -271,29 +271,24 @@ function BandTargets({ bands, width, naming, onLight, onPick }: PickProps & { ba
       onPointerEnter={() => onLight?.(mark.routineId)}
       onPointerLeave={() => onLight?.(null)}
     >
-      <Tip text={`${naming.titleOf(mark.routineId)}, from ${naming.timeOf(mark.routineId, mark.at)}`} shown={false} />
+      <Tip text={`${naming.titleOf(mark.routineId)}, from ${naming.timeOf(mark.routineId, mark.at)}`} shown={false} placement={tipPlacementAt(mark.x * width - 6, Math.max(14, (mark.end - mark.x) * width + 12), width)} />
     </button>
   ))
 }
-
-/** How close to an edge of the sky a mark's tip starts to lean inward. */
-const TIP_ROOM = 120
 
 interface MarksProps extends PickProps {
   points: PlacedMark[]
   now: number
   lit: string | null
   arriving: boolean
-  /** The sky's width, so tips near its edges lean inward. */
-  width?: number
+  width: number
 }
 
 /** Every point on the path: the runs that happened, and the times still to come. */
-function Marks({ points, now, lit, arriving, width = Number.POSITIVE_INFINITY, naming, onLight, onPick }: MarksProps) {
+function Marks({ points, now, lit, arriving, width, naming, onLight, onPick }: MarksProps) {
   const next = points.find(({ mark }) => mark.kind === 'due' && mark.at > now)?.mark
   // The lit routine names its next time over its mark.
   const litNext = lit === null ? undefined : points.find(({ mark }) => mark.routineId === lit && mark.kind === 'due')?.mark
-  const alignAt = (x: number): TipAlign => (x < TIP_ROOM ? 'start' : x > width - TIP_ROOM ? 'end' : 'center')
 
   return (
     <AnimatePresence>
@@ -303,7 +298,7 @@ function Marks({ points, now, lit, arriving, width = Number.POSITIVE_INFINITY, n
           point={point}
           isNext={point.mark === next}
           named={point.mark === litNext}
-          tipAlign={alignAt(point.x)}
+          tipPlacement={tipPlacementAt(point.x - 10, 20, width, lit === point.mark.routineId ? 1.18 : 1)}
           lit={lit}
           // A wave across the sky, from the earliest mark to the latest.
           delay={arriving ? staggerDelay + (index / points.length) * dur.travel : 0}
@@ -321,12 +316,12 @@ interface MarkButtonProps extends PickProps {
   isNext: boolean
   /** Its tip shows without the pointer, because its routine is lit. */
   named: boolean
-  tipAlign: TipAlign
+  tipPlacement: TipPlacement
   lit: string | null
   delay: number
 }
 
-function MarkButton({ point, isNext, named, tipAlign, lit, delay, naming, onLight, onPick }: MarkButtonProps) {
+function MarkButton({ point, isNext, named, tipPlacement, lit, delay, naming, onLight, onPick }: MarkButtonProps) {
   const { mark, x, y } = point
   const title = naming.titleOf(mark.routineId)
   const time = naming.timeOf(mark.routineId, mark.at)
@@ -357,7 +352,7 @@ function MarkButton({ point, isNext, named, tipAlign, lit, delay, naming, onLigh
       onPointerLeave={() => onLight?.(null)}
     >
       {dot}
-      <Tip text={tip} shown={named} align={tipAlign} />
+      <Tip text={tip} shown={named} placement={tipPlacement} />
     </motion.button>
   )
 }
@@ -389,25 +384,21 @@ function DueDot({ check, isNext }: { check: boolean; isNext: boolean }) {
   return <span className="block size-2.5 rounded-full border-2 border-foreground/55 bg-tone-2 transition-transform duration-[160ms] ease-out group-hover:scale-125" />
 }
 
-/** Where a tip sits over its mark. Near an edge of the sky it leans inward, so it is never cut off. */
-type TipAlign = 'start' | 'center' | 'end'
-
-const TIP_ALIGN: Record<TipAlign, string> = {
-  start: '-left-1',
-  center: 'left-1/2 -translate-x-1/2',
-  end: '-right-1',
-}
-
 /** The name and time over a mark, shown while the pointer is on it. */
-function Tip({ text, shown, align = 'center' }: { text: string; shown: boolean; align?: TipAlign }) {
+function Tip({ text, shown, placement }: { text: string; shown: boolean; placement: TipPlacement }) {
   return (
     <span
       className={cn(
-        'pointer-events-none absolute bottom-full mb-1 rounded-full bg-foreground px-2 py-0.5 font-heading text-[11px] leading-4 font-medium whitespace-nowrap text-background',
-        'opacity-0 transition-opacity duration-[160ms] ease-[ease] group-hover:opacity-100',
-        TIP_ALIGN[align],
+        'pointer-events-none absolute bottom-full mb-1 w-max rounded-full bg-foreground px-2 py-0.5 font-heading text-[11px] leading-4 font-medium break-words whitespace-normal text-background',
+        'opacity-0 transition-opacity duration-[160ms] ease-[ease] group-hover:opacity-100 group-focus-visible:opacity-100',
+        placement.align === 'center' && 'left-1/2 -translate-x-1/2',
         shown && 'opacity-100',
       )}
+      style={{
+        maxWidth: placement.maxWidth,
+        ...(placement.left === undefined ? {} : { left: placement.left }),
+        ...(placement.right === undefined ? {} : { right: placement.right }),
+      }}
     >
       {text}
     </span>

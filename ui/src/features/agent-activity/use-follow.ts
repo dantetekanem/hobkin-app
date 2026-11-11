@@ -1,6 +1,7 @@
 import { animate, useMotionValue, type MotionValue } from 'motion/react'
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { spring } from '@/lib/motion.ts'
+import { scrollsInside } from './boxes.ts'
 import { UNFOLD, UNFOLD_MS } from './unfold.ts'
 
 /** How close to the end still counts as being at the end, in pixels. */
@@ -38,13 +39,17 @@ export function useFollow(still: boolean): Follow {
   const y = useMotionValue(0)
   const seen = useRef<number | null>(null)
   const lastTop = useRef(0)
+  const dragging = useRef(false)
+  const opening = useRef(0)
 
   const toEnd = useCallback(
     (smooth: boolean) => {
       const element = scroller.current
       if (!element) return
       const end = element.scrollHeight - element.clientHeight
-      if (Math.abs(element.scrollTop - end) >= 1) element.scrollTo({ top: end, behavior: smooth && !still ? 'smooth' : 'auto' })
+      element.scrollLeft = 0
+      if (Math.abs(element.scrollTop - end) >= 1) element.scrollTo({ top: end, behavior: smooth && !still && performance.now() > opening.current ? 'smooth' : 'auto' })
+      lastTop.current = element.scrollTop
     },
     [still],
   )
@@ -54,7 +59,27 @@ export function useFollow(still: boolean): Follow {
   useLayoutEffect(() => {
     const list = content.current
     if (!list) return
+    opening.current = performance.now() + 600
     toEnd(false)
+    const element = scroller.current
+    if (!element) return
+    const reading = () => { following.current = false; setPinned(false) }
+    // A wheel that only scrolls a box inside the transcript leaves the view following.
+    const wheel = (event: WheelEvent) => { if (event.deltaY < 0 && element.scrollTop > 0 && !scrollsInside(event.target as Element | null, event.deltaY)) reading() }
+    const key = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) return
+      if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) reading()
+    }
+    const down = () => { dragging.current = true }
+    const up = () => { dragging.current = false }
+    element.addEventListener('wheel', wheel, { passive: true })
+    element.addEventListener('keydown', key)
+    element.addEventListener('pointerdown', down)
+    element.addEventListener('touchstart', down, { passive: true })
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    window.addEventListener('touchend', up)
+    window.addEventListener('touchcancel', up)
     const observer = new ResizeObserver(() => {
       if (following.current) toEnd(true)
     })
@@ -77,6 +102,14 @@ export function useFollow(still: boolean): Follow {
     list.addEventListener(UNFOLD, unfold)
     return () => {
       observer.disconnect()
+      element.removeEventListener('wheel', wheel)
+      element.removeEventListener('keydown', key)
+      element.removeEventListener('pointerdown', down)
+      element.removeEventListener('touchstart', down)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      window.removeEventListener('touchend', up)
+      window.removeEventListener('touchcancel', up)
       list.removeEventListener(UNFOLD, unfold)
       clearTimeout(held)
     }
@@ -86,9 +119,10 @@ export function useFollow(still: boolean): Follow {
     const element = scroller.current
     if (!element) return
     const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight <= SLACK
-    // Only moving up, away from the end, stops the following.
-    if (atEnd) following.current = true
-    else if (element.scrollTop < lastTop.current) following.current = false
+    // Layout/focus/scroll anchoring also move scrollTop: only an actual drag can give up ownership here.
+    element.scrollLeft = 0
+    if (atEnd && element.scrollTop > lastTop.current) following.current = true
+    else if (dragging.current && element.scrollTop < lastTop.current) following.current = false
     lastTop.current = element.scrollTop
     setPinned(following.current)
   }, [])
@@ -110,7 +144,7 @@ export function useFollow(still: boolean): Follow {
     if (!list || !following.current) return
     // The list moved down: what was below the newest step got shorter. It starts where it was seen.
     const moved = before === null ? 0 : list.getBoundingClientRect().top - before
-    if (moved > 0.5 && !still) {
+    if (moved > 0.5 && !still && performance.now() > opening.current) {
       y.set(y.get() - moved)
       animate(y, 0, spring.sheet)
     }

@@ -28,7 +28,7 @@ export function tipWindow(slot: number): { start: number; end: number } | null {
 /** hobkin's tips. Hex's is left out: a browser cannot tell whether Hex is installed, which is when the terminal says it. */
 export const TIPS: readonly string[] = [
   'Cmd+K finds anything and takes you there.',
-  'Cmd+1 to Cmd+9 jump straight to a screen.',
+  'Cmd+1 opens Home; later numbers follow the top menu.',
   'Press Down in an empty input to walk the agents list.',
   'Ctrl+Option+P opens the full prompt editor.',
   'Cmd+L brings you back to the message input.',

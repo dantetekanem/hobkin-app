@@ -1,6 +1,7 @@
 import { ArrowUp, FileText, Square, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
+import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useHost } from '@/lib/host/index.ts'
@@ -190,6 +191,8 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                   onChange={(event) => change({ type: 'typed', text: event.target.value })}
                   onKeyDown={onKeyDown}
                   onPaste={onPaste}
+                  onFocus={() => useView.getState().closeAgentCanvas()}
+                  onPointerDown={() => useView.getState().closeAgentCanvas()}
                   rows={1}
                   // Not `disabled`: the input is home for the keyboard, so it keeps the focus even when nothing can be sent.
                   readOnly={!ready}

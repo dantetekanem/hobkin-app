@@ -36,7 +36,7 @@ export interface ActionItem {
 }
 
 /** What is waiting, in the user's terms. `question` is hobkin's own, or one the screen has no other name for. */
-export type ItemKind = 'routine' | 'work' | 'yours' | 'merge' | 'pickup' | 'question'
+export type ItemKind = 'routine' | 'work' | 'yours' | 'approval' | 'merge' | 'pickup' | 'question'
 
 // `action` is a to-do a routine found, `routines` is hobkin asking about a routine itself.
 const KINDS = new Map<string, ItemKind>([

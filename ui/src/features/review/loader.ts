@@ -3,6 +3,7 @@ import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import type { ReviewNotes, ReviewStatus } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import { ReviewRefused } from '#shared/review/validate.ts'
+import { mergeHostNotes } from './notes/merge.ts'
 import { memoryKey, type MemoryState } from './state/memory.ts'
 import type { StoreApi } from 'zustand/vanilla'
 
@@ -36,6 +37,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
   let latest: ReviewNotes | null = null
   let notesRevision = 0
   let loading: Promise<void> | null = null
+  let checking = false
   const notesKey = JSON.stringify([scope, id])
   const notesOf = (review: Review): ReviewNotes => {
     const saved = memory.getState().of(review)
@@ -146,6 +148,35 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
     await flushNotes()
     if (store.getState().notesError) throw new Error(store.getState().notesError!)
   }
-  return Object.assign(store, { source, load, refresh: () => load(true), flushNotes, saveNotes, dispose: () => { disposed = true; generation++; loading = null; unsubscribe() } })
+  /**
+   * While a review is open, asks the host how it stands: whether its change moved on, where hobkin moved the view,
+   * and whether hobkin left notes, which then join the window's own. A check that fails is tried again on the next one.
+   */
+  const check = async (): Promise<void> => {
+    const review = store.getState().review
+    if (!command || disposed || !review || checking) return
+    checking = true
+    try {
+      const before = store.getState().preparation
+      const status = await command('review.status', { id })
+      if (disposed || store.getState().review !== review) return
+      // Kept only when something changed, so an open review does not draw again every second.
+      if (JSON.stringify(status) !== JSON.stringify(before)) store.setState({ preparation: status })
+      if ((status.notesAt ?? 0) <= (before?.notesAt ?? 0)) return
+      const opened = await command('review.get', { id })
+      if (disposed || store.getState().review !== review) return
+      const key = memoryKey(review)
+      memory.setState((state) => {
+        const mine = state.of(review)
+        const notes = mergeHostNotes(mine.notes, opened.notes.entries)
+        return notes === mine.notes ? state : { reviews: { ...state.reviews, [key]: { ...mine, notes: [...notes] } } }
+      })
+    } catch {
+      // Tried again on the next check.
+    } finally {
+      checking = false
+    }
+  }
+  return Object.assign(store, { source, load, check, refresh: () => load(true), flushNotes, saveNotes, dispose: () => { disposed = true; generation++; loading = null; unsubscribe() } })
 }
 export type ReviewLoader = ReturnType<typeof createReviewLoader>

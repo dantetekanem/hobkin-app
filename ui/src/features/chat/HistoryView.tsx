@@ -7,12 +7,14 @@ import { clockTime, dayLabel } from '@/features/reports/time.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { MessageText } from './markdown.ts'
+import { ShellTranscript } from './MessageList.tsx'
+import { StoredImages } from './StoredImages.tsx'
 
 export interface HistoryViewProps {
   title: string
   when: string
   /** Null while it is being read. */
-  conversation: Pick<HistoryConversation, 'messages' | 'earlier' | 'cut'> | null
+  conversation: (Pick<HistoryConversation, 'messages' | 'earlier' | 'cut'> & Partial<Pick<HistoryConversation, 'id'>>) | null
   /** Why it could not be read. */
   error: string | null
   /** Back to the list of conversations. */
@@ -74,6 +76,7 @@ export function HistoryView({ title, when, conversation, error, onBack, onClose 
           {error ? said(error) : conversation === null ? said('Opening it…') : conversation.messages.length === 0 ? said('Nothing was said in it.') : null}
           {conversation?.earlier ? <li className="eyebrow text-center">{conversation.earlier} earlier messages are not shown</li> : null}
           {conversation?.messages.map((message, index) => {
+            if (message.role === 'bashExecution') return <li key={message.id ?? index} className="min-w-0"><ShellTranscript message={message} at={message.at} /></li>
             const mine = message.role === 'user'
             return (
               <li key={index} className={cn('flex min-w-0 flex-col gap-1', mine && 'items-end')}>
@@ -91,7 +94,7 @@ export function HistoryView({ title, when, conversation, error, onBack, onClose 
                     <MessageText text={message.text} role={message.role} />
                   </div>
                 ) : null}
-                {message.images ? <div className="text-[12px] text-muted-foreground">{message.images === 1 ? '1 image' : `${message.images} images`}</div> : null}
+                {message.images ? <StoredImages messageId={conversation.id ? message.id : undefined} count={message.images} history={conversation.id} /> : null}
               </li>
             )
           })}

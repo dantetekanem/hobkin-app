@@ -7,8 +7,9 @@ import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState } from '../protocol/models.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
+import type { ShellFields } from '../protocol/snapshot.ts'
 import { GRADES, PR_MODES } from '../protocol/work.ts'
-import type { OpenedReview, ReviewStatus, VerdictPreview } from '../review/status.ts'
+import type { OpenedReview, ReviewCode, ReviewCursor, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 
 /**
@@ -48,7 +49,7 @@ const clock = Type.String({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' })
 const mcpServer = Type.Object({ name: Type.String({ pattern: '^[A-Za-z0-9_-]{1,64}$' }) }, { additionalProperties: false })
 /** A review by what it reviews: a finished change, `change:<slug>:<item>`, or a pull request, `pr:<owner>/<repo>/<number>`. */
 const reviewId = Type.String({ pattern: '^(change|pr):\\S{3,300}$' })
-const verdict = oneOf(['comment', 'approve', 'request-changes'])
+const verdict = oneOf(['comment', 'approve', 'approve-merge', 'request-changes'])
 /** A reviewer's note as `shared/review/notes.ts` has it, so nothing else is kept in the home or sent with a verdict. */
 const note = Type.Object(
   {
@@ -81,14 +82,34 @@ const noteDraft = Type.Union([
 ])
 
 export const COMMANDS = {
+  'app.state': {
+    description: 'Read bounded current app owner, session, projection counts and activity. Does not reload. Loaded code revision may be unknown.',
+    runs: 'host', args: nothing, hobkin: true,
+  },
+  'app.refresh': {
+    description: 'Reproject current app information and return a completed read receipt. Does not reload, restart or reset. An unchanged state revision is a successful refresh.',
+    runs: 'host', args: nothing, hobkin: true,
+  },
   'conversation.send': {
     description: 'Send a message to hobkin, with the images attached to it and the report it is about, by id. While a turn is running it steers that turn.',
     runs: 'host',
     args: Type.Object(
-      { text: Type.Optional(words(65536)), images: Type.Optional(Type.Array(words(64), { maxItems: 16 })), report: Type.Optional(words(256)) },
+      {
+        text: Type.Optional(words(65536)),
+        images: Type.Optional(Type.Array(words(64), { maxItems: 16 })),
+        report: Type.Optional(words(256)),
+        /** The review the user is in when they write, with the step and node they are on. hobkin gets where they are. */
+        review: Type.Optional(Type.Object({ id: reviewId, step: Type.Optional(words(256)), node: Type.Optional(words(512)) }, { additionalProperties: false })),
+        /** An action item the user replies to, as Action Items reads it. hobkin gets it ahead of the words, as it gets a report. */
+        item: Type.Optional(Type.Object({ id: words(512), title: words(1000), body: Type.String({ maxLength: 24576 }) }, { additionalProperties: false })),
+      },
       { additionalProperties: false },
     ),
-    rule: ({ text, images }) => (text !== undefined || (Array.isArray(images) && images.length > 0) ? null : 'need words in "text" or at least one image'),
+    rule: ({ text, images, report, review, item }) => {
+      if (text === undefined && !(Array.isArray(images) && images.length > 0)) return 'need words in "text" or at least one image'
+      const about = [report, review, item].filter((entry) => entry !== undefined).length
+      return about > 1 ? 'need one of "report", "review" and "item", not more' : null
+    },
   },
   'conversation.attach': {
     description: 'Attach an image to the message being written. `data` is the file in base64. PNG, JPEG, GIF and WebP are taken.',
@@ -262,7 +283,13 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object(
       {
-        palette: Type.Object(Object.fromEntries(['background', 'surface', 'text', 'muted', 'accent'].map((key) => [key, Type.String({ pattern: '^#[0-9a-fA-F]{6}$' })])) as Record<string, ReturnType<typeof Type.String>>, { additionalProperties: false }),
+        palette: Type.Object({
+          background: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
+          surface: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
+          text: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
+          muted: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
+          accent: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
+        }, { additionalProperties: false }),
         name: Type.Optional(words(60)),
       },
       { additionalProperties: false },
@@ -285,11 +312,44 @@ export const COMMANDS = {
       "Prepare the Change Review of a finished hobkin change or a GitHub pull request, by its review id. It runs in the background and answers at once with how it stands. A review already prepared for the change's commit is used as it is, and `refresh` prepares it again anyway. A pull request is only read, through gh.",
     runs: 'host',
     args: Type.Object({ id: reviewId, refresh: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'review.status': {
-    description: 'How the preparation of a review stands: ready to open, being prepared and what it is doing, or failed and why.',
+    description: 'How the preparation of a review stands: ready to open, being prepared and what it is doing, or failed and why. `stale` says the change has moved on to a commit the ready review was not built for.',
     runs: 'host',
     args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'review.map': {
+    description:
+      "A prepared review as a map: every node with what it does and what goes in and out, every wire with its kind, each test's path through the code, the story's steps by number, and the notes so far. No code. Read it first, then walk the review one node at a time.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'review.code': {
+    description: "The lines of one node of a prepared review, numbered, as the change left them and, where lines were removed, as they were.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId, node: words(512) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'review.show': {
+    description: "Moves the user's open review to a step, by its number from 1, or to a node, so they see what you are talking about. Name one.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId, step: Type.Optional(Type.Integer({ minimum: 1, maximum: 999 })), node: Type.Optional(words(512)) }, { additionalProperties: false }),
+    rule: ({ step, node }) => ((step === undefined) === (node === undefined) ? 'need "step" or "node", and only one' : null),
+    hobkin: true,
+  },
+  'review.note': {
+    description:
+      "Leaves a note on a review, signed as hobkin: a comment, which goes with the fixes the user sends when the review is done, or a question for the user. It is about a node, a wire, or a step by its number. Nothing is sent anywhere.",
+    runs: 'host',
+    args: Type.Object(
+      { id: reviewId, intent: oneOf(['comment', 'question']), text: words(4000), step: Type.Optional(Type.Integer({ minimum: 1, maximum: 999 })), node: Type.Optional(words(512)), wire: Type.Optional(words(512)) },
+      { additionalProperties: false },
+    ),
+    rule: ({ node, wire }) => (node !== undefined && wire !== undefined ? 'need "node" or "wire", not both' : null),
+    hobkin: true,
   },
   'review.get': {
     description: "A prepared review, with the reviewer's notes on it, sent and not. Refused while none is ready.",
@@ -308,13 +368,13 @@ export const COMMANDS = {
   },
   'review.preview': {
     description:
-      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments, and for a finished change the hobkin action it would take. `summary` is the user's words to go with it. Answers with the `confirm` that review.verdict needs.",
+      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments. For a finished change, `approve` opens its pull request, `approve-merge` lands it as its card does, and `request-changes` sends the notes to hobkin's agent. `summary` is the user's words to go with it. Answers with the `confirm` that review.verdict needs.",
     runs: 'host',
     args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }) }, { additionalProperties: false }),
   },
   'review.verdict': {
     description:
-      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user, and a finished change one of hobkin's own work actions, merge or ask for changes. `confirm` is what the preview answered. A verdict that would now do anything else is refused.",
+      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user. A finished change gets its pull request opened, or is merged or sent back through hobkin's own work actions. `confirm` is what the preview answered. A verdict that would now do anything else is refused.",
     runs: 'host',
     args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), confirm: Type.String({ pattern: '^[0-9a-f]{64}$' }) }, { additionalProperties: false }),
     outside: true,
@@ -378,6 +438,11 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
   },
+  'agent.session': {
+    description: 'Read the saved Pi job session belonging to a known report. Read-only; never resumes or sends its contents to a model. Returns the saved active branch; files over 2 MiB are refused without opening a partial branch.',
+    runs: 'host',
+    args: Type.Object({ report: words(256) }, { additionalProperties: false }),
+  },
   'agent.stop': {
     description:
       "Stop an agent or routine that is running, by its run's id. A work agent stops the two ways hobkin's k stops one: `for-now` puts its item at the end of the queue, and `not-approved` records a no, so it does not run again. Its branch stays either way. Anything else is cancelled.",
@@ -386,9 +451,9 @@ export const COMMANDS = {
   },
   'agent.say': {
     description:
-      "Pass the user's words to an agent or routine while it runs, as hobkin's message_check does: it reads them at its next step and carries on. Refused once it has finished.",
+      "Queue the user's words for an agent's exact run. Acknowledgement is not a receipt; steeringReceipts reports notes admitted into a Pi turn. Refused once the run has finished.",
     runs: 'host',
-    args: Type.Object({ run: words(256), text: words(4096) }, { additionalProperties: false }),
+    args: Type.Object({ run: words(256), text: words(4096), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })) }, { additionalProperties: false }),
   },
   'routine.run': {
     description:
@@ -400,6 +465,11 @@ export const COMMANDS = {
     description: "Turn a routine on or off: hobkin writes `enabled` in the routine's file, and nothing else in it changes. Off, it never runs by itself.",
     runs: 'host',
     args: Type.Object({ id: routineId, enabled: Type.Boolean() }, { additionalProperties: false }),
+  },
+  'routine.delete': {
+    description: 'Delete the confirmed routine definition only; reports and run history stay.',
+    runs: 'host',
+    args: Type.Object({ id: routineId, expectedDefinition: Type.String({ pattern: '^[a-f0-9]{64}$' }) }, { additionalProperties: false }),
   },
   'routine.times': {
     description:
@@ -415,6 +485,11 @@ export const COMMANDS = {
     ),
     rule: ({ at, window }) => ((at === undefined) !== (window === undefined) ? null : 'need "at" or "window", and only one of them'),
   },
+  'report.read': {
+    description: 'Record a report read after at least three seconds in its reader. This never completes its action.',
+    runs: 'host',
+    args: Type.Object({ id: words(256), dwellMs: Type.Integer({ minimum: 3000, maximum: 86400000 }) }, { additionalProperties: false }),
+  },
   'decision.answer': {
     description:
       "Answer something waiting in Action Items with hobkin's own decision action, as its Decisions tab does: `value` is one of its choices, `typed` the user's own words, which whoever asked hears. What the answer then does, such as a merge or a note to the routine that asked, is hobkin's.",
@@ -427,6 +502,16 @@ export const COMMANDS = {
       "Answer one of hobkin's learning proposals with its own learning action: `yes` plans it with the main agent in Chat, `later` asks again in a week, and `no` does not ask it again.",
     runs: 'host',
     args: Type.Object({ id: Type.String({ pattern: '^[0-9a-f]{6}$' }), value: oneOf(['yes', 'later', 'no']) }, { additionalProperties: false }),
+  },
+  'conversation.image': {
+    description: 'Read one raster image from a currently displayed main message. Bytes are returned only to this request.',
+    runs: 'host',
+    args: Type.Object({ messageId: words(256), ordinal: Type.Integer({ minimum: 0, maximum: 99 }) }, { additionalProperties: false }),
+  },
+  'history.image': {
+    description: 'Read one raster image by displayed entry identity on the selected saved main branch.',
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.jsonl$' }), messageId: words(256), ordinal: Type.Integer({ minimum: 0, maximum: 99 }) }, { additionalProperties: false }),
   },
   'history.list': {
     description:
@@ -445,8 +530,22 @@ export const COMMANDS = {
 export type CommandName = keyof typeof COMMANDS
 export type CommandArgs<Name extends CommandName> = Static<(typeof COMMANDS)[Name]['args']>
 
+/** A completed read, not proof of deployed code or a restarted process. */
+export interface AppStateRead {
+  operation: { id: string; command: 'app.state' | 'app.refresh'; status: 'completed'; requestedAt: number; completedAt: number }
+  home: string
+  owner: { state: 'live'; id: string }
+  sessionId: string
+  loadedRevision: null
+  stateRevision: number
+  counts: { messages: number | null; reports: number | null; runs: number | null; activeRuns: number | null }
+  activity: { busy: boolean | null; tooling: boolean | null; doing: string | null }
+}
+
 /** What each command answers with. */
 export interface CommandResults {
+  'app.state': AppStateRead
+  'app.refresh': AppStateRead
   'conversation.send': { id: string; queued: boolean }
   'conversation.attach': { id: string; name: string; mimeType: string; notice?: string }
   'conversation.detach': { ok: true }
@@ -479,6 +578,11 @@ export interface CommandResults {
   'review.get': OpenedReview
   'review.file': ReviewFileContents
   'review.notes': { ok: true }
+  'review.map': ReviewMap
+  'review.code': ReviewCode
+  'review.show': ReviewCursor
+  /** The note's id. */
+  'review.note': { id: string }
   'review.preview': VerdictPreview
   /** What was done, in plain words: where GitHub shows the review, or what hobkin said. */
   'review.verdict': { message: string }
@@ -500,16 +604,31 @@ export interface CommandResults {
   'work.group': { message: string; lines: string[] }
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
-  'agent.say': { delivered: true }
+  'agent.say': { queued: boolean }
+  'agent.session': SavedJobSession
   /** The run hobkin started. */
   'routine.run': { run: string }
   'routine.enable': { ok: true }
   'routine.times': { ok: true }
+  'routine.delete': { id: string; deleted: true }
   /** What hobkin said of the answer, and whether the item went to the main agent in Chat and stays open until done. */
+  'report.read': { ok: true }
   'decision.answer': { message: string; handedOff: boolean }
   'learning.answer': { message: string }
+  'conversation.image': StoredImage | null
+  'history.image': StoredImage | null
   'history.list': { conversations: HistoryEntry[] }
   'history.open': HistoryConversation
+}
+
+/** Raw saved entries, in active-branch order. Unknown fields stay intact; this is not model input. */
+export interface SavedJobSession {
+  report: string
+  run: string
+  entries: Record<string, unknown>[]
+  cut: boolean
+  skipped: number
+  limit: number
 }
 
 /** One of hobkin's main conversations, as History lists it. */
@@ -528,9 +647,12 @@ export interface HistoryEntry {
   cut: boolean
 }
 
-export interface HistoryMessage {
-  role: 'user' | 'assistant'
-  /** Markdown, as Chat shows it. */
+export interface StoredImage { mimeType: string; data: string }
+
+export interface HistoryMessage extends Partial<ShellFields> {
+  id?: string
+  role: 'user' | 'assistant' | 'bashExecution'
+  /** Markdown for normal messages; literal output for native shells. */
   text: string
   at: number | null
   /** The report the user's message was about. */

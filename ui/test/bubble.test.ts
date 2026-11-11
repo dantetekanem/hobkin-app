@@ -43,7 +43,7 @@ test('usage tips teach working shortcuts and never mix in report reminders', () 
     { title: 'Weekly deps', read: 1, reports: 6, ignored: true },
     { title: 'Inbox sweep', read: 5, reports: 5, ignored: false },
   ]
-  assert.deepEqual(tipChoices({ learning: false, reportAttention: attention }), [...TIPS, LEARNING_TIP])
+  assert.deepEqual(tipChoices({ learning: false }), [...TIPS, LEARNING_TIP])
   assert.deepEqual(tipChoices({ learning: true }), [...TIPS])
   assert.deepEqual(reminderChoices({ reportAttention: attention }), ['Weekly deps: 1 of 6 reports opened. Revisit it?'])
   assert.deepEqual(reminderChoices({}), [])

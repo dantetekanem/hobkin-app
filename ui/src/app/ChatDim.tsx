@@ -1,4 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
+import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
+import { useStill } from './still.ts'
 import { spring } from '@/lib/motion.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { focusInput } from './keys.ts'
@@ -10,10 +12,12 @@ import { useView } from './view-store.ts'
  * A click on it gives the chat its room back.
  */
 export function ChatDim() {
+  const still = useStill()
   const talking = useView((view) => view.agentTalk)
   const reviewing = useView((view) => view.screen === 'review' && view.canvasEngaged)
   const leaveAgentTalk = useView((view) => view.leaveAgentTalk)
   const disengageCanvas = useView((view) => view.disengageCanvas)
+  const transition = entryTransition(talking, still, still ? agentEntry(true) : spring.screen)
 
   return (
     <AnimatePresence>
@@ -22,13 +26,13 @@ export function ChatDim() {
           {/* The blur and the darkening are two layers, each animating its own property, so neither pops in. */}
           <motion.div
             className="absolute inset-0"
-            variants={{ clear: { backdropFilter: 'blur(0px)' }, dim: { backdropFilter: 'blur(2.5px)' } }}
-            transition={spring.screen}
+            variants={{ clear: { backdropFilter: 'blur(0px)' }, dim: { backdropFilter: still ? 'blur(0px)' : 'blur(2.5px)' } }}
+            transition={transition}
           />
           <motion.div
             className="absolute inset-0 bg-scrim"
             variants={{ clear: { opacity: 0 }, dim: { opacity: 1 } }}
-            transition={spring.screen}
+            transition={transition}
             onClick={() => {
               if (talking) {
                 leaveAgentTalk()

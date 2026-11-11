@@ -17,6 +17,7 @@ export interface Spot {
   settingsReturn: ScreenId | null
   githubReturn: ScreenId | null
   openAgent: string | null
+  agentReturn: ScreenId | null
   openReview: string | null
   reviewReturn: Place | null
   mindReturn: Place | null
@@ -49,6 +50,7 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
   } catch {}
   if (!raw || !isScreen(raw.screen)) return null
   return {
+    agentReturn: screenOr(raw.agentReturn),
     screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
     openReview: idOr(raw.openReview), reviewReturn: placeOr(raw.reviewReturn), mindReturn: placeOr(raw.mindReturn), report: idOr(raw.report),
     routine: idOr(raw.routine), action: idOr(raw.action), githubTab: raw.githubTab === 'issues' ? 'issues' : 'pulls', home: idOr(raw.home),
@@ -89,14 +91,14 @@ export function useRemembered<K extends keyof Remembered>(key: K): [Remembered[K
 }
 
 function spotNow(): Spot {
-  const { screen, settingsReturn, githubReturn, openAgent, openReview, reviewReturn, mindReturn } = useView.getState()
-  return { screen, settingsReturn, githubReturn, openAgent, openReview, reviewReturn, mindReturn, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn } = useView.getState()
+  return { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
 }
 
 /** Puts the canvas on a spot. A report or routine that is gone leaves its screen on the list. */
 function show(spot: Spot, screenMotion?: ScreenMotion): void {
-  const { screen, settingsReturn, githubReturn, openAgent, openReview, reviewReturn, mindReturn, action, githubTab } = spot
-  useView.setState({ screen, settingsReturn, githubReturn, openAgent, openReview, reviewReturn, mindReturn, previewReturn: null, agentTalk: false, ...(screenMotion ? { screenMotion } : {}) })
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, action, githubTab } = spot
+  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, previewReturn: null, agentTalk: false, ...(screenMotion ? { screenMotion } : {}) })
   remembered.setState({ action, githubTab })
 }
 
@@ -178,7 +180,8 @@ export function travel(way: -1 | 1): boolean {
 const unsubscribe = [
   useView.subscribe((view, before) => {
     // A screen entered anew starts on its list and its first tab, as it did before it remembered them.
-    if (!applying && view.screen !== before.screen) {
+    const returningFromAgent = before.screen === 'agent' && (before.agentReturn ?? before.previewReturn) === view.screen
+    if (!applying && !returningFromAgent && view.screen !== before.screen) {
       if (view.screen === 'actions') remembered.setState({ action: null })
       if (view.screen === 'github') remembered.setState({ githubTab: 'pulls' })
     }

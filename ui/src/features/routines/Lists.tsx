@@ -1,15 +1,18 @@
-import { Play } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronRight, Play } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { cn } from '@/lib/utils.ts'
 import { useClock } from './hooks.ts'
+import { groupExpanded } from './groups.ts'
+import type { SkyMark } from './sky-math.ts'
 import { chipMotion, groupVariants, rowMotion } from './look.ts'
 import { RoutineHood, StateChip } from './parts.tsx'
 import { byNextRun, type RoutineFacts } from './rules.ts'
 import type { Pending } from './store.ts'
 import type { TimelineDay, TimelineEntry } from './timeline.ts'
-import { RECURRENCES } from './types.ts'
+import { RECURRENCES, type Recurrence } from './types.ts'
 import { clockText, dateLabel, dayName, dayWord, elapsedText, everyText, holdEnds, howOften, RECURRENCE_TITLE, stateSentence, untilText, zoneText } from './words.ts'
 
 /**
@@ -39,22 +42,42 @@ interface ListProps extends ListActions {
 
 type RowProps = Omit<ListProps, 'facts'> & { facts: RoutineFacts }
 
-export function AllRoutines({ facts, now, zone, walkable, ...actions }: ListProps) {
+export function AllRoutines({ facts, marks, openId, now, zone, walkable, ...actions }: ListProps & { marks: readonly SkyMark[]; openId: string | null }) {
+  const [chosen, setChosen] = useState<Partial<Record<Recurrence, boolean>>>({})
+  // A routine picked from the sky or detail index must still have a row to return to.
+  useEffect(() => {
+    const cadence = facts.find((item) => item.routine.id === openId)?.routine.cadence
+    if (cadence) setChosen((before) => before[cadence] === true ? before : { ...before, [cadence]: true })
+  }, [facts, openId])
+
   return RECURRENCES.map((recurrence) => {
     const group = facts.filter((item) => item.routine.cadence === recurrence).toSorted(byNextRun)
     if (group.length === 0) return null
+    const expanded = groupExpanded(group, marks, chosen[recurrence])
+    const listId = `routine-group-${recurrence}`
 
     return (
       <motion.section key={recurrence} variants={groupVariants} aria-label={RECURRENCE_TITLE[recurrence]} className="flex flex-col gap-1.5">
         <h3 className="eyebrow px-1 pt-2">
-          {RECURRENCE_TITLE[recurrence]} <span className="ml-1 tabular-nums">{group.length}</span>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={listId}
+            data-stop={walkable ? '' : undefined}
+            tabIndex={walkable ? 0 : -1}
+            onClick={() => setChosen((before) => ({ ...before, [recurrence]: !expanded }))}
+            className="flex cursor-pointer items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ChevronRight className={cn('size-3', expanded && 'rotate-90')} aria-hidden="true" />
+            {RECURRENCE_TITLE[recurrence]} <span className="ml-1 tabular-nums">{group.length}</span>
+          </button>
         </h3>
-        <ul className="flex flex-col gap-1.5">
-          <AnimatePresence initial={false}>
+        <ul id={listId} hidden={!expanded} className={expanded ? 'flex flex-col gap-1.5' : undefined}>
+          {expanded ? <AnimatePresence initial={false}>
             {group.map((item) => (
               <RoutineRow key={item.routine.id} facts={item} now={now} zone={zone} walkable={walkable} {...actions} />
             ))}
-          </AnimatePresence>
+          </AnimatePresence> : null}
         </ul>
       </motion.section>
     )

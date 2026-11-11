@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { focusInput } from '@/app/keys.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { useStops } from '@/app/stops.ts'
+import { useView } from '@/app/view-store.ts'
 import { tween } from '@/lib/motion.ts'
 import { KINDS, KindChoice, TitleFilter } from './Controls.tsx'
 import { byDay, filterReports, isUnread, neighbor, newestFirst, successor, type KindFilter } from './inbox.ts'
@@ -16,7 +17,7 @@ import { Reader } from './Reader.tsx'
 import { replyToReport } from './reply.ts'
 import { DayHeading, ReportRow } from './ReportRow.tsx'
 import { useStill } from './still.ts'
-import { useReports } from './store.ts'
+import { useReports, watchFirstReport } from './store.ts'
 import { SCREEN_PANES } from '@/app/screen-layout.ts'
 
 /** Where the keyboard is, as the screen's key map counts it. */
@@ -52,6 +53,10 @@ export function ReportsScreen() {
   const title = useReports((state) => state.title)
   const openId = useReports((state) => state.openId)
   const { setKind, setTitle, open, close, remove, undo } = useReports.getState()
+  useEffect(() => watchFirstReport({
+    read: () => useView.getState().screen,
+    subscribe: (changed) => useView.subscribe(changed),
+  }), [])
 
   // Which way the strip of cards last slid: 1 brings the next card from the right, -1 from the left, 0 not yet.
   const [direction, setDirection] = useState<0 | 1 | -1>(0)
@@ -241,6 +246,8 @@ export function ReportsScreen() {
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || !(event.target instanceof Element)) return
     const target = event.target
+    // The saved transcript owns its local keys; frame shortcuts and Tab still follow the existing path.
+    if (target.closest('[data-saved-run]')) return
     const where = whereOf(target)
     const action = reportsKey(
       { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey },

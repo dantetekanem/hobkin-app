@@ -1,3 +1,4 @@
+import type { AppearanceRequest } from './appearance.ts'
 import type { ActivitySteps } from './activity.ts'
 import type { IntegrationsState } from '../integrations/wire.ts'
 import type { CanvasState } from './canvas.ts'
@@ -71,6 +72,8 @@ export interface StateMessage {
   work?: WorkState | null
   /** The canvas panel: open or closed and the page it shows, whole, whenever it changed and with every reset. */
   canvas?: CanvasState
+  /** The latest validated theme request, sent on changes and resets. */
+  appearance?: AppearanceRequest | null
 }
 
 export interface TurnMessage {

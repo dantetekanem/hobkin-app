@@ -40,7 +40,9 @@ function NodeCardComponent({ id }: NodeProps) {
   const status = statusOf(node)
   const criterion = node.kind === 'criterion'
   const longTitle = node.title.length > TWO_LINE_TITLE
-  const lines = criterion ? 3 : longTitle ? 1 : 2
+  const io = !criterion && node.io && (node.io.in || node.io.out) ? node.io : null
+  // What goes in and out takes a line of its own, so the summary gives one up.
+  const lines = criterion ? 3 : longTitle || io ? 1 : 2
 
   return (
     <>
@@ -81,6 +83,13 @@ function NodeCardComponent({ id }: NodeProps) {
               <p className="rv-summary" style={{ '--lines': lines } as React.CSSProperties}>
                 {node.summary}
               </p>
+              {io ? (
+                <p className="rv-io" title={`In: ${io.in || 'nothing'}\nOut: ${io.out || 'nothing said'}`}>
+                  <span>{io.in || 'nothing'}</span>
+                  <span aria-hidden="true"> → </span>
+                  <span className="rv-io-out">{io.out || '…'}</span>
+                </p>
+              ) : null}
               <div className="rv-facts">
                 {node.stats && !criterion && node.kind !== 'context' ? (
                   <span className="rv-stats" aria-label={`${node.stats.additions} lines added, ${node.stats.deletions} removed`}>

@@ -10,6 +10,29 @@ import { storedBesideLive } from '../src/lib/host/live.ts'
 const NOW = Date.parse('2026-11-09T15:00:00Z')
 const keys = (entries: Entry[]) => entries.map(({ key }) => key)
 
+test('native shells stay distinct, ordered and literal beside normal messages', () => {
+  const outcomes = [
+    { exitCode: 0, cancelled: false, outcome: 'success' },
+    { exitCode: 7, cancelled: false, outcome: 'failed' },
+    { exitCode: null, cancelled: false, outcome: 'unknown' },
+    { exitCode: undefined, cancelled: false, outcome: 'unknown' },
+    { exitCode: 0, cancelled: true, outcome: 'cancelled' },
+  ]
+  for (const { outcome, ...status } of outcomes) {
+    const shell: ChatMessage = { id: 'shell', role: 'bashExecution', content: '', command: 'echo **raw**', output: '  <tag>\n', truncated: true, outputPreviewCut: true, ...status }
+    const entries = buildConversation({ messages: [{ id: 'u', role: 'user', content: 'Before' }, shell, { id: 'a', role: 'assistant', content: 'After' }], now: NOW }).flatMap(({ entries }) => entries)
+    assert.deepEqual(keys(entries), ['u', 'shell', 'a'])
+    const entry = entries[1]!
+    assert.equal(entry.kind, 'shell')
+    if (entry.kind !== 'shell') throw new Error('missing native shell entry')
+    assert.equal(entry.outcome, outcome)
+    assert.equal(entry.command, shell.command)
+    assert.equal(entry.text, shell.output)
+    assert.equal(entry.truncated, true)
+    assert.equal(entry.outputPreviewCut, true)
+  }
+})
+
 test('groups stored messages by day', () => {
   const messages: ChatMessage[] = [
     { id: 'a', role: 'user', content: 'An older question', at: '2025-12-30T09:00:00Z' },

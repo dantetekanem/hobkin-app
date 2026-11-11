@@ -8,6 +8,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { Call, CallRow } from './calls.ts'
 import { CodeText } from './CodeText.tsx'
+import { CodemodeCall } from './CodemodeCall.tsx'
 import { CODE_PREVIEW_LINES } from './preview.ts'
 import { StateMark } from './StepView.tsx'
 import type { EntryTime } from './use-agent-activity.ts'
@@ -65,6 +66,7 @@ function Part({ label, children }: { label: string; children: ReactNode }) {
  * shows its first lines with a way to show the rest in place. One that failed carries a red edge and says why.
  */
 function CallCard({ call, time }: { call: Call; time?: EntryTime }) {
+  if (call.name === 'codemode') return <CodemodeCall entry={call.entry} ended={call.state === 'stopped'} />
   const failed = call.state === 'failed'
   const { lead, subject, code } = call.task
   return (

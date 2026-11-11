@@ -92,6 +92,7 @@ export function validateReview(value: unknown): string[] {
     for (const field of ['proof', 'warning'] as const) {
       if (node[field] !== undefined && !isCleanProse(node[field], HOST_TEXT_LIMIT)) problems.push(`${name}: ${field} must be plain text.`)
     }
+    if (node.io !== undefined && (!isRecord(node.io) || !isCleanProse(node.io.in, PROSE_LIMIT.io) || !isCleanProse(node.io.out, PROSE_LIMIT.io))) problems.push(`${name}: what goes in and out must be plain text.`)
     if (node.stats !== undefined && (!isRecord(node.stats) || !isCount(node.stats.additions) || !isCount(node.stats.deletions))) problems.push(`${name} must count its added and removed lines.`)
     if (!isRecord(node.position) || !Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) problems.push(`${name} has no place on the graph.`)
     if (!Array.isArray(node.anchors)) {
@@ -142,6 +143,22 @@ export function validateReview(value: unknown): string[] {
     joined.add(`${edge.from}>${edge.to}`)
   }
 
+  const pathIds = new Set<string>()
+  if (review.paths !== undefined) {
+    if (!Array.isArray(review.paths)) problems.push('paths must be a list.')
+    else
+      for (const path of review.paths) {
+        if (!isRecord(path) || typeof path.id !== 'string' || !path.id || !Array.isArray(path.hops)) {
+          problems.push('A path has no id or no hops.')
+          continue
+        }
+        if (pathIds.has(path.id)) problems.push(`Path id ${path.id} is used twice.`)
+        pathIds.add(path.id)
+        if (nodes.get(path.test)?.kind !== 'test' || path.hops[0] !== path.test) problems.push(`Path ${path.id} must start at a test, and ${String(path.test)} is not one.`)
+        for (const hop of path.hops) if (!nodes.has(hop)) problems.push(`Path ${path.id} goes through ${String(hop)}, which is not a node.`)
+      }
+  }
+
   const criteria = new Set([...nodes.values()].filter((node) => node.kind === 'criterion').map((node) => node.id))
   const focused = new Set<string>()
   const stepIds = new Set<string>()
@@ -168,6 +185,7 @@ export function validateReview(value: unknown): string[] {
     if (step.kind === 'walk' && (step.focus.length < 1 || step.focus.length > MAX_FOCUS)) problems.push(`${name} must focus one to ${MAX_FOCUS} nodes.`)
     if (step.kind !== 'walk' && step.focus.length > 0) problems.push(`${name} frames the whole graph and focuses no node.`)
     for (const id of step.criteria) if (!criteria.has(id)) problems.push(`${name} serves ${String(id)}, which is not an acceptance line of this review.`)
+    if (step.path !== undefined && !pathIds.has(step.path)) problems.push(`${name} walks ${String(step.path)}, which is not a path of this review.`)
     if (step.travel !== undefined) {
       const edge = edges.get(step.travel)
       const previous = steps[index - 1]

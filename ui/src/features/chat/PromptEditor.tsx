@@ -122,7 +122,9 @@ function Editor() {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.nativeEvent.isComposing) return
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return
+    // A nested portalled dialog owns its keys, not this editor's draft shortcuts.
+    if (event.target instanceof Element && !event.currentTarget.contains(event.target)) return
     const used = () => {
       event.preventDefault()
       event.stopPropagation()

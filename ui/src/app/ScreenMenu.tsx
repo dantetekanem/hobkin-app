@@ -1,6 +1,7 @@
 import { ChevronRight, X, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { useActionCount } from '@/features/actions/store.ts'
 import { useSettings } from '@/features/settings/store.ts'
@@ -54,13 +55,15 @@ function iconOf(id: ScreenId): LucideIcon {
 
 /** The pill that marks where the canvas is. One element shared by both rows, so it travels from one to the other. */
 function Marker() {
-  return <motion.span layoutId="screen-menu-marker" className="absolute inset-0 rounded-full bg-surface-2" transition={spring.pill} />
+  const agent = useView((view) => view.screen === 'agent')
+  const still = useStill()
+  return <motion.span layoutId={still && agent ? undefined : 'screen-menu-marker'} className="absolute inset-0 rounded-full bg-surface-2" transition={entryTransition(agent, still, spring.pill)} />
 }
 
 /**
  * The screen menu. It floats over the top of the canvas, as the menu on hobkin.dev floats over the page.
  *
- * It is one surface. The first row never changes: the five screens stay where they are. Whatever is open
+ * It is one surface. The first row never changes: the main screens stay where they are. Whatever is open
  * for now (an agent, a review, Settings and Integrations) is a second row inside the same surface, which
  * grows downward to hold it. Nothing is ever added at the end of the first row, so it never jumps sideways.
  */
@@ -80,7 +83,7 @@ export function ScreenMenu() {
       <Surface>
         <nav aria-label="Screens" className={ROW}>
           {main.map((tab) => {
-            const active = tab.id === screen
+            const active = tab.id === screen || (screen === 'world' && tab.id === 'work')
             const badge = badges[tab.id]
             return (
               <button
@@ -88,6 +91,7 @@ export function ScreenMenu() {
                 type="button"
                 aria-current={active ? 'page' : undefined}
                 aria-label={tab.label}
+                title={tab.label}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
                   openScreen(tab.id)
@@ -98,7 +102,7 @@ export function ScreenMenu() {
               >
                 {active ? <Marker /> : null}
                 <tab.icon className="relative size-3.5" aria-hidden="true" />
-                <span className={cn('relative', !active && '@max-[680px]:hidden')}>{tab.label}</span>
+                {tab.id === 'home' ? null : <span className={cn('relative', !active && '@max-[680px]:hidden')}>{tab.label}</span>}
                 {badge ? (
                   <span className="relative grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                     {badge}
@@ -127,6 +131,7 @@ export function ScreenMenu() {
  */
 function Surface({ children }: { children: ReactNode }) {
   const still = useStill()
+  const agent = useView((view) => view.screen === 'agent')
   const rows = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
 
@@ -151,7 +156,7 @@ function Surface({ children }: { children: ReactNode }) {
           className="absolute top-0 left-1/2 -translate-x-1/2 rounded-[21px] border border-border bg-background shadow-float"
           initial={false}
           animate={{ width: size.width, height: size.height }}
-          transition={still ? { duration: 0 } : spring.pill}
+          transition={entryTransition(agent, still, still ? { duration: 0 } : spring.pill)}
         />
       ) : null}
       {children}
@@ -189,8 +194,8 @@ function Agents() {
         return (
           <motion.button
             key={agent.id}
-            layout
-            transition={spring.pill}
+            layout={!still}
+            transition={agentEntry(still)}
             type="button"
             aria-current={active ? 'page' : undefined}
             aria-label={agent.asks ? `${agent.title}, waiting for you` : agent.title}
@@ -205,17 +210,18 @@ function Agents() {
             className={cn(ITEM, 'px-2', active ? 'pr-3 text-foreground' : 'text-muted-foreground hover:text-foreground')}
           >
             {active ? <Marker /> : null}
-            <motion.span layout="position" className="relative">
-              <motion.span className="block" {...popIn(index, still)}>
+            <motion.span layout={still ? false : 'position'} transition={agentEntry(still)} className="relative">
+              <motion.span className="block" initial={holdStill({ opacity: 0, transform: 'translateY(-18px) scale(0.96)' }, still)} animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }}>
                 <AgentHood hue={agent.hue} size={20} mood={agent.mood} asking={Boolean(agent.asks)} />
               </motion.span>
             </motion.span>
             {active ? (
               <motion.span
-                layout="position"
+                layout={still ? false : 'position'}
+                transition={agentEntry(still)}
                 className="relative max-w-[24ch] truncate"
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 1, transition: { duration: 0.2, delay: 0.08 } }}
+                animate={{ opacity: 1, transition: agentEntry(still) }}
               >
                 {agent.title}
               </motion.span>

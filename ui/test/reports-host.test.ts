@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { useReports } from '../src/features/reports/store.ts'
+import { useReports, watchFirstReport, watchReportRead } from '../src/features/reports/store.ts'
+import { useView } from '../src/app/view-store.ts'
+import { HostConnection } from '../src/lib/host/connection.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 
@@ -24,6 +26,156 @@ afterEach(() => {
   useReports.getState().setTitle('')
   useReports.getState().setKind('all')
   useReports.getState().close()
+})
+
+test('three seconds in a real report records its read; closing or changing homes cancels pending reads', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const calls: unknown[] = []
+  t.mock.method(HostConnection.prototype, 'command', async (name: Parameters<HostConnection['command']>[0], args: Parameters<HostConnection['command']>[1]) => { calls.push([name, args]); return { ok: true } })
+  hello()
+  snapshot([report])
+  useReports.getState().open(report.id)
+  const stopReading = watchReportRead(report.id)
+  t.after(stopReading)
+  t.mock.timers.tick(2999)
+  assert.deepEqual(calls, [])
+  t.mock.timers.tick(1)
+  await Promise.resolve()
+  assert.deepEqual(calls, [['report.read', { id: report.id, dwellMs: 3000 }]])
+  stopReading()
+  const leaveReader = watchReportRead(report.id)
+  t.mock.timers.tick(1000)
+  leaveReader()
+  t.mock.timers.tick(3000)
+  assert.equal(calls.length, 1, 'unmounting the reader cancels its read even though selection is retained')
+  const stopOldHome = watchReportRead(report.id)
+  t.after(stopOldHome)
+  hello('/different')
+  t.mock.timers.tick(3000)
+  assert.equal(calls.length, 1, 'never send an old-home read to the next host')
+})
+
+test('a disconnected reader waits for a fresh three seconds after reconnect', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const calls: unknown[] = []
+  t.mock.method(HostConnection.prototype, 'command', async (name: Parameters<HostConnection['command']>[0], args: Parameters<HostConnection['command']>[1]) => { calls.push([name, args]); return { ok: true } })
+  hello()
+  snapshot([report])
+  useReports.getState().open(report.id)
+  const stop = watchReportRead(report.id)
+  t.after(stop)
+  t.mock.timers.tick(1000)
+  hostStore.setState(state => applyLink(state, 'lost'))
+  t.mock.timers.tick(3000)
+  assert.deepEqual(calls, [])
+  hello()
+  t.mock.timers.tick(2999)
+  assert.deepEqual(calls, [])
+  t.mock.timers.tick(1)
+  await Promise.resolve()
+  assert.equal(calls.length, 1)
+})
+
+test('a new Reports visit defaults only after a fresh filtered list and never persists an immediate read', async t => {
+  const calls: unknown[] = []
+  t.mock.method(HostConnection.prototype, 'command', async () => { calls.push('command'); return { ok: true } })
+  const stop = watchFirstReport()
+  t.after(stop)
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null, 'connecting samples are not authoritative')
+  hello()
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null)
+  snapshot([])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null)
+  useReports.getState().setTitle('morning')
+  snapshot([{ ...report, id: 'other', title: 'Other', at: '2026-11-11' }, report])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, report.id)
+  assert.equal(useReports.getState().inbox.read.has(report.id), true)
+  assert.deepEqual(calls, [])
+  useReports.getState().close()
+  snapshot([report])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null)
+  stop()
+  const nextVisit = watchFirstReport()
+  t.after(nextVisit)
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, report.id)
+  snapshot([])
+  snapshot([{ ...report, id: 'replacement' }])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null, 'removal does not reopen another report during this visit')
+})
+
+test('leaving Reports rejects a late inventory and returning starts a new visit', async t => {
+  const originalScreen = useView.getState().screen
+  useView.getState().openScreen('home')
+  const stopWatching = watchFirstReport({
+    read: () => useView.getState().screen,
+    subscribe: (changed) => useView.subscribe(changed),
+  })
+  t.after(() => {
+    stopWatching()
+    if (useView.getState().screen !== originalScreen) useView.getState().openScreen(originalScreen)
+  })
+
+  hello()
+  snapshot([])
+  useView.getState().openScreen('reports')
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null)
+
+  useView.getState().openScreen('home')
+  snapshot([report])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null, 'a report arriving after departure is not opened')
+  assert.equal(useReports.getState().inbox.read.has(report.id), false, 'the late report is not marked read')
+
+  useView.getState().openScreen('reports')
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, report.id, 'returning starts a fresh visit against the current inventory')
+})
+
+test('restoration and an exact completed report outrank a queued visit default', async t => {
+  hello()
+  const stop = watchFirstReport()
+  t.after(stop)
+  snapshot([report, { ...report, id: 'newest', at: '2026-11-12' }])
+  useReports.getState().open(report.id)
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, report.id)
+  const completed = { ...report, id: 'completed', body: 'Exact completed body' }
+  useReports.getState().open(completed.id, completed)
+  useReports.getState().setTitle('excluded')
+  snapshot([])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, completed.id)
+  assert.equal(useReports.getState().inbox.reports[0]?.body, completed.body)
+})
+
+test('a new-home visit rejects stale hello and link snapshots until publication; reconnect retains selection', async t => {
+  hello()
+  snapshot([report])
+  useReports.getState().close()
+  hello('/new-home')
+  const stop = watchFirstReport()
+  t.after(stop)
+  hostStore.setState(state => applyLink(state, 'lost'))
+  hello('/new-home')
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, null)
+  assert.deepEqual(ids(), [])
+  snapshot([{ ...report, id: 'new-home' }])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, 'new-home')
+  hostStore.setState(state => applyLink(state, 'lost'))
+  hello('/new-home')
+  snapshot([{ ...report, id: 'new-home' }, report])
+  await Promise.resolve()
+  assert.equal(useReports.getState().openId, 'new-home')
 })
 
 test('a host replaces samples with its exact report bodies and an empty snapshot stays empty', () => {

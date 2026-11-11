@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, Waypoints } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, ExternalLink, MessageSquareReply, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useStops } from '@/app/stops.ts'
@@ -24,6 +24,12 @@ interface OpenItemProps {
   onClose: () => void
   onAnswer: (row: WaitingRow, given: Answer) => void
   onReview: (row: WaitingRow) => void
+  /** Read here though it is handled elsewhere, because work mode is off: it is replied to in chat, as a report is. */
+  reads?: boolean
+  /** Puts the item on the next message to the main agent. */
+  onReply?: (row: WaitingRow) => void
+  /** Opens it where it is handled. */
+  onOpenElsewhere?: (row: WaitingRow) => void
 }
 
 /**
@@ -31,7 +37,7 @@ interface OpenItemProps {
  * from that list slides its card in from the side it lies on. Up and Down walk the controls, Enter presses, Escape
  * goes back to the list.
  */
-export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch, onClose, onAnswer, onReview }: OpenItemProps) {
+export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch, onClose, onAnswer, onReview, reads = false, onReply, onOpenElsewhere }: OpenItemProps) {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
 
@@ -58,7 +64,7 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
       <div className="relative min-h-0 overflow-hidden rounded-[28px]">
         <AnimatePresence initial={false} custom={step}>
           <motion.div key={row.id} custom={step} variants={slides} initial="enter" animate="center" exit="exit" className="absolute inset-0">
-            <Card row={row} sample={sample} now={now} onClose={onClose} onAnswer={onAnswer} onReview={onReview} />
+            <Card row={row} sample={sample} now={now} onClose={onClose} onAnswer={onAnswer} onReview={onReview} reads={reads} onReply={onReply} onOpenElsewhere={onOpenElsewhere} />
           </motion.div>
         </AnimatePresence>
       </div>
@@ -104,7 +110,7 @@ const flat = (text: string) => text.replace(/\s+/g, ' ').trim()
  * then its answers in words, hobkin's pick marked with its reason, and the user's own words where hobkin takes them.
  * A number answers at once.
  */
-function Card({ row, sample, now, onClose, onAnswer, onReview }: Pick<OpenItemProps, 'row' | 'sample' | 'now' | 'onClose' | 'onAnswer' | 'onReview'>) {
+function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onReply, onOpenElsewhere }: Pick<OpenItemProps, 'row' | 'sample' | 'now' | 'onClose' | 'onAnswer' | 'onReview' | 'reads' | 'onReply' | 'onOpenElsewhere'>) {
   const back = useRef<HTMLButtonElement | null>(null)
   const titleId = useId()
   const [words, setWords] = useState('')
@@ -198,7 +204,21 @@ function Card({ row, sample, now, onClose, onAnswer, onReview }: Pick<OpenItemPr
               className="h-11 rounded-full border-[1.5px] border-input bg-card px-4 text-[15px] outline-none transition-colors duration-[160ms] ease-[ease] placeholder:text-muted-foreground focus:border-ring"
             />
           ) : null}
-          {!choices.length && !takesWords ? <p className="text-[14px] text-muted-foreground">Nothing to answer here.</p> : null}
+          {reads && row.opens ? (
+            // Work mode is off, so Work would do nothing with it. It is answered in chat, where the main agent gets it whole.
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <Button size="sm" data-stop="" onClick={() => onReply?.(row)}>
+                <MessageSquareReply aria-hidden="true" />
+                Reply in chat
+              </Button>
+              <Button variant="ghost" size="sm" data-stop="" onClick={() => onOpenElsewhere?.(row)}>
+                Opens in Work
+                <ArrowUpRight aria-hidden="true" />
+              </Button>
+            </p>
+          ) : !choices.length && !takesWords ? (
+            <p className="text-[14px] text-muted-foreground">Nothing to answer here.</p>
+          ) : null}
 
           {row.branch || row.links.length ? (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-2">

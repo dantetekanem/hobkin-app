@@ -264,6 +264,23 @@
   color: color-mix(in oklab, var(--hb-text) 84%, var(--hb-tone-2));
 }
 
+/* What goes into a node and what comes out of it, on one line. */
+.rv-io {
+  margin-top: 3px;
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rv-io-out {
+  color: var(--foreground);
+}
+.rv[data-far='true'] .rv-io {
+  display: none;
+}
 .rv-facts {
   margin-top: auto;
   display: flex;
