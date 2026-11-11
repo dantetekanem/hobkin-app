@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import { runWork, useWorkUi } from '../src/features/work/store.ts'
+import { agentControls, useAgentControl } from '../src/app/running-agents.ts'
 import { HostConnection } from '../src/lib/host/connection.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
@@ -36,7 +37,10 @@ test('disconnect, home change, and reset discard old work feedback', async t => 
     openHome('/home-a')
     const oldAction = runWork({ do: 'priority', slug: 'storefront', priority: 'P0' }, { live: true, place: 'storefront' })
     assert.deepEqual(useWorkUi.getState().busy, { storefront: true })
+    agentControls.interrupt('missing')
+    assert.ok(useAgentControl.getState().result)
     changeHost()
+    assert.deepEqual(useAgentControl.getState(), { target: null, busy: false, result: null })
     assert.deepEqual(useWorkUi.getState().busy, {}, 'a new host context releases the old pending indicator')
     assert.deepEqual(useWorkUi.getState().said, {}, 'old feedback is removed at the boundary')
     if (index === 0) replies[index]!.reject(new Error('Disconnected from hobkin.'))
@@ -46,6 +50,29 @@ test('disconnect, home change, and reset discard old work feedback', async t => 
     assert.deepEqual(useWorkUi.getState().busy, {})
     assert.deepEqual(useWorkUi.getState().said, {}, 'a late reply cannot be attributed to the new context')
   }
+})
+
+test('map Stops own their target independently, preserve reasons, and permit settled retry', async t => {
+  const replies = [deferred<{ message: string }>(), deferred<{ message: string }>()]
+  const calls: unknown[] = []
+  t.mock.method(HostConnection.prototype, 'command', (name: string, args: unknown) => {
+    calls.push([name, args])
+    return replies[calls.length - 1]?.promise ?? Promise.resolve({ message: 'Retry requested.' })
+  })
+  openHome('/home-a')
+  const a = runWork({ do: 'stop', run: 'work:a', how: 'not-approved' }, { live: true, place: 'map' })
+  const b = runWork({ do: 'stop', run: 'session:b', how: 'for-now' }, { live: true, place: 'map' })
+  assert.deepEqual(calls, [
+    ['agent.stop', { run: 'work:a', how: 'not-approved' }],
+    ['agent.stop', { run: 'session:b', how: 'for-now' }],
+  ])
+  replies[1]!.resolve({ message: 'B requested.' })
+  await b
+  await runWork({ do: 'stop', run: 'session:b', how: 'for-now' }, { live: true, place: 'map' })
+  assert.equal(calls.length, 3)
+  replies[0]!.resolve({ message: 'A requested.' })
+  await a
+  assert.equal(useWorkUi.getState().said['stop:session:b']?.text, 'Retry requested.')
 })
 
 test('an old epoch cannot clear or replace a newer operation; host command targets stay exact', async t => {

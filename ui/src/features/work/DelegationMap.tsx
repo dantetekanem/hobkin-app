@@ -8,11 +8,13 @@ import { Hob } from '@/avatar/Hob.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
+import { hostStore, useHost } from '@/lib/host/index.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { ChildFaces, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
 import { useMainChildren, useRunChildren } from './children.ts'
 import { SaidLine } from './parts.tsx'
+import { createStopConfirmationAuthority } from './actions.ts'
 import { runWork, useWorkUi } from './store.ts'
 
 /**
@@ -84,6 +86,8 @@ function useWidth(element: RefObject<HTMLElement | null>): number {
   return width
 }
 
+type StopRequest = RunningAgent & { source: string; answer: (how: 'for-now' | 'not-approved' | null) => void }
+
 interface MapProps {
   agents: RunningAgent[]
   /** How many agents hobkin may run at once. Their places are drawn while work mode is on, free or taken. */
@@ -97,8 +101,12 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
   const box = useRef<HTMLDivElement | null>(null)
   const width = useWidth(box)
   const size = width < 560 ? NARROW : ROOMY
-  const [stopping, setStopping] = useState<RunningAgent | null>(null)
-  const said = useWorkUi((state) => state.said['map'])
+  const source = useHost((state) => JSON.stringify([state.home, state.epoch]))
+  const [stopping, setStopping] = useState<StopRequest | null>(null)
+  const [lastStop, setLastStop] = useState<string | null>(null)
+  const currentAgents = useRef(agents)
+  currentAgents.current = agents
+  const said = useWorkUi((state) => lastStop ? state.said[`stop:${lastStop}`] : undefined)
   const helpers = helpersNow(useMainChildren())
   const places = Math.max(agents.length, enabled ? capacity : 0)
   const { height, hobkinY, placeY } = layoutFor(places, helpers.length > 0)
@@ -109,13 +117,19 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
 
   // An agent that ends while its question is open needs no answer any more.
   useEffect(() => {
-    if (stopping && !agents.some(({ id }) => id === stopping.id)) setStopping(null)
-  }, [agents, stopping])
+    if (stopping && (stopping.source !== source || !agents.some(({ id }) => id === stopping.id))) setStopping(null)
+  }, [agents, stopping, source])
 
-  const stop = async (agent: RunningAgent, how: 'for-now' | 'not-approved' | null) => {
-    setStopping(null)
-    requestAnimationFrame(() => box.current?.querySelector<HTMLElement>(`[data-agent-node="${CSS.escape(agent.id)}"]`)?.focus())
-    if (how) await runWork({ do: 'stop', run: agent.id, how }, { live, place: 'map' })
+  const askToStop = (agent: RunningAgent) => {
+    const answer = createStopConfirmationAuthority({ ...agent, source }, () => {
+      const current = currentAgents.current.find(({ id }) => id === agent.id)
+      const { home, epoch } = hostStore.getState()
+      return current ? { ...current, source: JSON.stringify([home, epoch]) } : undefined
+    }, (how) => {
+      setLastStop(agent.id)
+      void runWork({ do: 'stop', run: agent.id, how }, { live, place: `stop:${agent.id}` })
+    })
+    setStopping({ ...agent, source, answer })
   }
 
   return (
@@ -175,7 +189,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
 
           <AnimatePresence initial={false}>
             {agents.map((agent, index) => (
-              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} helpers={width < NAMED_FROM ? FACES : NAMED} onStop={() => setStopping(agent)} />
+              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} helpers={width < NAMED_FROM ? FACES : NAMED} onStop={() => askToStop(agent)} />
             ))}
             {free.map((index) => (
               <Placed key={`free:${index}`} y={placeY(index)} left={nodeLeft} still={still} from={{ lift: 0, scale: 0.96 }}>
@@ -194,7 +208,11 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
         </div>
       </div>
 
-      <AnimatePresence>{stopping ? <StopQuestion key={stopping.id} agent={stopping} still={still} onAnswer={(how) => void stop(stopping, how)} /> : null}</AnimatePresence>
+      <AnimatePresence>{stopping ? <StopQuestion key={stopping.id} agent={stopping} still={still} onAnswer={(how) => {
+        setStopping(null)
+        requestAnimationFrame(() => box.current?.querySelector<HTMLElement>(`[data-agent-node="${CSS.escape(stopping.id)}"]`)?.focus())
+        stopping.answer(how)
+      }} /> : null}</AnimatePresence>
       {said && !stopping ? (
         <SaidLine tone={said.tone} className="px-1">
           {said.text}
@@ -349,18 +367,16 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
             </span>
             <span className="shrink-0 rounded-full border border-border px-1.5 text-[10.5px] leading-4 font-medium text-muted-foreground">{agent.tier}</span>
           </button>
-          {agent.kind === 'work' || agent.kind === 'routine' ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              tabIndex={-1}
-              data-row-control=""
-              onClick={onStop}
-              className="shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
-            >
-              Stop
-            </Button>
-          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            tabIndex={-1}
+            data-row-control=""
+            onClick={onStop}
+            className="shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            Stop
+          </Button>
         </div>
         {spawned.length ? <Satellites spawned={spawned} hue={agent.hue} still={still} {...helpers} /> : null}
       </div>

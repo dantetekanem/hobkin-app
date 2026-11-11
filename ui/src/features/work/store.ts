@@ -118,6 +118,7 @@ const runsAWhile = (action: WorkAction) => action.do === 'change' || action.do =
  * or what was done.
  */
 export async function runWork(action: WorkAction, { live, place }: { live: boolean; place: string }): Promise<Said> {
+  if (action.do === 'stop') place = `stop:${action.run}`
   const { busy, forget } = useWorkUi.getState()
   if (busy[place]) return { tone: 'refused', text: 'This is already under way.' }
 

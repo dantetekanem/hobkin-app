@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
-import { canUseModel, useHost } from '@/lib/host/index.ts'
+import { useHost } from '@/lib/host/index.ts'
+import { useView } from '@/app/view-store.ts'
+import { needsSignInCanvas } from '../chat/availability.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { SignInScreen } from './SignInScreen.tsx'
 
@@ -9,12 +11,8 @@ import { SignInScreen } from './SignInScreen.tsx'
  * way, such as one hobkin started from the conversation.
  */
 export function useNeedsSignIn(): boolean {
-  return useHost((state) => {
-    if (state.link !== 'open') return false
-    if (state.signIn.status === 'signing-in') return true
-    const known = state.models !== null || state.signIn.status !== 'unknown'
-    return known && !canUseModel(state)
-  })
+  const screen = useView((view) => view.screen)
+  return useHost((state) => needsSignInCanvas(state, screen))
 }
 
 interface Box {

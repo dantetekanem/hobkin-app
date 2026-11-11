@@ -127,6 +127,10 @@ export const agentControls = createAgentControls({
   },
   changed: (state) => useAgentControl.setState(state),
 })
+const unsubscribeControls = hostStore.subscribe((state, previous) => {
+  if (state.home !== previous.home || state.epoch !== previous.epoch || state.link !== previous.link) agentControls.reset()
+})
+import.meta.hot?.dispose(unsubscribeControls)
 
 /** What the agent asked, also after the user has answered it, so the canvas can keep the exchange. */
 export function questionOf(id: string | null): string | undefined {

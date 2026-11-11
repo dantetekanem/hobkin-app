@@ -8,7 +8,7 @@ import { useHost } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
-import { availabilityOf } from './availability.ts'
+import { availabilityOf, canStopConversation } from './availability.ts'
 import { canSendDraft, useChat } from './chat-store.ts'
 import { ChatAvatar } from './ChatAvatar.tsx'
 import { PromptEditor } from './PromptEditor.tsx'
@@ -60,7 +60,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const models = useHost((state) => state.models)
   const availability = availabilityOf({ link, home, owner, signIn, models })
   const ready = availability.ready
-  const turnRunning = useHost((state) => state.snapshot.busy === true) && ready
+  const turnRunning = useHost(canStopConversation)
   const canSend = ready && canSendDraft({ text, attachments })
   const list = ready ? slashList(text, commands, slash) : null
   // The report the next message is about, chosen with r on a report.

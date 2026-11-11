@@ -26,6 +26,17 @@ type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal'
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
 
 export interface AgentStopTarget { id: string; title: string; project: string; kind: string; source?: string }
+export function createStopConfirmationAuthority(target: AgentStopTarget, current: () => AgentStopTarget | undefined, send: (how: 'for-now' | 'not-approved') => void) {
+  let consumed = false
+  return (how: 'for-now' | 'not-approved' | null) => {
+    if (consumed) return
+    consumed = true
+    if (!how) return
+    const agent = current()
+    if (agent?.id === target.id && agent.title === target.title && agent.project === target.project && agent.kind === target.kind && agent.source === target.source) send(how)
+  }
+}
+
 export interface AgentControlState {
   target: AgentStopTarget | null
   busy: boolean
@@ -39,40 +50,55 @@ export function createAgentControls({ selected, send, changed }: {
   changed: (state: AgentControlState) => void
 }) {
   let state: AgentControlState = { target: null, busy: false, result: null }
-  const stopped = new Set<string>()
+  const pending = new Map<string, symbol>()
+  let latest: symbol | undefined
   const identity = (target: AgentStopTarget) => `${target.source ?? ''}\0${target.id}`
   const update = (next: Partial<AgentControlState>) => { state = { ...state, ...next }; changed(state) }
   const current = (id: string) => { const agent = selected(); return agent?.id === id ? agent : undefined }
   return {
-    stopped: (id: string | null) => { const target = id === null ? undefined : current(id); return target !== undefined && stopped.has(identity(target)) },
-    request(id: string) {
-      if (state.busy || state.target) return
-      const target = current(id)
-      if (target && stopped.has(identity(target))) return
-      update({ target: target ? { ...target } : null, result: target ? null : { id, text: 'This agent has changed or finished. Nothing was stopped.' } })
+    reset() {
+      pending.clear()
+      latest = undefined
+      update({ target: null, busy: false, result: null })
     },
-    cancel() { if (!state.busy) update({ target: null }) },
+    pending: (id: string | null) => { const target = id === null ? undefined : current(id); return target !== undefined && pending.has(identity(target)) },
+    request(id: string) {
+      const target = current(id)
+      if (target && pending.has(identity(target))) return
+      if (state.target && state.target.source === target?.source) return
+      latest = Symbol(id)
+      update({ target: target ? { ...target } : null, busy: false, result: target ? null : { id, text: 'This agent has changed or finished. Nothing was stopped.' } })
+    },
+    cancel() { update({ target: null }) },
     interrupt(id: string) {
-      if (!state.busy) update({ result: { id, text: current(id) ? 'hobkin cannot interrupt one tool command without stopping this agent. Nothing was interrupted.' : 'This agent has finished. Nothing was interrupted.' } })
+      update({ result: { id, text: current(id) ? 'hobkin cannot interrupt one tool command without stopping this agent. Nothing was interrupted.' : 'This agent has finished. Nothing was interrupted.' } })
     },
     async confirm() {
       const target = state.target
-      if (!target || state.busy) return
+      if (!target || pending.has(identity(target))) return
       const now = current(target.id)
       if (!now || now.title !== target.title || now.project !== target.project || now.kind !== target.kind || now.source !== target.source) {
         update({ target: null, result: { id: target.id, text: 'This agent has changed or finished. Nothing was stopped.' } })
         return
       }
-      update({ busy: true })
+      const token = latest = Symbol(target.id)
+      const key = identity(target)
+      pending.set(key, token)
+      update({ target: null, busy: true })
+      let text: string
       try {
-        const text = await send(target.id)
-        stopped.add(identity(target))
-        update({ result: { id: target.id, text } })
+        text = await send(target.id)
       } catch (error) {
-        update({ result: { id: target.id, text: error instanceof Error ? error.message : String(error) } })
-      } finally {
-        update({ target: null, busy: false })
+        text = error instanceof Error ? error.message : String(error)
       }
+      if (pending.get(key) !== token) return
+      pending.delete(key)
+      if (selected()?.source !== target.source) return
+      const active = selected()
+      update({
+        busy: active !== undefined && pending.has(identity(active)),
+        ...(latest === token ? { result: { id: target.id, text } } : {}),
+      })
     },
   }
 }

@@ -160,7 +160,8 @@ function keepPreview(agentId: string) {
 }
 
 function AgentStopControl({ agentId, finished }: { agentId: string | null; finished: boolean }) {
-  const { target, busy, result } = useAgentControl()
+  const { target, result } = useAgentControl()
+  const busy = agentControls.pending(agentId)
   const dialog = useRef<HTMLDialogElement>(null)
   const opener = useRef<HTMLElement | null>(null)
   const cancel = () => {
@@ -185,7 +186,7 @@ function AgentStopControl({ agentId, finished }: { agentId: string | null; finis
   }, [target, agentId])
   return (
     <div className="absolute right-6 top-6 z-10 text-sm">
-      <button type="button" disabled={finished || busy || agentControls.stopped(agentId)} onClick={() => agentId && agentControls.request(agentId)} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Stop agent</button>
+      <button type="button" disabled={finished || busy} onClick={() => agentId && agentControls.request(agentId)} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Stop agent</button>
       {result?.id === agentId ? <p role="status" className="mt-2 max-w-72 text-muted-foreground">{result.text}</p> : null}
       <dialog ref={dialog} aria-labelledby="agent-stop-title" aria-describedby="agent-stop-description" onCancel={(event) => { event.preventDefault(); cancel() }} onKeyDown={(event) => event.stopPropagation()} className="m-auto max-w-md rounded-2xl border border-border bg-background p-6 text-foreground backdrop:bg-black/40">
         <h2 id="agent-stop-title" className="text-lg font-semibold">Stop {target?.kind === 'routine' ? 'routine' : 'agent'}?</h2>

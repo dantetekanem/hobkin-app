@@ -105,7 +105,7 @@ export function Canvas() {
   const engaged = useView((view) => view.canvasEngaged)
   const engageCanvas = useView((view) => view.engageCanvas)
   const conversationWidth = useView((view) => view.conversationWidth)
-  // While Pi can use no model (or a sign-in is under way), "Connect a model" is the canvas, and the screens wait.
+  // Model setup replaces ordinary screens, but never the screens holding agent controls.
   const needsModel = useNeedsSignIn()
   const hasHost = useHasHost()
   const still = useStill()
