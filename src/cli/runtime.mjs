@@ -379,23 +379,52 @@ export class HobkinRuntime {
   async interrupt() {
     const turn = this.mainTurn;
     if (!turn || turn.session !== this.main) return null;
-    // A turn whose run has ended is only settling, and a reset or an earlier stop is already ending this one.
-    if (!this.active.has(turn.id) || this.resetting || turn.stopping) return null;
-
-    turn.stopping = true;
+    if (turn.stopWork) return turn.stopWork;
+    if (!this.active.has(turn.id) && !turn.stopping) return null;
     return this.stopTurn(turn);
   }
 
-  // A steering message still being handed over gets into Pi's queue first, so nothing slips past the stop.
-  async stopTurn(turn) {
-    const children = turn.owned?.cancel();
-    await Promise.allSettled([...turn.steering]);
-    const { steering = [], followUp = [] } = (await turn.session.clearQueue?.()) ?? {};
+  stopTurn(turn) {
+    if (turn.stopWork) return turn.stopWork;
+    turn.stopping = true;
+    const work = this.mainWork;
     this.active.get(turn.id)?.controller.abort();
-    await turn.session.abort();
-    await children;
-    await this.mainWork;
-    return [...steering, ...followUp];
+    const abort = Promise.resolve().then(() => turn.session.abort());
+    const children = Promise.resolve().then(() => turn.owned?.cancel());
+    let timer, expired = false;
+    // A failed reply may follow a destructive drain: keep one recovery attempt per captured turn.
+    const recovery = turn.unread ?? (turn.recovery ??= (async () => {
+      await Promise.allSettled([...turn.steering]);
+      if (expired) throw Error('Unread draft recovery expired.');
+      if (typeof turn.session.clearQueue !== 'function') throw Error('Unread draft recovery is unavailable.');
+      const queue = await turn.session.clearQueue();
+      if (!queue || Array.isArray(queue) || !Array.isArray(queue.steering) || !Array.isArray(queue.followUp)) throw Error('Unread draft recovery is invalid.');
+      const unread = [...queue.steering, ...queue.followUp];
+      if (!unread.every(text => typeof text === 'string')) throw Error('Unread drafts must be strings.');
+      return turn.unread = unread;
+    })());
+    const cancelled = Promise.all([abort, children, work]).then(([, cleanup]) => {
+      if (turn.owned && cleanup?.confirmed !== true) throw Error('Owned agent cleanup is unconfirmed.');
+      turn.cancellationConfirmed = true;
+    });
+    turn.stopWork = Promise.race([
+      Promise.all([cancelled, recovery]).then(([, unread]) => unread),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Stop completion or unread draft recovery is unconfirmed.')), 5000); }),
+    ]).then(unread => {
+      // Only a confirmed attempt releases custody, never late recovery after a timed-out Stop.
+      if (this.mainTurn === turn) this.mainTurn = null;
+      turn.release();
+      return unread;
+    }).catch(error => {
+      throw Object.assign(new Error(error?.message ?? String(error), { cause: error }), {
+        code: 'STOP_UNCONFIRMED', runId: turn.id, cancellationConfirmed: turn.cancellationConfirmed === true, queueRecovery: turn.unread ? 'confirmed' : 'unknown',
+      });
+    }).finally(() => {
+      expired = true;
+      clearTimeout(timer);
+      turn.stopWork = null;
+    });
+    return turn.stopWork;
   }
 
   async admit(request) {
@@ -505,8 +534,8 @@ export class HobkinRuntime {
         }
         admitted = true;
         this.check();
-        interruptedByReset = this.resetting || this.mainTurn !== turn;
-        if (interruptedByReset) throw Error('Main conversation is resetting.');
+        interruptedByReset = this.resetting || turn.stopping || this.mainTurn !== turn;
+        if (interruptedByReset) throw Error('Main conversation is stopping or resetting.');
         if (this.main !== turn.session || !turn.session.isStreaming || typeof turn.session.steer !== 'function') {
           throw Error(MAIN_BUSY);
         }
@@ -517,7 +546,7 @@ export class HobkinRuntime {
         const existing = (await this.state()).runs[id];
         if (admitted && existing?.status === 'running' && existing.parentRunId === turn.id) {
           await this.finish(id, {
-            status: interruptedByReset || this.resetting ? 'interrupted' : 'failed',
+            status: interruptedByReset || this.resetting || turn.stopping ? 'interrupted' : 'failed',
             cost: null,
             noModel: true,
             error: String(error.message ?? error),
@@ -561,6 +590,7 @@ export class HobkinRuntime {
 
     const activeTurn = this.mainTurn;
     if (activeTurn?.session === this.main) {
+      if (activeTurn.stopping) throw Error('Main conversation is stopping.');
       if (activeTurn.preflight && this.main.isStreaming && typeof this.main.steer === 'function') {
         return this.queueSteering(text, id, activeTurn, images);
       }
@@ -580,6 +610,7 @@ export class HobkinRuntime {
       session,
       sessionId: session.sessionId,
       preflight: undefined,
+      release,
       steering: new Set(),
       children: [],
     };
@@ -671,10 +702,12 @@ export class HobkinRuntime {
     }).catch(error => {
       this.fault = error;
     }).finally(() => {
-      if (this.mainTurn === turn) this.mainTurn = null;
+      if (!turn.stopping) {
+        if (this.mainTurn === turn) this.mainTurn = null;
+        release();
+      }
       this.mainTool = null;
       this.mainDoing = null;
-      release();
     });
     return accepted.promise;
   }

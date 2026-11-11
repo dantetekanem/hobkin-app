@@ -34,7 +34,7 @@ function runtimeFixture(ownedLifecycle) {
           session.messages.push({ role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: `response${session.prompts.length}` }] });
         },
         async waitForIdle() {},
-        async abort() {}, async clearQueue() { return {}; }, async dispose() {},
+        async abort() {}, async clearQueue() { return { steering: [], followUp: [] }; }, async dispose() {},
       };
       sessions.push(session); return session;
     } });
@@ -117,7 +117,8 @@ test('real lifecycle keeps main partial output and unknown cleanup through Stop,
     const main = f.sessions[0]; main.onPrompt = () => main.options.ownedAgent({ action: 'spawn', name: 'read helper' });
     await f.runtime.send('approved task', `turn-${stop}`); await tick();
     callback({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'child partial' }] } });
-    await f.runtime[stop]();
+    if (stop === 'close') await f.runtime.close();
+    else await assert.rejects(f.runtime[stop](), { code: 'STOP_UNCONFIRMED', cancellationConfirmed: false, queueRecovery: 'confirmed' });
     const result = f.state.runs[`turn-${stop}`].result;
     assert.equal(result.status, 'interrupted'); assert.equal(result.text, 'response1');
     assert.equal(result.ownedCleanupConfirmed, false); assert.equal(result.ownedChildren[0].status, 'unknown');

@@ -29,7 +29,7 @@ function fixture(t) {
       this.isStreaming = false;
     },
     async steer() {},
-    async clearQueue() { return { steering: ['correction'] }; },
+    async clearQueue() { return { steering: ['correction'], followUp: [] }; },
     async abort() { gate.resolve(); },
   };
   runtime.main = session;

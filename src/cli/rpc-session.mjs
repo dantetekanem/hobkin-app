@@ -225,16 +225,26 @@ export class PiRpcSession {
   }
 
   clearQueue() {
-    return this.child.request('clear_queue').catch(() => ({ steering: [], followUp: [] }));
+    return this.child.request('clear_queue');
   }
 
   compact() {
     return this.child.request('compact');
   }
 
-  async abort() {
+  abort() {
     for (const controller of this.calls) controller.abort();
-    await this.child.request('abort').catch(() => {});
+    if (this.aborting) return this.aborting;
+    this.aborting = (async () => {
+      try {
+        await within(this.child.request('abort'), 2000, 'Main Pi did not acknowledge Stop.');
+      } catch (error) {
+        this.child.fail(error);
+        // A signal is only a request. The captured transport must actually close before this resolves.
+        await within(this.child.closed, 2000, 'Main Pi exit is unconfirmed after Stop.');
+      }
+    })().finally(() => { this.aborting = null; });
+    return this.aborting;
   }
 
   waitForIdle() {
