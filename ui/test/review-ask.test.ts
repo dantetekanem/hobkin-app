@@ -193,7 +193,7 @@ test("a quick link in what matters sends its words to hobkin as the box does: wi
   session.getState().goTo(4)
   const step = review.story[4]!
   const matters = whatMatters(review, { story: '', summary: { level: 'high', critical: false, needsYou: 1, worthALook: 0, safe: 0, storyBy: 'host', at: '' }, units }, review.story, [])
-  const words = matters.questions[0]!.asks
+  const words = matters.units[0]!.asks
   const { command, calls } = host()
 
   assert.equal(await askHobkin(session, command, words, { keep: (entry) => memory.getState().keepThread(review, [entry]) }), true)

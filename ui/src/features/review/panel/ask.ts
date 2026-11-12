@@ -1,6 +1,6 @@
 /**
- * Asking hobkin from the review. The box in the panel, the quick links of "What matters" and the quick links beside a
- * unit's questions in the code panel all send the same way: one message into hobkin's conversation, with the review,
+ * Asking hobkin from the review. The box in the panel, the quick link beside each unit that needs a look, and the quick
+ * links beside a unit's questions in the code panel all send the same way: one message into hobkin's conversation, with the review,
  * the step and the node, so hobkin knows what "this" is. The message shows at once in the review's conversation, the
  * review keeps it as soon as hobkin has it, and the panel stays open while the reviewer talks.
  */
@@ -32,11 +32,6 @@ export function changeAsk(unit: Pick<StepUnit, 'title'>, change: { text: string;
 /** A unit that needs a look, asked of hobkin: why it has its level, and where to look. */
 export function unitAsk(unit: Pick<Unit, 'title' | 'level'>): string {
   return `${about(unit)}why is it ${RISK_WORDS[unit.level].toLowerCase()}, and what should I check first?`
-}
-
-/** What the change says it does, asked of hobkin against the code. */
-export function claimAsk(): string {
-  return 'Does the code do what this change says it does, and nothing more?'
 }
 
 /** Keeps a message hobkin took with the review, so the review's conversation has it before hobkin's own does. */

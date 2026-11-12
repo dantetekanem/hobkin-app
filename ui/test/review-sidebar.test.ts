@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import type { Units } from '#shared/review/assessment.ts'
 import type { Review, StoryStep } from '#shared/review/types.ts'
-import { claimAsk, questionAsk, unitAsk } from '../src/features/review/panel/ask.ts'
-import { askExample, headerBadge, noteShown, stepBrief, whatMatters } from '../src/features/review/panel/sidebar.ts'
+import { unitAsk } from '../src/features/review/panel/ask.ts'
+import { askExample, headerBadge, noteShown, whatMatters } from '../src/features/review/panel/sidebar.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const units = JSON.parse(readFileSync(new URL('../../packages/change-review/skills/change-review/examples/units.json', import.meta.url), 'utf8')) as Units
@@ -54,33 +54,15 @@ test('the badge beside the title always says where the change review stands: its
   assert.deepEqual(headerBadge(undefined, { state: 'idle', head: 'h' }), { kind: 'none', label: 'Not reviewed' })
 })
 
-test("the panel's step is the unit it tells: its number, its level, its claim, and what changed in a sentence or two", () => {
-  const told = stepBrief(steps, 1, units.units, nodes)!
-  assert.deepEqual({ ...told, unit: told.unit?.id }, { index: 1, total: 4, title: unit('u1').title, what: unit('u1').what, level: 'high', critical: true, unit: 'u1' })
-  // A full stop inside code ends no sentence: the claim's "what" is one sentence, kept whole.
-  assert.match(told.what ?? '', /amount\.round\(2, half: :even\)`\.$/)
-
-  // A step that names no unit tells the unit of its node.
-  const byNode = stepBrief(steps, 2, units.units, nodes)!
-  assert.deepEqual([byNode.title, byNode.level, byNode.unit?.id], [unit('u4').title, 'mid', 'u4'])
-  // Two sentences at most.
-  assert.equal(byNode.what, unit('u4').what)
-
-  // Without a change review it is the step itself: its title, and the first two sentences of its text.
-  assert.deepEqual(stepBrief(steps, 0, null, nodes), { index: 0, total: 4, title: 'Round tax per line', what: 'Tax is rounded on each line. Then the lines are summed.', level: null, critical: false, unit: null })
-  assert.equal(stepBrief(steps, 3, units.units, nodes)?.what, null, 'a step with no words has none')
-  assert.equal(stepBrief(steps, 9, units.units, nodes), null)
-  // A step the host rated without a unit keeps its own level.
-  assert.equal(stepBrief([{ ...steps[2]!, level: 'safe', focus: [] }], 0, units.units, nodes)?.level, 'safe')
-})
-
-test("what matters is the change's claim, then its high and mid units, each with the step that tells it, then the questions, and every one can be asked of hobkin", () => {
+test("the panel says what the change does, the same on every step and short, then one line for each unit that needs a look, then how many questions are open", () => {
   const does = "Rounds each line's tax behind `:per_line_tax_rounding`, and changes `round_money` for every caller."
   const matters = whatMatters(sample, { story: opening(does), summary, units }, steps, nodes)
 
-  assert.deepEqual(matters.claim, { key: 'claim', text: does, asks: claimAsk() })
-  // High before mid, and along the story within a level. Each goes to the step that tells it: the step that names it,
-  // else the step of a node it rates. One no step tells still shows, and goes to its node when it has one.
+  // The change review's own sentence on what the change does.
+  assert.equal(matters.does, does)
+  // High before mid, and along the story within a level, each a claim on one line. Each goes to the step that tells
+  // it: the step that names it, else the step of a node it rates. One no step tells still shows, and goes to its node
+  // when it has one.
   assert.deepEqual(
     matters.units.map(({ key, level, critical, step, node }) => [key, level, critical, step, node]),
     [
@@ -93,36 +75,32 @@ test("what matters is the change's claim, then its high and mid units, each with
   )
   assert.deepEqual(matters.units[0], { key: 'u1', text: unit('u1').title, level: 'high', critical: true, step: 1, node: 'n5', asks: unitAsk(unit('u1')) })
   assert.match(unitAsk(unit('u1')), /^About "round_money changes its rounding mode for every caller, flag on or off": why is it high risk, and what should I check first\?$/)
+  // The questions are read on their steps: the panel only says how many are open, and where the first one is.
+  assert.deepEqual(matters.questions, { count: 3, step: 1 })
 
-  // The questions of those units, the most worrying first, each asked as the reviewer would ask it.
-  assert.deepEqual(
-    matters.questions.map(({ text, about }) => [text, about]),
-    [
-      [unit('u1').questions[0]!.text, unit('u1').title],
-      [unit('u2').questions[0]!.text, unit('u2').title],
-      [unit('u4').questions[0]!.text, unit('u4').title],
-    ],
-  )
-  assert.equal(matters.questions[0]!.asks, questionAsk(unit('u1'), unit('u1').questions[0]!))
-  assert.equal(matters.questions[0]!.why, unit('u1').questions[0]!.why)
+  // Without the change review's sentence, the review's own summary says it, in three sentences at most, and never in
+  // the change review's working words.
+  const working = 'Rounds tax on each line behind a flag. Floor rule 3: no test executes the changed lines. Effect: behaviour (the rounding mode). It writes a new column. It enqueues a receipt job. It also changes the cache key.'
+  assert.equal(whatMatters({ ...sample, summary: working }, null, steps, nodes).does, 'Rounds tax on each line behind a flag. It writes a new column. It enqueues a receipt job.')
 
-  // Before any change review: the review's own summary, and the spec's open questions, asked as they are written.
+  // Before any change review: no unit to list, and the spec's open questions, read on the closing step.
   const plain = whatMatters(sample, null, sample.story, sample.nodes)
-  assert.equal(plain.claim?.text, sample.summary)
+  assert.equal(plain.does, sample.summary)
   assert.deepEqual(plain.units, [])
-  assert.deepEqual(plain.questions.map(({ text, asks, about }) => [text, asks, about]), sample.spec!.openQuestions.map((text) => [text, text, null]))
-  // A summary that only repeats the title says nothing more.
-  assert.equal(whatMatters({ ...sample, summary: sample.change.title, spec: null }, null, [], []).claim, null)
+  assert.deepEqual(plain.questions, { count: sample.spec!.openQuestions.length, step: sample.story.findIndex((step) => step.kind === 'closing') })
+  // A summary that only repeats the title says nothing more, and a change with no question says none is open.
+  assert.deepEqual(whatMatters({ ...sample, summary: sample.change.title, spec: null }, null, [], []), { does: null, units: [], questions: { count: 0, step: null } })
 })
 
-test("the box shows a concrete example of what to ask: the step's own question, else why it has its level, else about its node", () => {
-  assert.equal(askExample(stepBrief(steps, 1, units.units, nodes), undefined), unit('u1').questions[0]!.text)
+test("the box shows a concrete example of what to ask: the question of the step's unit, else why it has its level, else about its node", () => {
+  assert.equal(askExample(steps[1], units.units, nodes, undefined), unit('u1').questions[0]!.text)
   // u3 has no question: why it has its level.
-  const noQuestion = stepBrief([{ ...steps[1]!, unit: 'u3' }], 0, units.units, nodes)
-  assert.equal(askExample(noQuestion, undefined), 'Why is this step high risk?')
-  assert.equal(askExample(stepBrief(steps, 0, null, nodes), { title: 'doingAfter', kind: 'code' }), 'What does doingAfter do, and what calls it?')
-  assert.equal(askExample(stepBrief(steps, 0, null, nodes), { title: 'A test that names a very long behaviour in words', kind: 'test' }), 'What does this test prove, and what does it miss?')
-  assert.equal(askExample(null, undefined), 'What does this step change, and how is it tested?')
+  assert.equal(askExample({ ...steps[1]!, unit: 'u3' }, units.units, nodes, undefined), 'Why is this step high risk?')
+  // A step the host rated without a unit asks about its own level.
+  assert.equal(askExample({ ...steps[2]!, focus: [], level: 'safe' }, units.units, nodes, undefined), 'Why is this step safe?')
+  assert.equal(askExample(steps[0], null, nodes, { title: 'doingAfter', kind: 'code' }), 'What does doingAfter do, and what calls it?')
+  assert.equal(askExample(steps[0], null, nodes, { title: 'A test that names a very long behaviour in words', kind: 'test' }), 'What does this test prove, and what does it miss?')
+  assert.equal(askExample(undefined, null, [], undefined), 'What does this step change, and how is it tested?')
 })
 
 test("a comment or question in the panel opens the notes beside what it is about: its node, the node of its lines, else its step", () => {

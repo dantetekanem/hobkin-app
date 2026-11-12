@@ -1,13 +1,15 @@
 /**
- * What the review panel tells, top to bottom, in its own words (spec 032): the overall risk beside the title, the step
- * the reviewer is on, and what matters in the change, each with the words its quick link asks hobkin, and where a note
- * opens on the canvas. Nothing here draws, so all of it can be tested without a screen.
+ * What the review panel tells, top to bottom, in its own words (spec 032): the overall risk beside the title, what the
+ * change does, the same on every step, the units that need a look with the words their quick links ask hobkin, how
+ * many questions are open, and where a note opens on the canvas. The step itself is told on the canvas, in its card,
+ * never again here (the user, 2026-11-12: "step is just duplicating side bar", "Sidebar should be a constant
+ * explanation of what this does. not long."). Nothing here draws, so all of it can be tested without a screen.
  */
 import type { AssessmentStatus, ChangeAssessment, Level, Unit } from '#shared/review/assessment.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewLevel, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { changeDescription, RISK_WORDS, riskBadge, unitInFocus } from '../reading/model.ts'
-import { claimAsk, questionAsk, unitAsk } from './ask.ts'
+import { unitAsk } from './ask.ts'
 
 /**
  * The badge beside the title, which is always there. `rated`: the change review's level, whether anything is
@@ -37,25 +39,28 @@ export function headerBadge(assessment: Pick<ChangeAssessment, 'summary'> | null
   return { kind: 'none', label: 'Not reviewed' }
 }
 
-/**
- * The first sentences of some words, at most `count`. A stop ends a sentence only where a space follows it, and never
- * inside code, so `amount.round(2)` stays whole.
- */
-function firstSentences(text: string | undefined, count: number): string | null {
-  const words = text?.trim()
-  if (!words) return null
+/** The sentences of some words. A stop ends one only where a space follows it, and never inside code, so `amount.round(2)` stays whole. */
+function sentencesOf(text: string): string[] {
+  const words = text.trim().replace(/\s+/g, ' ')
+  const sentences: string[] = []
   let code = false
-  let found = 0
+  let start = 0
   for (let index = 0; index < words.length; index += 1) {
     const character = words[index]!
     if (character === '`') code = !code
-    else if (!code && '.!?'.includes(character) && /\s/.test(words[index + 1] ?? '')) {
-      found += 1
-      if (found === count) return words.slice(0, index + 1)
+    else if (!code && '.!?'.includes(character) && words[index + 1] === ' ') {
+      sentences.push(words.slice(start, index + 1))
+      start = index + 2
     }
   }
-  return words
+  if (start < words.length) sentences.push(words.slice(start))
+  return sentences
 }
+
+/** The change review's working words, which are no explanation: "Floor rule 3: …", and a fact named as a field, "Effect: …". */
+const WORKING = /^(?:floor rule \d+\b|(?:effect|proof|proven|exposure|runs for|undo|undone by):)/i
+/** What the change does is said in this many sentences at most. */
+const SENTENCES = 3
 
 type NodeUnit = Pick<ReviewNode, 'id' | 'unit'>
 
@@ -66,62 +71,27 @@ function unitOfStep(step: StoryStep, units: readonly Unit[] | null | undefined, 
   return named ?? unitInFocus(units, nodes.filter((node) => step.focus.includes(node.id)), null)
 }
 
-/** The step the reviewer is on, as the panel tells it. */
-export interface StepBrief {
-  /** Its place in the story on screen, from 0, and how many steps that story has. */
-  index: number
-  total: number
-  /** The claim of the unit it tells, else the step's own title. */
-  title: string
-  /** What changed, in a sentence or two: the unit's own words, else the start of the step's. */
-  what: string | null
-  level: ReviewLevel | null
-  critical: boolean
-  /** The change review's unit it tells, once one is ready. */
-  unit: Unit | null
-}
-
-/** The step at `index` of the story on screen (`session.view.story`, which can fold steps together). Null past its end. */
-export function stepBrief(steps: readonly StoryStep[], index: number, units: readonly Unit[] | null | undefined, nodes: readonly NodeUnit[]): StepBrief | null {
-  const step = steps[index]
-  if (!step) return null
-  const unit = unitOfStep(step, units, nodes)
-  return {
-    index,
-    total: steps.length,
-    title: unit?.title || step.title,
-    what: firstSentences(unit?.what || step.text, 2),
-    level: unit?.level ?? step.level ?? null,
-    critical: unit?.critical ?? false,
-    unit: unit ?? null,
-  }
-}
-
-/** One thing that matters, and what its quick link sends to hobkin. */
-export interface Matter {
+/** A unit that needs a look: its claim, its level, and where it is told, by the step's place in the story on screen or a node. */
+export interface UnitMatter {
   key: string
   text: string
-  asks: string
-}
-
-/** A unit that needs a look: its level, and where it is told, by the step's place in the story on screen or a node. */
-export interface UnitMatter extends Matter {
   level: Level
   critical: boolean
   step: number | null
   node: string | null
+  /** What its quick link sends to hobkin. */
+  asks: string
 }
 
-/** A question for the reviewer: why the code cannot answer it, and the claim of the unit it belongs to. */
-export interface QuestionMatter extends Matter {
-  why: string | null
-  about: string | null
-}
-
+/**
+ * What the panel says about the change under its header. `does`: what it does, the same for every step. `units`:
+ * the high and mid units, each said in its claim. `questions`: how many the change leaves for the reviewer, which are
+ * read on their steps, and the place in the story on screen of the step where the first is read.
+ */
 export interface WhatMatters {
-  claim: Matter | null
+  does: string | null
   units: UnitMatter[]
-  questions: QuestionMatter[]
+  questions: { count: number; step: number | null }
 }
 
 const RANK: Record<Level, number> = { high: 0, mid: 1, safe: 2 }
@@ -136,9 +106,9 @@ function stepOfUnit(id: string, steps: readonly StoryStep[], nodes: readonly Nod
 }
 
 /**
- * What matters in the change, for "What matters": what it says it does, then its high and mid units, the most worrying
- * first and along the story within a level, then the questions those units leave for the reviewer. Before a change
- * review, the questions are the spec's open ones, asked as they are written.
+ * What the change does, in three sentences at most: the change review's own sentence, else the review's summary,
+ * without the change review's working words. Then its high and mid units, the most worrying first and along the story
+ * within a level, and its open questions: those of its units, else the spec's, which the closing step reads.
  */
 export function whatMatters(
   review: Pick<Review, 'summary' | 'change' | 'spec'>,
@@ -146,7 +116,8 @@ export function whatMatters(
   steps: readonly StoryStep[],
   nodes: readonly NodeUnit[],
 ): WhatMatters {
-  const does = changeDescription(review, assessment)
+  const said = changeDescription(review, assessment)
+  const does = said ? sentencesOf(said).filter((sentence) => !WORKING.test(sentence)).slice(0, SENTENCES).join(' ') || null : null
   const rated = [...(assessment?.units?.units ?? [])].sort((a, b) => RANK[a.level] - RANK[b.level] || a.story_order - b.story_order)
   const units = rated
     .filter((unit) => unit.level !== 'safe')
@@ -159,26 +130,31 @@ export function whatMatters(
       node: nodes.find((node) => node.unit === unit.id)?.id ?? null,
       asks: unitAsk(unit),
     }))
-  const asked = rated.length
-    ? rated.flatMap((unit) => unit.questions.map((question, index): QuestionMatter => ({ key: `${unit.id}:${index}`, text: question.text, why: question.why || null, about: unit.title || null, asks: questionAsk(unit, question) })))
-    : (review.spec?.openQuestions ?? []).map((text, index): QuestionMatter => ({ key: `open:${index}`, text, why: null, about: null, asks: text }))
-  // The same question from two units is asked once.
-  const questions = asked.filter((question, index) => asked.findIndex((other) => other.text === question.text) === index)
-  return { claim: does ? { key: 'claim', text: does, asks: claimAsk() } : null, units, questions }
+  // The same question from two units is one question.
+  const asked = rated.flatMap((unit) => unit.questions.map((question) => ({ text: question.text.trim(), unit: unit.id })))
+  const distinct = asked.filter((question, index) => asked.findIndex((other) => other.text === question.text) === index)
+  const closing = steps.findIndex((step) => step.kind === 'closing')
+  const open = review.spec?.openQuestions.length ?? 0
+  const questions = rated.length
+    ? { count: distinct.length, step: distinct[0] ? stepOfUnit(distinct[0].unit, steps, nodes) : null }
+    : { count: open, step: open > 0 && closing >= 0 ? closing : null }
+  return { does, units, questions }
 }
 
 /** A title short enough to sit inside an example. */
 const SHORT = 32
 
 /**
- * A concrete example of what to ask hobkin about the step, for the box: the question the step's unit leaves, else why
- * the step has its level, else one about its node, by its kind.
+ * A concrete example of what to ask hobkin about the step on screen, for the box: the question its unit leaves, else
+ * why it has its level, else one about the node the reviewer is on, by its kind.
  */
-export function askExample(brief: StepBrief | null, node: Pick<ReviewNode, 'title' | 'kind'> | undefined): string {
-  const question = brief?.unit?.questions[0]?.text.trim()
+export function askExample(step: StoryStep | undefined, units: readonly Unit[] | null | undefined, nodes: readonly NodeUnit[], on: Pick<ReviewNode, 'title' | 'kind'> | undefined): string {
+  const unit = step ? unitOfStep(step, units, nodes) : undefined
+  const question = unit?.questions[0]?.text.trim()
   if (question && question.length <= 110) return question
-  if (brief?.level) return `Why is this step ${RISK_WORDS[brief.level].toLowerCase()}?`
-  switch (node?.kind) {
+  const level: ReviewLevel | undefined = unit?.level ?? step?.level
+  if (level) return `Why is this step ${RISK_WORDS[level].toLowerCase()}?`
+  switch (on?.kind) {
     case 'test':
       return 'What does this test prove, and what does it miss?'
     case 'criterion':
@@ -187,7 +163,7 @@ export function askExample(brief: StepBrief | null, node: Pick<ReviewNode, 'titl
       return 'Why does this unchanged code matter here?'
     case 'code':
     case 'file':
-      return node.title.length <= SHORT ? `What does ${node.title} do, and what calls it?` : `What does this ${node.kind} do, and what calls it?`
+      return on.title.length <= SHORT ? `What does ${on.title} do, and what calls it?` : `What does this ${on.kind} do, and what calls it?`
     default:
       return 'What does this step change, and how is it tested?'
   }

@@ -16,8 +16,7 @@ import type { AskCommand } from './ask.ts'
 import { MENU, PanelHeader } from './Header.tsx'
 import { HobkinBox } from './HobkinBox.tsx'
 import { NoteButton, NoteEditor, NoteRow } from './notes.tsx'
-import { askExample, stepBrief, whatMatters } from './sidebar.ts'
-import { ThisStep } from './ThisStep.tsx'
+import { askExample, whatMatters } from './sidebar.ts'
 import { useAskHobkin } from './use-ask.ts'
 import { WhatMatters } from './WhatMatters.tsx'
 
@@ -53,10 +52,11 @@ const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text
 
 /**
  * The review panel, on the left of the review, full height, in the order the user reads a review (2026-11-12: "the
- * order is: this step > description that matters for me > agent I can ping and ask > other info"). At its top, the
- * same for the whole review: which project changes, the title with its overall risk, its size and its commits. Under
- * it, held in place, the step the reviewer is on. Then, scrolling: what matters in the change, hobkin to ask on a band
- * of its own, the comments and questions, the verdict, and the keys.
+ * order is: this step > description that matters for me > agent I can ping and ask > other info"), where the step is
+ * told on the canvas, in its card, and never again here ("step is just duplicating side bar"). At its top, the same
+ * for the whole review: which project changes, the title with its overall risk, its size and its commits. Then,
+ * scrolling and the same on every step: what the change does and what needs a look, hobkin to ask on a band of its
+ * own, the comments and questions, the verdict, and the keys.
  *
  * It stays open. The reviewer can hide it, with its chevron or S, to give the graph its width: a strip is left that
  * brings it back. Hidden, it comes back while they are in it: the keyboard in it, a message to hobkin, a note being
@@ -76,8 +76,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
   const review = useSession((session) => session.review)
   const steps = useSession((session) => session.view.story)
   const nodes = useSession((session) => session.view.nodes)
-  const current = useSession((session) => session.story.step)
-  const hasCode = useSession((session) => session.focus.length > 0)
+  const step = useSession((session) => session.view.story[session.story.step])
   // The node the reviewer is on, for the example of what to ask.
   const on = useSession((session) => {
     const id = session.pointed ?? session.focus[0]
@@ -109,7 +108,6 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
   const strip = useTransform(() => 1 - Math.max(0, Math.min(1, (rig.side.get() - STEPS_STRIP) / Math.max(1, width - STEPS_STRIP))))
 
   const units = chrome.assessment?.units?.units
-  const brief = useMemo(() => stepBrief(steps, current, units, nodes), [current, nodes, steps, units])
   const matters = useMemo(() => whatMatters(review, chrome.assessment, steps, nodes), [chrome.assessment, nodes, review, steps])
   const ask = useAskHobkin(chrome.ask)
   // A quick link's words go to hobkin at once, and the conversation comes into view to show them.
@@ -188,13 +186,12 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
           assessment={chrome.assessment}
           rebuild={chrome.rebuild}
         />
-        {brief ? <ThisStep brief={brief} code={hasCode} /> : null}
 
         <div className="rv-scroll min-h-0 flex-1 overflow-y-auto">
           <WhatMatters matters={matters} ask={askFromList} />
 
           <div ref={band} className="scroll-my-2">
-            <HobkinBox ref={box} review={review} ask={chrome.ask} notes={notes} example={askExample(brief, on)} />
+            <HobkinBox ref={box} review={review} ask={chrome.ask} notes={notes} example={askExample(step, units, nodes, on)} />
           </div>
 
           <section aria-label="Comments and questions" className="flex flex-col gap-2.5 px-4 pt-4 pb-3.5">

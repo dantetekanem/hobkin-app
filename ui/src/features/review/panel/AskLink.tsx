@@ -8,13 +8,15 @@ const SAID: Record<Exclude<AskState, 'idle'>, string> = { sending: 'Asking…', 
 
 /**
  * A quick way to ask hobkin about one thing: it sends its words at once, they show in the conversation under
- * "Ask hobkin", and it says so. Its name carries the words it sends. `compact` is the short form, for a list.
+ * "Ask hobkin", and it says so. Its name carries the words it sends. `compact` is the short form, and `iconOnly` the
+ * shortest, for a list of one line each, where its name says it.
  */
-export function AskLink({ words, ask, compact = false, className }: {
+export function AskLink({ words, ask, compact = false, iconOnly = false, className }: {
   words: string
   /** Sends words to hobkin. Null where hobkin is not connected, as in a sample review. */
   ask: ((text: string) => Promise<boolean>) | null
   compact?: boolean
+  iconOnly?: boolean
   className?: string
 }) {
   const [state, setState] = useState<AskState>('idle')
@@ -34,12 +36,13 @@ export function AskLink({ words, ask, compact = false, className }: {
       }}
       className={cn(
         'rv-ask-link flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 font-heading text-[13px] font-semibold transition-[background-color,transform] duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97] disabled:active:scale-100 [&_svg]:size-3.5',
+        iconOnly && 'w-7 justify-center px-0',
         state === 'failed' && 'rv-ask-link-failed',
         className,
       )}
     >
       <Icon aria-hidden="true" />
-      {state === 'idle' ? (compact ? 'Ask' : 'Ask hobkin') : SAID[state]}
+      {iconOnly ? null : state === 'idle' ? (compact ? 'Ask' : 'Ask hobkin') : SAID[state]}
     </button>
   )
 }

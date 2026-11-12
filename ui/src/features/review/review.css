@@ -716,6 +716,15 @@
   --level: var(--hb-bad);
   --level-fg: var(--hb-bad-fg);
 }
+/* A critical unit in a line of the panel's list: the level filled, so it is never missed. Ink on the color in both themes. */
+.rv-level[data-critical='true'] {
+  background: var(--level);
+  color: var(--hb-text);
+  box-shadow: none;
+}
+.dark .rv-level[data-critical='true'] {
+  color: var(--hb-bg);
+}
 /* On a card it sits on the top edge, where it reads from far away too. */
 .rv-node > .rv-level {
   position: absolute;
