@@ -1,6 +1,6 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { assertRuntimeAdmission, adoptedSession } from './migration/admission.mjs';
 import { readSessionHeader } from './migration/ownership.mjs';
 import { readSource, sha256 } from './migration/inventory.mjs';
@@ -253,10 +253,16 @@ async function pickInitialModel(modelRuntime, settings) {
 export async function openConversation(
   { root, config, expected, file, fresh = false, customTools = [], modelSettings },
   { createSession, agentDir, resourceCandidates = [], modelRuntime: suppliedModelRuntime, deferExtensionBinding = false, rpcBridge,
-    recoverScriptedHistory = false, pickModel = pickInitialModel,
+    recoverScriptedHistory = false, pickModel = pickInitialModel, scriptedMain = false,
     loadSdk = () => import('@earendil-works/pi-coding-agent') } = {},
 ) {
   refuseInProcess(config);
+  scriptedMain = scriptedMain === true;
+  if (scriptedMain && (typeof createSession !== 'function' || deferExtensionBinding !== true || modelSettings || customTools.length
+    || typeof rpcBridge?.clientExtensionPath !== 'string' || !isAbsolute(rpcBridge.clientExtensionPath)
+    || !existsSync(rpcBridge.clientExtensionPath) || !lstatSync(rpcBridge.clientExtensionPath).isFile())) {
+    throw Error('Scripted main requires its injected factory, deferred binding and client extension.');
+  }
   validateBinding({ harness: 'pi', ...config.main });
   const resources = mainSdkResources(config.resourceSelection, resourceCandidates);
   followEntryLink();
@@ -275,7 +281,8 @@ export async function openConversation(
   const manager = SessionManager.open(file, dirname(file), config.main.cwd);
   if (expected && manager.getSessionId() !== expected.sessionId) throw Error('Main Pi conversation identity changed.');
   const effectiveAgentDir = agentDir ?? getAgentDir();
-  const settingsManager = SettingsManager.create(config.main.cwd, effectiveAgentDir);
+  const settingsManager = scriptedMain ? SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } })
+    : SettingsManager.create(config.main.cwd, effectiveAgentDir);
   const appendSystemPrompt = mainPrompts(root, config);
   const builtIns = [
     { name: 'codemode', factory: createCodemodeExtension(), builtin: true, replaceable: true },
@@ -285,10 +292,10 @@ export async function openConversation(
     cwd: config.main.cwd,
     agentDir: effectiveAgentDir,
     // The loader must not resolve/install configured packages, even with discovery flags off.
-    settingsManager: SettingsManager.inMemory({}),
+    settingsManager: scriptedMain ? settingsManager : SettingsManager.inMemory({}),
     ...resources.loader,
     additionalExtensionPaths: [...resources.loader.additionalExtensionPaths, ...(rpcBridge?.clientExtensionPath ? [rpcBridge.clientExtensionPath] : [])],
-    extensionFactories: [...builtIns, rpcBridge ? hobkinBridge : createMemoryExtension(root)],
+    extensionFactories: [...builtIns, rpcBridge && !scriptedMain ? hobkinBridge : createMemoryExtension(root)],
     appendSystemPrompt,
   });
   await resourceLoader.reload();
@@ -302,7 +309,7 @@ export async function openConversation(
     settingsManager,
     resourceLoader,
   };
-  let modelRuntime = suppliedModelRuntime;
+  let modelRuntime = scriptedMain ? undefined : suppliedModelRuntime;
   if (!createSession && !modelRuntime) modelRuntime = await ModelRuntime.create({ allowModelNetwork: false,
     ...(rpcBridge ? { authPath: join(effectiveAgentDir, 'auth.json'), modelsPath: join(effectiveAgentDir, 'models.json') } : {}) });
   let model;
@@ -329,16 +336,18 @@ export async function openConversation(
   }
   const bridgeTools = rpcBridge ? ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'owned_agent',
     ...(rpcBridge.clientExtensionPath ? ['client'] : [])] : [];
-  options.tools = [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name), ...bridgeTools];
+  options.tools = scriptedMain ? ['client'] : [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name), ...bridgeTools];
   const { session, modelFallbackMessage } = await (createSession ?? createAgentSession)(options);
   currentSession.current = session;
   if (modelFallbackMessage || !keptEffort(session.model, config.main.effort, session.thinkingLevel)
+    || (scriptedMain && `${session.model?.provider}/${session.model?.id}` !== 'hobkin-client/scripted')
     || (config.main.model && `${session.model?.provider}/${session.model?.id}` !== config.main.model)) {
     session.dispose();
     throw Error(modelFallbackMessage ?? 'Pi model or thinking binding changed.');
   }
-  compactAtForceLevel(settingsManager, [...(session.modelRuntime?.getAvailableSnapshot?.() ?? []), session.model].filter(Boolean));
+  if (!scriptedMain) compactAtForceLevel(settingsManager, [...(session.modelRuntime?.getAvailableSnapshot?.() ?? []), session.model].filter(Boolean));
   const validateTools = () => {
+    if (scriptedMain && `${session.model?.provider}/${session.model?.id}` !== 'hobkin-client/scripted') throw Error('Pi model binding changed.');
     resources.assertLoaded(resourceLoader);
     if (rpcBridge?.clientExtensionPath && !resourceLoader.getExtensions().extensions.some(item => item.path === rpcBridge.clientExtensionPath)) {
       throw Error('The Hobkin client extension is unavailable.');

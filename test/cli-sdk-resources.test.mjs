@@ -131,11 +131,20 @@ test('failed loader diagnostics and missing required tools refuse session readin
   await assert.rejects(h.open(), /missing/);
 });
 
-test('child SDK mode uses the existing bridge context once and activates the exact client tool', async t => {
+for (const [scriptedMain, active] of [[false], [true], [true, []], [true, ['client', 'bash']]]) test(`child SDK context and exact tools: scripted=${scriptedMain}, active=${active}`, async t => {
   const h = await fixture(t), extensionPath = join(h.root, 'client.mjs');
   writeFileSync(extensionPath, 'fixture');
   h.dependencies.rpcBridge = { clientExtensionPath: extensionPath };
   h.dependencies.deferExtensionBinding = true;
+  h.dependencies.scriptedMain = scriptedMain;
+  if (scriptedMain) {
+    h.session.model = { provider: 'hobkin-client', id: 'scripted' };
+    const loadSdk = h.dependencies.loadSdk;
+    h.dependencies.loadSdk = async () => {
+      const sdk = await loadSdk(); sdk.SettingsManager.create = () => assert.fail('inherited settings read'); return sdk;
+    };
+    Object.assign(h.dependencies, { modelRuntime: {}, recoverScriptedHistory: true, pickModel: () => assert.fail('live model picker') });
+  }
   // The child factory supplies no parent function-valued tools across its bootstrap boundary.
   const { openConversation } = await import('../src/cli/pi-session.mjs');
   const result = await openConversation({ root: h.root, config: h.config, file: join(h.root, 'sessions', 'main.jsonl') }, h.dependencies);
@@ -152,10 +161,32 @@ test('child SDK mode uses the existing bridge context once and activates the exa
     const { op } = JSON.parse(request); calls.push(op);
     return JSON.stringify({ ok: true, result: op === 'persona' ? 'Normal' : op === 'directions' ? 'directions' : [] });
   } } };
-  handlers.session_start({}, ctx);
+  if (!scriptedMain) handlers.session_start({}, ctx);
+  if (active) {
+    h.session.getActiveToolNames = () => active;
+    await assert.rejects(result.session.bindExtensions({ mode: 'rpc' }), /missing|re-enabled/); return;
+  }
   await result.session.bindExtensions({ mode: 'rpc' });
+  if (scriptedMain) assert.deepEqual(h.session.getActiveToolNames(), ['client']);
   assert.match((await handlers.before_agent_start({ systemPrompt: 'base' }, ctx)).systemPrompt, /base/);
-  assert.deepEqual(calls, ['persona', 'directions', 'memory', 'decided']);
+  assert.deepEqual(calls, scriptedMain ? [] : ['persona', 'directions', 'memory', 'decided']);
+  if (scriptedMain) {
+    assert.deepEqual(tools, []); assert.equal(h.options().modelRuntime, undefined);
+    assert.equal(result.services.settingsManager, h.options().settingsManager);
+    assert.equal(h.loader().settingsManager, h.options().settingsManager);
+    assert.deepEqual(h.options().settingsManager.isolated, { compaction: { enabled: false }, retry: { enabled: false } });
+    assert.match(handlers.before_agent_start({ systemPrompt: 'base' }).systemPrompt, /Current memory/);
+    await result.services.resourceLoader.reload(); result.services.assertMainInvariants();
+    for (const names of [[], ['client', 'bash']]) {
+      h.session.getActiveToolNames = () => names;
+      assert.throws(() => result.services.assertMainInvariants(), /missing|re-enabled/);
+    }
+    h.session.getActiveToolNames = () => ['client']; h.session.model.id = 'wrong';
+    assert.throws(() => result.services.assertMainInvariants(), /binding changed/);
+    const disposal = t.mock.method(h.session, 'dispose');
+    await assert.rejects(openConversation({ root: h.root, config: h.config, file: join(h.root, 'sessions', 'main.jsonl') }, h.dependencies), /binding changed/);
+    assert.equal(disposal.mock.callCount(), 1);
+  }
 });
 
 test('child SDK model storage stays in the selected Pi directory without serializing credentials', async t => {
@@ -188,7 +219,7 @@ test('deferred SDK binding returns its services and binds native hooks exactly o
   assert.equal(bindings, 1);
 });
 
-test('deferred native invariants reject a missing client extension after reload', async t => {
+for (const [scriptedMain, missingAtBind] of [[false, false], [true, false], [true, true]]) test(`missing-client validation: scripted=${scriptedMain}, initial=${missingAtBind}`, async t => {
   const h = await fixture(t), clientPath = join(h.root, 'client.mjs'), loadSdk = h.dependencies.loadSdk;
   writeFileSync(clientPath, 'fixture');
   let missingClient = false;
@@ -204,9 +235,13 @@ test('deferred native invariants reject a missing client extension after reload'
   };
   h.dependencies.rpcBridge = { clientExtensionPath: clientPath };
   h.dependencies.deferExtensionBinding = true;
+  h.dependencies.scriptedMain = scriptedMain;
+  if (scriptedMain) h.session.model = { provider: 'hobkin-client', id: 'scripted' };
   const { openConversation } = await import('../src/cli/pi-session.mjs');
   const result = await openConversation({ root: h.root, config: h.config, file: join(h.root, 'sessions', 'main.jsonl') }, h.dependencies);
+  if (missingAtBind) { missingClient = true; await assert.rejects(result.session.bindExtensions({ mode: 'rpc' }), /client extension is unavailable/); return; }
   await result.session.bindExtensions({ mode: 'rpc' });
+  await result.services.resourceLoader.reload();
   assert.doesNotThrow(() => result.services.assertMainInvariants());
   missingClient = true;
   await result.services.resourceLoader.reload();
@@ -252,6 +287,17 @@ for (const [type, provider, explicit, recovery] of [
   else await opening;
   assert.equal(picks, shouldPick ? 1 : 0);
   assert.equal(h.options().model, explicit || (shouldPick && recovery !== 'unavailable') ? model : undefined);
+});
+
+test('scripted SDK setup refuses before loader or factory entry', async t => {
+  const h = await fixture(t), { openConversation } = await import('../src/cli/pi-session.mjs');
+  const rpcBridge = { clientExtensionPath: join(h.root, 'client.mjs') }; writeFileSync(rpcBridge.clientExtensionPath, 'fixture');
+  for (const invalid of [{ createSession: undefined }, { deferExtensionBinding: false }, { deferExtensionBinding: 'true' }, { rpcBridge: {} }, { rpcBridge: { clientExtensionPath: h.root } }]) {
+    await assert.rejects(openConversation({ root: h.root, config: h.config, file: join(h.root, 'sessions', 'main.jsonl') }, {
+      ...h.dependencies, scriptedMain: true, rpcBridge, deferExtensionBinding: true, ...invalid,
+      loadSdk: () => assert.fail('loader entered for invalid scripted setup'),
+    }), /Scripted main/);
+  }
 });
 
 test('unsupported or stale resource selections refuse before SDK loading', async t => {

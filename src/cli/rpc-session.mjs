@@ -349,8 +349,10 @@ function within(promise, ms, message) {
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
   { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts, startup },
-  { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap } = {},
+  { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap, scriptedMain = false } = {},
 ) {
+  scriptedMain = scriptedMain === true;
+  if (scriptedMain && (!bootstrap || config.launcher || !clientBridge)) throw Error('Scripted main requires its owned bootstrap and client bridge.');
   if (clientBridge !== undefined && (typeof clientBridge?.extensionPath !== 'string'
     || !isAbsolute(clientBridge.extensionPath) || clientBridge.tool?.name !== 'client'
     || typeof clientBridge.tool.execute !== 'function')) {
@@ -373,7 +375,7 @@ export async function openRpcSession(
     decided: () => readDecided(root),
     persona: () => readPersona(root),
   });
-  session.tools = {
+  session.tools = scriptedMain ? {} : {
     ask_question: createQuestionTool(askQuestion, root),
     run_routine: createScheduleTool(triggerSchedule),
     message_check: createCheckMessageTool(messageCheck),
@@ -425,7 +427,8 @@ export async function openRpcSession(
       || (bootstrapped && state.sessionId !== bootstrapped.sessionId)) {
       throw Error('Main Pi conversation identity changed.');
     }
-    if (!keptEffort(state.model, config.main.effort, state.thinkingLevel) || !model || (config.main.model && model !== config.main.model)) {
+    if (!keptEffort(state.model, config.main.effort, state.thinkingLevel) || !model || (config.main.model && model !== config.main.model)
+      || (scriptedMain && model !== 'hobkin-client/scripted')) {
       throw Error('Pi model or thinking binding changed.');
     }
     const missing = Object.keys(session.tools).filter(name => name !== 'client' && !session.hello?.tools?.includes(name));

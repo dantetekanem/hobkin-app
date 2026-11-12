@@ -123,7 +123,7 @@ test('malformed or untrusted bootstrap refuses before SDK loading', async t => {
   for (const patch of [{ version: 2 }, { pid: 22 }, { module: '/tmp/other.mjs' }, { config: { ...h.data.config, auth: 'secret' } },
     { config: { ...h.data.config, background: { harness: 'pi', effort: 'medium', cwd() {} } } },
     { file: '/tmp/not-owned.jsonl' }, { resourceCandidates: [{ id: 'x', kind: 'extensions', installed: true, path: '/tmp/x', execute() {} }] },
-    { id: 123 }, { id: 'x'.repeat(65537) }, { recoverScriptedHistory: 'true' }, { recoverScriptedHistory: {} },
+    { id: 123 }, { id: 'x'.repeat(65537) }, { recoverScriptedHistory: 'true' }, { recoverScriptedHistory: {} }, { scriptedMain: true },
     { resourceCandidates: Array.from({ length: 30 }, (_, i) => ({ id: `test.${i}`, kind: 'extensions', installed: true, path: `/${'x'.repeat(3000)}` })) }]) {
     const channel = new EventEmitter(); channel.send = () => {};
     const running = runMainSessionChild(channel, { loadSdk: forbidden, openSession: forbidden });
@@ -202,34 +202,38 @@ test('captured child is Force-addressable before bootstrap readiness and only cl
   await Promise.all([ready, pending, transport.closed]);
 });
 
-for (const isolatedMain of [undefined, true]) test(`the ${isolatedMain ? 'opt-in' : 'default'} RPC opener waits for bootstrap and routes the captured client callback`, async t => {
+for (const [isolatedMain, scriptedMain, failure] of [[undefined, false], [true, false], [true, true], [true, true, 'model'], [true, true, 'hello'], [true, false, 'base']]) test(`captured RPC admission: isolated=${isolatedMain}, scripted=${scriptedMain}, failure=${failure}`, async t => {
   const h = processFixture(t), received = [], extensionPath = join(h.data.root, 'client.mjs');
   h.payload.clientExtensionPath = extensionPath;
   let call;
   const tool = { name: 'client', execute: async (...args) => { call = args; return { content: [], details: { routed: true } }; } };
+  const model = scriptedMain && failure !== 'model' ? { provider: 'hobkin-client', id: 'scripted' } : { provider: 'fixture', id: 'local' };
   const emit = record => h.child.stdout.write(`${JSON.stringify(record)}\n`);
   h.child.stdin.on('data', bytes => {
     const request = JSON.parse(bytes.toString()); received.push(request);
     if (request.type === 'extension_ui_response') return;
-    const data = request.type === 'get_state' ? { sessionId: 'saved', sessionFile: h.data.file, model: { provider: 'fixture', id: 'local' }, thinkingLevel: 'medium' }
+    const data = request.type === 'get_state' ? { sessionId: 'saved', sessionFile: h.data.file, model, thinkingLevel: 'medium' }
       : request.type === 'get_messages' ? { messages: [{ role: 'user', content: 'saved history' }] } : { contextUsage: { tokens: 10 } };
     emit({ type: 'response', id: request.id, success: true, data });
   });
   let captured;
   const startup = { signal: new AbortController().signal, wait: promise => promise, capture: child => { captured = child; } };
   const opening = openPiSession({ ...h.payload, config: { ...h.payload.config, unrelated: forbidden }, saved: h.data.expected, startup }, { ...h.dependencies,
-    isolatedMain, recoverScriptedHistory: true, loadSdk: forbidden, ...(isolatedMain ? { createSession: forbidden } : {}), pickModel: forbidden, clientBridge: { extensionPath, tool }, agentDir: h.data.root });
+    isolatedMain, scriptedMain, recoverScriptedHistory: true, loadSdk: forbidden, ...(isolatedMain ? { createSession: forbidden } : {}), pickModel: forbidden, clientBridge: { extensionPath, tool }, agentDir: h.data.root });
   opening.catch(() => {});
   assert.ok(captured?.ready, 'public entry captures the child before any SDK or readiness wait');
   assert.deepEqual(h.sent[0], { ...h.payload, type: 'hobkin/main/bootstrap', version: 1, id: h.sent[0].id, agentDir: h.data.root, recoverScriptedHistory: true });
   assert.equal(received.length, 0, 'no native command precedes trusted readiness');
   const tools = ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'owned_agent'];
   for (const [statusKey, names] of [['hobkin/bridge', tools], ['hobkin/bridge/client', ['client']]]) {
+    if ((statusKey === 'hobkin/bridge' && (scriptedMain || failure === 'base')) || (statusKey.endsWith('/client') && failure === 'hello')) continue;
     emit({ type: 'extension_ui_request', method: 'setStatus', statusKey, statusText: JSON.stringify({ version: 1, tools: names }) });
   }
   h.child.emit('message', { type: 'hobkin/main/ready', version: 1, id: h.sent[0].id, success: true,
     sessionId: 'saved', sessionFile: h.data.file, cwd: h.data.root });
+  if (failure) { await assert.rejects(opening, failure === 'model' ? /binding changed/ : /did not activate/); return; }
   const session = await opening;
+  assert.deepEqual(Object.keys(session.tools).sort(), (scriptedMain ? ['client'] : [...tools, 'client']).sort());
   emit({ type: 'extension_ui_request', id: 'dialog', method: 'input', title: 'hobkin/bridge',
     placeholder: JSON.stringify({ op: 'tool', name: 'client', id: 'tool-call', params: { action: 'list' } }) });
   await new Promise(resolve => setImmediate(resolve));
@@ -239,7 +243,24 @@ for (const isolatedMain of [undefined, true]) test(`the ${isolatedMain ? 'opt-in
   assert.deepEqual(JSON.parse(received.at(-1).value), { ok: true, result: { content: [], details: { routed: true } } });
   assert.deepEqual(session.getContextUsage(), { tokens: 10 });
   assert.deepEqual(session.messages, [{ role: 'user', content: 'saved history' }]);
+  if (scriptedMain) {
+    emit({ type: 'extension_ui_request', id: 'denied', method: 'input', title: 'hobkin/bridge',
+      placeholder: JSON.stringify({ op: 'tool', name: 'model_settings', id: 'denied-call', params: { action: 'get' } }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(JSON.parse(received.at(-1).value).ok, false); assert.equal(call[0], 'tool-call');
+  }
   const closing = session.dispose(); h.child.emit('close', 0, null); await closing;
+});
+
+test('scripted parent requires owned bootstrap and a valid captured client bridge', async t => {
+  const h = processFixture(t), clientBridge = { extensionPath: join(h.data.root, 'client.mjs'), tool: { name: 'client', execute: forbidden } };
+  h.payload.clientExtensionPath = clientBridge.extensionPath;
+  for (const invalid of [{ bootstrap: undefined }, { clientBridge: undefined }, { clientBridge: { ...clientBridge, tool: {} } }]) {
+    await assert.rejects(openRpcSession({ ...h.payload, prompts: [] }, { bootstrap: h.payload, scriptedMain: true, clientBridge,
+      spawnProcess: forbidden, ...invalid }), /Scripted main|Invalid configured client bridge/);
+  }
+  await assert.rejects(openRpcSession({ ...h.payload, config: { ...h.payload.config, launcher: { command: ['fixture'] } }, prompts: [] }, {
+    bootstrap: h.payload, scriptedMain: true, clientBridge, spawnProcess: forbidden }), /bootstrap|Scripted main/);
 });
 
 test('an injected session factory retains its local test seam', async t => {
