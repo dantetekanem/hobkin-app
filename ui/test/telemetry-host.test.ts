@@ -23,6 +23,27 @@ const telemetry = (): RunTelemetry => ({
 
 const receive = (snapshot: WireSnapshot) => applyHostMessage(initialHostState, { type: 'state', rev: 1, reset: true, set: snapshot })
 
+const helperTelemetry = (): RunTelemetry => {
+  const value = telemetry()
+  const parent = value.runs[0]!
+  value.scope = 'own-parent-and-helpers'
+  value.helpers = 'owned'
+  value.retention.maxHelpersPerRun = 32
+  value.retention.maxEventKeys = 100
+  parent.helpers = [
+    {
+      id: 'helper:exact', parentId: 'run:exact', rootId: 'root:exact', depth: 1,
+      sessionId: 'session:helper', status: 'completed', source: 'event',
+      performance: { ...parent.performance!, runId: 'helper:exact', sessionId: 'session:helper' },
+    },
+    {
+      id: 'helper:unknown', parentId: 'helper:exact', rootId: 'root:exact', depth: 2,
+      sessionId: null, status: 'unknown', source: 'saved', performance: null,
+    },
+  ]
+  return value
+}
+
 test('typed parent telemetry retains exact identities, measured zero, partial estimates and unknowns', () => {
   const held = receive({ telemetry: telemetry() }).snapshot.telemetry!
   const row = held.runs[0]!
@@ -44,6 +65,21 @@ test('offline saved and unavailable measurements retain provenance and freshness
   saved.runs[0]!.source = 'saved'
   saved.runs.push({ ...saved.runs[0]!, runId: 'missing', sessionId: null, source: 'unavailable', performance: null })
   assert.deepEqual(receive({ telemetry: saved }).snapshot.telemetry, saved)
+})
+
+test('helper telemetry survives full, delta, unset, reset and link-loss frames', () => {
+  const original = helperTelemetry()
+  let state = receive({ telemetry: original })
+  assert.deepEqual(state.snapshot.telemetry, original)
+  state = applyHostMessage(state, { type: 'state', rev: 2, set: { busy: true } })
+  assert.deepEqual(state.snapshot.telemetry, original)
+  assert.deepEqual(applyLink({ ...state, link: 'open' }, 'lost').snapshot.telemetry, original)
+  state = applyHostMessage(state, { type: 'state', rev: 3, unset: ['telemetry'] })
+  assert.equal(state.snapshot.telemetry, undefined)
+  state = applyHostMessage(state, { type: 'state', rev: 1, reset: true, set: { telemetry: original } })
+  assert.deepEqual(state.snapshot.telemetry, original)
+  assert.equal(state.snapshot.telemetry!.runs[0]!.performance!.runId, 'run:exact')
+  assert.equal(state.snapshot.telemetry!.runs[0]!.helpers![0]!.performance!.runId, 'helper:exact')
 })
 
 test('disconnect retains last-known telemetry without pretending the link is live', () => {

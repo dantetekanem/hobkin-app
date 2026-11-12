@@ -124,16 +124,29 @@ export interface ParentPerformance {
   responseDurationMs: PerformanceScalar
 }
 
-/** Runtime's bounded parent-only projection, not daily totals or helper accounting. */
+export interface HelperTelemetry {
+  id: string
+  parentId: string
+  rootId: string
+  depth: number
+  sessionId: string | null
+  status: 'queued' | 'running' | 'cancelling' | 'unknown' | 'completed' | 'failed' | 'cancelled'
+  source: 'live' | 'event' | 'saved' | 'unavailable'
+  performance: ParentPerformance | null
+}
+
+/** Runtime's bounded parent-own and optional owned-helper projection, not daily totals or subtree accounting. */
 export interface RunTelemetry {
   schemaVersion: 1
   connection: 'connected' | 'offline'
   stale: boolean
   asOf: string | null
-  scope: 'own-parent'
-  helpers: 'unavailable'
+  scope: 'own-parent' | 'own-parent-and-helpers'
+  helpers: 'unavailable' | 'owned'
   retention: {
     maxRuns: 100
+    maxHelpersPerRun?: 32
+    maxEventKeys?: 100
     eventMonthFiles: 2
     eventTailBytesPerFile: 262144
     eventReadState: 'available' | 'unavailable'
@@ -149,6 +162,7 @@ export interface RunTelemetry {
     finishedAt: string | null
     source: 'receipt' | 'saved' | 'event' | 'unavailable'
     performance: ParentPerformance | null
+    helpers?: HelperTelemetry[]
   }[]
 }
 
