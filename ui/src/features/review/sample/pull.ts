@@ -133,13 +133,13 @@ interface SampleTest {
   baseName?: string
 }
 
-/** The five tests of the helper. Two changed, three are new. */
+/** The five tests of the helper. Two changed, three are new, and those three fail with the change undone: they prove it. */
 const HELPER_TESTS: SampleTest[] = [
   { name: "links a tag to the user's profile", covers: 'Renders "Thanks @mira" and expects a link to her profile, marked user-tag.', status: 'passed', change: 'modified', baseName: 'links a tag to the user' },
-  { name: 'links a handle with dots and dashes', covers: 'Renders @dev-ops and @j.doe and expects both to link.', status: 'passed', change: 'added' },
-  { name: 'leaves a tag inside a code span as written', covers: 'Renders @mira inside a code span and expects no link.', status: 'passed', change: 'added' },
+  { name: 'links a handle with dots and dashes', covers: 'Renders @dev-ops and @j.doe and expects both to link.', status: 'proves-change', change: 'added' },
+  { name: 'leaves a tag inside a code span as written', covers: 'Renders @mira inside a code span and expects no link.', status: 'proves-change', change: 'added' },
   { name: 'leaves a tag to an unknown user as text', covers: 'Renders @nobody, a handle no user has, and expects the words unchanged.', status: 'passed', change: 'modified' },
-  { name: 'looks every named user up in one query', covers: 'Counts the queries while three tags render and expects one.', status: 'passed', change: 'added' },
+  { name: 'looks every named user up in one query', covers: 'Counts the queries while three tags render and expects one.', status: 'proves-change', change: 'added' },
 ]
 
 /** The thirteen tests of the script: six of fetch_errors, seven of report. One fails, one is skipped. */
@@ -240,45 +240,29 @@ const EDGES: ReviewEdge[] = [
   wire('calls', 'u1', 'c4', 'User.find_by_handles(handles)'),
 ]
 
-type StepDraft = Omit<StoryStep, 'kind' | 'criteria' | 'id'>
-const ids = (drafts: readonly Draft[]) => drafts.map((draft) => draft.id)
-const STEPS: StepDraft[] = [
-  { title: 'Tags with dots and dashes now link, on every post page', unit: 'u1', focus: ['u1'], text: 'link_user_tags takes @dev-ops and @j.doe now, finds every user a post names in one query, and leaves a tag inside a code span as written.' },
-  { title: 'Its tests: profiles, dots and dashes, code spans', focus: ids(helperTests.slice(0, 3)), text: 'Three of the five tests that call link_user_tags directly. All three passed.' },
-  { title: 'Unknown users, and the one query', focus: ids(helperTests.slice(3)), text: 'An unknown handle stays as text, and three tags cost one query. Both passed. No test renders a whole post page.' },
-  { title: 'render_body passes every post body through it', focus: ['c1'], text: 'Unchanged: Markdown first, then link_user_tags, then sanitize. Every body goes this way.' },
-  { title: 'Every post page and the RSS feed', focus: ['c2', 'c3'], text: 'Unchanged entries: a request for a post, and the feed, both render bodies with render_body.' },
-  { title: 'One query for every user a post names', focus: ['c4'], text: 'Unchanged: link_user_tags now calls User.find_by_handles once, instead of one find_by for each tag.' },
-  { title: 'A script reads the production monitor', unit: 'u2', focus: ['u2'], text: 'fetch_errors asks the monitor for the errors since a time, with the token in ERRORS_TOKEN, and stops when the monitor does not answer 200.' },
-  { title: 'Its tests stub the monitor', focus: [SUPPORT.id, ...ids(fetchTests.slice(0, 2))], text: 'stub_monitor answers like the monitor would. The first two tests check the request.' },
-  { title: 'When the monitor says no, or says nothing', focus: ids(fetchTests.slice(2, 5)), text: 'A 503, a missing ERRORS_URL and an empty answer. All three passed.' },
-  { title: 'A timeout is not tried again', focus: ids(fetchTests.slice(5)), text: 'This test expects a second try after a timeout. fetch_errors never tries again, so it failed.' },
-  { title: 'The report prints one line per message', unit: 'u4', focus: ['u3'], text: 'report groups the errors by message, most frequent first, and cuts a long message to 72 characters.' },
-  { title: 'Its tests: empty, order and ties', focus: ids(reportTests.slice(0, 3)), text: 'An empty log and the order of messages passed. The tie test is skipped.' },
-  { title: 'Times, long messages and lines', focus: ids(reportTests.slice(3, 6)), text: 'The last time, a long message cut to 72 and one of exactly 72. All passed.' },
-  { title: 'One line per message', focus: ids(reportTests.slice(6)), text: 'Two messages make two lines. It passed.' },
-  { title: 'The README says how to run it', unit: 'u3', focus: [FILES_ALONE[0]!.id], text: 'A new section names ERRORS_URL and ERRORS_TOKEN and shows two runs.' },
-  { title: "CI runs the script's tests", focus: [FILES_ALONE[1]!.id], text: 'One more step in the workflow. Nothing in the code calls it.' },
-]
+const TITLE = 'Link user tags with dots and dashes, and add a production errors script'
+const DOES = 'Links user tags that hold dots and dashes, with one lookup for each post, and adds a script that prints the errors production raised.'
 
-const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
-
+/**
+ * The story as the host tells it once the change review is ready (lane A's `unitStory`): an opening with the change's
+ * claim, then one step per unit in the order its story walks, each focused on the nodes that hold the unit's code.
+ * Tests and the code around the change are never steps: they show on the graph around a unit's nodes.
+ */
 function storyOf(nodes: readonly ReviewNode[]): StoryStep[] {
-  const levelOf = new Map(nodes.map((node) => [node.id, node.level]))
   const steps: StoryStep[] = [
-    {
-      id: 'outcome',
-      kind: 'outcome',
-      title: 'Link user tags with dots and dashes, and add a production errors script',
-      text: 'Post bodies link @handles that hold dots and dashes, with one lookup for each post, and a new script prints the errors production raised.',
-      focus: [],
-      criteria: [],
-    },
-    ...STEPS.map((step, index): StoryStep => {
-      const levels = step.focus.map((id) => levelOf.get(id)).filter((level): level is Level => level != null)
-      const level = levels.length ? levels.reduce((worst, next) => (RANK[next] > RANK[worst] ? next : worst)) : undefined
-      return { id: `s${index + 1}`, kind: 'walk', criteria: [], ...step, ...(level ? { level } : {}) }
-    }),
+    { id: 'outcome', kind: 'outcome', title: TITLE, text: DOES, focus: [], criteria: [] },
+    ...[...UNITS]
+      .sort((a, b) => a.story_order - b.story_order)
+      .map((unit): StoryStep => ({
+        id: `unit-${unit.id}`,
+        kind: 'walk',
+        title: unit.title,
+        text: unit.what,
+        focus: nodes.filter((node) => node.unit === unit.id).map((node) => node.id),
+        criteria: [],
+        level: unit.level,
+        unit: unit.id,
+      })),
   ]
   for (let index = 1; index < steps.length; index += 1) {
     const ride = connectingEdge(EDGES, steps[index - 1]!.focus, steps[index]!.focus)
@@ -306,7 +290,7 @@ export function pullReview(id: string): Review {
     change: {
       project: 'hobkin-sample/storefront',
       item: '#482',
-      title: 'Link user tags with dots and dashes, and add a production errors script',
+      title: TITLE,
       branch: 'mira/user-tags-and-errors',
       base: BASE,
       head: HEAD,
@@ -345,7 +329,7 @@ const codeShown = (draft: Draft, why: string) => {
 const UNITS: Unit[] = [
   {
     id: 'u1',
-    title: 'link_user_tags now links handles with dots and dashes, on every post page and in the feed',
+    title: 'link_user_tags now links handles with dots and dashes, on every post page',
     level: 'high',
     critical: false,
     nodes: ['n1'],
@@ -356,7 +340,7 @@ const UNITS: Unit[] = [
     code: [codeShown(CODE[0]!, 'the changed method')],
     facts: {
       effect: fact('behaviour', 'the tag pattern and the user lookup changed'),
-      proof: fact('isolated', 'five helper tests call link_user_tags directly; no request test renders a post'),
+      proof: fact('isolated', 'five helper tests call link_user_tags directly, and three fail with the change undone; no request test renders a post'),
       exposure: fact('everyone', 'every post page and the RSS feed render bodies through it'),
       undo: fact('rollback', 'no flag guards it'),
     },
@@ -378,7 +362,7 @@ const UNITS: Unit[] = [
   },
   {
     id: 'u2',
-    title: 'production_errors.rb reads the production monitor with a token from the environment',
+    title: 'The new script reads the production monitor with a token from the environment',
     level: 'mid',
     critical: false,
     nodes: ['n2'],
@@ -406,7 +390,7 @@ const UNITS: Unit[] = [
     critical: false,
     nodes: ['n4'],
     grouping: 'single',
-    story_order: 4,
+    story_order: 3,
     where: 'Documentation, read by developers.',
     what: 'A new section names the two settings the script needs and shows two runs.',
     code: [codeShown(FILES_ALONE[0]!, 'the new section')],
@@ -429,7 +413,7 @@ const UNITS: Unit[] = [
     critical: false,
     nodes: ['n3', 'n5'],
     grouping: 'definition-with-helpers',
-    story_order: 3,
+    story_order: 4,
     where: 'The end of the script: what it prints.',
     what: 'report groups the errors by message and prints how often each was raised and when last. truncate cuts a message longer than 72 characters, with an ellipsis.',
     code: [codeShown(CODE[2]!, 'the report and its helper')],
@@ -458,7 +442,9 @@ export function pullAssessment(): ChangeAssessment {
     head: HEAD,
     summary: { level: 'high', critical: false, needsYou: count('high'), worthALook: count('mid'), safe: count('safe'), storyBy: 'model', at: RATED_AT },
     story: [
-      '**Does:** Links user tags that hold dots and dashes, with one lookup for each post, and adds a script that prints the errors production raised.',
+      `# ${TITLE}`,
+      '',
+      `**Does:** ${DOES}`,
       '',
       ...UNITS.map((unit) => `- **${LEVEL_WORDS[unit.level]}**: ${unit.title}`),
     ].join('\n'),

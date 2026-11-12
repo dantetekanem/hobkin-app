@@ -6,7 +6,7 @@
  */
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import type { Review, ReviewFileContents, ReviewSource } from '#shared/review/types.ts'
-import { openReview } from '#shared/review/validate.ts'
+import { openReview, ReviewRefused, staleAnchors } from '#shared/review/validate.ts'
 import { isSamplePull } from './sample/pull-id.ts'
 // The data is fetched as files, not bundled: it is large, and the screen should not wait on it to start.
 import filesUrl from './sample/files.json?url'
@@ -33,19 +33,32 @@ async function json(url: string): Promise<unknown> {
   return response.json()
 }
 
+const readerOf = (files: ReadonlyMap<string, ReviewFileContents>) => (fileId: string, side: 'added' | 'deleted') =>
+  (side === 'added' ? files.get(fileId)?.head : files.get(fileId)?.base) ?? null
+
 /** The same check the host will run: a review whose anchors no longer match its files is refused. */
-function opened(raw: unknown, contents: readonly ReviewFileContents[], assessment: ChangeAssessment | null = null): Loaded {
+function opened(raw: unknown, contents: readonly ReviewFileContents[]): Loaded {
   const files = new Map(contents.map((file) => [file.fileId, file]))
-  const review = openReview(raw, (fileId, side) => (side === 'added' ? files.get(fileId)?.head : files.get(fileId)?.base) ?? null)
-  return { review, files, assessment }
+  return { review: openReview(raw, readerOf(files)), files, assessment: null }
+}
+
+/**
+ * The sample pull request is told as the host tells a change review's story, a step per unit and none for a test, which
+ * the validator learns from the host's side (spec 032). Until it does, the sample's own test holds it to every other
+ * rule, and here its bytes are checked as any review's are.
+ */
+async function openPull(id: string): Promise<Loaded> {
+  // Built in code from its file texts, and only when a sample pull request is opened.
+  const { pullAssessment, pullFiles, pullReview } = await import('./sample/pull.ts')
+  const review = pullReview(id)
+  const files = new Map(pullFiles().map((file) => [file.fileId, file]))
+  const stale = staleAnchors(review, readerOf(files))
+  if (stale.length > 0) throw new ReviewRefused('The sample pull request no longer matches its files.', stale)
+  return { review, files, assessment: pullAssessment() }
 }
 
 async function read(id: string): Promise<Loaded> {
-  if (isSamplePull(id)) {
-    // Built in code from its file texts, and only when a sample pull request is opened.
-    const { pullAssessment, pullFiles, pullReview } = await import('./sample/pull.ts')
-    return opened(pullReview(id), pullFiles(), pullAssessment())
-  }
+  if (isSamplePull(id)) return openPull(id)
   const sample = SAMPLES[id]
   if (!sample) throw new Error(`There is no review named ${id}.`)
   const [raw, contents] = await Promise.all([json(sample.review), json(sample.files)])

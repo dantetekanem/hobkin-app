@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { openReview } from '#shared/review/validate.ts'
+import { staleAnchors, validateReview } from '#shared/review/validate.ts'
 import { pullAssessment, pullFiles, pullReview } from '../src/features/review/sample/pull.ts'
 import { isSamplePull, SAMPLE_PULL } from '../src/features/review/sample/pull-id.ts'
 
-/** Opened the way the sample source opens it: checked by the validator, and every anchor against its file's bytes. */
+/**
+ * Every anchor checked against its file's bytes, as the sample source opens it, and every rule of the validator. The
+ * validator still asks every node to be the focus of a step and knows no `proves-change`: the host's story of units
+ * (spec 032) teaches it both. Until it has, those are the only rules the sample may break.
+ */
+const PENDING = /is not the focus of any step\.$|: proves-change is not a status of a test\.$/
 function open(id: string) {
+  const review = pullReview(id)
   const files = new Map(pullFiles().map((file) => [file.fileId, file]))
-  return openReview(pullReview(id), (fileId, side) => (side === 'added' ? files.get(fileId)?.head : files.get(fileId)?.base) ?? null)
+  assert.deepEqual(staleAnchors(review, (fileId, side) => (side === 'added' ? files.get(fileId)?.head : files.get(fileId)?.base) ?? null), [])
+  assert.deepEqual(validateReview(review).filter((problem) => !PENDING.test(problem)), [])
+  return review
 }
 
 test('every sample pull request opens the sample pull request, under its own id', () => {
@@ -31,7 +39,8 @@ test('the sample is shaped like the pull request the user reviewed: one helper, 
   const script = review.nodes.filter((node) => node.subtitle === 'script/production_errors.rb')
   assert.equal(script.flatMap((node) => exercising(node.id)).length, 13)
   // Real results, every kind of them, and each test says what it covers.
-  assert.deepEqual([...new Set(cases.map((node) => node.status))].sort(), ['failed', 'not-run', 'passed'])
+  assert.deepEqual([...new Set(cases.map((node) => node.status))].sort(), ['failed', 'not-run', 'passed', 'proves-change'])
+  assert.equal(cases.filter((node) => node.status === 'proves-change' && exercising(helper.id).includes(node.id)).length, 3)
   for (const node of cases) assert.ok(node.summary.length > 20 && !/lines? (added|removed)/.test(node.summary), node.title)
 
   // The test helper names the tests it serves, which are tests of this review.
@@ -65,11 +74,15 @@ test('its change review has four units: a high one with a question and a watch, 
   assert.deepEqual([assessment.summary.level, assessment.summary.needsYou, assessment.summary.worthALook, assessment.summary.safe], ['high', 1, 1, 2])
   assert.equal(assessment.head, review.change.head)
 
-  // Each unit is told by a step, and its node carries its level.
-  for (const unit of units) {
-    const step = review.story.find((entry) => entry.unit === unit.id)
-    assert.ok(step, `a step tells ${unit.id}`)
-    assert.ok(step.focus.some((id) => review.nodes.find((node) => node.id === id)?.unit === unit.id), `${unit.id}'s step focuses its node`)
-    assert.equal(step.level, unit.level)
+  // The story the host tells: an opening, then a step for each unit in its story's order, with the unit's words and
+  // level, focused on the nodes that hold its code. A test or the code around the change is never a step.
+  const [opening, ...walks] = review.story
+  assert.equal(opening!.kind, 'outcome')
+  assert.deepEqual(walks.map((step) => step.unit), [...units].sort((a, b) => a.story_order - b.story_order).map((unit) => unit.id))
+  for (const step of walks) {
+    const unit = units.find((entry) => entry.id === step.unit)!
+    assert.deepEqual([step.kind, step.title, step.text, step.level], ['walk', unit.title, unit.what, unit.level])
+    assert.ok(step.focus.length >= 1 && step.focus.length <= 3)
+    for (const id of step.focus) assert.equal(review.nodes.find((node) => node.id === id)?.unit, unit.id, `${step.id} focuses its unit's node`)
   }
 })
