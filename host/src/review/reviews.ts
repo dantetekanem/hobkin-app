@@ -12,13 +12,14 @@ import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import type { AssessmentLogLine, AssessmentRequest, AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
-import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { askForChanges, pullReviewPost, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
 import { LOG_LINES, pendingSteps, type Assessments } from './assessment.ts'
 import { ghText, type GhCall } from './gh.ts'
+import type { MergePlan, Moved } from './landing.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
 
@@ -86,7 +87,20 @@ export interface ReviewsOptions {
   onReady?: (ready: { target: ReviewTarget; review: Review; at: string }) => void
   /** What a review is about before its file can say: a finished change's title and project, as the Work screen has them. */
   describe?: (target: ReviewTarget) => { title: string; project: string } | null
+  /**
+   * Where a finished change stands in hobkin's own records after a yes: merged, being brought up to date to merge, or
+   * neither (null). A change hobkin no longer lists as finished may simply be merged, which is no error.
+   */
+  landing?: (target: ChangeTarget) => ReviewLanding | null
+  /**
+   * How a yes lands a finished change now, from git: straight away when it merges cleanly, brought up to date first only
+   * when it conflicts, and at the commit its branch is at now. A host given none lands it the way its card says.
+   */
+  merging?: (target: ChangeTarget, change: { reviewed: string; current: string; pr: boolean }) => Promise<MergePlan>
 }
+
+/** A finished hobkin change, as a review target. */
+type ChangeTarget = Extract<ReviewTarget, { kind: 'change' }>
 
 interface Job {
   target: ReviewTarget
@@ -122,6 +136,10 @@ interface Planned {
   publication?: Publication
   /** For `approve-merge` on a pull request. */
   merge?: Merge
+  /** For `approve-merge` on a finished change, with git's word on how it lands. */
+  plan?: MergePlan
+  /** Nothing is left to do, and this says why: it merged already, or it is being brought up to date to merge. */
+  done?: string
 }
 
 /** What a preparation did, for the log its change review takes over, and what it reviews once it is read. */
@@ -157,6 +175,39 @@ function requestOf(target: ReviewTarget, review: Review): AssessmentRequest {
     removed: change.deletions,
   }
 }
+
+/** A few names, quoted: `"a", "b" and 3 more`. */
+function some(names: readonly string[], shown = 3): string {
+  const quoted = names.slice(0, shown).map((name) => `"${name}"`)
+  if (names.length > shown) return `${quoted.join(', ')} and ${names.length - shown} more`
+  return quoted.length > 1 ? `${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)}` : (quoted[0] ?? '')
+}
+
+/** What moved on a branch since its review, in a line. */
+function movedWords({ rebased, same, subjects }: Moved, into: string, at: string): string {
+  if (rebased && same) return `Since this review it was rebased onto ${into}: the same change, now at ${at}.`
+  const which = subjects.length ? `: ${some(subjects)}` : ''
+  if (rebased) return `Since this review it was written again, and is now at ${at}${which}.`
+  return `Since this review it gained ${count(subjects.length, 'commit')}${which}.`
+}
+
+/** What a yes does to a finished change, line by line, as git says it lands now. */
+function landingLines(plan: MergePlan, pr: string | null): string[] {
+  const at = plan.head.slice(0, 7)
+  const how =
+    plan.route === 'refreshMerge'
+      ? `It conflicts with ${plan.into}: an agent brings it up to date, then hobkin merges it.`
+      : plan.route === 'mergePr'
+        ? `Merge its pull request on GitHub${pr ? `, ${pr}` : ''}, at ${at}.`
+        : plan.merges === 'fast-forward'
+          ? `Merge it into ${plan.into} on this machine: ${plan.into} moves up to ${at}. Nothing is pushed.`
+          : `Merge it into ${plan.into} on this machine, with a merge commit. Nothing is pushed.`
+  const moved = plan.moved ? movedWords(plan.moved, plan.into, at) : null
+  return [how, ...(moved ? [moved] : []), moved ? `This merges ${at}, the commit shown here.` : `At commit ${at}, the one this review was built from.`]
+}
+
+/** A merged change, in the words a verdict on it answers with. */
+const mergedWords = (landing: ReviewLanding) => `Already merged${landing.into ? ` into ${landing.into}` : ''}${landing.sha ? ` at ${landing.sha.slice(0, 7)}` : ''}.`
 
 /** The words for how a pull request is merged, in a preview. */
 const MERGE_WORDS: Record<MergeMethod, string> = {
@@ -273,7 +324,21 @@ export class Reviews {
     const head = this.options.head?.(target) ?? known.head
     const at = head ?? this.opened.get(id)?.review.change.head ?? null
     const assessment = this.assessmentOf(id, target, at)
-    return { ...known, head, stale: known.state === 'ready' && head != null && !this.options.store.has(target, head), ...(assessment ? { assessment } : {}) }
+    const landing = this.landingOf(target)
+    // A branch being brought up to date on the user's word moves as it should: that is no newer change to review.
+    const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
+    return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}) }
+  }
+
+  /** Where a finished change stands after a yes, as hobkin's records say. Null for a pull request, or when nothing was said yet. */
+  private landingOf(target: ReviewTarget): ReviewLanding | null {
+    if (target.kind !== 'change' || !this.options.landing) return null
+    try {
+      return this.options.landing(target)
+    } catch (error) {
+      this.options.log?.(`Review ${reviewIdOf(target)} could not read how its change landed: ${messageOf(error)}`)
+      return null
+    }
   }
 
   /**
@@ -321,7 +386,7 @@ export class Reviews {
     const target = this.target(id)
     const at = now()
     const last = this.lookedAt.get(id)
-    if (last != null && at - last < LOOK_AGAIN_MS) return
+    if ((last != null && at - last < LOOK_AGAIN_MS) || this.landingOf(target)?.state === 'merged') return
     this.lookedAt.set(id, at)
     try {
       const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
@@ -340,6 +405,8 @@ export class Reviews {
   prepare(id: string, { refresh = false, asked = false }: { refresh?: boolean; asked?: boolean } = {}): ReviewStatus {
     const target = this.target(id)
     const now = this.status(id)
+    // Merged: there is nothing left to review, and its status says so.
+    if (now.landing?.state === 'merged') return now
     if (asked) this.asked.add(id)
     const waiting = this.queue.find((job) => reviewIdOf(job.target) === id)
     if (waiting) {
@@ -512,7 +579,7 @@ export class Reviews {
     return {
       review: this.shown(target, review),
       notes: this.options.store.notes(target),
-      status: { ...status, stale: status.head != null && status.head !== review.change.head, ...(assessment ? { assessment } : {}) },
+      status: { ...status, stale: status.head != null && status.head !== review.change.head && status.landing?.state !== 'refreshing', ...(assessment ? { assessment } : {}) },
       ...(assessments ? { assessment: assessments.read(target, review.change.head) } : {}),
     }
   }
@@ -592,9 +659,18 @@ export class Reviews {
     const { files, review: prepared } = this.loaded(id)
     const review = this.shown(target, prepared)
     const at = review.change.head
-    if (head != null && !at.startsWith(head)) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
     // Every token holds the commit it was shown for, so no verdict ever acts on another one.
     const token = (...shown: unknown[]) => sha256(JSON.stringify([target.kind, id, verdict, at, ...shown]))
+    // A merged change is merged whatever the verdict, and one being brought up to date to merge has the user's word already.
+    const landing = this.landingOf(target)
+    if (landing?.state === 'merged') return { review, card: null, done: mergedWords(landing), preview: { verdict, lines: [mergedWords(landing)], confirm: token('merged', landing.sha ?? null) } }
+    if (landing?.state === 'refreshing' && verdict === 'approve-merge') {
+      const said = landing.message ?? 'It is being brought up to date already, and hobkin merges it once that run ends well.'
+      return { review, card: null, done: said, preview: { verdict, lines: [said], confirm: token('refreshing') } }
+    }
+    // Approve and merge lands where the branch is now and says what moved, so a moved head is no refusal there.
+    const lands = target.kind === 'change' && verdict === 'approve-merge' && this.options.merging != null
+    if (head != null && !at.startsWith(head) && !lands) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
     const notes = foldNotes(this.options.store.notes(target).entries as NoteEntry[])
     const byId = new Map(files.map((file) => [file.fileId, file]))
     const loose = new Set(detachedNotes(notes, (fileId, side) => (side === 'added' ? byId.get(fileId)?.head : byId.get(fileId)?.base) ?? null))
@@ -643,6 +719,17 @@ export class Reviews {
       ]
       return { review, card, publication, preview: { verdict, lines, confirm: token(plan, pull) } }
     }
+    if (verdict === 'approve-merge' && this.options.merging) {
+      // Pinned to where the branch is now, as the preview shows it: the yes merges exactly that commit.
+      const reviewed = head != null && !at.startsWith(head) ? head : at
+      let plan: MergePlan
+      try {
+        plan = await this.options.merging(target, { reviewed, current: this.options.head?.(target) ?? at, pr: card.pr != null })
+      } catch (error) {
+        throw new Unavailable(messageOf(error))
+      }
+      return { review, card, plan, preview: { verdict, lines: landingLines(plan, card.pr), confirm: token(plan) } }
+    }
     if (verdict === 'approve-merge') {
       return { review, card, preview: { verdict, lines: [card.yes, `At commit ${at.slice(0, 7)}, the one this review was built from. A branch that moved since is refused.`], confirm: token(card.landing) } }
     }
@@ -681,9 +768,10 @@ export class Reviews {
    */
   async verdict(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
     // Done with what the token was checked against: a review prepared again meanwhile is never the one acted on.
-    const { preview, review, card, publication, merge } = await this.planned(id, verdict, summary, head)
+    const { preview, review, card, publication, merge, plan, done } = await this.planned(id, verdict, summary, head)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')
     const target = this.target(id)
+    if (done) return { message: done }
 
     if (target.kind === 'pull') {
       const { gh } = this.options
@@ -717,7 +805,7 @@ export class Reviews {
     }
     const said =
       verdict === 'approve-merge'
-        ? await this.options.work().workAction(card!.landing, target.slug, target.item, { head: review.change.head })
+        ? await this.options.work().workAction(plan?.route ?? card!.landing, target.slug, target.item, { head: plan?.head ?? review.change.head })
         : await this.options.work().workAction('ask', target.slug, target.item, preview.note ?? '')
     this.markSent(target, verdict)
     return { message: String((said as { message?: unknown } | null)?.message ?? 'Done.') }
@@ -759,6 +847,8 @@ export class Reviews {
       const version = `${head ?? ''}@${updatedAt ?? ''}`
       const target = targetOfReviewId(id)
       if (!target || this.watched.get(id) === version || this.statuses.get(id)?.phase) continue
+      // A change being brought up to date or merged on the user's word is not reviewed again for its new commit.
+      if (this.landingOf(target)) continue
       this.watched.set(id, version)
       // The host calls this as it publishes its state. Nothing here may stop that.
       try {

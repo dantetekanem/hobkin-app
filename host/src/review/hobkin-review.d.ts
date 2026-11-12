@@ -8,6 +8,14 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export function readProject(root: string, slug: string): { slug: string; name?: string; path?: string; [key: string]: unknown } | null
   /** Every project hobkin keeps, each as `readProject` gives it. */
   export function readProjects(root: string): { slug: string; name?: string; path?: string; [key: string]: unknown }[]
+  /**
+   * A project's items as hobkin keeps them. A merged one has `mergedAt` and, unless it shipped hobkin itself, `landed`
+   * with the commit it landed as; one the user said to refresh and merge has `mergeWhenFresh` until it merges.
+   */
+  export function readItems(
+    root: string,
+    slug: string,
+  ): { id: string; state: string; title?: string; mergedAt?: string | null; landed?: { sha?: string | null; at?: string | null } | null; mergeWhenFresh?: { at?: string } | null; [key: string]: unknown }[]
   /** Where hobkin keeps a project's files. `clone` is its own copy of the repository, for a project that has no folder. */
   export const paths: (root: string, slug: string) => { directory: string; clone: string; [key: string]: string }
 }

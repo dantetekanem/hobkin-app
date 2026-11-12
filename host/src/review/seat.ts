@@ -4,11 +4,12 @@
  * 024-github, 032-change-review.
  */
 import { existsSync } from 'node:fs'
-import { paths, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
+import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
+import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import type { HostHandlers } from '../commands.ts'
 import { findGh } from '../github-gh.ts'
@@ -17,6 +18,7 @@ import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
 import { piModelRunner } from './agent.ts'
 import { Assessments } from './assessment.ts'
 import { reviewCode, reviewMap } from './guide.ts'
+import { mergePlan } from './landing.ts'
 import { chatTeller } from './notify.ts'
 import type { GhCall } from './gh.ts'
 import { pullCheckout, type PullTarget, type Say } from './pull-checkout.ts'
@@ -75,6 +77,28 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const change = target.kind === 'change' ? find(target.slug, target.item) : null
     return change && { title: change.title, project: change.project }
   }
+  // The branch each project merges into, as hobkin finds it with git and no network, kept once found.
+  const into = new Map<string, string>()
+  const intoOf = async (repo: string) => {
+    if (!into.has(repo)) into.set(repo, await defaultBranch(repo))
+    return into.get(repo)!
+  }
+  /** Where a finished change stands in hobkin's own records after a yes: merged, or being brought up to date to merge. */
+  const landing = (target: Extract<ReviewTarget, { kind: 'change' }>): ReviewLanding | null => {
+    const item = readItems(seat.data(), target.slug).find((entry) => entry.id === target.item)
+    if (!item || (item.state !== 'merged' && !item.mergeWhenFresh)) return null
+    const repo = repoOf(target.slug)
+    const branch = repo ? into.get(repo) : undefined
+    // Found once, so a status asked for a moment later names it.
+    if (repo && !branch) void intoOf(repo).catch(() => {})
+    if (item.state === 'merged') {
+      const sha = item.landed?.sha ?? undefined
+      const at = item.mergedAt ?? item.landed?.at ?? undefined
+      return { state: 'merged', ...(sha ? { sha } : {}), ...(at ? { at } : {}), ...(branch ? { into: branch } : {}), message: `Merged${branch ? ` into ${branch}` : ''}${sha ? ` at ${sha.slice(0, 7)}` : ''}.` }
+    }
+    const at = item.mergeWhenFresh?.at
+    return { state: 'refreshing', ...(at ? { at } : {}), ...(branch ? { into: branch } : {}), message: `An agent is bringing it up to date with ${branch ?? 'its default branch'}, and hobkin merges it once that run ends well.` }
+  }
   // A pull request is reviewed on this Mac: in the user's clone of its repository, else in a clone of hobkin's own.
   const checkout = seat.gh ? pullCheckout({ root: seat.root, folders: () => projectFolders(seat.data()), gh: seat.gh, credentialHelper: ghCredentialHelper() }) : undefined
   // The change review of each finished change and each pull request asked for (spec 032): their own tests run in a
@@ -103,6 +127,13 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   return new Reviews({
     ...(assessments ? { assessments } : {}),
     describe,
+    landing,
+    // A yes merges a change that merges cleanly straight away, whatever its card would do, at the commit its branch is at.
+    merging: async (target, { reviewed, current, pr }) => {
+      const repo = repoOf(target.slug)
+      if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
+      return mergePlan({ repo, into: await intoOf(repo), reviewed, current, pr })
+    },
     onReady: ({ target, review, at }) => void tell?.({ id: reviewIdOf(target), kind: target.kind, title: review.change.title, project: review.change.project, head: review.change.head, at }),
     store: reviewStore(seat.root),
     sources: {
