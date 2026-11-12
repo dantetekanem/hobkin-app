@@ -108,7 +108,7 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
 
   let kept = 0
   let changedLines = 0
-  for (const file of [...files].sort((a, b) => detailRank(a.path) - detailRank(b.path) || byPath(a, b))) {
+  for (const file of [...files].sort((a, b) => detailRank(a) - detailRank(b) || byPath(a, b))) {
     if (file.skipped) continue
     const size = file.additions + file.deletions
     if (kept < limit.files && changedLines + size <= limit.changedLines) {
@@ -130,9 +130,9 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
 
 const missing: Promise<FileRead> = Promise.resolve({ kind: 'missing' })
 
-/** Code and tests keep their detail first. Prose, data and everything else come after. */
-function detailRank(path: string): number {
-  return fileRole(path) === 'file' ? 1 : 0
+/** Code and tests keep their detail first, a script by its first line. Prose, data and everything else come after. */
+function detailRank(file: CapturedFile): number {
+  return fileRole(file.path, (file.head ?? file.base ?? '').split('\n', 1)[0]) === 'file' ? 1 : 0
 }
 
 function fingerprint(files: readonly CapturedFile[]): string {

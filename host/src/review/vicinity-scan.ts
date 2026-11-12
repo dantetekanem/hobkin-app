@@ -18,7 +18,7 @@ import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 import { splitLines } from '#shared/review/lines.ts'
-import { isTestPath } from '#shared/review/paths.ts'
+import { fileRole, isTestPath } from '#shared/review/paths.ts'
 import { isSafePath } from '#shared/review/prose.ts'
 import type { ReviewEntry } from '#shared/review/types.ts'
 import { blockAt, functionOwners } from '#shared/review/units.ts'
@@ -473,7 +473,8 @@ function enclosingAt(text: string, at: number, path: string): VicinityDefinition
 
 /**
  * The places that use a changed constant, schema or type, as callers one call away: its own file, where its name can
- * only mean it, and the files that import it by that name. A place in a test, or in the definition itself, is not one.
+ * only mean it, and the code files that import it by that name, in an import statement of their own. A place in a
+ * test, in a file that holds no code (a lockfile, a document), or in the definition itself, is not one.
  */
 async function referencesOf(anchor: Anchor, search: ReferenceSearch, readHead: (path: string) => Promise<string | null>): Promise<{ definition: VicinityDefinition; line: number; proven: boolean }[]> {
   const name = declaredName(anchor.symbol)
@@ -484,11 +485,11 @@ async function referencesOf(anchor: Anchor, search: ReferenceSearch, readHead: (
     if (found.length >= MOST_REFERENCES) break
     if (isTestPath(hit.path) || (hit.path === anchor.path && hit.line >= anchor.startLine && hit.line <= anchor.endLine)) continue
     const text = await readHead(hit.path)
-    if (text == null) continue
+    if (text == null || fileRole(hit.path, text.split('\n', 1)[0]) !== 'code') continue
     const definition = enclosingAt(text, hit.line, hit.path)
     if (!definition || seen.has(placeOf(definition))) continue
     // In another file the name means this one only when that file imports it.
-    const imported = hit.path === anchor.path || new RegExp(`^\\s*import\\b[^;]*\\b${name}\\b`, 'm').test(text)
+    const imported = hit.path === anchor.path || new RegExp(`^\\s*import\\s[^;\\n]*\\b${name}\\b`, 'm').test(text)
     if (!imported) continue
     seen.add(placeOf(definition))
     found.push({ definition, line: hit.line, proven: hit.path === anchor.path })
@@ -687,7 +688,8 @@ export async function scanVicinity({
     }
     // A changed constant, schema or type has no calls to list: what uses it by name is its caller.
     const roots = first.pack.anchors.filter((entry) => !isTestPath(entry.path) && entry.changedLines.length > 0)
-    for (const anchor of roots.filter((entry) => USED_BY_NAME.has(entry.kind) && entry.callers.length === 0)) {
+    // A Ruby declaration is a statement such as `require "json"`, which nothing uses by its name.
+    for (const anchor of roots.filter((entry) => USED_BY_NAME.has(entry.kind) && entry.callers.length === 0 && !(entry.language === 'ruby' && entry.kind === 'declaration'))) {
       const root = roots.indexOf(anchor)
       const places = await referencesOf(anchor, references, readHead)
       // Found by name and checked again at head: the scan's own word that it could not list every caller goes.

@@ -1,4 +1,4 @@
-/** What a file is to a review, judged by its path alone. */
+/** What a file is to a review, judged by its path, and for a script with no extension by the first line that names its language. */
 export type FileRole = 'test' | 'code' | 'file'
 
 // Ported from pi-coder's `isStoryTestPath`: a test folder anywhere in the path, or a test suffix on the name.
@@ -23,8 +23,25 @@ export function isTestPath(path: string): boolean {
   return TEST_PATH.test(path)
 }
 
-export function fileRole(path: string): FileRole {
-  if (!CODE_EXTENSIONS.has(extensionOf(path))) return 'file'
+/** The programs a script's shebang may name for the review to read it as code: Ruby and Node, as the call-graph scan does. */
+const SCRIPT_PROGRAM = /^(?:ruby|jruby|truffleruby)[\d.]*$|^(?:node|nodejs|tsx|ts-node|bun|deno)$/
+
+/**
+ * Whether a first line names Ruby or Node to run the file: `#!/usr/bin/env ruby`, `#!/usr/bin/ruby`, `#!/usr/bin/env -S
+ * node --no-warnings`. A shell, or any other program, does not: such a script stays a plain file.
+ */
+export function namesCodeShebang(firstLine: string | undefined): boolean {
+  const match = /^#!\s*(\S+)(.*)$/.exec((firstLine ?? '').replace(/^\uFEFF/, '').trimEnd())
+  if (!match) return false
+  const words = [match[1]!.split('/').at(-1)!, ...match[2]!.trim().split(/\s+/).filter(Boolean)]
+  const program = words[0] === 'env' ? words.slice(1).find((word) => !word.startsWith('-') && !word.includes('=')) : words[0]
+  return program != null && SCRIPT_PROGRAM.test(program)
+}
+
+/** A file's role. `firstLine` is how a file with no extension, such as `bin/production-errors`, says it is code. */
+export function fileRole(path: string, firstLine?: string): FileRole {
+  const script = !fileName(path).includes('.') && namesCodeShebang(firstLine)
+  if (!script && !CODE_EXTENSIONS.has(extensionOf(path))) return 'file'
   return isTestPath(path) ? 'test' : 'code'
 }
 

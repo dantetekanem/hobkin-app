@@ -13,7 +13,7 @@ import { extensionOf, fileName, fileRole } from './paths.ts'
 import { cleanProse, count, listed } from './prose.ts'
 import { declaredSignature } from './signature.ts'
 import { HOST_TEXT_LIMIT, NO_SPEC_NOTICE, PROSE_LIMIT, SIZE_LIMIT, TITLE_LIMIT, type EdgeKind, type NodeIO, type NodeStatus, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewNode, type ReviewPath } from './types.ts'
-import { codeIdentifiers, findDeclaration, importCandidates, importSpecifiers, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
+import { codeIdentifiers, findDeclaration, functionOwners, importCandidates, importPath, importSpecifiers, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
 import { addVicinity, type Vicinity } from './vicinity.ts'
 
 export interface PrepareInput {
@@ -228,6 +228,8 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
   if (input.vicinity) notices.push(...(await addVicinity(input.vicinity, { capture, nodes, files, headFiles, readHead: input.readHead, wire })))
   await wireTests({ capture, nodes, readHead: input.readHead, vicinity: input.vicinity, wire, edges })
   wireDependencies({ capture, nodes, isChanged, wire })
+  wireScriptRuns({ capture, nodes, units, wire })
+  wireThroughHelpers({ nodes, edges, units, wire })
 
   const summarized = capture.files.filter((file) => file.summarized).length
   if (summarized > 0) {
@@ -387,6 +389,59 @@ async function wireTests({ capture, nodes, readHead, vicinity, wire, edges }: { 
     const from = holderAt(nodes, ['test'], test.path, test.line)
     const to = holderAt(nodes, ['code'], at.path, at.line)
     if (from && to) wire('exercises', from.id, to.id)
+  }
+}
+
+/**
+ * A test that calls a helper reaches what the helper reaches: each test a helper supports, and each helper that calls
+ * it, is wired to the changed code the helper exercises, through it. `run_query` calls `ProductionErrors.run`, so every
+ * test that runs a query does, and so does `assert_failure`, which calls `run_query`.
+ */
+function wireThroughHelpers({ nodes, edges, units, wire }: { nodes: readonly ReviewNode[]; edges: readonly ReviewEdge[]; units: readonly Unit[]; wire: Wire }) {
+  const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
+  const unitOf = new Map(units.map((unit) => [unit.id, unit]))
+  const helpers = nodes.filter((node) => node.kind === 'test' && node.supports)
+  // A helper that calls a helper is wired once that one is, so a chain of them goes round until nothing new is wired.
+  for (let round = 0, grew = true; grew && round < 4; round += 1) {
+    grew = false
+    for (const helper of helpers) {
+      const reached = edges.filter((edge) => edge.from === helper.id && edge.kind === 'exercises' && kindOf.get(edge.to) === 'code').map((edge) => edge.to)
+      if (reached.length === 0) continue
+      const callers = helpers.filter((other) => other.id !== helper.id && other.subtitle === helper.subtitle && codeIdentifiers(unitOf.get(other.id)?.code ?? '').has(helper.title))
+      for (const from of [...(helper.supports ?? []), ...callers.map((other) => other.id)]) {
+        for (const target of reached) {
+          if (edges.some((edge) => edge.from === from && edge.to === target)) continue
+          wire('exercises', from, target, cleanProse(`through ${helper.title}`, PROSE_LIMIT.label))
+          grew = true
+        }
+      }
+    }
+  }
+}
+
+/** A call that runs a program: Open3, `system`, `spawn`, `exec`, backticks. */
+const RUNS_PROGRAM = /\bOpen3\.(?:capture\w*|popen\w*|pipeline\w*)\b|(?:^|[^\w.])(?:system|spawn|exec)\s*\(|`[^`]*`|%x[({[]/m
+
+/**
+ * A test that runs a changed script by its path, as `Open3.capture3(File.expand_path("../../bin/report", __dir__))`
+ * does, reaches what the script runs: the definitions its top-level code names, `exit Report.run(ARGV)`.
+ */
+function wireScriptRuns({ capture, nodes, units, wire }: { capture: Capture; nodes: readonly ReviewNode[]; units: readonly Unit[]; wire: Wire }) {
+  const scripts = new Map<string, ReviewNode[]>()
+  for (const file of capture.files) {
+    if (file.head == null || fileName(file.path).includes('.') || fileRole(file.path, file.head.split('\n', 1)[0]) !== 'code') continue
+    const source = splitLines(file.head)
+    const { owners } = functionOwners(source)
+    const runs = source.filter((line, index) => owners[index] == null && /^\S/.test(line) && !/^(?:#|require\b|end\b|class\b|module\b)/.test(line)).join('\n')
+    const names = codeIdentifiers(runs)
+    scripts.set(file.path, nodes.filter((node) => node.kind === 'code' && node.subtitle === file.path && names.has(node.title)))
+  }
+  if (scripts.size === 0) return
+  for (const unit of units.filter((entry) => entry.role === 'test' && RUNS_PROGRAM.test(entry.code))) {
+    for (const [, literal = ''] of unit.code.matchAll(/['"]([^'"\s]+)['"]/g)) {
+      const path = [importPath(unit.path, literal), literal].find((candidate): candidate is string => candidate != null && scripts.has(candidate))
+      for (const target of path ? scripts.get(path)! : []) wire('exercises', unit.id, target.id, cleanProse(`runs ${path}`, PROSE_LIMIT.label))
+    }
   }
 }
 

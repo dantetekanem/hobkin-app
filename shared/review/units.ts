@@ -79,7 +79,8 @@ function balanced(line: string): boolean {
 
 /** A statement that opens and closes on one line, so the declaration is that line alone. */
 function completeOnOneLine(line: string): boolean {
-  if (/\{.*\}\s*[);,]*$/.test(line) || /^\s*def\s+\S+\s*=\s+/.test(line)) return true
+  // An endless Ruby method, `def total(cart) = cart.sum`; a default argument, `def run(args = ARGV)`, is not one.
+  if (/\{.*\}\s*[);,]*$/.test(line) || /^\s*def\s+(?:self\.)?[\w!?]+(?:\s*\([^)]*\))?\s*=\s+/.test(line)) return true
   // A top-level value or type with nothing left open and nothing to continue it: `const PRECISION = 2`.
   if ((TOP_VALUE.test(line) || /^(?:export\s+)?type\s/.test(line)) && balanced(line) && !/[[({,=+\-*/&|?:.]\s*$/.test(line)) return true
   if (!/;\s*$/.test(line)) return false
@@ -175,9 +176,12 @@ interface Draft {
   unit: Unit
 }
 
+/** A file's first line, at head or at base when it is gone: for a script with no extension, it names the language. */
+const firstLineOf = (file: Pick<CapturedFile, 'base' | 'head'>) => (file.head ?? file.base ?? '').split('\n', 1)[0]
+
 function createUnit(file: CapturedFile, symbol: string, fields: Partial<Unit> = {}): Unit {
   const ranges: UnitRange[] = []
-  return { id: '', fileId: file.id, path: file.path, symbol, role: fileRole(file.path), helper: false, loose: false, summarized: false, ranges, code: '', anchors: ranges, ...fields }
+  return { id: '', fileId: file.id, path: file.path, symbol, role: fileRole(file.path, firstLineOf(file)), helper: false, loose: false, summarized: false, ranges, code: '', anchors: ranges, ...fields }
 }
 
 /** The index of the group of changed rows each changed line belongs to, per side. Lines are 0-based here. */
@@ -214,7 +218,7 @@ function unitsOfFile(file: CapturedFile): Unit[] {
 
   // Prose and data have no declarations: the whole file's changes are one unit.
   const none = { owners: [] as Array<string | undefined>, cases: new Set<string>() }
-  const declares = fileRole(file.path) !== 'file'
+  const declares = fileRole(file.path, firstLineOf(file)) !== 'file'
   const ownership = { added: declares ? functionOwners(source.added) : none, deleted: declares ? functionOwners(source.deleted) : none }
 
   // A renamed declaration keeps both of its sides in one unit, under its new name.
