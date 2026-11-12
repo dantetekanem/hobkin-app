@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { AssessmentStatus } from '../../shared/review/assessment.ts'
 import { IDLE_STATUS, type OpenedReview, type ReviewLanding, type ReviewStatus } from '../../shared/review/status.ts'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewLoader, type ReviewCommands } from '../src/features/review/loader.ts'
 import { failureOf, underWay } from '../src/features/review/preparing-model.ts'
+import { ReviewLoad } from '../src/features/review/ReviewLoad.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
 import { afterVerdict, createVerdictChoices, NO_LONGER_WAITING, type VerdictCommands } from '../src/features/review/verdict.ts'
 
@@ -124,6 +127,32 @@ test('a change that is already merged opens on its review, merged, and is never 
   assert.equal(host.asked('review.prepare'), 0)
   assert.equal(host.asked('review.get'), 1)
   host.loader.dispose()
+})
+
+test('a change that lands offers nothing to build again over its review: no run with its Try again, no Refresh review', async () => {
+  for (const landing of [refreshing, merged]) {
+    // Its own change review stopped before the yes: the run says so, with a way to run it again.
+    const stopped = hostOf()
+    stopped.say({ assessment: { state: 'failed', head: REVIEWED, error: 'The tests did not finish in time.' } })
+    await stopped.loader.load()
+    const run = () => renderToStaticMarkup(createElement(ReviewLoad, { loader: stopped.loader, renderReview: () => null, renderRun: () => createElement('p', null, 'The run') }))
+    assert.ok(run().includes('The run'))
+    stopped.say({ landing })
+    await ticks(stopped.loader)
+    assert.equal(run().includes('The run'), false, landing.state)
+    assert.equal(run().includes('Refresh review'), false, landing.state)
+    stopped.loader.dispose()
+
+    // With nothing under way, the corner offers to refresh the review, until its change lands.
+    const quiet = hostOf()
+    await quiet.loader.load()
+    const corner = () => renderToStaticMarkup(createElement(ReviewLoad, { loader: quiet.loader, renderReview: () => null }))
+    assert.ok(corner().includes('Refresh review'))
+    quiet.say({ landing })
+    await ticks(quiet.loader)
+    assert.equal(corner().includes('Refresh review'), false, landing.state)
+    quiet.loader.dispose()
+  }
 })
 
 test('a merged change with no review to open is never prepared, and does not wait for one', async () => {

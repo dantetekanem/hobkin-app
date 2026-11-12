@@ -1,13 +1,16 @@
-import { TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { CircleCheck, TriangleAlert } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useStore } from 'zustand'
-import type { VerdictPreview } from '#shared/review/status.ts'
+import type { ReviewLanding, ReviewStatus, VerdictPreview } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
+import { dayLabel, timeOf } from '@/features/reports/time.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
+import '../preparing/preparing.css'
 import { reviewMemory } from '../state/context.tsx'
 import { CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../verdict.ts'
 
@@ -30,30 +33,50 @@ const inSight = (element: Element, box: Element) => {
 /** The choice the panel offers first: merging is what a review that passes ends with. */
 const PRIMARY: Verdict = 'approve-merge'
 
+/** Where a change landed, in a line: "Merged into main at e44106a · 4:13 PM", with the day when it was not today. */
+function mergedWords({ into, sha, at }: ReviewLanding): string {
+  const when = timeOf(at)
+  const time = when == null ? null : new Date(when).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const day = when == null ? null : dayLabel(when, Date.now())
+  return [`Merged${into ? ` into ${into}` : ''}${sha ? ` at ${sha.slice(0, 7)}` : ''}`, time && (day === 'Today' ? time : `${day}, ${time}`)].filter(Boolean).join(' · ')
+}
+
 /**
  * The verdict, at the foot of the review panel, confirmed in place. Every choice is the host's own verdict, for the
  * commit of the review on screen. The first click asks the host what it will do: the same button then reads "Click
  * again to confirm", with what will happen in the box under the choices, and a second click within ten seconds does
- * it. After ten seconds, on Escape, or when the keyboard leaves the choices, it goes back. A key held down never gives
- * the second click. Once the host has done it, `landed` hears so, and the review closes.
+ * it. Approve and merge of a finished change whose branch moved since the review reads "Click again to merge it as it
+ * is now", as the host merges it where it is now. After ten seconds, on Escape, or when the keyboard leaves the
+ * choices, it goes back. A key held down never gives the second click. Once the host has done it, `landed` hears so.
+ *
+ * A change that lands is past choosing (spec 032). While an agent brings it up to date the choices wait, and the box
+ * says so. Once it merged, where it landed takes the choices' place.
  *
  * Nothing moves on the way (the user, 2026-11-12: "approve and merge is doing a weird jump"): the choices keep their
- * size whatever they say, and the box keeps its height whatever it holds, scrolling what does not fit.
+ * size whatever they say, the line that takes their place keeps their room, and the box keeps its height whatever it
+ * holds, scrolling what does not fit.
  */
-export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
+export function Actions({ review, notes, live, verdict, saveNotes, landed, status }: {
   review: Review
   notes: readonly Note[]
   live: boolean
-  /** The host's verdict commands, for a live review. Without them nothing can be chosen. */
+  /** The host's verdict commands, for a live review or a sample that has a made-up host. Without them nothing can be chosen. */
   verdict?: VerdictCommands | null
   /** Keeps the reviewer's notes in the host first, so what the host shows is what goes. */
   saveNotes?: () => Promise<void>
   /** Hears of a verdict the host did, with its words. */
-  landed?: (verdict: Verdict, message: string) => void
+  landed?: (verdict: Verdict, message: string) => void | Promise<void>
+  /** How the host says the review stands: how its change lands, and the commit the change is at now. */
+  status?: ReviewStatus | null
 }) {
   const kind = verdictKind(review.id)
   const comments = unsentComments(notes).length
+  const landing = status?.landing ?? null
+  const merged = landing?.state === 'merged'
+  // The host merges a finished change where its branch is now, which the preview says.
+  const moved = kind === 'change' && status?.head != null && status.head !== review.change.head
   const section = useRef<HTMLElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   // Once the second click is given, the host is doing it: nothing may take it back.
   const doing = useRef<Verdict | null>(null)
   // The choice whose first click the host is answering.
@@ -107,6 +130,15 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
     if (box && !inSight(button, box)) section.current?.scrollIntoView({ block: 'nearest' })
   }, [armed])
 
+  // A change that starts to land, here or elsewhere, takes back a choice that waits. A choice that held the keyboard
+  // can no longer hold it, so the keyboard goes to the box under the choices, and stays in the review.
+  const landingState = landing?.state ?? null
+  useLayoutEffect(() => {
+    if (!landingState) return
+    if (!doing.current) choices.cancel()
+    if (section.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true })
+  }, [landingState, choices])
+
   const press = async (choice: Verdict) => {
     if (choices.getState().busy) return
     if (choices.armed() === choice) doing.current = choice
@@ -134,55 +166,66 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
         if (!doing.current && choices.getState().preview && !event.currentTarget.contains(event.relatedTarget)) choices.cancel()
       }}
     >
-      {VERDICT_CHOICES[kind].map((choice) => {
-        const waiting = armed === choice.verdict
-        const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
-        const primary = choice.verdict === PRIMARY
-        return (
-          <Button
-            key={choice.verdict}
-            ref={(element) => {
-              if (element) buttons.current.set(choice.verdict, element)
-              else buttons.current.delete(choice.verdict)
-            }}
-            data-stop
-            data-verdict={choice.verdict}
-            data-armed={waiting}
-            aria-pressed={waiting}
-            variant={primary ? 'default' : 'outline'}
-            className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3.5 text-[14px] font-semibold"
-            // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
-            // A click then does nothing.
-            disabled={!live || !verdict || (needsComment(choice.verdict) && comments === 0)}
-            // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
-            onKeyDown={(event) => {
-              if (heldDown(event)) event.preventDefault()
-            }}
-            onClick={() => void press(choice.verdict)}
-          >
-            {waiting ? (
-              <>
-                <span className="truncate">Click again to confirm</span>
-                <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
-              </>
-            ) : working ? (
-              <span className="truncate">{doing.current === choice.verdict ? choice.doing : 'Checking…'}</span>
-            ) : (
-              <>
-                <span className="truncate">
-                  {choice.label}
-                  {needsComment(choice.verdict) ? <span className="ml-1.5 tabular-nums">{comments}</span> : null}
-                </span>
-                {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
-              </>
-            )}
-          </Button>
-        )
-      })}
+      {/* The choices' place. Once the change merged, where it landed is told in it, at the choices' size. */}
+      <div className="grid">
+        <div className={cn('col-start-1 row-start-1 flex flex-col gap-1.5', merged && 'invisible')} inert={merged}>
+          {VERDICT_CHOICES[kind].map((choice) => {
+            const waiting = armed === choice.verdict
+            const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
+            const primary = choice.verdict === PRIMARY
+            return (
+              <Button
+                key={choice.verdict}
+                ref={(element) => {
+                  if (element) buttons.current.set(choice.verdict, element)
+                  else buttons.current.delete(choice.verdict)
+                }}
+                data-stop
+                data-verdict={choice.verdict}
+                data-armed={waiting}
+                aria-pressed={waiting}
+                variant={primary ? 'default' : 'outline'}
+                className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3.5 text-[14px] font-semibold"
+                // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
+                // A click then does nothing. A change that lands is past choosing.
+                disabled={!verdict || landing != null || (needsComment(choice.verdict) && comments === 0)}
+                // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
+                onKeyDown={(event) => {
+                  if (heldDown(event)) event.preventDefault()
+                }}
+                onClick={() => void press(choice.verdict)}
+              >
+                {waiting ? (
+                  <>
+                    <span className="truncate">{choice.verdict === 'approve-merge' && moved ? 'Click again to merge it as it is now' : 'Click again to confirm'}</span>
+                    <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
+                  </>
+                ) : working ? (
+                  <span className="truncate">{doing.current === choice.verdict ? choice.doing : 'Checking…'}</span>
+                ) : (
+                  <>
+                    <span className="truncate">
+                      {choice.label}
+                      {needsComment(choice.verdict) ? <span className="ml-1.5 tabular-nums">{comments}</span> : null}
+                    </span>
+                    {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
+                  </>
+                )}
+              </Button>
+            )
+          })}
+        </div>
+        {merged ? (
+          <p className="col-start-1 row-start-1 flex items-center gap-2 self-center px-1 font-heading text-[15px] leading-snug font-semibold text-pretty">
+            <CircleCheck aria-hidden="true" className="size-[18px] shrink-0 text-ok-fg" />
+            <span>{mergedWords(landing)}</span>
+          </p>
+        ) : null}
+      </div>
 
       {/* Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
-      <div role="status" tabIndex={-1} className="rv-scroll mt-1 h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
-        <Said kind={kind} live={live} flow={flow} doing={doing.current != null} />
+      <div ref={box} role="status" tabIndex={-1} className="rv-scroll mt-1 h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
+        <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} />
       </div>
     </section>
   )
@@ -191,11 +234,26 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
 const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[kind].find((choice) => choice.verdict === verdict)?.label ?? ''
 
 /**
- * What the box under the choices says: the sample notice, the host at work, what a choice will do while it waits for
- * its second click, the host's reason when it will not do it, or its words when it did.
+ * What the box under the choices says: how the change lands, the host at work, what a choice will do while it waits for
+ * its second click, the host's reason when it will not do it, its words when it did, or the sample notice.
  */
-function Said({ kind, live, flow, doing }: { kind: 'change' | 'pull'; live: boolean; flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }; doing: boolean }): ReactNode {
-  if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
+function Said({ kind, live, flow, doing, landing }: {
+  kind: 'change' | 'pull'
+  live: boolean
+  flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }
+  doing: boolean
+  landing: ReviewLanding | null
+}): ReactNode {
+  if (landing?.state === 'merged') return <p className="text-pretty text-muted-foreground">Nothing is left to decide here.</p>
+  if (landing?.state === 'refreshing') {
+    return (
+      <p className="flex items-start gap-2.5 text-pretty">
+        {/* It breathes while the agent works, and holds still under reduced motion (preparing.css). */}
+        <span aria-hidden="true" className="pv-breath relative mt-[7px] size-2 shrink-0 rounded-full bg-primary" />
+        <span>An agent is bringing the branch up to date. hobkin merges it when that run ends.</span>
+      </p>
+    )
+  }
   if (flow.busy) return <p className="text-muted-foreground">{doing ? 'The host is doing it…' : 'Asking the host what it will do…'}</p>
   if (flow.error) {
     return (
@@ -207,6 +265,7 @@ function Said({ kind, live, flow, doing }: { kind: 'change' | 'pull'; live: bool
   }
   if (flow.preview) return <Preview kind={kind} preview={flow.preview} />
   if (flow.message) return <Markdown text={flow.message} />
+  if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
   return (
     <p className="text-pretty text-muted-foreground">
       {kind === 'change'

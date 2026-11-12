@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronsLeft, FolderGit2, GitPullRequest, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeft, FolderGit2, GitPullRequest, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
@@ -20,9 +20,9 @@ export const MENU = { width: 560, bottom: 108, gap: 12 } as const
 /**
  * The top of the review panel, the same for the whole review, whatever the step: which project changes, the change's
  * title with its overall risk right under it, always there ("Safe", "Mid risk" or "High risk", how far along the
- * change review is, that it failed and why, or that there is none), how many units sit at each level, its size and
- * the commits it was built from, and for a pull request from GitHub the description its author wrote, behind a
- * button. What the change does is told under "What matters".
+ * change review is, that it failed and why, or that there is none), "Merged" beside it once the change merged, how
+ * many units sit at each level, its size and the commits it was built from, and for a pull request from GitHub the
+ * description its author wrote, behind a button. What the change does is told under "What matters".
  */
 export function PanelHeader({ review, overlap, onHide, onClose, live, preparation, assessment, rebuild }: {
   review: Review
@@ -62,7 +62,8 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
         </QuietButton>
       </div>
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
-      <Risk badge={headerBadge(assessment, preparation?.assessment)} live={live} rebuild={rebuild} />
+      {/* A change that lands is never reviewed again, so its review offers no "Try again". */}
+      <Risk badge={headerBadge(assessment, preparation?.assessment)} live={live && !preparation?.landing} merged={preparation?.landing?.state === 'merged'} rebuild={rebuild} />
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
         <span>
           {files} {files === 1 ? 'file' : 'files'}
@@ -106,9 +107,10 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
  * The change's overall risk, as one badge under the title, which is always there. Rated: High risk, Mid risk or Safe,
  * Critical beside it when something is, and how many units sit at each level, in small words under it. Under way: how
  * far along it is, the badge filling as it goes, and what it is doing. Failed: why, in plain words, and a way to try
- * again. None: "Not reviewed".
+ * again. None: "Not reviewed". A change that merged says "Merged" beside it, whatever it says.
  */
-function Risk({ badge, live, rebuild }: { badge: HeaderBadge; live: boolean; rebuild: () => void }) {
+function Risk({ badge, live, merged, rebuild }: { badge: HeaderBadge; live: boolean; merged: boolean; rebuild: () => void }) {
+  const landed = merged ? <MergedChip /> : null
   if (badge.kind === 'rated') {
     const { counts } = badge
     return (
@@ -118,6 +120,7 @@ function Risk({ badge, live, rebuild }: { badge: HeaderBadge; live: boolean; reb
             {badge.label}
           </span>
           {badge.critical ? <span className="rv-risk rv-risk-critical">Critical</span> : null}
+          {landed}
         </div>
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-heading text-[12.5px] font-semibold text-muted-foreground tabular-nums" aria-label={`${counts.high} high, ${counts.mid} mid and ${counts.safe} safe units`}>
           {(['high', 'mid', 'safe'] as const).map((level) => (
@@ -135,9 +138,12 @@ function Risk({ badge, live, rebuild }: { badge: HeaderBadge; live: boolean; reb
     return (
       <Status
         badge={
-          <span className="rv-risk" data-level="none" data-progress={percent != null} style={percent != null ? ({ '--rv-progress': `${percent}%` } as CSSProperties) : undefined}>
-            {badge.label}
-          </span>
+          <>
+            <span className="rv-risk" data-level="none" data-progress={percent != null} style={percent != null ? ({ '--rv-progress': `${percent}%` } as CSSProperties) : undefined}>
+              {badge.label}
+            </span>
+            {landed}
+          </>
         }
       >
         {badge.now ? <span className="truncate" title={badge.now}>{badge.now}</span> : null}
@@ -152,6 +158,7 @@ function Risk({ badge, live, rebuild }: { badge: HeaderBadge; live: boolean; reb
             <TriangleAlert aria-hidden="true" className="size-3.5" />
             {badge.label}
           </span>
+          {landed}
           {live ? (
             <Button size="sm" variant="outline" data-stop className="h-7 px-2.5 text-[13px]" onClick={rebuild}>
               <RefreshCw />
@@ -163,13 +170,34 @@ function Risk({ badge, live, rebuild }: { badge: HeaderBadge; live: boolean; reb
       </div>
     )
   }
-  return <Status badge={<span className="rv-risk" data-level="none">{badge.label}</span>} />
+  return (
+    <Status
+      badge={
+        <>
+          <span className="rv-risk" data-level="none">
+            {badge.label}
+          </span>
+          {landed}
+        </>
+      }
+    />
+  )
+}
+
+/** "Merged", beside the risk: calm, with the check of a change that is done. */
+function MergedChip() {
+  return (
+    <span className="rv-risk gap-1.5" data-level="none">
+      <Check aria-hidden="true" className="size-3.5 text-ok-fg" />
+      Merged
+    </span>
+  )
 }
 
 function Status({ badge, children }: { badge: ReactNode; children?: ReactNode }) {
   return (
     <div className="mt-2 flex min-w-0 flex-col gap-1.5" role="status">
-      <div className="flex">{badge}</div>
+      <div className="flex flex-wrap items-center gap-1.5">{badge}</div>
       {children ? <p className="flex min-w-0 text-[13px] text-muted-foreground">{children}</p> : null}
     </div>
   )

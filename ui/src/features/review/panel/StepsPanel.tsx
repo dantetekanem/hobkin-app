@@ -45,8 +45,8 @@ export interface PanelChrome {
   saveNotes?: () => Promise<void>
   /** Sends to hobkin, for a live review. */
   ask: AskCommand | null
-  /** Hears of a verdict the host did. */
-  landed?: (verdict: Verdict, message: string) => void
+  /** Hears of a verdict the host did. The verdict is under way until what it does next has started. */
+  landed?: (verdict: Verdict, message: string) => void | Promise<void>
 }
 
 const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
@@ -222,7 +222,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
 
           <div className="flex flex-col gap-2.5 border-t border-border px-4 pt-3.5 pb-4">
             <h3 className={HEADING}>Verdict</h3>
-            <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} {...(chrome.landed ? { landed: chrome.landed } : {})} />
+            <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} status={chrome.preparation} {...(chrome.landed ? { landed: chrome.landed } : {})} />
           </div>
 
           <footer className="flex flex-col gap-1.5 border-t border-border px-4 py-3 text-[12.5px] text-muted-foreground">
