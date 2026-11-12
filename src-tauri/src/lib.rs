@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -25,11 +25,29 @@ fn host_already_running() -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
 }
 
-/// Node: the one on the PATH when the app starts from a terminal, else Homebrew's when it starts from Finder.
+/// The oldest Node the host runs on (the user asked for a much newer Node). A version manager may put an older one first on the PATH.
+const NODE_MAJOR: u32 = 26;
+
+/// A Node binary's major version, by asking it.
+fn node_major(node: &Path) -> Option<u32> {
+    let output = Command::new(node).arg("--version").output().ok()?;
+    let version = String::from_utf8(output.stdout).ok()?;
+    version.trim().trim_start_matches('v').split('.').next()?.parse().ok()
+}
+
+/// Node for the host: the first one new enough, from the PATH when the app starts from a terminal, then Homebrew's
+/// when it starts from Finder. With none new enough, the first one found, so the host still starts.
 fn node() -> PathBuf {
-    let on_path = std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|dir| dir.join("node")).find(|candidate| candidate.is_file()));
-    on_path
-        .or_else(|| ["/opt/homebrew/bin/node", "/usr/local/bin/node"].iter().map(PathBuf::from).find(|candidate| candidate.is_file()))
+    let on_path: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).map(|dir| dir.join("node")).filter(|candidate| candidate.is_file()).collect())
+        .unwrap_or_default();
+    let homebrew = ["/opt/homebrew/bin/node", "/usr/local/bin/node"].iter().map(PathBuf::from).filter(|candidate| candidate.is_file());
+    let candidates: Vec<PathBuf> = on_path.into_iter().chain(homebrew).collect();
+    candidates
+        .iter()
+        .find(|candidate| node_major(candidate).is_some_and(|major| major >= NODE_MAJOR))
+        .or_else(|| candidates.first())
+        .cloned()
         .unwrap_or_else(|| PathBuf::from("node"))
 }
 
