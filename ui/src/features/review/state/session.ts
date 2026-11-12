@@ -255,7 +255,8 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       },
       back: () => {
         const { story } = get()
-        if (offPath(graph(), story)) apply(backToStep(graph(), story), 'detour')
+        // Going back to the step is going to a step: it is framed again.
+        if (offPath(graph(), story)) apply(backToStep(graph(), story), 'jump')
       },
       leave: () => {
         const { story, focus } = get()

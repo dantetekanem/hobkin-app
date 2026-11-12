@@ -1,17 +1,25 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { boundsOf, nodeRect, type Rect } from '#shared/review/layout.ts'
+import { nodeRect, type Rect } from '#shared/review/layout.ts'
 import { stressReview } from '#shared/review/stress.ts'
 import type { Review } from '#shared/review/types.ts'
-import { cameraFor, composeShot, FRAME, frameFocus, hangText, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
+import { BESIDE_GAP, cameraFor, composeShot, FRAME, frameStep, framingOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
+import { arrange } from '../src/features/review/graph/arrange.ts'
+import { pullReview } from '../src/features/review/sample/pull.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const idOf = (title: string) => sample.nodes.find((node) => node.title === title)!.id
+/** The sample pull request as the canvas draws it: tests folded, the flow laid out. */
+const pull = pullReview('pr:hobkin-sample/storefront/482')
+const arranged = { ...pull, ...arrange(pull) } as Review
+/** The width the step's card is drawn at. */
+const CARD = 380
 
 const inside = (inner: Rect, outer: Rect, slack = 0.5) =>
   inner.x >= outer.x - slack && inner.y >= outer.y - slack && inner.x + inner.width <= outer.x + outer.width + slack && inner.y + inner.height <= outer.y + outer.height + slack
-const overlap = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+/** Two boxes overlap by more than a hair, a pixel each way. */
+const overlap = (a: Rect, b: Rect) => a.x + 1 < b.x + b.width && b.x + 1 < a.x + a.width && a.y + 1 < b.y + b.height && b.y + 1 < a.y + a.height
 
 /** The canvas at window widths from 1100 to 1600, with the chat bar open and closed, at three window heights. */
 const canvases: Size[] = []
@@ -24,8 +32,8 @@ const TOP = 76
 const RAIL = 60
 /** The code panel takes a share of the window's height. Closed, 30% and 70% are the cases that matter. */
 const covers = (canvas: Size) => [0, 0.3, 0.7].map((share) => ({ top: TOP, bottom: RAIL + Math.round((canvas.height + 20) * share) }))
-/** Room for a card and the least of its text at a reading size, with the margins around them. */
-const roomy = (area: Rect) => area.width >= 340 && area.height >= 300
+/** Room for a node and its card beside it at a reading size, with the margins around them. */
+const roomy = (area: Rect) => area.width >= 2 * FRAME.margin + 288 * FRAME.reading + BESIDE_GAP + CARD && area.height >= 2 * FRAME.margin + 420
 
 function rectsOf(review: Review, ids: readonly string[]): Rect[] {
   return ids.map((id) => {
@@ -34,30 +42,28 @@ function rectsOf(review: Review, ids: readonly string[]): Rect[] {
   })
 }
 
-test('frames the focus inside the uncovered area', async () => {
+test('frames a step inside the uncovered area, its card beside its node', async () => {
   let shots = 0
-  for (const review of [sample, await stressReview()]) {
+  for (const review of [sample, await stressReview(), arranged]) {
     for (const step of review.story.filter((entry) => entry.focus.length > 0)) {
       const focus = rectsOf(review, step.focus)
+      const others = review.nodes.filter((node) => !step.focus.includes(node.id)).map((node) => nodeRect(node.kind, node.position))
       for (const canvas of canvases) {
         for (const cover of covers(canvas)) {
           const area = uncoveredArea(canvas, cover)
-          for (const text of [null, 150, 380]) {
-            const shot = frameFocus({ focus, area, text })
-            const where = `${review.id} ${step.id} in ${canvas.width}x${canvas.height} under ${cover.bottom}, text ${text}`
-            // The node the step is told on is always in the frame, with its text.
-            const told = focus[shot.text?.anchor ?? 0]!
+          for (const height of [null, 180, 420]) {
+            const shot = frameStep({ focus, others, area, card: height ? { width: CARD, height } : null })
+            const where = `${review.id} ${step.id} in ${canvas.width}x${canvas.height} under ${cover.bottom}, card ${height}`
+            // The node the card is beside is always in the frame, and so is the card.
+            const told = focus[shot.card?.anchor ?? 0]!
             assert.ok(inside(toScreen(told, shot.camera, area), area), `${where}: ${JSON.stringify(toScreen(told, shot.camera, area))} not in ${JSON.stringify(area)}`)
-            if (text) assert.ok(shot.text && inside(toScreen(shot.text, shot.camera, area), area), `${where}: its text is in the frame too`)
+            if (height) assert.ok(shot.card && inside(shot.card, area), `${where}: its card is in the frame too`)
+            // The card is beside its node, never on a node of the focus.
+            if (shot.card) for (const rect of focus) assert.equal(overlap(shot.card, toScreen(rect, shot.camera, area)), false, `${where}: the card lies on the focus`)
             if (shot.whole) for (const rect of focus) assert.ok(inside(toScreen(rect, shot.camera, area), area), `${where}: every focus node is in the frame`)
             assert.ok(shot.camera.zoom > 0 && shot.camera.zoom <= FRAME.maxZoom, 'it never zooms past a little over full size to fill the room')
-
-            // The cards are never shown smaller than they read, whatever the focus is wired to or how far it is spread.
+            // The cards are never shown smaller than they read, however the focus is wired or spread.
             if (roomy(area)) assert.ok(shot.camera.zoom >= FRAME.reading - 1e-9, `${where}: framed at ${shot.camera.zoom}`)
-            // And a focus that fits at that size is shown whole.
-            const least = text ? [hangText(focus, Math.min(text, FRAME.leastText))!] : []
-            const all = boundsOf([...focus, ...least])
-            if (all.width * FRAME.reading <= area.width - 2 * FRAME.margin && all.height * FRAME.reading <= area.height - 2 * FRAME.margin) assert.ok(shot.whole, `${where}: it fits whole`)
             shots += 1
           }
         }
@@ -65,20 +71,64 @@ test('frames the focus inside the uncovered area', async () => {
     }
   }
   assert.ok(shots > 5000)
+})
 
-  // With room to spare a node is shown at its closest, in the middle of what is uncovered. A node wired to twenty
-  // others is framed exactly the same: the camera never pulls back to take in what the focus connects to.
+test('the card goes right of its node, or left when the right has no room, and covers as little as it can', () => {
+  const area = { x: 300, y: 76, width: 1000, height: 700 }
+  const node = { x: 420, y: 200, width: 288, height: 136 }
+  const card = { width: CARD, height: 260 }
+  const right = placeCard({ node, card, area })
+  assert.deepEqual([right.side, right.x, right.y], ['right', node.x + node.width + BESIDE_GAP, node.y], 'on the right, level with the top of its node')
+
+  // Near the right edge of what is uncovered, there is no room on the right: it goes left.
+  const edge = { ...node, x: area.x + area.width - node.width - 40 }
+  const left = placeCard({ node: edge, card, area })
+  assert.deepEqual([left.side, left.x], ['left', edge.x - BESIDE_GAP - CARD])
+  // And never under the steps panel: no room on the left inside the area either, so it goes under or over.
+  const narrow = { x: 300, y: 76, width: 560, height: 700 }
+  assert.ok(['below', 'above'].includes(placeCard({ node: { ...node, x: 420 }, card, area: narrow }).side))
+
+  // A card never lies on what it must leave in view: with a neighbor beside it on the right, it goes left.
+  const middle = { ...node, x: 760 }
+  const neighbor = { x: middle.x + middle.width + 60, y: middle.y - 20, width: 288, height: 136 }
+  assert.equal(placeCard({ node: middle, card, area, keep: [neighbor] }).side, 'left')
+  // It covers as little of the other nodes as it can: it slides along its side, clear of a node in its way.
+  const wide = { ...area, width: 1400 }
+  const lower = { ...neighbor, y: middle.y + 180 }
+  const slid = placeCard({ node: middle, card, area: wide, others: [lower] })
+  assert.deepEqual([slid.side, overlap(slid, lower)], ['right', false])
+  // A right side full of cards is no room.
+  const column = [0, 164, 328, 492].map((y) => ({ ...neighbor, y }))
+  assert.notEqual(placeCard({ node: middle, card, area: wide, others: column }).side, 'right')
+})
+
+test('in the sample pull request the card beside each unit covers no other card', () => {
+  const canvas = { width: 1100, height: 860 }
+  const area = uncoveredArea(canvas, { top: TOP, bottom: RAIL, left: 340 })
+  for (const step of arranged.story.filter((entry) => entry.unit)) {
+    const focus = rectsOf(arranged, step.focus)
+    const others = arranged.nodes.filter((node) => !step.focus.includes(node.id))
+    const shot = frameStep({ focus, others: others.map((node) => nodeRect(node.kind, node.position)), area, card: { width: CARD, height: 300 } })
+    for (const node of others) assert.equal(overlap(shot.card!, toScreen(nodeRect(node.kind, node.position), shot.camera, area)), false, `${step.title}: its card covers ${node.title}`)
+    assert.ok(inside(shot.card!, area) && inside(toScreen(focus[0]!, shot.camera, area), area), `${step.title}: framed clear of the steps panel`)
+  }
+})
+
+test('the camera never pulls back for what the focus is wired to', () => {
+  // With room to spare a node is shown at its closest. A node wired to twenty others is framed exactly the same.
   const area = uncoveredArea({ width: 1000, height: 840 }, { top: TOP, bottom: RAIL })
   const one = rectsOf(sample, [idOf('doingAfter')])
-  const alone = frameFocus({ focus: one, area })
+  const alone = frameStep({ focus: one, area })
   assert.equal(alone.camera.zoom, FRAME.maxZoom)
   const onScreen = toScreen(one[0]!, alone.camera, area)
   assert.ok(Math.abs(onScreen.x + onScreen.width / 2 - (area.x + area.width / 2)) < 1)
   assert.ok(Math.abs(onScreen.y + onScreen.height / 2 - (area.y + area.height / 2)) < 1)
+  const crowd = Array.from({ length: 20 }, (_, index) => ({ x: one[0]!.x + 420, y: one[0]!.y + (index - 10) * 160, width: 288, height: 120 }))
+  assert.equal(frameStep({ focus: one, others: crowd, area }).camera.zoom, alone.camera.zoom)
 
-  // Opening the code panel shrinks the area from below, and the same focus moves up to stay inside it.
+  // Opening the code panel shrinks the area from below, and a step framed then sits above it.
   const open = uncoveredArea({ width: 1000, height: 840 }, { top: TOP, bottom: RAIL + 258 })
-  const raised = toScreen(one[0]!, frameFocus({ focus: one, area: open }).camera, open)
+  const raised = toScreen(one[0]!, frameStep({ focus: one, area: open }).camera, open)
   assert.ok(raised.y < onScreen.y)
   assert.ok(raised.y + raised.height <= open.y + open.height)
 
@@ -87,63 +137,72 @@ test('frames the focus inside the uncovered area', async () => {
   const whole = composeShot({ focus: all, area, card: null, others: [] })
   for (const rect of all) assert.ok(inside(toScreen(rect, whole.camera, area), area))
   assert.ok(whole.camera.zoom < 1)
-
-  // As a story opens on the whole graph it is framed closer, around the same middle. G frames all of it, as above.
-  const opening = composeShot({ focus: all, area, card: null, others: [], closer: FRAME.closer })
-  assert.ok(Math.abs(opening.camera.zoom - whole.camera.zoom * FRAME.closer) < 1e-9)
-  assert.ok(Math.abs(opening.camera.x - whole.camera.x) < 1e-6 && Math.abs(opening.camera.y - whole.camera.y) < 1e-6)
+  // Framed closer, around the same middle, when asked to.
+  const closer = composeShot({ focus: all, area, card: null, others: [], closer: FRAME.closer })
+  assert.ok(Math.abs(closer.camera.zoom - whole.camera.zoom * FRAME.closer) < 1e-9)
 })
 
-test('hangs the step text under its node, never on another focus node', async () => {
-  // One node: its text hangs right under it, as wide as it, and both are framed as close as they read best.
-  const node = rectsOf(sample, [idOf('doingAfter')])
-  const area = uncoveredArea({ width: 980, height: 840 }, { top: TOP, bottom: RAIL })
-  const shot = frameFocus({ focus: node, area, text: 220 })
-  assert.deepEqual(shot.text, { anchor: 0, x: node[0]!.x, y: node[0]!.y + node[0]!.height + FRAME.hang, width: node[0]!.width, height: 220 })
-  assert.deepEqual([shot.camera.zoom, shot.whole], [FRAME.maxZoom, true])
-
-  // Three promises stacked in their column: the text goes under the last, so it covers none of them.
-  assert.equal(hangText(rectsOf(sample, ['A1', 'A2', 'A3']), 220)!.anchor, 2)
-  // With nothing of the focus under it, the step's first node keeps the text.
-  assert.equal(hangText(rectsOf(sample, [idOf('workingRow'), idOf('elapsed')]), 220)!.anchor, 0)
-
-  // Over every step, at every height, the text hangs right under one of its nodes and lies on none of them.
-  for (const review of [sample, await stressReview()]) {
-    for (const step of review.story.filter((entry) => entry.focus.length > 0)) {
-      const focus = rectsOf(review, step.focus)
-      for (const height of [120, 240, 400]) {
-        const hung = hangText(focus, height)!
-        const under = focus[hung.anchor]!
-        assert.deepEqual([hung.x, hung.y, hung.width, hung.height], [under.x, under.y + under.height + FRAME.hang, under.width, height])
-        for (const rect of focus) assert.equal(overlap(hung, rect), false, `${review.id} ${step.id}: the text is never on a focus node`)
-      }
-    }
-  }
-
-  // A long text in a short room gives up height before the cards give up size. It scrolls, and keeps at least its least.
-  const short = uncoveredArea({ width: 980, height: 620 }, { top: TOP, bottom: RAIL + 200 })
-  const long = frameFocus({ focus: node, area: short, text: 400 })
-  assert.ok(long.text!.height < 400 && long.text!.height >= FRAME.leastText, `${long.text!.height}`)
-  assert.ok(long.camera.zoom >= FRAME.reading - 1e-9)
-  assert.ok(inside(toScreen(long.text!, long.camera, short), short))
-})
-
-test('a focus spread too far to read keeps its text, its node and the nearest of the rest', () => {
+test('a focus spread too far to read keeps its card, its node and the nearest of the rest', () => {
   // The steps panel open on a canvas of a common size: 692 by 704 points are left.
   const area = uncoveredArea({ width: 988, height: 840 }, { top: TOP, bottom: RAIL, left: 296 })
   const first = { x: 0, y: 0, width: 288, height: 136 }
-  const next = { x: 420, y: 26, width: 288, height: 136 }
+  const next = { x: 0, y: 164, width: 288, height: 136 }
   const far = { x: 2100, y: 1400, width: 288, height: 120 }
-  const shot = frameFocus({ focus: [first, far, next], area, text: 200 })
+  const shot = frameStep({ focus: [first, far, next], area, card: { width: CARD, height: 200 } })
 
   assert.equal(shot.whole, false)
   assert.ok(shot.camera.zoom >= FRAME.reading - 1e-9, 'the camera does not pull back to take in the far one')
-  assert.equal(shot.text!.anchor, 0)
-  for (const rect of [first, next, shot.text!]) assert.ok(inside(toScreen(rect, shot.camera, area), area), 'the step, its text and its neighbor in the next column')
+  const told = [first, far, next][shot.card!.anchor]!
+  assert.notEqual(told, far)
+  for (const rect of [first, next]) assert.ok(inside(toScreen(rect, shot.camera, area), area), 'the card\'s node and its neighbor in the same column')
+  assert.ok(inside(shot.card!, area))
   assert.equal(inside(toScreen(far, shot.camera, area), area), false)
 
   // The same focus without the far node fits, and is shown whole.
-  assert.equal(frameFocus({ focus: [first, next], area, text: 200 }).whole, true)
+  assert.equal(frameStep({ focus: [first, next], area, card: { width: CARD, height: 200 } }).whole, true)
+})
+
+test('looking at a node in view moves nothing, and one out of view comes in by the least pan', () => {
+  const area = uncoveredArea({ width: 1200, height: 860 }, { top: TOP, bottom: RAIL, left: 340 })
+  const camera = { x: 600, y: 300, zoom: 1 }
+  const card = { width: CARD, height: 240 }
+  const viewport = viewportFor(camera, area)
+  const graphAt = (screenX: number, screenY: number) => ({ x: (screenX - viewport.x) / viewport.zoom, y: (screenY - viewport.y) / viewport.zoom, width: 288, height: 136 })
+
+  // A node just clicked is in view, with room beside it: the camera stays where the reviewer has it.
+  assert.equal(revealNode({ node: graphAt(area.x + 60, area.y + 60), camera, area, card }), null)
+  // Half under the steps panel: the least pan to the right brings it in, at the same zoom.
+  const hidden = graphAt(area.x - 150, area.y + 100)
+  const moved = revealNode({ node: hidden, camera, area, card })!
+  assert.equal(moved.zoom, camera.zoom)
+  assert.ok(inside(toScreen(hidden, moved, area), area))
+  assert.equal(moved.y, camera.y, 'only across, the way it was out')
+  // Pulled back too far to read, a node found by name comes in at a reading size.
+  const far = revealNode({ node: { x: 5000, y: 4000, width: 288, height: 136 }, camera: { ...camera, zoom: 0.3 }, area, card })!
+  assert.equal(far.zoom, FRAME.reading)
+  assert.ok(inside(toScreen({ x: 5000, y: 4000, width: 288, height: 136 }, far, area), area))
+})
+
+test('the left panel is covered area too, tucked or open', async () => {
+  const canvas = { width: 1500, height: 1000 }
+  const stress = await stressReview()
+  for (const left of [64, 320]) {
+    for (const bottom of [RAIL, RAIL + 300]) {
+      const area = uncoveredArea(canvas, { top: TOP, bottom, left })
+      assert.deepEqual([area.x, area.width], [left, canvas.width - left], 'the uncovered area starts where the panel ends')
+      for (const review of [sample, stress, arranged]) {
+        for (const step of review.story.filter((entry) => entry.focus.length > 0)) {
+          const focus = rectsOf(review, step.focus)
+          const shot = frameStep({ focus, area, card: { width: CARD, height: 260 } })
+          const framed = [focus[shot.card!.anchor]!, ...(shot.whole ? focus : [])].map((rect) => toScreen(rect, shot.camera, area))
+          for (const rect of [...framed, shot.card!]) {
+            assert.ok(rect.x >= left - 0.5, `${review.id} ${step.id}: nothing of the step is framed under a panel ${left} wide`)
+            assert.ok(inside(rect, area))
+          }
+        }
+      }
+    }
+  }
 })
 
 test('tells the opening and the closing beside the whole graph', async () => {
@@ -168,34 +227,6 @@ test('tells the opening and the closing beside the whole graph', async () => {
   }
 })
 
-test('the left panel is covered area too, tucked or open', async () => {
-  const canvas = { width: 1500, height: 1000 }
-  const stress = await stressReview()
-  for (const left of [64, 320]) {
-    for (const bottom of [RAIL, RAIL + 300]) {
-      const area = uncoveredArea(canvas, { top: TOP, bottom, left })
-      assert.deepEqual([area.x, area.width], [left, canvas.width - left], 'the uncovered area starts where the panel ends')
-      for (const review of [sample, stress]) {
-        for (const step of review.story.filter((entry) => entry.focus.length > 0)) {
-          const focus = rectsOf(review, step.focus)
-          const shot = frameFocus({ focus, area, text: 260 })
-          const framed = [focus[shot.text!.anchor]!, shot.text!, ...(shot.whole ? focus : [])]
-          for (const rect of framed) {
-            const onScreen = toScreen(rect, shot.camera, area)
-            assert.ok(onScreen.x >= left - 0.5, `${review.id} ${step.id}: nothing of the focus is framed under a panel ${left} wide`)
-            assert.ok(inside(onScreen, area))
-          }
-        }
-      }
-    }
-  }
-  // A canvas the panel has nearly filled still frames the focus in what is left.
-  const tight = uncoveredArea({ width: 620, height: 800 }, { top: TOP, bottom: RAIL, left: 300 })
-  const node = rectsOf(sample, [sample.nodes[0]!.id])
-  const shot = frameFocus({ focus: node, area: tight, text: 260 })
-  assert.ok(inside(toScreen(node[0]!, shot.camera, tight), tight) && inside(toScreen(shot.text!, shot.camera, tight), tight))
-})
-
 test('the camera and the viewport are two ways of saying where the graph sits', () => {
   const area = { x: 0, y: 76, width: 900, height: 600 }
   const camera = { x: 1234.5, y: 321, zoom: 0.8 }
@@ -206,4 +237,14 @@ test('the camera and the viewport are two ways of saying where the graph sits', 
   assert.ok(Math.abs(camera.y * viewport.zoom + viewport.y - (area.y + area.height / 2)) < 1e-9)
   const back = cameraFor(viewport, area)
   assert.ok(Math.abs(back.x - camera.x) < 1e-9 && Math.abs(back.y - camera.y) < 1e-9 && back.zoom === camera.zoom)
+})
+
+test('only a step frames the camera: a node looked at is told where it is', () => {
+  // Going to a step, jumping to one, hobkin's cursor and G frame what is in focus, or the whole graph with nothing in it.
+  for (const kind of ['step', 'jump', 'whole', 'open'] as const) assert.equal(framingOf({ first: false, kind, focus: 2 }), 'step', kind)
+  assert.equal(framingOf({ first: false, kind: 'whole', focus: 0 }), 'whole')
+  // A node clicked, walked to with the arrows or found by name is shown only if it is out of view (revealNode).
+  assert.equal(framingOf({ first: false, kind: 'detour', focus: 1 }), 'reveal')
+  // The first look frames, whatever brought it.
+  assert.equal(framingOf({ first: true, kind: 'detour', focus: 1 }), 'step')
 })
