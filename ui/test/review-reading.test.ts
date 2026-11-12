@@ -6,7 +6,7 @@ import { IDLE_STATUS, type OpenedReview, type ReviewStatus } from '../../shared/
 import type { Review } from '../../shared/review/types.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { createReviewLoader, type ReviewCommands } from '../src/features/review/loader.ts'
-import { openingMode, readUnitHeading, unitInFocus, unitOfHeading } from '../src/features/review/reading/model.ts'
+import { changeDescription, riskBadge, unitInFocus } from '../src/features/review/reading/model.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 
@@ -17,74 +17,60 @@ const idOf = (title: string) => sample.nodes.find((node) => node.title === title
 const summary = { level: 'high', critical: true, needsYou: 3, worthALook: 2, safe: 3, storyBy: 'model', at: '2026-11-12T10:00:00Z' } as const
 const finished = (): ChangeAssessment => ({ head: sample.change.head, summary, story, units, triage: null, blind: null, progress: null, nodes: [] })
 const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {} }
+const press = (session: ReturnType<typeof createSession>, key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, effects)
+/** A story as the change review writes its opening, with the sentence on what the change does. */
+const opening = (does: string) => `# Rounding\n\n## Opening\n\n**Claims:** inferred, no description.\n\n**Does:** ${does}\n\n**Size:** 4 files, 45 lines added, 10 removed.\n`
 
-test('a finished change opens on its story when it has one or one is on its way, and on the graph when none is coming', () => {
-  const ready = finished()
-  assert.equal(openingMode(ready, { state: 'ready', head: 'h', summary }), 'story')
-  assert.equal(openingMode(null, { state: 'queued', head: 'h' }), 'story', 'it says it is waiting its turn')
-  assert.equal(openingMode(null, { state: 'running', head: 'h', percent: 40, now: 'mapping the change' }), 'story', 'its progress shows')
-  assert.equal(openingMode(null, { state: 'failed', head: 'h', error: 'It stopped.' }), 'story', 'why it failed shows, with a way to run it again')
-  assert.equal(openingMode(null, { state: 'idle', head: 'h' }), 'graph')
-  assert.equal(openingMode(undefined, undefined), 'graph', 'a pull request has none')
-
-  // Each unit heading of the story is its unit, by the number the story gave it: high first, then mid, then safe.
-  const heading = readUnitHeading('3. legacy_discount is deleted while Cart#discounted_subtotal still calls it (high, critical)')
-  assert.deepEqual(heading, { number: 3, title: 'legacy_discount is deleted while Cart#discounted_subtotal still calls it', level: 'high', critical: true })
-  assert.equal(unitOfHeading(units.units, heading!)?.id, 'u3')
-  assert.equal(unitOfHeading(units.units, readUnitHeading('6. round_line_tax is new and only runs behind the flag (safe)')!)?.id, 'u6')
-  assert.equal(readUnitHeading('Needs you'), null)
+test("the sidebar tells what the change does in one paragraph that never changes with the step: the change review's own sentence, else the review's summary", () => {
+  const does = 'Rounds each line\'s tax behind `:per_line_tax_rounding`, and changes `round_money` for every caller.'
+  assert.equal(changeDescription(sample, { story: opening(does), summary }), does)
+  // Written from the facts alone, the sentence only names the kind of change: the review's summary says more.
+  const generated = opening('A code change with no condition in front of it, touching code, told below as 3 units.')
+  assert.equal(changeDescription(sample, { story: generated, summary: { ...summary, storyBy: 'host' } }), sample.summary)
+  assert.equal(changeDescription(sample, { story: generated, summary }), sample.summary, 'a model that wrote no sentence leaves the generated one')
+  // A pull request, or a change whose review is still running, has the review's summary.
+  assert.equal(changeDescription(sample, null), sample.summary)
+  // A summary that only repeats the title adds nothing, so there is none.
+  assert.equal(changeDescription({ ...sample, summary: ` ${sample.change.title} ` }, null), null)
 })
 
-test('T switches between the story and the graph, and in the story the keys that walk the graph are left to the page', () => {
-  const session = createSession(sample, createReviewMemory(memoryStorage()), { mode: 'story', storyAvailable: true })
-  const press = (key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, effects)
-  const step = session.getState().story.step
-  for (const key of ['ArrowDown', 'ArrowRight', ' ', '3', 'Enter', '/']) assert.equal(press(key), false, `${key} scrolls or presses what it is on`)
-  assert.deepEqual([session.getState().mode, session.getState().story.step], ['story', step])
+test('the overall risk is one badge: High risk, Mid risk or Safe, whether it is critical, and how many units sit at each level', () => {
+  assert.deepEqual(riskBadge(finished(), { state: 'ready', head: 'h', summary }), { kind: 'rated', level: 'high', label: 'High risk', critical: true, counts: { high: 3, mid: 2, safe: 3 }, again: false })
+  const mid = { ...summary, level: 'mid', critical: false, needsYou: 0 } as const
+  assert.deepEqual(riskBadge(null, { state: 'ready', head: 'h', summary: mid }), { kind: 'rated', level: 'mid', label: 'Mid risk', critical: false, counts: { high: 0, mid: 2, safe: 3 }, again: false }, 'the status carries it before the story is fetched')
+  assert.equal((riskBadge({ summary: { ...mid, level: 'safe', worthALook: 0 } }, null) as { label: string }).label, 'Safe')
+  // Reviewed again at the same commit: the last rating stays, marked as being redone.
+  assert.equal((riskBadge(finished(), { state: 'running', head: 'h', percent: 30 }) as { again: boolean }).again, true)
+  // Not rated yet: how far along it is, or why it stopped.
+  assert.deepEqual(riskBadge(null, { state: 'running', head: 'h', percent: 40.4, now: 'running the tests' }), { kind: 'rating', percent: 40, now: 'running the tests', queued: false })
+  assert.deepEqual(riskBadge(null, { state: 'queued', head: 'h' }), { kind: 'rating', percent: null, now: null, queued: true })
+  assert.deepEqual(riskBadge(null, { state: 'failed', head: 'h', error: 'The tests did not start.' }), { kind: 'failed', error: 'The tests did not start.' })
+  // A pull request has no change review, so no badge.
+  assert.equal(riskBadge(null, null), null)
+  assert.equal(riskBadge(undefined, { state: 'idle', head: 'h' }), null)
+})
 
-  assert.equal(press('t'), true)
-  assert.equal(session.getState().mode, 'graph')
-  assert.equal(press('T'), true)
-  assert.equal(session.getState().mode, 'story')
-
-  // G is still the whole graph, from the story too.
+test('the story is no page and no tab: a review is walked in the graph, T is not a key, and G shows the whole graph', () => {
+  const session = createSession(sample, createReviewMemory(memoryStorage()))
+  assert.deepEqual(session.getState().focus, sample.story[0]!.focus)
+  assert.equal(press(session, 'ArrowRight'), true)
+  assert.equal(session.getState().story.step, 1)
+  assert.equal(press(session, 't'), false, 'the key is left alone')
+  assert.equal(press(session, 'T'), false)
   session.getState().goTo(3)
-  assert.notDeepEqual(session.getState().focus, [])
-  assert.equal(press('g'), true)
-  assert.deepEqual([session.getState().mode, session.getState().focus], ['graph', []])
-
-  // A review with no story, such as a pull request's, has nothing to switch to.
-  const graphOnly = createSession(sample, createReviewMemory(memoryStorage()))
-  assert.equal(pressKey(graphOnly.getState(), { key: 't', shift: false, alt: false }, effects), false)
-  assert.equal(graphOnly.getState().mode, 'graph')
-  // Once one is on its way, it can be read.
-  graphOnly.getState().setStoryAvailable(true)
-  assert.equal(pressKey(graphOnly.getState(), { key: 't', shift: false, alt: false }, effects), true)
-  assert.equal(graphOnly.getState().mode, 'story')
+  assert.equal(press(session, 'Enter'), true)
+  assert.ok(session.getState().code, 'Enter opens the code of the focus')
+  assert.equal(press(session, 'g'), true)
+  assert.deepEqual(session.getState().focus, [])
 })
 
-test('Show in graph switches to the graph with the nodes that tell the unit in focus, and the panel tells that unit', () => {
-  const told = [idOf('send'), idOf('connectMain')]
-  const review: Review = { ...sample, nodes: sample.nodes.map((node) => (told.includes(node.id) ? { ...node, unit: 'u1' } : node)) }
-  const session = createSession(review, createReviewMemory(memoryStorage()), { mode: 'story', storyAvailable: true })
-  const moved = session.getState().move.key
-
-  assert.equal(session.getState().showUnit('u1'), true)
-  assert.equal(session.getState().mode, 'graph')
-  assert.deepEqual([...session.getState().focus].sort(), [...told].sort())
-  for (const id of told) assert.equal(session.getState().levels.nodes[id], 'focus')
-  assert.ok(session.getState().move.key > moved, 'the camera goes to them')
-
-  // The panel's "what matters here" is that unit.
-  const focused = session.getState().focus.map((id) => session.getState().nodeOf.get(id)!)
-  assert.equal(unitInFocus(units.units, focused, null)?.id, 'u1')
-
-  // It is a detour from the story's steps: B goes back to the step.
-  assert.equal(pressKey(session.getState(), { key: 'b', shift: false, alt: false }, effects), true)
-  assert.deepEqual(session.getState().focus, review.story[session.getState().story.step]!.focus)
-
-  // A unit with no node in the graph moves nothing.
-  assert.equal(session.getState().showUnit('u9'), false)
+test('the code panel explains the unit of the node it shows, or else the most worrying unit in focus', () => {
+  const told = { [idOf('send')]: 'u1', [idOf('connectMain')]: 'u4' }
+  const nodes = sample.nodes.filter((node) => told[node.id]).map((node) => ({ ...node, unit: told[node.id] }))
+  assert.equal(unitInFocus(units.units, nodes, null)?.id, 'u1', 'high before mid')
+  assert.equal(unitInFocus(units.units, nodes, idOf('connectMain'))?.id, 'u4', 'the node the reviewer is on')
+  assert.equal(unitInFocus(units.units, [sample.nodes[0]!], null), undefined)
+  assert.equal(unitInFocus(null, nodes, null), undefined, 'a review with no change review has none')
 })
 
 test("a running change review's progress comes with the status the screen already asks for, and its story is fetched once it is ready", async () => {

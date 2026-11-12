@@ -1,6 +1,7 @@
 import { Columns2, Rows2, UnfoldVertical, X } from 'lucide-react'
 import { animate, motion, useMotionValueEvent, useTransform } from 'motion/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { Unit } from '#shared/review/assessment.ts'
 import { hashLines } from '#shared/review/lines.ts'
 import type { ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -9,14 +10,20 @@ import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useTimings } from '../dev/dev.ts'
 import { KIND } from '../graph/kinds.tsx'
+import { askHobkin, type AskCommand } from '../panel/ask.ts'
+import { toStepUnit, unitInFocus } from '../reading/model.ts'
 import { reviewMemory, useReduced, useReviewMemory, useRig, useSession, useSessionStore, useSource } from '../state/context.tsx'
 import { DiffView, type DiffViewHandle, type LineMark } from './DiffView.tsx'
 import type { Emphasis } from './diff-rows.ts'
+import { Explanation } from './Explanation.tsx'
 
 /** The share of the window's height the panel may take. */
 export const PANEL_SHARE = { initial: 0.3, min: 0.2, max: 0.7, step: 0.05 }
 
 export const clampShare = (share: number) => Math.min(PANEL_SHARE.max, Math.max(PANEL_SHARE.min, share))
+
+/** Narrower than this, the explanation and the code are two tabs instead of two columns. */
+const SPLIT_WIDTH = 760
 
 /** The open panel's own keys. The review's key handler asks here when a key is not one of the story's. */
 let openPanelKey: ((key: string, shift: boolean) => boolean) | null = null
@@ -49,11 +56,20 @@ function tabsOf(nodes: readonly ReviewNode[], files: readonly { id: string; path
 /**
  * The code panel. It belongs to the canvas: it rises from the canvas's bottom edge and never covers the
  * conversation. The graph moves up and re-frames in the same movement, so the node stays in view above its code.
+ * On its left the change review explains the unit of that code, with quick links to ask hobkin about it, and on its
+ * right is the code. When the panel is narrow the two are tabs: Explanation and Code.
  *
  * Purpose of the motion: spatial consistency. The panel comes from the bottom and leaves through the bottom,
  * on spring.sheet, so Enter then Escape pressed quickly turns it round from where it is.
  */
-export function CodePanel({ height, windowHeight }: { height: number; windowHeight: number }) {
+export function CodePanel({ height, windowHeight, units, ask }: {
+  height: number
+  windowHeight: number
+  /** The change review's units, when it has rated this change. */
+  units?: readonly Unit[]
+  /** Sends to hobkin, for a live review. */
+  ask: AskCommand | null
+}) {
   const store = useSessionStore()
   const source = useSource()
   const rig = useRig()
@@ -65,7 +81,11 @@ export function CodePanel({ height, windowHeight }: { height: number; windowHeig
   const split = useReviewMemory((memory) => memory.splitDiff)
   const picked = useSession((session) => session.selection)
   const lineCounts = useSession((session) => session.counts.lines)
+  const pointed = useSession((session) => session.pointed)
   const diffView = useRef<DiffViewHandle>(null)
+  const sheet = useRef<HTMLElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  const [tab, setTab] = useState<'explain' | 'code'>('explain')
   const [dragging, setDragging] = useState(false)
   // The panel keeps what it showed while it slides away.
   const [lastCode, setLastCode] = useState(code)
@@ -81,6 +101,26 @@ export function CodePanel({ height, windowHeight }: { height: number; windowHeig
   }, [focus, nodeOf, review.files, shownCode])
   const [fileOf, setFileOf] = useState<Record<string, string>>({})
   const active = tabs.find((tab) => tab.node.id === shownCode && (fileOf[tab.node.id] ?? tab.fileId) === tab.fileId) ?? tabs.find((tab) => tab.node.id === shownCode) ?? tabs[0]
+
+  // What the change review says about this code: the unit of the node shown, else the unit of what is in focus.
+  const unit = useMemo(() => {
+    const focused = focus.map((id) => nodeOf.get(id)).filter((node): node is ReviewNode => node != null)
+    const found = unitInFocus(units, active ? [active.node] : [], null) ?? unitInFocus(units, focused, pointed)
+    return found ? toStepUnit(found) : undefined
+  }, [active, focus, nodeOf, pointed, units])
+  const shownNode = active?.node.id
+  const askAbout = useMemo(() => (ask ? (words: string) => askHobkin(store, ask, words, shownNode) : null), [ask, shownNode, store])
+
+  // Two columns when there is room for both, two tabs when there is not. Only a change of side draws again.
+  useLayoutEffect(() => {
+    const element = sheet.current
+    if (!element) return
+    const measure = () => setNarrow(element.offsetWidth < SPLIT_WIDTH)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   // The panel's height on screen drives the uncovered area, so the camera and the panel move as one.
   const opened = useRef(0)
@@ -188,8 +228,26 @@ export function CodePanel({ height, windowHeight }: { height: number; windowHeig
   const { icon: Icon } = active ? KIND[active.node.kind] : KIND.code
   const path = review.files.find((entry) => entry.id === active?.fileId)
 
+  const explanation = (
+    <div className="rv-explain rv-scroll h-full min-h-0 overflow-y-auto px-4 py-3.5" data-rv-code tabIndex={-1}>
+      <Explanation unit={unit} node={active?.node} ask={askAbout} />
+    </div>
+  )
+  const diff = (
+    <div className="h-full min-h-0 min-w-0">
+      {!file ? (
+        <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-60">{fileId ? 'Reading the file…' : 'This node points at no file.'}</p>
+      ) : 'failed' in file ? (
+        <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-70">{file.failed}</p>
+      ) : (
+        <DiffView key={file.fileId} ref={diffView} file={file} emphasis={emphasis} split={split} selection={selection} onSelect={onSelect} marks={marks} onFirstLines={recordFirstLines} />
+      )}
+    </div>
+  )
+
   return (
     <motion.section
+      ref={sheet}
       // A sheet over the graph, with its own keys. The frame leaves the keys of a dialog to the dialog.
       role="dialog"
       aria-label="Code"
@@ -223,6 +281,25 @@ export function CodePanel({ height, windowHeight }: { height: number; windowHeig
       </div>
 
       <header className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
+        {narrow ? (
+          <div role="tablist" aria-label="Explanation or code" className="flex shrink-0 items-center gap-0.5 rounded-full bg-[color-mix(in_oklab,var(--hb-code-text)_8%,transparent)] p-0.5">
+            {(['explain', 'code'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={tab === value}
+                onClick={() => setTab(value)}
+                className={cn(
+                  'rounded-full px-2.5 py-1 font-heading text-[12.5px] font-semibold transition-[background-color,opacity] duration-[160ms]',
+                  tab === value ? 'bg-[color-mix(in_oklab,var(--hb-code-text)_16%,transparent)]' : 'opacity-60 hover:opacity-100',
+                )}
+              >
+                {value === 'explain' ? 'Explanation' : 'Code'}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <Icon className="size-3.5 shrink-0 opacity-60" aria-hidden="true" />
         {tabs.length > 1 ? (
           <div role="tablist" aria-label="Code of this step" className="flex min-w-0 items-center gap-1">
@@ -267,15 +344,14 @@ export function CodePanel({ height, windowHeight }: { height: number; windowHeig
         </PanelButton>
       </header>
 
-      <div className="min-h-0 flex-1">
-        {!file ? (
-          <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-60">{fileId ? 'Reading the file…' : 'This node points at no file.'}</p>
-        ) : 'failed' in file ? (
-          <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-70">{file.failed}</p>
-        ) : (
-          <DiffView key={file.fileId} ref={diffView} file={file} emphasis={emphasis} split={split} selection={selection} onSelect={onSelect} marks={marks} onFirstLines={recordFirstLines} />
-        )}
-      </div>
+      {narrow ? (
+        <div className="min-h-0 flex-1">{tab === 'explain' ? explanation : diff}</div>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(300px,36%)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
+          {explanation}
+          {diff}
+        </div>
+      )}
     </motion.section>
   )
 }

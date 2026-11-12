@@ -20,17 +20,26 @@
   --rv-float: var(--hb-surface);
   /* The dots under the graph: barely there, for depth. */
   --rv-dot: color-mix(in oklab, var(--hb-text) 24%, transparent);
-  /* Hobkin's box in the panel takes the periwinkle of the site's hills, apart from the panel and from yellow. */
-  --rv-ask: color-mix(in oklab, var(--hb-code) 20%, var(--hb-surface));
-  --rv-ask-edge: color-mix(in oklab, var(--hb-code) 42%, transparent);
+  /*
+   * Where the reviewer talks to hobkin: a band darker than the panel, with a breath of the periwinkle of the site's
+   * hills, the agent's own color, apart from the panel and from yellow. Its field is a little lighter, and what the
+   * reviewer said sits on the periwinkle.
+   */
+  --rv-ask: color-mix(in oklab, var(--hb-code) 6%, color-mix(in oklab, var(--hb-text) 6%, var(--hb-tone-3)));
+  --rv-ask-field: color-mix(in oklab, var(--hb-surface) 72%, var(--rv-ask));
+  --rv-ask-you: color-mix(in oklab, var(--hb-code) 16%, var(--hb-surface));
+  /* The code panel's explanation, on the app's own surface beside the code's. */
+  --rv-explain: var(--hb-tone-2);
 }
 
 .dark .rv {
   --rv-ring-edge: transparent;
   --rv-float: var(--hb-surface-2);
   --rv-dot: color-mix(in oklab, var(--hb-text) 17%, transparent);
-  --rv-ask: color-mix(in oklab, var(--hb-code) 22%, var(--hb-surface));
-  --rv-ask-edge: color-mix(in oklab, var(--hb-code) 46%, transparent);
+  --rv-ask: color-mix(in oklab, var(--hb-code) 7%, var(--hb-bg));
+  --rv-ask-field: color-mix(in oklab, var(--hb-text) 7%, var(--rv-ask));
+  --rv-ask-you: color-mix(in oklab, var(--hb-code) 20%, var(--hb-surface));
+  --rv-explain: var(--hb-tone-1);
 }
 
 /* The keyboard is in the review: the same inset ring the frame draws on a screen it has focused. */
@@ -777,137 +786,195 @@
   transform: translate(-50%, -50%) scale(0.97);
 }
 
-/* ───────────────────────────── The story ───────────────────────────── */
+/* ───────────────────────────── The panel ───────────────────────────── */
 
-/* The change review's story (spec 032): a calm page beside the panel, read top to bottom, apart from the canvas. */
-.rv-reading {
-  background: var(--hb-surface);
-  color: var(--hb-text);
-  outline: none;
-}
-.rv-reading:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--hb-focus);
-}
-
-/* A part of the story. The parts that hold units carry their level's color. */
-.rv-section {
-  --level: var(--hb-border-strong);
-  margin-top: 44px;
-  padding-top: 26px;
-  border-top: 1px solid var(--hb-border);
-}
-.rv-section[data-level='high'] {
-  --level: var(--hb-bad);
-}
-.rv-section[data-level='mid'] {
-  --level: var(--hb-warn);
-}
-.rv-section[data-level='safe'] {
-  --level: var(--hb-ok);
-}
-.rv-section[data-level]::before {
-  content: '';
-  display: inline-block;
-  width: 11px;
-  height: 11px;
-  margin-right: 10px;
-  border-radius: 999px;
-  background: var(--level);
-  vertical-align: 0.06em;
-}
-
-/* A unit's heading: its level first, as a word on its color, and a band of that color down its edge. */
-.rv-unit {
-  --level: var(--hb-border-strong);
-  margin-top: 34px;
-  padding: 14px 16px 14px 20px;
-  border-radius: 16px;
-  background: color-mix(in oklab, var(--level) 10%, var(--hb-surface));
-  box-shadow: inset 4px 0 0 var(--level);
-}
-.rv-unit[data-level='high'] {
-  --level: var(--hb-bad);
-}
-.rv-unit[data-level='mid'] {
-  --level: var(--hb-warn);
-}
-.rv-unit[data-level='safe'] {
-  --level: var(--hb-ok);
-}
 .rv-level[data-size='large'] {
   height: 26px;
   padding: 0 11px;
   font-size: 12.5px;
 }
-/* Critical: filled, so it is never missed. Ink on the coral in both themes. */
-.rv-critical {
+
+/* The change's overall risk, at the top of the panel: High risk, Mid risk or Safe, told by its word first and its color second. */
+.rv-risk {
+  --level: var(--hb-border-strong);
+  --level-fg: var(--hb-muted);
   display: inline-flex;
   align-items: center;
   height: 26px;
   padding: 0 11px;
   border-radius: 999px;
-  background: var(--hb-bad);
-  color: var(--hb-text);
+  background: color-mix(in oklab, var(--level) 24%, var(--hb-surface));
+  color: var(--level-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--level) 60%, transparent);
   font-family: var(--font-heading);
   font-size: 12.5px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  line-height: 1;
   text-transform: uppercase;
+  white-space: nowrap;
 }
-.dark .rv-critical {
+.rv-risk[data-level='high'] {
+  --level: var(--hb-bad);
+  --level-fg: var(--hb-bad-fg);
+}
+.rv-risk[data-level='mid'] {
+  --level: var(--hb-warn);
+  --level-fg: var(--hb-warn-fg);
+}
+.rv-risk[data-level='safe'] {
+  --level: var(--hb-ok);
+  --level-fg: var(--hb-ok-fg);
+}
+/* Critical: filled, so it is never missed. Ink on the coral in both themes. */
+.rv-risk-critical {
+  background: var(--hb-bad);
+  color: var(--hb-text);
+  box-shadow: none;
+}
+.dark .rv-risk-critical {
   color: var(--hb-bg);
 }
-
-/* Changed lines, as the story shows them: each line tinted by what happened to it, with its marker. */
-.rv-story-diff {
-  margin: 10px 0 20px;
-  padding: 8px 0;
-  overflow-x: auto;
-  border-radius: 12px;
-  background: var(--hb-code-bg);
-  color: var(--hb-code-text);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--hb-code-text) 12%, transparent);
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  line-height: 1.7;
-  font-variant-ligatures: none;
+/* How many units sit at each level: a dot of the level's color, and the count. */
+.rv-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
-.rv-story-line {
-  display: grid;
-  grid-template-columns: 2.2em minmax(0, 1fr);
-  padding-right: 14px;
-}
-.rv-story-line[data-kind='added'] {
-  background: var(--hb-diff-add);
-}
-.rv-story-line[data-kind='removed'] {
-  background: var(--hb-diff-del);
-}
-.rv-story-mark {
-  text-align: center;
-  user-select: none;
-  color: color-mix(in oklab, var(--hb-code-text) 60%, var(--hb-code-bg));
-}
-.rv-story-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  tab-size: 2;
-}
-
-/* How far along a change review is. It grows by transform, and jumps under reduced motion. */
-.rv-progress {
-  height: 8px;
-  overflow: hidden;
+.rv-count::before {
+  content: '';
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
-  background: var(--hb-tone-3);
+  background: var(--level);
 }
-.rv-progress > span {
-  display: block;
-  height: 100%;
-  background: var(--hb-accent);
+.rv-count[data-level='high'] {
+  --level: var(--hb-bad);
+}
+.rv-count[data-level='mid'] {
+  --level: var(--hb-warn);
+}
+.rv-count[data-level='safe'] {
+  --level: var(--hb-ok);
+}
+.rv-count[data-none='true'] {
+  opacity: 0.55;
+}
+
+/* A long paragraph folded to its first lines, fading out where it is cut. */
+.rv-folded,
+.rv-ask-folded {
+  max-height: 7.5em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, black 62%, transparent);
+  mask-image: linear-gradient(to bottom, black 62%, transparent);
+}
+.rv-ask-folded {
+  max-height: 12em;
+}
+
+/* Hobkin, to ask: a darker band across the panel, not a box. */
+.rv-ask {
+  background: var(--rv-ask);
+}
+.rv-ask-field {
+  background: var(--rv-ask-field);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.rv-ask-field:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--hb-focus) 70%, transparent);
+}
+.rv-ask-you {
+  background: var(--rv-ask-you);
+}
+/* Hobkin is answering: three dots that rise in turn. Under reduced motion they stay still. */
+.rv-ask-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.rv-ask-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: rv-ask-dot 1.2s var(--ease-in-out) infinite;
+}
+.rv-ask-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.rv-ask-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes rv-ask-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+.rv[data-reduced='true'] .rv-ask-dots i {
+  animation: none;
+  opacity: 0.6;
+}
+
+/* The code panel's left: what the change review says about the code beside it, on the app's own surface. */
+.rv-explain {
+  background: var(--rv-explain);
+  color: var(--hb-text);
+  box-shadow: inset -1px 0 0 color-mix(in oklab, var(--hb-code-text) 12%, transparent);
+  outline: none;
+}
+/* A quick link to ask hobkin about one item: the agent's periwinkle, so it reads as talking to it. */
+.rv-ask-link {
+  background: color-mix(in oklab, var(--hb-code) 14%, transparent);
+  color: var(--hb-code-fg);
+}
+.rv-ask-link:disabled {
+  background: color-mix(in oklab, var(--hb-code) 8%, transparent);
+  cursor: default;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-ask-link:not(:disabled):hover {
+    background: color-mix(in oklab, var(--hb-code) 24%, transparent);
+  }
+}
+
+/* A choice waiting for its second click: a line along its foot runs out over the ten seconds it waits. */
+.rv-confirm-time {
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.55;
   transform-origin: left center;
-  transition: transform 600ms var(--ease-out);
+  animation: rv-confirm linear forwards;
 }
-.rv[data-reduced='true'] .rv-progress > span {
-  transition: none;
+@keyframes rv-confirm {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.rv[data-reduced='true'] .rv-confirm-time {
+  display: none;
+}
+
+/* What is left on screen after a verdict, outside the review: its own surface, in both themes. */
+.rv-moment {
+  --rv-moment: var(--hb-surface);
+  background: var(--rv-moment);
+  color: var(--hb-text);
+  box-shadow:
+    0 0 0 1px var(--hb-border),
+    var(--hb-float);
+}
+.dark .rv-moment {
+  --rv-moment: var(--hb-surface-2);
 }

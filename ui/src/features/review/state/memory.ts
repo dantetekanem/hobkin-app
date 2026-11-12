@@ -66,6 +66,12 @@ export interface MemoryState {
   splitDiff: boolean
   /** The steps panel is kept open, instead of tucking away while the reviewer walks the story. */
   panelPinned: boolean
+  /**
+   * What the reviewer and hobkin said about each review, kept by the review and not its commit, so the conversation is
+   * there when the review opens again: after a restart, after hobkin's chat has moved on or been cleared, and after the
+   * review was built again for a newer commit.
+   */
+  threads: Record<string, ThreadEntry[]>
 
   of(review: Review): ReviewMemory
   moveNode(review: Review, nodeId: string, position: Point): void
@@ -85,10 +91,40 @@ export interface MemoryState {
   setPanelShare(share: number): void
   setSplitDiff(split: boolean): void
   setPanelPinned(pinned: boolean): void
+  threadOf(review: Review): ThreadEntry[]
+  /** Keeps what the conversation shows now with what was kept before: each message once, in order, the newest kept. */
+  keepThread(review: Review, entries: readonly ThreadEntry[]): void
 }
 
 const EMPTY: ReviewMemory = { positions: {}, wires: {}, progress: null, opened: false, notes: [], draft: null }
 const STORAGE_NAME = 'hobkin-client-review'
+
+/** One message of a review's conversation with hobkin (`panel/thread.ts`). */
+export interface ThreadEntry {
+  id: string
+  who: 'you' | 'hobkin'
+  text: string
+  /** Milliseconds. */
+  at: number
+}
+
+/** How many messages a review keeps of its conversation, and how many reviews keep one: the ones talked about last. */
+export const THREAD_LIMIT = 40
+export const THREADS_KEPT = 20
+
+/** The conversation a review kept, joined with what the conversation shows now: each message once, in order, the newest kept. */
+export function joinThread(saved: readonly ThreadEntry[], shown: readonly ThreadEntry[], limit = THREAD_LIMIT): ThreadEntry[] {
+  const byId = new Map<string, ThreadEntry>()
+  for (const entry of [...saved, ...shown]) byId.set(entry.id, entry)
+  // Array sort is stable, so messages of the same millisecond keep the order they came in.
+  return [...byId.values()].sort((a, b) => a.at - b.at).slice(-limit)
+}
+
+/** A review's conversation outlives its commit: the key is the review's source and id alone. */
+export function threadKey(review: Pick<Review, 'id'>): string {
+  const scope = (review as typeof review & { memoryScope?: string }).memoryScope
+  return `${scope ? `${scope}:` : ''}${review.id}`
+}
 
 /** A review prepared again from another head is another review, so its key carries the fingerprint of its bytes. */
 export function memoryKey(review: Pick<Review, 'id' | 'snapshot'>): string {
@@ -114,6 +150,23 @@ function readMemory(value: unknown): ReviewMemory {
 }
 
 const TARGET_KINDS = ['step', 'node', 'wire', 'lines']
+
+/** A kept conversation as it was saved, with anything that is not a message of it left out. */
+function readThread(value: unknown): ThreadEntry[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): ThreadEntry[] =>
+    isRecord(entry) && typeof entry.id === 'string' && (entry.who === 'you' || entry.who === 'hobkin') && typeof entry.text === 'string' && Number.isFinite(entry.at)
+      ? [{ id: entry.id, who: entry.who, text: entry.text, at: entry.at as number }]
+      : [],
+  )
+}
+const sameThread = (a: readonly ThreadEntry[], b: readonly ThreadEntry[]) => a.length === b.length && a.every((entry, index) => entry.id === b[index]!.id && entry.text === b[index]!.text)
+const NO_THREAD: ThreadEntry[] = []
+/** The conversations of the reviews talked about last, so what is kept stays small in the browser's storage. */
+function newestThreads(threads: Record<string, ThreadEntry[]>): Record<string, ThreadEntry[]> {
+  const last = (entries: readonly ThreadEntry[]) => entries.at(-1)?.at ?? 0
+  return Object.fromEntries(Object.entries(threads).sort(([, a], [, b]) => last(b) - last(a)).slice(0, THREADS_KEPT))
+}
 
 /** The notes log as it was saved, with anything that is not a note left out. Folded, so the log does not grow with every edit. */
 function readNotes(value: unknown): NoteEntry[] {
@@ -157,6 +210,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
           panelShare: null,
           splitDiff: false,
           panelPinned: false,
+          threads: {},
 
           of: (review) => get().reviews[memoryKey(review)] ?? EMPTY,
           moveNode: (review, nodeId, position) => {
@@ -205,13 +259,20 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
           setPanelShare: (panelShare) => set({ panelShare }),
           setSplitDiff: (splitDiff) => set({ splitDiff }),
           setPanelPinned: (panelPinned) => set({ panelPinned }),
+          threadOf: (review) => get().threads[threadKey(review)] ?? NO_THREAD,
+          keepThread: (review, entries) => {
+            const key = threadKey(review)
+            const kept = get().threads[key] ?? NO_THREAD
+            const next = joinThread(kept, entries)
+            if (!sameThread(kept, next)) set({ threads: newestThreads({ ...get().threads, [key]: next }) })
+          },
         }
       },
       {
         name: STORAGE_NAME,
         version: 1,
         storage: createJSONStorage(() => storage),
-        partialize: ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned }) => ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned }),
+        partialize: ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned, threads }) => ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned, threads }),
         merge: (persisted, current) => {
           const saved = isRecord(persisted) ? persisted : {}
           const reviews: Record<string, ReviewMemory> = {}
@@ -222,6 +283,11 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
             const restored = readMemory({ notes: value.entries, draft: value.draft })
             unsyncedNotes[key] = { entries: restored.notes, draft: restored.draft }
           }
+          const threads: Record<string, ThreadEntry[]> = {}
+          for (const [key, value] of Object.entries(isRecord(saved.threads) ? saved.threads : {})) {
+            const thread = readThread(value)
+            if (thread.length > 0) threads[key] = thread
+          }
           return {
             ...current,
             reviews,
@@ -229,6 +295,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
             panelShare: typeof saved.panelShare === 'number' && Number.isFinite(saved.panelShare) ? saved.panelShare : null,
             splitDiff: saved.splitDiff === true,
             panelPinned: saved.panelPinned === true,
+            threads: newestThreads(threads),
           }
         },
       },

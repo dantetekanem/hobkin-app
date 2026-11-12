@@ -6,7 +6,7 @@ import type { Review } from '#shared/review/types.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { mergeHostNotes } from '../src/features/review/notes/merge.ts'
 import type { Note, NoteEntry } from '../src/features/review/notes/notes.ts'
-import { reviewThread, reviewTrack } from '../src/features/review/panel/thread.ts'
+import { reviewThread } from '../src/features/review/panel/thread.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 
@@ -25,20 +25,10 @@ test("the panel's discussion is what the user asked about this review and hobkin
     message('m7', 'assistant', 'Sure.', 7),
     message('m8', 'user', 'Another review.', 8, { about: 'Review "Something else", step 1 of 4' }),
   ]
-  assert.deepEqual(reviewThread(messages, sample.change.title).map((entry) => entry.id), ['m3', 'm4', 'm5'])
-})
-
-test("the track lays the notes and the discussion out in the order they happened, each saying who wrote it", () => {
-  const notes: Note[] = [
-    { id: 'n2', step: 's1', target: { kind: 'step' }, intent: 'comment', text: 'Later note.', author: 'hobkin', at: 50 },
-    { id: 'n1', step: 's1', target: { kind: 'step' }, intent: 'question', text: 'Early note.', author: 'user', at: 10 },
-  ]
-  const thread = [message('m3', 'user', 'Asked.', 20, { about }), message('m4', 'assistant', 'Answered.', 30)]
-  assert.deepEqual(reviewTrack(notes, thread).map((entry) => [entry.kind, entry.id, entry.who]), [
-    ['note', 'n1', 'you'],
-    ['message', 'm3', 'you'],
-    ['message', 'm4', 'hobkin'],
-    ['note', 'n2', 'hobkin'],
+  assert.deepEqual(reviewThread(messages, sample.change.title).map((entry) => [entry.id, entry.who, entry.text]), [
+    ['m3', 'you', 'Why is the word cleared here?'],
+    ['m4', 'hobkin', 'Because the turn ended.'],
+    ['m5', 'hobkin', 'And the next turn starts empty.'],
   ])
 })
 

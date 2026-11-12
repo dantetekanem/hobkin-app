@@ -45,17 +45,13 @@ export function shownPlaces(storage: PlaceStorage | null): ShownPlaces {
   }
 }
 
-/**
- * Takes the reviewer to a step or a node, in the graph, where steps and nodes are, and frames it even when they are on
- * it already. False when the review has none such.
- */
+/** Takes the reviewer to a step or a node, and frames it even when they are on it already. False when the review has none such. */
 export function showPlace(session: SessionStore, place: { step?: number; node?: string }): boolean {
   const before = session.getState()
   const total = before.view.story.length
   const step = place.step != null && Number.isInteger(place.step) && place.step >= 1 && total > 0 ? Math.min(place.step, total) - 1 : null
   const node = place.step == null && place.node != null && before.nodeOf.has(place.node) ? place.node : null
   if (step == null && node == null) return false
-  before.setMode('graph')
   if (step != null) before.goTo(step)
   else before.focusOn(node!)
   // Already there, with the camera perhaps panned away: it frames the place again.

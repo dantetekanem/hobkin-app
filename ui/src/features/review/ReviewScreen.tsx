@@ -1,11 +1,12 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import { MotionConfig, useMotionValueEvent } from 'motion/react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
 import { createReviewLoader, type ReviewLoader } from './loader.ts'
+import { Preparing } from './Preparing.tsx'
 import { ReviewLoad } from './ReviewLoad.ts'
 import { escapeReview, reviewTakesEscape } from './entry.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
@@ -23,9 +24,9 @@ import { Finder } from './graph/Finder.tsx'
 import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
 import { pressKey } from './keys.ts'
+import type { AskCommand } from './panel/ask.ts'
+import { celebrate } from './panel/Celebration.tsx'
 import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './panel/StepsPanel.tsx'
-import { hasStory, openingMode, type ReviewMode } from './reading/model.ts'
-import { StoryView } from './reading/StoryView.tsx'
 import { Shortcuts } from './Shortcuts.tsx'
 import './review.css'
 import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
@@ -36,7 +37,7 @@ import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { StoryLayer } from './story/StoryLayer.tsx'
 import { useCamera } from './story/useCamera.ts'
-import type { VerdictCommands } from './verdict.ts'
+import { afterVerdict, type VerdictCommands } from './verdict.ts'
 
 /**
  * What floats over the canvas, which the focus is never framed under: the frame's two menus at the top
@@ -45,6 +46,8 @@ import type { VerdictCommands } from './verdict.ts'
 const COVER = { top: 112, bottom: 68 }
 /** Below this zoom a card shows only its name, large. */
 const FAR = 0.6
+/** The keys that keep the reviewer talking to hobkin: the box, notes and the verdict all live in the panel. */
+const TALK_KEYS = new Set(['h', 'n', 'c', 'd', 'a', 'm', 'x'])
 
 /** The places hobkin pointed to (`review.show`) that this window has shown, so each is shown once. */
 const shown = shownPlaces(storageOrNull())
@@ -57,8 +60,14 @@ function storageOrNull(): Storage | null {
 }
 
 /**
+ * A hot update that runs this file again, as one to the session's code does, starts the stage again, so an open review
+ * never holds a session made by code that is gone. Each run of the file has its own mark; a built app has none.
+ */
+const CODE = import.meta.hot ? Math.random().toString(36).slice(2, 8) : ''
+
+/**
  * Change Review's canvas screen. This file is the entry the frame mounts.
- * Specs: 005-review-model, 006-review-graph, 007-review-story, 008-review-code.
+ * Specs: 005-review-model, 006-review-graph, 007-review-story, 008-review-code, 032-change-review.
  */
 export function ReviewScreen() {
   const reviewId = useView((view) => view.openReview)
@@ -76,16 +85,14 @@ export function ReviewScreen() {
   useEffect(() => {
     void loader.load()
     // While it is being prepared it is loaded again. Once open, the host is asked how it stands: whether the change
-    // moved on, where hobkin moved the view, and whether hobkin left notes.
-    const timer = setInterval(() => {
-      const { status, preparation } = loader.getState()
-      if (status === 'preparing' || preparation?.phase) void loader.load()
-      else if (status === 'ready' && live) void loader.check()
-    }, 1000)
+    // moved on, where hobkin moved the view, and whether hobkin left notes. A pull request waiting for "Start AI
+    // review" is left alone.
+    const timer = setInterval(() => void loader.tick(), 1000)
     return () => { clearInterval(timer); loader.dispose() }
-  }, [loader, live])
+  }, [loader])
 
-  // The verdict asks the same host the review came from, and nothing once another host has taken its place.
+  // The verdict and the messages to hobkin go to the same host the review came from, and nowhere once another host has
+  // taken its place.
   const verdict = useMemo<VerdictCommands | null>(() => {
     if (!live) return null
     return (name, args) => {
@@ -93,20 +100,21 @@ export function ReviewScreen() {
       return runCommand(name, args)
     }
   }, [home, live])
-
-  // The view the review shows, kept while it stays open: the stage starts again when a story arrives, with its levels,
-  // a run again at the same commit too.
-  const [shownMode, setShownMode] = useState<{ id: string; mode: ReviewMode } | null>(null)
-  const kept = shownMode && shownMode.id === reviewId ? shownMode.mode : null
-  const keepMode = useCallback((mode: ReviewMode) => setShownMode({ id: reviewId ?? 'sample', mode }), [reviewId])
+  const ask = useMemo<AskCommand | null>(() => {
+    if (!live) return null
+    return (name, args) => {
+      if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
+      return runCommand(name, args)
+    }
+  }, [home, live])
 
   return <ReviewLoad loader={loader} renderReview={(review) => (
-    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}@${loader.getState().assessment?.summary.at ?? ''}`}>
-      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} keptMode={kept} keepMode={keepMode} />
+    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}@${loader.getState().assessment?.summary.at ?? ''}${CODE}`}>
+      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} ask={ask} />
     </ReactFlowProvider>
-  )} renderWaiting={(status, reason) => (
-    <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />
-  )} />
+  )} renderWaiting={(status, reason) => status === 'preparing' || status === 'awaiting'
+    ? <Preparing loader={loader} closeReview={closeReview} />
+    : <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />} />
 }
 
 function ReviewWaiting({ status, reason, closeReview }: { status: string; reason: string | null; closeReview: () => void }) {
@@ -118,7 +126,7 @@ function ReviewWaiting({ status, reason, closeReview }: { status: string; reason
           <Hob mood={failed ? 'confused' : 'searching'} size={112} stage="var(--card)" />
         </Hero>
         <Rise>
-          <p className="font-heading text-[20px] font-semibold tracking-[-0.02em]">{failed ? 'This review cannot be shown' : status === 'preparing' ? 'Preparing the review' : 'Opening the review'}</p>
+          <p className="font-heading text-[20px] font-semibold tracking-[-0.02em]">{failed ? 'This review cannot be shown' : 'Opening the review'}</p>
         </Rise>
         {failed ? (
           <>
@@ -137,38 +145,47 @@ function ReviewWaiting({ status, reason, closeReview }: { status: string; reason
   )
 }
 
-function Stage({ review, source, loader, live, close, verdict, keptMode, keepMode }: {
+function Stage({ review, source, loader, live, close, verdict, ask }: {
   review: Review
   source: ReviewSource
   loader: ReviewLoader
   live: boolean
   close: () => void
   verdict: VerdictCommands | null
-  /** The view this review showed before the stage started again, if it did. */
-  keptMode: ReviewMode | null
-  keepMode: (mode: ReviewMode) => void
+  ask: AskCommand | null
 }) {
   const root = useRef<HTMLDivElement>(null)
   const [shortcuts, setShortcuts] = useState(false)
   const preparation = useStore(loader, (state) => state.preparation)
   const assessment = useStore(loader, (state) => state.assessment)
-  // A finished change opens on its change review's story, or on its progress while it is under way. The graph is one
-  // key away, and a review with no story coming opens on the graph.
-  const storyAvailable = hasStory(assessment, preparation?.assessment)
 
+  // Once a verdict has landed the review closes: a merged change with a "Tada!", any other with a short confirmation.
+  // A verdict that lands after the reviewer has left this review closes nothing that is open now.
+  const here = useRef(true)
+  useEffect(() => {
+    here.current = true
+    return () => {
+      here.current = false
+    }
+  }, [])
+  const landed = useMemo(
+    () => (done: Verdict, message: string) =>
+      afterVerdict(done, message, {
+        close: () => here.current && close(),
+        celebrate: (kind, words) => celebrate({ kind, title: review.change.title, message: words }),
+      }),
+    [close, review.change.title],
+  )
   const chrome = useMemo<PanelChrome>(
-    () => ({ live, preparation, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes }),
-    [live, preparation, loader, close, verdict],
+    () => ({ live, preparation, assessment, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes, ask, landed }),
+    [live, preparation, assessment, loader, close, verdict, ask, landed],
   )
   const graph = useRef<HTMLDivElement>(null)
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
-  const [session] = useState(() => createSession(review, reviewMemory, { mode: keptMode ?? openingMode(assessment, preparation?.assessment), storyAvailable }))
+  const [session] = useState(() => createSession(review, reviewMemory))
   useEffect(() => session.connect(), [session])
-  useEffect(() => session.getState().setStoryAvailable(storyAvailable), [session, storyAvailable])
-  const mode = useStore(session, (state) => state.mode)
-  useEffect(() => keepMode(mode), [keepMode, mode])
   // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was
   // opened is shown too: a review opened from Work, Home, a report or the chat lands where hobkin said. Each place once.
   const cursor = preparation?.cursor
@@ -279,19 +296,30 @@ function Stage({ review, source, loader, live, close, verdict, keptMode, keepMod
         },
         talk: () => steps?.dispatchEvent(new Event('rv-talk')),
         verdict: (kind: Verdict) => {
-          // The key is the first yes: the choice shows what it will do, and waits for a second. The keyboard goes with
-          // it, which opens the panel. One key alone does nothing.
+          // A key held down only repeats: it never gives the second click that confirms.
+          if (event.repeat) return
+          // The key is the click on its choice: the first shows what it will do, and a second press within ten seconds
+          // does it. The keyboard goes with it, which opens the panel.
           const choice = steps?.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)
           choice?.focus({ preventScroll: true })
           choice?.click()
         },
       })
-      if (used) event.preventDefault()
+      if (!used) return
+      event.preventDefault()
+      // Walking the graph again is going back to it from the conversation, which lets the panel tuck away.
+      if (!TALK_KEYS.has(event.key.toLowerCase())) session.getState().setTalking(false)
+    }
+    // A click on the graph is going back to it too. One in the panel or the code panel is not.
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest('[data-rv-steps], [data-rv-panel]')) session.getState().setTalking(false)
     }
     element.addEventListener('keydown', onKeyDown)
+    element.addEventListener('pointerdown', onPointerDown, true)
     return () => {
       releaseFocus()
       element.removeEventListener('keydown', onKeyDown)
+      element.removeEventListener('pointerdown', onPointerDown, true)
     }
   }, [session])
 
@@ -301,18 +329,16 @@ function Stage({ review, source, loader, live, close, verdict, keptMode, keepMod
     <StageProvider value={stage}>
       <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
         <EntranceContext.Provider value={entrance}>
-          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-mode={mode} data-rv-root>
-            {/* Under the story the graph stays as it was, out of reach, so the switch back is at once. */}
-            <div ref={graph} className="absolute inset-0" inert={mode === 'story'}>
+          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-rv-root>
+            <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>
             <StoryLayer canvas={canvas} panelHeight={panelHeight} />
             <WireCard />
             <Finder />
             <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} />
-            {mode === 'story' ? <StoryView assessment={assessment} status={preparation?.assessment ?? null} live={live} again={() => void loader.refresh()} /> : null}
-            <StepsPanel canvas={canvas} chrome={chrome} units={assessment?.units?.units} />
-            <CodePanel height={panelHeight} windowHeight={windowHeight} />
+            <StepsPanel canvas={canvas} chrome={chrome} />
+            <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />
             {shortcuts ? (
               <Shortcuts
                 onClose={() => {

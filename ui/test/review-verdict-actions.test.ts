@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { createVerdictChoices, heldDown, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { afterVerdict, CONFIRM_MS, createVerdictChoices, heldDown, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
@@ -17,7 +17,7 @@ const NEWER = 'f'.repeat(40)
 const host = (name: string, args: any) => (name === 'review.preview' ? { verdict: args.verdict, lines: [`What ${args.verdict} does.`], confirm: TOKEN[args.verdict as Verdict] } : { message: `Done: ${args.verdict}` })
 
 /** The review panel's verdict buttons over a fake host, and every call they made. */
-function panel(id: string, answer: (name: string, args: any) => unknown, wiring: { comments?: () => string[]; markSent?: (ids: readonly string[]) => void } = {}) {
+function panel(id: string, answer: (name: string, args: any) => unknown, wiring: { comments?: () => string[]; markSent?: (ids: readonly string[]) => void; landed?: (verdict: Verdict, message: string) => void } = {}) {
   const calls: { name: string; args: unknown }[] = []
   const command = (async (name: string, args: unknown) => {
     calls.push({ name, args })
@@ -157,4 +157,64 @@ test('the comments a verdict takes are marked sent once the host has done it, so
   await fixes.choices.confirm()
   assert.deepEqual([sentAt(comment.id), sentAt(question.id)], [50, undefined])
   assert.deepEqual(unsent(), [])
+})
+
+test('a verdict is confirmed in place: the first click shows what it does, a second within ten seconds does it, and after ten it goes back', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const landed: [Verdict, string][] = []
+  const { choices, calls } = panel(CHANGE, host, { landed: (verdict, message) => void landed.push([verdict, message]) })
+  const asked = (name: string) => calls.filter((call) => call.name === name).length
+
+  // The first click asks the host what it will do, and the button waits for the second.
+  await choices.press('approve-merge')
+  assert.equal(choices.armed(), 'approve-merge')
+  assert.deepEqual(choices.getState().preview?.lines, ['What approve-merge does.'])
+  assert.equal(CONFIRM_MS, 10_000)
+  t.mock.timers.tick(CONFIRM_MS - 1)
+  assert.equal(choices.armed(), 'approve-merge')
+  // Ten seconds without it, and the button goes back. A click then asks again; it never merges.
+  t.mock.timers.tick(1)
+  assert.deepEqual([choices.armed(), choices.getState().preview], [null, null])
+  await choices.press('approve-merge')
+  assert.deepEqual([asked('review.preview'), asked('review.verdict')], [2, 0])
+
+  // Escape, or the keyboard leaving the buttons, takes it back the same way.
+  choices.cancel()
+  assert.equal(choices.armed(), null)
+
+  // A click on another choice while one waits shows that one instead.
+  await choices.press('approve-merge')
+  await choices.press('approve')
+  assert.equal(choices.armed(), 'approve')
+  assert.equal(asked('review.verdict'), 0)
+
+  // The second click within ten seconds sends the token the host gave, for the commit on screen, and the review hears it landed.
+  t.mock.timers.tick(CONFIRM_MS - 1)
+  await choices.press('approve')
+  assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id: CHANGE, verdict: 'approve', summary: '', confirm: TOKEN.approve, head: SHOWN } })
+  assert.deepEqual(landed, [['approve', 'Done: approve']])
+  assert.equal(choices.armed(), null)
+  t.mock.timers.tick(CONFIRM_MS)
+  assert.equal(asked('review.verdict'), 1)
+
+  // A verdict the host refuses at the last moment never lands.
+  const refused = panel(CHANGE, (name, args) => {
+    if (name === 'review.verdict') throw new Error('What would be sent has changed since it was shown.')
+    return host(name, args)
+  }, { landed: (verdict, message) => void landed.push([verdict, message]) })
+  await refused.choices.press('approve-merge')
+  await refused.choices.press('approve-merge')
+  assert.match(refused.choices.getState().error ?? '', /changed since it was shown/)
+  assert.equal(landed.length, 1)
+})
+
+test('a merged change closes its review with a Tada!, and every other verdict closes it with a short confirmation', () => {
+  const seen: string[] = []
+  const screen = { close: () => void seen.push('close'), celebrate: (kind: string, message: string) => void seen.push(`${kind}: ${message}`) }
+  afterVerdict('approve-merge', 'Merged into main.', screen)
+  assert.deepEqual(seen.splice(0), ['tada: Merged into main.', 'close'])
+  for (const verdict of ['approve', 'request-changes', 'comment'] as const) {
+    afterVerdict(verdict, 'Done.', screen)
+    assert.deepEqual(seen.splice(0), ['done: Done.', 'close'], verdict)
+  }
 })

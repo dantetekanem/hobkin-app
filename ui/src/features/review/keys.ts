@@ -38,8 +38,8 @@ function nextWire(session: Session): string | null {
   return wires[at + 1] ?? null
 }
 
-/** The keys that mean the same in the story and in the graph: the panel, notes, hobkin and the verdict. Null for any other. */
-function sharedKey(session: Session, key: string, effects: KeyEffects): boolean | null {
+/** The keys of the panel: the panel itself, notes, hobkin and the verdict. Null for any other. */
+function panelKeys(session: Session, key: string, effects: KeyEffects): boolean | null {
   switch (key) {
     // S for the steps panel: 1 now goes to step 1.
     case 's':
@@ -59,7 +59,7 @@ function sharedKey(session: Session, key: string, effects: KeyEffects): boolean 
     case 'h':
     case 'H':
       return effects.talk(), true
-    // The verdicts, each shown first and sent only on a second yes: A approves, M approves and merges, X sends the fixes.
+    // The verdicts, each shown first and done only on a second press: A approves, M approves and merges, X sends the fixes.
     case 'a':
     case 'A':
       return effects.verdict('approve'), true
@@ -74,24 +74,10 @@ function sharedKey(session: Session, key: string, effects: KeyEffects): boolean 
   }
 }
 
-/**
- * The story is a page to read: the arrows, Space and the page keys scroll it, and Enter presses what it is on. T goes
- * to the graph, and G to the whole graph, as it does there.
- */
-function storyKey(session: Session, key: string, effects: KeyEffects): boolean {
-  if (key === 't' || key === 'T') return session.toggleMode()
-  if (key === 'g' || key === 'G') {
-    session.setMode('graph')
-    return session.leave() || session.refit()
-  }
-  return sharedKey(session, key, effects) ?? false
-}
-
 /** Does what a key means in the review. True when the key was the review's, and should go no further. */
 export function pressKey(session: Session, press: KeyPress, effects: KeyEffects): boolean {
   const { key, shift, alt } = press
   if (alt) return false
-  if (session.mode === 'story') return shift ? false : storyKey(session, key, effects)
 
   // An open wire takes its two letters first: Y to say yes to a proposed wire, R to remove it.
   const open = session.wire ? session.edgeOf.get(session.wire) : undefined
@@ -147,11 +133,7 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
     case 'w':
     case 'W':
       return session.openWire(nextWire(session)), true
-    // T for the story of the change review, when it has one.
-    case 't':
-    case 'T':
-      return session.toggleMode()
     default:
-      return sharedKey(session, key, effects) ?? (session.code ? effects.panelKey(key, false) : false)
+      return panelKeys(session, key, effects) ?? (session.code ? effects.panelKey(key, false) : false)
   }
 }

@@ -1,13 +1,13 @@
-import { BookOpenText, ChevronDown, FolderGit2, GitPullRequest, Network, Pin, RefreshCw, X } from 'lucide-react'
+import { ChevronDown, FolderGit2, GitPullRequest, Pin, RefreshCw, X } from 'lucide-react'
 import { useState } from 'react'
+import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
-import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
-import type { ReviewMode } from '../reading/model.ts'
+import { changeDescription, riskBadge, type RiskBadge } from '../reading/model.ts'
 
 /**
  * The frame's menu floats over the top middle of the canvas: about this wide, reaching this far down. Where it lies over
@@ -15,11 +15,15 @@ import type { ReviewMode } from '../reading/model.ts'
  */
 export const MENU = { width: 560, bottom: 108, gap: 12 } as const
 
+/** A description longer than this folds to a few lines, and opens on a click. */
+const LONG = 320
+
 /**
- * The top of the review panel: which project the change is in, its title and how big it is, and for a pull request
- * from GitHub the description its author wrote, behind a button.
+ * The top of the review panel, the same for the whole review, whatever the step: which project changes, the change's
+ * title, what it does in one paragraph, its overall risk as the change review rates it, its size and the commits it
+ * was built from, and for a pull request from GitHub the description its author wrote, behind a button.
  */
-export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, preparation, rebuild, mode, onMode }: {
+export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, preparation, assessment, rebuild }: {
   review: Review
   /** How much of the panel's width the frame's menu covers at its top. */
   overlap: number
@@ -28,16 +32,19 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
   onClose: () => void
   live: boolean
   preparation: ReviewStatus | null
+  /** The change review of a finished change, once it is ready. */
+  assessment: ChangeAssessment | null
   rebuild: () => void
-  /** The story or the graph, when the review has a story to read. Without it there is no switch. */
-  mode?: ReviewMode
-  onMode?: (mode: ReviewMode) => void
 }) {
   const [described, setDescribed] = useState(false)
+  const [whole, setWhole] = useState(false)
   const target = targetOfReviewId(review.id)
   const pull = target?.kind === 'pull'
-  const { project, item, title, files, additions, deletions, description } = review.change
+  const { project, item, title, files, additions, deletions, description, base, head } = review.change
   const Place = pull ? GitPullRequest : FolderGit2
+  const does = changeDescription(review, assessment)
+  const badge = riskBadge(assessment, preparation?.assessment)
+  const long = (does?.length ?? 0) > LONG
 
   return (
     <header className="px-4 pt-3.5 pb-3">
@@ -59,12 +66,28 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
         </RoundToggle>
       </div>
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
+      {does ? (
+        <div className="mt-1.5">
+          <div className={cn('text-[14px] leading-[1.5] text-pretty [overflow-wrap:anywhere]', long && !whole && 'rv-folded')}>
+            <Markdown text={does} />
+          </div>
+          {long ? (
+            <button type="button" data-stop onClick={() => setWhole((before) => !before)} className="font-heading text-[12.5px] font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+              {whole ? 'Show less' : 'Show all of it'}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {badge ? <Risk badge={badge} live={live} rebuild={rebuild} /> : null}
+      <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
         <span>
           {files} {files === 1 ? 'file' : 'files'}
         </span>
         <span className="font-mono text-[12.5px]" aria-label={`${additions} lines added, ${deletions} removed`}>
           <span className="text-ok-fg">+{additions}</span> <span className="text-bad-fg">−{deletions}</span>
+        </span>
+        <span className="font-mono text-[12px]" title="The commits this review was built from">
+          {base.slice(0, 7)}..{head.slice(0, 7)}
         </span>
         {pull ? (
           <button
@@ -79,7 +102,6 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
           </button>
         ) : null}
       </div>
-      {mode && onMode ? <ModeSwitch mode={mode} onMode={onMode} /> : null}
       {pull && described ? (
         <div className="rv-scroll mt-2.5 max-h-[42vh] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.5] [overflow-wrap:anywhere]" aria-label="The pull request's description">
           {description ? (
@@ -96,30 +118,54 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
   )
 }
 
-/** Story or Graph: two halves of one control, the one shown pressed. T switches. */
-function ModeSwitch({ mode, onMode }: { mode: ReviewMode; onMode: (mode: ReviewMode) => void }) {
-  const half = (value: ReviewMode, label: string, Icon: typeof BookOpenText) => (
-    <button
-      type="button"
-      data-stop
-      aria-pressed={mode === value}
-      onClick={() => onMode(value)}
-      className={cn(
-        'flex h-7 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-semibold transition-[background-color,color] duration-[160ms] ease-[var(--ease-out)] [&_svg]:size-3.5',
-        mode === value ? 'bg-background text-foreground shadow-[0_0_0_1px_var(--hb-border)]' : 'text-muted-foreground hover:text-foreground',
-      )}
-    >
-      <Icon aria-hidden="true" />
-      {label}
-    </button>
-  )
-  return (
-    <div className="mt-2.5 flex items-center gap-2">
-      <div role="group" aria-label="Show the story or the graph" className="flex items-center gap-0.5 rounded-full bg-secondary p-0.5">
-        {half('story', 'Story', BookOpenText)}
-        {half('graph', 'Graph', Network)}
+/**
+ * The change's overall risk, as one badge: High risk, Mid risk or Safe, Critical beside it when something is, and how
+ * many units sit at each level. Before the first rating it says how far along the review is, and why it stopped.
+ */
+function Risk({ badge, live, rebuild }: { badge: RiskBadge; live: boolean; rebuild: () => void }) {
+  if (badge.kind === 'rated') {
+    const { counts } = badge
+    return (
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className="rv-risk" data-level={badge.level} title="The change review's rating of the whole change">
+          {badge.label}
+        </span>
+        {badge.critical ? <span className="rv-risk rv-risk-critical">Critical</span> : null}
+        <span className="flex items-center gap-2 font-heading text-[12.5px] font-semibold text-muted-foreground tabular-nums" aria-label={`${counts.high} high, ${counts.mid} mid and ${counts.safe} safe units`}>
+          {(['high', 'mid', 'safe'] as const).map((level) => (
+            <span key={level} className="rv-count" data-level={level} data-none={counts[level] === 0}>
+              {counts[level]} {level}
+            </span>
+          ))}
+        </span>
+        {badge.again ? <span className="text-[12.5px] text-muted-foreground">Reviewing it again…</span> : null}
       </div>
-      <Kbd>T</Kbd>
+    )
+  }
+  if (badge.kind === 'rating') {
+    return (
+      <div className="mt-2.5 flex min-w-0 items-center gap-2" role="status">
+        <span className="rv-risk" data-level="none">
+          {badge.queued ? 'Waiting to rate' : `Rating${badge.percent != null ? ` ${badge.percent}%` : '…'}`}
+        </span>
+        {badge.now ? <span className="min-w-0 truncate text-[12.5px] text-muted-foreground" title={badge.now}>{badge.now.charAt(0).toUpperCase() + badge.now.slice(1)}</span> : null}
+      </div>
+    )
+  }
+  return (
+    <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-2" role="status">
+      <span className="rv-risk" data-level="none" title={badge.error ?? undefined}>
+        Not rated
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-bad-fg" title={badge.error ?? undefined}>
+        {badge.error ?? 'The change review stopped.'}
+      </span>
+      {live ? (
+        <Button size="sm" variant="outline" data-stop className="h-7 shrink-0 px-2.5 text-[12.5px]" onClick={rebuild}>
+          <RefreshCw />
+          Review again
+        </Button>
+      ) : null}
     </div>
   )
 }

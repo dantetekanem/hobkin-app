@@ -9,7 +9,7 @@ import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel,
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
 import { goBack, goForward, NO_HISTORY, recordFocus, type FocusEntry, type FocusHistory } from '../story/history.ts'
-import type { ReviewMode } from '../reading/model.ts'
+import type { PendingAsk } from '../panel/thread.ts'
 import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
@@ -62,10 +62,10 @@ export interface Session {
   pendingDigits: string
   /** The places the reviewer jumped to, to go back and forward through. */
   history: FocusHistory
-  /** What the screen shows: the change review's story, read top to bottom, or the graph. */
-  mode: ReviewMode
-  /** There is a story to read: one is ready, one is on its way, or one failed and can be run again. */
-  storyAvailable: boolean
+  /** What the reviewer sent hobkin from this review that the conversation does not show yet. */
+  asks: readonly PendingAsk[]
+  /** The reviewer is talking to hobkin: the panel stays open, with the conversation, until they go back to the graph. */
+  talking: boolean
 
   step(delta: number): void
   goTo(index: number): void
@@ -101,16 +101,16 @@ export interface Session {
   closeEditor(): void
   selectLines(selection: Session['selection']): void
   setPanelOpen(open: boolean): void
-  /** Shows the story or the graph. False when the story is asked for and there is none. */
-  setMode(mode: ReviewMode): boolean
-  /** The story from the graph, or the graph from the story. False when there is no story to go to. */
-  toggleMode(): boolean
-  setStoryAvailable(available: boolean): void
-  /** Shows a unit of the story in the graph: every node it tells, in focus. False when none of them is in the graph. */
-  showUnit(unitId: string): boolean
   moveNode(nodeId: string, position: Point): void
   decideWire(edgeId: string, decision: WireDecision | null): void
   resetLayout(): void
+  /** A message to hobkin is on its way. Returns its key. The reviewer is talking from now on. */
+  startAsk(text: string): string
+  /** hobkin took the message, now or after what it is doing, or it did not go and why. */
+  settleAsk(key: string, outcome: 'queued' | 'taken' | { error: string }): void
+  /** Messages the conversation shows now, which need no place of their own. */
+  dropAsks(keys: readonly string[]): void
+  setTalking(talking: boolean): void
 }
 
 /** The node whose code a focus opens: the first that points at lines. */
@@ -136,13 +136,14 @@ function shapeOf(view: ReviewView): Pick<Session, 'nodeOf' | 'edgeOf' | 'pins'> 
   return { nodeOf: new Map(view.nodes.map((node) => [node.id, node])), edgeOf: new Map(view.edges.map((edge) => [edge.id, edge])), pins }
 }
 
-export function createSession(review: Review, memory: StoreApi<MemoryState>, { mode = 'graph', storyAvailable = mode === 'story' }: { mode?: ReviewMode; storyAvailable?: boolean } = {}): SessionStore {
+export function createSession(review: Review, memory: StoreApi<MemoryState>): SessionStore {
   const viewNow = () => applyMemory(review, memory.getState().of(review))
   const firstView = viewNow()
   const firstStory = startStory({ ...review, ...firstView }, memory.getState().of(review).progress)
 
   let digits = NO_DIGITS
   let digitTimer: ReturnType<typeof setTimeout> | undefined
+  let asked = 0
 
   const store = createStore<Session>()((set, get) => {
     /** Everything that follows from the story and the view. */
@@ -204,8 +205,8 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>, { m
       finder: false,
       pendingDigits: '',
       history: NO_HISTORY,
-      mode: mode === 'story' && !storyAvailable ? 'graph' : mode,
-      storyAvailable,
+      asks: [],
+      talking: false,
 
       step: (delta) => {
         const { story } = get()
@@ -340,34 +341,25 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>, { m
       setPanelOpen: (panelOpen) => {
         if (panelOpen !== get().panelOpen) set({ panelOpen })
       },
-      setMode: (next) => {
-        if (next === 'story' && !get().storyAvailable) return false
-        // The story is a page of its own: what floats over the graph closes as it opens.
-        if (next !== get().mode) set(next === 'story' ? { mode: next, code: null, wire: null, finder: false, selection: null } : { mode: next })
-        return true
-      },
-      toggleMode: () => get().setMode(get().mode === 'story' ? 'graph' : 'story'),
-      setStoryAvailable: (available) => {
-        if (available !== get().storyAvailable) set({ storyAvailable: available })
-      },
-      showUnit: (unitId) => {
-        const told = get().view.nodes.filter((node) => node.unit === unitId).map((node) => node.id)
-        if (told.length === 0) return false
-        set({ mode: 'graph' })
-        const { story, focus } = get()
-        const moved = focusGroup(graph(), story, told)
-        const already = focus.length === told.length && told.every((id) => focus.includes(id))
-        // Already on them: framed again, for a camera the reviewer may have moved.
-        if (already) get().refit()
-        else apply(moved, 'jump')
-        return true
-      },
       showCode: (nodeId) => {
         if (get().code != null && get().nodeOf.has(nodeId)) set({ code: nodeId })
       },
       moveNode: (nodeId, position) => memory.getState().moveNode(review, nodeId, position),
       decideWire: (edgeId, decision) => memory.getState().decideWire(review, edgeId, decision),
       resetLayout: () => memory.getState().resetLayout(review),
+      startAsk: (text) => {
+        const key = `ask${(asked += 1)}`
+        set({ asks: [...get().asks, { key, text, at: Date.now(), state: 'sending' }], talking: true })
+        return key
+      },
+      settleAsk: (key, outcome) =>
+        set({ asks: get().asks.map((ask) => (ask.key !== key ? ask : typeof outcome === 'string' ? { ...ask, state: outcome } : { ...ask, state: 'failed', error: outcome.error })) }),
+      dropAsks: (keys) => {
+        if (keys.length > 0) set({ asks: get().asks.filter((ask) => !keys.includes(ask.key)) })
+      },
+      setTalking: (talking) => {
+        if (talking !== get().talking) set({ talking })
+      },
     }
   })
 

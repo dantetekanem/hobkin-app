@@ -1,62 +1,82 @@
 /**
- * The Review screen's story view (spec 032): the change review of a finished change, read top to bottom, with the graph
- * one key away. Which view a review opens on, the units as the story numbers them, and what the panel says about the
- * unit in focus. Nothing here draws, so all of it can be tested without a screen.
+ * What the change review (spec 032) says, in the words the Review screen uses: what the change does, its overall risk,
+ * and the unit of what is in focus, which the code panel explains beside its code. Nothing here draws, so all of it
+ * can be tested without a screen.
  */
 import type { AssessmentStatus, ChangeAssessment, Level, Unit } from '#shared/review/assessment.ts'
-import type { StepUnit } from '../panel/Matters.tsx'
+import type { Review, ReviewLevel } from '#shared/review/types.ts'
 
-/** The story of the change review, read top to bottom, or the graph of the change. */
-export type ReviewMode = 'story' | 'graph'
+/** The overall risk of a change, as its badge says it. */
+export const RISK_WORDS: Record<Level, string> = { high: 'High risk', mid: 'Mid risk', safe: 'Safe' }
 
-/**
- * Whether the review has a story to read: one is ready, one is on its way (its progress shows meanwhile), or one failed
- * and can be run again. A pull request has none, and neither does a change none is coming for.
- */
-export function hasStory(assessment: ChangeAssessment | null | undefined, status: AssessmentStatus | null | undefined): boolean {
-  if (assessment) return true
-  return status?.state === 'queued' || status?.state === 'running' || status?.state === 'failed'
+/** What the code panel says about a unit (`packages/change-review`, its `units.json`), in the screen's words. */
+export interface StepUnit {
+  /** The unit's claim, such as "round_money changes its rounding mode for every caller". */
+  title?: string
+  level: ReviewLevel
+  critical?: boolean
+  /** The four facts, a few words each: what it does, what proves it, who runs it, what undoes it. */
+  facts: { name: string; text: string }[]
+  /** Why it has this level, a reason a line. */
+  why: string[]
+  /** What would change the level, and to which. */
+  wouldChange: { text: string; level: ReviewLevel }[]
+  questions: { text: string; why?: string }[]
 }
 
-/** The view a review opens on: the story when there is one, the graph when none is coming. */
-export function openingMode(assessment: ChangeAssessment | null | undefined, status: AssessmentStatus | null | undefined): ReviewMode {
-  return hasStory(assessment, status) ? 'story' : 'graph'
-}
-
-const ORDER: Level[] = ['high', 'mid', 'safe']
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 
-/** The units as the story numbers them: high first, then mid, then safe, each in the order the review gave. */
-export function numberedUnits(units: readonly Unit[]): Unit[] {
-  return ORDER.flatMap((level) => units.filter((unit) => unit.level === level))
+/** The sentence the change review's story opens with on what the change does: `**Does:** …`. */
+const DOES = /^\*\*Does:\*\*\s+(.+)$/m
+/** Written from the facts alone, that sentence only names the kind of change and how the story tells it. */
+const GENERATED_DOES = /told below as \d+ units?\.$/
+const plain = (text: string) => text.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/**
+ * What the change does, in one paragraph that stays the same for the whole review: the sentence the change review's
+ * model wrote, else the review's own summary. Null when neither says more than the title.
+ */
+export function changeDescription(review: Pick<Review, 'summary' | 'change'>, assessment: Pick<ChangeAssessment, 'story' | 'summary'> | null | undefined): string | null {
+  const does = assessment?.summary.storyBy === 'model' ? DOES.exec(assessment.story)?.[1]?.trim() : undefined
+  if (does && !GENERATED_DOES.test(does)) return does
+  const summary = review.summary.trim()
+  return summary && plain(summary) !== plain(review.change.title) ? summary : null
 }
 
-export interface UnitHeading {
-  number: number
-  title: string
-  level: Level
-  critical: boolean
-}
+/**
+ * The overall risk badge. `rated`: the change review's level, whether anything is critical, and how many units sit at
+ * each level, `again` while it is reviewed once more. `rating`: none yet, and how far along the first one is.
+ * `failed`: it stopped, and why. Null when no change review is coming, as for a pull request.
+ */
+export type RiskBadge =
+  | { kind: 'rated'; level: Level; label: string; critical: boolean; counts: Record<Level, number>; again: boolean }
+  | { kind: 'rating'; percent: number | null; now: string | null; queued: boolean }
+  | { kind: 'failed'; error: string | null }
 
-const HEADING = /^(\d+)\.\s+(.+?)\s+\((high|mid|safe)(, critical)?\)$/
-
-/** A unit's heading as the story writes it, `N. Title (level[, critical])`. Null for any other heading. */
-export function readUnitHeading(text: string): UnitHeading | null {
-  const found = HEADING.exec(text.trim())
-  return found ? { number: Number(found[1]), title: found[2]!, level: found[3] as Level, critical: Boolean(found[4]) } : null
-}
-
-/** The unit a heading tells: by the number the story gave it, or else by its title. */
-export function unitOfHeading(units: readonly Unit[], heading: UnitHeading): Unit | undefined {
-  const byNumber = numberedUnits(units)[heading.number - 1]
-  if (byNumber && byNumber.level === heading.level) return byNumber
-  return units.find((unit) => unit.title === heading.title)
+export function riskBadge(assessment: Pick<ChangeAssessment, 'summary'> | null | undefined, status: AssessmentStatus | null | undefined): RiskBadge | null {
+  const summary = assessment?.summary ?? (status?.state === 'ready' ? status.summary : undefined)
+  const underWay = status?.state === 'queued' || status?.state === 'running'
+  if (summary) {
+    return {
+      kind: 'rated',
+      level: summary.level,
+      label: RISK_WORDS[summary.level],
+      critical: summary.critical,
+      counts: { high: summary.needsYou, mid: summary.worthALook, safe: summary.safe },
+      again: underWay,
+    }
+  }
+  if (underWay) {
+    return { kind: 'rating', percent: status.state === 'running' && status.percent != null ? Math.round(status.percent) : null, now: status.now ?? null, queued: status.state === 'queued' }
+  }
+  if (status?.state === 'failed') return { kind: 'failed', error: status.error ?? null }
+  return null
 }
 
 /** One fact in a line: its value, then the evidence for it. */
 const factText = (fact: { value: string; evidence: string }) => (fact.evidence ? `${fact.value}. ${fact.evidence.charAt(0).toUpperCase()}${fact.evidence.slice(1).replace(/\.+$/, '')}.` : fact.value)
 
-/** What the panel says about a unit: its level, the four facts, why this level, what would change it, its questions. */
+/** What the code panel says about a unit: its level, the four facts, why this level, what would change it, its questions. */
 export function toStepUnit(unit: Unit): StepUnit {
   return {
     title: unit.title,
@@ -74,7 +94,7 @@ export function toStepUnit(unit: Unit): StepUnit {
   }
 }
 
-/** The unit of what is in focus: the node the reviewer points at, else the most worrying of the focus. */
+/** The unit of what is in focus: the node the reviewer is on, else the most worrying of the focus. */
 export function unitInFocus(units: readonly Unit[] | null | undefined, nodes: readonly { id: string; unit?: string }[], pointed: string | null): Unit | undefined {
   if (!units?.length) return undefined
   const byId = new Map(units.map((unit) => [unit.id, unit]))

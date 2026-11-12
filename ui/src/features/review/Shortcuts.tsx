@@ -4,13 +4,6 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 /** The keys of the review, grouped the way a reviewer uses them. */
 const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
-    title: 'The story',
-    keys: [
-      [['T'], "The change review's story, read top to bottom, or the graph"],
-      [['↑', '↓', 'space'], 'In the story: scroll it'],
-    ],
-  },
-  {
     title: 'The steps through the graph',
     keys: [
       [['→', 'space'], 'Next step'],
@@ -30,7 +23,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['W'], 'Walk the wires of the focus'],
       [['Y', 'R'], 'Confirm or remove the open wire'],
       [[',', '.'], 'Back and forward through where you jumped'],
-      [['↵'], 'Open the code of the focus'],
+      [['↵'], 'Open the code of the focus, with what the change review says about it'],
     ],
   },
   {
@@ -45,9 +38,9 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'The verdict',
     keys: [
-      [['A'], 'Approve a hobkin change: shows how its pull request opens, and Enter opens it'],
-      [['M'], 'Approve and merge a hobkin change: shows how it lands, and Enter lands it'],
-      [['X'], "Send the fixes to hobkin's agent, or request changes on a pull request: shows what goes, and Enter sends it"],
+      [['A'], 'Approve a hobkin change: shows how its pull request opens. Press again within ten seconds to open it'],
+      [['M'], 'Approve and merge a hobkin change: shows how it lands. Press again within ten seconds to land it'],
+      [['X'], "Send the fixes to hobkin's agent, or request changes on a pull request: shows what goes. Press again within ten seconds to send it"],
     ],
   },
   {
