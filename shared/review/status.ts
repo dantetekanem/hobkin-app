@@ -42,6 +42,25 @@ export interface ReviewStatus {
    * commit the change is at.
    */
   assessment?: AssessmentStatus
+  /** For a finished change the user said yes to: being brought up to date to merge, or merged. A state, never an error. */
+  landing?: ReviewLanding
+}
+
+/**
+ * Where a finished change stands after the user's yes. `refreshing`: an agent brings it up to date with its default
+ * branch, and hobkin merges it once that run ends well; its head moving meanwhile is that, not a new change to review.
+ * `merged`: it landed, as `sha`, into `into`.
+ */
+export interface ReviewLanding {
+  state: 'refreshing' | 'merged'
+  /** The commit it landed as. */
+  sha?: string
+  /** When the refresh was asked for, or when it merged, as an ISO time. */
+  at?: string
+  /** The branch it merges into. */
+  into?: string
+  /** What happened, in plain words. */
+  message?: string
 }
 
 export interface ReviewCursor {
