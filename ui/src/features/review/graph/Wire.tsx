@@ -17,8 +17,7 @@ const DRAW = { duration: 0.42, ease: ease.out } as const
  * One wire. It leaves the right pin of its source and arrives at the left pin of its target.
  * At rest it is thin and tinted by its kind. On the step's path it is drawn over in the active color, carries a pulse
  * from source to target and says what it is. A wire the model proposed stays dashed until the reviewer confirms it.
- * A wire to code the change did not touch is quieter, and one the focus folded away is not drawn until the pointer is
- * on its far end.
+ * A wire to code the change did not touch is quieter, and one the focus folded away is not drawn: its node counts it.
  */
 function WireComponent({ id, source, target }: EdgeProps) {
   const store = useSessionStore()
@@ -60,7 +59,8 @@ function WireComponent({ id, source, target }: EdgeProps) {
   }, [ends, fromKind, toKind])
 
   if (!edge || !curve) return null
-  const active = level === 'bright' || hover === 'lit' || open
+  // The pointer lights a node's own wires, never the ones its focus folded away: looking never unfolds the life cycle.
+  const active = level === 'bright' || open || (hover === 'lit' && level !== 'folded')
   // The words sit near the far end of the wire, beside the neighbor they are about, in the gap between two
   // columns. At the middle they would often land on top of a node the wire passes behind.
   const chipAt = curve.pointAt(sourceFocused === targetFocused ? 0.5 : sourceFocused ? 0.8 : 0.2)

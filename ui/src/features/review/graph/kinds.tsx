@@ -1,4 +1,4 @@
-import { Braces, Check, CircleCheck, CircleDashed, FileText, FlaskConical, Minus, Plus, Target, Trash2, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { Braces, Check, CircleCheck, CircleDashed, FileText, FlaskConical, Minus, Plus, ShieldCheck, Target, Trash2, TriangleAlert, Wrench, X, type LucideIcon } from 'lucide-react'
 import { LEVEL_WORDS } from '#shared/review/assessment.ts'
 import type { NodeKind, ReviewLevel, ReviewNode } from '#shared/review/types.ts'
 
@@ -17,13 +17,18 @@ export interface NodeStatusView {
   tone: 'ok' | 'bad' | 'quiet'
 }
 
-/** The small fact at the bottom right of a card: proven or not, passed or not, added or changed. */
-export function statusOf(node: Pick<ReviewNode, 'kind' | 'status' | 'change'>): NodeStatusView {
+/**
+ * The small fact at the bottom right of a card: proven or not, a test's result, added or changed. A test's result is
+ * one of four (the user, 2026-11-12): Passed, Failed, Proves the change (it fails with the change undone) or Not run.
+ */
+export function statusOf(node: Pick<ReviewNode, 'kind' | 'status' | 'change' | 'supports'>): NodeStatusView {
   if (node.kind === 'criterion') {
     return node.status === 'unproven' ? { text: 'Unproven', icon: TriangleAlert, tone: 'bad' } : { text: 'Proven', icon: CircleCheck, tone: 'ok' }
   }
-  if (node.kind === 'test' && node.status) {
+  if (node.kind === 'test' && node.supports?.length) return { text: 'Test helper', icon: Wrench, tone: 'quiet' }
+  if (node.kind === 'test') {
     if (node.status === 'passed') return { text: 'Passed', icon: Check, tone: 'ok' }
+    if (node.status === 'proves-change') return { text: 'Proves the change', icon: ShieldCheck, tone: 'ok' }
     if (node.status === 'failed') return { text: 'Failed', icon: X, tone: 'bad' }
     return { text: 'Not run', icon: Minus, tone: 'quiet' }
   }

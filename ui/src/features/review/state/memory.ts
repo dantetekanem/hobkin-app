@@ -9,6 +9,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import type { Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import type { ReviewNotes } from '#shared/review/status.ts'
+import { arrange, isTestGroup, type Arranged } from '../graph/arrange.ts'
 import { foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 
 export interface Point {
@@ -230,7 +231,8 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
 
           of: (review) => get().reviews[memoryKey(review)] ?? EMPTY,
           moveNode: (review, nodeId, position) => {
-            if (!isPoint(position) || !review.nodes.some((node) => node.id === nodeId)) return
+            // A card of folded tests is drawn like any node, so it can be moved like one.
+            if (!isPoint(position) || !(review.nodes.some((node) => node.id === nodeId) || isTestGroup(nodeId))) return
             update(review, (memory) => ({ ...memory, positions: { ...memory.positions, [nodeId]: { x: Math.round(position.x), y: Math.round(position.y) } } }))
           },
           resetLayout: (review) => update(review, (memory) => ({ ...memory, positions: {} })),
@@ -329,7 +331,11 @@ export interface ViewEdge extends ReviewEdge {
   decision?: WireDecision
 }
 
-export interface ReviewView {
+/**
+ * The review as the canvas draws it (`graph/arrange.ts`): tests folded into cards, the flow laid out, the unwired apart.
+ * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node.
+ */
+export interface ReviewView extends Pick<Arranged, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'apart'> {
   nodes: ReviewNode[]
   edges: ViewEdge[]
   /** Proposed wires the reviewer removed. They are not drawn, and they can be brought back. */
@@ -337,22 +343,31 @@ export interface ReviewView {
   story: StoryStep[]
 }
 
+const arranged = new WeakMap<Review, Arranged>()
+function arrangedOf(review: Review): Arranged {
+  let shape = arranged.get(review)
+  if (!shape) arranged.set(review, (shape = arrange(review)))
+  return shape
+}
+
 /** The review as the reviewer left it: moved nodes in their new places, removed wires gone, confirmed wires solid. */
 export function applyMemory(review: Review, memory: ReviewMemory): ReviewView {
+  const { nodes, edges, story, ...shape } = arrangedOf(review)
   const removed = review.edges.filter((edge) => edge.certainty === 'model' && memory.wires[edge.id] === 'removed')
   const gone = new Set(removed.map((edge) => edge.id))
+  const drawn = edges.filter((edge) => edge.members.some((id) => !gone.has(id)))
+  const kept = new Set(drawn.map((edge) => edge.id))
   return {
-    nodes: review.nodes.map((node) => (memory.positions[node.id] ? { ...node, position: memory.positions[node.id]! } : node)),
-    edges: review.edges
-      .filter((edge) => !gone.has(edge.id))
-      .map((edge) => {
-        const decision = edge.certainty === 'model' ? memory.wires[edge.id] : undefined
-        return { ...edge, proposed: edge.certainty === 'model' && decision !== 'confirmed', ...(decision ? { decision } : {}) }
-      }),
+    ...shape,
+    nodes: nodes.map((node) => (memory.positions[node.id] ? { ...node, position: memory.positions[node.id]! } : node)),
+    edges: drawn.map(({ members: _members, ...edge }) => {
+      const decision = edge.certainty === 'model' ? memory.wires[edge.id] : undefined
+      return { ...edge, proposed: edge.certainty === 'model' && decision !== 'confirmed', ...(decision ? { decision } : {}) }
+    }),
     removed,
     // A step cannot ride a wire that is no longer drawn. It glides instead.
-    story: review.story.map((step) => {
-      if (!step.travel || !gone.has(step.travel)) return step
+    story: story.map((step) => {
+      if (!step.travel || kept.has(step.travel)) return step
       const { travel: _travel, ...rest } = step
       return rest
     }),

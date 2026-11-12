@@ -6,6 +6,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { dur, ease, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useRig, useSession, useSessionStore } from '../state/context.tsx'
+import { drawnAs } from '../state/session.ts'
 import { findNodes, type FinderHit } from './finder.ts'
 import { KIND } from './kinds.tsx'
 
@@ -25,7 +26,9 @@ export function Finder() {
 function FinderBox() {
   const store = useSessionStore()
   const rig = useRig()
-  const nodes = useSession((session) => session.view.nodes)
+  const view = useSession((session) => session.view)
+  // A test folded into a card is found by its own name too.
+  const nodes = useMemo(() => [...view.nodes, ...view.hidden], [view.hidden, view.nodes])
   const nodeOf = useSession((session) => session.nodeOf)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -36,8 +39,8 @@ function FinderBox() {
   const place = useTransform(() => `translateX(${rig.side.get() / 2}px)`)
 
   useLayoutEffect(() => field.current?.focus({ preventScroll: true }), [])
-  // The node the keyboard is on lights up in the graph, with its wires and neighbors.
-  useEffect(() => store.getState().hoverOn(chosen?.id ?? null), [chosen?.id, store])
+  // The node the keyboard is on lights up in the graph, with its wires and neighbors: a folded test, its card.
+  useEffect(() => store.getState().hoverOn(chosen ? drawnAs(view, chosen.id) : null), [chosen, store, view])
   useEffect(() => setActive(0), [query])
 
   const close = () => {
@@ -49,6 +52,8 @@ function FinderBox() {
     const root = field.current?.closest<HTMLElement>('[data-rv-root]')
     store.getState().closeFinder()
     store.getState().focusOn(hit.id)
+    // A folded test is shown in the list of its card.
+    if (view.groupOf[hit.id]) store.getState().openTests(view.groupOf[hit.id]!)
     root?.focus({ preventScroll: true })
   }
 

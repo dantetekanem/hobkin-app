@@ -1,32 +1,53 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { MessageSquare } from 'lucide-react'
+import { ChevronDown, ChevronUp, Minus, MessageSquare, ShieldCheck, Unlink, X, Check } from 'lucide-react'
 import { animate, motion } from 'motion/react'
 import { memo, useEffect, useRef } from 'react'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { spring, tween } from '@/lib/motion.ts'
+import { notesAbout } from '../state/quick-notes.ts'
+import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
+import type { Session } from '../state/session.ts'
+import { isLineCount, type TestGroup } from './arrange.ts'
 import { useEntrance } from './entrance.tsx'
 import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
 import { hoverShown, isUnchanged } from './levels.ts'
-import { useReduced, useSession } from '../state/context.tsx'
 
 /** Long titles take two lines of the header, which leaves one line for the summary. */
 const TWO_LINE_TITLE = 34
 /** How many of the folded nodes a count names when the pointer is over it. */
 const NAMED = 6
 
+/** How many notes a card has: those about its node, its lines, and the tests it holds. */
+function notesOn(session: Session, id: string): number {
+  const node = session.nodeOf.get(id)
+  if (!node) return 0
+  const group = session.view.groups[id]
+  const members = group ? [...group.tests, ...group.helpers].map((member) => session.nodeOf.get(member)).filter((entry): entry is ReviewNode => entry != null) : []
+  return notesAbout(session.notes, node, members).length
+}
+
 /**
- * One node of the graph: a rounded card with a header tinted by kind, where it lives, one line on what
- * changed, and small facts. Everything it shows comes from the review file. Code the change did not touch is marked
- * Unchanged and steps back, and a focus node counts the wires it folded away beside the pin they would leave by.
+ * One node of the graph: a rounded card with a header tinted by kind, where it lives, what it is, and small facts.
+ * Everything it shows comes from the review file. A test says what it covers and how it ran, and a card of folded tests
+ * counts them and lists them in place. A count of lines is never the main text: it stays small in the footer. Code the
+ * change did not touch is marked Unchanged and steps back, a node nothing wires says why, and a focus node counts the
+ * wires it folded away beside the pin they would leave by.
  */
 function NodeCardComponent({ id }: NodeProps) {
+  const store = useSessionStore()
   const node = useSession((session) => session.nodeOf.get(id))
+  const group = useSession((session) => session.view.groups[id])
+  const covers = useSession((session) => {
+    const subject = session.view.covers[id]
+    return subject ? (session.nodeOf.get(subject)?.title ?? null) : null
+  })
   const level = useSession((session) => session.levels.nodes[id] ?? 'rest')
   const folded = useSession((session) => session.levels.folded?.[id])
   const hover = useSession((session) => hoverShown(session.hover.nodes[id] ?? 'none', session.hovered, session.focus))
   const seen = useSession((session) => session.revealed.has(id))
   const pins = useSession((session) => session.pins[id])
-  const notes = useSession((session) => session.counts.nodes[id] ?? 0)
+  const notes = useSession((session) => notesOn(session, id))
+  const listed = useSession((session) => session.opened === id)
   // Goes up when this node draws in for the first time on a story move.
   const arrival = useSession((session) => (session.move.fresh.nodes.includes(id) ? session.move.key : 0))
   const entrance = useEntrance(id)
@@ -48,10 +69,13 @@ function NodeCardComponent({ id }: NodeProps) {
   // The mark on the top edge says Unchanged, so the status says it again only for a test, whose status is its result.
   const quiet = unchanged && node.kind !== 'test'
   const criterion = node.kind === 'criterion'
+  const test = node.kind === 'test'
   const longTitle = node.title.length > TWO_LINE_TITLE
-  const io = !criterion && node.io && (node.io.in || node.io.out) ? node.io : null
-  // What goes in and out takes a line of its own, so the summary gives one up.
-  const lines = criterion ? 3 : longTitle || io ? 1 : 2
+  const io = !criterion && !test && node.io && (node.io.in || node.io.out) ? node.io : null
+  const said = isLineCount(node.summary) ? null : node.summary
+  // What goes in and out, what a test covers, and why a node stands apart each take a line, so the summary gives one up.
+  const taken = [longTitle, Boolean(io), test && Boolean(covers || node.supports?.length), Boolean(node.unwired)].filter(Boolean).length
+  const lines = criterion ? 3 : Math.max(0, 2 - taken)
 
   return (
     <>
@@ -74,6 +98,8 @@ function NodeCardComponent({ id }: NodeProps) {
           data-change={node.change}
           data-unchanged={unchanged}
           data-alert={needsALook(node)}
+          data-group={group != null}
+          data-apart={Boolean(node.unwired)}
           data-node={id}
         >
           <div className="rv-card">
@@ -82,7 +108,7 @@ function NodeCardComponent({ id }: NodeProps) {
               <span className="rv-title" title={node.title}>
                 {node.title}
               </span>
-              <span className="rv-kind">{label}</span>
+              <span className="rv-kind">{group ? 'Tests' : label}</span>
             </header>
             <div className="rv-body">
               {criterion ? null : (
@@ -90,9 +116,28 @@ function NodeCardComponent({ id }: NodeProps) {
                   <bdi>{node.subtitle}</bdi>
                 </span>
               )}
-              <p className="rv-summary" style={{ '--lines': lines } as React.CSSProperties}>
-                {node.summary}
-              </p>
+              {node.unwired ? (
+                <p className="rv-unwired" title={node.unwired}>
+                  <Unlink aria-hidden="true" />
+                  {node.unwired}
+                </p>
+              ) : null}
+              {group ? (
+                <GroupCounts group={group} />
+              ) : test && node.supports?.length ? (
+                <p className="rv-covers">
+                  Used by {node.supports.length} {node.supports.length === 1 ? 'test' : 'tests'}
+                </p>
+              ) : test && covers ? (
+                <p className="rv-covers" title={`Covers ${covers}`}>
+                  <span>Covers</span> {covers}
+                </p>
+              ) : null}
+              {said && !group && lines > 0 ? (
+                <p className="rv-summary" style={{ '--lines': lines } as React.CSSProperties}>
+                  {said}
+                </p>
+              ) : null}
               {io ? (
                 <p className="rv-io" title={`In: ${io.in || 'nothing'}\nOut: ${io.out || 'nothing said'}`}>
                   <span>{io.in || 'nothing'}</span>
@@ -102,7 +147,27 @@ function NodeCardComponent({ id }: NodeProps) {
               ) : null}
               <div className="rv-facts">
                 <Fact node={node} />
-                {quiet ? null : (
+                {group ? (
+                  <button
+                    type="button"
+                    className="rv-group-toggle nodrag"
+                    data-rv-tests={id}
+                    aria-expanded={listed}
+                    onClick={(event) => {
+                      // The card itself is not clicked: opening the list is not focusing the card.
+                      event.stopPropagation()
+                      store.getState().openTests(listed ? null : id)
+                    }}
+                  >
+                    {listed ? 'Hide the tests' : `Show the ${group.tests.length}`}
+                    {listed ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+                  </button>
+                ) : quiet ? null : test ? (
+                  <span className="rv-result" data-tone={status.tone} data-proves={node.status === 'proves-change'}>
+                    <status.icon aria-hidden="true" />
+                    {status.text}
+                  </span>
+                ) : (
                   <span className="rv-status" data-tone={status.tone}>
                     <status.icon aria-hidden="true" />
                     {status.text}
@@ -124,10 +189,19 @@ function NodeCardComponent({ id }: NodeProps) {
           {folded?.in.length ? <More side="left" ids={folded.in} /> : null}
           {folded?.out.length ? <More side="right" ids={folded.out} /> : null}
           {notes > 0 ? (
-            <span className="rv-notes" aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}>
+            <button
+              type="button"
+              className="rv-notes nodrag"
+              aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}: read ${notes === 1 ? 'it' : 'them'}`}
+              title={`Read the ${notes === 1 ? 'note' : `${notes} notes`}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                store.getState().showNotes({ node: id })
+              }}
+            >
               <MessageSquare aria-hidden="true" />
               {notes}
-            </span>
+            </button>
           ) : null}
           <i className="rv-pin" data-side="left" data-wired={pins?.in ?? false} aria-hidden="true" />
           <i className="rv-pin" data-side="right" data-wired={pins?.out ?? false} aria-hidden="true" />
@@ -138,7 +212,34 @@ function NodeCardComponent({ id }: NodeProps) {
   )
 }
 
-/** The left fact of a card's footer: lines changed, or how an acceptance line is proven. */
+/** What the tests of a card did: how many ran, failed and were not run, and how many prove the change. */
+function GroupCounts({ group }: { group: TestGroup }) {
+  const { ran, failed, notRun, proves } = group.counts
+  return (
+    <p className="rv-counts" aria-label={`${ran} ran, ${failed} failed, ${notRun} not run${proves ? `, ${proves} prove the change` : ''}`}>
+      <span data-tone="ok">
+        <Check aria-hidden="true" />
+        {ran} ran
+      </span>
+      <span data-tone={failed > 0 ? 'bad' : 'none'}>
+        <X aria-hidden="true" />
+        {failed} failed
+      </span>
+      <span data-tone={notRun > 0 ? 'quiet' : 'none'}>
+        <Minus aria-hidden="true" />
+        {notRun} not run
+      </span>
+      {proves > 0 ? (
+        <span data-tone="ok" title="These fail with the change undone, so they prove the change itself.">
+          <ShieldCheck aria-hidden="true" />
+          {proves} prove it
+        </span>
+      ) : null}
+    </p>
+  )
+}
+
+/** The left fact of a card's footer: lines changed, small, or how an acceptance line is proven. */
 function Fact({ node }: { node: ReviewNode }) {
   if (node.kind === 'criterion') {
     if (node.warning) {

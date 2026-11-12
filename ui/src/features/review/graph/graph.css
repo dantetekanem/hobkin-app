@@ -43,21 +43,336 @@
 /* ───────────────────────────── Nodes ───────────────────────────── */
 
 /*
- * Code the change did not touch is not necessarily part of what this change does (the user, 2026-11-12): it is drawn
- * see-through and settled into the canvas, and marked Unchanged. In focus or under the pointer it is read, so it is whole.
+ * Code the change did not touch is not necessarily part of what this change does (the user, 2026-11-12): its card is
+ * see-through, settled into the canvas with a dashed edge, untinted, and marked Unchanged. Its words keep a reading
+ * contrast: the card steps back, the text does not fade with it. In focus or under the pointer it is whole.
  */
 .rv .rv-node[data-unchanged='true'] {
-  opacity: 0.66;
+  opacity: 0.94;
 }
 .rv .rv-node[data-unchanged='true'][data-level='background'] {
-  opacity: 0.46;
+  opacity: 0.84;
 }
 .rv .rv-node[data-unchanged='true'][data-level='focus'],
 .rv .rv-node[data-unchanged='true'][data-hover='lit'] {
   opacity: 1;
 }
-.rv .rv-node[data-unchanged='true']:not([data-level='focus']) .rv-card::before {
-  opacity: 0.4;
+.rv .rv-node[data-unchanged='true']:not([data-level='focus']):not([data-hover='lit']) .rv-card::before {
+  opacity: 0.62;
+}
+.rv .rv-node[data-unchanged='true'] .rv-head::before {
+  opacity: 0.04;
+}
+.rv .rv-node[data-unchanged='true']:not([data-level='focus']) .rv-title {
+  color: color-mix(in oklab, var(--hb-text) 82%, var(--hb-muted));
+}
+.rv .rv-node[data-unchanged='true'] .rv-summary {
+  color: var(--hb-muted);
+}
+.rv .rv-node[data-unchanged='true']::before {
+  opacity: 0;
+}
+
+/* ───────────────────────────── Tests ───────────────────────────── */
+
+/* What a test covers, on a line of its own: "Covers link_user_tags". */
+.rv-covers {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--hb-text);
+}
+.rv-covers span {
+  color: var(--hb-muted);
+}
+
+/* A test's result, as a chip in the footer: Passed, Failed, Proves the change or Not run. The +/- figures stay small. */
+.rv-result {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 19px;
+  margin-left: auto;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  background: var(--hb-tone-3);
+  color: var(--hb-muted);
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.rv-result svg {
+  width: 12px;
+  height: 12px;
+}
+.rv-result[data-tone='ok'] {
+  background: color-mix(in oklab, var(--hb-ok) 22%, var(--hb-surface));
+  color: var(--hb-ok-fg);
+}
+.rv-result[data-tone='bad'] {
+  background: color-mix(in oklab, var(--hb-bad) 24%, var(--hb-surface));
+  color: var(--hb-bad-fg);
+}
+/* A test that fails with the change undone proves the change itself, the strongest result: it is filled. */
+.rv-result[data-proves='true'] {
+  background: var(--hb-ok);
+  color: var(--hb-on-accent);
+}
+.rv[data-far='true'] .rv-result,
+.rv[data-far='true'] .rv-group-toggle {
+  height: 26px;
+  font-size: 15px;
+}
+.rv[data-far='true'] .rv-covers,
+.rv[data-far='true'] .rv-unwired {
+  display: none;
+}
+
+/*
+ * A card of folded tests (graph/arrange.ts): a second card edge peeks out behind it, so it reads as many. It counts what
+ * ran, failed and was not run, and opens the list of its tests in place.
+ */
+.rv .rv-node[data-group='true'] .rv-card {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--kind) 38%, var(--hb-border)),
+    5px 5px 0 -1px var(--hb-tone-2),
+    5px 5px 0 0 color-mix(in oklab, var(--kind) 34%, var(--hb-border));
+}
+.rv .rv-node[data-group='true'][data-alert='true'] .rv-card {
+  box-shadow:
+    0 0 0 1.5px var(--hb-bad),
+    5px 5px 0 -1px var(--hb-tone-2),
+    5px 5px 0 0 color-mix(in oklab, var(--hb-bad) 60%, var(--hb-border));
+}
+.rv-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hb-text);
+}
+.rv-counts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.rv-counts svg {
+  width: 12px;
+  height: 12px;
+}
+.rv-counts [data-tone='ok'] svg {
+  color: var(--hb-ok-fg);
+}
+.rv-counts [data-tone='bad'] {
+  color: var(--hb-bad-fg);
+}
+.rv-counts [data-tone='quiet'] svg {
+  color: var(--hb-muted);
+}
+.rv-counts [data-tone='none'] {
+  color: var(--hb-muted);
+}
+.rv-group-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 6px 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hb-tone-3);
+  color: var(--hb-text);
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.rv-group-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+.rv-group-toggle:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-group-toggle:hover {
+    background: color-mix(in oklab, var(--hb-text) 10%, var(--hb-tone-3));
+  }
+}
+
+/* The tests of a card, listed under it in place. Over the graph, solid, so it reads. */
+.rv-tests {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  max-height: 340px;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--rv-float);
+  color: var(--hb-text);
+  box-shadow:
+    0 0 0 1px var(--hb-border-strong),
+    var(--hb-float);
+  pointer-events: auto;
+}
+.rv-tests-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 6px 12px;
+  border-bottom: 1px solid var(--hb-border);
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 650;
+}
+.rv-tests-head span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rv-tests-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hb-muted);
+  cursor: pointer;
+}
+.rv-tests-close svg {
+  width: 14px;
+  height: 14px;
+}
+.rv-tests-rows {
+  overflow-y: auto;
+  padding: 4px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.rv-tests-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.rv-tests-row[data-current='true'] {
+  background: color-mix(in oklab, var(--hb-accent) 22%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-tests-row:hover {
+    background: var(--hb-tone-2);
+  }
+}
+.rv-tests-icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--hb-muted);
+}
+.rv-tests-icon[data-tone='ok'] {
+  color: var(--hb-ok-fg);
+}
+.rv-tests-icon[data-tone='bad'] {
+  color: var(--hb-bad-fg);
+}
+.rv-tests-name {
+  overflow-wrap: anywhere;
+}
+.rv-tests-result {
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--hb-muted);
+}
+.rv-tests-result[data-tone='ok'] {
+  color: var(--hb-ok-fg);
+}
+.rv-tests-result[data-tone='bad'] {
+  color: var(--hb-bad-fg);
+}
+
+/* ───────────────────────────── Nodes nothing wires ───────────────────────────── */
+
+/* Why a card stands apart, under its title: "Documentation: no code reads it." */
+.rv-unwired {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--hb-muted);
+}
+.rv-unwired svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+/* The block they stand in, under the flow: a dashed line around it and what it is. */
+.rv-apart {
+  position: absolute;
+  border: 1.5px dashed color-mix(in oklab, var(--hb-border-strong) 70%, transparent);
+  border-radius: 24px;
+  pointer-events: none;
+}
+.rv-apart-label {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 18px;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--hb-muted);
+}
+.rv[data-far='true'] .rv-apart-label {
+  font-size: 26px;
+}
+
+/* A card's notes: a press reads them, in the panel beside the node. */
+.rv button.rv-notes {
+  height: 20px;
+  padding: 0 7px 0 6px;
+  border: 0;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.rv button.rv-notes:active {
+  transform: scale(0.95);
 }
 
 /* The marks on a card's top edge, when there is more than the level: the level first, then Unchanged. */

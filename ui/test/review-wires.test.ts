@@ -12,11 +12,13 @@ test('confirming or removing a proposed wire persists', () => {
   const memory = createReviewMemory(storage)
   const proposed = sample.edges.filter((edge) => edge.certainty === 'model')
   const [confirmed, removed, untouched] = [proposed[0]!, proposed[1]!, proposed[2]!]
-  const derived = sample.edges.find((edge) => edge.certainty === 'host')!
 
-  // As prepared: every wire the model proposed is drawn dashed, and none the host derived is.
+  // As prepared: every wire the model proposed is drawn dashed, and none the host derived is. The wires of tests folded
+  // into one card are drawn as one (graph/arrange.ts), so fewer are drawn than the review holds.
   const before = reopened(storage)
-  assert.equal(before.edges.length, sample.edges.length)
+  const drawn = before.edges.length
+  assert.ok(drawn <= sample.edges.length)
+  const derived = sample.edges.find((edge) => edge.certainty === 'host' && before.edges.some((wire) => wire.id === edge.id))!
   assert.deepEqual(before.edges.filter((edge) => edge.proposed).map((edge) => edge.id), proposed.map((edge) => edge.id))
 
   memory.getState().decideWire(sample, confirmed.id, 'confirmed')
@@ -29,12 +31,12 @@ test('confirming or removing a proposed wire persists', () => {
   assert.equal(wire(confirmed.id)?.decision, 'confirmed')
   assert.equal(wire(removed.id), undefined, 'a removed wire is gone')
   assert.equal(wire(untouched.id)?.proposed, true)
-  assert.equal(after.edges.length, sample.edges.length - 1)
+  assert.equal(after.edges.length, drawn - 1)
   assert.deepEqual(after.removed.map((edge) => edge.id), [removed.id], 'and what was removed is still known, so it can come back')
 
   // A choice can be taken back.
   memory.getState().decideWire(sample, removed.id, null)
-  assert.equal(reopened(storage).edges.length, sample.edges.length)
+  assert.equal(reopened(storage).edges.length, drawn)
   assert.equal(reopened(storage).edges.find((edge) => edge.id === removed.id)?.proposed, true)
 
   // The graph is a view of the review: a wire the host derived cannot be removed or confirmed.

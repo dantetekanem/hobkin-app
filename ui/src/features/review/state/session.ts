@@ -69,6 +69,8 @@ export interface Session {
   talking: boolean
   /** The notes panel on the canvas: the notes about a node, or taken on a step, read beside the node. Null when closed. */
   notesShown: NotesShown | null
+  /** The card of folded tests whose tests are listed under it. Null when none is. */
+  opened: string | null
 
   step(delta: number): void
   goTo(index: number): void
@@ -120,6 +122,8 @@ export interface Session {
    * taken on it. Null closes the panel, and so does a node or a step the review does not have.
    */
   showNotes(target: { node?: string; step?: number } | null): void
+  /** Lists the tests of a card under it, or closes the list. A card that is not one closes it. */
+  openTests(groupId: string | null): void
 }
 
 /** The node whose code a focus opens: the first that points at lines. */
@@ -135,15 +139,22 @@ export interface SessionStore extends StoreApi<Session> {
   connect(): () => void
 }
 
-/** Lookups over a view, rebuilt only when the view changes. */
+/**
+ * Lookups over a view, rebuilt only when the view changes. The tests folded into a card are not drawn, and are still
+ * found by their id: the code panel shows one, and a note can be about one.
+ */
 function shapeOf(view: ReviewView): Pick<Session, 'nodeOf' | 'edgeOf' | 'pins'> {
   const pins: Record<string, { in: boolean; out: boolean }> = Object.fromEntries(view.nodes.map((node) => [node.id, { in: false, out: false }]))
   for (const edge of view.edges) {
     if (pins[edge.from]) pins[edge.from]!.out = true
     if (pins[edge.to]) pins[edge.to]!.in = true
   }
-  return { nodeOf: new Map(view.nodes.map((node) => [node.id, node])), edgeOf: new Map(view.edges.map((edge) => [edge.id, edge])), pins }
+  const nodeOf = new Map([...view.hidden, ...view.nodes].map((node) => [node.id, node]))
+  return { nodeOf, edgeOf: new Map(view.edges.map((edge) => [edge.id, edge])), pins }
 }
+
+/** Where a node is drawn: a folded test on its card, any other node as itself. */
+export const drawnAs = (view: Pick<ReviewView, 'groupOf'>, nodeId: string): string => view.groupOf[nodeId] ?? nodeId
 
 export function createSession(review: Review, memory: StoreApi<MemoryState>): SessionStore {
   const viewNow = () => applyMemory(review, memory.getState().of(review))
@@ -180,8 +191,9 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         hovered: null,
         hover: hoverLevels(next.view, null),
         pointed: null,
-        // The notes panel belongs to what it was opened beside.
+        // The notes panel belongs to what it was opened beside, and so does a card's list of tests.
         notesShown: null,
+        opened: null,
         // An open code panel follows the story, so stepping with code on screen reads like a tour.
         code: before.code == null ? null : (codeTarget(next.view, next.focus) ?? before.code),
       })
@@ -219,6 +231,7 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       asks: [],
       talking: false,
       notesShown: null,
+      opened: null,
 
       step: (delta) => {
         const { story } = get()
@@ -235,8 +248,10 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       },
       focusOn: (nodeId) => {
         const { story, focus } = get()
-        if (!(focus.length === 1 && focus[0] === nodeId)) apply(focusNode(graph(), story, nodeId), 'detour')
-        if (get().nodeOf.has(nodeId)) set({ pointed: nodeId })
+        // A folded test is focused on its card.
+        const drawn = drawnAs(get().view, nodeId)
+        if (!(focus.length === 1 && focus[0] === drawn)) apply(focusNode(graph(), story, drawn), 'detour')
+        if (get().nodeOf.has(drawn)) set({ pointed: drawn })
       },
       back: () => {
         const { story } = get()
@@ -260,7 +275,8 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         const { view, focus } = get()
         const target = nodeId ?? codeTarget(view, focus)
         if (!target) return false
-        if (nodeId && !focus.includes(nodeId)) get().focusOn(nodeId)
+        // A folded test shows its own code, with its card in focus.
+        if (nodeId && !focus.includes(drawnAs(view, nodeId))) get().focusOn(nodeId)
         set({ code: target, wire: null })
         return true
       },
@@ -327,7 +343,9 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         const { story, wire, selection, view, pointed } = get()
         const step = view.story[story.step]
         if (!step) return
-        const target = noteTarget({ step: step.id, detour: story.detour ?? pointed, wire, selection })
+        // A note on a card of folded tests is about its first test: a node of the review, which hobkin can read.
+        const on = story.detour ?? pointed
+        const target = noteTarget({ step: step.id, detour: on ? (get().view.groups[on]?.tests[0] ?? on) : null, wire, selection })
         const draft = memory.getState().of(review).draft
         // A draft left behind is picked up again, unless it was an edit of another note.
         memory.getState().setDraft(review, { intent, text: draft && !draft.editing ? draft.text : '' })
@@ -396,8 +414,13 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
           set({ notesShown: { kind: 'step', step: step.id } })
           return
         }
-        if (target.node == null || !get().nodeOf.has(target.node)) return close()
-        set({ notesShown: { kind: 'node', node: target.node } })
+        const node = target.node == null ? null : drawnAs(get().view, target.node)
+        if (node == null || !get().nodeOf.has(node)) return close()
+        set({ notesShown: { kind: 'node', node } })
+      },
+      openTests: (groupId) => {
+        const opened = groupId != null && get().view.groups[groupId] ? groupId : null
+        if (opened !== get().opened) set({ opened })
       },
     }
   })
