@@ -8,7 +8,7 @@ import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { runWorkCommand, workStatus } from '../src/cli/work/commands.mjs';
 import { publishItem } from '../src/cli/work/controls.mjs';
-import { addIssue, githubRepoOf, projectOfRepo } from '../src/cli/work/issues.mjs';
+import { addIssue, filedIssues, githubRepoOf, projectOfRepo } from '../src/cli/work/issues.mjs';
 import { projectsView } from '../src/cli/work/reads.mjs';
 import {
   chooseProject, prFile, paths, proposeProject, readItems, readMode, readProject, recordTokens, setProjectIssues, setProjectPaused, updateItem, writeMode,
@@ -77,6 +77,24 @@ test('an issue added from the GitHub page is filed on its project, first in the 
   updateItem(root, 'api', item.id, { state: 'dropped' });
   assert.match(addIssue(root, 'api', issue(12)).message, /already filed on api as [0-9a-f]{6}, dropped\. Nothing changed\.$/);
   assert.deepEqual(readItems(root, 'api').map(({ state }) => state), ['dropped'], 'one item, in whatever case the repository is written');
+});
+
+test('the work filed for an issue is found by the issue, in any case, with its project, and a taken project speaks for it first', t => {
+  const { root } = home(t);
+  proposeProject(root, { name: 'old-api', remote: 'https://github.com/acme/api.git', level: 'casual' });
+  addIssue(root, 'old-api', issue(12));
+  taken(root, 'api');
+  const { id } = addIssue(root, 'api', issue(12));
+  addIssue(root, 'api', issue(13));
+  updateItem(root, 'api', id, { state: 'pr', pr: 'https://example.invalid/pull/3' });
+
+  const filedFor = filedIssues(root);
+
+  const { project, item } = filedFor({ repo: 'Acme/API', number: 12 });
+  assert.deepEqual([project.slug, item.id, item.state, item.pr], ['api', id, 'pr', 'https://example.invalid/pull/3']);
+  assert.equal(filedFor({ repo: 'acme/api', number: 13 }).item.state, 'open');
+  assert.equal(filedFor({ repo: 'acme/api', number: 14 }), null, 'an issue with nothing filed');
+  assert.equal(filedFor({ repo: 'acme/web', number: 12 }), null, 'the same number on another repository');
 });
 
 test('an issue is a fix when labeled a bug, security work when labeled security, and an improvement otherwise', t => {

@@ -44,8 +44,24 @@ export async function projectOfRepo(root, repo) {
 }
 
 /** GitHub matches repositories in any case, so the key does too. */
-const issueKey = ({ repo, number }) => `gh-issue:${repo.toLowerCase()}#${number}`;
+const ISSUE_KEY = 'gh-issue:';
+const issueKey = ({ repo, number }) => `${ISSUE_KEY}${repo.toLowerCase()}#${number}`;
 const named = ({ repo, number }) => `${repo}#${number}`;
+
+/**
+ * What hobkin has filed for GitHub issues, from one read of every project's items: a lookup from an issue's `{ repo, number }` to its item and
+ * that item's project, or null for an issue with nothing filed. A taken project speaks for an issue before one only proposed or left alone.
+ */
+export function filedIssues(root) {
+  const filed = new Map();
+  const rank = ({ state }) => (STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length);
+  for (const project of readProjects(root).toSorted((left, right) => rank(right) - rank(left))) {
+    for (const item of readItems(root, project.slug)) {
+      if (item.key?.startsWith(ISSUE_KEY)) filed.set(item.key, { project, item });
+    }
+  }
+  return issue => filed.get(issueKey(issue)) ?? null;
+}
 
 const labelNames = labels => (Array.isArray(labels) ? labels : []).map(label => String((typeof label === 'string' ? label : label?.name) ?? '').toLowerCase());
 
