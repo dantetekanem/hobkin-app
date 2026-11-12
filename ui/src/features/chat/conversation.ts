@@ -27,6 +27,8 @@ export interface NoticeEntry {
   /** How many identical notices in a row this line stands for. */
   count: number
   at: number | null
+  /** A review this notice is about, such as one that is ready: the chat offers to open it. */
+  review?: string
 }
 
 export interface ShellEntry extends ShellFields {
@@ -93,7 +95,17 @@ function entryOf(message: ChatMessage): Entry {
   const shell = shellFields(message)
   if (shell) return { kind: 'shell', key: message.id, ...shell, text: shell.output, at, outcome: shell.cancelled ? 'cancelled' : shell.exitCode === null ? 'unknown' : shell.exitCode === 0 ? 'success' : 'failed' }
   if (message.role === 'notice' || message.role === 'system') {
-    return { kind: 'notice', key: message.id, text: message.content, tone: message.role === 'system' ? 'system' : (message.tone ?? 'quiet'), count: 1, at }
+    // hobkin's notice that a review is ready names it; the shared message type does not declare the field.
+    const review = (message as { review?: unknown }).review
+    return {
+      kind: 'notice',
+      key: message.id,
+      text: message.content,
+      tone: message.role === 'system' ? 'system' : (message.tone ?? 'quiet'),
+      count: 1,
+      at,
+      ...(typeof review === 'string' && review ? { review } : {}),
+    }
   }
   return {
     kind: 'message',

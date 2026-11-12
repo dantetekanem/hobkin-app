@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
+import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -270,6 +271,7 @@ const TONE_NAME: Record<NoticeEntry['tone'], string> = {
 
 function Notice({ entry }: { entry: NoticeEntry }) {
   const quiet = entry.tone === 'quiet'
+  const { review } = entry
   return (
     <>
       {/* The tone is said in words for a screen reader, and shown as a color for the eye. */}
@@ -278,6 +280,15 @@ function Notice({ entry }: { entry: NoticeEntry }) {
       <span className={cn('min-w-0 flex-1 text-[13px] leading-snug break-words', quiet ? 'text-muted-foreground' : 'text-foreground')}>
         {entry.text}
         {entry.count > 1 ? <span className="ml-1.5 text-muted-foreground tabular-nums">×{entry.count}</span> : null}
+        {review ? (
+          <button
+            type="button"
+            className="ml-2 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
+            onClick={() => useView.getState().openReviewFor(review)}
+          >
+            Open review
+          </button>
+        ) : null}
       </span>
       {entry.at === null ? null : (
         <time dateTime={new Date(entry.at).toISOString()} className="shrink-0 text-[11px] text-muted-foreground tabular-nums">

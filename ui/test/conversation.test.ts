@@ -226,3 +226,12 @@ test('what the app says for the user only sits where it was said', () => {
   const late = { ...help, id: 'local:note:2', at: Date.parse('2026-11-09T14:30:00Z') }
   assert.deepEqual(keys(buildConversation({ messages: stored, local: [help, late], now: NOW, timeZone: 'UTC' })[0]!.entries), ['u1', 'local:note:1', 'u2', 'local:note:2'])
 })
+
+test('a notice that a review is ready carries the review, so the chat can open it', () => {
+  const ready = { id: 'notice:client:review-ready:change:shop:4c9e21', role: 'notice', content: 'The change review of "Round the total" in shop is ready.', tone: 'useful', review: 'change:shop:4c9e21', at: Date.parse('2026-11-12T15:00:00Z') } as ChatMessage
+  const plain: ChatMessage = { id: 'n2', role: 'notice', content: 'A report arrived', tone: 'quiet', at: Date.parse('2026-11-12T15:01:00Z') }
+
+  const entries = buildConversation({ messages: [ready, plain], now: Date.parse('2026-11-12T16:00:00Z'), timeZone: 'UTC' }).flatMap((day) => day.entries)
+
+  assert.deepEqual(entries.map((entry) => (entry.kind === 'notice' ? entry.review ?? null : 'not a notice')), ['change:shop:4c9e21', null])
+})
