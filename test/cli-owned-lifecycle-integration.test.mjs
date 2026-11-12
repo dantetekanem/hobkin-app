@@ -10,6 +10,7 @@ import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { createOwnedLifecycle } from '../src/cli/owned-agent-lifecycle.mjs';
 import { runHarness } from '../src/cli/harnesses.mjs';
+import { WorkDirector } from '../src/cli/work/director.mjs';
 
 for (const name of ['spawn', 'exec', 'execFile', 'fork']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
 syncBuiltinESMExports();
@@ -158,6 +159,124 @@ test('application close invalidates owned admission before waiting for main idle
     idle: async () => { assert.equal(order[0], 'owned'); order.push('idle'); }, close: async () => order.push('close') };
   await app.close();
   assert.deepEqual(order, ['owned', 'abort', 'idle', 'close']);
+});
+
+test('parent Force before transport capture binds only the admitted run/harness, before startup awaits', { timeout: 1000 }, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = runtimeFixture(createOwnedLifecycle({ startProcess: () => { throw Error('No helpers'); } }));
+  const ready = Promise.withResolvers(), closed = Promise.withResolvers(), calls = [];
+  const harnessId = '11111111-1111-4111-8111-111111111111';
+  const work = f.runtime.dispatch({ id: 'parent', kind: 'background', harnessId }, async signal => {
+    await ready.promise;
+    return runHarness({ id: harnessId, harness: 'pi', model: 'test/model', effort: 'medium', cwd: fixtureHome,
+      prompt: 'check', sessionFile: `${fixtureHome}/captured.jsonl`, signal }, {
+      onControl: child => f.runtime.bindHarness('parent', harnessId, child),
+      startProcess: () => ({ closed: closed.promise, force() { calls.push('force'); }, terminate() {},
+        async request(type) { calls.push(type); throw Error('Startup interrupted'); } }),
+    });
+  });
+  await tick();
+  assert.throws(() => f.runtime.bindHarness('parent', 'wrong-harness', {}), /identity|harness/i);
+  const force = f.runtime.forceRun('parent'); ready.resolve(); await tick();
+  assert.deepEqual(calls.slice(0, 2), ['force', 'get_state']);
+  assert.equal(f.runtime.active.get('parent').controller.signal.aborted, true);
+  assert.equal(f.runtime.stopControls().targets[0].runId, 'parent');
+  t.mock.timers.tick(2000); const unknown = await force; assert.equal(unknown.closure.status, 'unknown');
+  const retry = f.runtime.forceRun('parent');
+  closed.resolve({}); assert.equal((await retry).closure.status, 'confirmed'); await work;
+  assert.equal(unknown.closure.status, 'unknown', 'later close cannot rewrite the prior receipt');
+  assert.deepEqual(f.runtime.stopControls().targets, []);
+  assert.throws(() => f.runtime.bindHarness('parent', harnessId, {}), /identity|harness/i);
+});
+
+test('terminal parent retains exact nested control authority and rejects a different root', { timeout: 1000 }, async () => {
+  const transports = [], life = createOwnedLifecycle({ stopMs: 5, startProcess: () => {
+    const closed = Promise.withResolvers(), transport = { closed: closed.promise, resolve: closed.resolve, force() {}, terminate() {}, shutdown: () => closed.promise,
+      request: async type => type === 'get_state' ? { sessionId: 'child', model: { provider: 'test', id: 'model' }, thinkingLevel: 'medium' } : {} };
+    transports.push(transport); return transport;
+  } });
+  const binding = { cwd: fixtureHome, prompt: 'task', model: 'test/model', effort: 'medium', role: 'read', parentRole: 'read' };
+  const parent = life.register({ id: 'finished-parent', allowHelpers: true, binding });
+  life.register({ id: 'other-parent', allowHelpers: true, binding });
+  const child = parent.request({ action: 'spawn', name: 'exact child' }); await tick();
+  await parent.cancel();
+  const app = new HobkinApplication(), f = runtimeFixture(life); app.runtime = f.runtime; app.now = Date.now; app.refresh = async () => {};
+  f.state.runs['finished-parent'] = { id: 'finished-parent', status: 'interrupted', result: { text: 'preserved' } };
+  assert.equal(f.runtime.stopControls().targets[0].agentId, child.id);
+  const args = { kind: 'agent', runId: 'finished-parent', agentId: child.id, mode: 'stop', attemptId: '11111111-1111-4111-8111-111111111111' };
+  await assert.rejects(app.stopExecution({ ...args, runId: 'other-parent' }), /target|scope|identity/i);
+  assert.equal((await app.stopExecution(args)).closure.status, 'unknown');
+  const force = app.stopExecution({ ...args, mode: 'force' }); transports[0].resolve({});
+  assert.equal((await force).closure.status, 'confirmed');
+  assert.equal(f.state.runs['finished-parent'].result.text, 'preserved'); assert.deepEqual(f.runtime.stopControls().targets, []);
+  await life.close();
+});
+
+test('Work Force pins user intent and decline before immediate close; legacy Stop keeps its disposition', { timeout: 1000 }, async () => {
+  const f = runtimeFixture(createOwnedLifecycle()), app = new HobkinApplication();
+  const closed = Promise.withResolvers(), done = Promise.withResolvers(), pendingStop = Promise.withResolvers(), workRun = { id: 'work:exact', title: 'Work', item: 'item' };
+  const director = Object.create(WorkDirector.prototype); director.root = fixtureHome; director.active = new Map([[workRun.id, workRun]]);
+  app.runtime = f.runtime; app.director = director; app.now = Date.now; app.refresh = async () => {};
+  let stops = 0;
+  app.runner = director.runner = { kill() { assert.equal(++stops, 1, 'Force cannot enter the pending runner Stop'); return pendingStop.promise; } };
+  const completion = f.runtime.dispatch({ id: workRun.id, kind: 'background', harnessId: 'exact', work: { lane: 'do' } }, () => done.promise);
+  await tick(); f.runtime.bindHarness(workRun.id, 'exact', { closed: closed.promise, force() {
+    assert.equal(workRun.declined, true); assert.equal(f.runtime.active.get(workRun.id).userStop.reason, 'Not approved.');
+    closed.resolve({}); done.resolve({ status: 'interrupted', text: 'Partial Work' });
+  } });
+  const args = { kind: 'run', runId: workRun.id, how: 'not-approved', attemptId: '11111111-1111-4111-8111-111111111111' };
+  const stopping = app.stopExecution({ ...args, mode: 'stop' });
+  const result = await app.stopExecution({ ...args, mode: 'force' });
+  assert.equal(result.closure.status, 'confirmed'); assert.equal(result.stop.status, 'confirmed'); await completion;
+  pendingStop.resolve(true); assert.equal((await stopping).stop.status, 'confirmed');
+  assert.equal(f.state.runs[workRun.id].userStop.reason, 'Not approved.'); assert.equal(f.state.runs[workRun.id].result.text, 'Partial Work');
+  let stop; director.runner = { kill: async (_id, value) => { stop = value; return true; } };
+  workRun.declined = false; assert.equal(await director.stopRun(workRun.id, { decline: true }), workRun);
+  assert.equal(stop.reason, 'Not approved.'); assert.equal(workRun.declined, true);
+  workRun.declined = false;
+  await assert.rejects(director.stopRun(workRun.id, { decline: true, stopOperation: async () => { throw Object.assign(Error('Unknown'), { code: 'STOP_UNCONFIRMED' }); } }), { code: 'STOP_UNCONFIRMED' });
+  assert.equal(workRun.declined, true);
+  assert.equal(await director.stopRun(workRun.id, { stopOperation: async () => true }), workRun);
+});
+
+test('a stale Work Stop cannot undo a newer unconfirmed not-approved Force', { timeout: 10000 }, async t => {
+  for (const outcome of ['false', 'error']) await t.test(outcome, { timeout: 10000 }, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = runtimeFixture(createOwnedLifecycle()), app = new HobkinApplication();
+    const closed = Promise.withResolvers(), done = Promise.withResolvers(), pendingStop = Promise.withResolvers();
+    const workRun = { id: `work:stale-${outcome}`, title: 'Work', item: 'item' };
+    const director = Object.create(WorkDirector.prototype); director.root = fixtureHome; director.active = new Map([[workRun.id, workRun]]);
+    app.runtime = f.runtime; app.director = director; app.now = Date.now; app.refresh = async () => {};
+    app.runner = director.runner = { kill: () => pendingStop.promise };
+    const completion = f.runtime.dispatch({ id: workRun.id, kind: 'background', harnessId: 'exact', work: { lane: 'do' } }, () => done.promise);
+    await tick();
+    f.runtime.bindHarness(workRun.id, 'exact', { closed: closed.promise, force: () => assert.equal(workRun.declined, true) });
+
+    const args = { kind: 'run', runId: workRun.id, attemptId: '11111111-1111-4111-8111-111111111111' };
+    const olderStop = app.stopExecution({ ...args, how: 'for-now', mode: 'stop' });
+    await tick();
+    const force = app.stopExecution({ ...args, how: 'not-approved', mode: 'force' });
+    t.mock.timers.tick(2000); await tick();
+    assert.equal((await olderStop).stop.status, 'unknown');
+    t.mock.timers.tick(2000);
+    assert.equal((await force).closure.status, 'unknown');
+    assert.equal(workRun.declined, true);
+
+    if (outcome === 'false') pendingStop.resolve(false);
+    else pendingStop.reject(Error('older Stop failed'));
+    await tick(); await tick();
+    assert.equal(workRun.declined, true);
+
+    workRun.declined = false;
+    await assert.rejects(director.stopRun(workRun.id, { decline: true, stopOperation: async () => { throw Error('own Stop failed'); } }), /own Stop failed/);
+    assert.equal(workRun.declined, false);
+    const staleDecline = Promise.withResolvers();
+    const stale = director.stopRun(workRun.id, { decline: true, stopOperation: () => staleDecline.promise });
+    await director.stopRun(workRun.id, { decline: true, stopOperation: async () => true });
+    staleDecline.resolve(false); assert.equal(await stale, null); assert.equal(workRun.declined, true);
+    closed.resolve({}); done.resolve({ status: 'interrupted', text: 'partial' }); await completion;
+    await f.runtime.close();
+  });
 });
 
 test('presentDecision carries the authoritative next-unshown ID into the question', { timeout: 1000 }, async () => {

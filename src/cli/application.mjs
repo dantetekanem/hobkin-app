@@ -2,7 +2,7 @@ import { watch } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
-import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES } from './runtime.mjs';
+import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES, controlWait, descendantReceipt } from './runtime.mjs';
 import { createOwnedLifecycle } from './owned-agent-lifecycle.mjs';
 import { HobkinRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
@@ -186,7 +186,7 @@ export class HobkinApplication {
       onChange: () => app.requestRefresh(),
     });
     app.runtime = await HobkinRuntime.open(root, app.config, {
-      ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle(),
+      ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle({ onChange: () => app.requestRefresh() }),
       createMain,
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
@@ -205,10 +205,14 @@ export class HobkinApplication {
         request.signal?.addEventListener('abort', cancel, { once: true });
         try {
           request.signal?.throwIfAborted();
-          return await run(request, { ...options, metricsRoot, ownedScope });
+          return await run(request, { ...options, metricsRoot, ownedScope,
+            onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
+          });
         } finally {
           request.signal?.removeEventListener('abort', cancel);
-          await ownedScope?.cancel();
+          const cleanup = await ownedScope?.cancel();
+          const active = admission && app.runtime.active.get(admission.id);
+          if (active) active.cleanup = cleanup;
         }
       };
       moveRoutinesFolder(app.runtime.directory);
@@ -611,6 +615,7 @@ export class HobkinApplication {
       ...visible,
       jobActivity,
       jobChildren,
+      stopControls: this.runtime.stopControls(),
       steeringReceipts: this.runner.steeringReceipts(),
       completedJobReports,
       counts: loaded.counts,
@@ -736,15 +741,69 @@ export class HobkinApplication {
    * did from a card. What the agent never read goes back to the user as they typed it. Null when no turn was running.
    */
   async interrupt() {
+    const turn = this.runtime.mainTurn;
     const unsent = await this.runtime.interrupt();
     if (!unsent) return null;
-
-    recordCardAction(this.runtime.directory, { did: 'stopped your turn', line: 'You stopped hobkin.' }, this.now());
-    // A refresh already under way read the state before the stop, and the screen must show it.
+    const recovery = this.recoverMainStop(turn);
     await this.refreshing?.catch(() => {});
     await this.refresh();
+    return recovery.unsent;
+  }
 
-    return unsent.map(text => typedPart(text).text);
+  recoverMainStop(turn, confirmed = true) {
+    if (confirmed && !turn.stopNoticed) {
+      recordCardAction(this.runtime.directory, { id: `main-stop:${turn.id}`, did: 'stopped your turn', line: 'You stopped hobkin.' }, this.now());
+      turn.stopNoticed = true;
+    }
+    if (!turn.unread) return { status: 'unknown' };
+    const alreadyReturned = turn.draftsReturned === true;
+    turn.draftsReturned = true;
+    return { status: 'confirmed', unsent: alreadyReturned ? [] : turn.unread.map(text => typedPart(text).text), ...(alreadyReturned ? { alreadyReturned: true } : {}) };
+  }
+
+  async stopExecution({ kind, runId, agentId, mode, attemptId, how }) {
+    if (!['stop', 'force'].includes(mode) || !this.runtime.stopControls().targets.some(target => target.kind === kind && target.runId === runId && target.agentId === agentId)) throw Error('Stale execution target.');
+    if (how !== undefined && (kind !== 'run' || !this.runtime.active.get(runId)?.request.work || !['for-now', 'not-approved'].includes(how))) throw Error('Stop disposition requires a Work parent.');
+    const receipt = { target: { kind, runId, ...(agentId ? { agentId } : {}) }, mode, attemptId,
+      stop: { status: 'not-attempted' }, closure: { status: 'not-attempted' },
+      descendants: { status: 'not-attempted', agents: [], cleanupScope: 'none', detachedCleanup: 'unknown' }, queueRecovery: { status: 'not-attempted' } };
+    if (kind === 'main') {
+      const turn = this.runtime.mainTurn;
+      const forced = mode === 'force' ? this.runtime.forceMain(turn) : null;
+      const stopped = this.runtime.stopTurn(turn).catch(error => { if (error.code !== 'STOP_UNCONFIRMED') throw error; });
+      if (forced) { Object.assign(receipt, await forced); void stopped.catch(() => {}); await controlWait(turn.recovery?.catch(() => {})); }
+      else await stopped;
+      receipt.stop.status = turn.cancellationConfirmed ? 'confirmed' : 'unknown';
+      if (!forced) receipt.descendants = descendantReceipt(turn.cleanup ?? (turn.owned ? undefined : { confirmed: true, agents: [] }));
+      receipt.queueRecovery = this.recoverMainStop(turn, turn.cancellationConfirmed || (receipt.closure.status === 'confirmed' && receipt.descendants.status === 'confirmed'));
+    } else if (kind === 'agent') {
+      const cleanup = await controlWait(mode === 'force' ? this.runtime.ownedLifecycle.force(runId, agentId) : this.runtime.ownedLifecycle.stop(runId, agentId));
+      receipt.descendants = descendantReceipt(cleanup);
+      receipt[mode === 'force' ? 'closure' : 'stop'].status = receipt.descendants.status;
+      receipt.closure.status = receipt.descendants.status;
+    } else {
+      const active = this.runtime.active.get(runId);
+      const operation = async (_id, stop) => {
+        if (mode === 'stop') return this.runner.kill(runId, stop);
+        Object.assign(receipt, await this.runtime.forceRun(runId, stop));
+        const ended = await controlWait(active.completion);
+        if (ended?.status !== 'interrupted') throw Object.assign(Error('Stop outcome is unconfirmed.'), { code: 'STOP_UNCONFIRMED' });
+        return true;
+      };
+      try {
+        const stopping = active.request.work
+          ? this.director.stopFromScreen(runId, how === 'not-approved' ? 'decline' : 'for-now', operation)
+          : operation(runId, { source: 'user', reason: 'Stopped from the agent view.' });
+        const result = mode === 'force' ? await stopping : await controlWait(stopping);
+        receipt.stop.status = result ? 'confirmed' : 'unknown';
+      } catch (error) { if (error.code !== 'STOP_UNCONFIRMED') throw error; receipt.stop.status = 'unknown'; }
+      if (mode === 'stop') {
+        receipt.closure.status = active.transportClosed ? 'confirmed' : 'unknown';
+        receipt.descendants = descendantReceipt(active.cleanup);
+      }
+    }
+    this.requestRefresh();
+    return receipt;
   }
 
   workView() {

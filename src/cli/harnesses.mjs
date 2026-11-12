@@ -76,7 +76,7 @@ export const namingExtensions = run => async (request, options) => {
 };
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, metricsRoot, ownedScope } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope } = {}) {
   const invocation = buildInvocation(request);
   if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw Error('Invalid harness bounds.');
   const result = {
@@ -165,7 +165,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       onRecord: accept,
       onFail: error => settled.reject(error),
     });
+    onControl(child);
   } catch (error) {
+    child?.terminate();
+    if (child) await child.closed;
     return { ...result, error: clean(error.message) };
   }
   child.closed.then(({ error }) => settled.reject(error));

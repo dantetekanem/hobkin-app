@@ -4,10 +4,10 @@ import { createOwnedAgentAdapter } from './owned-agent-session.mjs';
 import { createOwnedAgentTool } from './owned-agent-tool.mjs';
 
 /** Host bindings and joins around the tree; no process ownership or persisted replay. */
-export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProcess, stopMs, onEvent = () => {}, onStats } = {}) {
+export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProcess, stopMs, onEvent = () => {}, onStats, onChange = () => {} } = {}) {
   const scopes = new Map(), roots = new Set(), partial = new Map();
   let closing = false, changed = Promise.withResolvers();
-  const notify = () => { changed.resolve(); changed = Promise.withResolvers(); };
+  const notify = () => { changed.resolve(); changed = Promise.withResolvers(); onChange(); };
   const fact = ({ id, parentId, status, report }) => ({ id, parentId, status, report: (report ?? partial.get(id) ?? '').slice(0, 512) });
   const adapter = createOwnedAgentAdapter({ startProcess, stopMs, onStats,
     bindingFor: identity => scopes.get(identity.id)?.binding,
@@ -92,6 +92,14 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
         || !/^[^/\s]+\/\S+$/.test(binding.model ?? '') || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(binding.effort))) throw Error('Invalid owned host authority');
       tree.registerRoot({ id, allowHelpers }); roots.add(id);
       return scope(id, { ...binding, allowHelpers });
+    },
+    targets() {
+      return [...roots].flatMap(runId => tree.list(runId)).filter(node => ['running', 'queued', 'cancelling', 'unknown'].includes(node.status))
+        .map(node => ({ kind: 'agent', runId: node.rootId, agentId: node.id, parentId: node.parentId, rootId: node.rootId, label: node.name, canStop: true, canForce: true }));
+    },
+    stop(scopeId, id) {
+      tree.status(scopeId, id);
+      return scopes.get(id).cancel();
     },
     async force(scopeId, id = scopeId) {
       tree.status(scopeId, id); // Captured identity remains authoritative after its model scope is invalidated.

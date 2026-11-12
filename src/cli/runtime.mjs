@@ -36,6 +36,16 @@ const RuntimeDoc = defineDoc({
   checkpointWhen: () => false,
   initial: () => ({ main: null, sessionBaselines: {}, runs: {}, lastTick: null }),
 });
+export async function controlWait(promise) {
+  let timer;
+  try { return await Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]); }
+  finally { clearTimeout(timer); }
+}
+export const descendantReceipt = result => ({
+  status: result?.confirmed === true ? 'confirmed' : 'unknown',
+  agents: (result?.agents ?? []).map(node => ({ agentId: node.id, status: ['completed', 'cancelled', 'failed'].includes(node.status) ? 'confirmed' : 'unknown' })),
+  cleanupScope: result?.agents?.length ? 'captured-rpc-children' : 'none', detachedCleanup: 'unknown',
+});
 const copy = value => JSON.parse(JSON.stringify(value));
 const costOf = session => {
   const stats = session.getSessionStats();
@@ -404,6 +414,7 @@ export class HobkinRuntime {
       return turn.unread = unread;
     })());
     const cancelled = Promise.all([abort, children, work]).then(([, cleanup]) => {
+      turn.cleanup = cleanup;
       if (turn.owned && cleanup?.confirmed !== true) throw Error('Owned agent cleanup is unconfirmed.');
       turn.cancellationConfirmed = true;
     });
@@ -456,6 +467,7 @@ export class HobkinRuntime {
         }
         return null;
       }
+      if (result.status === 'interrupted' && this.active.get(id)?.userStop) run.userStop = this.active.get(id).userStop;
       if (run.kind !== 'main' && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
         const report = result.text || result.error || 'No result text.';
         const failure = result.text && result.error ? `\n\n---\n\n**Execution failure:** ${result.error}` : '';
@@ -487,8 +499,10 @@ export class HobkinRuntime {
   dispatch(request, effect, onAdmitted) {
     if (this.active.has(request.id)) return this.active.get(request.id).completion;
     const controller = new AbortController();
+    const active = { controller, request, closed: Promise.withResolvers() };
     const completion = Promise.resolve().then(async () => {
       if (!await this.admit(request)) return (await this.state()).runs[request.id];
+      active.admitted = true;
       recordRunStarted(this.directory, request);
       onAdmitted?.();
       let result;
@@ -505,8 +519,57 @@ export class HobkinRuntime {
       await this.finish(request.id, await this.edited(request, result, controller.signal));
       return (await this.state()).runs[request.id];
     });
-    this.active.set(request.id, { controller, completion });
-    return completion.finally(() => this.active.delete(request.id));
+    active.completion = completion;
+    this.active.set(request.id, active);
+    return completion.finally(() => {
+      active.finished = true;
+      if (!active.transport || active.transportClosed) this.active.delete(request.id);
+    });
+  }
+
+  bindHarness(runId, harnessId, child) {
+    const active = this.active.get(runId);
+    if (!active?.admitted || active.request.kind === 'main' || active.request.harnessId !== harnessId || active.transport || active.finished) throw Error('Stale run/harness identity.');
+    active.transport = child;
+    child.closed.then(() => {
+      active.transportClosed = true; active.closed.resolve(true);
+      if (active.finished && this.active.get(runId) === active) this.active.delete(runId);
+      this.notify();
+    });
+    if (active.forceRequested) { child.force(); active.controller.abort(); }
+  }
+
+  async forceRun(runId, stop = { source: 'user', reason: 'Stopped from the agent view.' }) {
+    const active = this.active.get(runId);
+    if (!active?.admitted || active.request.kind === 'main') throw Error('Stale execution target.');
+    if (!active.userStop || stop.reason === 'Not approved.') active.userStop = { source: 'user', reason: stop.reason };
+    active.forceRequested = true;
+    let closure = active.closed.promise;
+    try { if (active.transport && !active.transportClosed) { active.transport.force(); active.controller.abort(); } }
+    catch (error) { closure = Promise.reject(error); }
+    const descendants = this.ownedLifecycle?.targets?.().some(target => target.runId === runId)
+      ? this.ownedLifecycle.force(runId) : Promise.resolve({ confirmed: true, agents: [] });
+    const [closed, cleanup] = await Promise.all([controlWait(closure), controlWait(descendants)]);
+    return { closure: { status: closed === true ? 'confirmed' : 'unknown' }, descendants: descendantReceipt(cleanup) };
+  }
+
+  async forceMain(turn) {
+    if (this.mainTurn !== turn || this.main !== turn.session) throw Error('Stale execution target.');
+    const supported = typeof turn.session.force === 'function';
+    let closure;
+    try { closure = supported ? turn.session.force() : undefined; }
+    catch (error) { closure = Promise.reject(error); }
+    const descendants = turn.owned && this.ownedLifecycle?.force ? this.ownedLifecycle.force(turn.id) : { confirmed: !turn.owned, agents: [] };
+    const [closed, cleanup] = await Promise.all([controlWait(closure), controlWait(descendants)]);
+    return { closure: { status: supported ? closed === true ? 'confirmed' : 'unknown' : 'unsupported' }, descendants: descendantReceipt(cleanup) };
+  }
+
+  stopControls() {
+    const targets = [...this.active].filter(([, active]) => active.admitted && active.request.kind !== 'main')
+      .map(([runId, active]) => ({ kind: 'run', runId, parentId: null, rootId: runId, label: active.request.title ?? runId, canStop: !active.finished, canForce: !active.transportClosed }));
+    const turn = this.mainTurn;
+    if (turn && turn.session === this.main && (turn.stopping || this.active.get(turn.id)?.admitted)) targets.unshift({ kind: 'main', runId: turn.id, parentId: null, rootId: turn.id, label: 'Main conversation', canStop: true, canForce: typeof turn.session.force === 'function' });
+    return { targets: [...targets, ...(this.ownedLifecycle?.targets?.() ?? [])] };
   }
 
   async queueSteering(text, id, turn, images) {

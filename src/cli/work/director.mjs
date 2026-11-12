@@ -71,6 +71,8 @@ const laneKey = (slug, lane) => `${slug}:${lane}`;
 const LEFT_WITHOUT_REPORT = 'An older hobkin left this agent at work in a terminal pane as it closed, and it wrote no report. hobkin now runs work only as its own jobs, so the item waits at the end of the queue with its branch as it is.';
 // A usage limit says nothing about the project, so it counts against nothing.
 const notTheWork = run => Boolean(run?.result?.usageLimit);
+// A stale Stop must not roll back a newer not-approved decision.
+const declineMutations = new WeakMap();
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. Every agent is a Pi job of the runner's, recorded with the other runs. */
 export class WorkDirector {
@@ -107,26 +109,33 @@ export class WorkDirector {
   }
 
   // A no waits for its run to end, so nothing the run records on its way out can stand over it. A run that already ended has nothing to stop.
-  async stopRun(id, { decline = false } = {}) {
+  async stopRun(id, { decline = false, stopOperation = (id, stop) => this.runner.kill(id, stop) } = {}) {
     const run = this.running().find(entry => entry.id === id);
     if (!run) return null;
     const wasDeclined = run.declined;
-    if (run.item && decline) run.declined = true;
-    try {
-      const stopped = await this.runner.kill(id, { source: 'user', reason: decline ? 'Not approved.' : 'Stopped for now.' });
-      if (stopped) return run;
+    const mutation = run.item && decline ? { previous: declineMutations.get(run) } : null;
+    if (mutation) { run.declined = true; declineMutations.set(run, mutation); }
+    const rollback = () => {
+      if (!mutation || declineMutations.get(run) !== mutation) return;
       run.declined = wasDeclined;
+      if (mutation.previous) declineMutations.set(run, mutation.previous);
+      else declineMutations.delete(run);
+    };
+    try {
+      const stopped = await stopOperation(id, { source: 'user', reason: decline ? 'Not approved.' : 'Stopped for now.' });
+      if (stopped) return run;
+      rollback();
       return null;
     } catch (error) {
-      run.declined = wasDeclined;
+      if (error.code !== 'STOP_UNCONFIRMED') rollback();
       throw error;
     }
   }
 
   /** `k` on an agent, once the user has picked how it stops. What they picked is told, so the main agent hears it with their next message. */
-  async stopFromScreen(id, how) {
+  async stopFromScreen(id, how, stopOperation) {
     const decline = how === 'decline';
-    const run = await this.stopRun(id, { decline });
+    const run = await this.stopRun(id, { decline, stopOperation });
     return toldStop(this.root, run, { decline });
   }
 

@@ -22,6 +22,8 @@ const sdkGuard = registerHooks({ resolve(specifier, context, next) {
 after(() => sdkGuard.deregister());
 const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
 const { PiRpcSession } = await import('../src/cli/rpc-session.mjs');
+const { HobkinApplication } = await import('../src/cli/application.mjs');
+const { allCardActions } = await import('../src/cli/work/card-actions.mjs');
 const { createOwnedLifecycle } = await import('../src/cli/owned-agent-lifecycle.mjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const options = { timeout: 2000 };
@@ -281,6 +283,69 @@ test('acknowledged RPC Stop joins callers and clears its escalation timer', opti
   await Promise.all([first, second]);
   t.mock.timers.tick(5000); await tick();
   assert.deepEqual(h.calls, ['abort']);
+});
+
+test('RPC Force bypasses pending Stop and requires captured close, not a signal', options, async t => {
+  const h = rpcFixture(t), permission = new AbortController();
+  h.session.calls.add(permission); h.session.child.force = () => h.calls.push('force');
+  const stopping = observe(h.session.abort()), forced = observe(h.session.force());
+  assert.deepEqual(h.calls, ['abort', 'force']);
+  assert.equal(permission.signal.aborted, true);
+  await tick(); assert.equal(forced.value, undefined);
+  t.mock.timers.tick(2000); await tick(); assert.equal(forced.value, false);
+  const retry = h.session.force(); h.closed.resolve({ error: Error('Closed') });
+  assert.equal(await retry, true); await tick(); assert.equal(stopping.error, undefined);
+});
+
+function application(h) {
+  const app = new HobkinApplication(); app.runtime = h.runtime; app.now = Date.now;
+  app.refresh = async () => {}; return app;
+}
+const control = (mode, attemptId = '11111111-1111-4111-8111-111111111111') => ({ kind: 'main', runId: 'original', mode, attemptId });
+
+test('main Force starts parent and descendants during pending Stop; drafts and notice are claimed once', options, async t => {
+  const h = fixture(t), abort = Promise.withResolvers(), calls = [], app = application(h);
+  h.cleanup.push(() => abort.resolve()); h.session.abort = () => abort.promise;
+  h.runtime.ownedLifecycle.force = async id => { calls.push(id); return { confirmed: true, agents: [] }; };
+  h.session.force = async () => { calls.push('parent'); return true; };
+  await h.runtime.send('Original', 'original'); await h.runtime.send('Unread draft', 'draft');
+  const stopped = app.stopExecution(control('stop')); await tick();
+  const forced = app.stopExecution(control('force', '22222222-2222-4222-8222-222222222222'));
+  await tick(); assert.deepEqual(calls, ['parent', 'original']);
+  assert.equal(h.runtime.stopControls().targets[0].runId, 'original');
+  const forceReceipt = await forced;
+  assert.equal(forceReceipt.closure.status, 'confirmed'); assert.equal(forceReceipt.descendants.status, 'confirmed');
+  abort.resolve(); h.prompt.reject(Error('Cancelled')); const stopReceipt = await stopped;
+  assert.equal(stopReceipt.attemptId, control('stop').attemptId);
+  assert.equal(forceReceipt.attemptId, '22222222-2222-4222-8222-222222222222');
+  assert.deepEqual([...forceReceipt.queueRecovery.unsent, ...stopReceipt.queueRecovery.unsent], ['Unread draft']);
+  assert.equal(stopReceipt.queueRecovery.alreadyReturned, true);
+  assert.equal(allCardActions(h.runtime.directory).filter(action => action.id === 'main-stop:original').length, 1);
+});
+
+test('main Force still reaches descendants when the parent transport throws', options, async t => {
+  const h = fixture(t), app = application(h), children = [];
+  h.session.force = () => { throw Error('Transport failed'); };
+  h.runtime.ownedLifecycle.force = async id => { children.push(id); return { confirmed: true, agents: [] }; };
+  await h.runtime.send('Original', 'original');
+  await assert.rejects(app.stopExecution(control('force')), /Transport failed/);
+  assert.deepEqual(children, ['original']);
+});
+
+test('main SDK Force reports unsupported and never retries failed destructive queue recovery', options, async t => {
+  const h = fixture(t), app = application(h); let recoveries = 0;
+  h.session.clearQueue = () => { recoveries++; throw Error('Lost drain'); };
+  await h.runtime.send('Original', 'original');
+  const first = await app.stopExecution(control('force'));
+  await h.runtime.idle();
+  const second = await app.stopExecution(control('stop'));
+  assert.equal(second.stop.status, 'confirmed');
+  assert.equal(first.closure.status, 'unsupported');
+  assert.deepEqual(first.queueRecovery, { status: 'unknown' }); assert.deepEqual(second.queueRecovery, { status: 'unknown' });
+  assert.equal(recoveries, 1); assert.equal(h.runtime.stopControls().targets[0].runId, 'original');
+  assert.equal(allCardActions(h.runtime.directory).filter(action => action.id === 'main-stop:original').length, 1);
+  await assert.rejects(app.stopExecution({ ...control('force'), runId: 'other' }), /target|identity/i);
+  await assert.rejects(app.stopExecution({ ...control('stop'), how: 'not-approved' }), /Work parent/);
 });
 
 test('a queue transport failure is unknown, never a fabricated empty queue', options, async t => {

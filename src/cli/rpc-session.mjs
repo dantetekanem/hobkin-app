@@ -248,6 +248,12 @@ export class PiRpcSession {
     return this.aborting;
   }
 
+  force() {
+    for (const controller of this.calls) controller.abort();
+    this.child.force();
+    return within(this.child.closed, 2000, 'Main Pi closure is unconfirmed.').then(() => true, () => false);
+  }
+
   waitForIdle() {
     return this.isStreaming ? new Promise(resolve => this.idle.add(resolve)) : Promise.resolve();
   }
