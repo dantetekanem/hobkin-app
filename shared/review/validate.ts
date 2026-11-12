@@ -19,6 +19,18 @@ export function kindName(kind: NodeKind): string {
   return KIND_NAME[kind]
 }
 
+/**
+ * A node's place in the life cycle: unchanged context is a caller or a callee at least a call away; changed code or a
+ * file is `changed`, its entry some calls out, or none when it is the entry. Either may say its path in a line.
+ */
+function inLifeCycle(node: ReviewNode): boolean {
+  const lifecycle: unknown = node.lifecycle
+  if (!isRecord(lifecycle) || (lifecycle.path !== undefined && (!isCleanProse(lifecycle.path, PROSE_LIMIT.summary) || !lifecycle.path))) return false
+  const { role, hops } = lifecycle
+  if (node.kind === 'context') return (role === 'caller' || role === 'callee') && isLine(hops) && hops <= 9
+  return (node.kind === 'code' || node.kind === 'file') && role === 'changed' && isCount(hops) && hops <= 9
+}
+
 /** Why a wire of this kind cannot join these two kinds, or undefined when it can. */
 export function wireProblem(kind: ReviewEdge['kind'], from: NodeKind, to: NodeKind): string | undefined {
   const rule = WIRE_RULES[kind]
@@ -96,8 +108,8 @@ export function validateReview(value: unknown): string[] {
     if (node.supports !== undefined && (node.kind !== 'test' || !Array.isArray(node.supports) || node.supports.some((id) => typeof id !== 'string'))) problems.push(`${name}: only a test helper names the tests it supports.`)
     if (node.io !== undefined && (!isRecord(node.io) || !isCleanProse(node.io.in, PROSE_LIMIT.io) || !isCleanProse(node.io.out, PROSE_LIMIT.io))) problems.push(`${name}: what goes in and out must be plain text.`)
     if (node.stats !== undefined && (!isRecord(node.stats) || !isCount(node.stats.additions) || !isCount(node.stats.deletions))) problems.push(`${name} must count its added and removed lines.`)
-    if (node.lifecycle !== undefined && (node.kind !== 'context' || !isRecord(node.lifecycle) || !['caller', 'callee'].includes(node.lifecycle.role) || !isLine(node.lifecycle.hops) || node.lifecycle.hops > 9)) {
-      problems.push(`${name}: only context has a place in the life cycle, as a caller or a callee some calls away.`)
+    if (node.lifecycle !== undefined && !inLifeCycle(node)) {
+      problems.push(`${name}: context has a place in the life cycle as a caller or a callee some calls away, and changed code or a file as changed, some calls from its entry; its path is a line of plain words.`)
     }
     if (node.entry !== undefined && (!['code', 'context'].includes(node.kind) || !isRecord(node.entry) || typeof node.entry.kind !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(node.entry.kind) || typeof node.entry.exact !== 'boolean')) {
       problems.push(`${name}: an entry point is code or context, with a kind and whether it is exact.`)
