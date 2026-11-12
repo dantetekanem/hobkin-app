@@ -15,15 +15,21 @@ These requests remain in their existing queue positions, not moved ahead of olde
 
 ## Custom-theme checkpoint: implemented, not finally accepted
 
-The runtime, host and Settings slices are present. Settings submits a dedicated theme request rather than using the main chat. A host-bound, nondelegating child receives only fixed-file `custom_style` read/replace operations. The existing five palette colors and two optional border colors are the entire styling scope. Configured launchers are refused. Main `appearance.set` compatibility remains.
+At the last lead-verified revision, all three slices were present: Settings submitted a dedicated theme request rather than using the main chat, and a host-bound, nondelegating child received only fixed-file `custom_style` read/replace operations. The approved scope was five palette colors and two optional border colors, with configured launchers refused and main `appearance.set` compatibility preserved. Concurrent edits during checkpointing mean this is a description of that verified revision, not a claim about the latest working tree.
 
 The UI correlates an ask only through its acknowledged operation ID and exact saved appearance ID. Lost acknowledgement remains unknown, with no automatic retry. A saved theme, child completion and cleanup are separate facts.
 
 - Runtime checkpoint: `93402ef5802f3f5a8674706420ce5db2b3dd9722` in `../hobkin`, branch `client/background-work`.
-- The companion client checkpoint contains the host/Settings changes, their fixtures and these notes.
+- A concurrent session's client commit, `61c5ea774fb4be9824dc0b9aafbb25f755246578`, picked up the staged host/Settings files and these notes alongside six unrelated Work files. It is a mixed commit, not this lead's isolated client commit. Its history was left intact.
 - **68 remains incomplete:** reconcile the stopped runtime/host post-processing edits, finish only what is still necessary, and verify the final combined files. The agents did not deliver accepted final handoffs.
 - **69 remains unstarted:** independent security/source acceptance, followed by lead reconciliation.
 - The commit is a WIP checkpoint, not proof that the integrated feature is ready.
+
+### Concurrent checkout changes to reconcile
+
+The client HEAD advanced while this checkpoint was being prepared. Before staging, the hashes of `rules.ts`, `store.ts` and `settings-theme-ask.test.ts` under the Settings feature/test paths no longer matched this session's last verified files. After the mixed commit, further unowned changes appeared in `SettingsScreen.tsx` and `store.ts`; the latter changed the theme request back to a main-chat send. These changes were not made or accepted by this lead.
+
+Do not undo another session's work or assume the old theme acceptance covers this mixture. If development resumes, establish the intended theme behavior with the current owner, reconcile the exact files, then repeat the appropriate focused verification. The client checkpoint is not an exact snapshot of this session's previously tested UI. No history rewrite or code restoration was attempted.
 
 ### Verification already obtained
 
@@ -51,7 +57,7 @@ Local receipts and stage reports:
 - Browser/native launches, live-home/5188 operations, real provider/model/helper execution, services, signals, installs and pushes remain unauthorized. Existing real-Application/Work-streaming/browser fixtures must not run without the appropriate authorization.
 - **Force-stop UI is for subagents only.** Do not restore the removed main-agent Force controls. Ordinary main Stop/Escape remains.
 - Preserve separate Review/Actions/Work/Placeholder work and the runtime's untracked action-dismissal fixture. The registry's unrelated `work.change`/`done` hunk is excluded from this checkpoint. Its full-file hash also changed with a separate committed Review update; do not revert that update to match an old acceptance hash.
-- Home already has accepted source/fake evidence at `2f84bac`; task7 is open for native/rendered acceptance, not a rebuild.
+- Home has earlier source/fake acceptance at `2f84bac`; task7 originally remained open for native/rendered acceptance, not a rebuild. Separate current Home edits were observed during checkpointing and are not covered by that earlier evidence.
 
 ## Remaining queue
 
