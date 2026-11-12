@@ -4,6 +4,8 @@ import { piCommand, piEnvironment } from './launcher.mjs';
 import { ownedExtensionArguments } from './pi-extensions.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
+import { createTurnMetrics } from './turn-metrics.mjs';
+const TOKEN_FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite'];
 
 // A deadline never asserts cleanup. Unknown transports keep their result pending and occupy the tree's slot.
 async function bounded(promise, ms, fallback) {
@@ -13,7 +15,7 @@ async function bounded(promise, ms, fallback) {
 }
 
 /** Host-only bindings carry permissions and task content; model-visible tree identities carry neither. */
-export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcProcess, onEvent = () => {}, onStats = () => {}, ownedAgent, join, onUnconfirmed = () => {}, startupMs = 10000, stopMs = 2000 } = {}) {
+export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcProcess, onEvent = () => {}, onStats = () => {}, ownedAgent, join, onUnconfirmed = () => {}, startupMs = 10000, stopMs = 2000, now = Date.now } = {}) {
   for (const ms of [startupMs, stopMs]) if (!Number.isSafeInteger(ms) || ms < 1 || ms > 60000) throw Error('Invalid owned deadline');
   return { start(identity) {
     const binding = bindingFor?.(identity);
@@ -27,10 +29,30 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
     // Consumers may attach after a synchronous startup failure; never leak an unhandled rejection.
     result.promise.catch(() => {});
     let transport, closed, stopping, forcing, exit, sessionId, joining = false, cancelled = false, finished = false, report = '', finalError;
+    let metrics, owner, terminalStats, sealed = false, uncertain = false, lastActivityAt = null;
+    const seal = () => { sealed = true; metrics?.finish(owner); };
+    function snapshot() {
+      const facts = metrics?.snapshot(owner);
+      if (!facts) return { usage: null, lastActivityAt };
+      const usage = { incomplete: facts.incomplete || uncertain, sealed };
+      for (const field of TOKEN_FIELDS) {
+        const response = facts[field], total = terminalStats?.[field];
+        const measured = typeof total === 'number' && Number.isFinite(total) && total >= 0;
+        const regression = measured && response.value !== null && total < response.value;
+        const value = measured ? Math.max(response.value ?? 0, total) : response.value;
+        const state = value === null ? 'unavailable'
+          : facts.incomplete || uncertain || regression ? 'partial'
+          : measured ? 'complete' : response.state;
+        usage[field] = { value, state };
+        usage.incomplete ||= state !== 'complete';
+      }
+      return { usage, lastActivityAt };
+    }
     const controller = new AbortController();
     const tools = { owned_agent: createOwnedAgentSessionTool((request, signal) => ownedAgent?.(identity, request, signal)) };
     const emit = event => { try { onEvent(identity, event); } catch { /* Observers do not own lifecycle. */ } };
     function stop() {
+      seal();
       if (stopping) return stopping;
       stopping = (async () => {
         try { Promise.resolve(transport?.shutdown?.(stopMs)).catch(() => {}); } catch { /* Still require closure. */ }
@@ -53,6 +75,10 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       finished = true;
       try {
         const stats = await bounded(transport.request('get_session_stats'), stopMs, null);
+        if (!sealed) {
+          if (stats?.sessionId === sessionId) terminalStats = Object.fromEntries(TOKEN_FIELDS.map(field => [field, stats.tokens?.[field]]));
+          else if (stats) uncertain = true;
+        }
         if (stats && stats.sessionId !== sessionId) finalError = Error('Owned session identity changed');
         else onStats(identity, stats);
       } catch { /* Usage stays unknown. */ }
@@ -76,6 +102,14 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
     }
     function onRecord(record) {
       if (finished || cancelled) return;
+      if (metrics && !sealed) {
+        const message = record.message;
+        const own = message?.role === 'assistant' && (message.sessionId === undefined || message.sessionId === sessionId)
+          && `${message.provider}/${message.model}` === binding.model;
+        if (own) metrics.observe({ type: record.type, message: { role: 'assistant', provider: message.provider, model: message.model, responseId: message.responseId, timestamp: message.timestamp, usage: message.usage } }, owner);
+        else if (message?.role === 'assistant') uncertain = true;
+        if ((own && ['message_start', 'message_update', 'message_end'].includes(record.type)) || ['tool_execution_start', 'tool_execution_end'].includes(record.type)) lastActivityAt = now();
+      }
       if (record.type === 'message_end' && record.message?.role === 'assistant') {
         const message = record.message;
         report = (message.content ?? []).filter(block => block.type === 'text').map(block => clean(block.text)).join('\n').slice(0, 8000);
@@ -101,7 +135,7 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
         maxRecordBytes: 1048576, maxKeptBytes: 65536, onRecord, onFail: error => { void fail(error); } });
       if (typeof transport?.closed?.then === 'function') {
         closed = Promise.resolve(transport.closed).then(value => {
-          exit = value;
+          exit = value; seal();
           if (!finished && !cancelled) { finished = true; result.reject(Error('Owned child exited before completion')); }
           return value;
         }, () => false);
@@ -117,6 +151,8 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
             if (typeof state.sessionId !== 'string' || !state.sessionId) throw Error('Owned session identity missing');
             sessionId = state.sessionId;
             if (`${state.model?.provider}/${state.model?.id}` !== binding.model || state.thinkingLevel !== binding.effort) throw Error('Owned model or effort mismatch');
+            owner = { runId: identity.id, sessionId };
+            metrics = createTurnMetrics(owner);
             await transport.request('prompt', { message: binding.prompt });
           } catch (error) { await fail(error); }
         })();
@@ -127,10 +163,10 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       else { finished = true; result.reject(error); }
     }
     return {
-      result: result.promise,
+      result: result.promise, snapshot,
       force() {
         if (forcing) return forcing;
-        cancelled = true;
+        cancelled = true; seal();
         controller.abort();
         try { if (!exit) transport?.force?.(); } catch { /* Still require captured closure. */ }
         forcing = bounded(closed ?? new Promise(() => {}), stopMs, false).then(value => {

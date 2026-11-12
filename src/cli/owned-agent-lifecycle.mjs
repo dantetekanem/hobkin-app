@@ -20,6 +20,7 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
     const parent = scopes.get(identity.parentId);
     if (!scopes.has(identity.id)) scope(identity.id, { ...parent.binding, parentRole: parent.binding.role, allowHelpers: identity.allowHelpers }, identity.rootId);
     const handle = adapter.start(identity);
+    scopes.get(identity.id).handle = handle;
     const settled = () => { scopes.get(identity.id).finish(); queueMicrotask(notify); };
     const failed = () => {
       scopes.get(identity.id).invalidateAfterFailure();
@@ -37,6 +38,10 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
         signal?.throwIfAborted(); check();
         if (request?.action === 'spawn') {
           if (!accepting) throw Error('Owned parent is joining');
+          const policy = scopes.get(rootId).beforeSpawn;
+          const decision = policy === undefined ? true : policy({ rootId, parentId: id });
+          if (decision instanceof Promise) decision.catch(() => {});
+          if (decision !== true) throw Error('Owned admission denied');
           const occupied = [...roots].flatMap(root => tree.list(root)).filter(node => ['running', 'cancelling', 'unknown'].includes(node.status));
           // A waiting child holds a slot: queuing its descendant can deadlock the entire pool.
           if (rootId !== id && occupied.length >= maxRunning) throw Error('No running slot for a nested helper');
@@ -83,7 +88,7 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
     scopes.set(id, value); return value;
   }
   return {
-    register({ id, binding, allowHelpers = false }) {
+    register({ id, binding, allowHelpers = false, beforeSpawn }) {
       if (closing) throw Error('Owned lifecycle is closed');
       if (typeof allowHelpers !== 'boolean') throw Error('Invalid owned host direction');
       if (allowHelpers && (!isAbsolute(binding?.cwd ?? '') || typeof binding?.prompt !== 'string' || !binding.prompt.trim()
@@ -91,7 +96,13 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
         || !['read', 'write'].includes(binding.parentRole) || (binding.parentRole === 'read' && binding.role !== 'read')
         || !/^[^/\s]+\/\S+$/.test(binding.model ?? '') || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(binding.effort))) throw Error('Invalid owned host authority');
       tree.registerRoot({ id, allowHelpers }); roots.add(id);
-      return scope(id, { ...binding, allowHelpers });
+      return Object.assign(scope(id, { ...binding, allowHelpers }), { beforeSpawn });
+    },
+    snapshot(rootId) {
+      if (rootId !== undefined && !roots.has(rootId)) return null;
+      return (rootId === undefined ? [...roots].flatMap(id => tree.list(id)) : tree.list(rootId))
+        .map(({ id, parentId, rootId, depth, name, status }) => ({ id, parentId, rootId, depth, name, status,
+          ...(scopes.get(id)?.handle?.snapshot() ?? { usage: null, lastActivityAt: null }) }));
     },
     targets() {
       return [...roots].flatMap(runId => tree.list(runId)).filter(node => ['running', 'queued', 'cancelling', 'unknown'].includes(node.status))

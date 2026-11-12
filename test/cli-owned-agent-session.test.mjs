@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { DefaultResourceLoader } from '@earendil-works/pi-coding-agent';
 import { createOwnedAgentAdapter } from '../src/cli/owned-agent-session.mjs';
 import extension, { ownedRoleTools } from '../src/cli/owned-agent-extension.mjs';
 import { createOwnedAgents } from '../src/cli/owned-agents.mjs';
+
+for (const name of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
+syncBuiltinESMExports();
+mock.method(process, 'kill', () => { throw Error('Real signal forbidden'); });
+mock.method(DefaultResourceLoader.prototype, 'reload', () => { throw Error('Real resource loader forbidden'); });
+mock.method(globalThis, 'fetch', () => { throw Error('Network forbidden'); });
 
 const identity = Object.freeze({ id: 'child', parentId: 'parent', rootId: 'root' });
 const binding = { cwd: '/isolated/project', model: 'test/model', effort: 'medium', prompt: 'Inspect.', role: 'read', parentRole: 'read' };
@@ -15,7 +24,7 @@ function fixture(options = {}) {
     request: async (type, data) => {
       requests.push({ type, data });
       if (type === 'get_state') return options.waitState ? state.promise : { sessionId: 'session', model: { provider: 'test', id: options.wrongModel ? 'wrong' : 'model' }, thinkingLevel: 'medium' };
-      if (type === 'get_session_stats') return { sessionId: 'session', tokens: { input: 5 }, cost: 0.01 };
+      if (type === 'get_session_stats') return options.stats ?? { sessionId: 'session', tokens: { input: 5 }, cost: 0.01 };
       return { disposition: 'started' };
     },
     shutdown() { shutdowns++; if (!options.hang) closed.resolve({ code: options.exitCode ?? 0 }); return closed.promise; },
@@ -25,7 +34,7 @@ function fixture(options = {}) {
   const adapter = createOwnedAgentAdapter({
     bindingFor: () => ({ ...binding, ...options.binding }), startupMs: 30, stopMs: 15,
     startProcess: args => { calls.push(args); callbacks = args; return options.malformed ? { ...transport, request: null } : transport; },
-    onEvent: options.onEvent, onStats: options.onStats,
+    onEvent: options.onEvent, onStats: options.onStats, now: options.now,
   });
   return { adapter, calls, requests, state, closed, emit: event => callbacks.onRecord(event),
     get shutdowns() { return shutdowns; }, get terminations() { return terminations; }, get forces() { return forces; } };
@@ -50,6 +59,45 @@ test('owned read child uses actual restricted tools and one trusted extension, t
   assert.equal(f.shutdowns, 1);
   assert.equal(JSON.stringify(events).includes('private'), false);
   assert.equal(stats.length, 1);
+});
+
+test('owned measurement reconciles cumulative facts without replay charges or private identity', { timeout: 1000 }, async () => {
+  for (const foreign of [false, true]) {
+    let now = 10;
+    const f = fixture({ now: () => now, stats: { sessionId: foreign ? 'foreign' : 'session', tokens: { input: 12, output: 1, cacheRead: 0, cacheWrite: 0 } } });
+    const handle = f.adapter.start(identity);
+    assert.deepEqual(handle.snapshot(), { usage: null, lastActivityAt: null });
+    await tick();
+    const event = end('private report'); Object.assign(event.message, { provider: 'test', model: 'model', responseId: 'response', timestamp: 999999, usage: { input: 5, output: 2, cacheRead: 0, cacheWrite: 0 } });
+    f.emit(event); f.emit(event);
+    assert.equal(handle.snapshot().usage.input.value, 5);
+    const before = handle.snapshot(); now = 20;
+    assert.deepEqual(handle.snapshot(), before, 'reads do not refresh activity');
+    f.emit({ ...event, message: { ...event.message, usage: { ...event.message.usage, input: 9 } } });
+    assert.equal(handle.snapshot().usage.input.state, 'partial');
+    f.emit({ type: 'agent_settled' });
+    if (foreign) await assert.rejects(handle.result, /identity/);
+    else await handle.result;
+    const final = handle.snapshot();
+    assert.equal(final.usage.input.value, foreign ? 5 : 12);
+    assert.deepEqual(final.usage.output, { value: 2, state: 'partial' });
+    assert.equal(final.usage.incomplete, true); assert.equal(final.usage.sealed, true);
+    assert.equal(JSON.stringify(final).includes('session'), false); assert.equal(JSON.stringify(final).includes('private'), false);
+    now = 30; f.emit(event); assert.deepEqual(handle.snapshot(), final);
+  }
+});
+
+test('cancellation seals own lower bounds before an outstanding terminal statistics reply', { timeout: 1000 }, async () => {
+  const stats = Promise.withResolvers(), f = fixture({ stats: stats.promise }), handle = f.adapter.start(identity);
+  await tick();
+  const event = end('partial'); Object.assign(event.message, { provider: 'test', model: 'model', responseId: 'own', usage: { input: 4 } });
+  f.emit(event); f.emit({ type: 'agent_settled' }); await tick();
+  await handle.cancel(); const sealed = handle.snapshot();
+  stats.resolve({ sessionId: 'session', tokens: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 } });
+  await assert.rejects(handle.result); f.emit(event);
+  assert.deepEqual(handle.snapshot(), sealed);
+  assert.equal(sealed.usage.input.value, 4); assert.equal(sealed.usage.output.state, 'unavailable');
+  assert.equal(sealed.usage.sealed, true); assert.equal(sealed.usage.incomplete, true);
 });
 
 test('host binding refuses permission escalation, missing authority and managed extension wrappers before launch', () => {

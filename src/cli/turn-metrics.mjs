@@ -68,18 +68,27 @@ export function createTurnMetrics({ runId, sessionId, now = () => performance.no
     }
   }
 
+  function facts() {
+    const facts = { schemaVersion: 1, runId, sessionId, responses: seen.size,
+      incomplete: incomplete || pending.size > 0, firstObservedOutputMs, dispatchElapsedMs: elapsed() };
+    for (const field of FIELDS) {
+      const { sum, known } = totals[field];
+      facts[field] = Object.freeze({ value: known ? sum : null,
+        state: !known ? 'unavailable' : known === seen.size && !facts.incomplete ? 'complete' : 'partial' });
+    }
+    return Object.freeze(facts);
+  }
+
+  function snapshot(identity) {
+    if (!owns(identity)) return null;
+    return final ?? facts();
+  }
+
   function finish(identity) {
     if (!owns(identity)) return null;
     if (final) return final;
     incomplete ||= pending.size > 0;
-    const facts = { schemaVersion: 1, runId, sessionId, responses: seen.size, incomplete,
-      firstObservedOutputMs, dispatchElapsedMs: elapsed() };
-    for (const field of FIELDS) {
-      const { sum, known } = totals[field];
-      facts[field] = Object.freeze({ value: known ? sum : null,
-        state: !known ? 'unavailable' : known === seen.size && !incomplete ? 'complete' : 'partial' });
-    }
-    final = Object.freeze(facts);
+    final = facts();
     return final;
   }
 
@@ -93,5 +102,5 @@ export function createTurnMetrics({ runId, sessionId, now = () => performance.no
     }
     return facts;
   }
-  return Object.freeze({ observe, finish, record });
+  return Object.freeze({ observe, snapshot, finish, record });
 }

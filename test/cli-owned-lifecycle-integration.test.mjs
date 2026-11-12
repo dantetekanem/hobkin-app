@@ -12,8 +12,9 @@ import { createOwnedLifecycle } from '../src/cli/owned-agent-lifecycle.mjs';
 import { runHarness } from '../src/cli/harnesses.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 
-for (const name of ['spawn', 'exec', 'execFile', 'fork']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
+for (const name of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
 syncBuiltinESMExports();
+mock.method(process, 'kill', () => { throw Error('Real signal forbidden'); });
 mock.method(DefaultResourceLoader.prototype, 'reload', () => { throw Error('Real resource loader forbidden'); });
 mock.method(globalThis, 'fetch', () => { throw Error('Network forbidden'); });
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -151,6 +152,23 @@ test('closed background bridge refuses helpers while preserving parent completio
   assert.match(JSON.parse((await response.promise).value).error, /prohibits/);
   assert.equal(result.status, 'completed'); assert.equal(result.text, 'parent report'); assert.equal(result.cost.usd, 0.1); assert.ok(result.performance);
   await life.close();
+});
+
+test('owned harness forwards only trusted policy while retaining closed admission and cleanup', { timeout: 1000 }, async () => {
+  const app = Object.create(HobkinApplication.prototype), calls = [], active = {};
+  const policy = () => true, scope = { cancel: async () => ({ confirmed: true }) };
+  app.runtime = { directory: fixtureHome, active: new Map([['root', active]]),
+    state: async () => ({ runs: { root: { id: 'root', harnessId: 'harness', status: 'running' } } }),
+    ownedLifecycle: { register: options => { calls.push(options); return scope; } },
+    bindHarness: (...args) => calls.push(args) };
+  const wrapped = app.ownedHarness(async (request, options) => {
+    assert.equal(options.metricsRoot, fixtureHome); assert.equal(options.ownedScope, scope);
+    options.onControl('captured'); return 'result';
+  });
+  assert.equal(await wrapped({ id: 'harness' }, { beforeSpawn: policy, metricsRoot: 'foreign', ownedScope: {}, onControl: () => assert.fail() }), 'result');
+  assert.equal(calls[0].beforeSpawn, policy); assert.equal(calls[0].allowHelpers, false);
+  assert.equal(calls[0].id, 'root'); assert.deepEqual(calls[1], ['root', 'harness', 'captured']);
+  assert.deepEqual(active.cleanup, { confirmed: true });
 });
 
 test('application close invalidates owned admission before waiting for main idle', { timeout: 1000 }, async () => {

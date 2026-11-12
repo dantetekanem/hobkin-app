@@ -7,8 +7,9 @@ import { createOwnedAgentAdapter } from '../src/cli/owned-agent-session.mjs';
 import { createOwnedLifecycle } from '../src/cli/owned-agent-lifecycle.mjs';
 import ownedExtension from '../src/cli/owned-agent-extension.mjs';
 
-for (const name of ['spawn', 'exec', 'execFile', 'fork']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
+for (const name of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
 syncBuiltinESMExports();
+mock.method(process, 'kill', () => { throw Error('Real signal forbidden'); });
 mock.method(DefaultResourceLoader.prototype, 'reload', () => { throw Error('Real resource loader forbidden'); });
 mock.method(globalThis, 'fetch', () => { throw Error('Network forbidden'); });
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -103,6 +104,49 @@ test('host authority refuses escalation; closed directions, names and depth cann
   assert.throws(() => life.register({ id: 'reopen', binding }), /closed/);
 });
 
+test('lifecycle snapshots isolate roots without changing control authority', { timeout: 1000 }, async () => {
+  const f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess });
+  const root = life.register({ id: 'root', allowHelpers: true, binding });
+  const other = life.register({ id: 'other', allowHelpers: true, binding });
+  const empty = life.register({ id: 'empty', binding });
+  const child = root.request({ action: 'spawn', name: 'child' });
+  const outside = other.request({ action: 'spawn', name: 'outside' });
+  await root.request({ action: 'cancel', id: child.id });
+  await other.request({ action: 'cancel', id: outside.id });
+  const rows = life.snapshot('root');
+  assert.deepEqual(rows.map(({ id, status }) => [id, status]), [[child.id, 'cancelled']]);
+  assert.deepEqual(life.snapshot('empty'), []);
+  assert.equal(life.snapshot('missing'), null);
+  assert.deepEqual(life.snapshot().map(({ id, status }) => [id, status]), [[child.id, 'cancelled'], [outside.id, 'cancelled']]);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['depth', 'id', 'lastActivityAt', 'name', 'parentId', 'rootId', 'status', 'usage']);
+  rows[0].status = 'failed';
+  rows.pop();
+  assert.equal(life.snapshot('root')[0].status, 'cancelled');
+  assert.equal(root.request({ action: 'status', id: child.id }).status, 'cancelled');
+  await life.close();
+});
+
+test('root policy refuses synchronous and nested admission before allocation without blocking controls', { timeout: 1000 }, async () => {
+  const f = transportFactory(), calls = [], life = createOwnedLifecycle({ startProcess: f.startProcess });
+  let decision = false;
+  const root = life.register({ id: 'policy', binding, allowHelpers: true, beforeSpawn: ids => { calls.push(ids); if (decision === 'throw') throw Error('Denied'); return decision; } });
+  for (decision of [false, undefined, Promise.resolve(true), Promise.reject(Error('Async denial')), 'throw']) {
+    assert.throws(() => root.request({ action: 'spawn', name: 'denied' }));
+    assert.deepEqual(life.snapshot('policy'), []); assert.equal(f.children.length, 0);
+  }
+  decision = true;
+  const child = root.request({ action: 'spawn', name: 'child' }); await tick();
+  decision = false;
+  f.children[0].emit({ type: 'extension_ui_request', method: 'input', id: 'nested', title: 'hobkin/bridge', placeholder: JSON.stringify({ op: 'tool', name: 'owned_agent', id: 'call', params: { action: 'spawn', name: 'denied nested' } }) });
+  await tick(); assert.match(JSON.parse(f.children[0].responses[0].value).error, /admission|denied/i);
+  assert.deepEqual(calls.at(-1), { rootId: 'policy', parentId: child.id });
+  const count = calls.length;
+  assert.equal(root.request({ action: 'status', id: child.id }).status, 'running');
+  assert.equal(root.request({ action: 'list' }).length, 1);
+  await root.request({ action: 'cancel', id: child.id }); await life.force('policy', child.id);
+  assert.equal(calls.length, count); await life.close();
+});
+
 test('queued children cancel without starting and nested children never queue behind waiting parents', { timeout: 1000 }, async () => {
   const f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess, maxRunning: 1 });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
@@ -116,6 +160,7 @@ test('queued children cancel without starting and nested children never queue be
   child.emit(end('result')); child.emit({ type: 'agent_settled' });
   const facts = JSON.parse(await root.join());
   assert.deepEqual(facts.ownedChildren.map(c => c.status), ['completed', 'cancelled']);
+  assert.deepEqual(life.snapshot('root').map(({ status }) => status), ['completed', 'cancelled']);
   assert.equal(f.children.length, 1); await life.close();
 });
 
@@ -123,12 +168,17 @@ test('unknown teardown stays occupied; joining never hangs behind it and retains
   const f = transportFactory(true), life = createOwnedLifecycle({ startProcess: f.startProcess, maxRunning: 1, stopMs: 5 });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
   const child = root.request({ action: 'spawn', name: 'unknown' }); await tick();
-  f.children[0].emit(end('partial'));
+  f.children[0].emit({ ...end('partial'), message: { ...end('partial').message, provider: 'test', model: 'model', responseId: 'own', usage: { input: 7 } } });
+  const measured = life.snapshot('root')[0]; assert.equal(measured.usage.input.value, 7); assert.ok(measured.lastActivityAt);
   assert.equal((await root.request({ action: 'cancel', id: child.id })).confirmed, false);
   root.request({ action: 'spawn', name: 'queued' });
+  assert.equal(life.snapshot('root')[1].usage, null);
+  const sealed = life.snapshot('root')[0]; assert.equal(sealed.usage.sealed, true);
   await assert.rejects(root.join(), /unconfirmed/);
   f.children[0].closed.resolve({ code: 0 }); f.children[0].emit(end('late')); await tick();
   assert.equal(root.request({ action: 'status', id: child.id }).status, 'unknown');
+  assert.equal(life.snapshot('root').find(node => node.id === child.id)?.status, 'unknown');
+  assert.deepEqual(life.snapshot('root')[0], sealed, 'late records cannot alter unknown usage or activity');
   assert.equal(f.children.length, 1);
   const cleanup = (await life.close())[0];
   assert.equal(cleanup.confirmed, false); assert.equal(cleanup.agents[0].report, 'partial');
@@ -218,6 +268,7 @@ test('failed helpers retain failure facts and cancel descendants', { timeout: 10
 
   const childFacts = JSON.parse(await root.join());
   assert.deepEqual(childFacts.ownedChildren.map(({ status }) => status), ['failed', 'cancelled']);
+  assert.deepEqual(life.snapshot('root').map(({ status }) => status), ['failed', 'cancelled']);
   assert.equal(childFacts.ownedChildren[0].id, parent.id);
   assert.equal(childFacts.ownedChildren[0].report, 'partial failure');
   assert.equal(f.children[1].shutdowns, 1);

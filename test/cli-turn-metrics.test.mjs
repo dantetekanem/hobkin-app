@@ -97,6 +97,29 @@ test('an interrupted response without final usage makes earlier totals partial',
   assert.equal(record.responses, 1);
 });
 
+test('snapshots live facts without sealing and defer to the frozen final record', () => {
+  const f = fixture();
+  f.time(110);
+  f.observe({ type: 'message_start', message: message() });
+  const live = f.metrics.snapshot(owner);
+  assert.equal(live.incomplete, true);
+  assert.deepEqual(live.input, { value: null, state: 'unavailable' });
+  assert.equal(live.dispatchElapsedMs, 10);
+  assert.equal(f.metrics.snapshot({ ...owner, runId: 'foreign' }), null);
+  f.time(120);
+  f.observe(end(message()));
+  const updated = f.metrics.snapshot(owner);
+  assert.notEqual(updated, live);
+  assert.equal(updated.incomplete, false);
+  assert.deepEqual(updated.input, { value: 10, state: 'complete' });
+  assert.equal(live.responses, 0);
+  assert.equal(live.dispatchElapsedMs, 10);
+  const final = f.metrics.record('/dev/null/no-write', owner);
+  assert.equal(f.metrics.snapshot(owner), final);
+  f.time(150);
+  assert.equal(f.metrics.snapshot(owner), final);
+});
+
 test('rejects foreign identities and nonassistant messages and seals immutable facts', () => {
   const f = fixture();
   for (const identity of [undefined, { ...owner, runId: 'foreign' }, { ...owner, sessionId: 'foreign' }]) {

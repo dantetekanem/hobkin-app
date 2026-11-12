@@ -197,25 +197,7 @@ export class HobkinApplication {
       onChange: activityOnly => app.requestRefresh(activityOnly),
     });
     try {
-      const run = runHarness, metricsRoot = app.runtime.directory;
-      runHarness = async (request, options) => {
-        const admission = Object.values((await app.runtime.state()).runs).find(item => item.harnessId === request.id && item.status === 'running');
-        // Checks prohibit helpers; Work stays closed until child accounting is integrated.
-        const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: admission.id, allowHelpers: false, binding: request });
-        const cancel = () => { void ownedScope?.cancel(); };
-        request.signal?.addEventListener('abort', cancel, { once: true });
-        try {
-          request.signal?.throwIfAborted();
-          return await run(request, { ...options, metricsRoot, ownedScope,
-            onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
-          });
-        } finally {
-          request.signal?.removeEventListener('abort', cancel);
-          const cleanup = await ownedScope?.cancel();
-          const active = admission && app.runtime.active.get(admission.id);
-          if (active) active.cleanup = cleanup;
-        }
-      };
+      runHarness = app.ownedHarness(runHarness);
       moveRoutinesFolder(app.runtime.directory);
       // Only a draft ever needs these, and a draft does not outlive the process.
       app.pastedImages = new PastedImages(app.runtime.directory, clipboard);
@@ -302,6 +284,28 @@ export class HobkinApplication {
       await app.close();
       throw error;
     }
+  }
+
+  ownedHarness(run) {
+    const app = this, metricsRoot = app.runtime.directory;
+    return async (request, options) => {
+      const admission = Object.values((await app.runtime.state()).runs).find(item => item.harnessId === request.id && item.status === 'running');
+      // Checks prohibit helpers; Work stays closed until child accounting is integrated.
+      const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: admission.id, allowHelpers: false, binding: request, beforeSpawn: options?.beforeSpawn });
+      const cancel = () => { void ownedScope?.cancel(); };
+      request.signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        request.signal?.throwIfAborted();
+        return await run(request, { ...options, metricsRoot, ownedScope,
+          onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
+        });
+      } finally {
+        request.signal?.removeEventListener('abort', cancel);
+        const cleanup = await ownedScope?.cancel();
+        const active = admission && app.runtime.active.get(admission.id);
+        if (active) active.cleanup = cleanup;
+      }
+    };
   }
 
   requestRefresh(activityOnly = false) {
