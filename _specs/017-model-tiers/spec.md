@@ -29,7 +29,7 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 
 - A tier is `{ model, effort }`, where `model` is Pi's `provider/id` and `effort` is a thinking level that model supports.
 - Tiers live in hobkin's `config.json` under `tiers`, next to `main` and `background`. The terminal app reads the same setting.
-- A tier that is not set uses the main chat's model and effort, as pi-extended-teams does for an unset tier.
+- A tier that is not set follows a model hobkin already has: `fast` the checks model, since it collects and searches, and the others the main chat's model, since they write what gets merged. In work mode it keeps the effort its level always gave.
 - The main chat keeps its own model and effort. It is the lead, not a tier.
 
 ### Where tiers are used
@@ -45,7 +45,7 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
   | max | max | max |
 
 - A routine may name `tier` in its frontmatter in place of `model` and `effort`.
-- Preparing a review (`005-review-model`) uses `mid`.
+- A change review (`032-change-review`) uses two tiers, each a choice of one of the four: the Reviewer builds it, on `high` until the user names another, and Quick checks it, on `fast`. They are kept in `config.json` under `review`, and the Models window sets them.
 - Every run records the tier it used and the model and effort that tier resolved to, so a later change of the tier does not rewrite history.
 
 ### The lightbox
@@ -95,7 +95,7 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 
 - [ ] S1 (A4, A5, A7). hobkin: `tiers` in config with validation, tier resolution, `--tier` on `hobkin session`, `tier` in routine frontmatter.
 - [ ] S2 (A6, A8). hobkin: work levels mapped to tiers, and the tier recorded on each run.
-- [ ] S3 (A1, A2, A3, A10). Host: tier state and commands.
+- [x] S3 (A1, A2, A3, A10). Host: tier state and commands. Done 2026-11-12: hobkin holds the tiers (`tiers` and `review` in its config.json), `hobkin session` takes `--tier` and refuses a job without one, work mode names a tier by level, and the host reads and saves them with `tiers.read` and `tiers.apply`.
 - [ ] S4 (A1, A2, A3, A4). UI: the lightbox. Its list comes from Pi (2026-11-10): `choicesFromPi` in shared/tiers/from-pi.ts maps the host's models slice, and the window offers the models Pi can use once a host answers (44 from the scripted dev host), sample ones before. Apply sets hobkin's own main model through the host's `models.select` (004 A21), which saves it in hobkin's config and switches the open conversation; a refusal shows the host's reason and applies nothing (seen 2026-11-10 with the scripted host). The thinking levels are Pi's own: off, minimal, low, medium, high, xhigh. Left: saving the four tiers through the host (they need hobkin's tiers config, S1), and real defaults from the first-run setup (025).
 - [ ] S5 (A9). Tier labels on agents.
 
