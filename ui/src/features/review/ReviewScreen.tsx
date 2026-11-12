@@ -333,7 +333,7 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
             <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>
-            <StoryLayer canvas={canvas} panelHeight={panelHeight} />
+            <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} />
             <WireCard />
             <Finder />
             <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} />
