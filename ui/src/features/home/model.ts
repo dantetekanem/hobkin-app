@@ -42,20 +42,63 @@ function needsOf(input: HomeInput): NeedRow[] {
 
 const HOUR = 3_600_000
 const WEEK = 7 * 24 * HOUR
-const problemReports = (input: HomeInput) => input.reports.filter(report => {
-  const at = timeOf(report.at)
-  return !input.read.has(report.id) && at !== null && at <= input.now && at >= input.now - WEEK && ['critical', 'blocked'].includes(toneOf(report))
-}).toSorted((a, b) => timeOf(b.at)! - timeOf(a.at)!)
-const forecasts = (input: HomeInput) => input.routines.filter(facts => facts.state !== 'off' && facts.routine.enabled && facts.next !== null && Number.isFinite(facts.next.at) && facts.next.at >= input.now)
-  .toSorted((a, b) => a.next!.at - b.next!.at)
+const problemReports = (input: HomeInput) =>
+  input.reports
+    .filter(report => {
+      const at = timeOf(report.at)
+
+      return !input.read.has(report.id)
+        && at !== null
+        && at <= input.now
+        && at >= input.now - WEEK
+        && ['critical', 'blocked'].includes(toneOf(report))
+    })
+    .toSorted((a, b) => timeOf(b.at)! - timeOf(a.at)!)
+
+const forecasts = (input: HomeInput) =>
+  input.routines
+    .filter(facts =>
+      facts.state !== 'off'
+      && facts.routine.enabled
+      && facts.next !== null
+      && Number.isFinite(facts.next.at)
+      && facts.next.at >= input.now
+    )
+    .toSorted((a, b) => a.next!.at - b.next!.at)
 
 function winsOf(value: unknown): HomeModel['week']['wins'] {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || !('today' in value) || !('streak' in value)) return null
+  if (
+    !value
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || !('today' in value)
+    || !('streak' in value)
+  ) {
+    return null
+  }
+
   const today = value.today
-  if (!today || typeof today !== 'object' || Array.isArray(today) || !('merged' in today) || !('decided' in today)) return null
+  if (
+    !today
+    || typeof today !== 'object'
+    || Array.isArray(today)
+    || !('merged' in today)
+    || !('decided' in today)
+  ) {
+    return null
+  }
+
   const { merged, decided } = today
   const streak = value.streak
-  if (typeof merged !== 'number' || typeof decided !== 'number' || typeof streak !== 'number' || ![merged, decided, streak].every(count => Number.isInteger(count) && count >= 0)) return null
+  if (
+    typeof merged !== 'number'
+    || typeof decided !== 'number'
+    || typeof streak !== 'number'
+    || ![merged, decided, streak].every(count => Number.isInteger(count) && count >= 0)
+  ) {
+    return null
+  }
+
   return { merged, decided, streak }
 }
 
@@ -95,7 +138,17 @@ function projectsOf(input: HomeInput): HomeRow[] {
       project.paused ? 'Paused' : '',
       project.lookError ?? '',
     ].filter(Boolean).join(' · ') || null
-    const tone: HomeTone = project.lookError || problems.some(report => toneOf(report) === 'critical') ? 'bad' : problems.length || project.paused ? 'warn' : changes ? 'info' : 'quiet'
+    let tone: HomeTone
+    if (project.lookError || problems.some(report => toneOf(report) === 'critical')) {
+      tone = 'bad'
+    } else if (problems.length || project.paused) {
+      tone = 'warn'
+    } else if (changes) {
+      tone = 'info'
+    } else {
+      tone = 'quiet'
+    }
+
     return row(`project:${project.slug}`, project.name, detail, tone, screen('work'))
   })
 }
@@ -117,14 +170,20 @@ function stackOf(input: HomeInput, needs: NeedRow[]): StackCard[] {
   const candidates: { tier: number; at: number | null; card: StackCard }[] = []
   const add = (source: HomeRow, kind: StackCard['kind'], tier: number, at: number | null, reason: string, next: string | null = null) => {
     candidates.push({
-      tier, at,
+      tier,
+      at,
       card: {
-        id: source.id, kind,
+        id: source.id,
+        kind,
         label: kind === 'upnext' ? 'Coming up' : kind[0]!.toUpperCase() + kind.slice(1),
-        reason, tone: source.tone,
+        reason,
+        tone: source.tone,
         mood: tier === 2 ? 'error' : tier === 1 ? 'listening' : 'working',
-        title: source.title, detail: source.detail, next,
-        primary: source.action, secondary: null,
+        title: source.title,
+        detail: source.detail,
+        next,
+        primary: source.action,
+        secondary: null,
       },
     })
   }
@@ -135,36 +194,126 @@ function stackOf(input: HomeInput, needs: NeedRow[]): StackCard[] {
     add(need, need.kind, 1, at, at === null ? 'Waiting for you' : `Waiting ${waited(at, input.now)}`)
   }
   for (const agent of input.agents.filter(agent => agent.asks)) {
-    add(row(`agent:${agent.id}`, agent.asks!, agent.title, 'accent', { to: 'agent', id: agent.id }), 'agent', 1, null, 'Waiting for you')
+    add(
+      row(
+        `agent:${agent.id}`,
+        agent.asks!,
+        agent.title,
+        'accent',
+        { to: 'agent', id: agent.id },
+      ),
+      'agent',
+      1,
+      null,
+      'Waiting for you',
+    )
   }
-  for (const need of needs.filter(need => need.kind === 'github')) add(need, 'github', 1, null, 'Waiting for your review')
+  for (const need of needs.filter(need => need.kind === 'github')) {
+    add(
+      need,
+      'github',
+      1,
+      null,
+      'Waiting for your review',
+    )
+  }
   for (const report of problemReports(input)) {
     const triage = triageOf(report)
     add(
-      row(`problem:${report.id}`, triage?.message ?? report.title, sourceOf(report), toneOf(report) === 'critical' ? 'bad' : 'warn', { to: 'report', id: report.id }),
-      'problem', 2, timeOf(report.at), `New ${age(timeOf(report.at), input.now)}`, triage?.next ?? null,
+      row(
+        `problem:${report.id}`,
+        triage?.message ?? report.title,
+        sourceOf(report),
+        toneOf(report) === 'critical' ? 'bad' : 'warn',
+        { to: 'report', id: report.id },
+      ),
+      'problem',
+      2,
+      timeOf(report.at),
+      `New ${age(timeOf(report.at), input.now)}`,
+      triage?.next ?? null,
     )
   }
   if (input.github.connection === 'connected') {
     for (const pr of input.github.pulls.filter(pr => pr.checks === 'failing')) {
-      add(row(`github:${pr.repo}#${pr.number}`, pr.title, 'Checks failing', 'bad', { to: 'url', url: pr.url }), 'github', 2, null, 'Checks failing')
+      add(
+        row(
+          `github:${pr.repo}#${pr.number}`,
+          pr.title,
+          'Checks failing',
+          'bad',
+          { to: 'url', url: pr.url },
+        ),
+        'github',
+        2,
+        null,
+        'Checks failing',
+      )
     }
   }
   const fresh = sinceLastLook(input.reports, input.read, input.attention)
   if (fresh && fresh.count >= 3 && input.now - fresh.since >= 2 * HOUR) {
-    add(row(`away:${fresh.since}`, `${fresh.count} reports since you looked`, null, 'info', fresh.openId ? { to: 'report', id: fresh.openId } : screen('reports')), 'away', 3, null, `Away ${waited(fresh.since, input.now)}`)
+    add(
+      row(
+        `away:${fresh.since}`,
+        `${fresh.count} reports since you looked`,
+        null,
+        'info',
+        fresh.openId ? { to: 'report', id: fresh.openId } : screen('reports'),
+      ),
+      'away',
+      3,
+      null,
+      `Away ${waited(fresh.since, input.now)}`,
+    )
   }
   const held = input.routines.filter(facts => facts.state === 'held')
   const soon = forecasts(input).filter(facts => facts.next!.at - input.now <= 900_000)
   for (const facts of [...held, ...soon.filter(facts => facts.state !== 'held')]) {
-    add(row(`upnext:${facts.routine.id}`, facts.routine.title, facts.hold?.reason ?? null, facts.state === 'held' ? 'warn' : 'info', { to: 'routine', id: facts.routine.id }), 'upnext', 4, null, facts.state === 'held' ? 'Held' : `Starts at ${clockTime(facts.next!.at)}`)
+    add(
+      row(
+        `upnext:${facts.routine.id}`,
+        facts.routine.title,
+        facts.hold?.reason ?? null,
+        facts.state === 'held' ? 'warn' : 'info',
+        { to: 'routine', id: facts.routine.id },
+      ),
+      'upnext',
+      4,
+      null,
+      facts.state === 'held' ? 'Held' : `Starts at ${clockTime(facts.next!.at)}`,
+    )
   }
   for (const agent of input.agents.filter(agent => !agent.asks)) {
-    add(row(`agent:${agent.id}`, agent.title, agent.doing, 'info', { to: 'agent', id: agent.id }), 'agent', 4, null, 'Working now')
+    add(
+      row(
+        `agent:${agent.id}`,
+        agent.title,
+        agent.doing,
+        'info',
+        { to: 'agent', id: agent.id },
+      ),
+      'agent',
+      4,
+      null,
+      'Working now',
+    )
   }
   const wins = winsOf(input.wins)
   if (new Date(input.now).getHours() >= 17 && wins && wins.merged + wins.decided > 0) {
-    add(row('today:wins', `${wins.merged} merged · ${wins.decided} decided`, null, 'ok', screen('work')), 'today', 5, null, 'Today')
+    add(
+      row(
+        'today:wins',
+        `${wins.merged} merged · ${wins.decided} decided`,
+        null,
+        'ok',
+        screen('work'),
+      ),
+      'today',
+      5,
+      null,
+      'Today',
+    )
   }
   candidates.sort((a, b) => {
     if (a.tier !== b.tier) return a.tier - b.tier

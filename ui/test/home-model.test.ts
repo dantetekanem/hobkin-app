@@ -12,9 +12,30 @@ import type { RunningAgent } from '../src/app/running-agents.ts'
 const now = new Date(2026, 10, 12, 18).getTime()
 const iso = (ago = 0) => new Date(now - ago).toISOString()
 const input = (rest: Partial<HomeInput> = {}): HomeInput => ({
-  now, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: null, live: true,
-  github: { connection: 'unknown', login: null, reviews: [], pulls: [], issues: [], more: { reviews: false, pulls: false, issues: false }, refreshedAt: null, refreshing: false, error: null, sample: false },
-  routines: [], agents: [], wins: null, ...rest,
+  now,
+  reports: [],
+  read: new Set(),
+  attention: null,
+  waiting: [],
+  question: null,
+  work: null,
+  live: true,
+  github: {
+    connection: 'unknown',
+    login: null,
+    reviews: [],
+    pulls: [],
+    issues: [],
+    more: { reviews: false, pulls: false, issues: false },
+    refreshedAt: null,
+    refreshing: false,
+    error: null,
+    sample: false,
+  },
+  routines: [],
+  agents: [],
+  wins: null,
+  ...rest,
 })
 const action = (id: string, at: string | null = iso(), rest: Partial<WaitingRow> = {}): WaitingRow => ({
   id, at, kind: 'question', from: 'hobkin', summary: id, question: { id, from: 'hobkin', question: id, choices: [] },
@@ -29,8 +50,18 @@ const project = (slug: string, state: WorkProject['state'] = 'chosen'): WorkProj
   left: 0, unmerged: 0, nextLookAt: null, lookError: null,
 })
 const work = (changes: FinishedChange[] = [], projects: WorkProject[] = []): WorkState => ({
-  enabled: true, folder: null, autoPick: false, held: null, forecast: null, agents: 2, agentsAllowed: 4, maxAgents: 8,
-  queue: [], queued: 3, projects, finished: [{ name: 'needs', heading: 'Needs you', why: null, action: null, changes }],
+  enabled: true,
+  folder: null,
+  autoPick: false,
+  held: null,
+  forecast: null,
+  agents: 2,
+  agentsAllowed: 4,
+  maxAgents: 8,
+  queue: [],
+  queued: 3,
+  projects,
+  finished: [{ name: 'needs', heading: 'Needs you', why: null, action: null, changes }],
 })
 const pull = (number: number, rest: Partial<GitHubPull> = {}): GitHubPull => ({
   repo: 'org/app', number, title: `PR ${number}`, labels: [], updatedAt: iso(), url: `https://github.com/org/app/pull/${number}`,
@@ -39,32 +70,92 @@ const pull = (number: number, rest: Partial<GitHubPull> = {}): GitHubPull => ({
 const report = (id: string, ago = 1000, rest: Partial<Report> = {}): Report => ({ id, title: id, at: iso(ago), scheduleId: 'work.app.look', body: 'Critical: Broken\nNext: Fix it', outcome: 'completed', ...rest })
 const agent = (id: string, asks?: string): RunningAgent => ({ id, title: id, doing: 'Reading', project: 'app', tier: 'mid', hue: 0, mood: 'working', kind: 'work', ...(asks ? { asks } : {}) })
 const routine = (id: string, offset: number, state: RoutineFacts['state'] = 'on'): RoutineFacts => ({
-  routine: { id, title: id, timezone: 'UTC', enabled: state !== 'off', harness: 'pi', model: null, effort: '', cwd: '', context: [], cadence: 'daily', path: '', prompt: '' },
-  state, hold: state === 'held' ? { until: iso(-offset), reason: 'Waiting on a dependency' } : null,
-  next: { at: now + offset }, running: undefined, lastRun: undefined,
+  routine: {
+    id,
+    title: id,
+    timezone: 'UTC',
+    enabled: state !== 'off',
+    harness: 'pi',
+    model: null,
+    effort: '',
+    cwd: '',
+    context: [],
+    cadence: 'daily',
+    path: '',
+    prompt: '',
+  },
+  state,
+  hold: state === 'held' ? { until: iso(-offset), reason: 'Waiting on a dependency' } : null,
+  next: { at: now + offset },
+  running: undefined,
+  lastRun: undefined,
 })
 const question = { id: 'q', from: 'hobkin', question: 'Choose?', choices: [], other: true, askedAt: now - 1000, expiresAt: null }
 
 test('Needs keeps the question first, sorts unknown dates last, and resolves exact targets', () => {
-  const model = homeModel(input({ question, waiting: [action('unknown', 'bad'), action('recent'), action('q'), action('old', iso(10000), { opens: { screen: 'reports', report: 'r' } }), action('work', null, { opens: { screen: 'work' } })] }))
+  const model = homeModel(input({
+    question,
+    waiting: [
+      action('unknown', 'bad'),
+      action('recent'),
+      action('q'),
+      action('old', iso(10000), { opens: { screen: 'reports', report: 'r' } }),
+      action('work', null, { opens: { screen: 'work' } }),
+    ],
+  }))
+
   assert.deepEqual(model.needs.rows.map(row => row.id), ['question:q', 'decision:old', 'decision:recent', 'decision:unknown', 'decision:work'])
   assert.deepEqual(model.needs.rows.map(row => row.action.target), [{ to: 'question' }, { to: 'report', id: 'r' }, { to: 'action', id: 'recent' }, { to: 'action', id: 'unknown' }, { to: 'screen', screen: 'work' }])
 })
 
 test('Needs deduplicates only the exact finished branch and counts known hidden entries', () => {
   const branch = action('branch', iso(), { branch: true })
-  branch.item = { id: 'branch', key: null, from: 'hobkin', question: '', tldr: '', choices: [], answerTo: { kind: 'merge', slug: 'app', item: 'one', head: 'head' }, recommended: null, why: null, changed: null, at: iso() }
-  const github = { ...input().github, connection: 'connected' as const, reviews: [pull(1), pull(2, { review: 'approved' })], more: { reviews: true, pulls: false, issues: false } }
-  const model = homeModel(input({ question, waiting: [branch], work: work([change('one'), change('one', 'different'), change('two')], [project('proposal', 'proposed')]), github }))
+  branch.item = {
+    id: 'branch',
+    key: null,
+    from: 'hobkin',
+    question: '',
+    tldr: '',
+    choices: [],
+    answerTo: { kind: 'merge', slug: 'app', item: 'one', head: 'head' },
+    recommended: null,
+    why: null,
+    changed: null,
+    at: iso(),
+  }
+  const github = {
+    ...input().github,
+    connection: 'connected' as const,
+    reviews: [pull(1), pull(2, { review: 'approved' })],
+    more: { reviews: true, pulls: false, issues: false },
+  }
+  const model = homeModel(input({
+    question,
+    waiting: [branch],
+    work: work(
+      [change('one'), change('one', 'different'), change('two')],
+      [project('proposal', 'proposed')],
+    ),
+    github,
+  }))
+
   assert.equal(model.needs.rows.length, 5)
   assert.equal(model.needs.more, 1)
   assert.equal(model.needs.rows.filter(row => row.kind === 'review').length, 2)
   assert.match(model.header.title, /At least 6/)
   assert.equal(homeModel(input({ work: work([], [project('proposal', 'proposed')]) })).needs.rows[0]?.kind, 'proposal')
   assert.match(homeModel(input({ question, github: { ...github, more: { ...github.more, reviews: false } } })).header.title, /^2 things/)
-  for (const answerTo of [{ kind: 'merge', slug: 'other', item: 'one', head: 'head' }, { kind: 'merge', slug: 'app', item: 'other', head: 'head' }, { kind: 'merge', slug: 'app', item: 'one', head: 'other' }, { kind: 'work', slug: 'app', item: 'one', head: 'head' }]) {
+  for (const answerTo of [
+    { kind: 'merge', slug: 'other', item: 'one', head: 'head' },
+    { kind: 'merge', slug: 'app', item: 'other', head: 'head' },
+    { kind: 'merge', slug: 'app', item: 'one', head: 'other' },
+    { kind: 'work', slug: 'app', item: 'one', head: 'head' },
+  ]) {
     const mismatch: WaitingRow = { ...branch, item: { ...branch.item, answerTo } }
-    assert.equal(homeModel(input({ waiting: [mismatch], work: work([change('one')]) })).needs.rows.filter(row => row.kind === 'review').length, 1)
+    assert.equal(
+      homeModel(input({ waiting: [mismatch], work: work([change('one')]) })).needs.rows.filter(row => row.kind === 'review').length,
+      1,
+    )
   }
 })
 
@@ -83,7 +174,19 @@ test('Problems folds exact source and normalized issue/outcome using newest Next
 
 test('Projects uses only chosen state and exact work provenance without declaring health', () => {
   const chosen = { ...project('app'), prs: 2, paused: true, lookError: 'Failed to inspect' }
-  const model = homeModel(input({ work: work([change('one')], [chosen, project('proposed', 'proposed'), project('dropped', 'dropped'), project('clean')]), reports: [report('one'), report('two', 2000, { scheduleId: 'work.app.tests' }), report('prefix', 1000, { scheduleId: 'work.apple.look' }), report('routine', 1000, { scheduleId: 'app' })] }))
+  const model = homeModel(input({
+    work: work(
+      [change('one')],
+      [chosen, project('proposed', 'proposed'), project('dropped', 'dropped'), project('clean')],
+    ),
+    reports: [
+      report('one'),
+      report('two', 2000, { scheduleId: 'work.app.tests' }),
+      report('prefix', 1000, { scheduleId: 'work.apple.look' }),
+      report('routine', 1000, { scheduleId: 'app' }),
+    ],
+  }))
+
   assert.deepEqual(model.projects.rows.map(row => row.id), ['project:app', 'project:clean'])
   assert.match(model.projects.rows[0]?.detail ?? '', /2 problems/)
   assert.match(model.projects.rows[0]?.detail ?? '', /1 change/)
@@ -110,12 +213,27 @@ test('day strip uses local midnight across DST and only actual scheduled observa
   try {
     const localNow = new Date(2026, 2, 8, 12).getTime()
     const finishedAt = new Date(2026, 2, 8, 9).toISOString()
-    const facts = { ...routine('daily', 0), next: { at: localNow + 1000 }, lastRun: { finishedAt, trigger: 'scheduled', status: 'failed', seconds: 10, usd: null, summary: '' } }
-    const model = homeModel(input({ now: localNow, routines: [facts], reports: [report('daily', 0, { scheduleId: 'daily', at: finishedAt, outcome: 'failed' }), report('work', 0, { at: finishedAt })] }))
+    const facts = {
+      ...routine('daily', 0),
+      next: { at: localNow + 1000 },
+      lastRun: { finishedAt, trigger: 'scheduled', status: 'failed', seconds: 10, usd: null, summary: '' },
+    }
+    const model = homeModel(input({
+      now: localNow,
+      routines: [facts],
+      reports: [
+        report('daily', 0, { scheduleId: 'daily', at: finishedAt, outcome: 'failed' }),
+        report('work', 0, { at: finishedAt }),
+      ],
+    }))
+
     assert.equal(model.upcoming.day.end - model.upcoming.day.start, 23 * 3600000)
     assert.deepEqual(model.upcoming.day.marks, [{ at: Date.parse(finishedAt), state: 'failed' }, { at: localNow + 1000, state: 'next' }])
     assert.match(model.upcoming.summary, /1 run.*1 failed/)
-    assert.equal(homeModel(input({ now: new Date(2026, 10, 1, 12).getTime() })).upcoming.day.end - new Date(2026, 10, 1).getTime(), 25 * 3600000)
+    assert.equal(
+      homeModel(input({ now: new Date(2026, 10, 1, 12).getTime() })).upcoming.day.end - new Date(2026, 10, 1).getTime(),
+      25 * 3600000,
+    )
   } finally {
     if (previous === undefined) delete process.env.TZ
     else process.env.TZ = previous
@@ -141,27 +259,59 @@ test('week counts supplied completed and stopped records and validates wins as a
   assert.equal(model.week.completed, 1)
   assert.equal(model.week.unfinished, 2)
   assert.deepEqual(model.week.wins, { merged: 0, decided: 2, streak: 3 })
-  for (const bad of [[], null, { today: [] , streak: 1 }, { today: { merged: -1, decided: 0 }, streak: 1 }, { today: { merged: 1.5, decided: 0 }, streak: 1 }, { today: { merged: 1, decided: 0 }, streak: Infinity }, { today: { merged: '1', decided: 0 }, streak: 1 }, { today: { merged: NaN, decided: 0 }, streak: 1 }, { today: { merged: 1, decided: 0 } }]) {
+  for (const bad of [
+    [],
+    null,
+    { today: [], streak: 1 },
+    { today: { merged: -1, decided: 0 }, streak: 1 },
+    { today: { merged: 1.5, decided: 0 }, streak: 1 },
+    { today: { merged: 1, decided: 0 }, streak: Infinity },
+    { today: { merged: '1', decided: 0 }, streak: 1 },
+    { today: { merged: NaN, decided: 0 }, streak: 1 },
+    { today: { merged: 1, decided: 0 } },
+  ]) {
     assert.equal(homeModel(input({ wins: bad })).week.wins, null)
   }
   assert.equal(homeModel(input({ wins: { today: { merged: 0, decided: 0 }, streak: 0 } })).stack.some(card => card.kind === 'today'), false)
 })
 
 test('running and header use real occupancy, holds and since-last-look without writing inputs', () => {
-  const source = input({ work: { ...work(), held: 'Waiting for budget' }, agents: [agent('one'), agent('two'), { ...agent('routine'), kind: 'routine' }, { ...agent('session'), kind: 'session' }], reports: [report('a'), report('b'), report('c')], attention: [{ lastReadAt: iso(7200000) }] })
+  const source = input({
+    work: { ...work(), held: 'Waiting for budget' },
+    agents: [
+      agent('one'),
+      agent('two'),
+      { ...agent('routine'), kind: 'routine' },
+      { ...agent('session'), kind: 'session' },
+    ],
+    reports: [report('a'), report('b'), report('c')],
+    attention: [{ lastReadAt: iso(7200000) }],
+  })
   const before = structuredClone(source)
   const model = homeModel(source)
+
   assert.equal(model.running.rows.length, 4)
   assert.equal(model.running.held, 'Waiting for budget')
   assert.equal(model.running.slots, '2 of 2 slots · 3 queued')
-  assert.equal(homeModel({ ...source, work: { ...source.work!, agents: 0 } }).running.slots, '2 of 0 slots · 3 queued')
+  assert.equal(
+    homeModel({ ...source, work: { ...source.work!, agents: 0 } }).running.slots,
+    '2 of 0 slots · 3 queued',
+  )
   assert.match(model.header.line ?? '', /3 reports/)
   assert.ok(model.header.chips.some(chip => /held/i.test(chip.label)))
   assert.deepEqual(source, before)
 })
 
 test('unavailable input is neutral, while a published empty home can be calm', () => {
-  const model = homeModel(input({ live: false, question, reports: [report('stale')], work: work([change('stale')]), agents: [agent('stale')], github: { ...input().github, connection: 'connected', reviews: [pull(1)] } }))
+  const model = homeModel(input({
+    live: false,
+    question,
+    reports: [report('stale')],
+    work: work([change('stale')]),
+    agents: [agent('stale')],
+    github: { ...input().github, connection: 'connected', reviews: [pull(1)] },
+  }))
+
   assert.equal(model.header.mood, 'idle')
   assert.notEqual(model.header.title, 'Nothing needs you')
   assert.deepEqual([model.stack, model.needs.rows, model.running.rows, model.problems.rows, model.projects.rows, model.upcoming.rows, model.week.days], [[], [], [], [], [], [], []])
@@ -170,7 +320,18 @@ test('unavailable input is neutral, while a published empty home can be calm', (
 })
 
 test('stack ranks dated decisions oldest first, keeps untimed source order, and one per kind', () => {
-  const model = homeModel(input({ question, waiting: [action('new', iso()), action('old', iso(10000))], work: work([change('one'), change('two')]), agents: [agent('working'), agent('ask', 'Choose a version')], github: { ...input().github, connection: 'connected', reviews: [pull(2, { updatedAt: iso(99999999) }), pull(1)] } }))
+  const model = homeModel(input({
+    question,
+    waiting: [action('new', iso()), action('old', iso(10000))],
+    work: work([change('one'), change('two')]),
+    agents: [agent('working'), agent('ask', 'Choose a version')],
+    github: {
+      ...input().github,
+      connection: 'connected',
+      reviews: [pull(2, { updatedAt: iso(99999999) }), pull(1)],
+    },
+  }))
+
   assert.deepEqual(model.stack.map(card => card.kind), ['decision', 'question', 'review', 'agent', 'github'])
   assert.equal(model.stack[0]?.primary.target.to, 'action')
   assert.equal(model.stack[0]?.id, 'decision:old')

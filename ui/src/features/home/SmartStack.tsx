@@ -24,7 +24,10 @@ export function SmartStack({ cards, unavailable }: { cards: StackCard[]; unavail
       setSelected(null)
       return
     }
-    const timer = setTimeout(() => setSelected(null), Math.max(0, selected.at + MANUAL_HOLD_MS - Date.now()))
+    const timer = setTimeout(
+      () => setSelected(null),
+      Math.max(0, selected.at + MANUAL_HOLD_MS - Date.now())
+    )
     return () => clearTimeout(timer)
   }, [selected, selectedExists])
 
@@ -36,7 +39,13 @@ export function SmartStack({ cards, unavailable }: { cards: StackCard[]; unavail
         <div aria-hidden="true" className="absolute inset-x-3.5 bottom-2 h-12 rounded-b-[22px] border border-border bg-surface" />
       </> : null}
       <div className="relative flex h-full min-h-[310px] flex-col rounded-[22px] border border-border-strong bg-surface-2 p-6 pr-14 shadow-lg">
-        <motion.div key={card?.id ?? 'empty'} initial={still || selected ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={tween.fade} className="flex flex-1 flex-col gap-3.5">
+        <motion.div
+          key={card?.id ?? 'empty'}
+          initial={still || selected ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={tween.fade}
+          className="flex flex-1 flex-col gap-3.5"
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2 pt-1">
               <ToneDot tone={card?.tone ?? 'quiet'} />
@@ -49,18 +58,52 @@ export function SmartStack({ cards, unavailable }: { cards: StackCard[]; unavail
           {card?.detail ? <p className="break-words text-[14px] leading-relaxed text-muted-foreground">{card.detail}</p> : null}
           {card?.next ? <p className="break-words text-[13px] leading-relaxed text-muted-foreground"><span className="font-medium text-foreground">Next: </span>{card.next}</p> : null}
           {unavailable ? <p className="text-sm text-muted-foreground">Home will appear when hobkin connects.</p> : null}
-          {card ? <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
-            <button type="button" onClick={() => openTarget(card.primary.target)} className="rounded-[10px] bg-sun px-4 py-2 text-sm font-semibold text-sun-fg">{card.primary.label}</button>
-            {card.secondary ? <button type="button" onClick={() => openTarget(card.secondary!.target)} className="rounded-[10px] border border-border-strong px-3.5 py-2 text-sm font-medium hover:bg-surface">{card.secondary.label}</button> : null}
-            <span className="ml-auto text-xs text-muted-foreground tabular-nums">{index + 1} of {cards.length}</span>
-          </div> : null}
+          {card ? (
+            <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+              <button
+                type="button"
+                onClick={() => openTarget(card.primary.target)}
+                className="rounded-[10px] bg-sun px-4 py-2 text-sm font-semibold text-sun-fg"
+              >
+                {card.primary.label}
+              </button>
+              {card.secondary ? (
+                <button
+                  type="button"
+                  onClick={() => openTarget(card.secondary!.target)}
+                  className="rounded-[10px] border border-border-strong px-3.5 py-2 text-sm font-medium hover:bg-surface"
+                >
+                  {card.secondary.label}
+                </button>
+              ) : null}
+              <span className="ml-auto text-xs text-muted-foreground tabular-nums">{index + 1} of {cards.length}</span>
+            </div>
+          ) : null}
         </motion.div>
-        {cards.length > 1 ? <div aria-label="Choose a card" className="absolute top-1/2 right-3 flex -translate-y-1/2 flex-col items-center gap-1">
-          {cards.map(item => <button key={item.id} type="button" aria-label={`Show ${item.label}: ${item.title}`} aria-pressed={item.id === id} onClick={() => choose(item.id)} className="grid size-7 place-items-center rounded-full hover:bg-surface">
-            <span aria-hidden="true" className={`w-1.5 rounded-full ${item.id === id ? 'h-5 bg-sun' : 'h-1.5 bg-border-strong'}`} />
-          </button>)}
-          <button type="button" aria-label="Next card" onClick={() => choose(cards[(index + 1) % cards.length].id)} className="mt-1 grid size-7 place-items-center rounded-full border border-border bg-surface hover:bg-background"><ChevronDown aria-hidden="true" className="size-3.5" /></button>
-        </div> : null}
+        {cards.length > 1 ? (
+          <div aria-label="Choose a card" className="absolute top-1/2 right-3 flex -translate-y-1/2 flex-col items-center gap-1">
+            {cards.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={`Show ${item.label}: ${item.title}`}
+                aria-pressed={item.id === id}
+                onClick={() => choose(item.id)}
+                className="grid size-7 place-items-center rounded-full hover:bg-surface"
+              >
+                <span aria-hidden="true" className={`w-1.5 rounded-full ${item.id === id ? 'h-5 bg-sun' : 'h-1.5 bg-border-strong'}`} />
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-label="Next card"
+              onClick={() => choose(cards[(index + 1) % cards.length].id)}
+              className="mt-1 grid size-7 place-items-center rounded-full border border-border bg-surface hover:bg-background"
+            >
+              <ChevronDown aria-hidden="true" className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
   )

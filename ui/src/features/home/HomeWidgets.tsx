@@ -52,9 +52,25 @@ function DayTimeline({ day }: { day: DayStrip }) {
   const position = (at: number) => `${Math.max(0, Math.min(100, (at - day.start) / (day.end - day.start) * 100))}%`
   return (
     <div>
-      <div role="img" aria-label={`Today: ${day.marks.filter(mark => mark.state === 'done').length} done, ${day.marks.filter(mark => mark.state === 'failed').length} failed, ${day.marks.filter(mark => mark.state === 'next').length} upcoming`} className="relative mx-1 h-9">
+      <div
+        role="img"
+        aria-label={`Today: ${day.marks.filter(mark => mark.state === 'done').length} done, ${day.marks.filter(mark => mark.state === 'failed').length} failed, ${day.marks.filter(mark => mark.state === 'next').length} upcoming`}
+        className="relative mx-1 h-9"
+      >
         <span className="absolute inset-x-0 top-4 h-0.5 rounded-full bg-border-strong" />
-        {day.marks.map((mark, index) => <span key={`${mark.at}:${index}`} style={{ left: position(mark.at) }} className={`absolute top-[13px] size-2 -translate-x-1/2 rounded-full ${mark.state === 'next' ? 'border border-muted-foreground bg-surface' : mark.state === 'failed' ? 'bg-bad-fg' : 'bg-muted-foreground'}`} />)}
+        {day.marks.map((mark, index) => (
+          <span
+            key={`${mark.at}:${index}`}
+            style={{ left: position(mark.at) }}
+            className={`absolute top-[13px] size-2 -translate-x-1/2 rounded-full ${
+              mark.state === 'next'
+                ? 'border border-muted-foreground bg-surface'
+                : mark.state === 'failed'
+                  ? 'bg-bad-fg'
+                  : 'bg-muted-foreground'
+            }`}
+          />
+        ))}
         <span style={{ left: position(day.now) }} className="absolute top-1 h-7 w-0.5 -translate-x-1/2 rounded-full bg-sun" />
       </div>
       <div className="flex justify-between text-[11px] text-muted-foreground"><span>Midnight</span><span className="text-sun">Now</span><span>Midnight</span></div>
@@ -63,27 +79,57 @@ function DayTimeline({ day }: { day: DayStrip }) {
 }
 
 function Week({ week, unavailable }: { week: HomeModel['week']; unavailable: boolean }) {
-  const most = Math.max(1, ...week.days.map(day => day.completed + day.failed + day.stopped))
+  const maxDailyRuns = Math.max(1, ...week.days.map(day => day.completed + day.failed + day.stopped))
   return (
     <Widget title="This week" icon={<ListChecks aria-hidden="true" className="size-3.5" />} target={{ to: 'screen', screen: 'reports' }} aside={week.wins ? `${week.wins.streak}-day streak` : null}>
-      {unavailable ? <p className="text-[13px] text-muted-foreground">Waiting for Home.</p> : <>
-        {week.wins ? <div className="flex flex-wrap gap-6">
-          <div><p className="font-heading text-3xl font-light tabular-nums">{week.wins.merged}</p><p className="text-xs text-muted-foreground">merged today</p></div>
-          <div><p className="font-heading text-3xl font-light tabular-nums">{week.wins.decided}</p><p className="text-xs text-muted-foreground">decided today</p></div>
-        </div> : <p className="text-xs text-muted-foreground">Today's wins are not available yet.</p>}
-        <ul aria-label="Runs by day" className="flex items-end gap-2">
-          {week.days.map(day => <li key={day.key} className="min-w-0 flex-1">
-            <button type="button" disabled={!day.openId} onClick={() => day.openId && openTarget({ to: 'report', id: day.openId })} aria-label={`${day.label}: ${day.completed} completed, ${day.failed} failed, ${day.stopped} stopped`} className="flex w-full flex-col items-center gap-2 rounded-sm">
-              <span className="flex h-12 w-full flex-col justify-end gap-0.5 border-b border-border">
-                <span style={{ height: `${day.completed / most * 100}%` }} className={`w-full rounded-t-sm ${day.today ? 'bg-muted-foreground' : 'bg-border-strong'}`} />
-                <span style={{ height: `${(day.failed + day.stopped) / most * 100}%` }} className="w-full bg-bad-fg" />
-              </span>
-              <span className={`text-[10px] ${day.today ? 'text-foreground' : 'text-muted-foreground'}`}>{day.label}</span>
-            </button>
-          </li>)}
-        </ul>
-        <p className="text-xs text-muted-foreground tabular-nums">{week.completed} completed · {week.unfinished} failed or stopped</p>
-      </>}
+      {unavailable ? (
+        <p className="text-[13px] text-muted-foreground">Waiting for Home.</p>
+      ) : (
+        <>
+          {week.wins ? (
+            <div className="flex flex-wrap gap-6">
+              <div>
+                <p className="font-heading text-3xl font-light tabular-nums">{week.wins.merged}</p>
+                <p className="text-xs text-muted-foreground">merged today</p>
+              </div>
+              <div>
+                <p className="font-heading text-3xl font-light tabular-nums">{week.wins.decided}</p>
+                <p className="text-xs text-muted-foreground">decided today</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Today's wins are not available yet.</p>
+          )}
+          <ul aria-label="Runs by day" className="flex items-end gap-2">
+            {week.days.map(day => (
+              <li key={day.key} className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  disabled={!day.openId}
+                  onClick={() => day.openId && openTarget({ to: 'report', id: day.openId })}
+                  aria-label={`${day.label}: ${day.completed} completed, ${day.failed} failed, ${day.stopped} stopped`}
+                  className="flex w-full flex-col items-center gap-2 rounded-sm"
+                >
+                  <span className="flex h-12 w-full flex-col justify-end gap-0.5 border-b border-border">
+                    <span
+                      style={{ height: `${day.completed / maxDailyRuns * 100}%` }}
+                      className={`w-full rounded-t-sm ${day.today ? 'bg-muted-foreground' : 'bg-border-strong'}`}
+                    />
+                    <span
+                      style={{ height: `${(day.failed + day.stopped) / maxDailyRuns * 100}%` }}
+                      className="w-full bg-bad-fg"
+                    />
+                  </span>
+                  <span className={`text-[10px] ${day.today ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {day.label}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground tabular-nums">{week.completed} completed · {week.unfinished} failed or stopped</p>
+        </>
+      )}
     </Widget>
   )
 }

@@ -11,7 +11,10 @@ Object.defineProperty(globalThis, 'window', { configurable: true, value: {
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
-mock.method(HostConnection.prototype, 'command', async (...args: unknown[]) => { commands.push(args); return { ok: true } })
+mock.method(HostConnection.prototype, 'command', async (...args: unknown[]) => {
+  commands.push(args)
+  return { ok: true }
+})
 const { openTarget } = await import('../src/features/home/navigate.ts')
 const { useView } = await import('../src/app/view-store.ts')
 const { remembered } = await import('../src/app/location.ts')
@@ -19,7 +22,11 @@ const { useReports } = await import('../src/features/reports/store.ts')
 const { useRoutines } = await import('../src/features/routines/store.ts')
 const { useQuestions } = await import('../src/features/questions/store.ts')
 const { hostStore } = await import('../src/lib/host/client.ts')
-after(() => { mock.restoreAll(); mock.timers.reset(); Reflect.deleteProperty(globalThis, 'window') })
+after(() => {
+  mock.restoreAll()
+  mock.timers.reset()
+  Reflect.deleteProperty(globalThis, 'window')
+})
 
 test('Action target survives the existing screen-entry reset with its exact id', () => {
   useView.getState().openScreen('home')
@@ -68,7 +75,18 @@ test('question target leaves the current sheet untouched, or navigates to Action
 test('URL targets open only supported GitHub HTTPS pages through the existing opener', () => {
   const url = 'https://github.com/owner/repo/pull/7'
   openTarget({ to: 'url', url })
-  for (const url of ['javascript:alert(1)', 'https://example.com/', 'http://github.com/a/b', 'https://github.com.evil/a', 'https://github.com@evil/a', 'https://github.com/\\evil/a']) openTarget({ to: 'url', url })
+
+  for (const url of [
+    'javascript:alert(1)',
+    'https://example.com/',
+    'http://github.com/a/b',
+    'https://github.com.evil/a',
+    'https://github.com@evil/a',
+    'https://github.com/\\evil/a',
+  ]) {
+    openTarget({ to: 'url', url })
+  }
+
   assert.deepEqual(opened, [[url, '_blank', 'noopener,noreferrer']])
   assert.deepEqual(commands, [])
 })

@@ -33,7 +33,13 @@ export function openTarget(target: HomeTarget): void {
       useRoutines.getState().open(target.id, `routine-${target.id}`)
       return openScreen('routines')
     case 'url':
-      if (/^https:\/\/github\.com\//.test(target.url) && target.url.length <= 2048 && !/[\\\s]/.test(target.url)) openGitHubPage(target.url)
+      if (
+        /^https:\/\/github\.com\//.test(target.url)
+        && target.url.length <= 2048
+        && !/[\\\s]/.test(target.url)
+      ) {
+        openGitHubPage(target.url)
+      }
       return
     case 'question':
       // hobkin's question rises on the question sheet by itself (questions/bridge.ts). Once put off, it waits under Action Items.
