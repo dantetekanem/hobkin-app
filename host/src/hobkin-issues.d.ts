@@ -4,6 +4,13 @@
  */
 
 declare module 'hobkin/src/cli/work/issues.mjs' {
+  /**
+   * What hobkin has filed for GitHub issues, from one read of every project's items: the item filed for an issue and its project, or null
+   * for an issue with nothing filed (commit d1f474a).
+   */
+  export function filedIssues(
+    root: string,
+  ): (issue: { repo: string; number: number }) => { project: { slug: string; name?: string }; item: { id: string; state: string; pr?: string | null } } | null
   /** The project whose repository on GitHub is `owner/name`, in any case, from its folder's origin or the remote hobkin clones. Null when hobkin knows none. */
   export function projectOfRepo(root: string, repo: string): Promise<{ slug: string; name?: string; state?: string; [key: string]: unknown } | null>
   /**

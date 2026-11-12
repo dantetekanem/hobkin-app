@@ -1,4 +1,5 @@
-import { projectOfRepo } from 'hobkin/src/cli/work/issues.mjs'
+import { filedIssues, projectOfRepo } from 'hobkin/src/cli/work/issues.mjs'
+import type { GitHubState, IssueWork } from '#shared/protocol/github.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 import { ghText, type GhCall } from './review/gh.ts'
 import type { WorkApp } from './work.ts'
@@ -52,5 +53,31 @@ export function workIssueHandlers({ app, root, gh }: IssueSeat): Pick<HostHandle
       const said = (await app().workAction('issue', project.slug, issue)) as { message?: unknown } | null
       return { message: String(said?.message ?? '') }
     },
+  }
+}
+
+type Filed = ReturnType<ReturnType<typeof filedIssues>>
+
+const workOf = (filed: Filed): IssueWork | null =>
+  filed ? { slug: filed.project.slug, project: filed.project.name ?? filed.project.slug, item: filed.item.id, state: filed.item.state, pr: filed.item.pr ?? null } : null
+
+/**
+ * The GitHub page's issues, each with the hobkin work filed for it, so a filed issue shows where its work stands on every load. hobkin's items
+ * are read once each time GitHub's lists or hobkin's work change (`work` is the snapshot's, which a refresh replaces), and not again while
+ * neither does. Without hobkin's work, as before hobkin opens, or with a home that cannot be read, the issues go as they are.
+ */
+export function issueWorkReader(root: () => string): (github: GitHubState, work: unknown) => GitHubState {
+  let last: { github: GitHubState; work: unknown; read: GitHubState } | null = null
+  return (github, work) => {
+    if (!work || github.issues.length === 0) return github
+    if (last?.github === github && last.work === work) return last.read
+    try {
+      const filedFor = filedIssues(root())
+      const read = { ...github, issues: github.issues.map((issue) => ({ ...issue, work: workOf(filedFor(issue)) })) }
+      last = { github, work, read }
+      return read
+    } catch {
+      return github
+    }
   }
 }

@@ -37,7 +37,7 @@ import { Canvas } from './canvas.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
 import { workFrom, workHandlers } from './work.ts'
-import { workIssueHandlers } from './work-issues.ts'
+import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
 import { hostReviews, reviewHandlers, toPrepare } from './review/seat.ts'
@@ -227,11 +227,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     gh: options.reviewGh,
     log,
   })
+  // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
+  const issueWork = issueWorkReader(() => hobkin().runtime.directory)
   const facts = () => ({
     owner: owner.wireState(),
     signIn: signIn.state,
     models: signIn.models,
-    github: github.state,
+    github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
     canvas: canvas.state,
     appearance: appearanceRequest(appearance),

@@ -34,6 +34,21 @@ export interface GitHubIssue {
   assigned: boolean
   /** The user opened it. */
   authored: boolean
+  /** The hobkin work filed for it, read from hobkin's items. Null when none is. A host older than this does not send it. */
+  work?: IssueWork | null
+}
+
+/** The hobkin item filed for an issue (its key is `gh-issue:<owner>/<repo>#<n>`), and where it stands. */
+export interface IssueWork {
+  /** Its project, by hobkin's slug and its name. */
+  slug: string
+  project: string
+  /** The item's id in hobkin. */
+  item: string
+  /** The item's state in hobkin: `open`, `doing`, `waiting`, `branch`, `pr`, `merged`, `done`, `declined`, `dropped`. */
+  state: string
+  /** Its pull request's address, once it has one. */
+  pr: string | null
 }
 
 export interface GitHubPull {
@@ -128,6 +143,8 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
 
   /** Lines added and removed, and files, as GitHub counts them. The ones an AI review read say the same. */
   const size = (additions: number, deletions: number, changedFiles: number) => ({ additions, deletions, changedFiles })
+  /** The hobkin item filed for an issue. Where the Work sample has the item, the ids are its own, so the issue opens its queue row or card. */
+  const filed = (slug: string, item: string, state: string, pr: string | null = null): { work: IssueWork } => ({ work: { slug, project: slug, item, state, pr } })
 
   const arriving = round % 2 === 1 ? [pull('api', 1194, 'Log the request id with every error', 1, { author: 'mira', review: 'waiting', checks: 'pending', ...size(22, 3, 2) })] : []
   return {
@@ -145,11 +162,16 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
       pull('storefront', 470, 'Try a lighter product grid', 2900, { labels: ['experiment'], draft: true, checks: 'pending', ...size(240, 198, 11) }),
       pull('docs', 71, 'Document the export command', 5800, { review: 'waiting', checks: 'passing', ...size(140, 0, 3) }),
     ],
+    // One issue for each place hobkin's work on it can stand, and one with nothing filed, which offers Add to queue.
     issues: [
-      issue('storefront', 468, 'The checkout button stays disabled in Safari', 40, { labels: ['bug', 'checkout'], assigned: true }),
-      issue('api', 1172, 'Rate limit headers are missing from 429 answers', 1450, { labels: ['bug'], assigned: true, authored: true }),
-      issue('docs', 64, 'The quick start skips the install step', 4300, { labels: ['docs'], authored: true }),
-      issue('storefront', 455, 'Receipts ignore the dark theme', 13000, { labels: ['enhancement'], authored: true }),
+      issue('storefront', 468, 'The checkout button stays disabled in Safari', 40, { labels: ['bug', 'checkout'], assigned: true, ...filed('storefront', 'b8d1f0', 'doing') }),
+      issue('storefront', 476, 'The login redirect forgets the page you were on', 95, { labels: ['bug'], authored: true, ...filed('storefront', '8d2f60', 'pr', at('storefront', 'pull', 479)) }),
+      issue('api', 1168, 'Webhook deliveries are retried forever', 600, { labels: ['bug'], assigned: true, ...filed('billing-api', '5e7c21', 'branch') }),
+      issue('api', 1172, 'Rate limit headers are missing from 429 answers', 1450, { labels: ['bug'], assigned: true, authored: true, ...filed('billing-api', 'c41a77', 'merged') }),
+      issue('docs', 64, 'The quick start skips the install step', 4300, { labels: ['docs'], authored: true, ...filed('docs-site', '52d0f8', 'open') }),
+      issue('docs', 58, 'The export command has no page of its own', 5200, { labels: ['docs'], authored: true, ...filed('docs-site', 'd0c5e1', 'done') }),
+      issue('storefront', 455, 'Receipts ignore the dark theme', 13000, { labels: ['enhancement'], authored: true, work: null }),
+      issue('storefront', 431, 'Add a carousel to the home page', 21000, { labels: ['enhancement'], authored: true, ...filed('storefront', '3b7e90', 'declined') }),
     ],
     more: { reviews: false, pulls: false, issues: false },
     refreshedAt: new Date(now).toISOString(),

@@ -7,10 +7,11 @@ import { runWorkCommand } from 'hobkin/src/cli/work/commands.mjs'
 import { addIssue } from 'hobkin/src/cli/work/issues.mjs'
 import { chooseProject, setProjectIssues } from 'hobkin/src/cli/work/store.mjs'
 import { checkArguments } from '#shared/commands/registry.ts'
+import { GITHUB_UNKNOWN, type GitHubIssue, type GitHubState } from '#shared/protocol/github.ts'
 import { runCommand, type CommandOutcome } from '../src/commands.ts'
 import type { GhOutcome } from '../src/github-gh.ts'
 import type { GhCall } from '../src/review/gh.ts'
-import { workIssueHandlers } from '../src/work-issues.ts'
+import { issueWorkReader, workIssueHandlers } from '../src/work-issues.ts'
 import { workFrom, workHandlers, type WorkApp } from '../src/work.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -140,4 +141,31 @@ test("which issues a project picks up is one of its settings: set with hobkin's 
     assert.equal(!wrong.ok && wrong.error.code, 'invalid-arguments', JSON.stringify(args))
   }
   assert.equal(calls.length, 1)
+})
+
+/** An issue as the GitHub page lists it. */
+const listed = (number: number): GitHubIssue => ({
+  repo: 'acme/web', number, title: `Issue ${number}`, labels: [], updatedAt: '2026-11-12T10:00:00Z', url: `https://github.com/acme/web/issues/${number}`, assigned: true, authored: false,
+})
+
+test("each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items once each time GitHub's lists or hobkin's work change", async (t) => {
+  const { root, slug } = homeWithProject(t)
+  const { id } = addIssue(root, slug, { repo: 'acme/web', number: 12, title: 'Issue 12' })
+  const github: GitHubState = { ...GITHUB_UNKNOWN, connection: 'connected', issues: [listed(12), listed(13)] }
+  const withWork = issueWorkReader(() => root)
+  const work = { from: 'the snapshot hobkin refreshed last' }
+
+  const read = withWork(github, work)
+
+  assert.deepEqual(read.issues.map(({ number, work: filed }) => [number, filed]), [
+    [12, { slug, project: 'web', item: id, state: 'open', pr: null }],
+    [13, null],
+  ])
+  assert.equal(withWork(github, work), read, 'nothing changed, so nothing is read again')
+
+  await runWorkCommand(root, ['done', slug, id])
+  assert.equal(withWork(github, work).issues[0]!.work?.state, 'open', "hobkin's work is the same, so its items are not read again")
+  assert.equal(withWork(github, { from: 'a newer refresh' }).issues[0]!.work?.state, 'done')
+  assert.equal(withWork(github, null), github, "without hobkin's work, as before hobkin opens, the issues go as they are")
+  assert.equal(issueWorkReader(() => { throw new Error('hobkin is still starting.') })(github, work), github, 'and a home that cannot be read changes nothing')
 })
