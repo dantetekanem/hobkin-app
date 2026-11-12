@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BRIDGE, serveBridge } from './bridge.mjs';
 import { readPersona } from './config.mjs';
@@ -59,6 +59,7 @@ export class PiRpcSession {
   isCompacting = false;
   autoCompactionEnabled = true;
   hello = null;
+  clientHello = null;
   bashIds = new Map();
 
   constructor({ askQuestion, tools, memory, directions, decided, persona, graceMs }) {
@@ -285,11 +286,12 @@ export class PiRpcSession {
   }
 
   async dialog({ id, method, title, placeholder, statusKey, statusText, ...request }) {
-    if (method === 'setStatus' && statusKey === BRIDGE) {
+    if (method === 'setStatus' && [BRIDGE, `${BRIDGE}/client`].includes(statusKey)) {
+      const slot = statusKey === BRIDGE ? 'hello' : 'clientHello';
       try {
-        this.hello = JSON.parse(statusText);
+        this[slot] = JSON.parse(statusText);
       } catch {
-        this.hello = null;
+        this[slot] = null;
       }
     }
     if (!dialogMethods.has(method)) return;
@@ -338,8 +340,13 @@ function within(promise, ms, message) {
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
   { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts },
-  { spawnProcess, startupTimeoutMs = 180000, graceMs } = {},
+  { spawnProcess, startupTimeoutMs = 180000, graceMs, clientBridge } = {},
 ) {
+  if (clientBridge !== undefined && (typeof clientBridge?.extensionPath !== 'string'
+    || !isAbsolute(clientBridge.extensionPath) || clientBridge.tool?.name !== 'client'
+    || typeof clientBridge.tool.execute !== 'function')) {
+    throw Error('Invalid configured client bridge.');
+  }
   if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
     throw Error('Main Pi conversation was recorded in a different directory than the configured cwd.');
   }
@@ -368,12 +375,14 @@ export async function openRpcSession(
       apply: change => session.apply(change),
     })),
   };
+  if (clientBridge) session.tools.client = clientBridge.tool;
   const { command, args } = piCommand(config.launcher, [
     '--mode', 'rpc',
     '--session', file,
     ...(config.main.model ? ['--model', config.main.model] : []),
     '--thinking', config.main.effort,
     '--extension', extensionPath,
+    ...(clientBridge ? ['--extension', clientBridge.extensionPath] : []),
     ...prompts.flatMap(text => ['--append-system-prompt', text]),
   ]);
   session.attach(startRpcProcess({
@@ -396,8 +405,12 @@ export async function openRpcSession(
     if (!keptEffort(state.model, config.main.effort, state.thinkingLevel) || !model || (config.main.model && model !== config.main.model)) {
       throw Error('Pi model or thinking binding changed.');
     }
-    const missing = Object.keys(session.tools).filter(name => !session.hello?.tools?.includes(name));
+    const missing = Object.keys(session.tools).filter(name => name !== 'client' && !session.hello?.tools?.includes(name));
     if (missing.length) throw Error(`The Hobkin extension did not activate its tools: ${missing.join(', ')}.`);
+    if (clientBridge && (session.clientHello?.version !== 1 || !Array.isArray(session.clientHello.tools)
+      || session.clientHello.tools.length !== 1 || session.clientHello.tools[0] !== 'client')) {
+      throw Error('The Hobkin client extension did not activate.');
+    }
     session.absorb(state);
     await session.pull();
     return session;
