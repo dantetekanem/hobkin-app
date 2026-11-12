@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import type { AssessmentStatus } from '#shared/review/assessment.ts'
 import { Assessments, readyReviewTree, type AssessRequest, type AssessRun } from '../src/review/assessment.ts'
+import { Reviews } from '../src/review/reviews.ts'
+import { changeSource } from '../src/review/sources.ts'
+import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
 /** A project with a main branch and a finished hobkin branch on it. Only this test's folders are touched. */
@@ -154,4 +157,60 @@ test('the review tree links the project’s installed dependencies when git igno
   const plain = join(temporaryDirectory(t), 'plain')
   mkdirSync(plain)
   await assert.rejects(readyReviewTree({ repo, tree: plain, head }), /not a review worktree/)
+})
+
+test('a finished change’s review starts its change review, and opens with the story and the levels laid over its graph', async (t) => {
+  const { repo, head } = project(t)
+  const root = temporaryDirectory(t)
+  const runs: AssessRequest[] = []
+  const engine: AssessRun = async (request) => {
+    runs.push(request)
+    writeFileSync(join(request.out, 'story.md'), '# Round the total\n\n## Opening\n')
+    writeFileSync(join(request.out, 'units.json'), JSON.stringify({ schema: 'review-units/1', map: 'node-level', attention: { units: 1, reading_minutes: 2 }, units: [{ id: 'u1', nodes: ['n1'], level: 'high', critical: false }] }))
+    writeFileSync(join(request.out, 'graph.json'), JSON.stringify({ nodes: [{ id: 'n1', kind: 'function', symbol: 'total', path: 'src/total.js', lines: [1, 1], level: { current: 'high' }, critical: false }] }))
+    return { units: { units: [{ level: 'high', critical: false }] }, storyBy: 'model' }
+  }
+  const reviewsAt = (assessments: Assessments) =>
+    new Reviews({
+      store: reviewStore(root),
+      sources: {
+        change: changeSource({ find: () => ({ project: 'shop', title: 'Round the total', branch: 'hobkin/4c9e21-round-the-total', head }), repoOf: () => repo, baseOf: async () => 'main' }),
+        pull: { head: async () => null, read: async () => Promise.reject(new Error('no pull requests here')) },
+      },
+      agent: async () => null,
+      work: () => ({ workAction: async () => ({}) }),
+      card: () => null,
+      // As the live host knows it, from the change's card on the Work screen.
+      head: () => head,
+      assessments,
+    })
+  const id = 'change:shop:4c9e21'
+  const assessments = new Assessments({ root, run: engine, repoOf: () => repo })
+  const reviews = reviewsAt(assessments)
+  t.after(() => reviews.close())
+
+  reviews.prepare(id)
+  await reviews.settled(id)
+  await assessments.settled()
+  assert.equal(runs.length, 1, 'the change review started once the graph was ready')
+  assert.equal(runs[0]!.head, head)
+  assert.equal(reviews.status(id).assessment?.state, 'ready')
+  assert.equal(reviews.status(id).assessment?.summary?.level, 'high')
+
+  const opened = reviews.get(id)
+  assert.match(opened.assessment?.story ?? '', /^# Round the total/)
+  const total = opened.review.nodes.find((node) => node.kind === 'code' && node.subtitle === 'src/total.js')
+  assert.equal(total?.level, 'high', 'the level shows on the graph node whose lines it rated')
+  assert.ok(opened.review.story.some((step) => step.level === 'high'), 'and on the step that shows it')
+
+  // A graph prepared before change reviews existed gets one the first time the background looks at it, and only once.
+  rmSync(join(root, 'client', 'reviews', 'change+shop+4c9e21', 'change-review'), { recursive: true, force: true })
+  const later = new Assessments({ root, run: engine, repoOf: () => repo })
+  const again = reviewsAt(later)
+  t.after(() => again.close())
+  again.watch([{ id, head }])
+  again.watch([{ id, head }])
+  await later.settled()
+  assert.equal(runs.length, 2)
+  assert.equal(again.status(id).assessment?.state, 'ready')
 })

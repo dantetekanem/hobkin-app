@@ -16,6 +16,7 @@ import { openReview } from '#shared/review/validate.ts'
 import { askForChanges, pullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
 import { agentPrompt, changeReviewSkill, type ReviewAgent } from './agent.ts'
+import { withLevels, type Assessments } from './assessment.ts'
 import { ghText, type GhCall } from './gh.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
@@ -74,6 +75,11 @@ export interface ReviewsOptions {
   /** The skill, so a test can hand in its own. */
   skill?: () => string
   now?: () => number
+  /**
+   * The change review of finished changes (spec 032): started once a change's graph is ready, one commit once, and
+   * read back when the review opens. A host given none reviews nothing that way.
+   */
+  assessments?: Assessments
 }
 
 interface Job {
@@ -136,7 +142,9 @@ export class Reviews {
     const target = this.target(id)
     const known = this.stored(id)
     const head = this.options.head?.(target) ?? known.head
-    return { ...known, head, stale: known.state === 'ready' && head != null && !this.options.store.has(target, head) }
+    const at = head ?? this.opened.get(id)?.review.change.head ?? null
+    const assessment = target.kind === 'change' && this.options.assessments ? { assessment: this.options.assessments.status(target, at) } : {}
+    return { ...known, head, stale: known.state === 'ready' && head != null && !this.options.store.has(target, head), ...assessment }
   }
 
   /**
@@ -214,14 +222,20 @@ export class Reviews {
     if (cached) {
       this.opened.delete(id)
       this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null })
+      this.assess(target, cached.review)
       return
     }
 
     const input = await source.read(target, head)
     const draft = await draftReview({ ...input, id })
-    this.set(id, { phase: 'arranging' })
-    const system = (this.options.skill ?? changeReviewSkill)()
-    const written = await agent({ system, prompt: agentPrompt(modelRequest(draft)), signal: this.controller.signal })
+    // A finished change is told by its change review (spec 032), so no model narrates its graph: the host's steps do.
+    // A pull request from GitHub, which gets no change review, keeps its narrated walk.
+    let written: string | null = null
+    if (target.kind === 'pull') {
+      this.set(id, { phase: 'arranging' })
+      const system = (this.options.skill ?? changeReviewSkill)()
+      written = await agent({ system, prompt: agentPrompt(modelRequest(draft)), signal: this.controller.signal })
+    }
     this.set(id, { phase: 'checking' })
     const { review: completed, corrections } = await completeReview(draft, written ?? undefined)
     for (const line of corrections) this.options.log?.(`Review ${id}: ${line}`)
@@ -233,6 +247,17 @@ export class Reviews {
     store.write(target, review, files, meta)
     this.opened.set(id, { review, files, meta })
     this.set(id, { state: 'ready', phase: null, stale: false, ...meta })
+    this.assess(target, review)
+  }
+
+  /** Starts the change review of a finished change at the commit its graph was built for. Never stops the graph. */
+  private assess(target: ReviewTarget, review: Review) {
+    if (target.kind !== 'change' || !this.options.assessments) return
+    try {
+      this.options.assessments.start({ target, head: review.change.head, base: review.change.base, description: { source: 'commits', title: review.change.title } })
+    } catch (error) {
+      this.options.log?.(`Review ${reviewIdOf(target)}: the change review could not start: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /** Waits for whatever preparation of this review is under way. For tests and for closing. */
@@ -263,7 +288,14 @@ export class Reviews {
     // Opening a review is when its change is looked up, when the app does not already know where it is.
     if (!this.options.head?.(this.target(id))) void this.lookAgain(id)
     const status = this.status(id)
-    return { review, notes: this.options.store.notes(this.target(id)), status: { ...status, stale: status.head != null && status.head !== review.change.head } }
+    const target = this.target(id)
+    const assessment = target.kind === 'change' ? (this.options.assessments?.read(target, review.change.head) ?? null) : null
+    return {
+      review: assessment ? withLevels(review, assessment) : review,
+      notes: this.options.store.notes(target),
+      status: { ...status, stale: status.head != null && status.head !== review.change.head, ...(target.kind === 'change' && this.options.assessments ? { assessment: this.options.assessments.status(target, review.change.head) } : {}) },
+      ...(target.kind === 'change' ? { assessment } : {}),
+    }
   }
 
   /** Both sides of one file of a prepared review. */
@@ -443,6 +475,10 @@ export class Reviews {
         const newest = store.newest(target)
         const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
         if (!newest || moved) this.prepare(id)
+        else if (target.kind === 'change' && head && this.options.assessments?.status(target, head).state === 'idle') {
+          const stored = store.read(target, head)
+          if (stored) this.assess(target, stored.review)
+        }
       } catch (error) {
         this.options.log?.(`Review ${id} was not prepared in the background: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -452,6 +488,7 @@ export class Reviews {
   close(): void {
     this.controller.abort()
     this.queue.length = 0
+    this.options.assessments?.close()
   }
 }
 

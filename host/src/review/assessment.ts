@@ -13,7 +13,8 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
-import type { AssessmentStatus, AssessmentSummary, ChangeAssessment } from '#shared/review/assessment.ts'
+import type { AssessmentStatus, AssessmentSummary, ChangeAssessment, Level, Units } from '#shared/review/assessment.ts'
+import type { Review } from '#shared/review/types.ts'
 
 const run = promisify(execFile)
 const GIT_TIMEOUT_MS = 120_000
@@ -46,6 +47,52 @@ export interface ProgressLike {
   now: string
   eta_seconds: number | null
   steps: { id: string; status: string; done: number; total: number; seconds: number | null; note?: string }[]
+}
+
+/** What the host reads of a rated node in the engine's graph.json. */
+interface GraphNode {
+  id: string
+  kind: string
+  symbol: string
+  path: string
+  lines: [number, number]
+  level: { current: Level } | null
+  critical: boolean
+}
+
+const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
+const worse = (a: Level, b: Level) => (RANK[b] > RANK[a] ? b : a)
+
+/**
+ * The graph review with the change review's levels laid over it, so the levels show on the Review page: a code or file
+ * node takes the worst level of the rated definitions its lines at head overlap, and a step the worst of its focus.
+ * Nothing else changes.
+ */
+export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>): Review {
+  if (!assessment.nodes.length) return review
+  const pathOf = new Map(review.files.map((file) => [file.id, file.path]))
+  const rate = (node: Review['nodes'][number]): Level | undefined => {
+    let found: Level | undefined
+    for (const anchor of node.anchors) {
+      if (anchor.side !== 'added') continue
+      const path = pathOf.get(anchor.fileId)
+      for (const rated of assessment.nodes) {
+        if (rated.path !== path || rated.lines[1] < anchor.startLine || rated.lines[0] > anchor.endLine) continue
+        found = found ? worse(found, rated.level) : rated.level
+      }
+    }
+    return found
+  }
+  const nodes = review.nodes.map((node) => {
+    const level = node.kind === 'code' || node.kind === 'file' ? rate(node) : undefined
+    return level ? { ...node, level } : node
+  })
+  const levelOf = new Map(nodes.map((node) => [node.id, node.level]))
+  const story = review.story.map((step) => {
+    const levels = step.focus.map((id) => levelOf.get(id)).filter((level): level is Level => Boolean(level))
+    return levels.length ? { ...step, level: levels.reduce(worse) } : step
+  })
+  return { ...review, nodes, story }
 }
 
 /** Runs git in a folder, as itself: no shell, a timeout, and never a prompt for a password. */
@@ -254,14 +301,20 @@ export class Assessments {
     } catch {
       return null
     }
+    const units = readJson<Units>(join(folder, 'units.json'))
+    const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
+    const unitOf = new Map((units?.units ?? []).flatMap((unit) => unit.nodes.map((node) => [node, unit.id] as const)))
     return {
       head,
       summary,
       story,
-      units: readJson(join(folder, 'units.json')),
+      units,
       triage: readJson(join(folder, 'triage.json')),
       blind: readJson(join(folder, 'blind-check.json')),
       progress: readJson(join(folder, 'progress.json')),
+      nodes: (graph?.nodes ?? [])
+        .filter((node) => node.kind !== 'test' && node.level)
+        .map((node) => ({ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level: node.level!.current, critical: node.critical, unit: unitOf.get(node.id) ?? null })),
     }
   }
 

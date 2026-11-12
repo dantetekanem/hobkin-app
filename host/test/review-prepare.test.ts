@@ -54,14 +54,23 @@ function reviewsFor(t: TestContext, agent: ReviewAgent, more: Partial<Constructo
   let current = head()
   // gh is not here, so every pull request fails to read. Each try is written down.
   const pullTries: string[][] = []
+  // Every preparation reads the change once, so the reads say how many were made.
+  const reads: string[] = []
+  const source = changeSource({
+    find: () => ({ project: 'hobkin', title: 'Say what hobkin is doing', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', head: current }),
+    repoOf: () => repo,
+    baseOf: async () => 'main',
+  })
   const reviews = new Reviews({
     store,
     sources: {
-      change: changeSource({
-        find: () => ({ project: 'hobkin', title: 'Say what hobkin is doing', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', head: current }),
-        repoOf: () => repo,
-        baseOf: async () => 'main',
-      }),
+      change: {
+        head: (target) => source.head(target),
+        read: (target, at) => {
+          reads.push(at)
+          return source.read(target, at)
+        },
+      },
       pull: pullSource({
         gh: async (args) => {
           pullTries.push([...args])
@@ -75,33 +84,32 @@ function reviewsFor(t: TestContext, agent: ReviewAgent, more: Partial<Constructo
     skill: () => 'You arrange a change review.',
     ...more,
   })
-  return { reviews, store, home, git, write, pullTries, move: () => (current = head()) }
+  return { reviews, store, home, git, write, pullTries, reads, move: () => (current = head()) }
 }
 
 const ID = 'change:hobkin:7d02c9'
 
 test('prepares one head once', async (t) => {
   const { agent, runs } = countingAgent()
-  const { reviews, home, git, write, move } = reviewsFor(t, agent)
+  const { reviews, home, git, write, move, reads } = reviewsFor(t, agent)
 
   assert.equal(reviews.prepare(ID).state, 'preparing', 'it answers at once, while the work goes on in the background')
   // Asked again while it is under way, it joins the same preparation.
   reviews.prepare(ID)
   await reviews.settled(ID)
   assert.equal(reviews.status(ID).state, 'ready')
-  assert.equal(runs.length, 1)
+  assert.equal(reads.length, 1)
 
   const opened = reviews.get(ID)
   assert.equal(opened.review.change.title, 'Say what hobkin is doing')
   assert.ok(opened.review.nodes.some((node) => node.kind === 'criterion' && node.id === 'A1' && node.status === 'proven'))
-  assert.equal(opened.review.summary, 'One word for what hobkin is doing.')
-  assert.equal(opened.status.storyBy, 'agent')
   assert.ok(reviews.file(ID, 'src/doing.ts').head?.includes("'working'"))
 
-  // Prepared again for the same commit: the file in the home is used, and the agent does not run again.
+  // Prepared again for the same commit: the file in the home is used, and the change is not read again.
   reviews.prepare(ID)
   await reviews.settled(ID)
-  assert.equal(runs.length, 1)
+  assert.equal(reads.length, 1)
+  assert.equal(runs.length, 0, 'no model narrates a finished change: its change review tells it (spec 032)')
 
   // A new commit makes a new review, and the old file stays in place.
   const first = opened.review.change.head
@@ -111,20 +119,22 @@ test('prepares one head once', async (t) => {
   assert.equal(reviews.prepare(ID).state, 'ready', 'the review of the older commit opens while the newer one is prepared')
   assert.equal(reviews.get(ID).review.change.head, first)
   await reviews.settled(ID)
-  assert.equal(runs.length, 2)
+  assert.equal(reads.length, 2)
   assert.notEqual(reviews.get(ID).review.change.head, first)
   const folder = join(home, 'client', 'reviews', 'change+hobkin+7d02c9')
   assert.deepEqual(readdirSync(folder).filter((name) => name.startsWith('review-')).length, 2)
   assert.ok(existsSync(join(folder, `review-${first.slice(0, 12)}.json`)))
 })
 
-test('what the agent returns is checked before anyone sees it, and nonsense leaves the host its own story', async (t) => {
-  const { agent } = countingAgent(() => 'Here is the review you asked for, but not as JSON.')
+test('a finished change’s graph is the host’s own: no model narrates it, whatever one would answer', async (t) => {
+  const { agent, runs } = countingAgent(() => 'Here is the review you asked for, but not as JSON.')
   const { reviews } = reviewsFor(t, agent)
   reviews.prepare(ID)
   await reviews.settled(ID)
 
-  const { review } = reviews.get(ID)
+  const { review, status } = reviews.get(ID)
+  assert.equal(runs.length, 0)
+  assert.equal(status.storyBy, 'host')
   assert.equal(review.story[0]!.kind, 'outcome')
   assert.ok(review.edges.every((edge) => edge.certainty === 'host'))
 
@@ -136,14 +146,13 @@ test('what the agent returns is checked before anyone sees it, and nonsense leav
 })
 
 test('a failed preparation says why, and a review is opened only once it is ready', async (t) => {
-  const { reviews } = reviewsFor(t, async () => {
-    throw new Error('The model is not reachable.')
-  })
+  const unreadable = { head: async () => 'a'.repeat(40), read: async () => Promise.reject(new Error('The repository cannot be read.')) }
+  const { reviews } = reviewsFor(t, async () => null, { sources: { change: unreadable, pull: unreadable } })
   assert.throws(() => reviews.get(ID), /still being prepared/)
   reviews.prepare(ID)
   await reviews.settled(ID)
-  assert.deepEqual([reviews.status(ID).state, reviews.status(ID).error], ['failed', 'The model is not reachable.'])
-  assert.throws(() => reviews.get(ID), /could not be prepared: The model is not reachable/)
+  assert.deepEqual([reviews.status(ID).state, reviews.status(ID).error], ['failed', 'The repository cannot be read.'])
+  assert.throws(() => reviews.get(ID), /could not be prepared: The repository cannot be read/)
 })
 
 test('a pull request is read through gh with GET requests only', async (t) => {
@@ -185,16 +194,15 @@ test('a pull request is read through gh with GET requests only', async (t) => {
 })
 
 test('the background prepares what has no review yet, a few at a time, and again when the commit moves', async (t) => {
-  const { agent, runs } = countingAgent()
-  const { reviews, git, write, move, pullTries } = reviewsFor(t, agent)
+  const { reviews, git, write, move, pullTries, reads } = reviewsFor(t, async () => null)
   reviews.watch([{ id: ID }, { id: 'pr:acme/shop/1' }, { id: 'pr:acme/shop/2' }], 1)
   await reviews.settled()
-  assert.equal(runs.length, 1, 'only one, the limit, was queued')
+  assert.equal(reads.length, 1, 'only one, the limit, was queued')
   assert.equal(reviews.status('pr:acme/shop/1').state, 'idle')
   // Looked at already, so watching again queues nothing.
   reviews.watch([{ id: ID }], 5)
   await reviews.settled()
-  assert.equal(runs.length, 1)
+  assert.equal(reads.length, 1)
 
   // The change moved to a new commit, so it is prepared again.
   write('src/doing.ts', "export function doingAfter(previous: string, event: { type: string }) {\n  if (event.type === 'tool') return 'working'\n  if (event.type === 'retry') return 'retrying'\n  return previous\n}\n")
@@ -202,7 +210,7 @@ test('the background prepares what has no review yet, a few at a time, and again
   const head = move()
   reviews.watch([{ id: ID, head }], 5)
   await reviews.settled()
-  assert.equal(runs.length, 2)
+  assert.equal(reads.length, 2)
   assert.equal(reviews.get(ID).review.change.head, head)
 
   // A pull request that could not be read is not tried again until it changes on GitHub.

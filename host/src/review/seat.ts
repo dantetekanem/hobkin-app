@@ -10,7 +10,9 @@ import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { HostHandlers } from '../commands.ts'
 import type { PiModelRuntime } from '../pi.ts'
-import { noReviewAgent, piReviewAgent } from './agent.ts'
+import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
+import { noReviewAgent, piModelRunner, piReviewAgent } from './agent.ts'
+import { Assessments } from './assessment.ts'
 import { reviewCode, reviewMap } from './guide.ts'
 import type { GhCall } from './gh.ts'
 import { Reviews, type Watched } from './reviews.ts'
@@ -49,7 +51,23 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const repo = readProject(data, slug)?.path ?? paths(data, slug).clone
     return existsSync(repo) ? repo : null
   }
+  // The change review of each finished change (spec 032): its own tests run in a review worktree, and the careful pass
+  // and the blind check go to the tiers. Only a live host runs it: the scripted one runs no tests and asks no model.
+  const assessments = seat.live
+    ? new Assessments({
+        root: seat.root,
+        repoOf,
+        run: async (request) => {
+          const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
+          const result = await reviewChange({ ...request, model })
+          for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
+          return { units: result.units, storyBy: result.storyBy }
+        },
+        log: seat.log,
+      })
+    : undefined
   return new Reviews({
+    ...(assessments ? { assessments } : {}),
     store: reviewStore(seat.root),
     sources: {
       change: changeSource({

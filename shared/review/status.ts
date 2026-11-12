@@ -2,6 +2,7 @@
  * How a review's preparation stands, and what a verdict will do, as the host tells the window.
  * See _specs/005-review-model and _specs/009-review-notes.
  */
+import type { AssessmentStatus, ChangeAssessment } from './assessment.ts'
 import type { NoteEntry, NoteIntent } from './notes.ts'
 import type { NodeIO, NodeKind, NodeStatus, Review, ReviewPath } from './types.ts'
 import type { PullReviewPost, Verdict } from './verdict.ts'
@@ -34,6 +35,8 @@ export interface ReviewStatus {
   cursor?: ReviewCursor
   /** When hobkin last left a note, so the window fetches the notes again. */
   notesAt?: number
+  /** For a finished change: how its change review (spec 032) stands at the commit the change is at. */
+  assessment?: AssessmentStatus
 }
 
 export interface ReviewCursor {
@@ -52,6 +55,8 @@ export interface OpenedReview {
   review: Review
   notes: ReviewNotes
   status: ReviewStatus
+  /** For a finished change: its change review (spec 032), once one is ready for the review's commit; null until then. */
+  assessment?: ChangeAssessment | null
 }
 
 /** Exactly what a verdict will do, shown before it is done. `confirm` must come back unchanged for it to go. */

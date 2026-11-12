@@ -51,8 +51,21 @@ export interface ChangeAssessment {
   story: string
   units: Units | null
   triage: Triage | null
-  blind: { check: BlindCheck | null } | null
+  blind: { ran: boolean; check: BlindCheck | null; note?: string } | null
   progress: Progress | null
+  /** Every rated definition, where it sits at head, for laying levels over the graph. Tests are not rated. */
+  nodes: RatedNode[]
+}
+
+/** One rated definition: its file and lines at head, its level, and the unit it is told in. */
+export interface RatedNode {
+  id: string
+  symbol: string
+  path: string
+  lines: [number, number]
+  level: Level
+  critical: boolean
+  unit: string | null
 }
 
 /** The words for a level, as the review page and the card say them. */
