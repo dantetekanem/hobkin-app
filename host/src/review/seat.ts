@@ -7,7 +7,7 @@ import { paths, readProject } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
-import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
+import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { HostHandlers } from '../commands.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
@@ -42,8 +42,6 @@ export interface ReviewSeat {
   log?: (line: string) => void
 }
 
-/** How many pull requests waiting for the user's review the background prepares: the most recently updated. */
-export const BACKGROUND_PULLS = 10
 
 const finishedIn = (work: WorkState | null): FinishedChange[] => (work?.finished ?? []).flatMap((group) => group.changes)
 
@@ -113,19 +111,11 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   })
 }
 
-/**
- * What the background prepares: every finished change at its commit, then the pull requests waiting for the user's
- * review. Made-up GitHub data is never prepared in the background.
- */
-export function toPrepare(work: WorkState | null, github: GitHubState): Watched[] {
-  const changes = finishedIn(work).map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
-  const pulls = github.sample
-    ? []
-    : github.reviews.slice(0, BACKGROUND_PULLS).flatMap((pull) => {
-        const target = targetOfReviewId(pull.url)
-        return target ? [{ id: reviewIdOf(target), updatedAt: pull.updatedAt }] : []
-      })
-  return [...changes, ...pulls]
+/** What the background prepares: every finished change at its commit. */
+export function toPrepare(work: WorkState | null, _github?: GitHubState): Watched[] {
+  // A pull request from GitHub is reviewed only once the user asks ("Start AI review", spec 032), so only finished
+  // changes are prepared by themselves.
+  return finishedIn(work).map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
 }
 
 type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
