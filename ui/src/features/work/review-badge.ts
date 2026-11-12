@@ -20,22 +20,28 @@ const TONE: Record<Level, BadgeTone> = { high: 'bad', mid: 'warn', safe: 'ok' }
 
 /** The level in words, with how many units need the user or are worth a look when there are more than one. */
 function labelOf({ level, needsYou, worthALook }: AssessmentSummary): string {
-  const count = level === 'high' ? needsYou : level === 'mid' ? worthALook : 0
+  const counts: Record<Level, number> = { high: needsYou, mid: worthALook, safe: 0 }
+  const count = counts[level]
   return count > 1 ? `${LEVEL_WORDS[level]} · ${count}` : LEVEL_WORDS[level]
 }
 
 /** "Change review: 2 units need you, 1 is worth a look and 4 are safe." */
 function foundOf({ needsYou, worthALook, safe, critical }: AssessmentSummary): string {
-  const counts = (
-    [
-      [needsYou, 'needs you', 'need you'],
-      [worthALook, 'is worth a look', 'are worth a look'],
-      [safe, 'is safe', 'are safe'],
-    ] as const
-  )
+  const levels = [
+    [needsYou, 'needs you', 'need you'],
+    [worthALook, 'is worth a look', 'are worth a look'],
+    [safe, 'is safe', 'are safe'],
+  ] as const
+  // Only the first phrase names the unit: "2 units need you, 1 is worth a look and 4 are safe".
+  const counts = levels
     .filter(([count]) => count > 0)
-    .map(([count, one, many], index) => `${count}${index === 0 ? (count === 1 ? ' unit' : ' units') : ''} ${count === 1 ? one : many}`)
-  const found = counts.length ? `${counts.slice(0, -1).join(', ')}${counts.length > 1 ? ' and ' : ''}${counts.at(-1)}.` : 'nothing in it needs reading.'
+    .map(([count, one, many], index) => {
+      const unit = index === 0 ? (count === 1 ? ' unit' : ' units') : ''
+      return `${count}${unit} ${count === 1 ? one : many}`
+    })
+  const found = counts.length
+    ? `${counts.slice(0, -1).join(', ')}${counts.length > 1 ? ' and ' : ''}${counts.at(-1)}.`
+    : 'nothing in it needs reading.'
   return `Change review: ${found}${critical ? ' Something in it is critical.' : ''}`
 }
 

@@ -78,7 +78,12 @@ const MIN_AREA = 24
 
 export function uncoveredArea(canvas: Size, cover: Cover): Rect {
   const left = cover.left ?? 0
-  return { x: left, y: cover.top, width: Math.max(MIN_AREA, canvas.width - left), height: Math.max(MIN_AREA, canvas.height - cover.top - cover.bottom) }
+  return {
+    x: left,
+    y: cover.top,
+    width: Math.max(MIN_AREA, canvas.width - left),
+    height: Math.max(MIN_AREA, canvas.height - cover.top - cover.bottom),
+  }
 }
 
 export function viewportFor(camera: Camera, area: Rect): Viewport {
@@ -100,7 +105,12 @@ export function pointToScreen(point: Point, viewport: Viewport): Point {
 }
 
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), Math.max(low, high))
-const overlapArea = (a: Rect, b: Rect) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+/** How much of the two rectangles lies in both. */
+function overlapArea(a: Rect, b: Rect): number {
+  const sharedWidth = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)
+  const sharedHeight = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+  return Math.max(0, sharedWidth) * Math.max(0, sharedHeight)
+}
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 const apart = (a: Rect, b: Rect) => Math.hypot(a.x + a.width / 2 - (b.x + b.width / 2), a.y + a.height / 2 - (b.y + b.height / 2))
 /** The margin kept at the edges of the uncovered area, less in a small one. */
@@ -214,7 +224,14 @@ export interface ShotInput {
  */
 export function composeShot({ focus, area, card = null, others = [], maxZoom = FRAME.maxZoom, closer = 1 }: ShotInput): Shot {
   const whole = boundsOf(focus)
-  const box = closer > 1 ? { x: whole.x + (whole.width - whole.width / closer) / 2, y: whole.y + (whole.height - whole.height / closer) / 2, width: whole.width / closer, height: whole.height / closer } : whole
+  const box = closer > 1
+    ? {
+        x: whole.x + (whole.width - whole.width / closer) / 2,
+        y: whole.y + (whole.height - whole.height / closer) / 2,
+        width: whole.width / closer,
+        height: whole.height / closer,
+      }
+    : whole
   const margin = marginOf(area)
   const [roomWidth, roomHeight] = [area.width - margin * 2, area.height - margin * 2]
   const fit = (width: number, height: number) => Math.max(0.01, Math.min(maxZoom, width / Math.max(1, box.width), height / Math.max(1, box.height)))

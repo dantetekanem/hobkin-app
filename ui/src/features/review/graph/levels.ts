@@ -138,7 +138,13 @@ export function focusLevels(graph: Graph, focus: readonly string[]): Levels<Node
       if (focused.has(other) || path.has(edge.id)) {
         wires[edge.id] = 'bright'
         if (!focused.has(other)) shown.add(other)
-      } else (!unchanged(other) ? changed : upstream(edge, id) ? callers : callees).push(edge)
+      } else if (!unchanged(other)) {
+        changed.push(edge)
+      } else if (upstream(edge, id)) {
+        callers.push(edge)
+      } else {
+        callees.push(edge)
+      }
     }
     changed.sort((a, b) => apart(a, id) - apart(b, id) || order(a, id) - order(b, id) || byId(a, b))
     callers.sort(telling(id))

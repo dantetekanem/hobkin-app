@@ -50,7 +50,10 @@ function Moment({ kind, title, message, onGone }: { kind: 'tada' | 'done'; title
     // Timed once, from when it first shows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  return <AnimatePresence>{shown ? kind === 'tada' ? <Tada key="tada" title={title} message={message} reduced={reduced} /> : <Done key="done" message={message} reduced={reduced} /> : null}</AnimatePresence>
+  const moment = kind === 'tada'
+    ? <Tada key="tada" title={title} message={message} reduced={reduced} />
+    : <Done key="done" message={message} reduced={reduced} />
+  return <AnimatePresence>{shown ? moment : null}</AnimatePresence>
 }
 
 /**
@@ -144,7 +147,10 @@ function Confetti() {
   // Played on the compositor, so the burst stays smooth while the window changes screens under it.
   useLayoutEffect(() => {
     const pieces = [...(layer.current?.children ?? [])] as HTMLElement[]
-    const playing = pieces.map((piece, index) => piece.animate(bits[index]!.frames, { duration: bits[index]!.duration, delay: bits[index]!.delay, fill: 'both' }))
+    const playing = pieces.map((piece, index) => {
+      const { frames, duration, delay } = bits[index]!
+      return piece.animate(frames, { duration, delay, fill: 'both' })
+    })
     return () => playing.forEach((animation) => animation.cancel())
   }, [bits])
   return (

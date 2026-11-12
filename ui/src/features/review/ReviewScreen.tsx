@@ -59,6 +59,14 @@ function storageOrNull(): Storage | null {
   }
 }
 
+/** Runs host commands, and refuses once another host has taken the place of the one `home` names. */
+function commandsOnHost(home: string | null | undefined): typeof runCommand {
+  return (name, ...args) => {
+    if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
+    return runCommand(name, ...args)
+  }
+}
+
 /**
  * A hot update that runs this file again, as one to the session's code does, starts the stage again, so an open review
  * never holds a session made by code that is gone. Each run of the file has its own mark; a built app has none.
@@ -76,10 +84,7 @@ export function ReviewScreen() {
   const live = Boolean(home) && !SAMPLE_REVIEWS.includes(reviewId ?? 'sample')
   const loader = useMemo(() => createReviewLoader({
     id: reviewId ?? 'sample', scope: live ? `host:${home}` : 'sample', memory: reviewMemory,
-    ...(live ? { command: (name, args) => {
-      if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
-      return runCommand(name, args)
-    } } : { sample: sampleSource }),
+    ...(live ? { command: commandsOnHost(home) } : { sample: sampleSource }),
   }), [reviewId, home, live])
 
   useEffect(() => {
@@ -93,20 +98,8 @@ export function ReviewScreen() {
 
   // The verdict and the messages to hobkin go to the same host the review came from, and nowhere once another host has
   // taken its place.
-  const verdict = useMemo<VerdictCommands | null>(() => {
-    if (!live) return null
-    return (name, args) => {
-      if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
-      return runCommand(name, args)
-    }
-  }, [home, live])
-  const ask = useMemo<AskCommand | null>(() => {
-    if (!live) return null
-    return (name, args) => {
-      if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
-      return runCommand(name, args)
-    }
-  }, [home, live])
+  const verdict = useMemo<VerdictCommands | null>(() => (live ? commandsOnHost(home) : null), [home, live])
+  const ask = useMemo<AskCommand | null>(() => (live ? commandsOnHost(home) : null), [home, live])
 
   return <ReviewLoad loader={loader} renderReview={(review) => (
     <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}@${loader.getState().assessment?.summary.at ?? ''}${CODE}`}>

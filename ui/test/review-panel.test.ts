@@ -35,7 +35,11 @@ test("the panel's discussion is what the user asked about this review and hobkin
 test("a note hobkin left on the host joins the window's notes, unless the window already has it or removed it", () => {
   const note = (id: string, text: string): Note => ({ id, step: 's1', target: { kind: 'step' }, intent: 'comment', text, author: 'hobkin', at: 1 })
   const local: NoteEntry[] = [{ op: 'put', note: note('n1', 'Changed here.') }, { op: 'remove', id: 'n2' }]
-  const host: NoteEntry[] = [{ op: 'put', note: note('n1', 'As the host had it.') }, { op: 'put', note: note('n2', 'Removed here.') }, { op: 'put', note: note('n3', 'New from hobkin.') }]
+  const host: NoteEntry[] = [
+    { op: 'put', note: note('n1', 'As the host had it.') },
+    { op: 'put', note: note('n2', 'Removed here.') },
+    { op: 'put', note: note('n3', 'New from hobkin.') },
+  ]
   const merged = mergeHostNotes(local, host)
   assert.deepEqual(merged, [...local, { op: 'put', note: note('n3', 'New from hobkin.') }])
   assert.equal(mergeHostNotes(merged, host), merged, 'nothing new leaves the log as it is')
@@ -44,8 +48,17 @@ test("a note hobkin left on the host joins the window's notes, unless the window
 test('A approves, M approves and merges, X sends the fixes, and H goes to hobkin', () => {
   const session = createSession(sample, createReviewMemory(memoryStorage()))
   const asked: string[] = []
-  const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => asked.push('talk'), verdict: (kind: string) => asked.push(kind) }
-  for (const key of ['a', 'M', 'x', 'h']) assert.equal(pressKey(session.getState(), { key, shift: false, alt: false }, effects), true)
+  const effects = {
+    panelKey: () => false,
+    toggleSteps: () => {},
+    talk: () => asked.push('talk'),
+    verdict: (kind: string) => asked.push(kind),
+  }
+
+  for (const key of ['a', 'M', 'x', 'h']) {
+    const used = pressKey(session.getState(), { key, shift: false, alt: false }, effects)
+    assert.equal(used, true)
+  }
   assert.deepEqual(asked, ['approve', 'approve-merge', 'request-changes', 'talk'])
 })
 

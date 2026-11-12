@@ -95,7 +95,14 @@ export function NoteEditor({ review, target }: { review: Review; target: string 
   const draft = useReviewMemory((memory) => memory.of(review).draft)
   const field = useRef<HTMLTextAreaElement>(null)
   const intent = draft?.intent ?? 'comment'
-  const set = (change: { text?: string; intent?: NoteIntent }) => reviewMemory.getState().setDraft(review, { intent, text: draft?.text ?? '', ...(draft?.editing ? { editing: draft.editing } : {}), ...change })
+  const set = (change: { text?: string; intent?: NoteIntent }) => {
+    reviewMemory.getState().setDraft(review, {
+      intent,
+      text: draft?.text ?? '',
+      ...(draft?.editing ? { editing: draft.editing } : {}),
+      ...change,
+    })
+  }
 
   // The keyboard goes to the words at once, with the caret after what is already there.
   useLayoutEffect(() => {

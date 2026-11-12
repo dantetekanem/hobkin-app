@@ -118,7 +118,8 @@ export function Graph() {
 function Dots() {
   const zoom = useFlowStore((state) => state.transform[2])
   const apart = DOTS.gap * zoom
-  return <Background variant={BackgroundVariant.Dots} gap={DOTS.gap} size={DOTS.size / zoom} color="var(--rv-dot)" style={{ opacity: Math.min(1, Math.max(0.3, (apart - 6) / 18)) }} />
+  const opacity = Math.min(1, Math.max(0.3, (apart - 6) / 18))
+  return <Background variant={BackgroundVariant.Dots} gap={DOTS.gap} size={DOTS.size / zoom} color="var(--rv-dot)" style={{ opacity }} />
 }
 
 /**

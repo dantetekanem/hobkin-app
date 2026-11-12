@@ -294,12 +294,16 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
           if (stepIndex >= 0) get().goTo(stepIndex)
           return
         }
-        if (target.kind === 'node') return get().focusOn(target.node)
+        if (target.kind === 'node') {
+          get().focusOn(target.node)
+          return
+        }
         if (target.kind === 'wire') {
           const edge = get().edgeOf.get(target.wire)
           if (!edge) return
           get().focusOn(edge.from)
-          return set({ wire: edge.id })
+          set({ wire: edge.id })
+          return
         }
         // Lines: the code of the node they belong to, with the lines selected.
         const owner =
@@ -326,7 +330,10 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       saveNote: () => {
         const { editor } = get()
         const draft = memory.getState().of(review).draft
-        if (!editor || !draft) return set({ editor: null })
+        if (!editor || !draft) {
+          set({ editor: null })
+          return
+        }
         if (editor.editing) memory.getState().editNote(review, editor.editing, { text: draft.text, intent: draft.intent })
         else memory.getState().addNote(review, { step: editor.step, target: editor.target, intent: draft.intent, text: draft.text })
         memory.getState().setDraft(review, null)
@@ -352,8 +359,13 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         set({ asks: [...get().asks, { key, text, at: Date.now(), state: 'sending' }], talking: true })
         return key
       },
-      settleAsk: (key, outcome) =>
-        set({ asks: get().asks.map((ask) => (ask.key !== key ? ask : typeof outcome === 'string' ? { ...ask, state: outcome } : { ...ask, state: 'failed', error: outcome.error })) }),
+      settleAsk: (key, outcome) => {
+        const settled = (ask: PendingAsk): PendingAsk => {
+          if (ask.key !== key) return ask
+          return typeof outcome === 'string' ? { ...ask, state: outcome } : { ...ask, state: 'failed', error: outcome.error }
+        }
+        set({ asks: get().asks.map(settled) })
+      },
       dropAsks: (keys) => {
         if (keys.length > 0) set({ asks: get().asks.filter((ask) => !keys.includes(ask.key)) })
       },

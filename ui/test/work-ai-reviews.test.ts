@@ -2,7 +2,17 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { agoWords, groupReviews, type ReviewListItem } from '../src/features/work/ai-reviews.ts'
 
-const item = (id: string, over: Partial<ReviewListItem>): ReviewListItem => ({ id, kind: 'change', title: id, project: 'p', head: 'h', state: 'ready', phase: null, updatedAt: '2026-11-12T10:00:00Z', ...over })
+const item = (id: string, over: Partial<ReviewListItem>): ReviewListItem => ({
+  id,
+  kind: 'change',
+  title: id,
+  project: 'p',
+  head: 'h',
+  state: 'ready',
+  phase: null,
+  updatedAt: '2026-11-12T10:00:00Z',
+  ...over,
+})
 
 test('reviews are grouped as running, ready and failed, in the host order', () => {
   const groups = groupReviews({ reviews: [

@@ -15,7 +15,12 @@ export function AiReviews({ live, list = listReviews }: { live: boolean; list?: 
   const now = useNow(true, 5_000)
   const refresh = useCallback(() => {
     if (!live) return
-    list().then((next) => { setReviews(next); setError(null) }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+    list()
+      .then((next) => {
+        setReviews(next)
+        setError(null)
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
   }, [live, list])
   useEffect(() => {
     refresh()

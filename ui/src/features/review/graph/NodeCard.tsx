@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { MessageSquare } from 'lucide-react'
 import { animate, motion } from 'motion/react'
 import { memo, useEffect, useRef } from 'react'
+import type { ReviewNode } from '#shared/review/types.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { useEntrance } from './entrance.tsx'
 import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
@@ -100,18 +101,7 @@ function NodeCardComponent({ id }: NodeProps) {
                 </p>
               ) : null}
               <div className="rv-facts">
-                {node.stats && !criterion && node.kind !== 'context' ? (
-                  <span className="rv-stats" aria-label={`${node.stats.additions} lines added, ${node.stats.deletions} removed`}>
-                    <span className="rv-add">+{node.stats.additions}</span>
-                    <span className="rv-del">−{node.stats.deletions}</span>
-                  </span>
-                ) : criterion && node.warning ? (
-                  <span className="truncate text-bad-fg" title={node.warning}>
-                    {node.proof ? 'Its test is missing' : 'No Proof line'}
-                  </span>
-                ) : criterion ? (
-                  <span className="truncate text-muted-foreground">{node.proof?.startsWith('check:') ? 'By a check' : 'By a test'}</span>
-                ) : null}
+                <Fact node={node} />
                 {quiet ? null : (
                   <span className="rv-status" data-tone={status.tone}>
                     <status.icon aria-hidden="true" />
@@ -146,6 +136,29 @@ function NodeCardComponent({ id }: NodeProps) {
       <Handle type="source" position={Position.Right} isConnectable={false} />
     </>
   )
+}
+
+/** The left fact of a card's footer: lines changed, or how an acceptance line is proven. */
+function Fact({ node }: { node: ReviewNode }) {
+  if (node.kind === 'criterion') {
+    if (node.warning) {
+      return (
+        <span className="truncate text-bad-fg" title={node.warning}>
+          {node.proof ? 'Its test is missing' : 'No Proof line'}
+        </span>
+      )
+    }
+    return <span className="truncate text-muted-foreground">{node.proof?.startsWith('check:') ? 'By a check' : 'By a test'}</span>
+  }
+  if (node.stats && node.kind !== 'context') {
+    return (
+      <span className="rv-stats" aria-label={`${node.stats.additions} lines added, ${node.stats.deletions} removed`}>
+        <span className="rv-add">+{node.stats.additions}</span>
+        <span className="rv-del">−{node.stats.deletions}</span>
+      </span>
+    )
+  }
+  return null
 }
 
 /** The count of wires a focus node folded away on one side, naming the first few nodes they lead to. */

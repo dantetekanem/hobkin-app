@@ -74,7 +74,11 @@ export function riskBadge(assessment: Pick<ChangeAssessment, 'summary'> | null |
 }
 
 /** One fact in a line: its value, then the evidence for it. */
-const factText = (fact: { value: string; evidence: string }) => (fact.evidence ? `${fact.value}. ${fact.evidence.charAt(0).toUpperCase()}${fact.evidence.slice(1).replace(/\.+$/, '')}.` : fact.value)
+function factText({ value, evidence }: { value: string; evidence: string }): string {
+  if (!evidence) return value
+  const sentence = `${evidence.charAt(0).toUpperCase()}${evidence.slice(1).replace(/\.+$/, '')}.`
+  return `${value}. ${sentence}`
+}
 
 /** What the code panel says about a unit: its level, the four facts, why this level, what would change it, its questions. */
 export function toStepUnit(unit: Unit): StepUnit {

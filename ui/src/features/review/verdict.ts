@@ -18,13 +18,26 @@ interface State {
  * notes. Both yeses name that commit, so the host refuses them, and says why, once the review it holds is for another.
  * `done` hears of a verdict the host did, with the host's words, even when the panel that asked for it has gone since.
  */
-export function createVerdict({ id, head, command, saveNotes, current, done }: { id: string; head: string; command: VerdictCommands; saveNotes: () => Promise<void>; current: () => boolean; done?: (verdict: Verdict, message: string) => void }) {
+interface VerdictOptions {
+  id: string
+  head: string
+  command: VerdictCommands
+  saveNotes: () => Promise<void>
+  current: () => boolean
+  done?: (verdict: Verdict, message: string) => void
+}
+
+export function createVerdict({ id, head, command, saveNotes, current, done }: VerdictOptions) {
   const store = createStore<State>(() => ({ busy: false, preview: null, error: null, message: null }))
   let generation = 0
   let disposed = false
   let choice: Verdict | null = null
   const active = (turn: number) => !disposed && generation === turn && current()
-  const cancel = () => { generation++; choice = null; store.setState({ preview: null, busy: false }) }
+  const cancel = () => {
+    generation++
+    choice = null
+    store.setState({ preview: null, busy: false })
+  }
   const preview = async (verdict: Verdict) => {
     if (disposed || store.getState().busy || !current()) return
     const turn = ++generation
@@ -60,8 +73,15 @@ export function createVerdict({ id, head, command, saveNotes, current, done }: {
       if (active(turn)) store.setState({ busy: false })
     }
   }
-  const dispose = () => { cancel(); disposed = true }
-  return Object.assign(store, { preview, confirm, cancel, dispose, connect: () => { disposed = false; return dispose } })
+  const dispose = () => {
+    cancel()
+    disposed = true
+  }
+  const connect = () => {
+    disposed = false
+    return dispose
+  }
+  return Object.assign(store, { preview, confirm, cancel, dispose, connect })
 }
 
 /**
@@ -92,7 +112,13 @@ export const CONFIRM_MS = 10_000
  * host showed it (`comments`), are marked sent once it is done (`markSent`), as the host marks them in the home, and
  * `landed` hears of every verdict the host did.
  */
-export function createVerdictChoices({ comments = () => [], markSent = () => {}, landed, ...options }: Omit<Parameters<typeof createVerdict>[0], 'done'> & { comments?: () => string[]; markSent?: (ids: readonly string[]) => void; landed?: (verdict: Verdict, message: string) => void }) {
+interface VerdictChoicesOptions extends Omit<VerdictOptions, 'done'> {
+  comments?: () => string[]
+  markSent?: (ids: readonly string[]) => void
+  landed?: (verdict: Verdict, message: string) => void
+}
+
+export function createVerdictChoices({ comments = () => [], markSent = () => {}, landed, ...options }: VerdictChoicesOptions) {
   let carried: string[] = []
   let waiting: ReturnType<typeof setTimeout> | undefined
   const flow = createVerdict({

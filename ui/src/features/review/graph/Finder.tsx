@@ -99,7 +99,8 @@ function FinderBox() {
           {hits.length === 0 ? <li className="px-3 py-3 text-[13px] text-muted-foreground">No node matches.</li> : null}
           {hits.map((hit, index) => {
             const node = nodeOf.get(hit.id)
-            return node ? <Row key={hit.id} hit={hit} node={node} active={hit === chosen} onPoint={() => setActive(index)} onChoose={() => go(hit)} /> : null
+            if (!node) return null
+            return <Row key={hit.id} hit={hit} node={node} active={hit === chosen} onPoint={() => setActive(index)} onChoose={() => go(hit)} />
           })}
         </ul>
         <p className="flex items-center gap-3 border-t border-border px-4 py-2 text-[12.5px] text-muted-foreground">

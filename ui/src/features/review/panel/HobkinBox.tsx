@@ -137,7 +137,11 @@ export const HobkinBox = forwardRef(function HobkinBox(
         <ol aria-label="Your conversation with Hobkin about this review" className="flex flex-col gap-4">
           {exchanges.map((exchange, index) => (
             <li key={exchange.key} className="flex flex-col gap-2">
-              {exchange.lines.map((line) => (line.who === 'you' ? <Asked key={line.key} line={line} again={() => again(line)} /> : <Reply key={line.key} line={line} whole={index === 0} />))}
+              {exchange.lines.map((line) =>
+                line.who === 'you'
+                  ? <Asked key={line.key} line={line} again={() => again(line)} />
+                  : <Reply key={line.key} line={line} whole={index === 0} />,
+              )}
               {exchange.waiting ? (
                 <p role="status" className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
                   <span className="rv-ask-dots" aria-hidden="true">
@@ -178,10 +182,13 @@ function Asked({ line, again }: { line: ConversationLine; again: () => void }) {
   )
 }
 
+/** A reply longer than this folds, unless it is the newest. */
+const LONG_REPLY = { characters: 420, lines: 8 } as const
+
 /** A reply of hobkin's. The newest is shown whole; older ones fold, and open on a click. */
 function Reply({ line, whole }: { line: ConversationLine; whole: boolean }) {
   const [open, setOpen] = useState(false)
-  const long = line.text.length > 420 || line.text.split('\n').length > 8
+  const long = line.text.length > LONG_REPLY.characters || line.text.split('\n').length > LONG_REPLY.lines
   const folded = long && !whole && !open
   return (
     <div className="flex flex-col gap-1">

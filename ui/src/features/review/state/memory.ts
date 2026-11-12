@@ -140,12 +140,28 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filt
 function readMemory(value: unknown): ReviewMemory {
   if (!isRecord(value)) return EMPTY
   const positions: Record<string, Point> = {}
-  for (const [id, point] of Object.entries(isRecord(value.positions) ? value.positions : {})) if (isPoint(point)) positions[id] = { x: point.x, y: point.y }
+  for (const [id, point] of Object.entries(isRecord(value.positions) ? value.positions : {})) {
+    if (isPoint(point)) positions[id] = { x: point.x, y: point.y }
+  }
+
   const wires: Record<string, WireDecision> = {}
-  for (const [id, decision] of Object.entries(isRecord(value.wires) ? value.wires : {})) if (decision === 'confirmed' || decision === 'removed') wires[id] = decision
+  for (const [id, decision] of Object.entries(isRecord(value.wires) ? value.wires : {})) {
+    if (decision === 'confirmed' || decision === 'removed') wires[id] = decision
+  }
+
   const saved = value.progress
-  const progress = isRecord(saved) && typeof saved.step === 'string' ? { step: saved.step, seen: strings(saved.seen), revealed: strings(saved.revealed) } : null
-  const draft = isRecord(value.draft) && typeof value.draft.text === 'string' ? { intent: value.draft.intent === 'question' ? ('question' as const) : ('comment' as const), text: value.draft.text, ...(typeof value.draft.editing === 'string' ? { editing: value.draft.editing } : {}) } : null
+  const progress = isRecord(saved) && typeof saved.step === 'string'
+    ? { step: saved.step, seen: strings(saved.seen), revealed: strings(saved.revealed) }
+    : null
+
+  const draft = isRecord(value.draft) && typeof value.draft.text === 'string'
+    ? {
+        intent: value.draft.intent === 'question' ? ('question' as const) : ('comment' as const),
+        text: value.draft.text,
+        ...(typeof value.draft.editing === 'string' ? { editing: value.draft.editing } : {}),
+      }
+    : null
+
   return { positions, wires, progress, opened: value.opened === true, notes: readNotes(value.notes), draft }
 }
 
@@ -247,7 +263,10 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
             const note = get().notesOf(review).find((entry) => entry.id === id)
             if (!note) return
             const text = change.text == null ? note.text : change.text.trim()
-            if (!text) return get().removeNote(review, id)
+            if (!text) {
+              get().removeNote(review, id)
+              return
+            }
             update(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'put', note: { ...note, text, intent: change.intent ?? note.intent } }] }))
           },
           removeNote: (review, id) => update(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'remove', id }] })),

@@ -131,32 +131,32 @@ export function WorkScreen() {
         />
         {tab === 'reviews' ? <AiReviews live={live} /> : null}
         {tab === 'work' ? (
-        <>
-        <Rise>
-          <section aria-label="At work" className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
-              <h2 className="eyebrow">At work</h2>
-              <span className="eyebrow tabular-nums">{agents.length}</span>
-              {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
-              {work ? <AgentsAtOnce work={work} live={live} /> : null}
-            </div>
-            <DelegationMap agents={agents} capacity={work?.agents ?? 0} enabled={work?.enabled ?? false} live={live} />
-          </section>
-        </Rise>
-        {work ? (
           <>
-            <Rise>
-              <QueueSection work={work} {...shared} />
-            </Rise>
-            <Rise>
-              <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
-            </Rise>
-            <Rise>
-              <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
-            </Rise>
+          <Rise>
+            <section aria-label="At work" className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
+                <h2 className="eyebrow">At work</h2>
+                <span className="eyebrow tabular-nums">{agents.length}</span>
+                {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
+                {work ? <AgentsAtOnce work={work} live={live} /> : null}
+              </div>
+              <DelegationMap agents={agents} capacity={work?.agents ?? 0} enabled={work?.enabled ?? false} live={live} />
+            </section>
+          </Rise>
+          {work ? (
+            <>
+              <Rise>
+                <QueueSection work={work} {...shared} />
+              </Rise>
+              <Rise>
+                <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
+              </Rise>
+              <Rise>
+                <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
+              </Rise>
+            </>
+          ) : null}
           </>
-        ) : null}
-        </>
         ) : null}
       </div>
       </div>
@@ -200,7 +200,6 @@ function controlsOf(item: HTMLElement): HTMLElement[] {
   })
 }
 
-/** What work mode is doing, in a line, with its switch. Turning it on starts nothing by itself. */
 /** World is a page of its own, opened from Work. */
 function openWorld() {
   useView.getState().openScreen('world')

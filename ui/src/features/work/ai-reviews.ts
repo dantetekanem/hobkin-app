@@ -44,11 +44,15 @@ export function groupOf(item: ReviewListItem): ReviewGroup {
 export function rowOf(item: ReviewListItem): ReviewRow {
   const group = groupOf(item)
   const assessment = item.assessment
-  const line =
-    group === 'failed' ? assessment?.error ?? item.error ?? 'It stopped.'
-    : group === 'running' ? assessment?.now ?? (item.phase ? PHASES[item.phase] : null) ?? (assessment?.state === 'queued' ? 'Waiting its turn' : 'Starting')
-    : ''
-  return { item, group, line, percent: group === 'running' && assessment?.percent != null ? Math.round(assessment.percent) : null }
+  let line = ''
+  if (group === 'failed') {
+    line = assessment?.error ?? item.error ?? 'It stopped.'
+  } else if (group === 'running') {
+    const waiting = assessment?.state === 'queued' ? 'Waiting its turn' : 'Starting'
+    line = assessment?.now ?? (item.phase ? PHASES[item.phase] : null) ?? waiting
+  }
+  const percent = group === 'running' && assessment?.percent != null ? Math.round(assessment.percent) : null
+  return { item, group, line, percent }
 }
 
 /** Running first, then ready, then failed, each as the host sent them (newest first). */

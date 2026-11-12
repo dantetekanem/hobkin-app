@@ -80,7 +80,9 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         }
       }
       store.setState({ saving: false })
-    })().finally(() => { writing = null })
+    })().finally(() => {
+      writing = null
+    })
     return writing
   }
   const watch = (review: Review) => {
@@ -127,7 +129,8 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         if (disposed || turn !== generation) return
         store.setState({ preparation, ...clock(preparation) })
         if (preparation.state !== 'ready') {
-          store.setState({ status: store.getState().review ? 'ready' : preparation.state === 'failed' ? 'error' : 'preparing', error: preparation.error })
+          const unfinished = preparation.state === 'failed' ? 'error' : 'preparing'
+          store.setState({ status: store.getState().review ? 'ready' : unfinished, error: preparation.error })
           return
         }
         const opened = await command('review.get', { id })
@@ -150,18 +153,32 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         const key = memoryKey(review)
         memory.setState((state) => ({ reviews: { ...state.reviews, [key]: { ...state.of(review), notes: restore.entries, draft: restore.draft } } }))
         latest = restore
-        if (unsaved) { pending = unsaved; void flushNotes() }
+        if (unsaved) {
+          pending = unsaved
+          void flushNotes()
+        }
       }
       watch(review)
-      assessed = assessment ? finishedOf(assessment.head, assessment.summary) : preparation?.assessment?.state === 'ready' ? finishedOf(preparation.assessment.head, preparation.assessment.summary) : null
+      if (assessment) {
+        assessed = finishedOf(assessment.head, assessment.summary)
+      } else if (preparation?.assessment?.state === 'ready') {
+        assessed = finishedOf(preparation.assessment.head, preparation.assessment.summary)
+      } else {
+        assessed = null
+      }
       store.setState({ status: 'ready', review, preparation, assessment, error: null, ...(preparation ? clock(preparation) : {}) })
     } catch (error) {
-      if (!disposed && turn === generation) store.setState({ status: store.getState().review ? 'ready' : error instanceof ReviewRefused ? 'refused' : 'error', error: reason(error) })
+      if (!disposed && turn === generation) {
+        const unopened = error instanceof ReviewRefused ? 'refused' : 'error'
+        store.setState({ status: store.getState().review ? 'ready' : unopened, error: reason(error) })
+      }
     }
   }
   const load = (refresh = false): Promise<void> => {
     if (!refresh && loading) return loading
-    const request = executeLoad(refresh).finally(() => { if (loading === request) loading = null })
+    const request = executeLoad(refresh).finally(() => {
+      if (loading === request) loading = null
+    })
     loading = request
     return request
   }
@@ -233,6 +250,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       checking = false
     }
   }
-  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, dispose: () => { disposed = true; generation++; loading = null; unsubscribe() } })
+  const dispose = () => {
+    disposed = true
+    generation++
+    loading = null
+    unsubscribe()
+  }
+  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, dispose })
 }
 export type ReviewLoader = ReturnType<typeof createReviewLoader>

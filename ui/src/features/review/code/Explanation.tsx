@@ -20,7 +20,10 @@ export function Explanation({ unit, node, ask }: {
   /** Sends words to hobkin about this node. Null where hobkin is not connected, as in a sample review. */
   ask: ((text: string) => Promise<boolean>) | null
 }) {
-  if (!unit) return node ? <NodeFacts node={node} /> : <p className="text-[14px] text-muted-foreground">Nothing is said about this code yet.</p>
+  if (!unit) {
+    if (node) return <NodeFacts node={node} />
+    return <p className="text-[14px] text-muted-foreground">Nothing is said about this code yet.</p>
+  }
   return (
     <article className="flex flex-col gap-3.5" aria-label="What the change review says about this code">
       <div className="flex flex-col gap-1.5">
@@ -83,16 +86,25 @@ function Part({ title, items, ask }: { title: string; items: readonly Item[]; as
   )
 }
 
+type AskState = 'idle' | 'sending' | 'asked' | 'failed'
+const ASK_ICON = { idle: MessageCircleQuestion, sending: MessageCircleQuestion, asked: Check, failed: TriangleAlert } as const
+const ASK_LABEL: Record<AskState, string> = { idle: 'Ask Hobkin', sending: 'Asking…', asked: 'Asked Hobkin', failed: 'Not sent, try again' }
+
 /** A quick way to ask hobkin about one item: it sends at once, and says so. */
 function AskLink({ words, ask }: { words: string; ask: ((text: string) => Promise<boolean>) | null }) {
-  const [state, setState] = useState<'idle' | 'sending' | 'asked' | 'failed'>('idle')
-  const Icon = state === 'asked' ? Check : state === 'failed' ? TriangleAlert : MessageCircleQuestion
+  const [state, setState] = useState<AskState>('idle')
+  const Icon = ASK_ICON[state]
+  const title = !ask
+    ? 'Hobkin is not connected to this sample review'
+    : state === 'failed'
+      ? 'It did not go. The conversation in the panel says why.'
+      : words
   return (
     <button
       type="button"
       data-stop
       disabled={!ask || state === 'sending' || state === 'asked'}
-      title={!ask ? 'Hobkin is not connected to this sample review' : state === 'failed' ? 'It did not go. The conversation in the panel says why.' : words}
+      title={title}
       onClick={async () => {
         if (!ask) return
         setState('sending')
@@ -105,7 +117,7 @@ function AskLink({ words, ask }: { words: string; ask: ((text: string) => Promis
       )}
     >
       <Icon aria-hidden="true" />
-      {state === 'asked' ? 'Asked Hobkin' : state === 'sending' ? 'Asking…' : state === 'failed' ? 'Not sent, try again' : 'Ask Hobkin'}
+      {ASK_LABEL[state]}
     </button>
   )
 }

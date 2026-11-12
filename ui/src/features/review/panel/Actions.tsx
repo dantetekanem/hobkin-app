@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { VerdictPreview } from '#shared/review/status.ts'
@@ -115,6 +115,20 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
     }
   }
 
+  const status = statusLine()
+
+  /** What the line under the choices says: the sample notice, the host at work, its error or message, or what a click does. */
+  function statusLine(): ReactNode {
+    if (!live) return 'Sample review. Nothing is sent.'
+    if (flow.busy) return doing.current ? 'The host is doing it…' : 'Asking the host what it will do…'
+    if (flow.error) return flow.error
+    if (flow.preview) return null
+    if (flow.message) return <Markdown text={flow.message} />
+    return kind === 'change'
+      ? 'Each choice shows what it will do and asks for a second click. Nothing happens before it.'
+      : 'Each choice shows the review GitHub will get and asks for a second click. Nothing is posted before it.'
+  }
+
   return (
     <section
       aria-label="Verdict"
@@ -193,19 +207,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
       ) : null}
 
       <div role="status" className={cn('text-[13px] leading-snug [overflow-wrap:anywhere]', flow.error ? 'text-bad-fg' : flow.message ? 'text-foreground' : 'text-muted-foreground')}>
-        {!live ? (
-          'Sample review. Nothing is sent.'
-        ) : flow.busy ? (
-          doing.current ? 'The host is doing it…' : 'Asking the host what it will do…'
-        ) : flow.error ? (
-          flow.error
-        ) : flow.message && !flow.preview ? (
-          <Markdown text={flow.message} />
-        ) : flow.preview ? null : kind === 'change' ? (
-          'Each choice shows what it will do and asks for a second click. Nothing happens before it.'
-        ) : (
-          'Each choice shows the review GitHub will get and asks for a second click. Nothing is posted before it.'
-        )}
+        {status}
       </div>
     </section>
   )

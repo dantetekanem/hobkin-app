@@ -174,7 +174,10 @@ export function CodePanel({ height, windowHeight, units, ask }: {
   const marks = useMemo<LineMark[]>(() => lineCounts.filter((range) => range.fileId === fileId).map(({ side, startLine, endLine, count }) => ({ side, startLine, endLine, count })), [fileId, lineCounts])
   const onSelect = useMemo(
     () => (range: Emphasis | null) => {
-      if (!range || !file || 'failed' in file) return store.getState().selectLines(null)
+      if (!range || !file || 'failed' in file) {
+        store.getState().selectLines(null)
+        return
+      }
       const text = (range.side === 'added' ? file.head : file.base) ?? ''
       store.getState().selectLines({ kind: 'lines', fileId: file.fileId, ...range, hash: hashLines(text, range.startLine, range.endLine) })
     },
@@ -191,30 +194,42 @@ export function CodePanel({ height, windowHeight, units, ask }: {
     if (!open) return
     openPanelKey = (key, shift) => {
       // Shift with Up and Down picks lines for a note, a line at a time.
-      if (shift && (key === 'ArrowUp' || key === 'ArrowDown')) return diffView.current?.moveSelection(key === 'ArrowDown' ? 1 : -1), true
+      if (shift && (key === 'ArrowUp' || key === 'ArrowDown')) {
+        diffView.current?.moveSelection(key === 'ArrowDown' ? 1 : -1)
+        return true
+      }
       const at = active ? tabs.indexOf(active) : -1
       const share = reviewMemory.getState().panelShare ?? PANEL_SHARE.initial
       switch (key.toLowerCase()) {
         // V for the view in one column or two. S is the steps panel's.
         case 'v':
-          return reviewMemory.getState().setSplitDiff(!reviewMemory.getState().splitDiff), true
+          reviewMemory.getState().setSplitDiff(!reviewMemory.getState().splitDiff)
+          return true
         case 'e':
-          return diffView.current?.showMore(), true
+          diffView.current?.showMore()
+          return true
         case 'f':
-          return diffView.current?.showWholeFile(), true
+          diffView.current?.showWholeFile()
+          return true
         case ']':
-          return tabs.length > 1 && select(tabs[(at + 1) % tabs.length]!), true
+          if (tabs.length > 1) select(tabs[(at + 1) % tabs.length]!)
+          return true
         case '[':
-          return tabs.length > 1 && select(tabs[(at - 1 + tabs.length) % tabs.length]!), true
+          if (tabs.length > 1) select(tabs[(at - 1 + tabs.length) % tabs.length]!)
+          return true
         case '=':
         case '+':
-          return resize(share + PANEL_SHARE.step), true
+          resize(share + PANEL_SHARE.step)
+          return true
         case '-':
-          return resize(share - PANEL_SHARE.step), true
+          resize(share - PANEL_SHARE.step)
+          return true
         case 'pagedown':
-          return diffView.current?.scrollBy(12), true
+          diffView.current?.scrollBy(12)
+          return true
         case 'pageup':
-          return diffView.current?.scrollBy(-12), true
+          diffView.current?.scrollBy(-12)
+          return true
         default:
           return false
       }

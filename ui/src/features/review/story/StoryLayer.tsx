@@ -1,6 +1,6 @@
 import { ViewportPortal } from '@xyflow/react'
 import { AnimatePresence, motion, useTransform } from 'motion/react'
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { boundsOf, NODE_SIZE, nodeRect, type Point, type Rect } from '#shared/review/layout.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { wireCurve } from '../graph/wire-path.ts'
@@ -126,16 +126,26 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
     const before = last.current
     // Nothing that decides the framing changed: a node elsewhere was moved, or the same step drew again.
     // The camera stays where the reviewer has it.
-    if (before && before.move === now.move && before.panel === now.panel && before.side === now.side && before.canvas === now.canvas && before.subject === now.subject && before.text === now.text) return
+    const sameFraming =
+      before != null &&
+      before.move === now.move &&
+      before.panel === now.panel &&
+      before.side === now.side &&
+      before.canvas === now.canvas &&
+      before.subject === now.subject &&
+      before.text === now.text
+    if (sameFraming) return
     last.current = now
-    if (!before || reduced) rig.goTo(camera, { cut: true })
-    else if (now.move !== before.move) {
+    if (!before || reduced) {
+      rig.goTo(camera, { cut: true })
+    } else if (now.move !== before.move) {
       const edge = move.travel ? view.edges.find((entry) => entry.id === move.travel!.wire) : undefined
       const ends = edge ? wireEnds(edge, view.nodes) : null
       rig.goTo(camera, { ride: ends && move.travel ? { curve: wireCurve(ends.source, ends.target), reversed: move.travel.reversed } : null })
+    } else {
+      // The panel rising and the canvas growing are the frame's own springs. The camera rides along at their pace.
+      rig.goTo(camera, { transition: now.panel !== before.panel ? spring.sheet : spring.screen })
     }
-    // The panel rising and the canvas growing are the frame's own springs. The camera rides along at their pace.
-    else rig.goTo(camera, { transition: now.panel !== before.panel ? spring.sheet : spring.screen })
 
     setHung(nextHung)
     setPlacement(nextCard)
@@ -145,17 +155,18 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
   const shownHung = hung && content && hung.key === content.key ? hung : null
   const shownCard = placement && content?.kind === 'step' && placement.key === content.key ? { placement, content } : null
 
+  let measured: ReactNode = null
+  if (content && inNode) {
+    measured = <ExplanationBody content={content} review={review} actions={actions} canOpenCode={canOpenCode} brief={brief} />
+  } else if (content?.kind === 'step') {
+    measured = <CardBody content={content} review={review} />
+  }
+
   return (
     <>
       {/* Measured before it is placed, so the camera knows how much room the text takes. */}
       <div ref={measure} aria-hidden="true" inert className="pointer-events-none invisible absolute top-0 left-0" style={{ width }}>
-        {content ? (
-          inNode ? (
-            <ExplanationBody content={content} review={review} actions={actions} canOpenCode={canOpenCode} brief={brief} />
-          ) : content.kind === 'step' ? (
-            <CardBody content={content} review={review} />
-          ) : null
-        ) : null}
+        {measured}
       </div>
       <ViewportPortal>
         <AnimatePresence>

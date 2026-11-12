@@ -23,7 +23,12 @@ export function GradeChip({ grade }: { grade: Grade | null }) {
   return <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-1.5 font-heading text-[11px] font-semibold tabular-nums', GRADE_TONE[grade])}>{grade}</span>
 }
 
-const BADGE_TONE: Record<BadgeTone, string> = { bad: 'bg-bad/15 text-bad-fg', warn: 'bg-warn/15 text-warn-fg', ok: 'bg-ok/15 text-ok-fg', quiet: 'bg-surface-2 text-muted-foreground' }
+const BADGE_TONE: Record<BadgeTone, string> = {
+  bad: 'bg-bad/15 text-bad-fg',
+  warn: 'bg-warn/15 text-warn-fg',
+  ok: 'bg-ok/15 text-ok-fg',
+  quiet: 'bg-surface-2 text-muted-foreground',
+}
 
 /** What the change review found at the change's commit, how far along it is, or why it stopped. A critical finding is marked. */
 export function ReviewBadge({ status }: { status: AssessmentStatus | undefined }) {

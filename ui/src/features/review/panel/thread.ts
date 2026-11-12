@@ -42,7 +42,9 @@ export function reviewThread(messages: readonly ChatMessage[], title: string): T
     if (message.role === 'user') {
       answering = message.about?.startsWith(prefix) === true
       if (answering) thread.push(entryOf(message))
-    } else if (answering && message.role === 'assistant') thread.push(entryOf(message))
+    } else if (answering && message.role === 'assistant') {
+      thread.push(entryOf(message))
+    }
   }
   return thread
 }
@@ -67,7 +69,9 @@ export function waitingAsks(asks: readonly PendingAsk[], thread: readonly Thread
     if (copy) {
       taken.add(copy.id)
       settled.push(ask.key)
-    } else waiting.push(ask)
+    } else {
+      waiting.push(ask)
+    }
   }
   return { waiting, settled }
 }

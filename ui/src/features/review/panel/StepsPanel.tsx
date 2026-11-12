@@ -138,7 +138,9 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onFocus={() => setWithin(true)}
-      onBlur={(event) => !event.currentTarget.contains(event.relatedTarget) && setWithin(false)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setWithin(false)
+      }}
     >
       <motion.div className="flex min-h-0 flex-1 flex-col" style={{ opacity: dim, filter: blur, paddingTop: under ? MENU.bottom - 14 : 0 }}>
         <PanelHeader
