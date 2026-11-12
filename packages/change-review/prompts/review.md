@@ -109,16 +109,18 @@ Answer every claim: `verified`, `contradicted` or `unverifiable`, with `evidence
 
 ## Words
 
-- `title`: the story's heading: what the change is, as a reviewer would name it. At most 100 characters.
-- `does`: one sentence on what the change does, beside what it claims. At most 300 characters.
-- `setting`: the path in execution order, one line per stop: entry point, condition check, new path, old path, async hops. Each line says who runs that stop and which test moves through it. Only stops the data shows; at most 12 lines of at most 160 characters.
-- `units`: for each unit id, a `title` that is a claim the reviewer can agree or disagree with, never a file name (at most 100 characters), and a plainer `what`: what changed, in two or three sentences (at most 400 characters).
+The words are what the person deciding whether to merge reads first, before any detail. Write them for that person.
 
-Words carry no level, no fact and no number that the data does not hold. Write no level in a title.
+- `title`: the story's heading: what the change is, as a reviewer would name it. At most 100 characters.
+- `does`: what the change does, beside what it claims, in at most three short sentences. At most 450 characters.
+- `setting`: the path in execution order, one line per stop: entry point, condition check, new path, old path, async hops. Each line says who runs that stop and which test moves through it. Only stops the data shows; at most 12 lines of at most 160 characters.
+- `units`: for each unit id, a `title` that is a claim the reviewer can agree or disagree with, never a file name (at most 100 characters), and a `what`: the unit's TL;DR. Say what changed and what it means for someone deciding to merge, in at most two short sentences, about 250 characters. Never more than 400.
+
+Words carry no level, no fact and no number that the data does not hold. Write no level in a title. Write no rule name, no "floor", no fact name (`effect`, `proof`, `exposure`, `undo`) and no count of changed lines in the words: say what the code does instead.
 
 ## How to write
 
-- Plain words, short sentences, present tense.
+- Plain words, short sentences, present tense. No jargon: the words are for a person, not for this table.
 - Names exactly as written in the code. In `does`, `setting`, `what` and evidence, put them in backticks.
 - No hedging: never "may", "might", "could", "possibly", "perhaps", "likely", "seems", "appears" or "consider". What is not known is called unknown, and asked about.
 - No praise and no filler.

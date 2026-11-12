@@ -227,8 +227,9 @@ function changedExcerpt(diffs: readonly FileDiff[], node: Pick<ReviewNode, 'path
 /** Entry points above a node: walk the callers up to a few hops and keep those whose path is an entry. */
 function entriesOf(scan: Scan, anchor: ScanAnchor, config: ReviewConfig): string[] {
   const entries = new Set<string>()
+  // Once: an entry point the tool named keeps its kind, and the path rule adds only one it did not name.
   if (anchor.entry) entries.add(`${anchor.symbol} (${anchor.entry.kind})`)
-  if (isEntryPath(anchor.path, config)) entries.add(anchor.symbol)
+  else if (isEntryPath(anchor.path, config)) entries.add(anchor.symbol)
   let frontier = [anchor.id]
   const seen = new Set(frontier)
   for (let hop = 0; hop < ENTRY_HOPS && frontier.length; hop += 1) {

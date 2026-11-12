@@ -230,27 +230,26 @@ function titleOf(node: ReviewNode): string {
   return `${name} ${verb}${audience}${proof ? `, and ${proof}` : ''}`
 }
 
-function whereOf(node: ReviewNode, onPath: boolean, stop: number): string {
-  const condition = node.hosts_condition ? ` It holds a new condition check that runs for everyone.` : ''
-  if (node.entries.length) {
-    const shown = node.entries.slice(0, 3).join(', ')
-    const more = node.entries.length > 3 ? ` and ${node.entries.length - 3} more` : ''
-    return `Stop ${stop}. Reached from ${shown}${more}.${condition}`
-  }
-  if (onPath) return `Stop ${stop}. On the path through its callers, with no entry point named above it.${condition}`
+/** "a", "a and b", "a, b and c". */
+const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`)
+
+/** Where a unit sits on the way a request takes, in one short sentence: what reaches it, or that nothing named does. */
+function whereOf(node: ReviewNode, onPath: boolean): string {
+  const condition = node.hosts_condition ? ' It holds a new check that runs for everyone.' : ''
+  // An entry point once, by its name: the kind it is in brackets is data, not words.
+  const entries = [...new Set(node.entries.map((entry) => entry.replace(/ \([\w -]+\)$/, '')))]
+  if (entries.length) return `Reached from ${listed(entries.slice(0, 3))}${entries.length > 3 ? ` and ${entries.length - 3} more` : ''}.${condition}`
+  if (onPath) return `Called from code above it, with no entry point found.${condition}`
   const load = node.facts?.effect?.value === 'load' || node.facts?.exposure?.value === 'at-load'
-  return `Outside the request path: ${load ? 'takes effect when the file loads or deploys' : 'no entry point was found above it'}.${condition}`
+  return `${load ? 'Takes effect when the file loads.' : 'No entry point was found above it.'}${condition}`
 }
 
+/** What changed in a unit, in one short sentence: how many lines, in which definition. */
 function whatOf(node: ReviewNode, excerpt: Excerpt): string {
-  const verb = node.change === 'added' ? 'was added' : node.change === 'removed' ? 'was removed' : 'was changed'
-  const count = node.changed_lines.length || excerpt.lines.filter((line) => line[0] === '-' || line[0] === '+').length
-  const first = `\`${short(node.symbol)}\` in \`${node.path}\` (lines ${node.lines[0]} to ${node.lines[1]}) ${verb}, with ${plural(count, 'changed line')}.`
-  const facts = normalizedFacts(node)
-  const second = `Effect: ${facts.effect.value}${facts.effect.evidence ? ` (${facts.effect.evidence})` : ''}.`
-  const third = node.entries.length ? `It is reached from ${node.entries.slice(0, 3).join(', ')}.` : 'No entry point was found above it.'
-  const condition = node.hosts_condition ? ' It holds a new condition check.' : ''
-  return `${first} ${second} ${third}${condition}`
+  const name = `\`${short(node.symbol)}\``
+  const count = plural(node.changed_lines.length || excerpt.lines.filter((line) => line[0] === '-' || line[0] === '+').length, 'line')
+  const said = node.change === 'added' ? `Adds ${name}, ${count}.` : node.change === 'removed' ? `Removes ${name}.` : `Changes ${count} in ${name}.`
+  return `${said}${node.hosts_condition ? ' It adds a check that runs for everyone.' : ''}`
 }
 
 // ───────────────────────── Nodes, buckets, special cases ─────────────────────────
@@ -302,10 +301,10 @@ function judgeBucket(bucket: Bucket): BucketVerdict {
       text: check.passed === null ? `Make the check "${check.name}" run.` : `Fix what "${check.name}" found: ${check.detail}`,
       level: 'safe' as Level,
     }))
-  if (breaking.length) return { level: 'high', critical: true, rule: 1, why: ['Floor rule 1: a check found something broken or missing.', ...why], would }
+  if (breaking.length) return { level: 'high', critical: true, rule: 1, why: ['A check found something broken or missing.', ...why], would }
   if (checks.some((check) => check.passed === null)) return { level: 'high', critical: false, rule: 3, why: ['A check could not run, so the bucket is treated as the worse case.', ...why], would }
   if (checks.some((check) => check.passed === false)) return { level: 'mid', critical: false, rule: 8, why: ['A check failed without breaking anything.', ...why], would }
-  if (checks.length) return { level: 'safe', critical: false, rule: 2, why: ['Floor rule 2: every check passed.', ...why], would }
+  if (checks.length) return { level: 'safe', critical: false, rule: 2, why: ['Every check passed.', ...why], would }
   const mild = bucket.kind === 'generated' || bucket.kind === 'docs' || bucket.kind === 'dependency' || bucket.change === 'renamed'
   return { level: mild ? 'mid' : 'high', critical: false, rule: 3, why: ['No check ran for this bucket, so nothing shows it is complete.'], would }
 }
@@ -416,7 +415,7 @@ function whyOf(nodes: ReviewNode[]): string[] {
   const owner = nodes[0]!
   const lines: string[] = []
   if (owner.unverified) lines.push(`Unverified: ${owner.unverified}. Treated as high.`)
-  const base = owner.level?.why?.length ? owner.level.why : owner.level ? [`Floor rule ${owner.level.rule}.`] : []
+  const base = owner.level?.why ?? []
   lines.push(...base)
   for (const finding of owner.findings) if (!lines.includes(finding.text)) lines.push(finding.text)
   return lines
@@ -473,7 +472,7 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     ...(grouping !== 'single' ? { represents: { nodes: nodes.length } } : {}),
     grouping,
     story_order: onPath ? depth : OFF_PATH,
-    where: whereOf(owner, onPath, 0),
+    where: whereOf(owner, onPath),
     what,
     code,
     facts: normalizedFacts(owner),
@@ -579,7 +578,7 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
     represents: { files: bucket.files, lines: bucket.added + bucket.deleted, ...(absorbed.length ? { nodes: absorbed.length } : {}) },
     grouping: 'bucket',
     story_order: BUCKET_STOP,
-    where: `Outside the request path: ${bucket.kind} files in \`${bucket.folder}\`, checked by counts and lookups.`,
+    where: `${bucket.kind.charAt(0).toUpperCase()}${bucket.kind.slice(1)} files in \`${bucket.folder}\`, checked by counts and lookups.`,
     what,
     code,
     facts: lead
@@ -707,11 +706,6 @@ export function curate(input: CurateInput): Units {
 function finish(drafts: Draft[], triage: Triage, hasNodeUnits: boolean): Units {
   const stops = [...new Set(drafts.map((draft) => draft.stop))].sort((a, b) => a - b)
   for (const draft of drafts) draft.unit.story_order = stops.indexOf(draft.stop) + 1
-  for (const draft of drafts) {
-    if (draft.unit.where.startsWith('Stop 0.')) {
-      draft.unit.where = draft.unit.where.replace('Stop 0.', `Stop ${draft.unit.story_order}.`)
-    }
-  }
 
   const inLevel = (a: Draft, b: Draft) =>
     RANK[b.unit.level] - RANK[a.unit.level] ||

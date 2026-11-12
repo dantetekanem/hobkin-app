@@ -10,7 +10,7 @@ describe('floor table rows', () => {
   it('row 1: broken is high and critical', () => {
     const f = run({ broken: 'Billing#charge is removed but app/a.rb:4 still calls it', effect: 'text' })
     assert.deepEqual([f.level, f.rule, f.critical], ['high', 1, true])
-    assert.match(f.why, /^Floor rule 1: /)
+    assert.equal(f.why, 'Billing#charge is removed but app/a.rb:4 still calls it.', 'what is broken, said plainly')
   })
   it('row 2: text, unreferenced removal or passed bucket checks are safe', () => {
     assert.equal(run({ effect: 'text', proof: 'none' }).rule, 2)
@@ -19,7 +19,7 @@ describe('floor table rows', () => {
   })
   it('row 3: missing proof in a request is high, unless the code does not run in one', () => {
     for (const proof of ['none', 'mocked', 'unknown'] as const) assert.equal(run({ proof }).rule, 3)
-    assert.equal(run({ proof: 'none' }).why, 'Floor rule 3: no test that runs shows the changed lines work.')
+    assert.equal(run({ proof: 'none' }).why, 'No test that runs reaches these lines.')
     assert.notEqual(run({ proof: 'none', runsInRequest: false }).rule, 3)
   })
   it('row 4: isolated proof is high', () => {
@@ -102,5 +102,5 @@ it('a type and nothing else is safe by rule 2: the compiler checks it, not a tes
   const result = floor({ effect: 'interface', proof: 'not-applicable', exposure: 'everyone', undo: 'rollback', typeOnly: true })
   assert.equal(result.level, 'safe')
   assert.equal(result.rule, 2)
-  assert.match(result.why, /a type only/)
+  assert.match(result.why, /^Only a type: the compiler checks it/)
 })

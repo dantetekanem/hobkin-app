@@ -26,7 +26,7 @@ function node(id: string, over: Partial<ReviewNode> = {}): ReviewNode {
     hosts_condition: false,
     runs: [],
     sensitive: [],
-    level: { floor: level, rule: 11, current: level, why: ['Floor rule 11.'], if: [] },
+    level: { floor: level, rule: 11, current: level, why: ['It is behind a condition that is off.'], if: [] },
     critical: false,
     findings: [],
     watch: null,
@@ -37,7 +37,7 @@ function node(id: string, over: Partial<ReviewNode> = {}): ReviewNode {
 
 const withLevel = (current: Level, over: Partial<ReviewNode> = {}): Partial<ReviewNode> => ({
   ...over,
-  level: { floor: current, rule: 3, current, why: [`Floor rule 3 (${current}).`], if: [{ text: 'Add a test.', level: 'mid' }] },
+  level: { floor: current, rule: 3, current, why: [`No test that runs reaches these lines (${current}).`], if: [{ text: 'Add a test.', level: 'mid' }] },
 })
 
 function graph(nodes: ReviewNode[], edges: GraphEdge[] = [], truncated = false): Graph {
@@ -149,7 +149,7 @@ test('a single node becomes a unit with every field, a claim title, and code tri
   assert.match(unit.code[1]?.diff ?? '', /round_money\(x\)/)
   assert.match(unit.code[1]?.why ?? '', /caller/)
   assert.deepEqual(unit.would_change, [{ text: 'Add a test.', level: 'mid' }])
-  assert.deepEqual(unit.why_level, ['Floor rule 3 (high).', 'It is on a money path.'])
+  assert.deepEqual(unit.why_level, ['No test that runs reaches these lines (high).', 'It is on a money path.'])
   assert.equal(unit.reading_minutes, 2)
   assert.deepEqual(unit.questions, [{ text: 'Is it meant?', why: 'no description' }])
 })
@@ -350,4 +350,14 @@ test('a mechanical bucket from triage takes the worst level of the sites it read
   assert.equal(unit!.grouping, 'bucket')
   assert.deepEqual([...unit!.nodes].sort(), ['a', 'f', 'j'])
   assert.equal(unit!.facts.proof.value, 'lifecycle-observed')
+})
+
+test('a unit says where it is reached from and what changed in short, plain sentences', () => {
+  // The scan names the action as an entry point, and its path names it again: it is said once, without its kind.
+  const show = node('show', { symbol: 'ErrorsController#show', path: 'app/controllers/errors_controller.rb', lines: [2, 13], changed_lines: [9, 10, 11, 12], entries: ['ErrorsController#show (controller)', 'ErrorsController#show'], ...withLevel('high') })
+  const added = node('count', { symbol: 'Cart#count', change: 'added', changed_lines: [4, 5], entries: [] })
+  const result = curate({ graph: graph([show, added]), triage: triageFor([show, added]), diffs: [] })
+  const unitOf = (id: string) => result.units.find((unit) => unit.nodes.includes(id))!
+  assert.deepEqual([unitOf('show').where, unitOf('show').what], ['Reached from ErrorsController#show.', 'Changes 4 lines in `show`.'])
+  assert.deepEqual([unitOf('count').where, unitOf('count').what], ['No entry point was found above it.', 'Adds `count`, 2 lines.'])
 })

@@ -119,7 +119,7 @@ describe('reviewRequest', () => {
 
     assert.deepEqual(data.nodes.map((node) => [node.id, node.task]), [['n5', 'assess'], ['n6', 'assess'], ['x1', 'assess'], ['n1', 'assess'], ['n3', 'assess'], ['n8', 'assess'], ['n2', 'assess'], ['n4', 'words']])
     const [n5] = data.nodes
-    assert.deepEqual(n5?.level, { current: 'high', floor: 'high', rule: 3, why: 'Floor rule 3: no test that runs shows the changed lines work.' })
+    assert.deepEqual(n5?.level, { current: 'high', floor: 'high', rule: 3, why: 'No test that runs reaches these lines.' })
     assert.deepEqual([n5?.entries, n5?.sensitive, n5?.callers], [['CheckoutController#create', 'ReceiptJob#perform'], ['money'], { total: 2, complete: true }])
     assert.deepEqual(n5?.runs, ['revert of n5, condition default: test/controllers/checkout_controller_test.rb, all passed (exit 0, 9 s)'])
     assert.equal(n5?.code, code.n5)
@@ -213,21 +213,21 @@ describe('readReviewAnswer', () => {
   it('drops words for unknown units, strips control characters and caps lengths', () => {
     const words = {
       title: 'Per-line\u0007 tax rounding\n behind a flag\u202e',
-      does: 'x'.repeat(500),
+      does: 'x'.repeat(600),
       setting: Array.from({ length: 14 }, (_, index) => `Stop ${index + 1}.`),
       units: { u1: { title: 'T'.repeat(150), what: 'round_money rounds half to even.' }, u99: { title: 'A unit that does not exist' } },
       verdict: 'safe',
     }
     const read = readReviewAnswer(answer({ words }), known)
     assert.equal(read.words.title, 'Per-line tax rounding behind a flag')
-    assert.equal(read.words.does?.length, 300)
+    assert.equal(read.words.does?.length, 450)
     assert.equal(read.words.setting?.length, 12)
     assert.deepEqual(Object.keys(read.words.units ?? {}), ['u1'])
     assert.equal(read.words.units?.u1?.title?.length, 100)
     assert.equal(read.words.units?.u1?.what, 'round_money rounds half to even.')
     assert.deepEqual(read.problems, [
       'words: unknown fields dropped: verdict',
-      'words.does: cut to 300 characters',
+      'words.does: cut to 450 characters',
       'words.setting: 14 lines, the first 12 kept',
       'words.units.u1.title: cut to 100 characters',
       'words.units.u99: unknown unit; dropped',

@@ -380,7 +380,7 @@ export interface Floor {
   /** Row 1 to 12. */
   rule: number
   critical: boolean
-  /** "Floor rule 3: no test executes the changed lines." */
+  /** Why, in a plain sentence with no rule name: "No test that runs reaches these lines." The row is `rule`. */
   why: string
   /** Rule 7 with `lifecycle` only: "behaviour changed, no test changed with it". */
   finding?: Finding

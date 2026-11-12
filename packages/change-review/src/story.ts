@@ -160,8 +160,6 @@ function opening(input: StoryInput, items: Numbered[], title: (unit: Unit) => st
   return lines
 }
 
-const stripPlace = (where: string) => where.replace(/^Stop \d+\. /, '').replace(/^Outside the request path: /, '')
-
 /** The tests run against this node's own change: the ones its proof rests on, not every test of a shared first run. */
 function testsRun(node: ReviewNode | undefined): string {
   const tests = [...new Set((node?.runs ?? []).filter((run) => run.node === node?.id && run.kind !== 'baseline').flatMap((run) => run.tests))]
@@ -171,9 +169,10 @@ function testsRun(node: ReviewNode | undefined): string {
 function setting(input: StoryInput, items: Numbered[]): string[] {
   const { graph, words } = input
   const nodeOf = (unit: Unit) => graph.nodes.find((node) => node.id === unit.nodes[0])
+  // A unit of files, with no definition, is never on the request's path.
   const onPath = items.filter((item) => {
     const node = nodeOf(item.unit)
-    return node ? isOnPath(graph, node) : item.unit.where.startsWith('Stop')
+    return node ? isOnPath(graph, node) : false
   })
   const outside = items.filter((item) => !onPath.includes(item))
   const lines = [
@@ -186,13 +185,13 @@ function setting(input: StoryInput, items: Numbered[]): string[] {
     const stops = [...new Set(onPath.map((item) => item.unit.story_order))].sort((a, b) => a - b)
     for (const stop of stops) {
       const here = onPath.filter((item) => item.unit.story_order === stop)
-      const parts = here.map((item) => `${nameOf(graph, item.unit)} (unit ${item.number}, ${item.unit.level}): ${stripPlace(item.unit.where)} Proof: **${item.unit.facts.proof.value}**.${testsRun(nodeOf(item.unit))}`)
+      const parts = here.map((item) => `${nameOf(graph, item.unit)} (unit ${item.number}, ${item.unit.level}): ${item.unit.where} Proof: **${item.unit.facts.proof.value}**.${testsRun(nodeOf(item.unit))}`)
       lines.push(`${stop}. ${parts.join(' ')}`)
     }
     if (!stops.length) lines.push('No changed definition sits on an entry point path.')
   }
   if (outside.length) {
-    lines.push('', `Outside the path: ${outside.map((item) => `${nameOf(graph, item.unit)} (unit ${item.number}): ${stripPlace(item.unit.where)}`).join(' ')}`)
+    lines.push('', `Outside the path: ${outside.map((item) => `${nameOf(graph, item.unit)} (unit ${item.number}): ${item.unit.where}`).join(' ')}`)
   }
   return lines
 }

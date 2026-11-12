@@ -56,7 +56,7 @@ describe('nodeLevelOf', () => {
   it('starts at the floor with its reason', () => {
     const level = nodeLevelOf(floor({ effect: 'behaviour', proof: 'none', exposure: 'everyone', undo: 'rollback' }))
     assert.deepEqual([level.floor, level.current, level.if], ['high', 'high', []])
-    assert.match(level.why[0] ?? '', /^Floor rule 3/)
+    assert.equal(level.why[0], 'No test that runs reaches these lines.')
   })
 })
 
