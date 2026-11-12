@@ -71,6 +71,8 @@ export interface ReviewNode {
   warning?: string
   /** The change review's level for this node, once it has rated it. The card shows it. */
   level?: ReviewLevel
+  /** The unit of the change review's story that tells this node, such as `u2`, once it has rated it. */
+  unit?: string
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }

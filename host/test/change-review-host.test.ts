@@ -201,6 +201,7 @@ test('a finished change’s review starts its change review, and opens with the 
   assert.match(opened.assessment?.story ?? '', /^# Round the total/)
   const total = opened.review.nodes.find((node) => node.kind === 'code' && node.subtitle === 'src/total.js')
   assert.equal(total?.level, 'high', 'the level shows on the graph node whose lines it rated')
+  assert.equal(total?.unit, 'u1', 'and the node knows the unit of the story that tells it')
   assert.ok(opened.review.story.some((step) => step.level === 'high'), 'and on the step that shows it')
 
   // Asked for again (the card's Review again), the same commit is reviewed once more.

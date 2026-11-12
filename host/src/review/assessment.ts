@@ -71,21 +71,22 @@ const worse = (a: Level, b: Level) => (RANK[b] > RANK[a] ? b : a)
 export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>): Review {
   if (!assessment.nodes.length) return review
   const pathOf = new Map(review.files.map((file) => [file.id, file.path]))
-  const rate = (node: Review['nodes'][number]): Level | undefined => {
-    let found: Level | undefined
+  /** The worst rated definition a node's lines at head overlap: its level, and the unit of the story that tells it. */
+  const rate = (node: Review['nodes'][number]): ChangeAssessment['nodes'][number] | undefined => {
+    let found: ChangeAssessment['nodes'][number] | undefined
     for (const anchor of node.anchors) {
       if (anchor.side !== 'added') continue
       const path = pathOf.get(anchor.fileId)
       for (const rated of assessment.nodes) {
         if (rated.path !== path || rated.lines[1] < anchor.startLine || rated.lines[0] > anchor.endLine) continue
-        found = found ? worse(found, rated.level) : rated.level
+        if (!found || RANK[rated.level] > RANK[found.level]) found = rated
       }
     }
     return found
   }
   const nodes = review.nodes.map((node) => {
-    const level = node.kind === 'code' || node.kind === 'file' ? rate(node) : undefined
-    return level ? { ...node, level } : node
+    const rated = node.kind === 'code' || node.kind === 'file' ? rate(node) : undefined
+    return rated ? { ...node, level: rated.level, ...(rated.unit ? { unit: rated.unit } : {}) } : node
   })
   const levelOf = new Map(nodes.map((node) => [node.id, node.level]))
   const story = review.story.map((step) => {
