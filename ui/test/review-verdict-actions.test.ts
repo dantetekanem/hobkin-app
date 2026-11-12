@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { afterVerdict, CONFIRM_MS, createVerdictChoices, heldDown, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { afterVerdict, CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
@@ -217,4 +217,12 @@ test('a merged change closes its review with a Tada!, and every other verdict cl
     afterVerdict(verdict, 'Done.', screen)
     assert.deepEqual(seen.splice(0), ['done: Done.', 'close'], verdict)
   }
+})
+
+test('a pull request can be approved, approved and merged, sent back for changes or commented on; a finished change approved, merged or sent its fixes', () => {
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'comment'])
+  assert.deepEqual(VERDICT_CHOICES.change.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes'])
+  // Its key is the click on it: A, M and X, wherever the reviewer is in the review.
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', 'X', null])
+  assert.deepEqual([verdictKind(PULL), verdictKind(CHANGE)], ['pull', 'change'])
 })

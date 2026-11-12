@@ -1,30 +1,15 @@
+import { TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useStore } from 'zustand'
-import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { VerdictPreview } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import { reviewMemory } from '../state/context.tsx'
-import { CONFIRM_MS, createVerdictChoices, heldDown, type VerdictCommands } from '../verdict.ts'
-
-/** What each verdict is called, for a finished hobkin change and for a pull request from GitHub, and what it says while the host does it. */
-const CHOICES: Record<'change' | 'pull', { verdict: Verdict; label: string; doing: string; keys?: string }[]> = {
-  change: [
-    { verdict: 'approve', label: 'Approve', doing: 'Opening its pull request…', keys: 'A' },
-    { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
-    { verdict: 'request-changes', label: 'Send fixes', doing: 'Sending…', keys: 'X' },
-  ],
-  pull: [
-    { verdict: 'approve', label: 'Approve', doing: 'Posting…', keys: 'A' },
-    { verdict: 'comment', label: 'Comment', doing: 'Posting…' },
-    { verdict: 'request-changes', label: 'Request changes', doing: 'Posting…', keys: 'X' },
-  ],
-}
+import { CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../verdict.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
 const needsComment = (verdict: Verdict) => verdict === 'request-changes' || verdict === 'comment'
@@ -35,13 +20,25 @@ const noHost: VerdictCommands = async () => {
 }
 const nothingToSave = async () => {}
 const inField = () => document.activeElement?.closest('input, textarea, [contenteditable="true"]') != null
+/** Whether all of an element is in sight inside the box that scrolls it. */
+const inSight = (element: Element, box: Element) => {
+  const shown = box.getBoundingClientRect()
+  const at = element.getBoundingClientRect()
+  return at.top >= shown.top && at.bottom <= shown.bottom
+}
+
+/** The choice the panel offers first: merging is what a review that passes ends with. */
+const PRIMARY: Verdict = 'approve-merge'
 
 /**
- * The verdict, in the review panel, confirmed in place. Every choice is the host's own verdict, for the commit of the
- * review on screen. The first click asks the host what it will do: the button then reads "Click again to confirm",
- * with what will happen under it, and a second click within ten seconds does it. After ten seconds, on Escape, or when
- * the keyboard leaves the buttons, it goes back. A key held down never gives the second click. Once the host has done
- * it, `landed` hears so, and the review closes.
+ * The verdict, at the foot of the review panel, confirmed in place. Every choice is the host's own verdict, for the
+ * commit of the review on screen. The first click asks the host what it will do: the same button then reads "Click
+ * again to confirm", with what will happen in the box under the choices, and a second click within ten seconds does
+ * it. After ten seconds, on Escape, or when the keyboard leaves the choices, it goes back. A key held down never gives
+ * the second click. Once the host has done it, `landed` hears so, and the review closes.
+ *
+ * Nothing moves on the way (the user, 2026-11-12: "approve and merge is doing a weird jump"): the choices keep their
+ * size whatever they say, and the box keeps its height whatever it holds, scrolling what does not fit.
  */
 export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
   review: Review
@@ -54,8 +51,9 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
   /** Hears of a verdict the host did, with its words. */
   landed?: (verdict: Verdict, message: string) => void
 }) {
-  const kind = targetOfReviewId(review.id)?.kind === 'pull' ? 'pull' : 'change'
+  const kind = verdictKind(review.id)
   const comments = unsentComments(notes).length
+  const section = useRef<HTMLElement>(null)
   // Once the second click is given, the host is doing it: nothing may take it back.
   const doing = useRef<Verdict | null>(null)
   // The choice whose first click the host is answering.
@@ -99,8 +97,14 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
 
   // The button that waits for its second click holds the keyboard, so Enter gives it and leaving takes it back. A key
   // still down from the first only repeats there, and the button stops repeats (`heldDown`): it takes a key pressed anew.
+  // A choice armed by its key from the graph can be out of sight: the verdict then comes into view, as little as it
+  // takes. One that was clicked is in sight, so nothing scrolls.
   useEffect(() => {
-    if (armed && !inField()) buttons.current.get(armed)?.focus({ preventScroll: true })
+    const button = armed ? buttons.current.get(armed) : undefined
+    if (!button) return
+    if (!inField()) button.focus({ preventScroll: true })
+    const box = button.closest('.rv-scroll')
+    if (box && !inSight(button, box)) section.current?.scrollIntoView({ block: 'nearest' })
   }, [armed])
 
   const press = async (choice: Verdict) => {
@@ -115,24 +119,11 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
     }
   }
 
-  const status = statusLine()
-
-  /** What the line under the choices says: the sample notice, the host at work, its error or message, or what a click does. */
-  function statusLine(): ReactNode {
-    if (!live) return 'Sample review. Nothing is sent.'
-    if (flow.busy) return doing.current ? 'The host is doing it…' : 'Asking the host what it will do…'
-    if (flow.error) return flow.error
-    if (flow.preview) return null
-    if (flow.message) return <Markdown text={flow.message} />
-    return kind === 'change'
-      ? 'Each choice shows what it will do and asks for a second click. Nothing happens before it.'
-      : 'Each choice shows the review GitHub will get and asks for a second click. Nothing is posted before it.'
-  }
-
   return (
     <section
+      ref={section}
       aria-label="Verdict"
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-1.5"
       // Escape steps back from the second click before it reaches the review, which would close.
       onKeyDownCapture={(event) => {
         if (event.key !== 'Escape' || doing.current || !(flow.preview || flow.busy)) return
@@ -143,77 +134,106 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed }: {
         if (!doing.current && choices.getState().preview && !event.currentTarget.contains(event.relatedTarget)) choices.cancel()
       }}
     >
-      <div className="flex flex-wrap gap-1.5">
-        {CHOICES[kind].map((choice) => {
-          const waiting = armed === choice.verdict
-          const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
-          const primary = choice.verdict === 'approve' || waiting
-          return (
-            <Button
-              key={choice.verdict}
-              ref={(element) => {
-                if (element) buttons.current.set(choice.verdict, element)
-                else buttons.current.delete(choice.verdict)
-              }}
-              size="sm"
-              data-stop
-              data-verdict={choice.verdict}
-              data-armed={waiting}
-              aria-pressed={waiting}
-              variant={primary ? 'default' : 'outline'}
-              className="relative h-8 overflow-hidden px-3 text-[13px]"
-              // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
-              // A click then does nothing.
-              disabled={!live || !verdict || (needsComment(choice.verdict) && comments === 0)}
-              // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
-              onKeyDown={(event) => {
-                if (heldDown(event)) event.preventDefault()
-              }}
-              onClick={() => void press(choice.verdict)}
-            >
-              {waiting ? (
-                <>
-                  Click again to confirm
-                  <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
-                </>
-              ) : working ? (
-                doing.current === choice.verdict ? choice.doing : 'Checking…'
-              ) : (
-                <>
+      {VERDICT_CHOICES[kind].map((choice) => {
+        const waiting = armed === choice.verdict
+        const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
+        const primary = choice.verdict === PRIMARY
+        return (
+          <Button
+            key={choice.verdict}
+            ref={(element) => {
+              if (element) buttons.current.set(choice.verdict, element)
+              else buttons.current.delete(choice.verdict)
+            }}
+            data-stop
+            data-verdict={choice.verdict}
+            data-armed={waiting}
+            aria-pressed={waiting}
+            variant={primary ? 'default' : 'outline'}
+            className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3.5 text-[14px] font-semibold"
+            // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
+            // A click then does nothing.
+            disabled={!live || !verdict || (needsComment(choice.verdict) && comments === 0)}
+            // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
+            onKeyDown={(event) => {
+              if (heldDown(event)) event.preventDefault()
+            }}
+            onClick={() => void press(choice.verdict)}
+          >
+            {waiting ? (
+              <>
+                <span className="truncate">Click again to confirm</span>
+                <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
+              </>
+            ) : working ? (
+              <span className="truncate">{doing.current === choice.verdict ? choice.doing : 'Checking…'}</span>
+            ) : (
+              <>
+                <span className="truncate">
                   {choice.label}
-                  {needsComment(choice.verdict) ? <span className="tabular-nums">{comments}</span> : null}
-                  {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
-                </>
-              )}
-            </Button>
-          )
-        })}
-      </div>
+                  {needsComment(choice.verdict) ? <span className="ml-1.5 tabular-nums">{comments}</span> : null}
+                </span>
+                {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
+              </>
+            )}
+          </Button>
+        )
+      })}
 
-      {flow.preview ? (
-        <div role="group" aria-label={`What ${labelOf(kind, flow.preview.verdict)} will do`} className="rv-scroll flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto rounded-xl bg-background p-3 ring-1 ring-border-strong/60">
-          <p className="font-heading text-[12px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{labelOf(kind, flow.preview.verdict)} will</p>
-          <ul className="flex flex-col gap-1.5 text-[14px] leading-[1.45] text-pretty">
-            {flow.preview.lines.map((line, index) => (
-              <li key={index}>{line}</li>
-            ))}
-          </ul>
-          {flow.preview.note ? <pre className="rounded-lg bg-secondary/70 p-2.5 font-sans text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{flow.preview.note}</pre> : null}
-          {flow.preview.post ? <GitHubPost post={flow.preview.post} /> : null}
-          <p className="flex flex-wrap items-center gap-1 text-[12.5px] text-muted-foreground">
-            Click it again within ten seconds to confirm. <Kbd>esc</Kbd> takes it back.
-          </p>
-        </div>
-      ) : null}
-
-      <div role="status" className={cn('text-[13px] leading-snug [overflow-wrap:anywhere]', flow.error ? 'text-bad-fg' : flow.message ? 'text-foreground' : 'text-muted-foreground')}>
-        {status}
+      {/* Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
+      <div role="status" tabIndex={-1} className="rv-scroll mt-1 h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
+        <Said kind={kind} live={live} flow={flow} doing={doing.current != null} />
       </div>
     </section>
   )
 }
 
-const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => CHOICES[kind].find((choice) => choice.verdict === verdict)?.label ?? ''
+const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[kind].find((choice) => choice.verdict === verdict)?.label ?? ''
+
+/**
+ * What the box under the choices says: the sample notice, the host at work, what a choice will do while it waits for
+ * its second click, the host's reason when it will not do it, or its words when it did.
+ */
+function Said({ kind, live, flow, doing }: { kind: 'change' | 'pull'; live: boolean; flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }; doing: boolean }): ReactNode {
+  if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
+  if (flow.busy) return <p className="text-muted-foreground">{doing ? 'The host is doing it…' : 'Asking the host what it will do…'}</p>
+  if (flow.error) {
+    return (
+      <p className="flex items-start gap-2 text-bad-fg">
+        <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <span>{flow.error}</span>
+      </p>
+    )
+  }
+  if (flow.preview) return <Preview kind={kind} preview={flow.preview} />
+  if (flow.message) return <Markdown text={flow.message} />
+  return (
+    <p className="text-pretty text-muted-foreground">
+      {kind === 'change'
+        ? 'Each choice first says what it will do, and waits for a second click. Nothing happens before it.'
+        : 'Each choice first shows what GitHub will get, and waits for a second click. Nothing is posted before it.'}
+    </p>
+  )
+}
+
+/** What a choice will do, as the host says it, while the choice waits for its second click. */
+function Preview({ kind, preview }: { kind: 'change' | 'pull'; preview: VerdictPreview }) {
+  return (
+    <div className="flex flex-col gap-2" aria-label={`What ${labelOf(kind, preview.verdict)} will do`}>
+      <p className="font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{labelOf(kind, preview.verdict)} will</p>
+      <ul className="flex flex-col gap-1 text-pretty">
+        {preview.lines.map((line, index) => (
+          <li key={index}>{line}</li>
+        ))}
+      </ul>
+      {preview.note ? <pre className="rounded-lg bg-secondary/70 p-2.5 font-sans text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{preview.note}</pre> : null}
+      {preview.post ? <GitHubPost post={preview.post} /> : null}
+      <p className="flex flex-wrap items-center gap-1 text-[13px] text-muted-foreground">
+        Click it again within ten seconds to confirm. <Kbd>esc</Kbd> takes it back.
+      </p>
+    </div>
+  )
+}
 
 const EVENT: Record<NonNullable<VerdictPreview['post']>['event'], string> = { APPROVE: 'an approval', COMMENT: 'a comment', REQUEST_CHANGES: 'a request for changes' }
 
@@ -221,13 +241,13 @@ const EVENT: Record<NonNullable<VerdictPreview['post']>['event'], string> = { AP
 function GitHubPost({ post }: { post: NonNullable<VerdictPreview['post']> }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg bg-secondary/70 p-2.5" aria-label="The review GitHub will get">
-      <p className="font-heading text-[12.5px] font-semibold text-muted-foreground">
+      <p className="font-heading text-[13px] font-semibold text-muted-foreground">
         GitHub gets {EVENT[post.event]}, on commit {post.commit_id.slice(0, 7)}
       </p>
       <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{post.body}</p>
       {post.comments.map((comment, index) => (
         <div key={index} className="flex flex-col gap-0.5 border-t border-border pt-2">
-          <p className="font-mono text-[12px] [overflow-wrap:anywhere] text-muted-foreground">
+          <p className="font-mono text-[12.5px] [overflow-wrap:anywhere] text-muted-foreground">
             {comment.path}, {comment.start_line ? `lines ${comment.start_line} to ${comment.line}` : `line ${comment.line}`}
             {comment.side === 'LEFT' ? ', as it was' : ''}
           </p>

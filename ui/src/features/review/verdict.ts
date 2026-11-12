@@ -105,6 +105,34 @@ export function heldDown({ key, repeat }: { key: string; repeat: boolean }): boo
 /** How long a choice waits for its second click, in milliseconds. */
 export const CONFIRM_MS = 10_000
 
+/** One choice of the verdict: its words, what it says while the host does it, and its key, which is the click on it. */
+export interface VerdictChoice {
+  verdict: Verdict
+  label: string
+  doing: string
+  keys?: string
+}
+
+/** The verdict's choices in the order the panel shows them: for a finished hobkin change, and for a pull request from GitHub. */
+export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]> = {
+  change: [
+    { verdict: 'approve', label: 'Approve', doing: 'Opening its pull request…', keys: 'A' },
+    { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
+    { verdict: 'request-changes', label: 'Send fixes', doing: 'Sending…', keys: 'X' },
+  ],
+  pull: [
+    { verdict: 'approve', label: 'Approve', doing: 'Posting…', keys: 'A' },
+    { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
+    { verdict: 'request-changes', label: 'Request changes', doing: 'Posting…', keys: 'X' },
+    { verdict: 'comment', label: 'Comment', doing: 'Posting…' },
+  ],
+}
+
+/** Whether a review is of a pull request from GitHub or of a finished hobkin change, which have their own choices. */
+export function verdictKind(id: string): 'change' | 'pull' {
+  return targetOfReviewId(id)?.kind === 'pull' ? 'pull' : 'change'
+}
+
 /**
  * The verdict buttons of the review panel, confirmed in place. Every choice is the host's own verdict: the first click
  * shows exactly what it will do and the button waits for a second (`press`, `armed`), and a second click within ten
