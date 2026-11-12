@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { initialize } from '../src/cli/config.mjs';
+import { afterMerges } from '../src/cli/work/after-merge.mjs';
 import { mergeRefreshed, refreshThenMerge } from '../src/cli/work/refresh.mjs';
 import { chooseProject, fileItem, readItems, updateItem, writeMode, writeOwnerView } from '../src/cli/work/store.mjs';
 import { closingItems, readyItems } from '../src/cli/work/reads.mjs';
@@ -67,16 +69,19 @@ test('a refreshed branch merges once its run has ended well, and not before', as
   assert.deepEqual(await mergeRefreshed(h.root, { now: NOW + 4000 }), [], 'a merge happens once');
 });
 
-test('a refresh that left something for the user does not merge, and waits for them', async t => {
+test('a refresh that left something new for the user still merges on their word, and what it left is told in Chat', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/abc', 'job.txt');
-  const item = finished(h, 'hobkin/abc');
+  const item = finished(h, 'hobkin/abc', { left: 'Rename the job.' });
   refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
 
-  refreshEnds(h, item, { left: 'The rebase dropped a migration. Check it before merging.' });
+  refreshEnds(h, item, { left: 'The rebase dropped a migration. Check it before deploying.' });
+  const [merged] = await mergeRefreshed(h.root, { now: NOW + 3000 });
+  await afterMerges(h.root, { now: NOW + 4000, gh: async args => assert.fail(`gh was asked ${args.join(' ')}`) });
 
-  assert.deepEqual(await mergeRefreshed(h.root, { now: NOW + 3000 }), []);
-  assert.equal(read(h, item).state, 'branch');
+  assert.equal(merged?.ok, true);
+  assert.equal(read(h, item).state, 'merged');
+  assert.deepEqual(clientNoticesToPost(h.root).map(({ line }) => line), ['Merged "Fix the job spec" on api. Still for you: The rebase dropped a migration. Check it before deploying.']);
 });
 
 test('an empty left is nothing left, before the refresh and after it, so the refreshed branch merges', async t => {

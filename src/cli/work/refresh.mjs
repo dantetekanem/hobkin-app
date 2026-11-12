@@ -13,8 +13,7 @@ const REFRESH_JOB = {
 
 /**
  * "Refresh and merge" is the user's word to merge a branch once an agent has brought it up to date with its base and its proof has passed again.
- * The word is kept on the item, because the run that refreshes it clears the note it was sent with. What was left for the user then is kept
- * beside it, so a refresh that leaves something new is told apart from one that changed nothing of the sort.
+ * The word is kept on the item, because the run that refreshes it clears the note it was sent with.
  */
 export function refreshThenMerge(root, reference, id, { read = 'none', readMs = 0, now = Date.now() } = {}) {
   const project = findProject(root, reference);
@@ -29,15 +28,16 @@ export function refreshThenMerge(root, reference, id, { read = 'none', readMs = 
   const held = whyWorkModeWaits(readMode(root), now);
   if (held) return handOff(root, { project, item, why: held, now }, REFRESH_JOB);
 
-  const mergeWhenFresh = { at: new Date(now).toISOString(), read, readMs, ...(item.left ? { left: item.left } : {}) };
+  const mergeWhenFresh = { at: new Date(now).toISOString(), read, readMs };
   updateItem(root, project.slug, item.id, { workNote: REFRESH_NOTE, mergeWhenFresh }, now);
   retryItem(root, project.slug, item.id, now);
   const message = `An agent brings "${item.title}" on ${nameOf(project)} up to date and runs its proof again, and hobkin merges it once that run ends well.`;
   return reply(message, { told: toldOf(project, item, 'asked to refresh and merge it', message) });
 }
 
-// The run that refreshed it left the work finished again, with nothing new for the user. An empty `left` is nothing left, as it is when the word is kept.
-const refreshedWell = item => isFinished(item) && (item.left || null) === (item.mergeWhenFresh.left || null);
+// The run that refreshed it left the work finished again. Whatever it left for the user does not hold back their word to merge: once it merges, that
+// note is told in Chat (`after-merge.mjs`), and no card waits for a click.
+const refreshedWell = isFinished;
 
 const lowerFirst = text => `${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 
