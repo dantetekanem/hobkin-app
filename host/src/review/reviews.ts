@@ -114,6 +114,12 @@ interface Planned {
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+/** What a review is about when neither a run nor hobkin nor the home can say: the target's own names. */
+const aboutFromTarget = (target: ReviewTarget) =>
+  target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` }
+
 /** How often an opened review asks where its change is now, when the app does not already know. */
 export const LOOK_AGAIN_MS = 60_000
 
@@ -199,9 +205,11 @@ export class Reviews {
       const status = this.status(id)
       const kept = stored.get(id)
       const head = status.head ?? kept?.change?.head ?? null
-      const about = this.about.get(id) ?? this.options.describe?.(target) ?? kept?.change ?? (target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` })
+      const about = this.about.get(id) ?? this.options.describe?.(target) ?? kept?.change ?? aboutFromTarget(target)
       const known = target.kind === 'change' && this.options.assessments ? this.options.assessments.status(target, head) : undefined
-      const times = [this.changedAt.get(id), Date.parse(status.preparedAt ?? ''), Date.parse(known?.summary?.at ?? ''), Date.parse(known?.startedAt ?? '')].filter((time): time is number => time != null && Number.isFinite(time))
+      const times = [this.changedAt.get(id), Date.parse(status.preparedAt ?? ''), Date.parse(known?.summary?.at ?? ''), Date.parse(known?.startedAt ?? '')].filter(
+        (time): time is number => time != null && Number.isFinite(time),
+      )
       const at = times.length > 0 ? Math.max(...times) : (kept?.at ?? 0)
       const item: ReviewListItem = {
         id,
@@ -235,7 +243,7 @@ export class Reviews {
       const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
       if (head && head !== this.stored(id).head) this.set(id, { head }, at)
     } catch (error) {
-      this.options.log?.(`Review ${id} could not look up its commit: ${error instanceof Error ? error.message : String(error)}`)
+      this.options.log?.(`Review ${id} could not look up its commit: ${messageOf(error)}`)
     }
   }
 
@@ -269,7 +277,7 @@ export class Reviews {
       for (let job = this.queue.shift(); job; job = this.queue.shift()) {
         const id = reviewIdOf(job.target)
         const run = this.run(job).catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error)
+          const message = messageOf(error)
           this.asked.delete(id)
           this.options.log?.(`Review ${id} could not be prepared: ${message}`)
           // An older review still opens, and says the newer one could not be prepared.
@@ -332,7 +340,7 @@ export class Reviews {
       try {
         this.options.onReady?.({ target, review, at: meta.preparedAt })
       } catch (error) {
-        this.options.log?.(`Review ${id}: what was told of it failed: ${error instanceof Error ? error.message : String(error)}`)
+        this.options.log?.(`Review ${id}: what was told of it failed: ${messageOf(error)}`)
       }
     }
     // Prepared again on the user's word: the change review runs again too.
@@ -345,7 +353,7 @@ export class Reviews {
     try {
       this.options.assessments.start({ target, head: review.change.head, base: review.change.base, description: { source: 'commits', title: review.change.title } }, { again })
     } catch (error) {
-      this.options.log?.(`Review ${reviewIdOf(target)}: the change review could not start: ${error instanceof Error ? error.message : String(error)}`)
+      this.options.log?.(`Review ${reviewIdOf(target)}: the change review could not start: ${messageOf(error)}`)
     }
   }
 
@@ -411,7 +419,7 @@ export class Reviews {
     const { review } = this.loaded(id)
     const { step, node } = place
     if ((step == null) === (node == null)) throw new Unavailable('Name a step or a node to show, and only one.')
-    if (step != null && !(Number.isInteger(step) && step >= 1 && step <= review.story.length)) throw new Unavailable(`This review has ${review.story.length} steps.`)
+    if (step != null && !isStepNumber(step, review)) throw new Unavailable(`This review has ${review.story.length} steps.`)
     if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
     const cursor: ReviewCursor = { ...(step != null ? { step } : {}), ...(node != null ? { node } : {}), at: (this.options.now ?? Date.now)() }
     this.set(id, { cursor }, cursor.at)
@@ -428,7 +436,7 @@ export class Reviews {
     const edge = wire == null ? undefined : review.edges.find((entry) => entry.id === wire)
     if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
     if (wire != null && !edge) throw new Unavailable(`This review has no wire ${wire}.`)
-    if (step != null && !(Number.isInteger(step) && step >= 1 && step <= review.story.length)) throw new Unavailable(`This review has ${review.story.length} steps.`)
+    if (step != null && !isStepNumber(step, review)) throw new Unavailable(`This review has ${review.story.length} steps.`)
     const about: NoteTarget = node != null ? { kind: 'node', node } : edge ? { kind: 'wire', wire: edge.id } : { kind: 'step' }
     const shown = [node, edge?.from, edge?.to].filter((entry): entry is string => entry != null)
     const cursor = this.stored(id).cursor?.step
@@ -542,7 +550,7 @@ export class Reviews {
     try {
       plan = await this.options.publish.plan(slug, card.branch)
     } catch (error) {
-      throw new Unavailable(error instanceof Error ? error.message : String(error))
+      throw new Unavailable(messageOf(error))
     }
     return { plan, pull: { head: review.change.head, title: review.change.title, body: review.summary } }
   }
@@ -580,7 +588,7 @@ export class Reviews {
           if (stored) this.assess(target, stored.review)
         }
       } catch (error) {
-        this.options.log?.(`Review ${id} was not prepared in the background: ${error instanceof Error ? error.message : String(error)}`)
+        this.options.log?.(`Review ${id} was not prepared in the background: ${messageOf(error)}`)
       }
     }
   }
@@ -590,6 +598,11 @@ export class Reviews {
     this.queue.length = 0
     this.options.assessments?.close()
   }
+}
+
+/** Whether `step` is a step of the review, numbered from 1. */
+function isStepNumber(step: number, review: Review): boolean {
+  return Number.isInteger(step) && step >= 1 && step <= review.story.length
 }
 
 /** A change review's status as a list shows it: the steps are for the review that is open. */

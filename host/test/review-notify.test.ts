@@ -39,13 +39,24 @@ test('hobkin is told in its chat once, as its own notice naming the review, and 
 
   // While hobkin is not open nothing is told, and nothing is held up.
   const logged: string[] = []
-  const quiet = chatTeller({ data: () => { throw new Error('hobkin is still starting.') }, refresh: () => (shown += 1), log: (line) => logged.push(line) })
+  const quiet = chatTeller({
+    data: () => {
+      throw new Error('hobkin is still starting.')
+    },
+    refresh: () => (shown += 1),
+    log: (line) => logged.push(line),
+  })
   await quiet(pull)
   assert.equal(shown, 1)
   assert.match(logged[0] ?? '', /pr:acme\/web\/12.*hobkin is still starting/)
 
   // A hobkin checkout from before its client notices runs the host all the same: the review is only not told.
-  const older = chatTeller({ data: () => home, refresh: () => (shown += 1), log: (line) => logged.push(line), notices: async () => Promise.reject(new Error("Cannot find module 'hobkin/src/cli/client-notices.mjs'")) })
+  const older = chatTeller({
+    data: () => home,
+    refresh: () => (shown += 1),
+    log: (line) => logged.push(line),
+    notices: async () => Promise.reject(new Error("Cannot find module 'hobkin/src/cli/client-notices.mjs'")),
+  })
   await older(pull)
   assert.equal(shown, 1)
   assert.match(logged[1] ?? '', /Cannot find module/)

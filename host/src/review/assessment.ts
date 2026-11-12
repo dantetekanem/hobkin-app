@@ -183,6 +183,8 @@ async function linkInstalls({ repo, tree, git }: { repo: string; tree: string; g
 
 const short = (head: string) => head.slice(0, 12)
 
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
 /** Written in full beside the file, then put in place, so a reader never sees half of it. */
 function writeWhole(file: string, text: string) {
   const next = `${file}.${process.pid}.next`
@@ -206,13 +208,14 @@ export function assessmentFolder(root: string, target: ReviewTarget, head: strin
 /** The card's summary of finished units: the worst level, whether any is critical, and how many need the user. */
 export function summarize(result: AssessResult, at: string): AssessmentSummary {
   const units = result.units.units
-  const level = units.some((unit) => unit.level === 'high') ? 'high' : units.some((unit) => unit.level === 'mid') ? 'mid' : 'safe'
+  const countAt = (level: Level) => units.filter((unit) => unit.level === level).length
+  const worstLevel: Level = countAt('high') > 0 ? 'high' : countAt('mid') > 0 ? 'mid' : 'safe'
   return {
-    level,
+    level: worstLevel,
     critical: units.some((unit) => unit.critical),
-    needsYou: units.filter((unit) => unit.level === 'high').length,
-    worthALook: units.filter((unit) => unit.level === 'mid').length,
-    safe: units.filter((unit) => unit.level === 'safe').length,
+    needsYou: countAt('high'),
+    worthALook: countAt('mid'),
+    safe: countAt('safe'),
     storyBy: result.storyBy,
     at,
   }
@@ -255,6 +258,10 @@ export class Assessments {
 
   private key = (target: ReviewTarget, head: string) => `${reviewIdOf(target)}@${head}`
 
+  private clockIso() {
+    return new Date((this.options.now ?? Date.now)()).toISOString()
+  }
+
   private set(target: ReviewTarget, head: string, status: AssessmentStatus) {
     this.live.set(this.key(target, head), status)
     this.options.onChange?.()
@@ -295,7 +302,7 @@ export class Assessments {
     for (let job = this.queue.shift(); job; job = this.queue.shift()) {
       if (this.controller.signal.aborted) return
       await this.one(job).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = messageOf(error)
         this.options.log?.(`Change review of ${reviewIdOf(job.target)} at ${job.head.slice(0, 7)} failed: ${message}`)
         this.set(job.target, job.head, { state: 'failed', head: job.head, error: message })
       })
@@ -308,7 +315,7 @@ export class Assessments {
     const repo = repoOf(target.slug)
     if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
     // Every update of a run says when it started, so a window that opens late still counts from the start.
-    const startedAt = new Date((this.options.now ?? Date.now)()).toISOString()
+    const startedAt = this.clockIso()
     this.set(target, head, { state: 'running', head, percent: 0, now: 'checking the change out in the review tree', startedAt })
     const tree = await readyReviewTree({ repo, tree: join(root, 'client', 'review-trees', target.slug), head, git, log })
     if (signal.aborted) throw new Error(STOPPED)
@@ -336,13 +343,13 @@ export class Assessments {
     })
     // A run stopped on the way has not finished, whatever it answered, so no summary says it has.
     if (signal.aborted) throw new Error(STOPPED)
-    const summary = summarize(result, new Date((this.options.now ?? Date.now)()).toISOString())
+    const summary = summarize(result, this.clockIso())
     writeWhole(join(out, 'summary.json'), JSON.stringify(summary))
     this.set(target, head, { state: 'ready', head, summary })
     try {
       this.options.onReady?.({ target, head, summary })
     } catch (error) {
-      this.options.log?.(`Change review of ${reviewIdOf(target)} at ${head.slice(0, 7)}: what was told of it failed: ${error instanceof Error ? error.message : String(error)}`)
+      this.options.log?.(`Change review of ${reviewIdOf(target)} at ${head.slice(0, 7)}: what was told of it failed: ${messageOf(error)}`)
     }
   }
 

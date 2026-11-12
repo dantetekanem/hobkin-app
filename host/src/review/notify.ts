@@ -30,12 +30,20 @@ export function readyLine({ id, kind, title, project, summary }: ReadyReview): s
     return `The AI review of ${name} "${title}" is ready. Open it from Work › AI Reviews.`
   }
   const level = summary ? `: ${RISK[summary.level]}${summary.critical ? ', with something critical' : ''}` : ''
-  const parts = summary
-    ? [summary.needsYou ? `${count(summary.needsYou, 'part')} ${summary.needsYou === 1 ? 'needs' : 'need'} you` : '', summary.worthALook ? `${summary.needsYou ? summary.worthALook : count(summary.worthALook, 'part')} ${summary.worthALook === 1 ? 'is' : 'are'} worth a look` : '']
-        .filter(Boolean)
-        .join(' and ')
-    : ''
+  const parts = summary ? partsLine(summary) : ''
   return `The change review of "${title}" in ${project} is ready${level}.${parts ? ` ${parts.charAt(0).toUpperCase()}${parts.slice(1)}.` : ''} Open it from its card in Work, or from Work › AI Reviews.`
+}
+
+/** How many parts need the user and how many are worth a look, as one clause. Empty when neither. */
+function partsLine({ needsYou, worthALook }: AssessmentSummary): string {
+  const clauses: string[] = []
+  if (needsYou) clauses.push(`${count(needsYou, 'part')} ${needsYou === 1 ? 'needs' : 'need'} you`)
+  if (worthALook) {
+    // After a first clause the noun is already said, so only the number follows.
+    const subject = needsYou ? worthALook : count(worthALook, 'part')
+    clauses.push(`${subject} ${worthALook === 1 ? 'is' : 'are'} worth a look`)
+  }
+  return clauses.join(' and ')
 }
 
 type ClientNotices = typeof import('hobkin/src/cli/client-notices.mjs')

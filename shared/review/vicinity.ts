@@ -282,11 +282,18 @@ function entryWords({ kind, exact }: ReviewEntry): string {
 
 const KEYWORD = /^(?:if|elsif|else if|unless|while|until|case|when|switch|for)\b/
 
+/** A condition a call sits under, in words: a statement that starts with a keyword is named, any other text is a test. */
+function guardWords({ text, branch }: VicinityGuard): string {
+  if (branch === 'after-return') return `after ${text} returns`
+  if (KEYWORD.test(text)) return branch === 'then' ? `inside ${text}` : `in the else of ${text}`
+  return branch === 'then' ? `when ${text}` : `when not ${text}`
+}
+
 /** Where the call is, what it sits under, and whether only its name ties it to the other end. */
 function wireLabel(link: VicinityLink, line: number, guard: VicinityGuard | undefined): string {
   const where =
     link.direction === 'callee' ? (link.call.enqueues ? `enqueued on line ${line}` : `line ${line}`) : link.call.enqueues ? `enqueues it from line ${line}` : `from line ${line}`
-  const condition = guard && (KEYWORD.test(guard.text) ? { then: `inside ${guard.text}`, else: `in the else of ${guard.text}`, 'after-return': `after ${guard.text} returns` } : { then: `when ${guard.text}`, else: `when not ${guard.text}`, 'after-return': `after ${guard.text} returns` })[guard.branch]
+  const condition = guard && guardWords(guard)
   return cleanProse([where, ...(condition ? [condition] : []), ...(link.proven ? [] : ['found by name'])].join(', '), PROSE_LIMIT.label)
 }
 

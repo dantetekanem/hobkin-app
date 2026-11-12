@@ -42,7 +42,6 @@ export interface ReviewSeat {
   log?: (line: string) => void
 }
 
-
 const finishedIn = (work: WorkState | null): FinishedChange[] => (work?.finished ?? []).flatMap((group) => group.changes)
 
 export function hostReviews(seat: ReviewSeat): Reviews {

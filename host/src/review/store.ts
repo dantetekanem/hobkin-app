@@ -73,6 +73,13 @@ function readJson<Value>(file: string): Value | null {
   }
 }
 
+/** What a review file says it is about, or null when the file lacks any of it. */
+function aboutChange(change: Review['change'] | undefined): StoredReview['change'] {
+  if (!change) return null
+  if (typeof change.title !== 'string' || typeof change.project !== 'string' || typeof change.head !== 'string') return null
+  return { title: change.title, project: change.project, head: change.head }
+}
+
 export function reviewStore(root: string): ReviewStore {
   const reviews = join(root, 'client', 'reviews')
   const folderOf = (target: ReviewTarget) => join(reviews, reviewFolder(target))
@@ -116,8 +123,7 @@ export function reviewStore(root: string): ReviewStore {
         const file = join(reviews, name, `review-${newest.name}.json`)
         let known = about.get(file)
         if (known?.at !== newest.at) {
-          const change = readJson<Review>(file)?.change
-          known = { at: newest.at, change: change && typeof change.title === 'string' && typeof change.project === 'string' && typeof change.head === 'string' ? { title: change.title, project: change.project, head: change.head } : null }
+          known = { at: newest.at, change: aboutChange(readJson<Review>(file)?.change) }
           about.set(file, known)
         }
         return [{ target, at: newest.at, meta: readJson<ReviewMeta>(join(reviews, name, `meta-${newest.name}.json`)), change: known.change }]

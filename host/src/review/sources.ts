@@ -97,6 +97,14 @@ interface PullFile {
   deletions: number
 }
 
+/** GitHub's file statuses in the review's words; anything else it lists counts as modified. */
+function changedStatusOf(status: string): ChangedPath['status'] {
+  if (status === 'added') return 'added'
+  if (status === 'removed') return 'deleted'
+  if (status === 'renamed') return 'renamed'
+  return 'modified'
+}
+
 const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/')
 
 /** A GitHub pull request, read through gh with GET requests only. */
@@ -156,7 +164,7 @@ export function pullSource({ gh, limit = SIZE_LIMIT }: { gh: GhCall; limit?: { f
       const reader: ChangeReader = {
         changed: async () =>
           files.map((file): ChangedPath => {
-            const status = file.status === 'added' ? 'added' : file.status === 'removed' ? 'deleted' : file.status === 'renamed' ? 'renamed' : 'modified'
+            const status = changedStatusOf(file.status)
             return {
               path: file.filename,
               ...(file.previous_filename ? { oldPath: file.previous_filename } : {}),

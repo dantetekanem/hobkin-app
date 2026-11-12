@@ -102,7 +102,7 @@ function unitNode(unit: Unit, file: CapturedFile, isChanged: ReturnType<typeof c
     kind,
     title: cleanProse(named ? unit.symbol : fileName(unit.path), TITLE_LIMIT),
     subtitle: unit.path,
-    change: kind === 'file' ? (file.status === 'added' ? 'added' : file.status === 'deleted' ? 'deleted' : 'modified') : change,
+    change: kind === 'file' ? fileChange(file) : change,
     stats: { additions, deletions },
     summary,
     ...(status ? { status } : {}),
@@ -111,27 +111,32 @@ function unitNode(unit: Unit, file: CapturedFile, isChanged: ReturnType<typeof c
   }
 }
 
+/** A file's change as a node reports it: added or deleted as it is, anything else modified. */
+function fileChange(file: CapturedFile): ReviewNode['change'] {
+  if (file.status === 'added') return 'added'
+  if (file.status === 'deleted') return 'deleted'
+  return 'modified'
+}
+
+function wholeFileSummary(file: CapturedFile): string {
+  if (file.skipped) return `Not read, because this change is over the size limits. ${changeSentence(file.additions, file.deletions)}`
+  if (file.binary) return 'A binary file. Its contents are not shown.'
+  if (file.status === 'renamed') return `Renamed from ${file.oldPath}. Its contents did not change.`
+  if (file.status === 'deleted') return 'Removed in this change. It was empty.'
+  if (file.status === 'added') return 'New in this change. It is empty.'
+  return 'Changed without a changed line, such as its file mode.'
+}
+
 /** A file with no lines to show: binary, empty, or only renamed. It is still part of the change, so it is still a node. */
 function wholeFileNode(id: string, file: CapturedFile): ReviewNode {
-  const summary = file.skipped
-    ? `Not read, because this change is over the size limits. ${changeSentence(file.additions, file.deletions)}`
-    : file.binary
-    ? 'A binary file. Its contents are not shown.'
-    : file.status === 'renamed'
-      ? `Renamed from ${file.oldPath}. Its contents did not change.`
-      : file.status === 'deleted'
-        ? 'Removed in this change. It was empty.'
-        : file.status === 'added'
-          ? 'New in this change. It is empty.'
-          : 'Changed without a changed line, such as its file mode.'
   return {
     id,
     kind: 'file',
     title: fileName(file.path),
     subtitle: file.path,
-    change: file.status === 'added' ? 'added' : file.status === 'deleted' ? 'deleted' : 'modified',
+    change: fileChange(file),
     stats: { additions: file.additions, deletions: file.deletions },
-    summary,
+    summary: wholeFileSummary(file),
     anchors: [],
     position: { x: 0, y: 0 },
   }
