@@ -93,7 +93,7 @@ export class PiRpcSession {
   }
 
   absorb(state) {
-    if (this.sessionId !== undefined && state.sessionId !== this.sessionId) {
+    if (this.sessionId !== undefined && (state.sessionId !== this.sessionId || state.sessionFile !== this.sessionFile)) {
       throw Error('Main Pi conversation identity changed.');
     }
     this.sessionId = state.sessionId;
@@ -112,6 +112,7 @@ export class PiRpcSession {
       this.absorb(state);
       if (!state.isStreaming) this.messages = (await this.child.request('get_messages')).messages;
       this.stats = await this.child.request('get_session_stats').catch(unavailable);
+      if (this.child.metadata) this.compaction = await this.child.metadata(false);
     });
     this.syncing = run.catch(() => {});
     return run;
@@ -274,6 +275,7 @@ export class PiRpcSession {
   }
 
   async modelCatalog() {
+    if (this.child.metadata) await this.child.metadata(true);
     const { models } = await this.child.request('get_available_models');
     return {
       getModel: (provider, id) => models.find(model => model.provider === provider && model.id === id),

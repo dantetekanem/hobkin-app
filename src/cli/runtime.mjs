@@ -335,8 +335,9 @@ export class HobkinRuntime {
       ...this.main?.getContextUsage?.(),
       auto: this.main?.autoCompactionEnabled ?? null,
       compacting: Boolean(this.main?.isCompacting),
-      compactions: entries?.length ?? null,
-      last: this.lastCompaction ?? (last ? { status: 'completed', at: last.timestamp } : null),
+      compactions: entries?.length ?? this.main?.compaction?.compactions ?? null,
+      last: this.lastCompaction ?? (last ? { status: 'completed', at: last.timestamp }
+        : this.main?.compaction?.last ? { status: 'completed', at: this.main.compaction.last } : null),
     };
   }
 

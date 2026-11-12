@@ -20,7 +20,7 @@ mock.method(process, 'kill', forbidden);
 mock.method(globalThis, 'fetch', forbidden);
 syncBuiltinESMExports();
 const { startMainSessionChild, runMainSessionChild } = await import('../src/cli/main-session-child.mjs');
-const { openRpcSession } = await import('../src/cli/rpc-session.mjs');
+const { openRpcSession, PiRpcSession } = await import('../src/cli/rpc-session.mjs');
 const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
 
 function bootstrap(t) {
@@ -162,7 +162,9 @@ test('duplicate bootstrap fences a pending SDK open and never activates it late'
 function processFixture(t) {
   const data = bootstrap(t), signals = [], sent = [];
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), connected: true,
-    send: (record, callback) => { sent.push(record); callback?.(); } });
+    send: (record, callback) => { sent.push(record); callback?.();
+      if (record.type === 'hobkin/main/metadata') queueMicrotask(() => child.emit('message', { type: record.type, version: 1,
+        id: record.id, sessionId: 'saved', sessionFile: data.file, compactions: 0, last: null })); } });
   t.after(() => child.emit('close', 0, null));
   const dependencies = { startupTimeoutMs: 50, signalProcess: (target, signal) => { assert.equal(target, child); signals.push(signal); },
     spawnProcess: (command, args, options) => {
@@ -207,7 +209,7 @@ test('the opt-in RPC opener waits for bootstrap and routes the captured client c
     const request = JSON.parse(bytes.toString()); received.push(request);
     if (request.type === 'extension_ui_response') return;
     const data = request.type === 'get_state' ? { sessionId: 'saved', sessionFile: h.data.file, model: { provider: 'fixture', id: 'local' }, thinkingLevel: 'medium' }
-      : request.type === 'get_messages' ? { messages: [] } : { contextUsage: { tokens: 10 } };
+      : request.type === 'get_messages' ? { messages: [{ role: 'user', content: 'saved history' }] } : { contextUsage: { tokens: 10 } };
     emit({ type: 'response', id: request.id, success: true, data });
   });
   const opening = openRpcSession({ ...h.payload, prompts: [] }, { ...h.dependencies, bootstrap: h.payload, clientBridge: { extensionPath, tool } });
@@ -227,6 +229,7 @@ test('the opt-in RPC opener waits for bootstrap and routes the captured client c
   assert.ok(call[2] instanceof AbortSignal);
   assert.deepEqual(JSON.parse(received.at(-1).value), { ok: true, result: { content: [], details: { routed: true } } });
   assert.deepEqual(session.getContextUsage(), { tokens: 10 });
+  assert.deepEqual(session.messages, [{ role: 'user', content: 'saved history' }]);
   const closing = session.dispose(); h.child.emit('close', 0, null); await closing;
 });
 
@@ -262,6 +265,48 @@ test('only the matching bootstrap response admits native RPC readiness', async t
       sessionId: 'saved', sessionFile: stale.data.file, cwd: stale.data.root, ...patch });
     await rejected;
   }
+});
+
+test('captured metadata refresh preserves offline catalog and compaction facts, and close rejects pending work', { timeout: 10000 }, async t => {
+  const h = childFixture(t), p = processFixture(t), done = Promise.withResolvers(), gate = Promise.withResolvers(), refreshing = Promise.withResolvers();
+  let hold = false, unreadable = false, refreshed = false;
+  h.session.sessionManager.getBranch = () => [{ type: 'compaction', timestamp: 'saved-time' }];
+  h.session.modelRuntime = { refresh: async options => { assert.deepEqual(options, { allowNetwork: false }); if (unreadable) throw Error('catalog unreadable'); if (hold) { refreshing.resolve(); await gate.promise; } refreshed = true; },
+    getAvailableSnapshot: () => [{ provider: 'fixture', id: refreshed ? 'refreshed' : 'stale' }] };
+  h.dependencies.loadSdk = async () => ({ AgentSessionRuntime: class { dispose() {} }, runRpcMode: async runtime => {
+    await runtime.session.bindExtensions({ mode: 'rpc' }); await done.promise;
+  } });
+  h.channel.send = record => p.child.emit('message', record);
+  p.child.send = (record, callback) => { h.channel.emit('message', record); callback?.(); };
+  const running = runMainSessionChild(h.channel, h.dependencies);
+  const transport = startMainSessionChild(h.data, p.dependencies); await transport.ready;
+  const session = new PiRpcSession({}); session.attach(transport);
+  p.child.stdin.on('data', bytes => { const request = JSON.parse(bytes.toString());
+    p.child.stdout.write(`${JSON.stringify({ type: 'response', id: request.id, success: true, data: { models: h.session.modelRuntime.getAvailableSnapshot() } })}\n`); });
+  const catalog = await session.modelCatalog(); assert.equal(catalog.getAvailable()[0].id, 'refreshed');
+  unreadable = true; assert.equal((await session.modelCatalog()).getAvailable()[0].id, 'refreshed'); unreadable = false;
+  h.services.assertMainInvariants = () => { throw Error('fixture invariant failed'); };
+  await assert.rejects(session.modelCatalog(), /fixture invariant failed/); h.services.assertMainInvariants = () => {};
+  session.compaction = await transport.metadata(false);
+  const info = HobkinRuntime.prototype.contextInfo.call({ main: session });
+  assert.equal(info.compactions, 1); assert.deepEqual(info.last, { status: 'completed', at: 'saved-time' });
+  hold = true; const pending = assert.rejects(session.modelCatalog(), /closed|exited/);
+  await refreshing.promise; p.child.emit('close', 0, null); await pending;
+  gate.resolve(); done.resolve(); await running;
+});
+
+for (const failure of ['identity', 'correlation', 'timeout']) test(`metadata ${failure} rejects without retry or replay`, { timeout: 10000 }, async t => {
+  const h = processFixture(t), transport = startMainSessionChild(h.payload, { ...h.dependencies, startupTimeoutMs: 5 });
+  h.child.emit('message', { type: 'hobkin/main/ready', version: 1, id: h.sent[0].id, success: true,
+    sessionId: 'saved', sessionFile: h.data.file, cwd: h.data.root }); await transport.ready;
+  const sent = []; h.child.send = record => sent.push(record);
+  const keepAlive = setTimeout(() => {}, 1000); t.after(() => clearTimeout(keepAlive));
+  const rejected = assert.rejects(transport.metadata(false), /metadata/); await Promise.resolve();
+  if (failure !== 'timeout') h.child.emit('message', { type: 'hobkin/main/metadata', version: 1, id: sent[0].id,
+    sessionId: 'saved', sessionFile: h.data.file, [failure === 'identity' ? 'sessionId' : 'id']: 'wrong' });
+  await rejected; assert.equal(sent.length, 1);
+  if (failure === 'timeout') { h.child.emit('message', { type: 'hobkin/main/metadata', version: 1, id: sent[0].id,
+    sessionId: 'saved', sessionFile: h.data.file, compactions: 0, last: null }); assert.deepEqual(h.signals, []); }
 });
 
 function startupFixture(t, onMainStartup = () => {}) {
