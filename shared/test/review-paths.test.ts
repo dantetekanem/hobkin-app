@@ -80,11 +80,11 @@ test('each test starts a path that follows its wires inward, and the host walks 
 test('the call-graph scan adds the unchanged code around the change: what it calls and what calls it', async () => {
   const vicinity: Vicinity = {
     links: [
-      { changed: { path: 'src/doing.ts', line: 3 }, other: { path: 'src/mood.ts', symbol: 'searchingTool', startLine: 1, endLine: 3 }, direction: 'callee' },
-      { changed: { path: 'src/runtime.ts', line: 2 }, other: { path: 'src/app.ts', symbol: 'start', startLine: 2, endLine: 4 }, direction: 'caller' },
+      { near: { changed: { path: 'src/doing.ts', line: 4 } }, other: { path: 'src/mood.ts', symbol: 'searchingTool', startLine: 1, endLine: 3 }, direction: 'callee', hops: 1, call: { line: 4, name: 'searchingTool' }, proven: true },
+      { near: { changed: { path: 'src/runtime.ts', line: 3 } }, other: { path: 'src/app.ts', symbol: 'start', startLine: 2, endLine: 4 }, direction: 'caller', hops: 1, call: { line: 3, name: 'listen' }, proven: true },
       // Code the change itself touched is a node already, and a file that is not at head is nobody's vicinity.
-      { changed: { path: 'src/runtime.ts', line: 3 }, other: { path: 'src/doing.ts', symbol: 'doingAfter', startLine: 7, endLine: 10 }, direction: 'callee' },
-      { changed: { path: 'src/doing.ts', line: 8 }, other: { path: 'src/gone.ts', symbol: 'gone', startLine: 1, endLine: 2 }, direction: 'callee' },
+      { near: { changed: { path: 'src/runtime.ts', line: 3 } }, other: { path: 'src/doing.ts', symbol: 'doingAfter', startLine: 7, endLine: 10 }, direction: 'callee', hops: 1, call: { line: 3, name: 'doingAfter' }, proven: true },
+      { near: { changed: { path: 'src/doing.ts', line: 8 } }, other: { path: 'src/gone.ts', symbol: 'gone', startLine: 1, endLine: 2 }, direction: 'callee', hops: 1, call: { line: 8, name: 'toolDoing' }, proven: true },
     ],
     notice: 'Callers and callees come from a static scan.',
   }
@@ -103,7 +103,7 @@ test('the call-graph scan adds the unchanged code around the change: what it cal
 })
 
 test('the model is given the in and out, the context code and the paths, and its own words replace the host signature', async () => {
-  const vicinity: Vicinity = { links: [{ changed: { path: 'src/doing.ts', line: 3 }, other: { path: 'src/mood.ts', symbol: 'searchingTool', startLine: 1, endLine: 3 }, direction: 'callee' }] }
+  const vicinity: Vicinity = { links: [{ near: { changed: { path: 'src/doing.ts', line: 4 } }, other: { path: 'src/mood.ts', symbol: 'searchingTool', startLine: 1, endLine: 3 }, direction: 'callee', hops: 1, call: { line: 4, name: 'searchingTool' }, proven: true }] }
   const draft = await draftReview(await input(vicinity))
   const request = modelRequest(draft)
   const doingAfter = idOf(draft, 'doingAfter')

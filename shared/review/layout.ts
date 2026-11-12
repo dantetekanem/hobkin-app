@@ -19,7 +19,10 @@ export const NODE_SIZE: Record<NodeKind, { width: number; height: number }> = {
 export const COLUMN_GAP = 132
 /** Room between two nodes of a column. */
 export const ROW_GAP = 28
-/** Code that calls code sits a column to its left. Past this many columns, deeper code shares the last one. */
+/**
+ * Code that calls code sits a column to its left, and context a caller calls sits a column to the caller's left, so
+ * the way out to where a request enters reads across. Past this many columns, deeper nodes share the band's last one.
+ */
 export const MAX_CODE_COLUMNS = 4
 
 export type Band = 'spec' | 'tests' | 'code' | 'context'
@@ -70,10 +73,10 @@ export function pinPoints(edge: LayoutEdge, nodes: readonly LayoutNode[], positi
 }
 
 /**
- * How many columns to the right of its band's first column each code node sits: the longest chain of
- * wires that leads to it from other code. A cycle is cut where a depth-first walk closes it.
+ * How many columns to the right of its band's first column each node of a band sits: the longest chain of
+ * wires that leads to it from other nodes of the band. A cycle is cut where a depth-first walk closes it.
  */
-function codeDepths(ids: readonly string[], edges: readonly LayoutEdge[]): Map<string, number> {
+function bandDepths(ids: readonly string[], edges: readonly LayoutEdge[]): Map<string, number> {
   const inBand = new Set(ids)
   const next = new Map<string, string[]>(ids.map((id) => [id, []]))
   for (const edge of edges) {
@@ -115,11 +118,11 @@ function startingColumns(nodes: readonly LayoutNode[], edges: readonly LayoutEdg
   for (const band of BAND_ORDER) {
     const members = nodes.filter((node) => BAND_OF[node.kind] === band)
     if (members.length === 0) continue
-    if (band !== 'code') {
+    if (band !== 'code' && band !== 'context') {
       columns.push({ band, nodes: members })
       continue
     }
-    const depth = codeDepths(members.map((node) => node.id), edges)
+    const depth = bandDepths(members.map((node) => node.id), edges)
     const deepest = Math.max(...depth.values())
     for (let level = 0; level <= deepest; level += 1) {
       const atLevel = members.filter((node) => depth.get(node.id) === level)

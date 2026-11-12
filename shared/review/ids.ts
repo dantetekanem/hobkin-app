@@ -28,6 +28,15 @@ export function reviewFolder(target: ReviewTarget): string {
   return target.kind === 'change' ? `change+${target.slug}+${target.item}` : `pr+${target.owner}+${target.repo}+${target.number}`
 }
 
+/** The target a review folder is named for, or null for a folder that is not one. */
+export function targetOfReviewFolder(name: string): ReviewTarget | null {
+  const parts = name.split('+')
+  const id = parts[0] === 'change' && parts.length === 3 ? `change:${parts[1]}:${parts[2]}` : parts[0] === 'pr' && parts.length === 4 ? `pr:${parts[1]}/${parts[2]}/${parts[3]}` : null
+  const target = id ? targetOfReviewId(id) : null
+  // Only a name that comes back as itself: a folder these rules would not have made is no review's.
+  return target && reviewFolder(target) === name ? target : null
+}
+
 /** A pull request's page on github.com. */
 export function pullUrl(target: Extract<ReviewTarget, { kind: 'pull' }>): string {
   return `https://github.com/${target.owner}/${target.repo}/pull/${target.number}`

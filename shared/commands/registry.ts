@@ -9,7 +9,7 @@ import type { KeyHelp, ModelsState } from '../protocol/models.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
 import { GRADES, PR_MODES } from '../protocol/work.ts'
-import type { OpenedReview, ReviewCode, ReviewCursor, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
+import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 
 /**
@@ -384,6 +384,12 @@ export const COMMANDS = {
     args: Type.Object({ id: reviewId }, { additionalProperties: false }),
     hobkin: true,
   },
+  'review.list': {
+    description: 'Every review the app knows, newest first: finished changes and pull requests, each with how its preparation stands, its change review when it has one (state, percent, what it is doing, its level once ready), and when it last changed.',
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
   'review.map': {
     description:
       "A prepared review as a map: every node with what it does and what goes in and out, every wire with its kind, each test's path through the code, the story's steps by number, and the notes so far. No code. Read it first, then walk the review one node at a time.",
@@ -641,6 +647,7 @@ export interface CommandResults {
   'file.open': { ok: true }
   'review.prepare': ReviewStatus
   'review.status': ReviewStatus
+  'review.list': ReviewList
   'review.get': OpenedReview
   'review.file': ReviewFileContents
   'review.notes': { ok: true }

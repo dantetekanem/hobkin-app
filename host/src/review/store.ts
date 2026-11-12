@@ -5,7 +5,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { reviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
+import { reviewFolder, targetOfReviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
 import type { NoteEntry } from '#shared/review/notes.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 
@@ -29,6 +29,16 @@ export interface Prepared {
   meta: ReviewMeta | null
 }
 
+/** A target's most recent review in the home, as a list shows it. */
+export interface StoredReview {
+  target: ReviewTarget
+  /** When its file was written, in milliseconds. */
+  at: number
+  meta: ReviewMeta | null
+  /** What it is about, from the review file; null when the file cannot be read. */
+  change: { title: string; project: string; head: string } | null
+}
+
 export interface ReviewStore {
   /** The review built from this commit, with its files, or null when there is none. */
   read(target: ReviewTarget, head: string): Prepared | null
@@ -38,6 +48,8 @@ export interface ReviewStore {
   newest(target: ReviewTarget): { at: number; meta: ReviewMeta | null } | null
   /** A review was built from this commit. */
   has(target: ReviewTarget, head: string): boolean
+  /** Every target with a review in the home, each with its most recent one. */
+  list(): StoredReview[]
   write(target: ReviewTarget, review: Review, files: ReviewFileContents[], meta?: ReviewMeta): void
   notes(target: ReviewTarget): NotesFile
   saveNotes(target: ReviewTarget, notes: NotesFile): void
@@ -62,7 +74,10 @@ function readJson<Value>(file: string): Value | null {
 }
 
 export function reviewStore(root: string): ReviewStore {
-  const folderOf = (target: ReviewTarget) => join(root, 'client', 'reviews', reviewFolder(target))
+  const reviews = join(root, 'client', 'reviews')
+  const folderOf = (target: ReviewTarget) => join(reviews, reviewFolder(target))
+  /** What each review file is about, read once for each time it was written, as a list is asked for often. */
+  const about = new Map<string, { at: number; change: StoredReview['change'] }>()
   const readAt = (folder: string, name: string): Prepared | null => {
     const review = readJson<Review>(join(folder, `review-${name}.json`))
     const files = readJson<ReviewFileContents[]>(join(folder, `files-${name}.json`))
@@ -91,6 +106,23 @@ export function reviewStore(root: string): ReviewStore {
       return newest ? { at: newest.at, meta: readJson<ReviewMeta>(join(folder, `meta-${newest.name}.json`)) } : null
     },
     has: (target, head) => existsSync(join(folderOf(target), `review-${short(head)}.json`)),
+    list() {
+      if (!existsSync(reviews)) return []
+      return readdirSync(reviews).flatMap((name): StoredReview[] => {
+        const target = targetOfReviewFolder(name)
+        const folder = join(reviews, name)
+        const newest = target && statSync(folder, { throwIfNoEntry: false })?.isDirectory() ? newestIn(folder) : null
+        if (!target || !newest) return []
+        const file = join(reviews, name, `review-${newest.name}.json`)
+        let known = about.get(file)
+        if (known?.at !== newest.at) {
+          const change = readJson<Review>(file)?.change
+          known = { at: newest.at, change: change && typeof change.title === 'string' && typeof change.project === 'string' && typeof change.head === 'string' ? { title: change.title, project: change.project, head: change.head } : null }
+          about.set(file, known)
+        }
+        return [{ target, at: newest.at, meta: readJson<ReviewMeta>(join(reviews, name, `meta-${newest.name}.json`)), change: known.change }]
+      })
+    },
     write(target, review, files, meta) {
       const folder = folderOf(target)
       mkdirSync(folder, { recursive: true, mode: 0o700 })

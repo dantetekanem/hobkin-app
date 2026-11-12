@@ -21,6 +21,8 @@ export interface ReviewStatus {
   state: PrepareState
   /** Null when nothing is under way. */
   phase: PreparePhase | null
+  /** While a preparation is queued or under way: when it was asked for, as an ISO time from the host's clock. */
+  startedAt?: string
   /** The commit the change is at, when known. */
   head: string | null
   /** A review is ready, for an older commit than the change is at now. It opens, and a new one is on its way. */
@@ -94,6 +96,30 @@ export interface ReviewCode {
   title: string
   path?: string
   parts: { side: 'added' | 'deleted'; startLine: number; endLine: number; text: string }[]
+}
+
+/** One review the host knows, for the list of AI reviews: what it is about, how it stands, and when it last changed. */
+export interface ReviewListItem {
+  id: string
+  kind: 'change' | 'pull'
+  title: string
+  /** The project, or `owner/repo` for a pull request. */
+  project: string
+  head: string | null
+  state: PrepareState
+  phase: PreparePhase | null
+  /** While a preparation is queued or under way: when it was asked for, as an ISO time. */
+  startedAt?: string
+  error: string | null
+  /** For a finished change: how its change review stands, without its steps. */
+  assessment?: AssessmentStatus
+  /** When any of it last changed, as an ISO time. */
+  updatedAt: string
+}
+
+export interface ReviewList {
+  /** Newest first. */
+  reviews: ReviewListItem[]
 }
 
 export const IDLE_STATUS = (id: string): ReviewStatus => ({ id, state: 'idle', phase: null, head: null, stale: false, preparedAt: null, error: null, storyBy: null })

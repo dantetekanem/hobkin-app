@@ -94,6 +94,12 @@ export function validateReview(value: unknown): string[] {
     }
     if (node.io !== undefined && (!isRecord(node.io) || !isCleanProse(node.io.in, PROSE_LIMIT.io) || !isCleanProse(node.io.out, PROSE_LIMIT.io))) problems.push(`${name}: what goes in and out must be plain text.`)
     if (node.stats !== undefined && (!isRecord(node.stats) || !isCount(node.stats.additions) || !isCount(node.stats.deletions))) problems.push(`${name} must count its added and removed lines.`)
+    if (node.lifecycle !== undefined && (node.kind !== 'context' || !isRecord(node.lifecycle) || !['caller', 'callee'].includes(node.lifecycle.role) || !isLine(node.lifecycle.hops) || node.lifecycle.hops > 9)) {
+      problems.push(`${name}: only context has a place in the life cycle, as a caller or a callee some calls away.`)
+    }
+    if (node.entry !== undefined && (!['code', 'context'].includes(node.kind) || !isRecord(node.entry) || typeof node.entry.kind !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(node.entry.kind) || typeof node.entry.exact !== 'boolean')) {
+      problems.push(`${name}: an entry point is code or context, with a kind and whether it is exact.`)
+    }
     if (!isRecord(node.position) || !Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) problems.push(`${name} has no place on the graph.`)
     if (!Array.isArray(node.anchors)) {
       problems.push(`${name} must list its anchors.`)

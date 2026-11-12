@@ -225,6 +225,8 @@ export interface AssessmentsOptions {
   repoOf: (slug: string) => string | null
   git?: GitRun
   onChange?: () => void
+  /** A run finished and its review is ready, with its summary. Once for each run that finishes. */
+  onReady?: (ready: { target: ReviewTarget & { kind: 'change' }; head: string; summary: AssessmentSummary }) => void
   log?: (line: string) => void
   now?: () => number
 }
@@ -305,7 +307,9 @@ export class Assessments {
     const { signal } = this.controller
     const repo = repoOf(target.slug)
     if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
-    this.set(target, head, { state: 'running', head, percent: 0, now: 'checking the change out in the review tree' })
+    // Every update of a run says when it started, so a window that opens late still counts from the start.
+    const startedAt = new Date((this.options.now ?? Date.now)()).toISOString()
+    this.set(target, head, { state: 'running', head, percent: 0, now: 'checking the change out in the review tree', startedAt })
     const tree = await readyReviewTree({ repo, tree: join(root, 'client', 'review-trees', target.slug), head, git, log })
     if (signal.aborted) throw new Error(STOPPED)
     const out = assessmentFolder(root, target, head)
@@ -326,6 +330,7 @@ export class Assessments {
           percent: progress.percent,
           now: progress.now,
           eta: progress.eta_seconds,
+          startedAt,
           steps: progress.steps.map(({ id, status, done, total, seconds, note }) => ({ id, status, done, total, seconds, ...(note ? { note } : {}) })),
         }),
     })
@@ -334,6 +339,11 @@ export class Assessments {
     const summary = summarize(result, new Date((this.options.now ?? Date.now)()).toISOString())
     writeWhole(join(out, 'summary.json'), JSON.stringify(summary))
     this.set(target, head, { state: 'ready', head, summary })
+    try {
+      this.options.onReady?.({ target, head, summary })
+    } catch (error) {
+      this.options.log?.(`Change review of ${reviewIdOf(target)} at ${head.slice(0, 7)}: what was told of it failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /** What a finished review wrote: the story and its units, for the Review screen. Null until one is ready. */

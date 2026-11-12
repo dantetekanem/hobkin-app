@@ -10,6 +10,14 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export const paths: (root: string, slug: string) => { directory: string; clone: string; [key: string]: string }
 }
 
+declare module 'hobkin/src/cli/client-notices.mjs' {
+  /**
+   * Saves a line hobkin posts in Chat as its own notice, with no model turn. `key` names the news, so posting it again
+   * adds nothing; `review` names the review it is about. Answers whether it was new. Throws on a bad key or an empty line.
+   */
+  export function postClientNotice(root: string, notice: { key: string; line: string; tone?: 'critical' | 'blocked' | 'useful' | 'quiet'; review?: string }, now?: number): boolean
+}
+
 declare module 'hobkin/src/cli/work/tree.mjs' {
   /** The branch everything starts from, read from what is already in the repository, with no network. */
   export function defaultBranch(repo: string): Promise<string>

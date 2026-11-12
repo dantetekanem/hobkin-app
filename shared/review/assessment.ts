@@ -39,6 +39,8 @@ export interface AssessmentStatus {
   now?: string
   /** For a run under way: seconds left, by the estimates. */
   eta?: number | null
+  /** For a run under way: when it started, as an ISO time from the host's clock. */
+  startedAt?: string
   /** For a run under way: every step, how it stands, and how long the finished ones took, measured. */
   steps?: { id: string; status: string; done: number; total: number; seconds: number | null; note?: string }[]
   summary?: AssessmentSummary

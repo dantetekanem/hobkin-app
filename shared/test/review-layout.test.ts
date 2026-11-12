@@ -138,6 +138,15 @@ test('a chain of calls deeper than the code band is wide shares the last column'
   assertNoOverlap(chain, positions)
 })
 
+test('a caller of a caller sits a column further out, so the way to where a request enters reads across', () => {
+  const life = [node('u1', 'code'), node('callee', 'context'), node('caller', 'context'), node('outer', 'context'), node('entry', 'context')]
+  const positions = layoutReview(life, [wire('u1', 'callee'), wire('u1', 'caller'), wire('caller', 'outer'), wire('outer', 'entry')])
+  const x = (id: string) => positions[id]!.x
+  assert.equal(x('callee'), x('caller'), 'what the change calls and what calls it start the context band together')
+  assert.ok(x('u1') < x('caller') && x('caller') < x('outer') && x('outer') < x('entry'))
+  assertNoOverlap(life, positions)
+})
+
 test('a review without a spec or without context still starts at the left edge', () => {
   const positions = layoutReview([node('t1', 'test'), node('u1', 'code')], [wire('t1', 'u1')])
 

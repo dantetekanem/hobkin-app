@@ -30,7 +30,8 @@ export type ReviewLevel = 'safe' | 'mid' | 'high'
  * an acceptance line, the test that proves it, the code that test exercises, the code that code calls.
  * For `proves` and `implements` the verb belongs to the node on the right: the test proves the line,
  * and the code implements it. `called-by` reads the same way: changed code on the left is called by unchanged code
- * on the right, so a caller sits in the context column. `WIRE_PHRASE` gives each kind in reading order.
+ * on the right, so a caller sits in the context column, and what calls that caller sits one further right, on the
+ * way out to where a request enters. `WIRE_PHRASE` gives each kind in reading order.
  */
 export type EdgeKind = 'proves' | 'exercises' | 'implements' | 'calls' | 'called-by' | 'uses' | 'renders' | 'imports' | 'configures' | 'replaces'
 
@@ -73,9 +74,29 @@ export interface ReviewNode {
   level?: ReviewLevel
   /** The unit of the change review's story that tells this node, such as `u2`, once it has rated it. */
   unit?: string
+  /** For unchanged context the call-graph scan found: where it sits in the request's life cycle. */
+  lifecycle?: ReviewLifecycle
+  /** Where a request enters the code, when this code or context node is such a place. */
+  entry?: ReviewEntry
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }
+}
+
+/** How unchanged context stands to the change, in the request's life cycle. */
+export interface ReviewLifecycle {
+  /** `caller`: it leads to the changed code, `hops` calls away. `callee`: the changed lines call it, one call away. */
+  role: 'caller' | 'callee'
+  hops: number
+}
+
+/**
+ * Where a request enters, as the scan knows it: what the framework calls (`controller`, a public action; `job`, a
+ * job's perform), or a statement that runs as its file loads (`load`). `exact` when a route or a declaration says so.
+ */
+export interface ReviewEntry {
+  kind: string
+  exact: boolean
 }
 
 /** What goes in and what comes out, in a few words each. Either may be empty. */
@@ -245,7 +266,8 @@ export const WIRE_RULES: Record<EdgeKind, { from: readonly NodeKind[]; to: reado
   implements: { from: ['criterion'], to: ['code', 'file'] },
   exercises: { from: ['test'], to: ['code', 'file', 'context'] },
   calls: { from: ['code'], to: ['code', 'context'] },
-  'called-by': { from: ['code'], to: ['context'] },
+  // A caller further out calls a caller nearer the change, so context can be called by context.
+  'called-by': { from: ['code', 'context'], to: ['context'] },
   uses: { from: ['code', 'file'], to: ['code', 'file', 'context'] },
   renders: { from: ['code'], to: ['code', 'context'] },
   imports: { from: ['code', 'file'], to: ['code', 'file', 'context'] },

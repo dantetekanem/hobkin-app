@@ -10,7 +10,8 @@ import { createHash } from 'node:crypto'
 import { completeReview, draftReview, modelRequest } from '#shared/review/prepare.ts'
 import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
-import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import type { AssessmentStatus } from '#shared/review/assessment.ts'
+import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { askForChanges, pullReviewPost, type Verdict } from '#shared/review/verdict.ts'
@@ -80,6 +81,13 @@ export interface ReviewsOptions {
    * read back when the review opens. A host given none reviews nothing that way.
    */
   assessments?: Assessments
+  /**
+   * A pull request's review the user asked for is ready. A finished change is told by its change review instead, and a
+   * review the background prepared on its own is not told at all.
+   */
+  onReady?: (ready: { target: ReviewTarget; review: Review; at: string }) => void
+  /** What a review is about before its file can say: a finished change's title and project, as the Work screen has them. */
+  describe?: (target: ReviewTarget) => { title: string; project: string } | null
 }
 
 interface Job {
@@ -123,14 +131,29 @@ export class Reviews {
   private readonly lookedAt = new Map<string, number>()
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
   private written = 0
+  /** The reviews someone asked for, by the window or by hobkin, as against what the background prepares by itself. */
+  private readonly asked = new Set<string>()
+  /** When each review's status last changed, in milliseconds by the host's clock. */
+  private readonly changedAt = new Map<string, number>()
+  /** What each review is about, as its change read when it was prepared. */
+  private readonly about = new Map<string, { title: string; project: string }>()
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
     this.options = options
   }
 
-  private set(id: string, change: Partial<ReviewStatus>) {
-    this.statuses.set(id, { ...this.stored(id), ...change })
+  private now() {
+    return (this.options.now ?? Date.now)()
+  }
+
+  /** `at` is when it changed, for a caller that has read the clock already. */
+  private set(id: string, change: Partial<ReviewStatus>, at = this.now()) {
+    const next = { ...this.stored(id), ...change }
+    // A start is only said while something is queued or under way.
+    if (next.phase == null) delete next.startedAt
+    this.statuses.set(id, next)
+    this.changedAt.set(id, at)
     this.options.onChange?.()
   }
 
@@ -164,6 +187,41 @@ export class Reviews {
   }
 
   /**
+   * Every review the host knows, newest first: what it prepared or is preparing since it started, and every review in
+   * the home. Each says what it is about, how its preparation stands, and, for a finished change, how its change
+   * review does, without its steps.
+   */
+  list(): ReviewList {
+    const stored = new Map(this.options.store.list().map((entry) => [reviewIdOf(entry.target), entry]))
+    const items = [...new Set([...this.statuses.keys(), ...stored.keys()])].flatMap((id): { item: ReviewListItem; at: number }[] => {
+      const target = targetOfReviewId(id)
+      if (!target) return []
+      const status = this.status(id)
+      const kept = stored.get(id)
+      const head = status.head ?? kept?.change?.head ?? null
+      const about = this.about.get(id) ?? this.options.describe?.(target) ?? kept?.change ?? (target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` })
+      const known = target.kind === 'change' && this.options.assessments ? this.options.assessments.status(target, head) : undefined
+      const times = [this.changedAt.get(id), Date.parse(status.preparedAt ?? ''), Date.parse(known?.summary?.at ?? ''), Date.parse(known?.startedAt ?? '')].filter((time): time is number => time != null && Number.isFinite(time))
+      const at = times.length > 0 ? Math.max(...times) : (kept?.at ?? 0)
+      const item: ReviewListItem = {
+        id,
+        kind: target.kind,
+        title: about.title,
+        project: about.project,
+        head,
+        state: status.state,
+        phase: status.phase,
+        ...(status.startedAt ? { startedAt: status.startedAt } : {}),
+        error: status.error,
+        ...(known ? { assessment: withoutSteps(known) } : {}),
+        updatedAt: new Date(at).toISOString(),
+      }
+      return [{ item, at }]
+    })
+    return { reviews: items.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id)).map(({ item }) => item) }
+  }
+
+  /**
    * Asks where the change is now, at most once a minute for each review, so an opened review can say it is outdated.
    * A pull request is asked of GitHub. Nothing is prepared here: the reviewer chooses when to rebuild.
    */
@@ -175,7 +233,7 @@ export class Reviews {
     this.lookedAt.set(id, at)
     try {
       const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
-      if (head && head !== this.stored(id).head) this.set(id, { head })
+      if (head && head !== this.stored(id).head) this.set(id, { head }, at)
     } catch (error) {
       this.options.log?.(`Review ${id} could not look up its commit: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -184,11 +242,13 @@ export class Reviews {
   /**
    * Prepares a review in the background, and answers at once with how it stands. A review already prepared for the
    * change's commit is used without a run, and one already under way is joined. A ready review stays ready, and opens,
-   * while a newer one is prepared. `refresh` prepares it again even for the same commit.
+   * while a newer one is prepared. `refresh` prepares it again even for the same commit. `asked` says someone asked
+   * for it, the window or hobkin, so hobkin says in its chat when a pull request's review they asked for is ready.
    */
-  prepare(id: string, { refresh = false }: { refresh?: boolean } = {}): ReviewStatus {
+  prepare(id: string, { refresh = false, asked = false }: { refresh?: boolean; asked?: boolean } = {}): ReviewStatus {
     const target = this.target(id)
     const now = this.status(id)
+    if (asked) this.asked.add(id)
     const waiting = this.queue.find((job) => reviewIdOf(job.target) === id)
     if (waiting) {
       waiting.refresh ||= refresh
@@ -196,7 +256,8 @@ export class Reviews {
     }
     if (this.running.has(id) && !refresh) return now
     this.queue.push({ target, head: null, refresh })
-    this.set(id, { state: now.state === 'ready' ? 'ready' : 'preparing', phase: 'queued' })
+    const at = this.now()
+    this.set(id, { state: now.state === 'ready' ? 'ready' : 'preparing', phase: 'queued', startedAt: new Date(at).toISOString() }, at)
     void this.work()
     return this.status(id)
   }
@@ -209,6 +270,7 @@ export class Reviews {
         const id = reviewIdOf(job.target)
         const run = this.run(job).catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
+          this.asked.delete(id)
           this.options.log?.(`Review ${id} could not be prepared: ${message}`)
           // An older review still opens, and says the newer one could not be prepared.
           this.set(id, { state: this.options.store.newest(job.target) ? 'ready' : 'failed', phase: null, error: message })
@@ -236,6 +298,8 @@ export class Reviews {
     // One preparation for each commit: a review already made for it is used as it is.
     const cached = refresh ? null : store.read(target, head)
     if (cached) {
+      // Ready already, so there is no news to tell.
+      this.asked.delete(id)
       this.opened.delete(id)
       this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null })
       this.assess(target, cached.review)
@@ -243,6 +307,7 @@ export class Reviews {
     }
 
     const input = await source.read(target, head)
+    this.about.set(id, { title: input.change.title, project: input.change.project })
     const draft = await draftReview({ ...input, id })
     // A finished change is told by its change review (spec 032), so no model narrates its graph: the host's steps do.
     // A pull request from GitHub, which gets no change review, keeps its narrated walk.
@@ -259,10 +324,17 @@ export class Reviews {
     const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
-    const meta = { preparedAt: new Date((this.options.now ?? Date.now)()).toISOString(), storyBy: written ? ('agent' as const) : ('host' as const) }
+    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: written ? ('agent' as const) : ('host' as const) }
     store.write(target, review, files, meta)
     this.opened.set(id, { review, files, meta })
     this.set(id, { state: 'ready', phase: null, stale: false, ...meta })
+    if (this.asked.delete(id) && target.kind === 'pull') {
+      try {
+        this.options.onReady?.({ target, review, at: meta.preparedAt })
+      } catch (error) {
+        this.options.log?.(`Review ${id}: what was told of it failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     // Prepared again on the user's word: the change review runs again too.
     this.assess(target, review, { again: refresh })
   }
@@ -342,7 +414,7 @@ export class Reviews {
     if (step != null && !(Number.isInteger(step) && step >= 1 && step <= review.story.length)) throw new Unavailable(`This review has ${review.story.length} steps.`)
     if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
     const cursor: ReviewCursor = { ...(step != null ? { step } : {}), ...(node != null ? { node } : {}), at: (this.options.now ?? Date.now)() }
-    this.set(id, { cursor })
+    this.set(id, { cursor }, cursor.at)
     return cursor
   }
 
@@ -371,7 +443,7 @@ export class Reviews {
     const saved = this.options.store.notes(target)
     const notes = foldNotes([...(saved.entries as NoteEntry[]), { op: 'put', note }])
     this.options.store.saveNotes(target, { entries: notes.map((entry) => ({ op: 'put', note: entry })), draft: saved.draft })
-    this.set(id, { notesAt: at })
+    this.set(id, { notesAt: at }, at)
     return note
   }
 
@@ -518,6 +590,11 @@ export class Reviews {
     this.queue.length = 0
     this.options.assessments?.close()
   }
+}
+
+/** A change review's status as a list shows it: the steps are for the review that is open. */
+function withoutSteps({ steps: _steps, ...status }: AssessmentStatus): AssessmentStatus {
+  return status
 }
 
 /** Both sides of every file the review points into: the change's own, and the unchanged files context reads. */

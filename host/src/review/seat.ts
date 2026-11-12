@@ -7,13 +7,14 @@ import { paths, readProject } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
-import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
+import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
 import type { HostHandlers } from '../commands.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
 import { noReviewAgent, piModelRunner, piReviewAgent } from './agent.ts'
 import { Assessments } from './assessment.ts'
 import { reviewCode, reviewMap } from './guide.ts'
+import { chatTeller } from './notify.ts'
 import type { GhCall } from './gh.ts'
 import { Reviews, type Watched } from './reviews.ts'
 import { sampleReviewSource } from './sample-source.ts'
@@ -30,8 +31,11 @@ export interface ReviewSeat {
   data: () => string
   /** Work mode as the Work screen has it, with the finished changes. */
   work: () => WorkState | null
-  /** hobkin's work actions. Throws, with the reason, while hobkin is not open in this host. */
-  app: () => { workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown> }
+  /**
+   * hobkin's work actions, and its way to show its chat again after a line was posted for it. Throws, with the reason,
+   * while hobkin is not open in this host.
+   */
+  app: () => { workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>; requestRefresh?(): void }
   runtime: () => Promise<PiModelRuntime | undefined>
   /** gh, to read pull requests. Without it a pull request reads as the sample change, as the GitHub page shows sample data. */
   gh?: GhCall
@@ -51,6 +55,13 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const repo = readProject(data, slug)?.path ?? paths(data, slug).clone
     return existsSync(repo) ? repo : null
   }
+  // hobkin says in its chat when a review is ready, with no model turn. Only a live host tells it, as only a live host
+  // runs change reviews; the scripted one keeps hobkin's chat as it is.
+  const tell = seat.live ? chatTeller({ data: seat.data, refresh: () => seat.app().requestRefresh?.(), log: seat.log }) : undefined
+  const describe = (target: ReviewTarget) => {
+    const change = target.kind === 'change' ? find(target.slug, target.item) : null
+    return change && { title: change.title, project: change.project }
+  }
   // The change review of each finished change (spec 032): its own tests run in a review worktree, and the careful pass
   // and the blind check go to the tiers. Only a live host runs it: the scripted one runs no tests and asks no model.
   const assessments = seat.live
@@ -63,11 +74,17 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy }
         },
+        onReady: ({ target, head, summary }) => {
+          const about = describe(target)
+          void tell?.({ id: reviewIdOf(target), kind: 'change', title: about?.title ?? target.item, project: about?.project ?? target.slug, head, at: summary.at, summary })
+        },
         log: seat.log,
       })
     : undefined
   return new Reviews({
     ...(assessments ? { assessments } : {}),
+    describe,
+    onReady: ({ target, review, at }) => void tell?.({ id: reviewIdOf(target), kind: target.kind, title: review.change.title, project: review.change.project, head: review.change.head, at }),
     store: reviewStore(seat.root),
     sources: {
       change: changeSource({
@@ -111,11 +128,13 @@ export function toPrepare(work: WorkState | null, github: GitHubState): Watched[
   return [...changes, ...pulls]
 }
 
-type ReviewCommand = 'review.prepare' | 'review.status' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
+type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
 
 export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewCommand> {
   return {
-    'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh }),
+    // Asked for by the window or by hobkin, as against what the background prepares by itself.
+    'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true }),
+    'review.list': () => reviews.list(),
     'review.status': ({ id }) => {
       // An open review asks now and then, so it can say when its change has moved on.
       void reviews.lookAgain(id)

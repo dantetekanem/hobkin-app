@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import type { AssessmentStatus } from '#shared/review/assessment.ts'
+import { checkArguments } from '#shared/commands/registry.ts'
+import type { AssessmentStatus, AssessmentSummary } from '#shared/review/assessment.ts'
+import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { assessmentFolder, Assessments, readyReviewTree, type AssessRequest, type AssessRun } from '../src/review/assessment.ts'
 import { Reviews } from '../src/review/reviews.ts'
+import { sampleReviewSource } from '../src/review/sample-source.ts'
+import { reviewHandlers } from '../src/review/seat.ts'
 import { changeSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
@@ -318,4 +322,124 @@ test('a finished change’s review starts its change review, and opens with the 
   await later.settled()
   assert.equal(runs.length, 3)
   assert.equal(again.status(id).assessment?.state, 'ready')
+})
+
+const SAMPLE = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
+const SAMPLE_FILES = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
+
+test('review.list has every review the host knows, newest first, with when each started and how it stands', async (t) => {
+  const { repo, head } = project(t)
+  const root = temporaryDirectory(t)
+  let clock = Date.parse('2026-11-12T15:00:00Z')
+  const now = () => clock
+  // A pull request an earlier host reviewed: only its files in the home say so.
+  const pull = { kind: 'pull' as const, owner: 'acme', repo: 'web', number: 12 }
+  reviewStore(root).write(pull, { ...SAMPLE, change: { ...SAMPLE.change, project: 'acme/web', title: 'Tighten the login form' } }, SAMPLE_FILES, { preparedAt: '2026-11-12T09:00:00.000Z', storyBy: 'agent' })
+  const then = new Date('2026-11-12T09:00:00Z')
+  utimesSync(join(root, 'client', 'reviews', 'pr+acme+web+12', `review-${SAMPLE.change.head.slice(0, 12)}.json`), then, then)
+
+  // A change review that runs until it is let go, so the list is read while it runs.
+  let started = () => {}
+  const running = new Promise<void>((resolve) => (started = resolve))
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  const engine: AssessRun = async (request) => {
+    clock += 5_000
+    request.onProgress({ percent: 40, now: 'map-proof: running the tests of total', eta_seconds: 30, steps: [{ id: 'triage', status: 'done', done: 1, total: 1, seconds: 2 }] })
+    started()
+    await held
+    writeFileSync(join(request.out, 'story.md'), '# Round the total\n')
+    return { units: { units: [{ level: 'mid', critical: false }] }, storyBy: 'host' }
+  }
+  const assessments = new Assessments({ root, run: engine, repoOf: () => repo, now })
+  const reviews = new Reviews({
+    store: reviewStore(root),
+    sources: {
+      change: changeSource({ find: () => ({ project: 'shop', title: 'Round the total', branch: 'hobkin/4c9e21-round-the-total', head }), repoOf: () => repo, baseOf: async () => 'main' }),
+      pull: { head: async () => null, read: async () => Promise.reject(new Error('no pull requests here')) },
+    },
+    agent: async () => null,
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    head: (target) => (target.kind === 'change' ? head : null),
+    describe: (target) => (target.kind === 'change' ? { title: 'Round the total', project: 'shop' } : null),
+    assessments,
+    now,
+  })
+  t.after(() => {
+    release()
+    reviews.close()
+  })
+  const id = 'change:shop:4c9e21'
+
+  // Asked for, the change is being prepared, and says since when, there and in its status.
+  reviews.prepare(id)
+  const preparing = reviews.list().reviews
+  assert.deepEqual(
+    preparing.map(({ id: name, kind, title, project: where, state, startedAt, updatedAt }) => [name, kind, title, where, state, startedAt, updatedAt]),
+    [
+      [id, 'change', 'Round the total', 'shop', 'preparing', '2026-11-12T15:00:00.000Z', '2026-11-12T15:00:00.000Z'],
+      ['pr:acme/web/12', 'pull', 'Tighten the login form', 'acme/web', 'ready', undefined, '2026-11-12T09:00:00.000Z'],
+    ],
+  )
+  assert.equal(preparing[1]!.assessment, undefined, 'a pull request has no change review')
+  assert.equal(reviews.status(id).startedAt, '2026-11-12T15:00:00.000Z')
+
+  // Its graph is ready, so its preparation says no start; its change review runs, and keeps the time it started.
+  await running
+  const [change] = reviews.list().reviews
+  assert.deepEqual([change!.id, change!.state, change!.phase, change!.startedAt, change!.head], [id, 'ready', null, undefined, head])
+  assert.deepEqual(change!.assessment, { state: 'running', head, percent: 40, now: 'map-proof: running the tests of total', eta: 30, startedAt: '2026-11-12T15:00:00.000Z' }, 'the list leaves the steps out')
+  assert.equal(reviews.status(id).assessment?.startedAt, '2026-11-12T15:00:00.000Z', 'the status keeps it across every update')
+  assert.equal(reviews.status(id).assessment?.steps?.length, 1)
+
+  release()
+  await assessments.settled()
+  const [done] = reviews.list().reviews
+  assert.deepEqual([done!.assessment?.state, done!.assessment?.summary?.level, done!.assessment?.startedAt], ['ready', 'mid', undefined])
+  assert.equal(done!.updatedAt, '2026-11-12T15:00:05.000Z')
+
+  // The window and hobkin ask for it by name.
+  assert.deepEqual(checkArguments('review.list', {}), { ok: true })
+  assert.deepEqual(await reviewHandlers(reviews)['review.list']!({}), reviews.list())
+})
+
+test('hobkin is told when a change review is ready, once a run, and when a pull request review the user asked for is', async (t) => {
+  const told: { head: string; summary: AssessmentSummary }[] = []
+  let fail = false
+  const engine: AssessRun = async (request) => {
+    if (fail) throw new Error('the test command was not found')
+    writeFileSync(join(request.out, 'story.md'), '# Round the total\n')
+    return { units: { units: [{ level: 'high', critical: true }] }, storyBy: 'model' }
+  }
+  const { repo, head, root, job } = assessmentsFor(t, engine)
+  const assessments = new Assessments({ root, run: engine, repoOf: () => repo, onReady: ({ head: at, summary }) => told.push({ head: at, summary }) })
+  t.after(() => assessments.close())
+  assessments.start(job)
+  await assessments.settled()
+  assessments.start(job)
+  await assessments.settled()
+  assert.deepEqual(told.map(({ head: at, summary }) => [at, summary.level, summary.critical, summary.needsYou]), [[head, 'high', true, 1]])
+  fail = true
+  assessments.start(job, { again: true })
+  await assessments.settled()
+  assert.equal(told.length, 1, 'a run that fails tells nothing')
+
+  // A pull request's review is told when the user asked for it, and not when the background prepared it.
+  const ready: string[] = []
+  const reviews = new Reviews({
+    store: reviewStore(temporaryDirectory(t)),
+    sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('no changes here')) }, pull: sampleReviewSource() },
+    agent: async () => null,
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    skill: () => 'You arrange a change review.',
+    onReady: ({ target, review, at }) => ready.push(`${target.kind}:${review.change.title}:${typeof at}`),
+  })
+  t.after(() => reviews.close())
+  reviews.prepare('pr:acme/web/12', { asked: true })
+  reviews.watch([{ id: 'pr:acme/web/13', updatedAt: '2026-11-12T10:00:00Z' }])
+  await reviews.settled()
+  assert.equal(reviews.status('pr:acme/web/13').state, 'ready')
+  assert.deepEqual(ready, [`pull:${SAMPLE.change.title}:string`])
 })

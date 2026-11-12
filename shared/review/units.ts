@@ -133,6 +133,20 @@ export function findDeclaration(text: string, symbol: string, testCase = false):
   return start < 0 ? undefined : { startLine: start + 1, endLine: declarationEnd(source, start) + 1 }
 }
 
+/** Every place a name is declared in a file, as 1-based first and last line, by the same patterns as `findDeclaration`. */
+export function declarationsOf(text: string, symbol: string): { startLine: number; endLine: number }[] {
+  const found = [...functionOwners(splitLines(text)).spans].filter(([key]) => nameOf(key) === symbol).map(([, [start, end]]) => ({ startLine: start + 1, endLine: end + 1 }))
+  if (found.length > 0) return found
+  const single = findDeclaration(text, symbol)
+  return single ? [single] : []
+}
+
+/** The lines of the statement or declaration that starts on `line`, 1-based, by the rule units end by. */
+export function blockAt(text: string, line: number): { startLine: number; endLine: number } | undefined {
+  const source = splitLines(text)
+  return line >= 1 && line <= source.length ? { startLine: line, endLine: declarationEnd(source, line - 1) + 1 } : undefined
+}
+
 const nameOf = (key: string) => key.split(KEY_SEPARATOR)[0]!
 
 interface Draft {

@@ -172,10 +172,10 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
   const edges: ReviewEdge[] = []
   const candidates: CandidateWire[] = []
   const wired = new Set<string>()
-  const wire = (kind: EdgeKind, from: string, to: string) => {
+  const wire = (kind: EdgeKind, from: string, to: string, label?: string) => {
     if (wired.has(`${from}>${to}`)) return
     wired.add(`${from}>${to}`)
-    edges.push({ id: edgeId(kind, from, to), from, to, kind, certainty: 'host' })
+    edges.push({ id: edgeId(kind, from, to), from, to, kind, ...(label ? { label } : {}), certainty: 'host' })
   }
 
   const merged = new Set(units.map((unit) => unit.id))
@@ -190,10 +190,7 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
     }
   }
 
-  if (input.vicinity) {
-    await addVicinity(input.vicinity, { capture, nodes, files, headFiles, readHead: input.readHead, wire })
-    if (input.vicinity.notice) notices.push(cleanProse(input.vicinity.notice, HOST_TEXT_LIMIT))
-  }
+  if (input.vicinity) notices.push(...(await addVicinity(input.vicinity, { capture, nodes, files, headFiles, readHead: input.readHead, wire })))
 
   const summarized = capture.files.filter((file) => file.summarized).length
   if (summarized > 0) {
