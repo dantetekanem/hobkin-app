@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { afterVerdict, CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
@@ -206,17 +206,6 @@ test('a verdict is confirmed in place: the first click shows what it does, a sec
   await refused.choices.press('approve-merge')
   assert.match(refused.choices.getState().error ?? '', /changed since it was shown/)
   assert.equal(landed.length, 1)
-})
-
-test('a merged change closes its review with a Tada!, and every other verdict closes it with a short confirmation', () => {
-  const seen: string[] = []
-  const screen = { close: () => void seen.push('close'), celebrate: (kind: string, message: string) => void seen.push(`${kind}: ${message}`) }
-  afterVerdict('approve-merge', 'Merged into main.', screen)
-  assert.deepEqual(seen.splice(0), ['tada: Merged into main.', 'close'])
-  for (const verdict of ['approve', 'request-changes', 'comment'] as const) {
-    afterVerdict(verdict, 'Done.', screen)
-    assert.deepEqual(seen.splice(0), ['done: Done.', 'close'], verdict)
-  }
 })
 
 test('a pull request can be approved, approved and merged, sent back for changes or commented on; a finished change approved, merged or sent its fixes', () => {

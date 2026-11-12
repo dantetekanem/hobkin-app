@@ -17,14 +17,16 @@ export function ReviewLoad({ loader, renderReview, renderWaiting, renderRun }: {
     : state.error
   const waitingForStart = state.status === 'awaiting' || state.status === 'preparing'
   const retryNotes = Boolean(state.notesError)
-  const run = state.review && renderRun && (underWay(state.preparation) || failureOf(state.preparation)) ? renderRun() : null
+  // A change that lands is done with: nothing is run over its review, and nothing offers to build it again.
+  const landing = state.preparation?.landing != null
+  const run = state.review && renderRun && !landing && (underWay(state.preparation) || failureOf(state.preparation)) ? renderRun() : null
 
   return createElement('div', { className: 'relative h-full' },
     state.review ? renderReview(state.review) : renderWaiting?.(state.status, state.error),
     createElement('div', { className: 'absolute right-4 top-28 z-30 flex max-w-sm flex-col items-end gap-2' },
       message ? createElement('p', { role: 'status', className: 'rounded-lg bg-card p-3 text-sm text-muted-foreground' }, message) : null,
       run,
-      waitingForStart || (run && !retryNotes) ? null : createElement('button', {
+      waitingForStart || ((run || landing) && !retryNotes) ? null : createElement('button', {
         type: 'button',
         className: 'rounded-lg border bg-card px-3 py-2 text-sm',
         onClick: () => void (retryNotes ? loader.flushNotes() : loader.refresh()),

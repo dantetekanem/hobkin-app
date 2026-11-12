@@ -164,8 +164,9 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
   const preparation = useStore(loader, (state) => state.preparation)
   const assessment = useStore(loader, (state) => state.assessment)
 
-  // Once a verdict has landed the review closes: a merged change with "Merged!", any other with a short confirmation.
-  // A verdict that lands after the reviewer has left this review closes nothing that is open now.
+  // Once a verdict has landed the review closes: a merged change with "Merged!", any other with a short confirmation. A
+  // change an agent brings up to date first keeps it open until it has merged. A verdict that lands after the reviewer
+  // has left this review closes nothing that is open now, and a merge after they left shows nothing.
   const here = useRef(true)
   useEffect(() => {
     here.current = true
@@ -176,10 +177,13 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
   const landed = useMemo(
     () => (done: Verdict, message: string) =>
       afterVerdict(done, message, {
+        here: () => here.current,
         close: () => here.current && close(),
         celebrate: (kind, words) => celebrate({ kind, message: words }),
+        landing: loader.look,
+        follow: loader.follow,
       }),
-    [close],
+    [close, loader],
   )
   const chrome = useMemo<PanelChrome>(
     () => ({ live, preparation, assessment, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes, ask, landed }),

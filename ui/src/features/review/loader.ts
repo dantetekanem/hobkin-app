@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
-import type { ReviewNotes, ReviewStatus } from '#shared/review/status.ts'
+import type { ReviewLanding, ReviewNotes, ReviewStatus } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import { ReviewRefused } from '#shared/review/validate.ts'
 import { mergeHostNotes } from './notes/merge.ts'
@@ -19,6 +19,7 @@ interface LoadState {
    */
   startedAt: number | null
   review: Review | null
+  /** How the host says the review stands. While its change lands, it holds the review on screen still (`heldStill`). */
   preparation: ReviewStatus | null
   /** A finished change's change review, once one is ready for the review's commit (spec 032). */
   assessment: ChangeAssessment | null
@@ -42,6 +43,36 @@ const finishedOf = (head: string | null, summary: { at: string } | undefined): s
 /** One open target. Host cache, file reads and draft saves all use this same target and source identity. */
 /** A pull request from GitHub is reviewed only once the user asks; a finished hobkin change is prepared by itself. */
 export const startsByItself = (id: string): boolean => !id.startsWith('pr:')
+
+/**
+ * What the window keeps of a status for the review on screen. A finished change that lands holds still (spec 032): its
+ * branch moving while an agent brings it up to date, or once it merged, is no newer change to review. The status then
+ * stays on the review on screen, its commit, its preparation and its own change review, with nothing under way, outdated
+ * or failed. It still says how the change lands, where hobkin moved the view, and when hobkin left notes.
+ */
+function heldStill(status: ReviewStatus, review: Review | null, kept: ReviewStatus | null): ReviewStatus {
+  if (!status.landing || !review) return status
+  const { head } = review.change
+  const own = [status.assessment, kept?.assessment].find((assessment) => assessment?.head === head)
+  return {
+    id: status.id,
+    state: 'ready',
+    phase: null,
+    head,
+    stale: false,
+    preparedAt: kept?.preparedAt ?? status.preparedAt,
+    error: null,
+    storyBy: kept?.storyBy ?? status.storyBy,
+    ...(status.cursor ? { cursor: status.cursor } : {}),
+    ...(status.notesAt != null ? { notesAt: status.notesAt } : {}),
+    ...(own ? { assessment: own } : {}),
+    landing: status.landing,
+  }
+}
+
+/** Why a change that lands, with no review kept of it, shows none: none is prepared for it any more. */
+const landedWithout = (landing: ReviewLanding) =>
+  landing.state === 'merged' ? 'This change is merged. It has no review to show.' : 'This change is being brought up to date to merge. It has no review to show.'
 
 export function createReviewLoader({ id, scope, memory, command, sample, now = Date.now }: Options) {
   const store = createStore<LoadState>(() => ({ status: 'loading', startedAt: null, review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false }))
@@ -135,21 +166,32 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       let preparation: ReviewStatus | null = null
       let assessment: ChangeAssessment | null = null
       if (command) {
-        preparation = refresh ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
+        // A change that lands is never built again, even when asked: there is nothing newer to review.
+        const rebuild = refresh && !current.preparation?.landing
+        preparation = rebuild ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
         if (disposed || turn !== generation) return
+        const open = store.getState().review
+        if (preparation.landing && open) {
+          // The review on screen holds still while its change lands: nothing newer is fetched for it.
+          const held = heldStill(preparation, open, store.getState().preparation)
+          store.setState({ preparation: held, status: 'ready', ...clock(held) })
+          return
+        }
         // Nothing prepared and nothing under way, its change review included.
         const idle = preparation.state === 'idle' && !underWay(preparation)
         if (idle && !startsByItself(id) && !refresh) {
           // Opening a pull request asks nothing of the host; "Start AI review" does.
-          store.setState({ preparation, status: store.getState().review ? 'ready' : 'awaiting', startedAt: null })
+          store.setState({ preparation, status: open ? 'ready' : 'awaiting', startedAt: null })
           return
         }
-        if (idle) preparation = await command('review.prepare', { id })
+        if (idle && !preparation.landing) preparation = await command('review.prepare', { id })
         if (disposed || turn !== generation) return
         store.setState({ preparation, ...clock(preparation) })
         if (!opens(preparation)) {
-          const unfinished = preparation.state === 'failed' ? 'error' : 'preparing'
-          store.setState({ status: store.getState().review ? 'ready' : unfinished, error: preparation.error })
+          // One that lands with no review kept, and none under way, waits for none: none is prepared for it.
+          const without = preparation.landing && !underWay(preparation) ? landedWithout(preparation.landing) : null
+          const unfinished = preparation.state === 'failed' || without ? 'error' : 'preparing'
+          store.setState({ status: store.getState().review ? 'ready' : unfinished, error: without ?? preparation.error })
           return
         }
         const opened = await command('review.get', { id })
@@ -187,7 +229,8 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       } else {
         assessed = null
       }
-      store.setState({ status: 'ready', review, preparation, assessment, error: null, ...(preparation ? clock(preparation) : {}) })
+      const kept = preparation && heldStill(preparation, review, null)
+      store.setState({ status: 'ready', review, preparation: kept, assessment, error: null, ...(kept ? clock(kept) : {}) })
     } catch (error) {
       if (!disposed && turn === generation) {
         const unopened = error instanceof ReviewRefused ? 'refused' : 'error'
@@ -241,7 +284,8 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
    * whether hobkin left notes, which then join the window's own, and how its change review is getting on. The status
    * carries that progress, so nothing more is asked while it runs. Once it is ready, the review is fetched once more,
    * for its story and the levels on its graph, and once more each time it is run again at the same commit (Rebuild, or
-   * Review again) and finishes. A check that fails is tried again on the next one.
+   * Review again) and finishes. A check that fails is tried again on the next one. While its change lands, the review
+   * holds still: only its notes and where hobkin moved the view come in.
    */
   const check = async (): Promise<void> => {
     const review = store.getState().review
@@ -249,11 +293,10 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     checking = true
     try {
       const before = store.getState().preparation
-      const status = await command('review.status', { id })
+      const status = heldStill(await command('review.status', { id }), review, before)
       if (disposed || store.getState().review !== review) return
-      // Kept only when something changed, so an open review does not draw again every second.
-      if (JSON.stringify(status) !== JSON.stringify(before)) store.setState({ preparation: status, ...clock(status) })
-      const ready = status.assessment?.state === 'ready' ? finishedOf(status.assessment.head, status.assessment.summary) : null
+      keep(status)
+      const ready = status.assessment?.state === 'ready' && !status.landing ? finishedOf(status.assessment.head, status.assessment.summary) : null
       const finished = ready !== assessed ? ready : null
       if ((status.notesAt ?? 0) <= (before?.notesAt ?? 0) && !finished) return
       if (finished) assessed = finished
@@ -272,12 +315,40 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       checking = false
     }
   }
+  /** Keeps a status for the open review, only when something changed, so an open review does not draw again every second. */
+  const keep = (status: ReviewStatus) => {
+    if (JSON.stringify(status) !== JSON.stringify(store.getState().preparation)) store.setState({ preparation: status, ...clock(status) })
+  }
+  /**
+   * Asks the host now how the change lands, and keeps what it says for the open review: null when it says nothing. A
+   * verdict that has just landed asks, even once the review has closed.
+   */
+  const look = async (): Promise<ReviewLanding | null> => {
+    if (!command) return null
+    const status = await command('review.status', { id })
+    const review = store.getState().review
+    if (!disposed && review) keep(heldStill(status, review, store.getState().preparation))
+    return status.landing ?? null
+  }
+  /** Hears how the change lands now, and again each time that changes, until the function it answers is called. */
+  const follow = (heard: (landing: ReviewLanding | null) => void): (() => void) => {
+    const landingOf = (state: LoadState) => state.preparation?.landing ?? null
+    let last = JSON.stringify(landingOf(store.getState()))
+    const stop = store.subscribe((state) => {
+      const said = JSON.stringify(landingOf(state))
+      if (said === last) return
+      last = said
+      heard(landingOf(state))
+    })
+    heard(landingOf(store.getState()))
+    return stop
+  }
   const dispose = () => {
     disposed = true
     generation++
     loading = null
     unsubscribe()
   }
-  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, dispose })
+  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, look, follow, dispose })
 }
 export type ReviewLoader = ReturnType<typeof createReviewLoader>

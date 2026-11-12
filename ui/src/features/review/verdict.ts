@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
-import type { VerdictPreview } from '#shared/review/status.ts'
+import type { ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 
 type VerdictCommand = 'review.preview' | 'review.verdict'
@@ -13,10 +13,21 @@ interface State {
   message: string | null
 }
 
+/** What the panel says when an older host refuses a finished change that hobkin no longer lists: it merged or was closed. */
+export const NO_LONGER_WAITING = 'This change is no longer waiting: it was merged or closed.'
+const NO_LONGER_LISTED = /hobkin no longer lists this change as finished/i
+
+/** A refusal as the panel shows it: the host's own words, as an error, except a change that is gone, which is no failure. */
+function refusal(error: unknown): Pick<State, 'error' | 'message'> {
+  const said = error instanceof Error ? error.message : String(error)
+  return NO_LONGER_LISTED.test(said) ? { error: null, message: NO_LONGER_WAITING } : { error: said, message: null }
+}
+
 /**
  * One explicit confirmation, bound to this mounted target, the commit of the review on screen (`head`) and its saved
  * notes. Both yeses name that commit, so the host refuses them, and says why, once the review it holds is for another.
  * `done` hears of a verdict the host did, with the host's words, even when the panel that asked for it has gone since.
+ * The verdict is under way until what `done` does next has started.
  */
 interface VerdictOptions {
   id: string
@@ -24,7 +35,7 @@ interface VerdictOptions {
   command: VerdictCommands
   saveNotes: () => Promise<void>
   current: () => boolean
-  done?: (verdict: Verdict, message: string) => void
+  done?: (verdict: Verdict, message: string) => void | Promise<void>
 }
 
 export function createVerdict({ id, head, command, saveNotes, current, done }: VerdictOptions) {
@@ -51,7 +62,7 @@ export function createVerdict({ id, head, command, saveNotes, current, done }: V
       choice = verdict
       store.setState({ preview: result })
     } catch (error) {
-      if (active(turn)) store.setState({ error: error instanceof Error ? error.message : String(error) })
+      if (active(turn)) store.setState(refusal(error))
     } finally {
       if (active(turn)) store.setState({ busy: false })
     }
@@ -66,9 +77,9 @@ export function createVerdict({ id, head, command, saveNotes, current, done }: V
     try {
       const result = await command('review.verdict', { id, verdict, summary: '', confirm: shown.confirm, head })
       if (active(turn)) store.setState({ message: result.message })
-      done?.(verdict, result.message)
+      await done?.(verdict, result.message)
     } catch (error) {
-      if (active(turn)) store.setState({ error: error instanceof Error ? error.message : String(error) })
+      if (active(turn)) store.setState(refusal(error))
     } finally {
       if (active(turn)) store.setState({ busy: false })
     }
@@ -143,7 +154,7 @@ export function verdictKind(id: string): 'change' | 'pull' {
 interface VerdictChoicesOptions extends Omit<VerdictOptions, 'done'> {
   comments?: () => string[]
   markSent?: (ids: readonly string[]) => void
-  landed?: (verdict: Verdict, message: string) => void
+  landed?: (verdict: Verdict, message: string) => void | Promise<void>
 }
 
 export function createVerdictChoices({ comments = () => [], markSent = () => {}, landed, ...options }: VerdictChoicesOptions) {
@@ -154,7 +165,7 @@ export function createVerdictChoices({ comments = () => [], markSent = () => {},
     done: (verdict, message) => {
       if (carried.length > 0) markSent(carried)
       carried = []
-      landed?.(verdict, message)
+      return landed?.(verdict, message)
     },
   })
   // The ten seconds start when the host has said what the choice will do, and end with it.
@@ -179,11 +190,44 @@ export function createVerdictChoices({ comments = () => [], markSent = () => {},
   return Object.assign(flow, { choose, press, armed })
 }
 
+/** The review screen, as a verdict that has landed sees it. */
+export interface VerdictScreen {
+  /** Whether the reviewer is still on this review. */
+  here: () => boolean
+  close: () => void
+  celebrate: (kind: 'tada' | 'done', message: string) => void
+  /** How the change lands now, as the host says: null when it says nothing, as for a pull request or an older host. */
+  landing: () => Promise<ReviewLanding | null>
+  /** Hears how it lands now, and again each time that changes, until the function it answers is called. */
+  follow: (heard: (landing: ReviewLanding | null) => void) => () => void
+}
+
 /**
- * What the review does once a verdict has landed: it closes, a merged change with a "Tada!" and every other verdict
- * with a short confirmation of what the host did.
+ * What the review does once a verdict has landed. Approve and merge that merged closes it with "Merged!". One that an
+ * agent brings up to date first keeps it open while that runs, and closes it with "Merged!" once hobkin has merged it,
+ * if the reviewer is still on it. Should the refresh end without a merge, the review is theirs again. Every other
+ * verdict closes it with a short confirmation of what the host did. A review the reviewer has left is never closed.
  */
-export function afterVerdict(verdict: Verdict, message: string, screen: { close: () => void; celebrate: (kind: 'tada' | 'done', message: string) => void }): void {
-  screen.celebrate(verdict === 'approve-merge' ? 'tada' : 'done', message)
-  screen.close()
+export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<void> {
+  const leave = (kind: 'tada' | 'done') => {
+    screen.celebrate(kind, message)
+    if (screen.here()) screen.close()
+  }
+  if (verdict !== 'approve-merge') return leave('done')
+  const landing = await screen.landing().catch(() => null)
+  if (landing?.state !== 'refreshing') return leave('tada')
+  if (!screen.here()) return
+  let over = false
+  let stop: (() => void) | null = null
+  const heard = (now: ReviewLanding | null) => {
+    if (over || now?.state === 'refreshing') return
+    over = true
+    stop?.()
+    if (now?.state === 'merged' && screen.here()) {
+      screen.celebrate('tada', now.message ?? message)
+      screen.close()
+    }
+  }
+  stop = screen.follow(heard)
+  if (over) stop()
 }
