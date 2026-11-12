@@ -2,7 +2,7 @@ import { ArrowLeft, CornerDownLeft } from 'lucide-react'
 import type { Unit } from '#shared/review/assessment.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { testsInWords, type TestGroup } from '../graph/arrange.ts'
+import { isLineCount, testsInWords, type TestGroup } from '../graph/arrange.ts'
 import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
@@ -150,7 +150,7 @@ function UnitParts({ unit, focus, graph, ask }: { unit: Unit; focus: readonly st
         </Section>
       ) : null}
       {unit.members && unit.members.length > 1 ? (
-        <Section title={`It holds ${unit.members.length}`}>
+        <Section title="What it holds">
           <ul className="rv-step-list">
             {unit.members.map((member) => (
               <li key={member.name}>
@@ -167,7 +167,11 @@ function UnitParts({ unit, focus, graph, ask }: { unit: Unit; focus: readonly st
 /** A step or a node the change review has not told: its own words, what its tests did, and that no review has rated it. */
 function Unrated({ content, rated, graph }: { content: CardContent; rated: boolean; graph: CardGraph }) {
   const nodes = (content.kind === 'step' ? content.step.focus : [content.node.id]).map((id) => graph.nodeOf.get(id)).filter((node): node is ReviewNode => node != null)
-  const text = content.kind === 'step' ? content.step.text : content.node.summary
+  // A count of lines is never all a card says: it says what the graph knows of the code, and where to read the rest.
+  const words = content.kind === 'step' ? content.step.text : content.node.summary
+  const text = words && !isLineCount(words) ? words : null
+  const stats = nodes.map((node) => node.stats).filter((entry) => entry != null)
+  const lines = stats.reduce((sum, entry) => ({ additions: sum.additions + entry.additions, deletions: sum.deletions + entry.deletions }), { additions: 0, deletions: 0 })
   const cards = nodes.map((node) => graph.groups[node.id]).filter((group): group is TestGroup => group != null)
   const tests = cards.length === 0 ? testsOf(nodes.map((node) => node.id), graph.covers, graph.nodeOf) : null
   const covered = nodes.filter((node) => node.kind === 'test' && graph.covers[node.id]).map((node) => graph.nodeOf.get(graph.covers[node.id]!)?.title)
@@ -187,6 +191,11 @@ function Unrated({ content, rated, graph }: { content: CardContent; rated: boole
       ) : null}
       {nodes.map((node) => (node.warning ? <p key={node.id} className="rv-step-fact" data-tone="bad">{node.warning}</p> : null))}
       {nodes.map((node) => (node.unwired ? <p key={`${node.id}:alone`} className="rv-step-quiet">Not linked: {node.unwired}</p> : null))}
+      {!text && stats.length > 0 ? (
+        <p className="rv-step-quiet">
+          {lines.additions} {lines.additions === 1 ? 'line' : 'lines'} added and {lines.deletions} removed: the code says what they do.
+        </p>
+      ) : null}
       {rated ? null : <p className="rv-step-quiet">No change review yet.</p>}
     </>
   )

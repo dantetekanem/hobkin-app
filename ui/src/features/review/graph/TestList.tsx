@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { NODE_SIZE } from '#shared/review/layout.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { tween } from '@/lib/motion.ts'
-import { useSession, useSessionStore } from '../state/context.tsx'
+import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { statusOf } from './kinds.tsx'
 
 /** The list hangs this far under its card, in points of the graph. */
@@ -31,6 +31,7 @@ function OpenList({ id }: { id: string }) {
   const card = useSession((session) => session.nodeOf.get(id))
   const nodeOf = useSession((session) => session.nodeOf)
   const code = useSession((session) => session.code)
+  const reduced = useReduced()
   const list = useRef<HTMLDivElement>(null)
   const at = useStore(
     useCallback(
@@ -73,7 +74,7 @@ function OpenList({ id }: { id: string }) {
       aria-label={`The ${card.title}`}
       className="rv-tests nodrag nopan nowheel"
       style={{ left: x, top: y + NODE_SIZE[card.kind].height + UNDER, width: NODE_SIZE[card.kind].width + 48 }}
-      initial={{ opacity: 0, transform: 'translateY(-6px)' }}
+      initial={{ opacity: 0, transform: reduced ? 'translateY(0px)' : 'translateY(-6px)' }}
       animate={{ opacity: 1, transform: 'translateY(0px)', transition: tween.enter }}
       exit={{ opacity: 0, transition: tween.exit }}
     >
