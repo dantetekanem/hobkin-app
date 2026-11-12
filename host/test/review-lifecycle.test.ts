@@ -60,6 +60,26 @@ test('a helper is reached through the view that calls it and the action that ren
   assert.equal(found.links[0]!.call.name, 'display_name')
 })
 
+test('a job is where a request enters, and the way goes on through what enqueues it to the route of that', async () => {
+  const total = node('m1', 'app/models/cart.rb', 'Cart#total', 2, 4)
+  const job = node('j1', 'app/jobs/receipt_job.rb', 'ReceiptJob#perform', 2, 4, { entry: { kind: 'job', exact: true } })
+  const checkout = node('k1', 'app/models/checkout.rb', 'Checkout#complete', 2, 4)
+  const create = node('c1', 'app/controllers/orders_controller.rb', 'OrdersController#create', 2, 4, { entry: routed(2, '/orders') })
+  const { run, calls } = fakeScans([
+    pack([total, job], [anchor(total, [caller('j1', job.path, 3)], { changedLines: [3] })]),
+    pack([job, checkout], [anchor(job, [caller('k1', checkout.path, 3, { enqueue: true })])]),
+    pack([checkout, create], [anchor(checkout, [caller('c1', create.path, 3)])]),
+  ])
+  const found = await scan(run)
+  assert.equal(calls.length, 3)
+  assert.deepEqual(found.links.map((link) => [link.other.symbol, link.hops, link.call.enqueues ?? false, link.entry?.kind ?? null]), [
+    ['ReceiptJob#perform', 1, false, 'job'],
+    ['Checkout#complete', 2, true, null],
+    ['OrdersController#create', 3, false, 'controller'],
+    ['GET /orders', 4, false, 'route'],
+  ])
+})
+
 test('a template rendered by name is called by the line that renders it, as that line names it', async () => {
   const partial = node('p1', 'app/views/posts/_post.html.erb', 'posts/_post.html.erb', 1, 9, { kind: 'template' })
   const page = node('t1', 'app/views/topics/show.html.erb', 'topics/show.html.erb', 1, 30, { kind: 'template' })
