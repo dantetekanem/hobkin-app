@@ -14,7 +14,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
-import { LEVEL_WORDS, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type ChangeAssessment, type Level, type StoryWords, type Units } from '#shared/review/assessment.ts'
+import { LEVEL_WORDS, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type ChangeAssessment, type Level, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
 import type { Review } from '#shared/review/types.ts'
 import { STEP_IDS } from '../../../packages/change-review/src/types.ts'
@@ -336,6 +336,64 @@ interface RunRecord {
   startedAt: string
 }
 
+/** Units in the order the story numbers them: high first, then mid, then safe, each in the order the units came. */
+const inStoryOrder = (units: readonly Unit[]) => (['high', 'mid', 'safe'] as const).flatMap((level) => units.filter((unit) => unit.level === level))
+
+/**
+ * The words a story was written with, read back from it: its heading, its "Does" line, and each unit's heading and
+ * "What changed", where they differ from the unit's own. For a run that kept them nowhere else.
+ */
+export function wordsInStory(story: string, units: Units | null): StoryWords | null {
+  if (!units) return null
+  const numbered = inStoryOrder(units.units)
+  const said: NonNullable<StoryWords['units']> = {}
+  let unit: Unit | undefined
+  let fence = ''
+  for (const line of story.split('\n')) {
+    // Code blocks hold the change's own lines, never the story's words.
+    const mark = /^(`{3,})/.exec(line)?.[1]
+    if (fence) {
+      if (mark && mark.length >= fence.length && line.trim() === mark) fence = ''
+      continue
+    }
+    if (mark) {
+      fence = mark
+      continue
+    }
+    const heading = /^### (\d+)\. (.+) \((?:high|mid|safe)(?:, critical)?\)$/.exec(line)
+    if (heading) {
+      unit = numbered[Number(heading[1]) - 1]
+      if (unit && heading[2] !== unit.title) said[unit.id] = { title: heading[2]! }
+      continue
+    }
+    const what = /^\*\*What changed:\*\* (.+)$/.exec(line)?.[1]
+    if (unit && what && what !== unit.what) said[unit.id] = { ...said[unit.id], what }
+  }
+  const title = story.split('\n').find((line) => line.startsWith('# '))?.slice(2).trim()
+  const does = story.split('\n').find((line) => line.startsWith('**Does:** '))?.slice('**Does:** '.length).trim()
+  return { ...(title ? { title } : {}), ...(does ? { does } : {}), units: said }
+}
+
+const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+
+/**
+ * A unit as the window shows it: the model's title and what changed first, and the engine's own words as plain as it
+ * writes them now, for a run an older engine wrote: no stop number, no rule name, an entry point named once.
+ */
+export function toldUnit(unit: Unit, said?: { title?: string; what?: string }): Unit {
+  // A unit an engine wrote has every field; one without them keeps its own, with the model's words over them.
+  if (typeof unit.where !== 'string' || typeof unit.what !== 'string' || !Array.isArray(unit.why_level)) return { ...unit, ...(said?.title ? { title: said.title } : {}), ...(said?.what ? { what: said.what } : {}) }
+  const where = unit.where
+    .replace(/^Stop \d+\. /, '')
+    .replace(/^Outside the request path: (.)/, (_all, first: string) => first.toUpperCase())
+    .replace(/^Reached from (.+?)\.( |$)/, (_all, list: string, rest: string) => `Reached from ${[...new Set(list.split(', ').map((entry) => entry.replace(/ \([\w -]+\)$/, '')))].join(', ')}.${rest}`)
+  const why = unit.why_level.filter((line) => !/^Floor rule \d+\.$/.test(line)).map((line) => (/^Floor rule \d+: /.test(line) ? capitalize(line.replace(/^Floor rule \d+: /, '')) : line))
+  const old = /^`([^`]+)` in `[^`]+` \(lines \d+ to \d+\) was (changed|added|removed), with (\d+) changed lines?\./.exec(unit.what)
+  const lines = old ? `${old[3]} ${old[3] === '1' ? 'line' : 'lines'}` : ''
+  const plain = old ? (old[2] === 'added' ? `Adds \`${old[1]}\`, ${lines}.` : old[2] === 'removed' ? `Removes \`${old[1]}\`.` : `Changes ${lines} in \`${old[1]}\`.`) : unit.what
+  return { ...unit, title: said?.title ?? unit.title, what: said?.what ?? plain, where, why_level: why }
+}
+
 /** How the change review's proof says no test could run, before why. */
 const NOT_RUN = 'tests were not run: '
 
@@ -515,7 +573,10 @@ export class Assessments {
     }
   }
 
-  /** What a finished review wrote: the story and its units, for the Review screen. Null until one is ready. */
+  /**
+   * What a finished review wrote: the story and its units, for the Review screen. Null until one is ready. The units
+   * carry the model's words where it wrote some, so the window shows them first.
+   */
   read(target: ReviewTarget, head: string): ChangeAssessment | null {
     const folder = assessmentFolder(this.options.root, target, head)
     const summary = readJson<AssessmentSummary>(join(folder, 'summary.json'))
@@ -526,7 +587,10 @@ export class Assessments {
     } catch {
       return null
     }
-    const units = readJson<Units>(join(folder, 'units.json'))
+    const written = readJson<Units>(join(folder, 'units.json'))
+    // A run from before story-words.json kept the model's words in its story only.
+    const words = readJson<StoryWords>(join(folder, 'story-words.json')) ?? (summary.storyBy === 'model' ? wordsInStory(story, written) : null)
+    const units = written && { ...written, units: written.units.map((unit) => toldUnit(unit, words?.units?.[unit.id])) }
     const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
     const unitOf = new Map((units?.units ?? []).flatMap((unit) => unit.nodes.map((node) => [node, unit] as const)))
     return {
