@@ -9,7 +9,7 @@
  * model, and reads back what it wrote.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
@@ -85,14 +85,23 @@ export async function readyReviewTree({ repo, tree, head, git = gitIn }: { repo:
 /** Folders of installed dependencies, linked from the project's folder into the tree when git ignores them there. */
 const INSTALLS = ['node_modules']
 
+/**
+ * The tree gets a real folder of that name, holding a link to every entry of the project's own. A link in place of
+ * the folder would not match an ignore rule written for a folder (`node_modules/`), so the tree would look changed and
+ * the proof step, which needs a clean checkout, would refuse it.
+ */
 async function linkInstalls({ repo, tree, git }: { repo: string; tree: string; git: GitRun }) {
   for (const name of INSTALLS) {
     const from = join(repo, name)
     const to = join(tree, name)
     if (!existsSync(from) || lstatSync(to, { throwIfNoEntry: false })) continue
-    // A link git does not ignore would show as a change, and the proof step refuses a checkout that is not clean.
+    mkdirSync(to)
     const ignored = await git(tree, 'check-ignore', '-q', name).then(() => true, () => false)
-    if (ignored) symlinkSync(from, to, 'dir')
+    if (!ignored) {
+      rmdirSync(to)
+      continue
+    }
+    for (const entry of readdirSync(from)) symlinkSync(join(from, entry), join(to, entry))
   }
 }
 

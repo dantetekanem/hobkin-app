@@ -17,7 +17,8 @@ function project(t: TestContext) {
     writeFileSync(join(repo, path), text)
   }
   git('init', '--quiet', '--initial-branch=main')
-  write('.gitignore', 'node_modules\n')
+  // Written for a folder, as most projects write it: a link in its place would not match.
+  write('.gitignore', 'node_modules/\n')
   write('src/total.js', 'export const total = (a, b) => a + b\n')
   git('add', '.')
   git('commit', '--quiet', '-m', 'Start')
@@ -141,9 +142,13 @@ test('the review tree links the project’s installed dependencies when git igno
   mkdirSync(join(repo, 'node_modules', 'left-pad'), { recursive: true })
   const tree = join(temporaryDirectory(t), 'trees', 'shop')
   await readyReviewTree({ repo, tree, head })
-  assert.ok(lstatSync(join(tree, 'node_modules')).isSymbolicLink())
+  assert.ok(lstatSync(join(tree, 'node_modules')).isDirectory(), 'a real folder, so an ignore rule written for a folder matches it')
+  assert.ok(lstatSync(join(tree, 'node_modules', 'left-pad')).isSymbolicLink())
   assert.ok(existsSync(join(tree, 'node_modules', 'left-pad')))
-  assert.equal(execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8' }), '')
+  assert.equal(execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8' }), '', 'the tree is clean, so proof can run in it')
+  // A second review keeps what is linked.
+  await readyReviewTree({ repo, tree, head })
+  assert.ok(existsSync(join(tree, 'node_modules', 'left-pad')))
 
   await assert.rejects(readyReviewTree({ repo, tree: repo, head }), /never the project’s own folder/)
   const plain = join(temporaryDirectory(t), 'plain')
