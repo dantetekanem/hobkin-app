@@ -338,6 +338,29 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         throw new Unavailable(error instanceof Error ? error.message : String(error))
       }
     },
+    'tiers.read': async () => {
+      try {
+        return await owner.tiers()
+      } catch (error) {
+        throw new Unavailable(error instanceof Error ? error.message : String(error))
+      }
+    },
+    'tiers.apply': async (change) => {
+      // As for the main model: a process that holds the home owns its configuration, and the script saves nothing.
+      if (owner.held) throw new Unavailable(whyNotLive(owner.state))
+      if (!live) throw new Unavailable("The scripted model answers whatever is chosen, so nothing is saved. Start the host with --live to set hobkin's tiers.")
+      // Only models Pi can use now, at a thinking level each one offers.
+      await signIn.refresh()
+      for (const setting of Object.values(change.tiers ?? {})) {
+        const refusal = setting ? whyNotUsable(signIn.models!, setting.model, setting.effort) : null
+        if (refusal) throw new Unavailable(refusal)
+      }
+      try {
+        return await owner.applyTiers(change)
+      } catch (error) {
+        throw new Unavailable(error instanceof Error ? error.message : String(error))
+      }
+    },
     'signin.start': async ({ provider }) => {
       await signIn.start(provider)
       return done

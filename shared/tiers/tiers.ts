@@ -28,6 +28,41 @@ export interface TiersConfig {
   tiers: Record<TierId, TierSetting | null>
 }
 
+/**
+ * The two tiers a change review uses (`032-change-review`): the Reviewer builds it, reading the change and rating its
+ * risk, and Quick checks the finished review once. Each names one of the four tiers.
+ */
+export const REVIEW_ROLES = ['reviewer', 'quick'] as const
+export type ReviewRole = (typeof REVIEW_ROLES)[number]
+export type ReviewTiers = Record<ReviewRole, TierId>
+export const DEFAULT_REVIEW_TIERS: ReviewTiers = { reviewer: 'high', quick: 'fast' }
+export const REVIEW_ROLE_INFO: Record<ReviewRole, { label: string; meantFor: string }> = {
+  reviewer: { label: 'Reviewer', meantFor: 'Builds a change review: reads the change, rates its risk and writes what you read' },
+  quick: { label: 'Quick', meantFor: 'Checks the finished review once, as a reader who knows nothing else' },
+}
+
+/** One tier as hobkin runs it now. `follows`: whose model it uses while it has none of its own, the chat's (`main`) or the checks' (`background`); null once it has its own. */
+export interface HostTier {
+  /** Pi's `provider/id`, or null when what it follows runs on Pi's own default. */
+  model: string | null
+  effort: Effort
+  follows: 'main' | 'background' | null
+}
+
+/** hobkin's own tiers, as its `config.json` holds them and its host hands them to the window (`tiers.read`, `tiers.apply`). */
+export interface HostTiers {
+  /** The main chat's model and effort. It is changed with `models.select`, not here. */
+  lead: { model: string | null; effort: Effort }
+  tiers: Record<TierId, HostTier>
+  review: ReviewTiers
+}
+
+/** What `tiers.apply` saves: a model and effort for a tier, null to let it follow again, and the tier of a review role. Whatever is left out stays. */
+export interface TiersChange {
+  tiers?: Partial<Record<TierId, TierSetting | null>>
+  review?: Partial<ReviewTiers>
+}
+
 export interface ModelChoice {
   id: string
   name: string

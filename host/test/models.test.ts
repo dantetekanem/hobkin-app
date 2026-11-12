@@ -5,6 +5,7 @@ import type { ModelsState } from '#shared/protocol/models.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import type { PiAuthInteraction } from '../src/pi.ts'
 import { afterTest, Client, FAKE_SECRETS, fakeModelAccess, hostFor, type FakeAccessOptions, type View } from './support.ts'
+import type { HostTiers } from '#shared/tiers/tiers.ts'
 
 const AUTH_URL = 'https://auth.example.test/authorize?state=public-state'
 
@@ -184,8 +185,8 @@ test('hobkin starts a sign-in from the conversation through the client tool', as
   const listed = JSON.parse((await tool.execute('call-1', { action: 'list' })).content[0]!.text) as { name: string }[]
   assert.deepEqual(listed.map(({ name }) => name).sort(), [
     'app.refresh', 'app.state', 'appearance.set', 'canvas.close', 'canvas.show', 'models.key-help', 'models.list',
-    'review.code', 'review.map', 'review.note', 'review.prepare', 'review.show', 'review.status',
-    'signin.cancel', 'signin.start',
+    'review.code', 'review.list', 'review.map', 'review.note', 'review.prepare', 'review.show', 'review.status',
+    'signin.cancel', 'signin.start', 'tiers.read',
   ])
   const described = JSON.parse((await tool.execute('call-2', { action: 'describe', name: 'signin.start' })).content[0]!.text)
   assert.equal(described.name, 'signin.start')
@@ -258,6 +259,19 @@ test('the scripted host chooses no model, so nothing it has to offer reaches the
   assert.match(!refused.ok ? refused.error.message : '', /scripted model.*--live/)
   const { loadConfig } = await import('hobkin/src/cli/config.mjs')
   assert.equal(loadConfig(pi.host.root).main.model, null)
+
+  // The same for hobkin's tiers: they are read as its config.json holds them, and the scripted host saves none.
+  const tiers = await pi.client.run<HostTiers>('tiers.read', {})
+  assert.deepEqual(tiers.review, { reviewer: 'high', quick: 'fast' })
+  assert.deepEqual(Object.keys(tiers.tiers), ['fast', 'mid', 'high', 'max'])
+  assert.deepEqual([tiers.tiers.fast.follows, tiers.tiers.high.follows], ['background', 'main'])
+  const unsaved = await pi.client.command('tiers.apply', { review: { reviewer: 'max' } })
+  assert.match(!unsaved.ok ? unsaved.error.message : '', /scripted model.*--live/)
+  const empty = await pi.client.command('tiers.apply', {})
+  assert.match(!empty.ok ? empty.error.message : '', /need a tier or a review tier to save/)
+  const unknown = await pi.client.command('tiers.apply', { review: { reviewer: 'huge' } })
+  assert.equal(!unknown.ok && unknown.error.code, 'invalid-arguments')
+  assert.equal(loadConfig(pi.host.root).review, undefined)
 })
 
 test('a busy callback port becomes a retryable problem that names the port', async (t) => {

@@ -11,6 +11,7 @@ import type { ShellFields } from '../protocol/snapshot.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
+import { TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
 
 /**
  * Every action a person can take is a command here: a name, what it does, the shape of its arguments and where it runs.
@@ -88,6 +89,9 @@ const provider = Type.Object({ provider: Type.String({ pattern: '^[a-z0-9][a-z0-
 export const MAIN_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
 /** One of a few words. A union built with map checks the same at runtime, but its type collapses, so the type is named here. */
 const oneOf = <const Word extends string>(choices: readonly Word[]) => Type.Unsafe<Word>(Type.Union(choices.map((choice) => Type.Literal(choice))))
+/** One of hobkin's four tiers for delegated work, and the model and thinking level a tier holds (`017-model-tiers`). */
+const tierName = oneOf(TIER_IDS)
+const tierSetting = Type.Object({ model: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}/\\S{1,256}$' }), effort: oneOf(MAIN_EFFORTS) }, { additionalProperties: false })
 /** A work project by hobkin's slug for it, and one of its items by id. */
 const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
@@ -257,6 +261,27 @@ export const COMMANDS = {
       },
       { additionalProperties: false },
     ),
+    outside: true,
+  },
+  'tiers.read': {
+    description:
+      "Read hobkin's tiers for delegated work from its config.json: the main chat's model, each of fast, mid, high and max as it runs now (its own model and effort, or the setting it follows until it has one), and the tier each of a change review's two roles uses, Reviewer and Quick.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'tiers.apply': {
+    description:
+      "Save hobkin's tiers in its config.json, in one write or not at all. `tiers` gives a tier a model and thinking level of its own, from the models Pi can use now, or null to let it follow again. `review` names the tier of a change review's Reviewer or Quick. Whatever is left out stays as it is. The next delegated job and the next review use them.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        tiers: Type.Optional(Type.Object(Object.fromEntries(TIER_IDS.map((tier) => [tier, Type.Optional(Type.Union([Type.Null(), tierSetting]))])), { additionalProperties: false })),
+        review: Type.Optional(Type.Object({ reviewer: Type.Optional(tierName), quick: Type.Optional(tierName) }, { additionalProperties: false })),
+      },
+      { additionalProperties: false },
+    ),
+    rule: ({ tiers, review }) => (Object.keys(tiers ?? {}).length + Object.keys(review ?? {}).length > 0 ? null : 'need a tier or a review tier to save'),
     outside: true,
   },
   'signin.start': {
@@ -670,6 +695,9 @@ export interface CommandResults {
   'models.keychain': { ok: true; connected: boolean }
   /** What hobkin saved. `applied`: the open conversation runs that model now. Without an open conversation, the next one starts on it. */
   'models.select': { ok: true; model: string; effort: string; applied: boolean }
+  'tiers.read': HostTiers
+  /** The tiers as hobkin holds them once saved. */
+  'tiers.apply': HostTiers
   'signin.start': { ok: true }
   'signin.answer': { ok: true }
   'signin.cancel': { ok: true }

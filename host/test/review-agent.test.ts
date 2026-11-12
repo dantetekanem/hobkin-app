@@ -12,23 +12,30 @@ const home = (t: Parameters<typeof temporaryDirectory>[0], config: unknown) => {
 }
 
 test('the Reviewer builds a review on the high tier with high thinking, whatever effort the tier names', (t) => {
-  const root = home(t, { tiers: { mid: { model: 'anthropic/claude-sonnet-5-5', effort: 'low' }, high: { model: 'anthropic/claude-opus-5-5', effort: 'low' } } })
+  const root = home(t, { main: { model: 'p/main', effort: 'low' }, tiers: { mid: { model: 'anthropic/claude-sonnet-5-5', effort: 'low' }, high: { model: 'anthropic/claude-opus-5-5', effort: 'low' } } })
   assert.deepEqual(reviewTier(root), { tier: 'high', model: 'anthropic/claude-opus-5-5', effort: 'high' })
 })
 
-test('without a high tier the Reviewer takes the closest tier that is set: mid, then max, then fast, then the main chat', (t) => {
-  assert.deepEqual(reviewTier(home(t, { tiers: { fast: { model: 'p/fast' }, mid: { model: 'p/mid' }, max: { model: 'p/max' } } })), { tier: 'mid', model: 'p/mid', effort: 'high' })
-  assert.deepEqual(reviewTier(home(t, { tiers: { fast: { model: 'p/fast' }, max: { model: 'p/max' } } })), { tier: 'max', model: 'p/max', effort: 'high' })
-  assert.deepEqual(reviewTier(home(t, { tiers: { fast: { model: 'p/fast' } } })), { tier: 'fast', model: 'p/fast', effort: 'high' })
-  assert.deepEqual(reviewTier(home(t, { main: { model: 'p/main', effort: 'medium' } })), { tier: 'main', model: 'p/main', effort: 'high' })
+test('a tier means for a review what it means for hobkin: one with no model of its own follows the chat model, and fast the checks model', (t) => {
+  // Another tier that is set is never taken in its place: only the fast tier is set, and the Reviewer still runs on the chat model.
+  assert.deepEqual(reviewTier(home(t, { main: { model: 'p/main', effort: 'medium' }, tiers: { fast: { model: 'p/fast', effort: 'low' } } })), { tier: 'main', model: 'p/main', effort: 'high' })
+  assert.deepEqual(checkerTier(home(t, { main: { model: 'p/main', effort: 'xhigh' }, background: { harness: 'pi', model: 'p/checks', effort: 'minimal' }, tiers: { high: { model: 'p/high', effort: 'high' } } })), { tier: 'background', model: 'p/checks', effort: 'minimal' })
+  // No checks model: Quick follows the chat model, at low.
+  assert.deepEqual(checkerTier(home(t, { main: { model: 'p/main', effort: 'xhigh' } })), { tier: 'main', model: 'p/main', effort: 'low' })
   assert.equal(reviewTier(home(t, {})), null)
+  assert.equal(checkerTier(home(t, {})), null)
 })
 
-test('Quick runs the blind check on the fast tier, else the cheapest tier that is set, at its own thinking or low', (t) => {
-  assert.deepEqual(checkerTier(home(t, { tiers: { fast: { model: 'p/fast', effort: 'minimal' }, mid: { model: 'p/mid' } } })), { tier: 'fast', model: 'p/fast', effort: 'minimal' })
-  assert.deepEqual(checkerTier(home(t, { tiers: { mid: { model: 'p/mid' }, high: { model: 'p/high' } } })), { tier: 'mid', model: 'p/mid', effort: 'low' })
-  assert.deepEqual(checkerTier(home(t, { main: { model: 'p/main', effort: 'xhigh' } })), { tier: 'main', model: 'p/main', effort: 'low' })
-  assert.equal(checkerTier(home(t, {})), null)
+test('Quick runs the blind check on the fast tier, at its own thinking', (t) => {
+  assert.deepEqual(checkerTier(home(t, { tiers: { fast: { model: 'p/fast', effort: 'minimal' }, mid: { model: 'p/mid', effort: 'low' } } })), { tier: 'fast', model: 'p/fast', effort: 'minimal' })
+})
+
+test('each review role runs on the tier the user named for it', (t) => {
+  const config = { main: { model: 'p/main', effort: 'medium' }, tiers: { mid: { model: 'p/mid', effort: 'low' }, max: { model: 'p/max', effort: 'xhigh' } }, review: { reviewer: 'max', quick: 'mid' } }
+  assert.deepEqual(reviewTier(home(t, config)), { tier: 'max', model: 'p/max', effort: 'high' })
+  assert.deepEqual(checkerTier(home(t, config)), { tier: 'mid', model: 'p/mid', effort: 'low' })
+  // A name hobkin does not have is no choice: the role keeps its default.
+  assert.deepEqual(reviewTier(home(t, { ...config, review: { reviewer: 'huge' } })), { tier: 'main', model: 'p/main', effort: 'high' })
 })
 
 /** A Pi session that answers when told to, or as soon as it is stopped, as Pi's does, and writes down what it was asked. */

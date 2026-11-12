@@ -8,7 +8,9 @@ import type { StartupForceArgs, StartupForceReceipt, StartupTarget } from '#shar
 import { checkArguments } from '#shared/commands/registry.ts'
 import type { OwnerState } from '#shared/protocol/messages.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
+import type { HostTiers, TiersChange } from '#shared/tiers/tiers.ts'
 import { CLIENT_TOOL } from './client-tool.ts'
+import { applyHostTiers, readHostTiers } from './tiers.ts'
 import { createScriptedModel, type ScriptedOptions, type SessionTool } from './scripted.ts'
 
 /** What hobkin says when another process holds the home's lock (`src/cli/runtime.mjs`). */
@@ -515,6 +517,21 @@ export class HomeOwner {
       this.start()
     }
     return { model: saved.model, effort: saved.effort, applied: result.activeRuntime.status === 'verified' }
+  }
+
+  /** hobkin's tiers for delegated work and the two a change review uses, as its `config.json` holds them now. */
+  tiers(): Promise<HostTiers> {
+    return readHostTiers(this.options.root)
+  }
+
+  /**
+   * Saves tiers through hobkin's own code, in one write or not at all, checked against the model catalog the open
+   * conversation has. Nothing running changes: the next delegated job and the next review read them.
+   */
+  async applyTiers(change: TiersChange): Promise<HostTiers> {
+    const session = this.main
+    const modelRuntime = this.app && session?.modelCatalog ? await session.modelCatalog() : await this.options.modelRuntime?.()
+    return applyHostTiers(this.options.root, change, modelRuntime)
   }
 
   /** Stops hobkin and releases the home. A turn that is running ends as interrupted. */

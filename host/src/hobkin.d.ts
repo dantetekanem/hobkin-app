@@ -313,4 +313,24 @@ declare module 'hobkin/src/cli/settings.mjs' {
     request: { scope: 'main'; model?: string; effort?: string },
     options?: { modelRuntime?: unknown; applyCurrent?: (choice: { model?: unknown; effort?: string }) => Promise<Binding> },
   ): Promise<SettingsUpdate>
+
+  /** A tier for delegated work, one of hobkin's four (`src/cli/tiers.mjs`). */
+  type TierName = 'fast' | 'mid' | 'high' | 'max'
+  type TierEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
+  /** The chat's model, every tier as it runs now (its own model and effort, or whose it follows), and the tier of each review role. */
+  export interface TierSettings {
+    main: { model: string | null; effort: TierEffort }
+    tiers: Record<TierName, { model: string | null; effort: TierEffort; follows: 'main' | 'background' | null }>
+    review: { reviewer: TierName; quick: TierName }
+  }
+
+  export function readTiers(root: string): TierSettings
+
+  /** Saves tiers and review tiers in one write, or throws and saves nothing. A tier given null follows again. */
+  export function updateTiers(
+    root: string,
+    change: { tiers?: Partial<Record<TierName, { model: string; effort: TierEffort } | null>>; review?: Partial<TierSettings['review']> },
+    options?: { modelRuntime?: unknown },
+  ): Promise<TierSettings>
 }

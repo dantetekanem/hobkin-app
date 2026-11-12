@@ -1,17 +1,19 @@
 /**
- * The models the change review asks (spec 032). A review uses two: the Reviewer, for its one careful pass, on the
- * high tier with high thinking; and Quick, for its blind check, on the fast tier. Each is one question in a Pi session
+ * The models the change review asks (spec 032). A review uses two: the Reviewer, for its one careful pass, with high
+ * thinking; and Quick, for its blind check. Each runs on the tier the user named for it in Settings, the high tier
+ * and the fast tier until they do. Each is one question in a Pi session
  * of its own, with no tools: it reads no file, runs nothing and changes nothing. Whatever it answers is checked by the
  * change review before anyone sees it.
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PiModelRuntime } from '../pi.ts'
+import { DEFAULT_REVIEW_TIERS, TIER_IDS, type ReviewRole, type TierId } from '#shared/tiers/tiers.ts'
 import { loadPiCodingAgent } from '../pi.ts'
 
-/** A model and how hard it thinks, as hobkin's tiers store them (`017-model-tiers`), with the tier it came from. */
+/** A model and how hard it thinks, as hobkin's tiers store them (`017-model-tiers`), with where it came from: the tier itself, or the setting that tier follows while it has no model of its own. */
 export interface TierChoice {
-  tier: 'fast' | 'mid' | 'high' | 'max' | 'main'
+  tier: TierId | 'main' | 'background'
   model: string
   effort: string
 }
@@ -19,48 +21,61 @@ export interface TierChoice {
 /** Building a review is careful reading, so it thinks hard whatever effort the tier names. */
 export const REVIEW_EFFORT = 'high'
 
-/** The tiers nearest to `high` first: the cheaper neighbour, then the dearer one, then the cheapest. */
-const NEAREST_HIGH = ['high', 'mid', 'max', 'fast'] as const
+/** hobkin's config.json, as far as a review reads it. */
+interface TiersConfig {
+  main?: { model?: string | null; effort?: string }
+  background?: { harness?: string; model?: string | null; effort?: string }
+  tiers?: Partial<Record<string, { model?: string; effort?: string } | null>>
+  review?: Partial<Record<ReviewRole, string>>
+}
 
-/**
- * The Reviewer: the tier a review is built on. `high`, from the home's config.json, always with high thinking: a
- * review that rates a change wrongly costs more than the model that reads it. Without a `high` model it takes the
- * closest tier that has one, and then the main conversation's model. Null when none names a model.
- */
-export function reviewTier(root: string): TierChoice | null {
+const readConfig = (root: string): TiersConfig | null => {
   try {
-    const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as { tiers?: Record<string, { model?: string }>; main?: { model?: string } }
-    for (const tier of NEAREST_HIGH) {
-      const model = config.tiers?.[tier]?.model
-      if (model) return { tier, model, effort: REVIEW_EFFORT }
-    }
-    if (config.main?.model) return { tier: 'main', model: config.main.model, effort: REVIEW_EFFORT }
+    return JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as TiersConfig
   } catch {
     // No config, or one that cannot be read: no tier.
+    return null
   }
+}
+
+/**
+ * What a review role runs on: the tier the user named for it in hobkin's config.json (`review`), else its default,
+ * read the way hobkin reads a tier (`src/cli/tiers.mjs` there). A tier with a model of its own runs on it. One
+ * without follows the chat model, and `fast` follows the checks model, never another tier that happens to be set.
+ * Null when nothing names a model.
+ */
+function roleTier(root: string, role: ReviewRole): (TierChoice & { own: boolean }) | null {
+  const config = readConfig(root)
+  if (!config) return null
+  const named = config.review?.[role]
+  const tier = (TIER_IDS as readonly string[]).includes(named ?? '') ? (named as TierId) : DEFAULT_REVIEW_TIERS[role]
+  const own = config.tiers?.[tier]
+  if (own?.model) return { tier, model: own.model, effort: own.effort ?? 'medium', own: true }
+  const checks = config.background
+  if (tier === 'fast' && checks?.model && (checks.harness ?? 'pi') === 'pi') return { tier: 'background', model: checks.model, effort: checks.effort ?? 'low', own: false }
+  if (config.main?.model) return { tier: 'main', model: config.main.model, effort: config.main.effort ?? 'medium', own: false }
   return null
 }
 
-/** The cheapest first: a blind check reads one story once and needs no more. */
-const CHEAPEST = ['fast', 'mid', 'high', 'max'] as const
+/**
+ * The Reviewer: what a review is built on. The tier the user named for it, `high` until they do, always with high
+ * thinking: a review that rates a change wrongly costs more than the model that reads it. Null when nothing names a model.
+ */
+export function reviewTier(root: string): TierChoice | null {
+  const found = roleTier(root, 'reviewer')
+  return found ? { tier: found.tier, model: found.model, effort: REVIEW_EFFORT } : null
+}
 
 /**
- * Quick: the tier the change review's blind check runs on (spec 032). `fast`, else the cheapest one that is set, at
- * its own thinking or low, then the main chat's model at low. It sees only the story and its units, with no tools, so a small model is
- * the point: it reads what the reviewer would read. Null when none names a model.
+ * Quick: what the change review's blind check runs on (spec 032). The tier the user named for it, `fast` until they
+ * do, at that tier's own thinking; on the chat model, when that is all there is, at low. It sees only the story and
+ * its units, with no tools, so a small model is the point: it reads what the reviewer would read. Null when nothing
+ * names a model.
  */
 export function checkerTier(root: string): TierChoice | null {
-  try {
-    const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as { tiers?: Record<string, { model?: string; effort?: string }>; main?: { model?: string } }
-    for (const tier of CHEAPEST) {
-      const set = config.tiers?.[tier]
-      if (set?.model) return { tier, model: set.model, effort: set.effort ?? 'low' }
-    }
-    if (config.main?.model) return { tier: 'main', model: config.main.model, effort: 'low' }
-  } catch {
-    // No config, or one that cannot be read: no tier.
-  }
-  return null
+  const found = roleTier(root, 'quick')
+  if (!found) return null
+  return { tier: found.tier, model: found.model, effort: found.own || found.tier === 'background' ? found.effort : 'low' }
 }
 
 /**
