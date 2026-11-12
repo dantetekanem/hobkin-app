@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import type { ProofResult } from '../src/proof.ts'
+import type { ProofRequest, ProofResult } from '../src/proof.ts'
 import { reviewChange } from '../src/pipeline.ts'
 import type { ScanOutcome } from '../src/scan.ts'
 import type { Level, ModelRunner, Progress, Scan, ScanAnchor, Units } from '../src/types.ts'
@@ -327,4 +327,96 @@ test('lines deleted inside a definition that is still there make it modified, pr
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.deepEqual([total.change, total.facts.effect.value, total.facts.proof.value], ['modified', 'behaviour', 'isolated'])
   assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert', 'baseline'])
+})
+
+/** `total` changes behind no check of its own; what its callers do decides who runs it. */
+function callersScan(callers: { complete: boolean; guards: { line: number; text: string; branch: 'then' | 'else' | 'after-return' }[][] }): Scan {
+  const total: ScanAnchor = {
+    id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [],
+    callers: { total: callers.guards.length, shown: callers.guards.length, complete: callers.complete },
+  }
+  const scan = scanWith([total])
+  callers.guards.forEach((guards, index) => {
+    const id = `c${index + 1}`
+    scan.nodes[id] = { id, symbol: `checkout${index + 1}`, kind: 'function', path: `src/checkout${index + 1}.js`, startLine: 1, endLine: 9 }
+    scan.edges.push({ from: id, to: 'n1', name: 'total', relationship: 'called_by', resolution: 'exact', line: 4, guards })
+  })
+  return scan
+}
+const ON = [{ line: 3, text: "if (isFeatureEnabled('fast_total'))", branch: 'then' as const }]
+
+test('a complete caller list where every call is on the on branch of a flag gives nobody-yet', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(callersScan({ complete: true, guards: [ON, [{ line: 2, text: "unless isFeatureEnabled('fast_total')", branch: 'after-return' }]] })) })
+  const total = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.equal(total.facts.exposure.value, 'nobody-yet')
+  assert.match(total.facts.exposure.evidence, /dominance proven: all 2 callers/)
+})
+
+test('an incomplete caller list, an unguarded caller or a call on the off branch stays everyone', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const cases = [
+    { complete: false, guards: [ON] },
+    { complete: true, guards: [ON, []] },
+    { complete: true, guards: [ON, [{ line: 3, text: "if (isFeatureEnabled('fast_total'))", branch: 'else' as const }]] },
+    { complete: true, guards: [ON, [{ line: 3, text: 'if (cart.paid)', branch: 'then' as const }]] },
+  ]
+  for (const [index, one] of cases.entries()) {
+    const result = await reviewChange({ cwd: repo, base, head, out: `${out}-${index}`, clock: steadyClock(), scan: scanning(callersScan(one)) })
+    assert.equal(result.graph.nodes.find((node) => node.id === 'n1')!.facts.exposure.value, 'everyone', JSON.stringify(one))
+  }
+})
+
+/** A project with a job test the scan does not link to the code. */
+function entryProject(t: TestContext) {
+  return repoOf(
+    t,
+    { 'package.json': PACKAGE, 'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n' },
+    {
+      'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n',
+      'test/orders.test.js': `${TEST_HEADER}\ntest('creates an order', () => {\n  assert.ok(true)\n})\n`,
+      'test/receipt_job.test.js': `${TEST_HEADER}\ntest('performs', () => {\n  assert.ok(true)\n})\n`,
+    },
+  )
+}
+
+test('the life-cycle tests found for each entry point above a node become its candidates, once per entry', async (t) => {
+  const { repo, base, head, out } = entryProject(t)
+  const scan = callersScan({ complete: true, guards: [[]] })
+  scan.anchors[0]!.entry = { kind: 'job', exact: true }
+  scan.anchors[0]!.callSites = [{ id: 'c1', symbol: 'OrdersController#create', path: 'src/checkout1.js', line: 4, guards: [], entry: { kind: 'controller', exact: true } }]
+  const asked: string[] = []
+  const entryTests = async ({ symbol }: { symbol: string }) => {
+    asked.push(symbol)
+    return symbol === 'total'
+      ? { ok: true as const, tests: [{ path: 'test/receipt_job.test.js', found: 'perform', detail: 'ReceiptJob.new.perform' }], notes: [] }
+      : { ok: true as const, tests: [{ path: 'test/orders.test.js', found: 'route', detail: 'post orders_url → orders#create' }, { path: 'test/missing.test.js', found: 'class' }], notes: [] }
+  }
+  let candidates: ProofRequest['candidates'] = {}
+  const proof = async (request: ProofRequest): Promise<ProofResult> => {
+    candidates = request.candidates
+    return { nodes: {}, runs: [], findings: [], clean: true }
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan), entryTests, proof })
+  assert.deepEqual(asked.sort(), ['OrdersController#create', 'total'])
+  const found = candidates.n1!.filter((candidate) => candidate.path.startsWith('test/') && candidate.path !== 'test/total.test.js')
+  assert.deepEqual(found.map((candidate) => [candidate.path, candidate.why, candidate.lifecycle, candidate.changed]), [
+    ['test/receipt_job.test.js', 'life-cycle test of total: perform: ReceiptJob.new.perform', true, true],
+    ['test/orders.test.js', 'life-cycle test of OrdersController#create: route: post orders_url → orders#create', true, true],
+  ])
+  assert.deepEqual(result.problems, [])
+})
+
+test('a search that fails or hangs is a note in the problems and the review goes on', async (t) => {
+  const { repo, base, head, out } = entryProject(t)
+  const scan = callersScan({ complete: true, guards: [[]] })
+  scan.anchors[0]!.entry = { kind: 'job', exact: true }
+  const entryTests = async () => {
+    throw new Error('boom')
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan), entryTests })
+  assert.ok(result.problems.some((problem) => /life-cycle tests of total.*boom/.test(problem)), result.problems.join('\n'))
+  const refused = await reviewChange({ cwd: repo, base, head, out: `${out}-2`, clock: steadyClock(), scan: scanning(scan), entryTests: async () => ({ ok: false, reason: 'the search took longer than 30 seconds.' }) })
+  assert.ok(refused.problems.some((problem) => /life-cycle tests of total.*longer than 30 seconds/.test(problem)))
+  assert.ok(refused.graph.nodes.some((node) => node.id === 'n1'))
 })

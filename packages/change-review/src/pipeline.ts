@@ -12,7 +12,8 @@ import { join } from 'node:path'
 import { blindActions, runBlindCheck } from './blind.ts'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, rx, type ReviewConfig } from './config.ts'
 import { curate } from './curate.ts'
-import { deriveFacts, goneAtHead, type CallerSite } from './facts.ts'
+import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from './entrytests.ts'
+import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.ts'
 import { gitRepo } from './git.ts'
 import { readReviewAnswer, reviewRequest } from './model.ts'
 import { progressFiles, trackProgress } from './progress.ts'
@@ -64,6 +65,8 @@ export interface ReviewChangeOptions {
   scan?: (request: ScanRequest) => Promise<ScanOutcome>
   /** The test runs; the real ones by default. */
   proof?: (request: ProofRequest) => Promise<ProofResult>
+  /** The search for the life-cycle tests of an entry point; agentic-search by default. */
+  entryTests?: EntryTestSearch
   signal?: AbortSignal
   clock?: () => Date
   onProgress?: (progress: Progress) => void
@@ -241,14 +244,26 @@ function entriesOf(scan: Scan, anchor: ScanAnchor, config: ReviewConfig): string
   return [...entries]
 }
 
-/** The callers the scan found for an anchor. Whether a call sits behind a condition is not known yet, so none counts as guarded. */
-function callersOf(scan: Scan, anchor: ScanAnchor): CallerSite[] {
-  return scan.edges
-    .filter((edge) => edge.relationship === 'called_by' && edge.to === anchor.id && edge.note !== 'test')
-    .flatMap((edge) => {
-      const caller = scan.nodes[edge.from]
-      return caller ? [{ path: caller.path, line: edge.line ?? caller.startLine, guardedOn: false }] : []
-    })
+/**
+ * The callers the scan found for an anchor, and whether each call sits on the on branch of a flag check, by the guards
+ * the tool reports for the call. A pack with no `called_by` edge for the anchor but a call-site list is read from that.
+ */
+function callersOf(scan: Scan, anchor: ScanAnchor, config: ReviewConfig): CallerSite[] {
+  const edges = scan.edges.filter((edge) => edge.relationship === 'called_by' && edge.to === anchor.id && edge.note !== 'test')
+  const fromEdges = edges.flatMap((edge) => {
+    const caller = scan.nodes[edge.from]
+    return caller ? [{ path: caller.path, line: edge.line ?? caller.startLine, guardedOn: guardsPutOn(edge.guards ?? [], config) }] : []
+  })
+  if (fromEdges.length || edges.length) return fromEdges
+  return (anchor.callSites ?? []).map((site) => ({ path: site.path, line: site.line, guardedOn: guardsPutOn(site.guards, config) }))
+}
+
+/** The entry points a node sits under that the tool named: the node itself, and the callers that are entry points. */
+function entrySymbolsOf(anchor: ScanAnchor): string[] {
+  const symbols = new Set<string>()
+  if (anchor.entry) symbols.add(anchor.symbol)
+  for (const site of anchor.callSites ?? []) if (site.entry) symbols.add(site.symbol)
+  return [...symbols]
 }
 
 /** A unit's identity across reshaping: the nodes it holds, or the buckets for a unit with no node. */
@@ -364,7 +379,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       head: atHead,
       base: await linesAt(base, anchor.path),
       config,
-      callers: callersOf(scan, anchor),
+      callers: callersOf(scan, anchor, config),
       callersComplete: anchor.callers?.complete ?? false,
     })
     const bucket = bucketOf(anchor.path)
@@ -438,6 +453,22 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const runbook = detectRunbook(cwd, options.runbook)
   const changedTests = triage.buckets.filter((bucket) => bucket.kind === 'test').flatMap((bucket) => bucket.paths).filter((path) => existsSync(join(cwd, path)))
   const candidates: Record<string, TestCandidate[]> = {}
+  // One search per entry point for the whole review: many nodes can sit under the same one.
+  const searched = new Map<string, Promise<EntryTestsOutcome>>()
+  const testsOfEntry = (symbol: string) => {
+    if (!searched.has(symbol)) {
+      searched.set(
+        symbol,
+        (async (): Promise<EntryTestsOutcome> => {
+          const asked = await attempt(() => (options.entryTests ?? searchEntryTests)({ cwd, symbol, signal }))
+          const outcome: EntryTestsOutcome = 'value' in asked ? asked.value : { ok: false, reason: asked.failed }
+          if (!outcome.ok) problems.push(`The search for life-cycle tests of ${symbol} failed: ${outcome.reason} Its tests are not among the candidates.`)
+          return outcome
+        })(),
+      )
+    }
+    return searched.get(symbol)!
+  }
   for (const node of provable) {
     candidates[node.id] = await candidateTests({
       node,
@@ -447,6 +478,21 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       exists: (path) => existsSync(join(cwd, path)),
       read: (path) => readOr(join(cwd, path)),
     })
+    const anchor = scan.anchors.find((item) => item.id === node.id)
+    for (const symbol of anchor ? entrySymbolsOf(anchor) : []) {
+      const outcome = await testsOfEntry(symbol)
+      halt('map-proof')
+      if (!outcome.ok) continue
+      for (const hit of outcome.tests) {
+        if (hit.path === node.path || !existsSync(join(cwd, hit.path))) continue
+        const why = `life-cycle test of ${symbol}: ${hit.found}${hit.detail ? `: ${hit.detail}` : ''}`
+        const have = candidates[node.id]!.find((candidate) => candidate.path === hit.path)
+        if (have) {
+          have.lifecycle = true
+          if (!have.why.includes(why)) have.why = `${have.why}; ${why}`
+        } else candidates[node.id]!.push({ path: hit.path, why, lifecycle: true, changed: changedTests.includes(hit.path) })
+      }
+    }
   }
   const proved = new Set<string>()
   const proof = await (options.proof ?? runProof)({

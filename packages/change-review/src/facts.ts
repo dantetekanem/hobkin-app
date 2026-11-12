@@ -199,19 +199,34 @@ function gateRegions(lines: string[], start: number, end: number, config: Review
   return { checks, marks }
 }
 
-/** From the search tool's own guards: the state a guard puts a line in, or null when it is not a condition check of this node. */
-function guardState(guard: Guard, checks: Check[], range: [number, number], config: ReviewConfig): Mark | null {
+/** What a guard of the search tool says about a flag check: which check it is, and whether the guarded line runs with it on. Null when it is no check. */
+function readGuard(guard: Guard, config: ReviewConfig): { hit: NonNullable<ReturnType<typeof matchCheck>>; on: boolean } | null {
   const hit = matchCheck(guard.text, config)
-  if (!hit || guard.line < range[0] || guard.line > range[1]) return null
-  let index = checks.findIndex((c) => c.line === guard.line)
-  if (index < 0) {
-    checks.push({ name: hit.name, line: guard.line, text: guard.text.trim(), subset: hit.subset })
-    index = checks.length - 1
-  }
+  if (!hit) return null
   const negated = /(^|\W)(!|not\s+)\s*$/.test(guard.text.slice(0, hit.index)) || /^\s*unless\b/.test(guard.text)
   // `else` and `after-return` both mean the guard's own condition is false from here on.
-  const on = guard.branch === 'then' ? !negated : negated
-  return { check: index, state: on ? 'on' : 'off' }
+  return { hit, on: guard.branch === 'then' ? !negated : negated }
+}
+
+/** From the search tool's own guards: the state a guard puts a line in, or null when it is not a condition check of this node. */
+function guardState(guard: Guard, checks: Check[], range: [number, number], config: ReviewConfig): Mark | null {
+  const read = readGuard(guard, config)
+  if (!read || guard.line < range[0] || guard.line > range[1]) return null
+  let index = checks.findIndex((c) => c.line === guard.line)
+  if (index < 0) {
+    checks.push({ name: read.hit.name, line: guard.line, text: guard.text.trim(), subset: read.hit.subset })
+    index = checks.length - 1
+  }
+  return { check: index, state: read.on ? 'on' : 'off' }
+}
+
+/**
+ * Whether a call sits on the on branch of a flag check, from the guards the search tool reports for the call: at least
+ * one is a flag check, none of them puts the call on its off branch, and none is a check that is on for some only.
+ */
+export function guardsPutOn(guards: readonly Guard[], config: ReviewConfig): boolean {
+  const checks = guards.map((guard) => readGuard(guard, config)).filter((read) => read !== null)
+  return checks.length > 0 && checks.every((read) => read.on && !read.hit.subset)
 }
 
 // ───────────────────────── Effect ─────────────────────────

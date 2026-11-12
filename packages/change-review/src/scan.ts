@@ -8,7 +8,7 @@ import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync } fr
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { runProgram } from './git.ts'
-import type { Dangling, Guard, Scan, ScanAnchor, ScanEdge } from './types.ts'
+import type { CallSite, Dangling, Guard, Scan, ScanAnchor, ScanEdge } from './types.ts'
 
 // ───────────────────────── Reading a pack ─────────────────────────
 
@@ -70,6 +70,33 @@ function guardOf(value: unknown): Guard | undefined {
   return { line: at, text: said, branch: branch as Guard['branch'] }
 }
 
+/** A call site: its place and its guards (none when the tool reports none). A site of a test is not a caller of the code. */
+function callSiteOf(value: unknown): CallSite | undefined {
+  const raw = record(value)
+  const id = name(raw?.id)
+  const symbol = text(raw?.symbol)
+  const path = name(raw?.path)
+  const at = line(raw?.line)
+  const guards = raw?.guards === undefined ? [] : all(raw.guards, guardOf)
+  if (!raw || !id || symbol === undefined || !path || at === undefined || !guards) return undefined
+  const said = text(raw.text)
+  const resolution = name(raw.resolution)
+  const entry = record(raw.entry)
+  const entryKind = text(entry?.kind)
+  const exact = flag(entry?.exact)
+  return {
+    id,
+    symbol,
+    path,
+    line: at,
+    ...(said !== undefined ? { text: said } : {}),
+    ...(resolution ? { resolution } : {}),
+    guards,
+    ...(raw.enqueue === true ? { enqueue: true } : {}),
+    ...(entryKind !== undefined && exact !== undefined ? { entry: { kind: entryKind, exact } } : {}),
+  }
+}
+
 function lineGuardsOf(value: unknown): { line: number; guards: Guard[] } | undefined {
   const raw = record(value)
   const at = line(raw?.line)
@@ -104,7 +131,7 @@ function testRefOf(value: unknown): ScanAnchor['tests'][number] | undefined {
 
 /**
  * The newer, optional anchor fields, each only when its whole value has the expected shape. A call-site list under
- * `callers` is how packs before the caller count reported callers: it is not a count, so it is not one here.
+ * `callers`, with no `callerCount`, is how packs before the count reported callers: it is not a count, so none is made.
  */
 function optionalFields(raw: Raw, tally: Tally): Partial<ScanAnchor> {
   const fields: Partial<ScanAnchor> = {}
@@ -125,12 +152,22 @@ function optionalFields(raw: Raw, tally: Tally): Partial<ScanAnchor> {
   const entryKind = text(entry?.kind)
   const exact = flag(entry?.exact)
   keep('entry', entryKind !== undefined && exact !== undefined ? { kind: entryKind, exact } : undefined)
-  if (!Array.isArray(raw.callers)) {
-    const callers = record(raw.callers)
-    const total = Number.isInteger(callers?.total) ? (callers!.total as number) : undefined
-    const shown = Number.isInteger(callers?.shown) ? (callers!.shown as number) : undefined
-    const complete = flag(callers?.complete)
-    keep('callers', total !== undefined && shown !== undefined && complete !== undefined ? { total, shown, complete } : undefined)
+  const semanticFingerprint = name(raw.semanticFingerprint)
+  if (semanticFingerprint) fields.semanticFingerprint = semanticFingerprint
+  // The call-site list is `callers` itself, with a count beside it in newer packs. A partly read list would read as
+  // every caller, so it goes whole. A site of a test is no caller of the code.
+  if (Array.isArray(raw.callers)) {
+    const sites = all(raw.callers.filter((item) => record(item)?.test !== true), callSiteOf)
+    if (sites) fields.callSites = sites
+  }
+  const counted = record(raw.callerCount) ?? (Array.isArray(raw.callers) ? undefined : record(raw.callers))
+  if (counted) {
+    const total = Number.isInteger(counted.total) ? (counted.total as number) : undefined
+    const shown = Number.isInteger(counted.shown) ? (counted.shown as number) : undefined
+    const complete = flag(counted.complete)
+    const value = total !== undefined && shown !== undefined && complete !== undefined ? { total, shown, complete } : undefined
+    if (value) fields.callers = value
+    else tally.add('anchor field')
   }
   return fields
 }
@@ -187,6 +224,8 @@ function edgeOf(value: unknown): ScanEdge | undefined {
   const at = line(raw.line)
   const note = text(raw.note)
   const reason = text(raw.reason)
+  const via = name(raw.via)
+  const guards = raw.guards === undefined ? undefined : all(raw.guards, guardOf)
   return {
     from,
     ...(to ? { to } : {}),
@@ -196,6 +235,8 @@ function edgeOf(value: unknown): ScanEdge | undefined {
     ...(at !== undefined ? { line: at } : {}),
     ...(note !== undefined ? { note } : {}),
     ...(reason !== undefined ? { reason } : {}),
+    ...(guards ? { guards } : {}),
+    ...(via ? { via } : {}),
   }
 }
 
@@ -329,6 +370,8 @@ export interface ScanRequest {
   maxNodes?: number
   /** Call hops around each changed definition. */
   depth?: number
+  /** List every call site of each changed definition, so a caller list can be complete. On unless set to `false`. */
+  allCallers?: boolean
   signal?: AbortSignal
 }
 
@@ -338,7 +381,7 @@ const option = (flagName: string, value: number | undefined) => (value === undef
  * Scans the change from `base` to `head` in the checkout at `cwd`. The pack holds source, so it is written to a
  * folder of its own, read, and removed. A scan that cannot run answers why, never a partial scan.
  */
-export async function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, signal }: ScanRequest): Promise<ScanOutcome> {
+export async function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers = true, signal }: ScanRequest): Promise<ScanOutcome> {
   const file = program ?? findAgenticSearch()
   if (!file) return { ok: false, reason: 'agentic-search is not installed.' }
   const folder = mkdtempSync(join(tmpdir(), 'change-review-scan-'))
@@ -353,6 +396,7 @@ export async function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEO
       '--json',
       '--output-dir',
       out,
+      ...(allCallers ? ['--callers', 'all'] : []),
       ...option('--max-anchors', maxAnchors),
       ...option('--max-nodes', maxNodes),
       ...option('--max-depth', depth),

@@ -27,7 +27,7 @@ test('a real pack reads into anchors, nodes, edges, test groups, files and cover
   assert.ok(scan.anchors.every((anchor) => scan.nodes[anchor.id]), 'every anchor is a node too')
 
   assert.equal(scan.edges.length, 9)
-  assert.deepEqual(scan.edges[0], { from: 'n29', to: 'n25', name: 'problemReports', relationship: 'calls', resolution: 'exact', line: 87 })
+  assert.deepEqual(scan.edges[0], { from: 'n29', to: 'n25', name: 'problemReports', relationship: 'calls', resolution: 'exact', line: 87, via: 'checker' })
   assert.deepEqual(scan.edges.find((edge) => edge.resolution === 'unresolved'), {
     from: 'n121',
     name: 'useView.getState',
@@ -173,7 +173,7 @@ test('runScan runs agentic-search on the range, reads its pack and removes the f
   assert.equal(answer.ok && answer.scan.anchors.length, 7)
   const args = fake.args()
   const out = args[args.indexOf('--output-dir') + 1]!
-  assert.deepEqual(args.filter((arg) => arg !== out), ['scan', '--diff', 'aaa..bbb', '--cwd', fake.dir, '--json', '--output-dir', '--max-anchors', '200', '--max-nodes', '300', '--max-depth', '2'])
+  assert.deepEqual(args.filter((arg) => arg !== out), ['scan', '--diff', 'aaa..bbb', '--cwd', fake.dir, '--json', '--output-dir', '--callers', 'all', '--max-anchors', '200', '--max-nodes', '300', '--max-depth', '2'])
   assert.equal(existsSync(out), false, 'the pack holds source, so its folder is removed')
 })
 
@@ -203,4 +203,44 @@ test('agentic-search is found on PATH first, then in the usual install folders',
   assert.equal(findAgenticSearch({ path: join(dir, 'on-path'), places: [join(dir, 'pnpm')] }), join(dir, 'on-path', 'agentic-search'))
   assert.equal(findAgenticSearch({ path: join(dir, 'nothing'), places: [join(dir, 'pnpm')] }), join(dir, 'pnpm', 'agentic-search'))
   assert.equal(findAgenticSearch({ path: '', places: [join(dir, 'nothing')] }), null)
+})
+
+test('a pack with caller counts, call sites with guards, entry and a fingerprint is read whole', () => {
+  const guards = [
+    { line: 4, text: 'unless Features.enabled?(:checkout)', branch: 'after-return' },
+    { line: 6, text: 'if order.paid?', branch: 'then' },
+  ]
+  const site = { id: 'n3', symbol: 'OrdersController#create', path: 'app/controllers/orders_controller.rb', line: 6, text: 'ReceiptJob.perform_later(order.id) if order.paid?', resolution: 'exact', guards, enqueue: true, entry: { kind: 'controller', exact: true } }
+  const scan = readPack({
+    anchors: [
+      {
+        id: 'n1', symbol: 'ReceiptJob#perform', kind: 'method', path: 'app/jobs/receipt_job.rb', startLine: 2, endLine: 4, changedLines: [3],
+        callerCount: { total: 1, shown: 1, complete: true }, callers: [site], entry: { kind: 'job', exact: true }, semanticFingerprint: '728053b6b252e936', tests: [],
+      },
+    ],
+    edges: [{ from: 'n3', to: 'n1', name: 'perform', relationship: 'called_by', resolution: 'exact', via: 'constant', line: 6, note: 'enqueue', guards }],
+  })
+  const anchor = scan.anchors[0]!
+  assert.deepEqual(anchor.callers, { total: 1, shown: 1, complete: true })
+  assert.deepEqual(anchor.callSites, [site])
+  assert.deepEqual(anchor.entry, { kind: 'job', exact: true })
+  assert.equal(anchor.semanticFingerprint, '728053b6b252e936')
+  assert.deepEqual(scan.edges[0], { from: 'n3', to: 'n1', name: 'perform', relationship: 'called_by', resolution: 'exact', line: 6, note: 'enqueue', guards, via: 'constant' })
+})
+
+test('call sites with an unexpected shape are left out whole, and an edge with odd guards keeps none of them', () => {
+  const scan = readPack({
+    anchors: [{ id: 'n1', symbol: 'a', kind: 'function', path: 'a.rb', startLine: 1, endLine: 2, changedLines: [1], callerCount: { total: 2, shown: 2, complete: true }, callers: [{ id: 'n2', symbol: 'b', path: 'b.rb', line: 3, guards: [] }, { id: 'n3' }], tests: [] }],
+    edges: [{ from: 'n2', to: 'n1', relationship: 'called_by', resolution: 'exact', guards: [{ text: 'if x' }], via: 7 }],
+  })
+  assert.deepEqual(scan.anchors[0]!.callers, { total: 2, shown: 2, complete: true })
+  assert.equal(scan.anchors[0]!.callSites, undefined)
+  assert.deepEqual(scan.edges[0], { from: 'n2', to: 'n1', relationship: 'called_by', resolution: 'exact' })
+})
+
+test('runScan asks for every call site', async (t) => {
+  const fake = fakeProgram(t, "fs.mkdirSync(out, { recursive: true })\nfs.writeFileSync(out + '/pack.json', '{}')")
+  await runScan({ cwd: fake.dir, base: 'a', head: 'b', program: fake.program })
+  const args = fake.args()
+  assert.deepEqual(args.slice(args.indexOf('--callers'), args.indexOf('--callers') + 2), ['--callers', 'all'])
 })

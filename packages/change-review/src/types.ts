@@ -170,6 +170,23 @@ export interface Guard {
   branch: 'then' | 'else' | 'after-return'
 }
 
+/** One place that calls a changed definition, from the anchor's `callers` list (`--callers all` lists every one). */
+export interface CallSite {
+  /** The calling node's id in the pack. */
+  id: string
+  symbol: string
+  path: string
+  line: number
+  text?: string
+  resolution?: string
+  /** Conditions dominating the call. */
+  guards: Guard[]
+  /** The call enqueues the definition as a job. */
+  enqueue?: boolean
+  /** The caller is itself an entry point. */
+  entry?: { kind: string; exact: boolean }
+}
+
 /** A changed definition or non-callable change, read from an `agentic-search scan` pack. Optional fields arrive with newer versions of the tool. */
 export interface ScanAnchor {
   /** The pack's node id, such as `n12`. */
@@ -198,6 +215,10 @@ export interface ScanAnchor {
   loadTime?: boolean
   entry?: { kind: string; exact: boolean }
   callers?: { total: number; shown: number; complete: boolean }
+  /** The call sites the pack lists for this definition: every one when `callers.complete`. */
+  callSites?: CallSite[]
+  /** The tool's hash of the definition's meaning, to tell a rewrite from a rename or a move. */
+  semanticFingerprint?: string
   /** Tests that reference this definition by name. */
   tests: { id: string; symbol: string; path: string; line: number }[]
 }
@@ -211,6 +232,10 @@ export interface ScanEdge {
   line?: number
   note?: string
   reason?: string
+  /** For a `called_by` edge: the conditions dominating the call. */
+  guards?: Guard[]
+  /** How the call reaches the definition: `constant`, `receiver`... */
+  via?: string
 }
 
 /** A definition removed while something that remains still refers to it. */

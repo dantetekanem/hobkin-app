@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, sensitiveOf } from '../src/config.ts'
-import { deriveFacts } from '../src/facts.ts'
+import { deriveFacts, guardsPutOn } from '../src/facts.ts'
 import type { FactsInput } from '../src/facts.ts'
 import type { ScanAnchor } from '../src/types.ts'
 
@@ -236,5 +236,20 @@ describe('undo and extras', () => {
     const f = deriveFacts({ anchor: anchor({ changedLines: [1] }), path: 'a.rb', head: null, base: null, config: DEFAULT_CONFIG })
     assert.equal(f.facts.effect.value, 'behaviour')
     assert.equal(f.facts.exposure.value, 'everyone')
+  })
+})
+
+describe('guardsPutOn: a call site on the on branch of a flag check', () => {
+  const on = (text: string, branch: 'then' | 'else' | 'after-return') => guardsPutOn([{ line: 4, text, branch }, { line: 6, text: 'if order.paid?', branch: 'then' }], DEFAULT_CONFIG)
+  it('reads the keyword and the branch the way a node own guards are read', () => {
+    assert.equal(on('if Features.enabled?(:checkout)', 'then'), true)
+    assert.equal(on('unless Features.enabled?(:checkout)', 'after-return'), true)
+    assert.equal(on('unless Features.enabled?(:checkout)', 'then'), false)
+    assert.equal(on('if Features.enabled?(:checkout)', 'else'), false)
+    assert.equal(on('if !Features.enabled?(:checkout)', 'else'), true)
+  })
+  it('needs a flag check among the guards', () => {
+    assert.equal(guardsPutOn([], DEFAULT_CONFIG), false)
+    assert.equal(guardsPutOn([{ line: 6, text: 'if order.paid?', branch: 'then' }], DEFAULT_CONFIG), false)
   })
 })
