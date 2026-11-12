@@ -1,0 +1,150 @@
+import { floor } from './floor.ts'
+import { EVIDENCE_KINDS, LEVELS } from './types.ts'
+import type { Finding, Floor, FloorInput, Level, NodeLevel, Question, ReviewNode, RiskEvent, Watch } from './types.ts'
+
+const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
+const DIRECTIONS = ['up', 'down', 'sideways', 'time']
+const ASPECTS = ['behaviour', 'performance', 'failure']
+const CONFIDENCES = ['low', 'medium', 'high']
+const SUGGEST_KINDS = ['add-flag', 'resolve-callers', 'restructure', 'add-test']
+const MIN_EVIDENCE = 20
+
+export interface RejectedEvent {
+  event: RiskEvent
+  reason: string
+}
+
+export interface Violation {
+  node: string
+  text: string
+}
+
+/** A node's level before any event: the floor, with its reason. */
+export function nodeLevelOf(f: Floor): NodeLevel {
+  return { floor: f.level, rule: f.rule, current: f.level, why: [f.why], if: [] }
+}
+
+const floorOf = (node: ReviewNode): Floor => {
+  const input: FloorInput = {
+    ...node.extras,
+    effect: node.facts.effect.value,
+    proof: node.facts.proof.value,
+    exposure: node.facts.exposure.value,
+    undo: node.facts.undo.value,
+  }
+  return floor(input)
+}
+
+const oneOf = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value)
+
+/** Why an event is not valid on its own (FOUNDATION 5.2 and the risk-event schema), or null. */
+function malformed(event: RiskEvent): string | null {
+  if (typeof event.evidence !== 'string' || event.evidence.trim().length < MIN_EVIDENCE) return `evidence is shorter than ${MIN_EVIDENCE} characters`
+  if (!oneOf(LEVELS, event.level)) return `bad level: ${String(event.level)}`
+  if (!oneOf(DIRECTIONS, event.direction)) return `bad direction: ${String(event.direction)}`
+  if (!oneOf(ASPECTS, event.aspect)) return `bad aspect: ${String(event.aspect)}`
+  if (event.evidence_kind !== undefined && !oneOf(EVIDENCE_KINDS, event.evidence_kind)) return `bad evidence_kind: ${String(event.evidence_kind)}`
+  if (event.confidence !== undefined && !oneOf(CONFIDENCES, event.confidence)) return `bad confidence: ${String(event.confidence)}`
+  if (event.suggest !== undefined) {
+    if (!oneOf(LEVELS, event.suggest.to) || typeof event.suggest.text !== 'string') return 'bad suggest'
+    if (event.suggest.kind !== undefined && !oneOf(SUGGEST_KINDS, event.suggest.kind)) return `bad suggest kind: ${String(event.suggest.kind)}`
+  }
+  if (event.critical === true && event.level !== 'high') return 'critical is only valid with level high'
+  return null
+}
+
+/** Adds a value to a list unless an equal one is there. */
+function addOnce<T>(list: T[], item: T, key: (item: T) => string) {
+  if (!list.some((have) => key(have) === key(item))) list.push(item)
+}
+
+const findingKey = (f: Finding) => `${f.rule}|${f.text}|${(f.lines ?? []).join(',')}|${f.by}`
+const questionKey = (q: Question) => `${q.text}|${q.why}`
+
+function mergeWatch(into: Watch | null, from: Watch | undefined): Watch | null {
+  if (!from) return into
+  const watch: Watch = into ?? { signals: [], gaps: [] }
+  for (const signal of from.signals ?? []) addOnce(watch.signals, signal, (s) => `${s.kind}|${s.name}|${s.at}`)
+  for (const gap of from.gaps ?? []) addOnce(watch.gaps, gap, (g) => g)
+  if (from.undo) watch.undo = from.undo
+  return watch
+}
+
+/**
+ * Applies the risk events to the nodes. Every node starts again from its floor, so applying the same events twice, or
+ * to a graph that already has them, gives the same graph (FOUNDATION 14). A raise is always valid. A lowering needs an
+ * evidence kind, nothing lowers a node below high while its floor is rule 3 or 4 (missing proof), and nothing lowers a
+ * break that search found (rule 1): an argument is not a search result. Events that
+ * break a rule are returned in `rejected` with the reason and change nothing.
+ */
+export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly RiskEvent[]): { nodes: ReviewNode[]; rejected: RejectedEvent[] } {
+  const rejected: RejectedEvent[] = []
+  const next = new Map<string, ReviewNode>()
+  const floors = new Map<string, Floor>()
+
+  for (const node of nodes) {
+    const f = floorOf(node)
+    const copy = structuredClone(node)
+    copy.level = nodeLevelOf(f)
+    copy.critical = f.critical
+    if (f.finding) addOnce(copy.findings, f.finding, findingKey)
+    next.set(node.id, copy)
+    floors.set(node.id, f)
+  }
+
+  for (const event of events) {
+    const node = next.get(event.node)
+    const f = floors.get(event.node)
+    if (!node || !node.level || !f) {
+      rejected.push({ event, reason: `unknown node: ${String(event.node)}` })
+      continue
+    }
+    const bad = malformed(event)
+    if (bad) {
+      rejected.push({ event, reason: bad })
+      continue
+    }
+    const level = node.level
+    const lowering = RANK[event.level] < RANK[level.current]
+    if (lowering) {
+      if (!event.evidence_kind) {
+        rejected.push({ event, reason: 'lowering a level needs an evidence_kind' })
+        continue
+      }
+      if (f.rule === 1) {
+        rejected.push({ event, reason: 'floor rule 1 is a break that search found: only a new search result lowers it' })
+        continue
+      }
+      if ((f.rule === 3 || f.rule === 4) && event.level !== 'high') {
+        rejected.push({ event, reason: `floor rule ${f.rule} is missing proof: only a test that runs lowers it` })
+        continue
+      }
+    }
+
+    if (RANK[event.level] !== RANK[level.current]) level.current = event.level
+    if (level.current !== 'high') node.critical = false
+    else if (event.critical === true) node.critical = true
+    if (event.confidence) node.confidence = event.confidence
+
+    addOnce(level.why, event.evidence, (w) => w)
+    addOnce(node.findings, { rule: event.rule ?? 'risk-event', text: event.evidence, ...(event.lines ? { lines: event.lines } : {}), by: event.by ?? 'model' }, findingKey)
+    for (const question of event.questions ?? []) addOnce(node.questions, question, questionKey)
+    node.watch = mergeWatch(node.watch, event.watch)
+    if (event.suggest) addOnce(level.if, { text: event.suggest.text, level: event.suggest.to }, (s) => `${s.text}|${s.level}`)
+  }
+
+  return { nodes: nodes.map((n) => next.get(n.id) as ReviewNode), rejected }
+}
+
+/** Rules every graph must keep (FOUNDATION 14): critical implies high; safe needs a test that ran, unless rule 2 made it safe. */
+export function checkInvariants(nodes: readonly ReviewNode[]): Violation[] {
+  const found: Violation[] = []
+  for (const node of nodes) {
+    const current = node.level?.current
+    if (node.critical && current !== 'high') found.push({ node: node.id, text: `critical on a ${current ?? 'missing'} node: critical implies high` })
+    const proof = node.facts.proof.value
+    const noRunningTest = proof === 'none' || proof === 'mocked' || proof === 'isolated' || proof === 'unknown'
+    if (current === 'safe' && noRunningTest && node.level?.rule !== 2) found.push({ node: node.id, text: `safe with proof ${proof}: safe needs a life cycle test that ran` })
+  }
+  return found
+}

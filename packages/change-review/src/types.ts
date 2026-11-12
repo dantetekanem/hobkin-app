@@ -83,7 +83,7 @@ export interface RepoReader {
   text(rev: string, path: string): Promise<string | null>
   /** Paths under a folder at a revision, recursively, repository-relative. */
   list(rev: string, folder: string): Promise<string[]>
-  /** Lines matching a regular expression (ripgrep syntax) at a revision, optionally limited to paths. */
+  /** Lines matching an extended regular expression (`git grep -E`) at a revision, optionally limited to paths. */
   grep(rev: string, pattern: string, paths?: readonly string[]): Promise<{ path: string; line: number; text: string }[]>
 }
 
@@ -511,6 +511,8 @@ export interface Units {
  * written from the facts alone. Words never carry a level, a fact or a number the files do not hold.
  */
 export interface StoryWords {
+  /** The story's heading: what the change is, as a reviewer would name it. */
+  title?: string
   /** One sentence on what the change does, beside what it claims. */
   does?: string
   /** One line per stop of the setting, in execution order. */
