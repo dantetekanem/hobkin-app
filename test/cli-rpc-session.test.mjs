@@ -380,7 +380,7 @@ test('a binding, identity or missing tool that differs is disposed before any pr
     [{ thinking: 'low' }, /binding/],
     [{ model: { provider: 'fixture', id: 'other' } }, /binding/],
     [{ hello: false }, /did not activate/],
-    [{ hello: ['ask_question'] }, /run_routine, message_check, hobkin_memory, model_settings/],
+    [{ hello: ['ask_question'] }, /run_routine, message_check, stop_workload, owned_agent, hobkin_memory, model_settings/],
   ]) {
     const h = fixture(t, pi);
     await assert.rejects(openPiSession({ root: h.root, config: h.config }, h.dependencies), expected);
