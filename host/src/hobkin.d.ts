@@ -4,10 +4,14 @@
  */
 
 declare module 'hobkin/src/cli/application.mjs' {
+  import type { ExecutionTarget, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+  import type { StopControlTarget } from '#shared/protocol/snapshot.ts'
+
   export interface HobkinSnapshot {
     messages?: unknown[]
     reports?: unknown[]
     presentation?: { hiddenMessageIds?: string[] }
+    stopControls?: { targets: StopControlTarget[] }
     savedAt?: string
     [key: string]: unknown
   }
@@ -119,6 +123,9 @@ declare module 'hobkin/src/cli/application.mjs' {
     dropImages(images: ImageHandle[]): void
     /** What the user sent that the agent never read, or null when no turn was running. */
     interrupt(): Promise<string[] | null>
+    stopExecution(args: Omit<StopExecutionArgs, 'target'> & Omit<ExecutionTarget, 'home' | 'epoch'>): Promise<
+      Omit<StopExecutionReceipt, 'target'> & { target: Omit<ExecutionTarget, 'home' | 'epoch'> }
+    >
     /** Starts a fresh main conversation. The old transcript stays on disk. */
     reset(): Promise<{ sessionId: string; sessionFile: string }>
     /** Turns learning from outcomes on or off, and says which it is now. */

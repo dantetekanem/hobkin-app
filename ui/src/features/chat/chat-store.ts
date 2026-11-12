@@ -6,6 +6,8 @@ import { hostStore, runCommand } from '@/lib/host/client.ts'
 import { isLive } from '@/lib/host/state.ts'
 import type { SlashCommand } from '#shared/protocol/slash.ts'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
+import { executionKey, executionTargets, type ExecutionControl } from '../work/actions.ts'
+import { runExecution, useExecution } from '../work/store.ts'
 import { useReportReply, withRoutineReference } from '@/features/reports/reply.ts'
 import { attachmentRefusal, fileAsBase64 } from './attachments.ts'
 import { draftReducer, emptyDraft, storedDraft, type Attachment, type DraftAction, type DraftState } from './draft.ts'
@@ -35,7 +37,7 @@ interface ChatState {
     /** Sends plain text without borrowing the current draft or report reply. True only after host acceptance. */
     (text: string): Promise<boolean>
   }
-  stop: () => void
+  stop: (mode?: 'stop' | 'force', target?: ExecutionControl) => void
   /** Attaches images to the draft: pasted, dropped or picked. Each one hobkin would refuse is turned away with the reason. */
   attach: (files: readonly File[]) => void
   detach: (id: string) => void
@@ -53,6 +55,7 @@ interface ChatState {
 let sends = 0
 let uploads = 0
 let notes = 0
+const recovered = new Set<string>()
 // A problem is not kept: it goes by itself, and never reaches the conversation or its history.
 const problemLine = transientLine(() => useChat.setState({ problem: null }))
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -137,18 +140,28 @@ export const useChat = create<ChatState>()(
         )
       },
 
-      stop: () => {
-        runCommand('conversation.stop').then(
-          ({ unsent }) => {
-            if (!unsent.length) return
-            // What hobkin never read goes back into the input, so it leaves the conversation.
-            set(({ draft, outbox }) => ({
-              draft: draftReducer(draft, { type: 'stopped', unsent }),
-              outbox: { ...outbox, entries: outbox.entries.filter((sent) => !unsent.includes(sent.text)) },
-            }))
-          },
-          (error) => set({ problem: `Not stopped: ${reason(error)}` }),
-        )
+      stop: (mode = 'stop', captured) => {
+        const target = captured ?? executionTargets(hostStore.getState()).find(target => target.kind === 'main' && target.canStop)
+        if (!target || target.kind !== 'main') { set({ problem: 'Not stopped: No live conversation control.' }); return }
+        const source = hostStore.getState().epoch
+        const queued = new Set(get().outbox.entries.map(entry => entry.id))
+        void runExecution(target, mode).then(receipt => {
+          const now = hostStore.getState()
+          if (!receipt || now.link !== 'open' || now.owner?.state !== 'live' || now.epoch !== source || now.home !== target.home || now.snapshot.stopControls?.home !== target.home || now.snapshot.stopControls.epoch !== target.epoch) return
+          const recovery = receipt.queueRecovery
+          const key = executionKey(target)
+          if (recovery.status !== 'confirmed' || recovery.alreadyReturned || recovered.has(key)) return
+          recovered.add(key)
+          const { unsent } = recovery
+          if (!unsent.length) return
+          set(({ draft, outbox }) => ({
+            draft: draftReducer(draft, { type: 'stopped', unsent }),
+            outbox: { ...outbox, entries: outbox.entries.filter(sent => !queued.has(sent.id) || !unsent.includes(sent.text)) },
+          }))
+        }, error => {
+          const now = hostStore.getState()
+          if (now.link === 'open' && now.epoch === source && now.home === target.home && now.snapshot.stopControls?.epoch === target.epoch && useExecution.getState().results[executionKey(target)]?.text === reason(error)) set({ problem: `Not stopped: ${reason(error)}` })
+        })
       },
 
       attach: (files) => {

@@ -1,6 +1,7 @@
 import type { RawData, WebSocket } from 'ws'
 import { CLOSE, PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type HostMessage, type OwnerState } from '#shared/protocol/messages.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
 import { Attachments } from './attachments.ts'
 import { appStateHandlers } from './app-state.ts'
@@ -91,6 +92,20 @@ export interface RunningHost {
   url: string
   /** Stops hobkin, releases the home and closes every connection. */
   close(): Promise<void>
+}
+
+/** Capture before dispatch: a replacement app must never inherit an earlier request. */
+export async function stopExecution(owner: Pick<HomeOwner, 'captureExecution'>, args: StopExecutionArgs): Promise<StopExecutionReceipt> {
+  const captured = owner.captureExecution()
+  const { home, epoch, kind, runId, agentId } = args.target
+  const { mode, attemptId, how } = args
+  if (!captured || home !== captured.home || epoch !== captured.epoch) throw new Unavailable('That execution belongs to a previous app or another home.')
+  const target = { home: captured.home, epoch: captured.epoch, kind, runId, ...(agentId ? { agentId } : {}) }
+  const receipt = await captured.app.stopExecution({ kind, runId, ...(agentId ? { agentId } : {}), mode, attemptId, ...(how ? { how } : {}) })
+  if (receipt?.target?.kind !== kind || receipt.target.runId !== runId || receipt.target.agentId !== agentId || receipt.mode !== mode || receipt.attemptId !== attemptId) {
+    throw Error('The execution receipt does not match the captured request.')
+  }
+  return { ...receipt, target }
 }
 
 const whyNotLive = (owner: OwnerState): string => {
@@ -216,7 +231,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     appearance: appearanceRequest(appearance),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workFrom(owner.snapshot) : null,
-    snapshot: owner.snapshot && activity.keep(owner.snapshot),
+    snapshot: owner.snapshot && activity.keep(owner.wireSnapshot()!),
   })
   // hobkin's main conversations, only read, from the home (014-continuity A8). The one its session has open is current.
   const history = new History(root, () => (owner.app?.runtime.main as { sessionFile?: string } | undefined)?.sessionFile)
@@ -275,6 +290,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       attachments.detach(hobkin(), id)
       return done
     },
+    'execution.stop': (args) => stopExecution(owner, args),
     'conversation.stop': async () => {
       const unsent = await hobkin().interrupt()
       return { stopped: unsent !== null, unsent: unsent ?? [] }

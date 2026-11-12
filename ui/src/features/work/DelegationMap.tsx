@@ -14,8 +14,9 @@ import { ChildFaces, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
 import { useMainChildren, useRunChildren } from './children.ts'
 import { SaidLine } from './parts.tsx'
-import { createStopConfirmationAuthority } from './actions.ts'
-import { runWork, useWorkUi } from './store.ts'
+import { confirmExecution, createStopConfirmationAuthority, executionFeedbackRows, executionKey, executionTargets, type ExecutionControl } from './actions.ts'
+import { runExecution, runWork, useExecution, useWorkUi } from './store.ts'
+import { useChat } from '../chat/chat-store.ts'
 
 /**
  * hobkin delegating to many: hobkin on the left, wired to every agent and routine running now, each a node with
@@ -208,6 +209,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
         </div>
       </div>
 
+      <OwnedExecutionControls />
       <AnimatePresence>{stopping ? <StopQuestion key={stopping.id} agent={stopping} still={still} onAnswer={(how) => {
         setStopping(null)
         requestAnimationFrame(() => box.current?.querySelector<HTMLElement>(`[data-agent-node="${CSS.escape(stopping.id)}"]`)?.focus())
@@ -220,6 +222,42 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
       ) : null}
     </div>
   )
+}
+
+/** Authoritative owned rows are separate from the decorative, name-only observations above. */
+function OwnedExecutionControls() {
+  const host = useHost(state => state)
+  const targets = executionTargets(host)
+  const state = useExecution()
+  const rows = executionFeedbackRows(targets, state.results)
+  return <details className="rounded-xl border border-border p-3 text-sm">
+    <summary>Owned execution controls ({targets.length})</summary>
+    {!targets.length ? <p>Live cancellation capability unknown.</p> : null}
+    {rows.length ? <ul>{rows.map(({ target, active, result }) => <OwnedExecutionRow key={executionKey(target)} target={target} source={host.epoch} active={active} result={result} pending={state.pending} />)}</ul> : null}
+  </details>
+}
+function OwnedExecutionRow({ target, source, active, result, pending }: { target: ExecutionControl; source: number; active: boolean; result?: import('./actions.ts').ExecutionResult; pending: Record<string, true> }) {
+  const [question, setQuestion] = useState<{ mode: 'stop' | 'force'; answer: (yes: boolean) => void } | null>(null)
+  const opener = useRef<HTMLButtonElement | null>(null)
+  const first = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => { if (question) first.current?.focus() }, [question])
+  useEffect(() => { if (!active) setQuestion(null) }, [active])
+  const ask = (mode: 'stop' | 'force', button: HTMLButtonElement) => {
+    opener.current = button
+    const answer = confirmExecution(target, () => hostStore.getState().epoch === source ? executionTargets(hostStore.getState()) : [], () => { if (target.kind === 'main') useChat.getState().stop(mode, target); else void runExecution(target, mode).catch(() => {}) })
+    setQuestion({ mode, answer })
+  }
+  const answer = (yes: boolean) => { question?.answer(yes); setQuestion(null); opener.current?.focus() }
+  return <li className="my-3" aria-label={`${target.label}, ${target.agentId ?? target.runId}, root ${target.rootId}`}>
+    <p>{target.label} · {target.agentId ?? target.runId} · root {target.rootId} · parent {target.parentId ?? 'none'}</p>
+    {active ? (['stop', 'force'] as const).map(mode => <button key={mode} type="button" className="mr-3 underline disabled:opacity-40" disabled={!(mode === 'force' ? target.canForce : target.canStop) || pending[executionKey(target, mode)]} onClick={event => ask(mode, event.currentTarget)}>{mode === 'force' ? 'Force stop' : 'Stop'}</button>) : null}
+    {active && question ? <div role="group" aria-label={`Confirm ${question.mode} ${target.label}`} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); answer(false) } }}>
+      <p>{question.mode === 'force' ? 'Force stop' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
+      <button ref={first} type="button" onClick={() => answer(false)}>Cancel</button>
+      <button type="button" className="ml-3" onClick={() => answer(true)}>Confirm {question.mode}</button>
+    </div> : null}
+    {result ? <p role="status">{result.text}</p> : null}
+  </li>
 }
 
 /**

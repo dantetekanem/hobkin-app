@@ -9,6 +9,7 @@ import { connectSections, reachSince } from '../src/features/signin/connect.ts'
 import { applyHostMessage, canUseModel, initialHostState, type HostState } from '../src/lib/host/state.ts'
 
 const { availabilityOf } = availability
+const stopControls = { home: '/home', epoch: 'owner:1', targets: [{ kind: 'main' as const, runId: 'turn:1', parentId: null, rootId: 'turn:1', label: 'hobkin', canStop: true, canForce: true }] }
 const provider = (id: string, routes: Partial<ProviderAccess>, connected = false): ProviderAccess => ({ id, name: id[0]!.toUpperCase() + id.slice(1), ...routes, connected })
 
 const MODELS: ModelsState = {
@@ -63,7 +64,7 @@ test('a page holding the provider list hears of each provider that connects, and
 })
 
 test('model loss keeps Stop and agent canvases available without allowing a message', () => {
-  const state: HostState = { ...initialHostState, home: '/home', link: 'open', owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, snapshot: { busy: true }, models: { ...MODELS, models: [] }, signIn: { status: 'signed-out' } }
+  const state: HostState = { ...initialHostState, home: '/home', link: 'open', owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, snapshot: { busy: true, stopControls }, models: { ...MODELS, models: [] }, signIn: { status: 'signed-out' } }
   assert.equal(availabilityOf(state).ready, false)
   assert.equal(availability.canStopConversation(state), true)
   const signingIn: HostState['signIn'] = { status: 'signing-in', provider: 'openai', lines: [] }
@@ -74,7 +75,8 @@ test('model loss keeps Stop and agent canvases available without allowing a mess
     for (const screen of ['agent', 'mind', 'work', 'world'] as const) assert.equal(availability.needsSignInCanvas(duringSignIn, screen), false)
     assert.equal(availability.needsSignInCanvas(duringSignIn, 'home'), true)
   }
-  assert.equal(availability.canStopConversation({ ...state, snapshot: { busy: false } }), false)
+  assert.equal(availability.canStopConversation({ ...state, snapshot: { busy: false, stopControls } }), true)
+  assert.equal(availability.canStopConversation({ ...state, snapshot: { busy: false, stopControls: { ...stopControls, targets: [] } } }), false)
   assert.equal(availability.canStopConversation({ ...state, link: 'lost' }), false)
   assert.equal(availability.canStopConversation({ ...state, home: null }), false)
   assert.equal(availability.canStopConversation({ ...state, owner: null }), false)
@@ -87,24 +89,25 @@ test('Stop dispatches without a model and reports a disconnected refusal', { tim
   try {
     const { useChat } = await import('../src/features/chat/chat-store.ts')
     const { hostStore } = await import('../src/lib/host/client.ts')
-    hostStore.setState({ ...initialHostState, home: '/isolated', link: 'open', owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, models: { ...MODELS, models: [] }, signIn: { status: 'signed-out' }, snapshot: { busy: true } }, true)
+    hostStore.setState({ ...initialHostState, home: '/isolated', link: 'open', owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, models: { ...MODELS, models: [] }, signIn: { status: 'signed-out' }, snapshot: { busy: true, stopControls: { ...stopControls, home: '/isolated' } } }, true)
     const calls: string[] = []
-    t.mock.method(HostConnection.prototype, 'command', async (name: string) => {
+    t.mock.method(HostConnection.prototype, 'command', async (name: string, args: unknown) => {
       calls.push(name)
       if (hostStore.getState().link !== 'open') throw Error('Disconnected')
-      return { stopped: true, unsent: [] }
+      return { ...(args as object), stop: { status: 'unknown' }, closure: { status: 'unsupported' }, descendants: { status: 'unknown', agents: [], cleanupScope: 'none', detachedCleanup: 'unknown' }, queueRecovery: { status: 'unknown' } }
     })
     useChat.setState({ problem: null })
     assert.equal(availabilityOf(hostStore.getState()).ready, false)
     assert.equal(availability.canStopConversation(hostStore.getState()), true)
     useChat.getState().stop()
     await new Promise<void>((done) => setImmediate(done))
-    assert.deepEqual(calls, ['conversation.stop'])
+    assert.deepEqual(calls, ['execution.stop'])
     assert.equal(useChat.getState().problem, null)
     hostStore.setState({ link: 'lost' })
     useChat.getState().stop()
     await new Promise<void>((done) => setImmediate(done))
-    assert.equal(useChat.getState().problem, 'Not stopped: Disconnected')
+    assert.equal(useChat.getState().problem, 'Not stopped: No live conversation control.')
+    assert.deepEqual(calls, ['execution.stop'])
   } finally { aliases.deregister() }
 })
 

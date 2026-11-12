@@ -4,9 +4,10 @@ import type { Choice } from '@/features/questions/queue.ts'
 import { useQuestions } from '@/features/questions/store.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useAgentThreads } from '@/features/work/agent-threads.ts'
-import { createAgentControls, type AgentControlState } from '@/features/work/actions.ts'
+import { createAgentControls, executionTargets, receiptText, type AgentControlState } from '@/features/work/actions.ts'
+import { runExecution } from '@/features/work/store.ts'
 import { agentsFrom, hasHost } from '@/lib/host/frame.ts'
-import { hostStore, runCommand, useAgents, useHasHost } from '@/lib/host/index.ts'
+import { hostStore, useAgents, useHasHost } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import type { SampleAgent } from './sample.ts'
 import { useView } from './view-store.ts'
@@ -116,14 +117,16 @@ export const useAgentControl = create<AgentControlState>()(() => ({ target: null
 export const agentControls = createAgentControls({
   selected: () => {
     const view = useView.getState()
-    const agent = view.screen === 'agent' ? findAgent(view.openAgent) : undefined
     const host = hostStore.getState()
-    return agent ? { ...agent, source: `${host.home}:${host.epoch}` } : undefined
+    const control = view.screen === 'agent' ? executionTargets(host).find(target => target.kind === 'run' && target.runId === view.openAgent) : undefined
+    const agent = view.screen === 'agent' ? findAgent(view.openAgent) : undefined
+    return control ? { id: control.runId, title: control.label, project: control.rootId, kind: control.kind, source: JSON.stringify([host.home, host.epoch, control.epoch]) } : !hasHost(host) && agent ? { ...agent, source: `${host.home}:${host.epoch}` } : undefined
   },
-  send: async (id) => {
-    if (!hasHost(hostStore.getState())) throw new Error('Sample agent only. Nothing was stopped.')
-    const answer = await runCommand('agent.stop', { run: id, how: 'for-now' })
-    return answer.message || 'Stop requested. Waiting for the host to report the result.'
+  send: async (id, mode = 'stop') => {
+    const target = executionTargets(hostStore.getState()).find(target => target.kind === 'run' && target.runId === id)
+    if (!target) throw new Error('No live control for this run. Nothing was stopped.')
+    const receipt = await runExecution(target, mode, 'for-now')
+    return receipt ? receiptText(receipt) : 'Current execution result unknown.'
   },
   changed: (state) => useAgentControl.setState(state),
 })

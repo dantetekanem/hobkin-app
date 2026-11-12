@@ -1,4 +1,6 @@
-import type { CommandArgs } from '#shared/commands/registry.ts'
+import type { CommandArgs, ExecutionTarget, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+import type { HostState } from '../../lib/host/state.ts'
+import type { StopControlTarget } from '#shared/protocol/snapshot.ts'
 import type { ChangeChoice, FinishedChange, FinishedGroup, Grade, PrMode } from '#shared/protocol/work.ts'
 
 /**
@@ -25,7 +27,54 @@ type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal'
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
 
-export interface AgentStopTarget { id: string; title: string; project: string; kind: string; source?: string }
+export type ExecutionControl = ExecutionTarget & StopControlTarget
+export const executionKey = (target: ExecutionTarget, mode?: StopExecutionArgs['mode']) => JSON.stringify([target.home, target.epoch, target.kind, target.runId, target.agentId ?? null, mode ?? null])
+let disconnected: string | undefined
+const sourceOf = (state: Pick<HostState, 'home' | 'epoch'>) => JSON.stringify([state.home, state.epoch])
+export function observeExecutionBoundary(state: HostState, previous: HostState) {
+  if (state.link !== 'open' && previous.link === 'open') disconnected = sourceOf(state)
+  if (state.home !== previous.home || state.epoch !== previous.epoch) disconnected = undefined
+}
+export function executionTargets(state: Pick<HostState, 'link' | 'home' | 'owner' | 'snapshot' | 'epoch'>): ExecutionControl[] {
+  const controls = state.snapshot.stopControls
+  if (state.link !== 'open' || state.owner?.state !== 'live' || !controls || controls.home !== state.home || disconnected === sourceOf(state)) return []
+  return controls.targets.map(target => ({ ...target, home: controls.home, epoch: controls.epoch }))
+}
+export function confirmExecution(target: ExecutionControl, current: () => ExecutionControl[], send: () => void) {
+  let consumed = false
+  return (yes: boolean) => {
+    if (consumed) return
+    consumed = true
+    if (yes && current().some(now => executionKey(now) === executionKey(target) && now.label === target.label && now.rootId === target.rootId && now.parentId === target.parentId)) send()
+  }
+}
+export function receiptText(receipt: StopExecutionReceipt): string {
+  return `${receipt.mode === 'force' ? 'Force' : 'Stop'}: cancellation ${receipt.stop.status}; captured closure ${receipt.closure.status}; descendants ${receipt.descendants.status} (${receipt.descendants.cleanupScope}); detached cleanup ${receipt.descendants.detachedCleanup}.${receipt.message ? ` ${receipt.message}` : ''}`
+}
+
+export interface ExecutionResult {
+  target: ExecutionControl
+  text: string
+  receipt?: StopExecutionReceipt
+  order: number
+}
+export function executionFeedbackRows(targets: ExecutionControl[], results: Record<string, ExecutionResult>) {
+  const live = new Set(targets.map(target => executionKey(target)))
+  const rows = targets.map(target => ({ target, active: true, result: results[executionKey(target)] }))
+  for (const [key, result] of Object.entries(results)) {
+    if (live.has(key) || executionKey(result.target) !== key) continue
+    rows.push({ target: result.target, active: false, result })
+  }
+  return rows
+}
+export function latestMainExecutionResult(main: ExecutionControl | undefined, results: Record<string, ExecutionResult>) {
+  if (main) return results[executionKey(main)]
+  return Object.values(results)
+    .filter(result => result.target.kind === 'main')
+    .reduce<ExecutionResult | undefined>((latest, result) => !latest || result.order > latest.order ? result : latest, undefined)
+}
+
+export interface AgentStopTarget { id: string; title: string; project: string; kind: string; source?: string; mode?: StopExecutionArgs['mode'] }
 export function createStopConfirmationAuthority(target: AgentStopTarget, current: () => AgentStopTarget | undefined, send: (how: 'for-now' | 'not-approved') => void) {
   let consumed = false
   return (how: 'for-now' | 'not-approved' | null) => {
@@ -46,13 +95,13 @@ export interface AgentControlState {
 /** A confirmation belongs to one selected execution, never the row that later takes its place. */
 export function createAgentControls({ selected, send, changed }: {
   selected: () => AgentStopTarget | undefined
-  send: (id: string) => Promise<string>
+  send: (id: string, mode?: StopExecutionArgs['mode']) => Promise<string>
   changed: (state: AgentControlState) => void
 }) {
   let state: AgentControlState = { target: null, busy: false, result: null }
   const pending = new Map<string, symbol>()
   let latest: symbol | undefined
-  const identity = (target: AgentStopTarget) => `${target.source ?? ''}\0${target.id}`
+  const identity = (target: AgentStopTarget) => `${target.source ?? ''}\0${target.id}\0${target.mode ?? 'stop'}`
   const update = (next: Partial<AgentControlState>) => { state = { ...state, ...next }; changed(state) }
   const current = (id: string) => { const agent = selected(); return agent?.id === id ? agent : undefined }
   return {
@@ -61,11 +110,12 @@ export function createAgentControls({ selected, send, changed }: {
       latest = undefined
       update({ target: null, busy: false, result: null })
     },
-    pending: (id: string | null) => { const target = id === null ? undefined : current(id); return target !== undefined && pending.has(identity(target)) },
-    request(id: string) {
-      const target = current(id)
+    pending: (id: string | null, mode: StopExecutionArgs['mode'] = 'stop') => { const target = id === null ? undefined : current(id); return target !== undefined && pending.has(identity({ ...target, mode })) },
+    request(id: string, mode?: StopExecutionArgs['mode']) {
+      const selected = current(id)
+      const target = selected && mode ? { ...selected, mode } : selected
       if (target && pending.has(identity(target))) return
-      if (state.target && state.target.source === target?.source) return
+      if (state.target && state.target.source === target?.source && state.target.mode === target?.mode) return
       latest = Symbol(id)
       update({ target: target ? { ...target } : null, busy: false, result: target ? null : { id, text: 'This agent has changed or finished. Nothing was stopped.' } })
     },
@@ -87,7 +137,7 @@ export function createAgentControls({ selected, send, changed }: {
       update({ target: null, busy: true })
       let text: string
       try {
-        text = await send(target.id)
+        text = await send(target.id, target.mode)
       } catch (error) {
         text = error instanceof Error ? error.message : String(error)
       }

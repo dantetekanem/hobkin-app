@@ -4,7 +4,9 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEven
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { useHost } from '@/lib/host/index.ts'
+import { hostStore, useHost } from '@/lib/host/index.ts'
+import { confirmExecution, executionKey, executionTargets, latestMainExecutionResult } from '../work/actions.ts'
+import { useExecution } from '../work/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
@@ -61,6 +63,18 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const availability = availabilityOf({ link, home, owner, signIn, models })
   const ready = availability.ready
   const turnRunning = useHost(canStopConversation)
+  const host = useHost(state => state)
+  const main = executionTargets(host).find(target => target.kind === 'main')
+  const execution = useExecution()
+  const mainResult = latestMainExecutionResult(main, execution.results)
+  const [forceAnswer, setForceAnswer] = useState<{ answer: (yes: boolean) => void; key: string } | null>(null)
+  const requestForce = () => {
+    if (!main) return
+    const epoch = host.epoch
+    const answer = confirmExecution(main, () => hostStore.getState().epoch === epoch ? executionTargets(hostStore.getState()) : [], () => stop('force', main))
+    setForceAnswer({ answer, key: executionKey(main) })
+  }
+  useEffect(() => { setForceAnswer(null) }, [host.home, host.epoch, host.link])
   const canSend = ready && canSendDraft({ text, attachments })
   const list = ready ? slashList(text, commands, slash) : null
   // The report the next message is about, chosen with r on a report.
@@ -167,6 +181,13 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     <div className="shrink-0 px-3 pt-1 pb-2">
       <div className="mx-auto max-w-[640px]">
         <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} />
+        {mainResult ? <p role="status" className="text-xs text-muted-foreground">{mainResult.text}</p> : null}
+        {main?.canForce ? <button type="button" disabled={execution.pending[executionKey(main, 'force')]} onClick={requestForce} className="text-xs underline">Force stop hobkin</button> : null}
+        {forceAnswer ? <div role="group" aria-label="Confirm Force stop hobkin" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); forceAnswer.answer(false); setForceAnswer(null) } }}>
+          <span>Force stop the captured conversation? Captured closure and detached cleanup are separate.</span>
+          <button type="button" autoFocus onClick={() => { forceAnswer.answer(false); setForceAnswer(null); input.current?.focus() }}>Cancel</button>
+          <button type="button" disabled={!main || forceAnswer.key !== executionKey(main)} onClick={() => { forceAnswer.answer(true); setForceAnswer(null); input.current?.focus() }}>Confirm Force stop</button>
+        </div> : null}
         <div className="flex items-end gap-2">
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">
@@ -223,7 +244,8 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                           render={
                             <button
                               type="button"
-                              onClick={stop}
+                              onClick={() => stop()}
+                              disabled={main !== undefined && execution.pending[executionKey(main, 'stop')]}
                               aria-label="Stop hobkin"
                               className="grid size-8 shrink-0 place-items-center rounded-full border border-border-strong text-foreground outline-offset-2 transition-[transform,background-color] duration-[140ms] ease-out hover:bg-surface-2 active:scale-[0.97]"
                             />

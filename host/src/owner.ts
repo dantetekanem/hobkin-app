@@ -1,8 +1,10 @@
 import { existsSync, statSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { HobkinApplication, HobkinSnapshot, MainSession, MainSessionOptions, OpenOptions, PiSessionEvent } from 'hobkin/src/cli/application.mjs'
 import type { Decision } from 'hobkin/src/cli/decisions.mjs'
 import type { OwnerState } from '#shared/protocol/messages.ts'
+import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { loadPiCodingAgent, loadPiModelPick, type PiModelSettings } from './pi.ts'
 import { createScriptedModel, SCRIPTED_MODEL, type ScriptedOptions, type SessionTool } from './scripted.ts'
 
@@ -84,6 +86,7 @@ export class HomeOwner {
   state: OwnerState = { state: 'opening' }
   snapshot: HobkinSnapshot | null = null
   app: HobkinApplication | null = null
+  private execution: { app: HobkinApplication; home: string; epoch: string } | null = null
   /** Another process holds the home's lock, and this looks again until it lets go. */
   held = false
 
@@ -100,6 +103,21 @@ export class HomeOwner {
 
   constructor(options: OwnerOptions) {
     this.options = options
+  }
+
+  /** Execution authority belongs only to the currently installed application, not an on-disk owner ID. */
+  captureExecution() {
+    if (this.closed || !this.app) return this.execution = null
+    if (this.execution?.app !== this.app) this.execution = { app: this.app, home: this.options.root, epoch: randomUUID() }
+    return this.execution
+  }
+
+  wireSnapshot(): (HobkinSnapshot & Pick<WireSnapshot, 'stopControls'>) | null {
+    if (!this.snapshot) return null
+    const { stopControls, ...snapshot } = this.snapshot
+    const captured = this.captureExecution()
+    if (!captured || this.snapshot !== captured.app.snapshot || snapshot.connection !== 'connected' || !stopControls) return snapshot
+    return { ...snapshot, stopControls: { home: captured.home, epoch: captured.epoch, targets: stopControls.targets } }
   }
 
   /**

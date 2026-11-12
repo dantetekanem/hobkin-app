@@ -26,7 +26,8 @@ test('client lists and describes strict app reads without exposing lifecycle or 
     assert.equal(described.args.additionalProperties, false)
     assert.deepEqual(described.args.properties, {})
   }
-  for (const name of ['slash.run', 'file.read', 'app.reset', 'app.restart']) {
+  for (const name of ['slash.run', 'file.read', 'app.reset', 'app.restart', 'execution.stop']) {
+    assert.equal(listed.some((row) => row.name === name), false)
     await assert.rejects(tool.execute('run', { action: 'run', name }), /cannot run|no command/)
   }
 })

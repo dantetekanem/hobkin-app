@@ -1,9 +1,10 @@
 import { hasHost, IN_MAC_WINDOW } from '../../lib/host/frame.ts'
 import { canUseModel, type HostState } from '../../lib/host/state.ts'
+import { executionTargets } from '../work/actions.ts'
 
 /** Stop uses the connected owner's authority, not a model's availability. */
-export function canStopConversation(state: Pick<HostState, 'link' | 'home' | 'owner' | 'snapshot'>): boolean {
-  return state.home !== null && state.link === 'open' && state.owner?.state === 'live' && state.snapshot.busy === true
+export function canStopConversation(state: Pick<HostState, 'link' | 'home' | 'owner' | 'snapshot' | 'epoch'>): boolean {
+  return executionTargets(state).some(target => target.kind === 'main' && target.canStop)
 }
 
 /** Model setup must not replace the screens that hold existing agent controls. */

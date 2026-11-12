@@ -29,6 +29,35 @@ export interface CommandDefinition {
   outside?: true
 }
 
+export interface ExecutionTarget {
+  home: string
+  epoch: string
+  kind: 'main' | 'run' | 'agent'
+  runId: string
+  agentId?: string
+}
+export interface StopExecutionArgs {
+  target: ExecutionTarget
+  mode: 'stop' | 'force'
+  attemptId: string
+  how?: 'for-now' | 'not-approved'
+}
+export interface StopExecutionReceipt {
+  target: ExecutionTarget
+  mode: 'stop' | 'force'
+  attemptId: string
+  stop: { status: 'confirmed' | 'unknown' | 'not-attempted' }
+  closure: { status: 'confirmed' | 'unknown' | 'not-attempted' | 'unsupported' }
+  descendants: {
+    status: 'confirmed' | 'unknown' | 'not-attempted'
+    agents: { agentId: string; status: 'confirmed' | 'unknown' }[]
+    cleanupScope: 'captured-rpc-children' | 'none'
+    detachedCleanup: 'unknown'
+  }
+  queueRecovery: { status: 'confirmed'; unsent: string[]; alreadyReturned?: boolean } | { status: 'unknown' } | { status: 'not-attempted' }
+  message?: string
+}
+
 const nothing = Type.Object({}, { additionalProperties: false })
 const words = (maxLength: number) => Type.String({ minLength: 1, maxLength, pattern: '\\S' })
 /** Pi's id for a provider. Plain enough to name in a shell command. */
@@ -126,6 +155,21 @@ export const COMMANDS = {
     description: 'Stop the turn that is running. Returns the messages hobkin had not read yet.',
     runs: 'host',
     args: nothing,
+  },
+  'execution.stop': {
+    description: 'Stop or force the captured execution. Cancellation, transport closure and queue recovery are independent receipts.',
+    runs: 'host',
+    args: Type.Object({
+      target: Type.Object({ home: words(4096), epoch: words(128), kind: oneOf(['main', 'run', 'agent']), runId: words(512), agentId: Type.Optional(words(128)) }, { additionalProperties: false }),
+      mode: oneOf(['stop', 'force']),
+      attemptId: Type.String({ pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$' }),
+      how: Type.Optional(oneOf(['for-now', 'not-approved'])),
+    }, { additionalProperties: false }),
+    rule: ({ target, how }) => {
+      const { kind, agentId } = target as ExecutionTarget
+      if ((kind === 'agent') !== (agentId !== undefined)) return 'require agentId only for an agent target'
+      return how !== undefined && kind !== 'run' ? 'allow how only for a Work parent run' : null
+    },
   },
   'slash.list': {
     description: 'List the slash commands of the message input: hobkin\'s own and the ones Pi offers, with how often each was run.',
@@ -550,6 +594,7 @@ export interface CommandResults {
   'conversation.attach': { id: string; name: string; mimeType: string; notice?: string }
   'conversation.detach': { ok: true }
   'conversation.stop': { stopped: boolean; unsent: string[] }
+  'execution.stop': StopExecutionReceipt
   'slash.list': { commands: SlashCommand[] }
   'slash.run': SlashOutcome
   'avatar.wake': { ok: true }

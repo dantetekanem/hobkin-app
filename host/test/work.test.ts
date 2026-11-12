@@ -7,6 +7,7 @@ import { runWorkCommand } from 'hobkin/src/cli/work/commands.mjs'
 import { approvalGroups, groupPlan } from 'hobkin/src/cli/work/groups.mjs'
 import { chooseProject, setProjectPrMode, setProjectPriority } from 'hobkin/src/cli/work/store.mjs'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import { checkArguments } from '#shared/commands/registry.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { ActivityKeeper } from '../src/activity.ts'
 import { agentHandlers, type AgentsApp } from '../src/agents.ts'
@@ -362,6 +363,19 @@ function fakeAgents({ reachable = [] as string[] } = {}) {
   }
   return { app, calls, handlers: agentHandlers({ app: () => app, runs: () => RUNS }) }
 }
+
+test('execution Stop admits only captured identities and explicit user modes', () => {
+  const target = { home: '/isolated/home', epoch: 'app-a', kind: 'agent', runId: 'root-run', agentId: 'owned-child' }
+  const args = { target, mode: 'force', attemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }
+  assert.deepEqual(checkArguments('execution.stop', args), { ok: true })
+  for (const invalid of [
+    { ...args, pid: 123 }, { ...args, autoForce: true }, { ...args, attemptId: 'not-a-uuid' },
+    { ...args, target: { ...target, name: 'owned-child' } },
+    { ...args, target: { ...target, agentId: undefined } },
+    { ...args, target: { ...target, kind: 'main' } }, { ...args, how: 'for-now' },
+  ]) assert.equal(checkArguments('execution.stop', invalid).ok, false)
+  assert.equal(checkArguments('execution.stop', { ...args, target: { ...target, kind: 'run', agentId: undefined }, how: 'not-approved' }).ok, true)
+})
 
 test('stopping an agent ends its run as stopped', async () => {
   const { calls, handlers } = fakeAgents()

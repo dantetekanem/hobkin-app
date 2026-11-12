@@ -68,6 +68,23 @@ test('confirm deduplicates pending Stop but permits retry while the same agent i
   assert.deepEqual(f.sent, [agent.id, agent.id])
 })
 
+test('a parent Force confirmation remains independent while ordinary Stop is pending', async () => {
+  const f = fixture()
+  let finish!: (text: string) => void
+  f.sender(() => new Promise(resolve => { finish = resolve }))
+  f.controls.request(agent.id)
+  const stop = f.controls.confirm()
+  assert.equal(f.controls.pending(agent.id), true)
+  f.sender(async () => 'Force closure unknown; detached cleanup unknown.')
+  f.controls.request(agent.id, 'force')
+  assert.equal(f.state().target?.mode, 'force')
+  await f.controls.confirm()
+  assert.match(f.state().result!.text, /closure unknown/)
+  assert.equal(f.controls.pending(agent.id), true)
+  finish('Late Stop reply.'); await stop
+  assert.match(f.state().result!.text, /Force/)
+})
+
 test('a pending agent does not block another target or overwrite its newer result', async () => {
   const f = fixture()
   let finish!: (value: string) => void

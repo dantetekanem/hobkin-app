@@ -4,7 +4,8 @@ import { useView } from '@/app/view-store.ts'
 import { hasHost } from '@/lib/host/frame.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore, runCommand, useHasHost, useWork } from '@/lib/host/index.ts'
-import { commandFor, type WorkAction } from './actions.ts'
+import { commandFor, executionKey, executionTargets, observeExecutionBoundary, receiptText, type ExecutionControl, type ExecutionResult, type WorkAction } from './actions.ts'
+import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import { applySample } from './sample-actions.ts'
 import { sampleWork } from './sample.ts'
 
@@ -93,12 +94,55 @@ import.meta.hot?.dispose(unsubscribeWorld)
 const unsubscribeHost = hostStore.subscribe((state, previous) => {
   if (state.home === previous.home && state.epoch === previous.epoch && state.link === previous.link) return
 
+  observeExecutionBoundary(state, previous)
+  executions.clear()
+  latestExecution.clear()
   activeRuns.clear()
+  useExecution.setState({ pending: {}, results: {} })
   worldProject = null
   const { busy, said } = useWorkUi.getState()
   if (Object.keys(busy).length || Object.keys(said).length) useWorkUi.setState({ busy: {}, said: {} })
 })
 import.meta.hot?.dispose(unsubscribeHost)
+
+export const useExecution = create<{ pending: Record<string, true>; results: Record<string, ExecutionResult> }>()(() => ({ pending: {}, results: {} }))
+let executionOrder = 0
+const executions = new Map<string, symbol>()
+const latestExecution = new Map<string, symbol>()
+/** Each mode has independent custody. No accepted signal is treated as captured transport closure. */
+export async function runExecution(target: ExecutionControl, mode: StopExecutionArgs['mode'], how?: StopExecutionArgs['how']): Promise<StopExecutionReceipt | undefined> {
+  const host = hostStore.getState()
+  const key = executionKey(target, mode)
+  const currentSource = () => {
+    const now = hostStore.getState()
+    return now.link === 'open' && now.owner?.state === 'live' && now.home === target.home && now.epoch === host.epoch && now.snapshot.stopControls?.home === target.home && now.snapshot.stopControls.epoch === target.epoch
+  }
+  const live = () => currentSource() && executionTargets(hostStore.getState()).some(now => executionKey(now) === executionKey(target) && (mode === 'force' ? now.canForce : now.canStop))
+  if (!live()) throw Error('This execution changed or disconnected. Nothing was stopped.')
+  if (useExecution.getState().pending[key]) return
+  const token = Symbol(key)
+  const order = ++executionOrder
+  executions.set(key, token)
+  latestExecution.set(executionKey(target), token)
+  useExecution.setState(state => ({ pending: { ...state.pending, [key]: true } }))
+  const args: StopExecutionArgs = { target: { home: target.home, epoch: target.epoch, kind: target.kind, runId: target.runId, ...(target.agentId ? { agentId: target.agentId } : {}) }, mode, attemptId: crypto.randomUUID(), ...(how && target.kind === 'run' && host.snapshot.runs?.some(run => run.id === target.runId && run.work) ? { how } : {}) }
+  try {
+    const receipt = await runCommand('execution.stop', args)
+    if (executionKey(receipt.target, receipt.mode) !== key || receipt.attemptId !== args.attemptId) throw Error('Stop receipt does not match this attempt.')
+    if (executions.get(key) !== token || !currentSource()) return
+    if (latestExecution.get(executionKey(target)) === token) useExecution.setState(state => ({ results: { ...state.results, [executionKey(target)]: { target, order, text: receiptText(receipt), receipt } } }))
+    return receipt
+  } catch (error) {
+    if (executions.get(key) === token && latestExecution.get(executionKey(target)) === token && currentSource()) useExecution.setState(state => ({ results: { ...state.results, [executionKey(target)]: { target, order, text: error instanceof Error ? error.message : String(error) } } }))
+    throw error
+  } finally {
+    if (executions.get(key) === token) {
+      executions.delete(key)
+      const { [key]: _done, ...pending } = useExecution.getState().pending
+      useExecution.setState({ pending })
+    }
+  }
+}
 
 /** Work mode to draw: the host's once a host has answered, the sample before that. Null while a host has not said. */
 export function useWorkView(): { work: WorkState | null; live: boolean } {
@@ -145,6 +189,12 @@ export async function runWork(action: WorkAction, { live, place }: { live: boole
 
 /** The host's command for the action. A refusal rejects, with hobkin's words. */
 async function onHost(action: WorkAction): Promise<Said> {
+  if (action.do === 'stop') {
+    const target = executionTargets(hostStore.getState()).find(row => row.kind === 'run' && row.runId === action.run)
+    if (!target) throw Error('No live control for this run. Nothing was stopped.')
+    const receipt = await runExecution(target, 'stop', action.how)
+    return { tone: receipt?.stop.status === 'confirmed' && receipt.closure.status === 'confirmed' ? 'done' : 'refused', text: receipt ? receiptText(receipt) : 'Execution result unknown.' }
+  }
   const call = commandFor(action)
   // The call's name and arguments travel together, so the pair is always one the registry knows.
   const run = runCommand as (name: string, args: unknown) => Promise<{ message?: string; lines?: string[] } | null>

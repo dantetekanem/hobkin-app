@@ -27,6 +27,8 @@ import { childHue, childLine, childrenSummary, describeChild, satellitesOf } fro
 import { useRunChildren } from './children.ts'
 import { sayToAgent } from './say.ts'
 import { agentEntry, agentReading } from './agent-entry.ts'
+import { executionKey, executionTargets } from './actions.ts'
+import { useExecution } from './store.ts'
 
 /** Where the small screen's header starts, below the menu and its second row. */
 const HEADER_TOP = 152
@@ -119,7 +121,7 @@ export function AgentScreen() {
           ) : null}
         </motion.div>
       </motion.div>
-      <AgentStopControl key={agentId} agentId={agentId} finished={!running} />
+      <AgentStopControl key={agentId} agentId={agentId} />
       {/* Drawn with the screen, the switch and the exchange are simply there. Arriving later, they rise in. */}
       <AnimatePresence initial={false}>
         {reading && agent && agentId ? (
@@ -159,9 +161,14 @@ function keepPreview(agentId: string) {
   if (view.screen === 'agent' && view.openAgent === agentId && view.previewReturn !== null && !view.agentTalk) view.openAgentCanvas(agentId)
 }
 
-function AgentStopControl({ agentId, finished }: { agentId: string | null; finished: boolean }) {
+function AgentStopControl({ agentId }: { agentId: string | null }) {
   const { target, result } = useAgentControl()
-  const busy = agentControls.pending(agentId)
+  const host = useHost(state => state)
+  const control = executionTargets(host).find(row => row.kind === 'run' && row.runId === agentId)
+  const execution = useExecution()
+  const pending = (mode: 'stop' | 'force') => agentControls.pending(agentId, mode) || (control !== undefined && execution.pending[executionKey(control, mode)] === true)
+  const executionResult = Object.values(execution.results).find(result => result.receipt?.target.kind === 'run' && result.receipt.target.runId === agentId)
+  const busy = pending(target?.mode ?? 'stop')
   const dialog = useRef<HTMLDialogElement>(null)
   const opener = useRef<HTMLElement | null>(null)
   const cancel = () => {
@@ -186,14 +193,16 @@ function AgentStopControl({ agentId, finished }: { agentId: string | null; finis
   }, [target, agentId])
   return (
     <div className="absolute right-6 top-6 z-10 text-sm">
-      <button type="button" disabled={finished || busy} onClick={() => agentId && agentControls.request(agentId)} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Stop agent</button>
-      {result?.id === agentId ? <p role="status" className="mt-2 max-w-72 text-muted-foreground">{result.text}</p> : null}
+      <button type="button" disabled={!control?.canStop || pending('stop')} onClick={() => agentId && agentControls.request(agentId)} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Stop agent</button>
+      <button type="button" disabled={!control?.canForce || pending('force')} onClick={() => agentId && agentControls.request(agentId, 'force')} className="ml-2 rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Force stop</button>
+      {!control ? <p className="text-muted-foreground">Live cancellation capability unknown.</p> : null}
+      {executionResult || result?.id === agentId ? <p role="status" className="mt-2 max-w-72 text-muted-foreground">{executionResult?.text ?? result?.text}</p> : null}
       <dialog ref={dialog} aria-labelledby="agent-stop-title" aria-describedby="agent-stop-description" onCancel={(event) => { event.preventDefault(); cancel() }} onKeyDown={(event) => event.stopPropagation()} className="m-auto max-w-md rounded-2xl border border-border bg-background p-6 text-foreground backdrop:bg-black/40">
-        <h2 id="agent-stop-title" className="text-lg font-semibold">Stop {target?.kind === 'routine' ? 'routine' : 'agent'}?</h2>
-        <p id="agent-stop-description" className="my-4">{target?.title} · {target?.project}. {target?.kind === 'work' ? 'Its branch stays and its item goes to the end of the queue.' : 'The current run will be cancelled.'}</p>
+        <h2 id="agent-stop-title" className="text-lg font-semibold">{target?.mode === 'force' ? 'Force stop' : 'Stop'} this run?</h2>
+        <p id="agent-stop-description" className="my-4">{target?.title} · {target?.project}. Cancellation and captured closure are reported separately. Detached cleanup remains unknown.</p>
         <div className="flex justify-end gap-4">
           <button type="button" disabled={busy} onClick={cancel}>Cancel</button>
-          <button type="button" disabled={busy || finished || target?.id !== agentId} onClick={() => void agentControls.confirm()}>{busy ? 'Stopping…' : 'Stop run'}</button>
+          <button type="button" disabled={busy || !(target?.mode === 'force' ? control?.canForce : control?.canStop) || target?.id !== agentId} onClick={() => void agentControls.confirm()}>{target?.mode === 'force' ? 'Confirm Force stop' : 'Stop run'}</button>
         </div>
       </dialog>
     </div>

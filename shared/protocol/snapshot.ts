@@ -1,4 +1,5 @@
 import type { ActivityEntry } from './activity.ts'
+import type { ExecutionTarget } from '../commands/registry.ts'
 
 /**
  * hobkin's snapshot as it travels to the UI. hobkin builds it in `src/cli/application.mjs` (`project`).
@@ -151,7 +152,17 @@ export interface RunTelemetry {
   }[]
 }
 
+export interface StopControlTarget extends Omit<ExecutionTarget, 'home' | 'epoch'> {
+  parentId: string | null
+  rootId: string
+  label: string
+  canStop: boolean
+  canForce: boolean
+}
+
 export interface WireSnapshot {
+  /** Live captured custody, never restored from a saved snapshot. */
+  stopControls?: { home: string; epoch: string; targets: StopControlTarget[] }
   /** Whether hobkin's main conversation is connected: `connected` when live, `offline` for a saved view. */
   connection?: 'connected' | 'offline' | 'connecting'
   savedAt?: string

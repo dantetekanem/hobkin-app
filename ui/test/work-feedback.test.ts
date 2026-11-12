@@ -5,6 +5,7 @@ import { agentControls, useAgentControl } from '../src/app/running-agents.ts'
 import { HostConnection } from '../src/lib/host/connection.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
+import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -53,26 +54,29 @@ test('disconnect, home change, and reset discard old work feedback', async t => 
 })
 
 test('map Stops own their target independently, preserve reasons, and permit settled retry', async t => {
-  const replies = [deferred<{ message: string }>(), deferred<{ message: string }>()]
-  const calls: unknown[] = []
-  t.mock.method(HostConnection.prototype, 'command', (name: string, args: unknown) => {
+  const replies = [deferred<StopExecutionReceipt>(), deferred<StopExecutionReceipt>()]
+  const calls: [string, StopExecutionArgs][] = []
+  const receipt = (args: StopExecutionArgs, message: string): StopExecutionReceipt => ({ ...args, message, stop: { status: 'unknown' }, closure: { status: 'unknown' }, descendants: { status: 'unknown', agents: [], cleanupScope: 'captured-rpc-children', detachedCleanup: 'unknown' }, queueRecovery: { status: 'not-attempted' } })
+  t.mock.method(HostConnection.prototype, 'command', (name: string, args: StopExecutionArgs) => {
     calls.push([name, args])
-    return replies[calls.length - 1]?.promise ?? Promise.resolve({ message: 'Retry requested.' })
+    return replies[calls.length - 1]?.promise ?? Promise.resolve(receipt(args, 'Retry requested.'))
   })
   openHome('/home-a')
+  hostStore.setState({ owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, snapshot: { runs: [{ id: 'work:a', title: 'A', state: 'ended', work: { slug: 'project', item: 'a' } }], stopControls: { home: '/home-a', epoch: 'owner:1', targets: ['work:a', 'session:b'].map(runId => ({ kind: 'run', runId, parentId: null, rootId: runId, label: runId, canStop: true, canForce: true })) } } })
   const a = runWork({ do: 'stop', run: 'work:a', how: 'not-approved' }, { live: true, place: 'map' })
   const b = runWork({ do: 'stop', run: 'session:b', how: 'for-now' }, { live: true, place: 'map' })
-  assert.deepEqual(calls, [
-    ['agent.stop', { run: 'work:a', how: 'not-approved' }],
-    ['agent.stop', { run: 'session:b', how: 'for-now' }],
+  assert.deepEqual(calls.map(([name, args]) => [name, args.target.runId, args.mode, args.how]), [
+    ['execution.stop', 'work:a', 'stop', 'not-approved'],
+    ['execution.stop', 'session:b', 'stop', undefined],
   ])
-  replies[1]!.resolve({ message: 'B requested.' })
+  replies[1]!.resolve(receipt(calls[1]![1], 'B requested.'))
   await b
   await runWork({ do: 'stop', run: 'session:b', how: 'for-now' }, { live: true, place: 'map' })
   assert.equal(calls.length, 3)
-  replies[0]!.resolve({ message: 'A requested.' })
+  replies[0]!.resolve(receipt(calls[0]![1], 'A requested.'))
   await a
-  assert.equal(useWorkUi.getState().said['stop:session:b']?.text, 'Retry requested.')
+  assert.match(useWorkUi.getState().said['stop:session:b']!.text, /Retry requested/)
+  assert.equal(useWorkUi.getState().said['stop:session:b']?.tone, 'refused')
 })
 
 test('an old epoch cannot clear or replace a newer operation; host command targets stay exact', async t => {
