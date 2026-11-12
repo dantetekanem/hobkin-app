@@ -231,7 +231,7 @@ export class WorkDirector {
 
   /** A pick whose item finished another way, by a merge, a done or a drop, would sit in the list for good, so it leaves it. One that waits on the user keeps its place. */
   dropFinishedPicks() {
-    const { queueNext } = readMode(this.root);
+    const { queueNext, queueNow } = readMode(this.root);
     const stillWanted = key => {
       const [kind, slug, id] = key.split(':');
       if (kind !== 'item') return true;
@@ -239,7 +239,7 @@ export class WorkDirector {
       return [...runnableStates, 'waiting'].includes(state);
     };
     const kept = queueNext.filter(stillWanted);
-    if (kept.length < queueNext.length) writeMode(this.root, { queueNext: kept });
+    if (kept.length < queueNext.length) writeMode(this.root, { queueNext: kept, queueNow: queueNow.filter(key => kept.includes(key)) });
   }
 
   /** One start per tick, and the plan keeps them spaced out, so each run shows what it costs before the next one begins. What starts by itself spends its priority's runs. */
@@ -247,9 +247,10 @@ export class WorkDirector {
     this.lastStartAt = this.now();
     const lastStartAt = new Date(this.lastStartAt).toISOString();
     const priority = countsAgainst(entry);
+    const unpicked = keys => keys.filter(key => key !== entry.key);
     writeMode(this.root, {
       lastStartAt,
-      ...(entry.picked ? { queueNext: mode.queueNext.filter(key => key !== entry.key) } : {}),
+      ...(entry.picked ? { queueNext: unpicked(mode.queueNext), queueNow: unpicked(mode.queueNow) } : {}),
       ...(priority ? { countedStarts: withStart(mode.countedStarts, priority, this.lastStartAt) } : {}),
     });
     const tokens = { today: used, limit };

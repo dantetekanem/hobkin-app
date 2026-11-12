@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
-import { shortPath } from './chat.mjs';
+import { lookTime, shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
 import { forecastWork } from './forecast.mjs';
 import { offeredIn } from './land-offer.mjs';
@@ -11,7 +11,7 @@ import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
+  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
   requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
@@ -268,8 +268,23 @@ function whenItStarts({ mode, pause, waitingOn, entries, free }, key, owner) {
   return wait ? `For now it is waiting: ${wait}.` : 'It starts on the next tick.';
 }
 
-/** This is the plan's run-now path. It only goes first: the worker ceiling, the budget and every stop still decide when it starts. */
-export function triggerRow(root, reference, target) {
+/** A row started now goes at once, as one extra worker when none is free. What still holds it is a stop, the budget, the gap between starts or its own wait. */
+function whenItStartsNow({ mode, pause, entries, next, free, nextStartAt }, key, owner) {
+  if (!mode.enabled) return 'Work mode is off, so it waits for hobkin work start.';
+  if (!owner) return NEEDS_AN_OWNER;
+  const extra = free > 0 ? '' : ' as one extra worker';
+  if (next?.key === key) return `It starts now${extra}.`;
+  if (pause) return pause.line;
+  const wait = entries.find(row => row.key === key)?.waiting;
+  if (wait) return `For now it is waiting: ${wait}.`;
+  return nextStartAt ? `It starts at ${lookTime(nextStartAt, Date.now())}${extra}, after the gap between starts.` : 'It starts once it is due.';
+}
+
+/**
+ * This is the plan's run-now path. It only goes first: the worker ceiling, the budget and every stop still decide when it starts. `now` is the user's
+ * word to start it at once, and then only the worker ceiling stops counting.
+ */
+export function triggerRow(root, reference, target, { now = false } = {}) {
   const view = ownerView(root);
   const { entries } = planWork(root, view);
   const nextOnProject = ({ slug }) => {
@@ -280,10 +295,11 @@ export function triggerRow(root, reference, target) {
   const row = queueRow(root, reference, target, nextOnProject);
   assertCanRun(root, row);
   if (row.item?.state === 'branch') updateItem(root, row.project.slug, row.item.id, { state: 'open' });
-  pickNext(root, row.key);
+  (now ? pickNow : pickNext)(root, row.key);
 
-  const next = whenItStarts(planWork(root, view), row.key, view.owner);
-  return reply(`Queued ${row.label} to run next. ${next}`, { key: row.key });
+  const plan = planWork(root, view);
+  if (now) return reply(`Queued ${row.label} to start at once. ${whenItStartsNow(plan, row.key, view.owner)}`, { key: row.key });
+  return reply(`Queued ${row.label} to run next. ${whenItStarts(plan, row.key, view.owner)}`, { key: row.key });
 }
 
 // A run names its project by slug and its item by id, and the user knows them by name and title.

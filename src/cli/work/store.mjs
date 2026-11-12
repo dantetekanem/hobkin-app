@@ -150,11 +150,14 @@ function readWorkRecords(file, key) {
   return records;
 }
 
-/** `countedStarts` is what started by itself and spends its priority's runs, as `{ at, priority }`, kept only while its window lasts. */
+/**
+ * `countedStarts` is what started by itself and spends its priority's runs, as `{ at, priority }`, kept only while its window lasts. `queueNow` is the
+ * picks the user said to start now, which go past the worker ceiling.
+ */
 export function readMode(root) {
   const defaults = {
     version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, dailyTokens: DEFAULT_DAILY_TOKENS,
-    startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [], countedStarts: [],
+    startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [], queueNow: [], countedStarts: [],
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
   const { pool, ...saved } = readJson(modePath(root), {});
@@ -205,9 +208,23 @@ export function pickNext(root, key) {
   return writeMode(root, { queueNext: [...new Set([...queueNext, key])], queueSkipped: queueSkipped.filter(entry => entry !== key) });
 }
 
+/**
+ * The user's word to start a row now: it goes ahead of every other pick, and with no worker free it starts as one extra worker. A pause, the budget,
+ * every stop and the gap between starts still hold it. Its mark goes with its pick.
+ */
+export function pickNow(root, key) {
+  const { queueNext, queueNow, queueSkipped } = readMode(root);
+  return writeMode(root, {
+    queueNext: [key, ...queueNext.filter(entry => entry !== key)],
+    queueNow: [...new Set([...queueNow, key])],
+    queueSkipped: queueSkipped.filter(entry => entry !== key),
+  });
+}
+
 export function skipInQueue(root, key) {
-  const { queueNext, queueSkipped } = readMode(root);
-  return writeMode(root, { queueNext: queueNext.filter(entry => entry !== key), queueSkipped: [...new Set([...queueSkipped, key])] });
+  const { queueNext, queueNow, queueSkipped } = readMode(root);
+  const without = keys => keys.filter(entry => entry !== key);
+  return writeMode(root, { queueNext: without(queueNext), queueNow: without(queueNow), queueSkipped: [...new Set([...queueSkipped, key])] });
 }
 
 export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });

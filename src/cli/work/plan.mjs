@@ -460,8 +460,8 @@ function inQueueOrder(mode, entries, lastRun, isLeftAlone) {
   ];
 }
 
-/** What a row waits on, with what stops the whole plan left to the pause. */
-export const rowWait = ({ waiting }, free) => waiting ?? (free > 0 ? null : 'a free worker');
+/** What a row waits on, with what stops the whole plan left to the pause. A row started now waits for no worker. */
+export const rowWait = ({ waiting, pickedNow }, free) => waiting ?? (free > 0 || pickedNow ? null : 'a free worker');
 
 // Urgent work may pass the hour's share. A look is routine, however high it ranks.
 export const skipsTheHour = entry => entry.grade === 'P0' && entry.kind !== 'look';
@@ -520,10 +520,13 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const shipping = shipFirst(readyItems(root, Infinity), mode, now);
   const sorted = [...discoveryEntry(context), ...projects.flatMap(project => projectEntries(context, project))]
     .map(entry => {
+      const picked = mode.queueNext.includes(entry.key);
       const row = {
         ...entry,
         skipped: mode.queueSkipped.includes(entry.key),
-        picked: mode.queueNext.includes(entry.key),
+        picked,
+        // A mark to start now goes with its pick, so it never starts anything by itself.
+        pickedNow: picked && mode.queueNow.includes(entry.key),
         estimate: estimateRun(history, { kind: entry.lane === 'do' ? 'do' : entry.kind, level: entry.level }),
       };
       return { ...row, held: shipping.holding && startsNewWork(row) };
@@ -544,9 +547,11 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const pause = stop ?? budgetPause(entries.filter(entry => !entry.skipped), budget, now);
   const spaced = startsAt !== null && startsAt > now;
   const waitingOn = checks && free <= 0 ? 'Scheduled checks are running, so nothing new starts until they finish.' : null;
-  const first = entries.find(entry => !entry.waiting && mayStart(mode, entry));
+  const canGo = entry => !entry.waiting && mayStart(mode, entry);
+  // With no worker free, a row the user said to start now still goes, as one extra worker.
+  const ready = free > 0 ? entries.find(canGo) : entries.find(entry => entry.pickedNow && canGo(entry));
   // A pick goes first, and it waits out the gap like any start, because two at once is the race the gap is there to stop.
-  const next = stop || free <= 0 || spaced ? null : first ?? null;
+  const next = stop || spaced ? null : ready ?? null;
   return {
     mode, entries, next, pause, budget, subscription, agents, free, waitingOn, shipFirst: shipping,
     nextStartAt: spaced ? new Date(startsAt).toISOString() : null,

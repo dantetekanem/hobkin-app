@@ -32,7 +32,7 @@ import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInb
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview } from './work/controls.mjs';
+import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview, triggerRow } from './work/controls.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
@@ -1000,6 +1000,8 @@ export class HobkinApplication {
       drop: () => dropProject(root, slug),
       done: () => markDone(root, slug, value),
       run: () => pickNext(root, slug),
+      // Start now on a queue row: at once, as one extra worker when none is free. The tick below starts it.
+      now: () => triggerRow(root, slug, undefined, { now: true }),
       later: () => skipInQueue(root, slug),
       back: () => putBackInQueue(root, slug),
       retry: () => retryItem(root, slug, value),

@@ -115,8 +115,8 @@ async function watchCommand(root, reference, input) {
 
 // `finishes` marks work on a finished branch, which starts even with auto-pick off.
 const planRow = (entry, free) => {
-  const { key, kind, lane, slug, project, level, grade, item, title, why, estimate, waiting, skipped, picked } = entry;
-  return { key, kind, lane, slug, project, level, grade, item: item?.id ?? null, title, why, estimate, skipped, picked, finishes: finishesWork(entry), waiting: rowWait({ waiting }, free) };
+  const { key, kind, lane, slug, project, level, grade, item, title, why, estimate, waiting, skipped, picked, pickedNow } = entry;
+  return { key, kind, lane, slug, project, level, grade, item: item?.id ?? null, title, why, estimate, skipped, picked, finishes: finishesWork(entry), waiting: rowWait({ waiting, pickedNow }, free) };
 };
 const runningRow = ({ id, tokens = 0, cached = 0, note = null, estimate }) => ({ id, tokens, cached, estimate, note });
 
