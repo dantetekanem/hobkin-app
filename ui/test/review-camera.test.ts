@@ -103,14 +103,18 @@ test('the card goes right of its node, or left when the right has no room, and c
 })
 
 test('in the sample pull request the card beside each unit covers no other card', () => {
-  const canvas = { width: 1100, height: 860 }
-  const area = uncoveredArea(canvas, { top: TOP, bottom: RAIL, left: 340 })
-  for (const step of arranged.story.filter((entry) => entry.unit)) {
-    const focus = rectsOf(arranged, step.focus)
-    const others = arranged.nodes.filter((node) => !step.focus.includes(node.id))
-    const shot = frameStep({ focus, others: others.map((node) => nodeRect(node.kind, node.position)), area, card: { width: CARD, height: 300 } })
-    for (const node of others) assert.equal(overlap(shot.card!, toScreen(nodeRect(node.kind, node.position), shot.camera, area)), false, `${step.title}: its card covers ${node.title}`)
-    assert.ok(inside(shot.card!, area) && inside(toScreen(focus[0]!, shot.camera, area), area), `${step.title}: framed clear of the steps panel`)
+  // A window of 1100 by 880, and one of 1432 by 840 with the chat beside the canvas, the steps panel open in both.
+  for (const [canvas, left] of [[{ width: 1100, height: 860 }, 340], [{ width: 980, height: 820 }, 294]] as const) {
+    const area = uncoveredArea(canvas, { top: TOP, bottom: RAIL, left })
+    for (const step of arranged.story.filter((entry) => entry.unit)) {
+      const focus = rectsOf(arranged, step.focus)
+      const others = arranged.nodes.filter((node) => !step.focus.includes(node.id))
+      // The card as it first shows: its TL;DR, "Read more" closed, and Open code.
+      const shot = frameStep({ focus, others: others.map((node) => nodeRect(node.kind, node.position)), area, card: { width: CARD, height: 260 } })
+      const where = `${step.title} in ${canvas.width}x${canvas.height}`
+      for (const node of others) assert.equal(overlap(shot.card!, toScreen(nodeRect(node.kind, node.position), shot.camera, area)), false, `${where}: its card covers ${node.title}`)
+      assert.ok(inside(shot.card!, area) && inside(toScreen(focus[0]!, shot.camera, area), area), `${where}: framed clear of the steps panel`)
+    }
   }
 })
 

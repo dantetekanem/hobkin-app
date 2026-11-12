@@ -754,6 +754,50 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+/* "Read more": the rest of the step, closed at first, each part short. A part of one line keeps the rest in its tooltip. */
+.rv-step-more {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin: -2px 0 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hb-text);
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: var(--rv-step-edge);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.rv-step-more svg {
+  width: 15px;
+  height: 15px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-step-more:hover {
+    background: color-mix(in oklab, var(--hb-text) 8%, transparent);
+  }
+}
+.rv-step-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in oklab, var(--rv-step-edge) 45%, transparent);
+}
+.rv-step-line {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .rv-step-action {
   display: inline-flex;
   align-items: center;

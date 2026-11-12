@@ -300,6 +300,18 @@ export function frameStep({ focus, others = [], area, card = null, maxZoom = FRA
     }
     whole = kept.length === focus.length
   }
+  // A narrow room that holds no card beside the step at a reading size: a little smaller, down to 0.6, rather than a
+  // card over another card. The closest zoom where the card covers none wins, else the closest where it fits.
+  const narrow = full != null && room.width < Math.max(...focus.map((rect) => rect.width)) * reading + BESIDE_GAP + full.width
+  if (full && (!chosen.fits || (narrow && chosen.cost[2]! > 0))) {
+    const nearer = readingZooms(reading - 0.05, 0.6).map((zoom) => optionAt(zoom, chosen.kept))
+    const fitting = nearer.filter((option) => option.fits && option.cost[0] === 0)
+    const clear = fitting.find((option) => option.cost[2] === 0) ?? fitting[0]
+    if (clear) {
+      chosen = clear
+      whole = clear.kept.length === focus.length
+    }
+  }
   // A short room: the card gives up height, down to the least worth showing, and scrolls, so it fits under or over its
   // node. Then the card's node alone, with its card. Then, as under a tall code panel, smaller than reads until it fits.
   const least = full ? Math.min(FRAME.minCardHeight, full.height) : 0

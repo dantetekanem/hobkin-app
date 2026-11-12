@@ -17,8 +17,10 @@ export interface BesidePlace {
   offset: number
   zoom: number
   width: number
-  /** The most it may take. More than that scrolls. */
+  /** How tall it was placed at: it frames with its node at this height. */
   height: number
+  /** The most it may grow to, as "Read more" opens. More than that, or than the uncovered area leaves, scrolls. */
+  most: number
 }
 
 /** Where a card stands on screen now, beside its node where the node is now: the box `BesideCard` draws it in. */
@@ -48,6 +50,7 @@ export function BesideCard({ place, label, tone, children }: { place: BesidePlac
   const rig = useRig()
   const reduced = useReduced()
   const frame = useRef<HTMLDivElement>(null)
+  const scroll = useRef<HTMLDivElement>(null)
   const at = useStore(
     useCallback(
       (flow) => {
@@ -63,8 +66,12 @@ export function BesideCard({ place, label, tone, children }: { place: BesidePlac
       const element = frame.current
       if (!element || !at) return
       const [x = 0, y = 0] = at.split(' ').map(Number)
-      const height = Math.min(element.offsetHeight || place.height, place.height)
+      const height = Math.min(element.offsetHeight || place.height, place.most)
       const { node, card } = besideRect(place, { x, y }, viewport, height)
+      // It grows away from its node's top as "Read more" opens, and never past what the panels leave uncovered.
+      const room = rig.area()
+      const left = place.side === 'above' ? card.y + card.height - room.y - LEADER_END : room.y + room.height - card.y - LEADER_END
+      if (scroll.current) scroll.current.style.maxHeight = `${Math.max(Math.min(place.height, place.most), Math.min(place.most, left))}px`
       // The leader meets the card level with the middle of the node, kept off the card's rounded ends.
       const across = place.side === 'right' || place.side === 'left'
       const [middle, start, length] = across ? [node.y + node.height / 2, card.y, height] : [node.x + node.width / 2, card.x, place.width]
@@ -76,6 +83,14 @@ export function BesideCard({ place, label, tone, children }: { place: BesidePlac
   )
   useLayoutEffect(() => follow(rig.viewport.get()), [follow, rig])
   useMotionValueEvent(rig.viewport, 'change', follow)
+  // Opening "Read more" changes its height, so it is placed again as its words change.
+  useLayoutEffect(() => {
+    const element = scroll.current
+    if (!element) return
+    const observer = new ResizeObserver(() => follow(rig.viewport.get()))
+    observer.observe(element.firstElementChild ?? element)
+    return () => observer.disconnect()
+  }, [follow, rig])
 
   return (
     <div ref={frame} className="rv-beside" data-side={place.side} data-tone={tone} data-rv-beside={tone} style={{ width: place.width }}>
@@ -88,7 +103,7 @@ export function BesideCard({ place, label, tone, children }: { place: BesidePlac
         animate={{ opacity: 1, transform: SETTLED, transition: { transform: { ...spring.rise, delay: 0.12 }, opacity: { ...tween.enter, delay: 0.12 } } }}
         exit={{ opacity: 0, transition: tween.exit }}
       >
-        <div className="rv-step-scroll" style={{ maxHeight: place.height }}>
+        <div ref={scroll} className="rv-step-scroll" style={{ maxHeight: place.most }}>
           {children}
         </div>
       </motion.aside>

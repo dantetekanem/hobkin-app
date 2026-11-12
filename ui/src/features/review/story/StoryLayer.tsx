@@ -23,6 +23,8 @@ import { wireEnds } from './travel.ts'
 const cardWidth = (canvas: number) => Math.round(Math.min(380, Math.max(288, canvas * 0.27)))
 /** How wide a card beside a node is, for the uncovered area: wide enough to read, never more than the room. */
 const besideWidth = (area: Rect) => Math.round(Math.max(240, Math.min(400, Math.max(320, area.width * 0.36), area.width - 40)))
+/** The most a step's card grows to as "Read more" opens: past that, it scrolls. */
+const CARD_MOST = 560
 /** The notes panel is a little narrower than the step's card. */
 const notesWidth = (area: Rect) => Math.round(Math.max(240, Math.min(340, area.width - 40)))
 
@@ -138,7 +140,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
         const viewport = viewportFor(camera, area)
         const onScreen = (rect: Rect) => ({ x: rect.x * viewport.zoom + viewport.x, y: rect.y * viewport.zoom + viewport.y, width: rect.width * viewport.zoom, height: rect.height * viewport.zoom })
         const placed = placeCard({ node: onScreen(rectOf.get(told[0]!)!), card: { width, height: Math.min(height, area.height - 40) }, others: others.map(onScreen), area })
-        nextBeside = { key: content.key, node: told[0]!, kind: nodeOf.get(told[0]!)!.kind, side: placed.side, offset: placed.offset, zoom: camera.zoom, width, height: placed.height }
+        nextBeside = { key: content.key, node: told[0]!, kind: nodeOf.get(told[0]!)!.kind, side: placed.side, offset: placed.offset, zoom: camera.zoom, width, height: placed.height, most: Math.max(placed.height, CARD_MOST) }
       }
     } else if (framing === 'step') {
       // A step, a jump, hobkin's cursor, G on a focus, or opening on one: the step is framed with its card beside its node.
@@ -146,7 +148,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
       target = shot.camera
       if (shot.card && content) {
         const node = told[shot.card.anchor]!
-        nextBeside = { key: content.key, node, kind: nodeOf.get(node)!.kind, side: shot.card.side, offset: shot.card.offset, zoom: shot.camera.zoom, width: shot.card.width, height: shot.card.height }
+        nextBeside = { key: content.key, node, kind: nodeOf.get(node)!.kind, side: shot.card.side, offset: shot.card.offset, zoom: shot.camera.zoom, width: shot.card.width, height: shot.card.height, most: Math.max(shot.card.height, CARD_MOST) }
       }
     } else if (card && content) {
       // The opening or the closing: the whole graph, inside the uncovered area, with its card as tall as its words in
@@ -270,7 +272,7 @@ function NotesBeside({ area, step }: { area: Rect; step: BesidePlace | null }) {
     ]
     const others = view.nodes.filter((entry) => entry.id !== listed.beside).map((entry) => onScreen(nodeRect(entry.kind, entry.position)))
     const placed = placeCard({ node: onScreen(rect), card: { width, height }, keep, others, area })
-    setPlace({ key: listed.key, node: listed.beside, kind: node.kind, side: placed.side, offset: placed.offset, zoom: viewport.zoom, width, height })
+    setPlace({ key: listed.key, node: listed.beside, kind: node.kind, side: placed.side, offset: placed.offset, zoom: viewport.zoom, width, height, most: height })
     // Placed when it opens, for what it lists: a pan or a drag carries it with its node afterwards, so nothing else places it.
   }, [listed?.key])
 
