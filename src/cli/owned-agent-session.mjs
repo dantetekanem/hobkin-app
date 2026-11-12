@@ -4,6 +4,7 @@ import { piCommand, piEnvironment } from './launcher.mjs';
 import { ownedExtensionArguments } from './pi-extensions.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
+import { createCustomStyleTool } from './owned-agent-extension.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 const TOKEN_FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite'];
 
@@ -15,13 +16,44 @@ async function bounded(promise, ms, fallback) {
 }
 
 /** Host-only bindings carry permissions and task content; model-visible tree identities carry neither. */
-export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcProcess, onEvent = () => {}, onStats = () => {}, ownedAgent, join, onUnconfirmed = () => {}, startupMs = 10000, stopMs = 2000, now = Date.now, metricNow = () => performance.now() } = {}) {
+export function createOwnedAgentAdapter({
+  bindingFor,
+  startProcess = startRpcProcess,
+  onEvent = () => {},
+  onStats = () => {},
+  ownedAgent,
+  customStyle,
+  join,
+  onUnconfirmed = () => {},
+  startupMs = 10000,
+  stopMs = 2000,
+  now = Date.now,
+  metricNow = () => performance.now(),
+} = {}) {
   for (const ms of [startupMs, stopMs]) if (!Number.isSafeInteger(ms) || ms < 1 || ms > 60000) throw Error('Invalid owned deadline');
   return { start(identity) {
     const binding = bindingFor?.(identity);
-    if (!binding || !isAbsolute(binding.cwd ?? '') || typeof binding.prompt !== 'string' || !binding.prompt.trim()
+    const theme = binding?.role === 'theme';
+    if (
+      theme
+      && (
+        binding.parentRole !== 'theme'
+        || binding.allowHelpers !== false
+        || typeof customStyle !== 'function'
+        || identity.parentId !== identity.rootId
+        || identity.depth !== 1
+        || identity.id === identity.rootId
+      )
+    ) {
+      throw Error('Invalid theme host binding');
+    }
+    if (
+      !binding
+      || !isAbsolute(binding.cwd ?? '')
+      || typeof binding.prompt !== 'string'
+      || !binding.prompt.trim()
       || !/^[^/\s]+\/\S+$/.test(binding.model ?? '') || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(binding.effort)
-      || !['read', 'write'].includes(binding.parentRole) || (binding.parentRole === 'read' && binding.role !== 'read')) throw Error('Invalid owned host binding');
+      || (!theme && (!['read', 'write'].includes(binding.parentRole) || (binding.parentRole === 'read' && binding.role !== 'read')))) throw Error('Invalid owned host binding');
     const args = ['--mode', 'rpc', '--no-session', '--model', binding.model, '--thinking', binding.effort,
       ...ownedExtensionArguments(binding.role, binding.launcher)];
     const invocation = piCommand(binding.launcher, args);
@@ -30,7 +62,11 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
     result.promise.catch(() => {});
     let transport, closed, stopping, forcing, exit, sessionId, joining = false, cancelled = false, finished = false, report = '', finalError;
     let metrics, owner, terminalStats, currentResponse, outputObserved = false, sealed = false, uncertain = false, lastActivityAt = null;
-    const seal = () => { sealed = true; metrics?.finish(owner); };
+    const seal = () => {
+      if (theme) controller.abort();
+      sealed = true;
+      metrics?.finish(owner);
+    };
     function snapshot() {
       const facts = metrics?.snapshot(owner);
       if (!facts) return { usage: null, lastActivityAt, performance: null };
@@ -60,7 +96,39 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       return { usage, lastActivityAt, performance };
     }
     const controller = new AbortController();
-    const tools = { owned_agent: createOwnedAgentSessionTool((request, signal) => ownedAgent?.(identity, request, signal)) };
+    const tools = theme
+      ? {
+          custom_style: createCustomStyleTool((request, signal) => customStyle(identity, request, signal)),
+        }
+      : {
+          owned_agent: createOwnedAgentSessionTool((request, signal) => ownedAgent?.(identity, request, signal)),
+        };
+    async function themeBridge(placeholder) {
+      try {
+        if (typeof placeholder !== 'string' || Buffer.byteLength(placeholder) > 65536) {
+          throw Error('Invalid theme bridge');
+        }
+        const request = JSON.parse(placeholder);
+        if (
+          !request
+          || Array.isArray(request)
+          || Object.keys(request).some(key => !['op', 'name', 'id', 'params'].includes(key))
+          || request.op !== 'tool'
+          || request.name !== 'custom_style'
+          || typeof request.id !== 'string'
+          || !request.id
+          || request.id.length > 200
+        ) {
+          throw Error('Invalid theme bridge');
+        }
+        return {
+          ok: true,
+          result: await tools.custom_style.execute(request.id, request.params, controller.signal),
+        };
+      } catch (error) {
+        return { ok: false, error: String(error?.message ?? error) };
+      }
+    }
     const emit = event => { try { onEvent(identity, event); } catch { /* Observers do not own lifecycle. */ } };
     function stop() {
       seal();
@@ -161,8 +229,23 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
         if (record.aborted === true || finalError || !report.trim()) void fail(Error('Owned child did not finish a response'));
         else void settle();
       } else if (record.type === 'extension_ui_request' && ['confirm', 'select', 'input', 'editor'].includes(record.method)) {
-        if (record.method === 'input' && record.title === BRIDGE && ownedAgent) {
-          void serveBridge(record.placeholder, { tools }, controller.signal).then(reply => {
+        const currentTheme = theme
+          && sessionId
+          && (record.sessionId === undefined || record.sessionId === sessionId)
+          && !Object.keys(record).some(key => !['type', 'method', 'id', 'title', 'placeholder', 'sessionId', 'runId'].includes(key))
+          && (record.runId === undefined || record.runId === identity.id)
+          && typeof record.id === 'string'
+          && record.id.length > 0
+          && record.id.length <= 200;
+        if (
+          record.method === 'input'
+          && record.title === BRIDGE
+          && (theme ? currentTheme : ownedAgent)
+        ) {
+          const reply = theme
+            ? themeBridge(record.placeholder)
+            : serveBridge(record.placeholder, { tools }, controller.signal);
+          void reply.then(reply => {
             if (!finished && !cancelled) transport.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) });
           }).catch(error => { void fail(error); });
         } else transport?.send?.({ type: 'extension_ui_response', id: record.id, cancelled: true });

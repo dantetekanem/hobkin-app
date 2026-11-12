@@ -6,6 +6,7 @@ import { createOwnedAgentTool } from './owned-agent-tool.mjs';
 /** Host bindings and joins around the tree; no process ownership or persisted replay. */
 export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProcess, stopMs, onEvent = () => {}, onStats, onChange = () => {}, onPerformance = () => {} } = {}) {
   const scopes = new Map(), roots = new Set(), partial = new Map();
+  const themeCapabilities = new Map();
   let closing = false, changed = Promise.withResolvers();
   const notify = () => {
     for (const root of roots) for (const { id, parentId, rootId, depth, status } of tree.list(root)) {
@@ -28,6 +29,20 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
   const adapter = createOwnedAgentAdapter({ startProcess, stopMs, onStats,
     bindingFor: identity => scopes.get(identity.id)?.binding,
     ownedAgent: (identity, request, signal) => scopes.get(identity.id).request(request, signal),
+    customStyle: (identity, request, signal) => {
+      const child = scopes.get(identity.id);
+      const root = scopes.get(identity.rootId);
+      if (
+        !child?.valid
+        || !root?.valid
+        || child.binding.role !== 'theme'
+        || identity.parentId !== identity.rootId
+        || tree.status(identity.rootId, identity.id).status !== 'running'
+      ) {
+        throw Error('Inactive theme child');
+      }
+      return themeCapabilities.get(identity.rootId)(request, signal);
+    },
     join: identity => scopes.get(identity.id).join(),
     onUnconfirmed: identity => { void scopes.get(identity.id).cancel(); },
     onEvent: (identity, event) => { if (event.type === 'message_end') partial.set(identity.id, event.text); onEvent(identity, event); },
@@ -53,6 +68,12 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
       request(request, signal) {
         signal?.throwIfAborted(); check();
         if (request?.action === 'spawn') {
+          if (
+            binding.role === 'theme'
+            && (id !== rootId || tree.list(id).length || request.allowHelpers !== false)
+          ) {
+            throw Error('Theme permits one nondelegating child');
+          }
           if (!accepting) throw Error('Owned parent is joining');
           const policy = scopes.get(rootId).beforeSpawn;
           const decision = policy === undefined ? true : policy({ rootId, parentId: id });
@@ -84,7 +105,12 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
         delivered = true;
         return JSON.stringify({ ownedChildren: children.map(fact) });
       },
-      finish() { valid = false; accepting = false; notify(); },
+      finish() {
+        valid = false;
+        accepting = false;
+        if (id === rootId) themeCapabilities.delete(id);
+        notify();
+      },
       invalidateAfterFailure() {
         value.finish();
         const directChildren = tree.list(id).filter(node => node.parentId === id);
@@ -104,14 +130,19 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
     scopes.set(id, value); return value;
   }
   return {
-    register({ id, binding, allowHelpers = false, beforeSpawn }) {
+    register({ id, binding, allowHelpers = false, beforeSpawn, customStyle }) {
       if (closing) throw Error('Owned lifecycle is closed');
       if (typeof allowHelpers !== 'boolean') throw Error('Invalid owned host direction');
+      const theme = binding?.role === 'theme';
+      if (Object.hasOwn(binding ?? {}, 'customStyle') || (theme
+        ? !allowHelpers || binding.parentRole !== 'theme' || typeof customStyle !== 'function' || binding.launcher !== undefined
+        : customStyle !== undefined)) throw Error('Invalid theme host authority');
       if (allowHelpers && (!isAbsolute(binding?.cwd ?? '') || typeof binding?.prompt !== 'string' || !binding.prompt.trim()
-        || Buffer.byteLength(binding.prompt) > 524288 || !['read', 'write'].includes(binding.role)
-        || !['read', 'write'].includes(binding.parentRole) || (binding.parentRole === 'read' && binding.role !== 'read')
+        || Buffer.byteLength(binding.prompt) > 524288 || (!theme && (!['read', 'write'].includes(binding.role)
+        || !['read', 'write'].includes(binding.parentRole) || (binding.parentRole === 'read' && binding.role !== 'read')))
         || !/^[^/\s]+\/\S+$/.test(binding.model ?? '') || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(binding.effort))) throw Error('Invalid owned host authority');
       tree.registerRoot({ id, allowHelpers }); roots.add(id);
+      if (theme) themeCapabilities.set(id, customStyle);
       return Object.assign(scope(id, { ...binding, allowHelpers }), { beforeSpawn });
     },
     snapshot(rootId) {

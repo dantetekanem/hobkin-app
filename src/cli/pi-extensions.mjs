@@ -74,8 +74,14 @@ export function mainSdkResources(selection, candidates = []) {
 
 /** Owned children never discover extensions; managed wrappers cannot promise this contract yet. */
 export function ownedExtensionArguments(role, launcher) {
+  if (role === 'theme' && launcher !== undefined) {
+    throw Error('Theme requires installed Pi without a configured launcher');
+  }
   if (launcher?.managedExtensions) throw Error('Managed launcher cannot isolate owned children');
   return [
+    ...(role === 'theme'
+      ? ['--no-builtin-tools', '--no-context-files']
+      : []),
     ...extensionArguments([fileURLToPath(new URL('./owned-agent-extension.mjs', import.meta.url))]),
     '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes',
     '--tools', ownedRoleTools(role).join(','), '--exclude-tools', 'mcp__*',

@@ -293,6 +293,61 @@ test('failed helpers retain failure facts and cancel descendants', { timeout: 10
   assert.equal(rows.find(row => row.id === parent.id).performance.sessionId, '0');
 });
 
+test('theme root binds one nondelegating child and routes only exact current bridge operations', { timeout: 10000 }, async t => {
+  const f = transportFactory(), calls = [], life = createOwnedLifecycle({ startProcess: f.startProcess });
+  t.after(() => life.close());
+  const theme = { ...binding, role: 'theme', parentRole: 'theme' };
+  const root = life.register({ id: 'theme', binding: theme, allowHelpers: true, customStyle: (request, signal) => { calls.push(request); assert.equal(signal.aborted, false); return { css: 'canonical' }; } });
+  const other = life.register({ id: 'other-theme', binding: theme, allowHelpers: true, customStyle: () => { throw Error('Wrong root'); } });
+  for (const request of [{ action: 'spawn', name: 'delegating' }, { action: 'spawn', name: 'delegating', allowHelpers: true }]) assert.throws(() => root.request(request));
+  const child = root.request({ action: 'spawn', name: 'theme', allowHelpers: false }); await tick();
+  assert.throws(() => root.request({ action: 'spawn', name: 'second', allowHelpers: false }));
+  assert.equal(f.children.length, 1); const wire = f.children[0], args = wire.options.args;
+  assert.deepEqual(args, ['--mode', 'rpc', '--no-session', '--model', 'test/model', '--thinking', 'medium', '--no-builtin-tools', '--no-context-files', '--no-extensions', '--extension', new URL('../src/cli/owned-agent-extension.mjs', import.meta.url).pathname, '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes', '--tools', 'custom_style', '--exclude-tools', 'mcp__*']);
+  assert.equal(wire.options.env.HOBKIN_OWNED_HELPERS, '0'); assert.equal(wire.options.command, 'pi');
+  const envelope = { op: 'tool', name: 'custom_style', id: 'call', params: { op: 'read' } };
+  const send = async (request = envelope, extra = {}) => {
+    wire.emit({ type: 'extension_ui_request', method: 'input', id: 'bridge', title: 'hobkin/bridge', placeholder: JSON.stringify(request), ...extra });
+    await tick(); return wire.responses.at(-1);
+  };
+  for (const params of [{ op: 'read' }, { op: 'replace', css: 'new palette' }]) assert.equal(JSON.parse((await send({ ...envelope, params })).value).ok, true);
+  assert.deepEqual(calls, [{ op: 'read' }, { op: 'replace', css: 'new palette' }]);
+  for (const request of [null, [], { ...envelope, path: '/tmp/escape' }, { ...envelope, rootId: 'other-theme' }, { ...envelope, params: { op: 'replace', css: 'x', extra: true } }, { ...envelope, op: 'memory' }, { ...envelope, name: 'owned_agent', params: { action: 'spawn', name: 'escape' } }, { ...envelope, params: { op: 'read', path: '/tmp/escape' } }, { ...envelope, params: { op: 'replace', css: 1 } }, { ...envelope, params: { op: 'delete' } }, { ...envelope, id: 1 }]) assert.equal(JSON.parse((await send(request)).value).ok, false);
+  for (const extra of [{ method: 'confirm' }, { title: 'other' }, { sessionId: 'foreign' }, { runId: 'other-child' }, { path: '/tmp/escape' }]) assert.equal((await send(envelope, extra)).cancelled, true);
+  await send(envelope, { type: 'not_a_request' }); assert.equal(calls.length, 2);
+  assert.equal(other.request({ action: 'list' }).length, 0); assert.equal(root.request({ action: 'status', id: child.id }).allowHelpers, false);
+  assert.equal((await root.cancel()).confirmed, true); await send(); assert.equal(calls.length, 2);
+});
+
+test('theme pending callbacks receive cancellation on failure or captured closure', { timeout: 10000 }, async t => {
+  for (const exited of [false, true]) {
+    const f = transportFactory(), gate = Promise.withResolvers(); let callbackSignal;
+    const life = createOwnedLifecycle({ startProcess: f.startProcess }); t.after(() => life.close());
+    const root = life.register({ id: 'theme', allowHelpers: true, binding: { ...binding, role: 'theme', parentRole: 'theme' },
+      customStyle: async (_request, signal) => { callbackSignal = signal; await gate.promise; signal.throwIfAborted(); throw Error('Late authority'); } });
+    root.request({ action: 'spawn', name: 'theme', allowHelpers: false }); await tick();
+    const wire = f.children[0];
+    wire.emit({ type: 'extension_ui_request', method: 'input', id: 'bridge', title: 'hobkin/bridge', placeholder: JSON.stringify({ op: 'tool', name: 'custom_style', id: 'call', params: { op: 'replace', css: 'late' } }) });
+    await tick();
+    if (exited) wire.closed.resolve({ code: 1 }); else wire.emit({ type: 'agent_settled', aborted: true });
+    await tick(); assert.equal(callbackSignal.aborted, true); gate.resolve(); await tick();
+    assert.deepEqual(wire.responses, []); assert.equal(JSON.parse(await root.join()).ownedChildren[0].status, 'failed');
+  }
+});
+
+test('theme authority cannot enter ordinary roots or bypass host admission and isolation', async t => {
+  const f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess }); t.after(() => life.close());
+  const customStyle = () => {}, theme = { ...binding, role: 'theme', parentRole: 'theme' };
+  for (const options of [{ binding }, { binding: { ...binding, role: 'write', parentRole: 'write' } }, { binding: { ...theme, parentRole: 'read' } }, { binding: theme, customStyle: undefined }, { binding: theme, allowHelpers: false }, { binding: { ...theme, customStyle } }, { binding: { ...theme, launcher: { command: ['pi'] } } }]) {
+    assert.throws(() => life.register({ id: 'denied', allowHelpers: true, customStyle, ...options }));
+  }
+  const root = life.register({ id: 'theme', allowHelpers: true, binding: theme, customStyle, beforeSpawn: () => false });
+  assert.throws(() => root.request({ action: 'spawn', name: 'denied', allowHelpers: false }), /admission/);
+  assert.equal(f.children.length, 0);
+  const read = life.register({ id: 'read', binding, allowHelpers: true });
+  assert.throws(() => read.request({ action: 'spawn', name: 'escalate', role: 'theme', customStyle }));
+});
+
 test('only host-enabled helpers activate the owned tool, never write tools for a read role', () => {
   const handlers = {}, registered = []; let active;
   ownedExtension({ on: (name, handler) => { handlers[name] = handler; }, registerTool: tool => registered.push(tool), setActiveTools: names => { active = names; } }, { role: 'read', allowHelpers: true });

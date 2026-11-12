@@ -38,7 +38,7 @@ function fixture(options = {}) {
   const adapter = createOwnedAgentAdapter({
     bindingFor: () => ({ ...binding, ...options.binding }), startupMs: 30, stopMs: 15,
     startProcess: args => { calls.push(args); callbacks = args; return options.malformed ? { ...transport, request: null } : transport; },
-    onEvent: options.onEvent, onStats: options.onStats, now: options.now, metricNow: options.metricNow,
+    onEvent: options.onEvent, onStats: options.onStats, now: options.now, metricNow: options.metricNow, customStyle: options.customStyle,
   });
   return { adapter, calls, requests, state, closed, emit: event => callbacks.onRecord(event),
     get shutdowns() { return shutdowns; }, get terminations() { return terminations; }, get forces() { return forces; } };
@@ -291,6 +291,86 @@ test('settled text followed by failed disposal is not a successful report', { ti
   const f = fixture({ exitCode: 1 }), handle = f.adapter.start(identity);
   await tick(); f.emit(end('not confirmed')); f.emit({ type: 'agent_settled' });
   await assert.rejects(handle.result, /exit/i);
+});
+
+test('theme extension exposes only exact custom_style operations without delegation', async () => {
+  const handlers = {};
+  const registered = [];
+  const requests = [];
+  let active;
+
+  extension({
+    on: (name, fn) => { handlers[name] = fn; },
+    registerTool: tool => registered.push(tool),
+    setActiveTools: names => { active = names; },
+  }, { role: 'theme', allowHelpers: true });
+
+  handlers.session_start();
+  assert.deepEqual(active, ['custom_style']);
+  assert.deepEqual(registered.map(tool => tool.name), ['custom_style']);
+
+  for (const toolName of ['read', 'write', 'edit', 'bash', 'codemode', 'owned_agent', 'tool_search', 'mcp__read']) {
+    assert.equal(handlers.tool_call({ toolName }).block, true);
+  }
+  assert.equal(handlers.tool_call({ toolName: 'custom_style' }), undefined);
+
+  const ctx = {
+    mode: 'rpc',
+    ui: {
+      input: async (title, placeholder) => {
+        assert.equal(title, 'hobkin/bridge');
+        requests.push(JSON.parse(placeholder));
+        return JSON.stringify({ ok: true, result: { details: { css: 'saved' } } });
+      },
+    },
+  };
+  for (const params of [{ op: 'read' }, { op: 'replace', css: 'palette' }]) {
+    const result = await registered[0].execute('call', params, undefined, undefined, ctx);
+    assert.deepEqual(result.details, { css: 'saved' });
+    assert.deepEqual(requests.at(-1), {
+      op: 'tool',
+      name: 'custom_style',
+      id: 'call',
+      params,
+    });
+  }
+
+  for (const params of [
+    null,
+    [],
+    { op: 'read', path: '/etc/passwd' },
+    { op: 'replace', css: 1 },
+    { op: 'replace' },
+    { op: 'delete' },
+    { op: 'replace', css: 'x'.repeat(16385) },
+  ]) {
+    await assert.rejects(
+      registered[0].execute('call', params, undefined, undefined, ctx),
+      /custom_style/,
+    );
+  }
+  assert.equal(requests.length, 2);
+});
+
+test('theme adapter refuses missing authority, delegation and all configured launchers before launch', () => {
+  const theme = { role: 'theme', parentRole: 'theme', allowHelpers: false };
+  const invalidBindings = [
+    { parentRole: 'read' },
+    { parentRole: 'write' },
+    { allowHelpers: true },
+    { launcher: { command: ['pi'] } },
+    { launcher: { command: ['wrapper'], managedExtensions: true } },
+  ];
+
+  for (const extra of invalidBindings) {
+    const f = fixture({ binding: { ...theme, ...extra }, customStyle: () => {} });
+    assert.throws(() => f.adapter.start({ ...identity, parentId: 'root', depth: 1 }));
+    assert.equal(f.calls.length, 0);
+  }
+
+  const missing = fixture({ binding: theme });
+  assert.throws(() => missing.adapter.start({ ...identity, parentId: 'root', depth: 1 }));
+  assert.equal(missing.calls.length, 0);
 });
 
 test('read execution guard blocks every nonallowlisted tool even when requested directly', () => {
