@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useWaitingRows } from '@/features/actions/store.ts'
-import { newestFirst } from '@/features/reports/inbox.ts'
+import { useActionItems } from '@/features/actions/store.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
-import { useAgents, useGitHub, useHasHost, useHost, usePendingQuestion, useWork } from '@/lib/host/hooks.ts'
+import { useHost } from '@/lib/host/hooks.ts'
+import { gatherHomeInput } from './input.ts'
 import { homeModel } from './model.ts'
 import type { HomeModel } from './types.ts'
 
@@ -22,20 +22,12 @@ function useMinute(): number {
 /** Everything Home draws, from what the app already holds. */
 export function useHomeModel(): HomeModel {
   const now = useMinute()
-  const inbox = useReports((state) => state.inbox)
-  const reports = useMemo(() => newestFirst(inbox.reports), [inbox.reports])
-  const attention = useHost((state) => state.snapshot.reportAttention)
-  const wins = useHost((state) => state.snapshot.wins)
-  const waiting = useWaitingRows()
-  const question = usePendingQuestion()
-  const work = useWork()
-  const live = useHasHost()
-  const github = useGitHub()
-  const agents = useAgents()
-  const routines = useRoutines((state) => state.prepared.facts)
-  const read = inbox.read
+  const host = useHost((state) => state)
+  const reports = useReports()
+  const actions = useActionItems()
+  const routines = useRoutines()
   return useMemo(
-    () => homeModel({ now, reports, read, attention, waiting, question, work, live, github, routines, agents, wins }),
-    [now, reports, read, attention, waiting, question, work, live, github, routines, agents, wins],
+    () => homeModel(gatherHomeInput(now, host, reports, actions, routines)),
+    [now, host, reports, actions, routines],
   )
 }

@@ -1,3 +1,4 @@
+import { remembered } from '@/app/location.ts'
 import { useView } from '@/app/view-store.ts'
 import { openGitHubPage } from '@/features/github/open.ts'
 import { current } from '@/features/questions/queue.ts'
@@ -19,7 +20,9 @@ export function openTarget(target: HomeTarget): void {
       useReports.getState().open(target.id)
       return openScreen('reports')
     case 'action':
-      return openScreen('actions')
+      openScreen('actions')
+      remembered.setState({ action: target.id })
+      return
     case 'review': {
       const id = finishedReviewId(target.change, hasHost(hostStore.getState()))
       return id ? openReviewFor(id) : openScreen('work')
@@ -30,7 +33,8 @@ export function openTarget(target: HomeTarget): void {
       useRoutines.getState().open(target.id, `routine-${target.id}`)
       return openScreen('routines')
     case 'url':
-      return openGitHubPage(target.url)
+      if (/^https:\/\/github\.com\//.test(target.url) && target.url.length <= 2048 && !/[\\\s]/.test(target.url)) openGitHubPage(target.url)
+      return
     case 'question':
       // hobkin's question rises on the question sheet by itself (questions/bridge.ts). Once put off, it waits under Action Items.
       if (!current(useQuestions.getState().queue)) openScreen('actions')
