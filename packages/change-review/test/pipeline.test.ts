@@ -185,11 +185,15 @@ test('the blind check runs once and never lowers', async (t) => {
   assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert', 'baseline'])
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 
-  for (const name of ['triage.json', 'graph.json', 'risk-events.jsonl', 'units.json', 'story.md', 'blind-check.json', 'progress.json', 'progress.jsonl']) {
+  for (const name of ['triage.json', 'graph.json', 'risk-events.jsonl', 'units.json', 'story.md', 'story-words.json', 'blind-check.json', 'progress.json', 'progress.jsonl']) {
     assert.ok(existsSync(join(out, name)), `${name} is written`)
   }
   const saved = JSON.parse(readFileSync(join(out, 'blind-check.json'), 'utf8'))
   assert.equal(typeof saved.answer, 'string', 'the checker’s answer is kept unedited')
+  // The words the story was written with, under the units as they stand after the check, so a host can tell each unit in them.
+  const words = JSON.parse(readFileSync(join(out, 'story-words.json'), 'utf8'))
+  assert.equal(words.title, 'Round the total')
+  assert.equal(words.units[unitOf('n1').id].title, '`total` now rounds every sum to a whole number')
 })
 
 test('progress names the step and measures every one', async (t) => {

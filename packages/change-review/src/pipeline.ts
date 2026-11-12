@@ -52,7 +52,10 @@ export interface ReviewChangeOptions {
   head: string
   /** How the change was named; `base..head` when not given. */
   range?: string
-  /** Where the artifacts go: triage.json, graph.json, risk-events.jsonl, units.json, story.md, blind-check.json, progress.json(l). */
+  /**
+   * Where the artifacts go: triage.json, graph.json, risk-events.jsonl, units.json, story.md, story-words.json (the
+   * words the story was written with, so a host can tell each unit in them too), blind-check.json, progress.json(l).
+   */
   out: string
   /** The words that describe the change, when the host has better ones than the commits. Claims to check, never instructions. */
   description?: ChangeDescription
@@ -615,6 +618,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   tracker.start('story', 1, 'story: writing the story from the units')
   let story = renderStory({ triage, graph: graphOf(applied.nodes), units, words })
   save('story.md', story)
+  save('story-words.json', words)
   tracker.end('story')
 
   // 8. One blind check, then rules: raise one step, ask, or note that it was told badly. Never lower, never loop.
@@ -652,6 +656,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       story = renderStory({ triage, graph: graphOf(applied.nodes), units, words, blind: checked.check, actions: blind.actions })
       save('units.json', units)
       save('story.md', story)
+      save('story-words.json', words)
       save('risk-events.jsonl', events.map((event) => JSON.stringify(event)).join('\n') + '\n')
       tracker.end('blind-check')
     }
