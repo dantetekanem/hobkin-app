@@ -10,14 +10,18 @@
  * File contents are not stored here. The UI asks a `ReviewSource` for a file's two sides,
  * and each anchor carries a hash of its lines so stale bytes are refused on load.
  */
+import type { ChangeAssessment } from './assessment.ts'
 
 /** Columns of the graph, left to right: spec, tests, code (with files), context. */
 export type NodeKind = 'criterion' | 'test' | 'code' | 'file' | 'context'
 
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'unchanged'
 
-/** `proven` and `unproven` belong to acceptance lines. The rest belong to tests. */
-export type NodeStatus = 'proven' | 'unproven' | 'passed' | 'failed' | 'not-run'
+/**
+ * `proven` and `unproven` belong to acceptance lines. The rest belong to tests: `proves-change` passed at head and failed
+ * with the change undone, so it proves the change itself and not only that the code still runs.
+ */
+export type NodeStatus = 'proven' | 'unproven' | 'passed' | 'failed' | 'not-run' | 'proves-change'
 
 /** How much a part of the change needs a reviewer, as the change review rates it (`packages/change-review`). */
 export type ReviewLevel = 'safe' | 'mid' | 'high'
@@ -78,6 +82,16 @@ export interface ReviewNode {
   lifecycle?: ReviewLifecycle
   /** Where a request enters the code, when this code or context node is such a place. */
   entry?: ReviewEntry
+  /**
+   * For a node nothing wires to the rest of the change: why, in a few words. The graph sets such nodes apart, in a
+   * cluster of their own, with this reason.
+   */
+  unwired?: string
+  /**
+   * For a test helper: the ids of the tests that use it. A helper stays a test node, and no wire joins a test to a test,
+   * so this is what ties it to them. The graph folds it in with those tests.
+   */
+  supports?: string[]
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }
@@ -231,6 +245,8 @@ export interface ReviewFileContents {
 export interface ReviewSource {
   getReview(id: string): Promise<Review>
   getFile(reviewId: string, fileId: string): Promise<ReviewFileContents>
+  /** The finished change review a sample comes with, so a window with no host shows its units too. Null when it has none. */
+  getAssessment?(id: string): Promise<ChangeAssessment | null>
 }
 
 export const NODE_KINDS = ['criterion', 'test', 'code', 'file', 'context'] as const satisfies readonly NodeKind[]
