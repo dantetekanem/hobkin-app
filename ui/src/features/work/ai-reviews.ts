@@ -1,84 +1,117 @@
-import type { AssessmentStatus } from '#shared/review/assessment.ts'
-import type { PrepareState } from '#shared/review/status.ts'
+import type { AssessmentSummary, Level } from '#shared/review/assessment.ts'
+import { targetOfReviewId } from '#shared/review/ids.ts'
+import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 
 /**
- * The AI Reviews tab's data: every review the host knows, sorted into what is running, what is ready and what failed.
- * The shape is the host's `review.list` result, newest first. Pure, so it is tested without a window.
+ * The AI Reviews tab's data (spec 032): every review the host knows (`review.list`), finished changes and pull
+ * requests together, sorted into what is running, what is ready and what failed, each newest first. A review that
+ * never ran is left out. Pure, so it is tested without a window.
  */
 
-export interface ReviewListItem {
-  id: string
-  kind: 'change' | 'pull'
-  title: string
-  project: string
-  head: string | null
-  /** How the review itself (its graph) stands. */
-  state: PrepareState
-  phase: string | null
-  assessment?: AssessmentStatus
-  error?: string | null
-  /** An ISO time. */
-  updatedAt: string
-}
-export interface ReviewList {
-  reviews: ReviewListItem[]
-}
+export type { ReviewList, ReviewListItem }
+
 export type ReviewGroup = 'running' | 'ready' | 'failed'
+
 export interface ReviewRow {
   item: ReviewListItem
   group: ReviewGroup
-  /** What it is doing now, for a running one; why it stopped, for a failed one. */
+  /** The project, or `owner/repo #n` for a pull request. */
+  where: string
+  /** What it is doing now, for a running one; why it stopped, for a failed one; empty for a ready one. */
   line: string
+  /** How far along a running one is, from 0 to 100, when it says. */
   percent: number | null
+  /** When a running one started, in milliseconds. Null while it waits its turn. */
+  startedAt: number | null
+  /** When a ready one finished, or a failed one stopped, in milliseconds. */
+  at: number | null
+  /** A ready change review's summary: its level and its units at each level. Null when it has none. */
+  summary: AssessmentSummary | null
+}
+
+export interface ReviewGroups {
+  running: ReviewRow[]
+  ready: ReviewRow[]
+  failed: ReviewRow[]
 }
 
 const PHASES: Record<string, string> = { queued: 'Waiting its turn', reading: 'Reading the change', arranging: 'Arranging the story', checking: 'Checking the result' }
 
-export function groupOf(item: ReviewListItem): ReviewGroup {
+const timeOf = (iso: string | null | undefined): number | null => {
+  const at = Date.parse(iso ?? '')
+  return Number.isFinite(at) ? at : null
+}
+
+/** Running beats failed, so a review asked for again after it stopped shows as running. One that never ran has no group. */
+export function groupOf(item: ReviewListItem): ReviewGroup | null {
   const assessment = item.assessment?.state
-  if (item.state === 'failed' || assessment === 'failed') return 'failed'
   if (item.state === 'preparing' || assessment === 'queued' || assessment === 'running') return 'running'
-  return 'ready'
+  if (item.state === 'failed' || assessment === 'failed') return 'failed'
+  if (item.state === 'ready' || assessment === 'ready') return 'ready'
+  return null
 }
 
-export function rowOf(item: ReviewListItem): ReviewRow {
+/** The project, or `owner/repo #n` for a pull request, as the host names its repository. */
+function whereOf(item: ReviewListItem): string {
+  const target = targetOfReviewId(item.id)
+  if (target?.kind !== 'pull') return item.project
+  return `${item.project || `${target.owner}/${target.repo}`} #${target.number}`
+}
+
+function rowOf(item: ReviewListItem): ReviewRow | null {
   const group = groupOf(item)
-  const assessment = item.assessment
-  let line = ''
-  if (group === 'failed') {
-    line = assessment?.error ?? item.error ?? 'It stopped.'
-  } else if (group === 'running') {
+  if (!group) return null
+  const { assessment } = item
+  const running = assessment?.state === 'running'
+  const row: ReviewRow = { item, group, where: whereOf(item), line: '', percent: null, startedAt: null, at: null, summary: null }
+  if (group === 'running') {
     const waiting = assessment?.state === 'queued' ? 'Waiting its turn' : 'Starting'
-    line = assessment?.now ?? (item.phase ? PHASES[item.phase] : null) ?? waiting
+    row.line = (running ? assessment.now : undefined) ?? (item.phase ? PHASES[item.phase] : undefined) ?? waiting
+    row.percent = running && assessment.percent != null ? Math.min(100, Math.max(0, Math.round(assessment.percent))) : null
+    // The change review's own start, once it runs; before that, the start of the review it is built on.
+    row.startedAt = (running ? timeOf(assessment.startedAt) : null) ?? (item.state === 'preparing' ? timeOf(item.startedAt) : null)
+  } else if (group === 'failed') {
+    row.line = (assessment?.state === 'failed' ? assessment.error : undefined) ?? item.error ?? 'It stopped before it finished.'
+    row.at = timeOf(item.updatedAt)
+  } else {
+    row.summary = assessment?.state === 'ready' ? (assessment.summary ?? null) : null
+    row.at = timeOf(row.summary?.at) ?? timeOf(item.updatedAt)
   }
-  const percent = group === 'running' && assessment?.percent != null ? Math.round(assessment.percent) : null
-  return { item, group, line, percent }
+  return row
 }
 
-/** Running first, then ready, then failed, each as the host sent them (newest first). */
-export function groupReviews(list: ReviewList | null): { running: ReviewRow[]; ready: ReviewRow[]; failed: ReviewRow[] } {
-  const out = { running: [] as ReviewRow[], ready: [] as ReviewRow[], failed: [] as ReviewRow[] }
-  for (const item of list?.reviews ?? []) {
-    const row = rowOf(item)
-    out[row.group].push(row)
-  }
-  return out
+/** When a row last moved: a running one when it started, or when it was asked for while it waits; the rest when they ended. */
+const momentOf = (row: ReviewRow) => row.startedAt ?? row.at ?? timeOf(row.item.updatedAt) ?? 0
+const newestFirst = (rows: ReviewRow[]) => rows.sort((a, b) => momentOf(b) - momentOf(a))
+
+/** Every review that ran or runs, newest first. */
+export function rowsOf(list: ReviewList | null): ReviewRow[] {
+  return newestFirst((list?.reviews ?? []).flatMap((item) => rowOf(item) ?? []))
 }
 
-/** "3 min ago", from an ISO time. */
-export function agoWords(iso: string, now: number): string {
-  const seconds = Math.max(0, (now - Date.parse(iso)) / 1000)
-  if (!Number.isFinite(seconds)) return ''
-  if (seconds < 60) return 'just now'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`
-  return `${Math.floor(seconds / 86400)} d ago`
+/** Running first, then ready, then failed, each newest first. Of the running ones, those under way come before those still waiting. */
+export function groupReviews(list: ReviewList | null): ReviewGroups {
+  const groups: ReviewGroups = { running: [], ready: [], failed: [] }
+  for (const row of rowsOf(list)) groups[row.group].push(row)
+  groups.running = [...groups.running.filter(({ startedAt }) => startedAt !== null), ...groups.running.filter(({ startedAt }) => startedAt === null)]
+  return groups
 }
 
-/** Shown without a host. */
-export const SAMPLE_REVIEWS: ReviewList = {
-  reviews: [
-    { id: 'change:hobkin:sample-1', kind: 'change', title: 'Sample: reading the change', project: 'hobkin', head: 'abc1234', state: 'ready', phase: 'reading', assessment: { state: 'running', head: 'abc1234', percent: 40, now: 'Mapping the changed definitions' }, updatedAt: new Date().toISOString() },
-    { id: 'pr:acme/web/12', kind: 'pull', title: 'Sample: tighten the login form', project: 'acme/web', head: 'def5678', state: 'ready', phase: null, assessment: { state: 'ready', head: 'def5678', summary: { level: 'mid', critical: false, needsYou: 0, worthALook: 2, safe: 3, storyBy: 'model', at: new Date(Date.now() - 3_600_000).toISOString() } }, updatedAt: new Date(Date.now() - 3_600_000).toISOString() },
-  ],
+export function reviewCounts(groups: ReviewGroups): Record<ReviewGroup, number> {
+  return { running: groups.running.length, ready: groups.ready.length, failed: groups.failed.length }
+}
+
+/** A ready review's units at each level, high first, leaving out a level with none. */
+export function levelCountsOf(summary: AssessmentSummary): { level: Level; count: number }[] {
+  const counts: { level: Level; count: number }[] = [
+    { level: 'high', count: summary.needsYou },
+    { level: 'mid', count: summary.worthALook },
+    { level: 'safe', count: summary.safe },
+  ]
+  return counts.filter(({ count }) => count > 0)
+}
+
+/** The review a row opens. Without a host a finished change opens the sample review, as its Work card does. */
+export function reviewToOpen(item: ReviewListItem, live: boolean): string {
+  return live || item.kind === 'pull' ? item.id : 'sample'
 }

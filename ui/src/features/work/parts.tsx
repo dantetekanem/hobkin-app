@@ -1,11 +1,12 @@
-import { OctagonAlert } from 'lucide-react'
+import { CircleDashed, CircleX, Clock, LoaderCircle, OctagonAlert, Shield, ShieldAlert, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
 import type { Grade } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import type { AssessmentStatus } from '#shared/review/assessment.ts'
+import { LEVEL_WORDS, type AssessmentStatus, type AssessmentSummary, type Level } from '#shared/review/assessment.ts'
+import { levelCountsOf } from './ai-reviews.ts'
 import { reviewBadge, type BadgeTone } from './review-badge.ts'
 
 /** The small pieces the Work screen's sections share. */
@@ -30,18 +31,63 @@ const BADGE_TONE: Record<BadgeTone, string> = {
   quiet: 'bg-surface-2 text-muted-foreground',
 }
 
-/** What the change review found at the change's commit, how far along it is, or why it stopped. A critical finding is marked. */
-export function ReviewBadge({ status }: { status: AssessmentStatus | undefined }) {
+const LEVEL_ICON: Record<Level, LucideIcon> = { high: ShieldAlert, mid: Shield, safe: ShieldCheck }
+
+function badgeIcon(status: AssessmentStatus | undefined): LucideIcon {
+  if (status?.state === 'ready' && status.summary) return LEVEL_ICON[status.summary.level]
+  if (status?.state === 'running') return LoaderCircle
+  if (status?.state === 'queued') return Clock
+  if (status?.state === 'failed') return CircleX
+  return CircleDashed
+}
+
+/**
+ * What the change review found at the change's commit, how far along it is, or why it stopped. A critical finding is
+ * marked. `md` is the one a card or a row leads with: larger, with the level's own mark.
+ */
+export function ReviewBadge({ status, size = 'sm' }: { status: AssessmentStatus | undefined; size?: 'sm' | 'md' }) {
   const { label, tone, title, critical } = reviewBadge(status)
+  const Icon = badgeIcon(status)
+  const large = size === 'md'
   return (
-    <span title={title} className={cn('inline-flex h-5 items-center gap-1 rounded-full px-2 font-heading text-[11px] font-medium whitespace-nowrap tabular-nums', BADGE_TONE[tone])}>
-      {critical ? (
-        <>
-          <OctagonAlert aria-hidden="true" className="size-3 shrink-0" />
-          <span className="sr-only">Critical:</span>
-        </>
-      ) : null}
+    <span
+      title={title}
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full font-heading font-medium whitespace-nowrap tabular-nums',
+        large ? 'h-7 gap-1.5 px-3 text-[13px]' : 'h-5 gap-1 px-2 text-[11px]',
+        BADGE_TONE[tone],
+      )}
+    >
+      {critical ? <OctagonAlert aria-hidden="true" className={cn('shrink-0', large ? 'size-3.5' : 'size-3')} /> : large ? <Icon aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+      {critical ? <span className="sr-only">Critical:</span> : null}
       {label}
+    </span>
+  )
+}
+
+const LEVEL_DOT: Record<Level, string> = { high: 'bg-bad', mid: 'bg-warn', safe: 'bg-ok' }
+
+/** A ready review's units at each level, in the Review page's words: "2 high risk · 3 mid risk · 5 safe". */
+export function LevelCounts({ summary, className }: { summary: AssessmentSummary; className?: string }) {
+  return (
+    <span className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground tabular-nums', className)}>
+      {levelCountsOf(summary).map(({ level, count }) => (
+        <span key={level} className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className={cn('size-2 rounded-full', LEVEL_DOT[level])} />
+          {count} {LEVEL_WORDS[level].toLowerCase()}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/** How far along a review is, as a thin bar. It grows on the compositor, and under Still it is simply where it belongs. */
+export function ReviewProgress({ percent, label }: { percent: number | null; label: string }) {
+  const still = useStill()
+  if (percent === null) return null
+  return (
+    <span role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+      <span className={cn('block h-full origin-left rounded-full bg-primary', still ? '' : 'transition-transform duration-500 ease-out')} style={{ transform: `scaleX(${percent / 100})` }} />
     </span>
   )
 }

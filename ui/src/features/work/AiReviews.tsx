@@ -1,74 +1,122 @@
-import { useCallback, useEffect, useState } from 'react'
+import { GitBranch, GitPullRequest } from 'lucide-react'
 import { useView } from '@/app/view-store.ts'
+import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
-import { runCommand } from '@/lib/host/index.ts'
-import { agoWords, groupReviews, SAMPLE_REVIEWS, type ReviewList, type ReviewRow } from './ai-reviews.ts'
-import { ReviewBadge, SectionHeading } from './parts.tsx'
+import { waited } from '@/features/reports/time.ts'
+import { clockWords } from '@/features/review/preparing-model.ts'
+import { groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
+import { LevelCounts, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
+import type { ReviewListView } from './use-review-list.ts'
 
-/** `review.list` is the host's; it is called by name until the command registry carries it. */
-const listReviews = () => (runCommand as (name: string, args: object) => Promise<ReviewList>)('review.list', {})
+/**
+ * The AI Reviews tab (spec 032): every review the host knows, finished changes and pull requests together, as what is
+ * running, what is ready and what failed, each newest first. A running one says how far along it is, what it is doing
+ * now and how long it has taken; a ready one its level, its units at each level and when it finished. A click opens it.
+ */
+export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
+  const groups = groupReviews(reviews.list)
+  // A running review's clock counts seconds; otherwise "finished 3 minutes ago" is enough.
+  const now = useNow(true, groups.running.length ? 1_000 : 30_000)
+  const none = groups.running.length + groups.ready.length + groups.failed.length === 0
 
-/** Every AI review, in three groups, refreshed while the tab is open so a running one moves. */
-export function AiReviews({ live, list = listReviews }: { live: boolean; list?: () => Promise<ReviewList> }) {
-  const [reviews, setReviews] = useState<ReviewList | null>(live ? null : SAMPLE_REVIEWS)
-  const [error, setError] = useState<string | null>(null)
-  const now = useNow(true, 5_000)
-  const refresh = useCallback(() => {
-    if (!live) return
-    list()
-      .then((next) => {
-        setReviews(next)
-        setError(null)
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
-  }, [live, list])
-  useEffect(() => {
-    refresh()
-    const timer = setInterval(refresh, 2_000)
-    return () => clearInterval(timer)
-  }, [refresh])
-
-  const groups = groupReviews(reviews)
-  const total = groups.running.length + groups.ready.length + groups.failed.length
   return (
-    <div className="flex flex-col gap-8">
-      {error ? <p role="status" className="px-1 text-[13px] text-bad-fg">{error}</p> : null}
-      {reviews && total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">No AI review has been started yet.</p> : null}
-      <Group label="Running" rows={groups.running} now={now} />
-      <Group label="Ready" rows={groups.ready} now={now} />
-      <Group label="Failed" rows={groups.failed} now={now} />
+    <div className="flex flex-col gap-10">
+      {reviews.error ? (
+        <p role="alert" className="px-1 text-[14px] leading-snug text-bad-fg">
+          The reviews could not be read: {reviews.error}
+        </p>
+      ) : null}
+      {reviews.list === null && !reviews.error ? (
+        <p role="status" className="px-1 text-[14px] text-muted-foreground">
+          Reading the reviews…
+        </p>
+      ) : null}
+      {reviews.list && none ? <NoReviews /> : null}
+      <Group label="Running" rows={groups.running} now={now} live={live} />
+      <Group label="Ready" rows={groups.ready} now={now} live={live} />
+      <Group label="Failed" rows={groups.failed} now={now} live={live} />
     </div>
   )
 }
 
-function Group({ label, rows, now }: { label: string; rows: ReviewRow[]; now: number }) {
-  if (!rows.length) return null
+/** How a review starts, for a host that has none yet. */
+function NoReviews() {
   return (
-    <section aria-label={label} className="flex flex-col gap-3">
-      <SectionHeading label={label} count={rows.length} />
-      {rows.map((row) => <Row key={row.item.id} row={row} now={now} />)}
+    <section aria-label="No AI review yet" className="flex flex-col items-start gap-3 rounded-3xl bg-background p-6">
+      <p className="font-heading text-[18px] leading-snug font-semibold tracking-[-0.015em]">No AI review yet</p>
+      <p className="max-w-[64ch] text-[14px] leading-relaxed text-muted-foreground">
+        A finished change gets one by itself, once work mode finishes it. A pull request gets one when you press Start AI review on its row on the GitHub page.
+      </p>
+      <Button variant="outline" data-stop="" onClick={() => useView.getState().openGitHub()}>
+        Open GitHub
+      </Button>
     </section>
   )
 }
 
-function Row({ row, now }: { row: ReviewRow; now: number }) {
-  const { item } = row
+function Group({ label, rows, now, live }: { label: string; rows: ReviewRow[]; now: number; live: boolean }) {
+  if (!rows.length) return null
   return (
-    <button
-      type="button"
-      data-stop=""
-      data-review-id={item.id}
-      onClick={() => useView.getState().openReviewFor(item.id)}
-      className="flex flex-col gap-1.5 rounded-3xl bg-background p-5 text-left outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 focus-visible:bg-tone-2"
-    >
-      <p className="eyebrow">{item.project}</p>
-      <h4 className="font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{item.title}</h4>
-      <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
-        {row.group === 'ready' ? <ReviewBadge status={item.assessment} /> : null}
-        {row.group === 'running' ? <span className="tabular-nums">{row.percent == null ? 'Running' : `${row.percent}%`} · {row.line}</span> : null}
-        {row.group === 'failed' ? <span className="text-bad-fg">{row.line}</span> : null}
-        <span>{item.kind === 'pull' ? 'Pull request' : 'Change'} · {agoWords(item.updatedAt, now)}</span>
-      </div>
-    </button>
+    <section aria-label={label} className="flex flex-col gap-3">
+      <SectionHeading label={label} count={rows.length} />
+      <ul className="flex flex-col gap-2">
+        {rows.map((row) => (
+          <Card key={row.item.id} row={row} now={now} live={live} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** When it happened, in the words of its group: the time so far, when it finished, or when it stopped. */
+function whenOf({ group, startedAt, at }: ReviewRow, now: number): string {
+  if (group === 'running') return startedAt === null ? '' : `${clockWords((now - startedAt) / 1000)} so far`
+  if (at === null) return ''
+  return `${group === 'ready' ? 'finished' : 'stopped'} ${waited(at, now)} ago`
+}
+
+function Card({ row, now, live }: { row: ReviewRow; now: number; live: boolean }) {
+  const { item } = row
+  const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
+  return (
+    <li>
+      <button
+        type="button"
+        data-stop=""
+        data-review-id={item.id}
+        onClick={() => useView.getState().openReviewFor(reviewToOpen(item, live))}
+        className="flex w-full scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl bg-background p-5 text-left outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 focus-visible:bg-tone-2"
+      >
+        <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
+          <Kind aria-hidden="true" className="size-4 shrink-0" />
+          <span className="min-w-0 truncate font-medium text-foreground">{row.where}</span>
+          <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
+          <span className="ml-auto shrink-0 pl-2 tabular-nums">{whenOf(row, now)}</span>
+        </span>
+        <span className="flex items-start gap-3">
+          <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{item.title}</span>
+          {row.group === 'ready' && !row.summary ? (
+            <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
+          ) : row.group === 'ready' ? (
+            <ReviewBadge status={item.assessment} size="md" />
+          ) : row.group === 'failed' ? (
+            <ReviewBadge status={{ state: 'failed', head: item.head, error: row.line }} size="md" />
+          ) : null}
+        </span>
+        {row.group === 'running' ? (
+          <span className="flex flex-col gap-2">
+            {row.percent !== null ? (
+              <span className="flex items-center gap-3">
+                <ReviewProgress percent={row.percent} label={`${item.title}: ${row.percent}% reviewed`} />
+                <span className="shrink-0 font-heading text-[14px] font-semibold tabular-nums">{row.percent}%</span>
+              </span>
+            ) : null}
+            <span className="text-[14px] leading-snug">{row.line}</span>
+          </span>
+        ) : null}
+        {row.summary ? <LevelCounts summary={row.summary} /> : null}
+        {row.group === 'failed' ? <span className="text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
+      </button>
+    </li>
   )
 }

@@ -15,21 +15,28 @@ import type { WorkState } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { Discovery } from './Discovery.tsx'
+import { groupReviews, reviewCounts, type ReviewGroup } from './ai-reviews.ts'
 import { AiReviews } from './AiReviews.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
+import { PageTabs, TabCount } from './PageTabs.tsx'
 import { SaidLine, Segmented } from './parts.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
+import { useWorkTab } from './tab.ts'
+import { useReviewList } from './use-review-list.ts'
 
 /**
- * Work: hobkin and the agents it started, live, with the queue, the projects and the finished changes. It draws
- * hobkin's own work mode and calls hobkin's own work actions, and adds no rule of its own. This file is the entry
- * the frame mounts. Spec: 011-work.
+ * Work: hobkin and the agents it started, live, with the queue, the finished changes and the projects, and every AI
+ * review on a page of its own. It draws hobkin's own work mode and calls hobkin's own work actions, and adds no rule
+ * of its own. This file is the entry the frame mounts. Spec: 011-work.
+ *
+ * Its pages are tabs under the heading: Work, and AI Reviews with how many run and how many are ready. On Work, what
+ * needs the user comes right after the queue, before the projects.
  *
  * Keys: Up and Down walk the screen. Enter opens or presses what has the keyboard: an agent's canvas, a queue row
- * run next, a change opened in Change Review. Left and Right move along a row to its own choices and back, and
- * change a project's setting. Escape steps back from a choice to its row. Tab and Escape on a row are the frame's.
+ * run next, a change opened in Change Review. Left and Right move along a row to its own choices and back, change a
+ * project's setting, and choose the page. Escape steps back from a choice to its row. Tab and Escape on a row are the frame's.
  */
 export function WorkScreen() {
   const root = useRef<HTMLDivElement | null>(null)
@@ -44,7 +51,11 @@ export function WorkScreen() {
   const now = useNow(true, 30_000)
   const arriving = useArriving()
   const variants = useMemo(() => rowVariants(still), [still])
-  const [tab, setTab] = useState<'work' | 'reviews'>('work')
+  const tab = useWorkTab((state) => state.tab)
+  const chooseTab = useWorkTab((state) => state.choose)
+  // The tab says how many reviews run and how many are ready, so the list is followed on either page.
+  const reviews = useReviewList(live)
+  const counts = reviewCounts(groupReviews(reviews.list))
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
   const keyboard = useRef({ held: false, at: 0 })
@@ -122,42 +133,51 @@ export function WorkScreen() {
         <Hero>
           <Header work={work} live={live} working={agents.length} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
-        <Segmented
-          label="Work page"
-          name="work-tab"
-          value={tab}
-          options={[{ value: 'work', label: 'Work' }, { value: 'reviews', label: 'AI Reviews' }]}
-          onChoose={setTab}
-        />
-        {tab === 'reviews' ? <AiReviews live={live} /> : null}
-        {tab === 'work' ? (
-          <>
-          <Rise>
-            <section aria-label="At work" className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
-                <h2 className="eyebrow">At work</h2>
-                <span className="eyebrow tabular-nums">{agents.length}</span>
-                {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
-                {work ? <AgentsAtOnce work={work} live={live} /> : null}
-              </div>
-              <DelegationMap agents={agents} capacity={work?.agents ?? 0} enabled={work?.enabled ?? false} live={live} />
-            </section>
-          </Rise>
-          {work ? (
-            <>
+        <div className="flex flex-col gap-6">
+          <PageTabs
+            id="work"
+            label="Work pages"
+            value={tab}
+            onChoose={chooseTab}
+            tabs={[
+              { value: 'work', label: 'Work' },
+              { value: 'reviews', label: 'AI Reviews', extra: <ReviewCounts counts={counts} /> },
+            ]}
+          />
+          {tab === 'reviews' ? (
+            <div role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
+              <AiReviews live={live} reviews={reviews} />
+            </div>
+          ) : (
+            <div role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
               <Rise>
-                <QueueSection work={work} {...shared} />
+                <section aria-label="At work" className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
+                    <h2 className="eyebrow">At work</h2>
+                    <span className="eyebrow tabular-nums">{agents.length}</span>
+                    {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
+                    {work ? <AgentsAtOnce work={work} live={live} /> : null}
+                  </div>
+                  <DelegationMap agents={agents} capacity={work?.agents ?? 0} enabled={work?.enabled ?? false} live={live} />
+                </section>
               </Rise>
-              <Rise>
-                <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
-              </Rise>
-              <Rise>
-                <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
-              </Rise>
-            </>
-          ) : null}
-          </>
-        ) : null}
+              {work ? (
+                <>
+                  <Rise>
+                    <QueueSection work={work} {...shared} />
+                  </Rise>
+                  {/* What needs the user comes right after the queue, so it is never a long scroll away. */}
+                  <Rise>
+                    <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
+                  </Rise>
+                  <Rise>
+                    <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
+                  </Rise>
+                </>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
       </div>
       <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
@@ -190,6 +210,16 @@ function AgentsAtOnce({ work, live }: { work: WorkState; live: boolean }) {
   )
 }
 
+/** Beside "AI Reviews": how many run and how many are ready to read. Nothing while there are none. */
+function ReviewCounts({ counts }: { counts: Record<ReviewGroup, number> }) {
+  return (
+    <>
+      {counts.running ? <TabCount tone="live">{counts.running} running</TabCount> : null}
+      {counts.ready ? <TabCount tone="ok">{counts.ready} ready</TabCount> : null}
+    </>
+  )
+}
+
 /** A row's own choices that can be pressed now, in reading order. A row inside a row keeps its choices to itself. */
 function controlsOf(item: HTMLElement): HTMLElement[] {
   const all = [...item.querySelectorAll<HTMLElement>('[data-row-control]')]
@@ -200,8 +230,9 @@ function controlsOf(item: HTMLElement): HTMLElement[] {
   })
 }
 
-/** World is a page of its own, opened from Work. */
+/** World is a page of its own, opened from Work. Coming back lands on a project, so Work comes back on its own page. */
 function openWorld() {
+  useWorkTab.getState().choose('work')
   useView.getState().openScreen('world')
   useView.getState().engageCanvas()
   requestCanvasFocus()
@@ -209,7 +240,8 @@ function openWorld() {
 
 /**
  * Work's heading: what is going on, the way to World beside the mode switch on the same line, and what the mode means.
- * The World button sits in that row, aligned with the switch, rather than under the heading as a primary action.
+ * The World button and the switch are one pair of controls: the same height, centered on the title's line, and kept
+ * at the right edge even when they wrap under a long title.
  */
 function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; live: boolean; working: number; onOpenWorld?: () => void }) {
   const busy = useWorkUi((state) => Boolean(state.busy['mode']))
@@ -246,13 +278,13 @@ function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; 
   return (
     <header className="flex flex-col gap-2 px-1">
       <h1 className="eyebrow">Work</h1>
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <p className="font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]" aria-live="polite">
           {title}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           {onOpenWorld ? (
-            <Button variant="outline" size="sm" data-stop="" data-opens="world" onClick={onOpenWorld}>
+            <Button variant="outline" data-stop="" data-opens="world" onClick={onOpenWorld}>
               <MapIcon aria-hidden="true" />
               Open world
             </Button>
@@ -299,7 +331,7 @@ function ModeSwitch({ on, busy, onToggle }: { on: boolean; busy: boolean; onTogg
       onClick={() => {
         if (!busy) onToggle()
       }}
-      className="inline-flex scroll-mt-[124px] items-center gap-2.5 rounded-full py-1 pr-3.5 pl-1.5 outline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 aria-disabled:opacity-60"
+      className="inline-flex h-8 scroll-mt-[124px] items-center gap-2.5 rounded-full pr-3.5 pl-1 outline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 aria-disabled:opacity-60"
     >
       <span className={cn('relative h-6 w-10 rounded-full transition-colors duration-[220ms] ease-[ease]', on ? 'bg-primary' : 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--hb-border-strong)]')}>
         <motion.span
