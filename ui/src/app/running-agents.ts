@@ -118,9 +118,27 @@ export const agentControls = createAgentControls({
   selected: () => {
     const view = useView.getState()
     const host = hostStore.getState()
-    const control = view.screen === 'agent' ? executionTargets(host).find(target => target.kind === 'run' && target.runId === view.openAgent) : undefined
+    const control =
+      view.screen === 'agent'
+        ? executionTargets(host).find(target => target.kind === 'run' && target.runId === view.openAgent)
+        : undefined
     const agent = view.screen === 'agent' ? findAgent(view.openAgent) : undefined
-    return control ? { id: control.runId, title: control.label, project: control.rootId, kind: control.kind, source: JSON.stringify([host.home, host.epoch, control.epoch]) } : !hasHost(host) && agent ? { ...agent, source: `${host.home}:${host.epoch}` } : undefined
+
+    if (control) {
+      return {
+        id: control.runId,
+        title: control.label,
+        project: control.rootId,
+        kind: control.kind,
+        source: JSON.stringify([host.home, host.epoch, control.epoch]),
+      }
+    }
+
+    if (!hasHost(host) && agent) {
+      return { ...agent, source: `${host.home}:${host.epoch}` }
+    }
+
+    return undefined
   },
   send: async (id, mode = 'stop') => {
     const target = executionTargets(hostStore.getState()).find(target => target.kind === 'run' && target.runId === id)

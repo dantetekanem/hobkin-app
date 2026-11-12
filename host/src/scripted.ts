@@ -296,27 +296,51 @@ export async function createScriptedSessionFactory(agentDir: string, reply: NonN
 }
 
 export async function createScriptedModel(root: string, { reply, tools = [] }: ScriptedOptions = {}): Promise<ScriptedModel> {
-  const agentDir = join(root, 'client', 'scripted-agent'), client = tools.find(tool => tool.name === 'client'), local = typeof reply === 'function'
-  if (!local && (tools.length !== 1 || !client || !('execute' in client) || typeof client.execute !== 'function')) {
+  const agentDir = join(root, 'client', 'scripted-agent')
+  const client = tools.find(tool => tool.name === 'client')
+  const hasInjectedReply = typeof reply === 'function'
+
+  if (
+    !hasInjectedReply &&
+    (tools.length !== 1 || !client || !('execute' in client) || typeof client.execute !== 'function')
+  ) {
     throw Error('Scripted main requires the captured client tool.')
   }
+
   let factory: ReturnType<typeof createScriptedSessionFactory> | undefined
-  const dependencies: ScriptedModel['dependencies'] = { agentDir, createSession: async options => {
-    const pi = await loadPiCodingAgent()
-    factory ??= createScriptedSessionFactory(agentDir, reply)
-    return (await factory)({ ...options, customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools],
-      tools: tools.map(tool => tool.name), settingsManager: pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }) })
-  } }
+  const dependencies: ScriptedModel['dependencies'] = {
+    agentDir,
+    createSession: async options => {
+      const pi = await loadPiCodingAgent()
+      factory ??= createScriptedSessionFactory(agentDir, reply)
+
+      return (await factory)({
+        ...options,
+        customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools],
+        tools: tools.map(tool => tool.name),
+        settingsManager: pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
+      })
+    },
+  }
+
   return {
     dependencies,
     createMain: async options => {
       const { openPiSession } = await import('hobkin/src/cli/pi-session.mjs')
       // Only an explicitly injected reply stays local; home launchers/models never select a real provider.
-      return openPiSession({ ...options, config: { ...options.config, launcher: undefined, main: { ...options.config.main, model: null } } }, local ? dependencies : {
-        isolatedMain: true, scriptedMain: true, agentDir,
-        clientBridge: { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) },
-        spawnProcess: (_command, _args, options) => spawn(process.execPath, [fileURLToPath(new URL('./scripted-main-child.ts', import.meta.url))], options),
-      })
+      return openPiSession({ ...options, config: { ...options.config, launcher: undefined, main: { ...options.config.main, model: null } } },
+        hasInjectedReply ? dependencies : {
+          isolatedMain: true,
+          scriptedMain: true,
+          agentDir,
+          clientBridge: {
+            tool: client,
+            extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)),
+          },
+          spawnProcess: (_command, _args, options) => spawn(process.execPath, [
+            fileURLToPath(new URL('./scripted-main-child.ts', import.meta.url)),
+          ], options),
+        })
     },
     runHarness: async (request) => ({
       id: request.id,

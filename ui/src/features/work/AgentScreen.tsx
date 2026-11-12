@@ -193,16 +193,56 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
   }, [target, agentId])
   return (
     <div className="absolute right-6 top-6 z-10 text-sm">
-      <button type="button" disabled={!control?.canStop || pending('stop')} onClick={() => agentId && agentControls.request(agentId)} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Stop agent</button>
-      <button type="button" disabled={!control?.canForce || pending('force')} onClick={() => agentId && agentControls.request(agentId, 'force')} className="ml-2 rounded-lg border border-border px-3 py-1.5 disabled:opacity-40">Force stop</button>
+      <button
+        type="button"
+        disabled={!control?.canStop || pending('stop')}
+        onClick={() => agentId && agentControls.request(agentId)}
+        className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+      >
+        Stop agent
+      </button>
+      <button
+        type="button"
+        disabled={!control?.canForce || pending('force')}
+        onClick={() => agentId && agentControls.request(agentId, 'force')}
+        className="ml-2 rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+      >
+        Force stop
+      </button>
       {!control ? <p className="text-muted-foreground">Live cancellation capability unknown.</p> : null}
-      {executionResult || result?.id === agentId ? <p role="status" className="mt-2 max-w-72 text-muted-foreground">{executionResult?.text ?? result?.text}</p> : null}
-      <dialog ref={dialog} aria-labelledby="agent-stop-title" aria-describedby="agent-stop-description" onCancel={(event) => { event.preventDefault(); cancel() }} onKeyDown={(event) => event.stopPropagation()} className="m-auto max-w-md rounded-2xl border border-border bg-background p-6 text-foreground backdrop:bg-black/40">
-        <h2 id="agent-stop-title" className="text-lg font-semibold">{target?.mode === 'force' ? 'Force stop' : 'Stop'} this run?</h2>
-        <p id="agent-stop-description" className="my-4">{target?.title} · {target?.project}. Cancellation and captured closure are reported separately. Detached cleanup remains unknown.</p>
+      {executionResult || result?.id === agentId ? (
+        <p role="status" className="mt-2 max-w-72 text-muted-foreground">
+          {executionResult?.text ?? result?.text}
+        </p>
+      ) : null}
+      <dialog
+        ref={dialog}
+        aria-labelledby="agent-stop-title"
+        aria-describedby="agent-stop-description"
+        onCancel={(event) => {
+          event.preventDefault()
+          cancel()
+        }}
+        onKeyDown={(event) => event.stopPropagation()}
+        className="m-auto max-w-md rounded-2xl border border-border bg-background p-6 text-foreground backdrop:bg-black/40"
+      >
+        <h2 id="agent-stop-title" className="text-lg font-semibold">
+          {target?.mode === 'force' ? 'Force stop' : 'Stop'} this run?
+        </h2>
+        <p id="agent-stop-description" className="my-4">
+          {target?.title} · {target?.project}. Cancellation and captured closure are reported separately. Detached cleanup remains unknown.
+        </p>
         <div className="flex justify-end gap-4">
-          <button type="button" disabled={busy} onClick={cancel}>Cancel</button>
-          <button type="button" disabled={busy || !(target?.mode === 'force' ? control?.canForce : control?.canStop) || target?.id !== agentId} onClick={() => void agentControls.confirm()}>{target?.mode === 'force' ? 'Confirm Force stop' : 'Stop run'}</button>
+          <button type="button" disabled={busy} onClick={cancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || !(target?.mode === 'force' ? control?.canForce : control?.canStop) || target?.id !== agentId}
+            onClick={() => void agentControls.confirm()}
+          >
+            {target?.mode === 'force' ? 'Confirm Force stop' : 'Stop run'}
+          </button>
         </div>
       </dialog>
     </div>

@@ -99,14 +99,29 @@ const unsubscribeHost = hostStore.subscribe((state, previous) => {
       useStartup.setState({ pending: null, receipt: null, text: null })
     }
     const published = state.owner?.startup?.receipt
-    if (published && published !== previous.owner?.startup?.receipt && state.link === 'open' && published.target.home === state.home && (!target || startupKey(target) === startupKey(published.target)) && (!startupAttempt || published.attemptId === startupAttempt)) useStartup.setState({ receipt: published, text: startupReceiptText(published) })
+    if (
+      published &&
+      published !== previous.owner?.startup?.receipt &&
+      state.link === 'open' &&
+      published.target.home === state.home &&
+      (!target || startupKey(target) === startupKey(published.target)) &&
+      (!startupAttempt || published.attemptId === startupAttempt)
+    ) useStartup.setState({ receipt: published, text: startupReceiptText(published) })
     return
   }
+
   const published = state.owner?.startup?.receipt
   const previousTarget = previous.owner?.startup?.target
   const target = state.owner?.startup?.target
-  const fresh = published && state.owner !== previous.owner && ((published.attemptId === startupAttempt && useStartup.getState().pending !== null) || JSON.stringify(published) !== JSON.stringify(previous.owner?.startup?.receipt))
-  const matches = published && (target ? startupKey(target) === startupKey(published.target) : previousTarget ? startupKey(previousTarget) === startupKey(published.target) : false)
+  const fresh = published &&
+    state.owner !== previous.owner &&
+    ((published.attemptId === startupAttempt && useStartup.getState().pending !== null) ||
+      JSON.stringify(published) !== JSON.stringify(previous.owner?.startup?.receipt))
+  const matches = published &&
+    (target
+      ? startupKey(target) === startupKey(published.target)
+      : previousTarget ? startupKey(previousTarget) === startupKey(published.target) : false)
+
   startupAttempt = null
   const receipt = published && state.link === 'open' && published.target.home === state.home && fresh && matches ? published : null
   useStartup.setState({ pending: null, receipt, text: receipt ? startupReceiptText(receipt) : null })
@@ -129,12 +144,21 @@ export async function runStartupForce(target: StartupTarget) {
   const key = startupKey(target)
   if (startupKey(startupTarget(host)) !== key) throw Error('Startup changed or disconnected. Nothing was forced.')
   if (useStartup.getState().pending === key) return
+
   const attemptId = startupAttempt = crypto.randomUUID()
   const current = () => {
     const now = hostStore.getState()
-    return startupAttempt === attemptId && now.link === 'open' && now.home === host.home && now.epoch === host.epoch && now.owner?.startup && (!now.owner.startup.target || startupKey(startupTarget(now)) === key)
+    return (
+      startupAttempt === attemptId &&
+      now.link === 'open' &&
+      now.home === host.home &&
+      now.epoch === host.epoch &&
+      now.owner?.startup &&
+      (!now.owner.startup.target || startupKey(startupTarget(now)) === key)
+    )
   }
   useStartup.setState({ pending: key, receipt: null, text: null })
+
   try {
     const receipt = await runCommand('startup.force', { target, attemptId })
     if (startupKey(receipt.target) !== key || receipt.attemptId !== attemptId) throw Error('Startup receipt does not match this attempt.')
@@ -160,25 +184,90 @@ export async function runExecution(target: ExecutionControl, mode: StopExecution
   const key = executionKey(target, mode)
   const currentSource = () => {
     const now = hostStore.getState()
-    return now.link === 'open' && now.owner?.state === 'live' && now.home === target.home && now.epoch === host.epoch && now.snapshot.stopControls?.home === target.home && now.snapshot.stopControls.epoch === target.epoch
+    return (
+      now.link === 'open' &&
+      now.owner?.state === 'live' &&
+      now.home === target.home &&
+      now.epoch === host.epoch &&
+      now.snapshot.stopControls?.home === target.home &&
+      now.snapshot.stopControls.epoch === target.epoch
+    )
   }
-  const live = () => currentSource() && executionTargets(hostStore.getState()).some(now => executionKey(now) === executionKey(target) && (mode === 'force' ? now.canForce : now.canStop))
+  const live = () =>
+    currentSource() &&
+    executionTargets(hostStore.getState()).some(
+      now =>
+        executionKey(now) === executionKey(target) &&
+        (mode === 'force' ? now.canForce : now.canStop),
+    )
+
   if (!live()) throw Error('This execution changed or disconnected. Nothing was stopped.')
   if (useExecution.getState().pending[key]) return
+
   const token = Symbol(key)
   const order = ++executionOrder
   executions.set(key, token)
   latestExecution.set(executionKey(target), token)
   useExecution.setState(state => ({ pending: { ...state.pending, [key]: true } }))
-  const args: StopExecutionArgs = { target: { home: target.home, epoch: target.epoch, kind: target.kind, runId: target.runId, ...(target.agentId ? { agentId: target.agentId } : {}) }, mode, attemptId: crypto.randomUUID(), ...(how && target.kind === 'run' && host.snapshot.runs?.some(run => run.id === target.runId && run.work) ? { how } : {}) }
+
+  const args: StopExecutionArgs = {
+    target: {
+      home: target.home,
+      epoch: target.epoch,
+      kind: target.kind,
+      runId: target.runId,
+      ...(target.agentId ? { agentId: target.agentId } : {}),
+    },
+    mode,
+    attemptId: crypto.randomUUID(),
+    ...(how &&
+    target.kind === 'run' &&
+    host.snapshot.runs?.some(run => run.id === target.runId && run.work)
+      ? { how }
+      : {}),
+  }
+
   try {
     const receipt = await runCommand('execution.stop', args)
-    if (executionKey(receipt.target, receipt.mode) !== key || receipt.attemptId !== args.attemptId) throw Error('Stop receipt does not match this attempt.')
+    if (
+      executionKey(receipt.target, receipt.mode) !== key ||
+      receipt.attemptId !== args.attemptId
+    ) {
+      throw Error('Stop receipt does not match this attempt.')
+    }
     if (executions.get(key) !== token || !currentSource()) return
-    if (latestExecution.get(executionKey(target)) === token) useExecution.setState(state => ({ results: { ...state.results, [executionKey(target)]: { target, order, text: receiptText(receipt), receipt } } }))
+
+    if (latestExecution.get(executionKey(target)) === token) {
+      useExecution.setState(state => ({
+        results: {
+          ...state.results,
+          [executionKey(target)]: {
+            target,
+            order,
+            text: receiptText(receipt),
+            receipt,
+          },
+        },
+      }))
+    }
     return receipt
   } catch (error) {
-    if (executions.get(key) === token && latestExecution.get(executionKey(target)) === token && currentSource()) useExecution.setState(state => ({ results: { ...state.results, [executionKey(target)]: { target, order, text: error instanceof Error ? error.message : String(error) } } }))
+    if (
+      executions.get(key) === token &&
+      latestExecution.get(executionKey(target)) === token &&
+      currentSource()
+    ) {
+      useExecution.setState(state => ({
+        results: {
+          ...state.results,
+          [executionKey(target)]: {
+            target,
+            order,
+            text: error instanceof Error ? error.message : String(error),
+          },
+        },
+      }))
+    }
     throw error
   } finally {
     if (executions.get(key) === token) {

@@ -37,7 +37,13 @@ export function observeExecutionBoundary(state: HostState, previous: HostState) 
 }
 export function executionTargets(state: Pick<HostState, 'link' | 'home' | 'owner' | 'snapshot' | 'epoch'>): ExecutionControl[] {
   const controls = state.snapshot.stopControls
-  if (state.link !== 'open' || state.owner?.state !== 'live' || !controls || controls.home !== state.home || disconnected === sourceOf(state)) return []
+  if (
+    state.link !== 'open' ||
+    state.owner?.state !== 'live' ||
+    !controls ||
+    controls.home !== state.home ||
+    disconnected === sourceOf(state)
+  ) return []
   return controls.targets.map(target => ({ ...target, home: controls.home, epoch: controls.epoch }))
 }
 export function confirmExecution(target: ExecutionControl, current: () => ExecutionControl[], send: () => void) {
@@ -45,7 +51,16 @@ export function confirmExecution(target: ExecutionControl, current: () => Execut
   return (yes: boolean) => {
     if (consumed) return
     consumed = true
-    if (yes && current().some(now => executionKey(now) === executionKey(target) && now.label === target.label && now.rootId === target.rootId && now.parentId === target.parentId)) send()
+    if (
+      yes &&
+      current().some(
+        now =>
+          executionKey(now) === executionKey(target) &&
+          now.label === target.label &&
+          now.rootId === target.rootId &&
+          now.parentId === target.parentId,
+      )
+    ) send()
   }
 }
 export const startupKey = (target: StartupTarget | null) => target ? JSON.stringify([target.home, target.epoch, target.token, target.sessionId]) : null
@@ -98,7 +113,13 @@ export function createStopConfirmationAuthority(target: AgentStopTarget, current
     consumed = true
     if (!how) return
     const agent = current()
-    if (agent?.id === target.id && agent.title === target.title && agent.project === target.project && agent.kind === target.kind && agent.source === target.source) send(how)
+    if (
+      agent?.id === target.id &&
+      agent.title === target.title &&
+      agent.project === target.project &&
+      agent.kind === target.kind &&
+      agent.source === target.source
+    ) send(how)
   }
 }
 
@@ -143,7 +164,13 @@ export function createAgentControls({ selected, send, changed }: {
       const target = state.target
       if (!target || pending.has(identity(target))) return
       const now = current(target.id)
-      if (!now || now.title !== target.title || now.project !== target.project || now.kind !== target.kind || now.source !== target.source) {
+      if (
+        !now ||
+        now.title !== target.title ||
+        now.project !== target.project ||
+        now.kind !== target.kind ||
+        now.source !== target.source
+      ) {
         update({ target: null, result: { id: target.id, text: 'This agent has changed or finished. Nothing was stopped.' } })
         return
       }

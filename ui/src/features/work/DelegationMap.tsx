@@ -233,7 +233,20 @@ function OwnedExecutionControls() {
   return <details className="rounded-xl border border-border p-3 text-sm">
     <summary>Owned execution controls ({targets.length})</summary>
     {!targets.length ? <p>Live cancellation capability unknown.</p> : null}
-    {rows.length ? <ul>{rows.map(({ target, active, result }) => <OwnedExecutionRow key={executionKey(target)} target={target} source={host.epoch} active={active} result={result} pending={state.pending} />)}</ul> : null}
+    {rows.length ? (
+      <ul>
+        {rows.map(({ target, active, result }) => (
+          <OwnedExecutionRow
+            key={executionKey(target)}
+            target={target}
+            source={host.epoch}
+            active={active}
+            result={result}
+            pending={state.pending}
+          />
+        ))}
+      </ul>
+    ) : null}
   </details>
 }
 function OwnedExecutionRow({ target, source, active, result, pending }: { target: ExecutionControl; source: number; active: boolean; result?: import('./actions.ts').ExecutionResult; pending: Record<string, true> }) {
@@ -244,18 +257,61 @@ function OwnedExecutionRow({ target, source, active, result, pending }: { target
   useEffect(() => { if (!active) setQuestion(null) }, [active])
   const ask = (mode: 'stop' | 'force', button: HTMLButtonElement) => {
     opener.current = button
-    const answer = confirmExecution(target, () => hostStore.getState().epoch === source ? executionTargets(hostStore.getState()) : [], () => { if (target.kind === 'main') useChat.getState().stop(mode, target); else void runExecution(target, mode).catch(() => {}) })
+    const answer = confirmExecution(
+      target,
+      () => hostStore.getState().epoch === source
+        ? executionTargets(hostStore.getState())
+        : [],
+      () => {
+        if (target.kind === 'main') {
+          useChat.getState().stop(mode, target)
+        } else {
+          void runExecution(target, mode).catch(() => {})
+        }
+      },
+    )
     setQuestion({ mode, answer })
   }
-  const answer = (yes: boolean) => { question?.answer(yes); setQuestion(null); opener.current?.focus() }
+  const answer = (yes: boolean) => {
+    question?.answer(yes)
+    setQuestion(null)
+    opener.current?.focus()
+  }
   return <li className="my-3" aria-label={`${target.label}, ${target.agentId ?? target.runId}, root ${target.rootId}`}>
     <p>{target.label} · {target.agentId ?? target.runId} · root {target.rootId} · parent {target.parentId ?? 'none'}</p>
-    {active ? (['stop', 'force'] as const).map(mode => <button key={mode} type="button" className="mr-3 underline disabled:opacity-40" disabled={!(mode === 'force' ? target.canForce : target.canStop) || pending[executionKey(target, mode)]} onClick={event => ask(mode, event.currentTarget)}>{mode === 'force' ? 'Force stop' : 'Stop'}</button>) : null}
-    {active && question ? <div role="group" aria-label={`Confirm ${question.mode} ${target.label}`} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); answer(false) } }}>
-      <p>{question.mode === 'force' ? 'Force stop' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
-      <button ref={first} type="button" onClick={() => answer(false)}>Cancel</button>
-      <button type="button" className="ml-3" onClick={() => answer(true)}>Confirm {question.mode}</button>
-    </div> : null}
+    {active ? (
+      (['stop', 'force'] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          className="mr-3 underline disabled:opacity-40"
+          disabled={!(mode === 'force' ? target.canForce : target.canStop) || pending[executionKey(target, mode)]}
+          onClick={(event) => ask(mode, event.currentTarget)}
+        >
+          {mode === 'force' ? 'Force stop' : 'Stop'}
+        </button>
+      ))
+    ) : null}
+    {active && question ? (
+      <div
+        role="group"
+        aria-label={`Confirm ${question.mode} ${target.label}`}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            answer(false)
+          }
+        }}
+      >
+        <p>{question.mode === 'force' ? 'Force stop' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
+        <button ref={first} type="button" onClick={() => answer(false)}>
+          Cancel
+        </button>
+        <button type="button" className="ml-3" onClick={() => answer(true)}>
+          Confirm {question.mode}
+        </button>
+      </div>
+    ) : null}
     {result ? <p role="status">{result.text}</p> : null}
   </li>
 }

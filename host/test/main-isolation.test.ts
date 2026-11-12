@@ -19,7 +19,11 @@ const fixture = { open: async (_root: string, _options: OpenOptions): Promise<Ho
   pi: refuse as () => unknown, ai: refuse as () => unknown,
   openPiSession: refuse as (...args: unknown[]) => unknown, openConversation: refuse as (...args: unknown[]) => unknown,
   runChild: refuse as (...args: unknown[]) => unknown,
-  settings: async (_options: { modelRuntime?: unknown; applyCurrent?: (choice: { model?: unknown; effort?: string }) => Promise<Binding> }): Promise<unknown> => refuse() }
+  settings: async (_options: {
+    modelRuntime?: unknown
+    applyCurrent?: (choice: { model?: unknown; effort?: string }) => Promise<Binding>
+  }): Promise<unknown> => refuse(),
+}
 Object.assign(globalThis, { isolationFixture: fixture })
 const fake = (source: string) => ({ format: 'module' as const, shortCircuit: true, source })
 registerHooks({ load(url, context, next) {
@@ -96,7 +100,9 @@ test('scripted main selects captured transport before any SDK work and keeps job
 
 test('fixed scripted child binds native services to the actual client-only zero-cost factory', { timeout: 10000 }, async (t) => {
   const { runScriptedMainChild } = await import('../src/scripted-main-child.ts')
-  const settings = { compaction: { enabled: false }, retry: { enabled: false } }, loader = {}, manager = {}, channel = {}, session = { agent: { streamFunction: undefined as unknown } }, events: Record<string, unknown>[] = [], ended = deferred()
+  const settings = { compaction: { enabled: false }, retry: { enabled: false } }
+  const loader = {}, manager = {}, channel = {}
+  const session = { agent: { streamFunction: undefined as unknown } }, events: Record<string, unknown>[] = [], ended = deferred()
   const agentDir = `${process.env.HOBKIN_HOME}/client/scripted-agent`, dataRoot = `${process.env.HOBKIN_HOME}/migration/data`
   let calls = 0
   fixture.pi = () => ({ ModelRuntime: { create: async (options: Record<string, unknown>) => {
@@ -131,13 +137,17 @@ test('fixed scripted child binds native services to the actual client-only zero-
 })
 
 test('only an explicitly injected reply can keep a test main local', { timeout: 10000 }, async (t) => {
-  const { createScriptedModel } = await import('../src/scripted.ts'), settings = { compaction: { enabled: false }, retry: { enabled: false } }, session = { agent: {} }
+  const { createScriptedModel } = await import('../src/scripted.ts')
+  const settings = { compaction: { enabled: false }, retry: { enabled: false } }
+  const session = { agent: {} }
   fixture.pi = () => ({ ModelRuntime: { create: async () => ({}) }, SettingsManager: { inMemory: (value: unknown) => { assert.deepEqual(value, settings); return settings } },
     createAgentSession: async (options: Record<string, unknown>) => { assert.deepEqual(options.tools, ['fixture']); assert.equal(options.settingsManager, settings); return { session } } })
   fixture.ai = () => ({})
   fixture.openPiSession = async (_options, dependencies) => {
     const deps = dependencies as { isolatedMain?: boolean; createSession: (options: object) => Promise<unknown> }
-    assert.equal(deps.isolatedMain, undefined); await deps.createSession({ tools: ['bash'] }); return session
+    assert.equal(deps.isolatedMain, undefined)
+    await deps.createSession({ tools: ['bash'] })
+    return session
   }
   t.after(() => { fixture.pi = fixture.ai = fixture.openPiSession = refuse })
   const model = await createScriptedModel(process.env.HOBKIN_HOME!, { reply: async () => ({ text: 'injected' }), tools: [{ name: 'fixture' }] })
@@ -171,14 +181,20 @@ test('startup Force is strict user-only authority before app/model readiness', {
 })
 
 for (const live of [true, false]) test(`Force settles before held Application.open cleanup and retains exact retry authority (live=${live})`, { timeout: 10000 }, async (t) => {
-  const { value, open, changes, seam } = owner(live), runtime = startup(), captured = deferred(), cleanup = deferred()
-  const candidate = app().runtime.main as MainSession; candidate.sessionId = 'candidate'
+  const { value, open, changes, seam } = owner(live), runtime = startup()
+  const captured = deferred(), cleanup = deferred()
+  const candidate = app().runtime.main as MainSession
+  candidate.sessionId = 'candidate'
   if (live) seam.model = async () => ({ createMain: seam.tapped(async () => candidate) })
   fixture.openPiSession = (_options, dependencies) => { assert.equal((dependencies as { scriptedMain: boolean }).scriptedMain, true); return candidate }
-  t.after(() => { fixture.openPiSession = refuse; cleanup.resolve() })
+  t.after(() => {
+    fixture.openPiSession = refuse
+    cleanup.resolve()
+  })
   fixture.open = async (_root, options) => {
     options.onMainStartup!(runtime.state)
-    runtime.state.child = runtime.child; options.onMainStartup!(runtime.state)
+    runtime.state.child = runtime.child
+    options.onMainStartup!(runtime.state)
     await options.createMain!({ config: { main: { cwd: '/fake', model: 'real/provider', effort: 'high' } } } as MainSessionOptions)
     runtime.state.persistence = { status: 'unknown', sessionId: 'candidate', sessionFile: '/fake/main.jsonl' }
     captured.resolve()

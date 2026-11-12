@@ -68,11 +68,15 @@ test('fixed client proxy forwards IDs, results, errors and cancellation through 
   const signal = new AbortController().signal
   const calls: unknown[] = []
   const hostTool = { ...local, execute: async (id: string, params: Parameters<typeof local.execute>[1], received?: AbortSignal) => {
-    calls.push({ id, params, signal: received }); return local.execute(id, params)
+    calls.push({ id, params, signal: received })
+    return local.execute(id, params)
   } }
   const ctx = { mode: 'rpc', ui: {
     setStatus: (key: string, value: string) => statuses.push([key, JSON.parse(value)]),
-    input: async (_title: string, request: string, options: { signal?: AbortSignal }) => JSON.stringify(await serveBridge(request, { tools: { client: hostTool } }, options.signal)),
+    input: async (_title: string, request: string, options: { signal?: AbortSignal }) => {
+      const response = await serveBridge(request, { tools: { client: hostTool } }, options.signal)
+      return JSON.stringify(response)
+    },
   } }
   started?.({}, ctx)
   assert.deepEqual(active, ['read', 'client'])
@@ -89,7 +93,12 @@ test('fixed client proxy forwards IDs, results, errors and cancellation through 
   assert.deepEqual(calls[0], { id: 'call-1', params: { action: 'list' }, signal })
   await assert.rejects(registered.execute('x', { action: 'list' }, signal, undefined, { ...ctx, mode: 'tui' }), /only under/)
   const controller = new AbortController()
-  const waiting = registered.execute('cancel', { action: 'list' }, controller.signal, undefined, { ...ctx, ui: { ...ctx.ui, input: async (_title, _request, options) => new Promise(resolve => options.signal?.addEventListener('abort', () => resolve(undefined), { once: true })) } })
+  const waiting = registered.execute('cancel', { action: 'list' }, controller.signal, undefined, {
+    ...ctx,
+    ui: { ...ctx.ui, input: async (_title, _request, options) => new Promise(resolve => {
+      options.signal?.addEventListener('abort', () => resolve(undefined), { once: true })
+    }) },
+  })
   controller.abort()
   await assert.rejects(waiting, /Cancelled/)
   active = ['read']

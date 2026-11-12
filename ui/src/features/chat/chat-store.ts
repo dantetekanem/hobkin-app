@@ -143,20 +143,37 @@ export const useChat = create<ChatState>()(
       stop: (mode = 'stop', captured) => {
         const target = captured ?? executionTargets(hostStore.getState()).find(target => target.kind === 'main' && target.canStop)
         if (!target || target.kind !== 'main') { set({ problem: 'Not stopped: No live conversation control.' }); return }
+
         const source = hostStore.getState().epoch
         const queued = new Set(get().outbox.entries.map(entry => entry.id))
         void runExecution(target, mode).then(receipt => {
           const now = hostStore.getState()
-          if (!receipt || now.link !== 'open' || now.owner?.state !== 'live' || now.epoch !== source || now.home !== target.home || now.snapshot.stopControls?.home !== target.home || now.snapshot.stopControls.epoch !== target.epoch) return
+          if (
+            !receipt ||
+            now.link !== 'open' ||
+            now.owner?.state !== 'live' ||
+            now.epoch !== source ||
+            now.home !== target.home ||
+            now.snapshot.stopControls?.home !== target.home ||
+            now.snapshot.stopControls.epoch !== target.epoch
+          ) return
+
           const recovery = receipt.queueRecovery
           const key = executionKey(target)
           if (recovery.status !== 'confirmed' || recovery.alreadyReturned || recovered.has(key)) return
+
           recovered.add(key)
           const { unsent } = recovery
           if (!unsent.length) return
+
           set(({ draft, outbox }) => ({
             draft: draftReducer(draft, { type: 'stopped', unsent }),
-            outbox: { ...outbox, entries: outbox.entries.filter(sent => !queued.has(sent.id) || !unsent.includes(sent.text)) },
+            outbox: {
+              ...outbox,
+              entries: outbox.entries.filter(
+                sent => !queued.has(sent.id) || !unsent.includes(sent.text),
+              ),
+            },
           }))
         }, error => {
           const now = hostStore.getState()

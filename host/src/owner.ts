@@ -116,10 +116,28 @@ export class HomeOwner {
   }
 
   private startupReceipt(slot: StartupSlot, args: StartupForceArgs): StartupForceReceipt {
-    return { ...args, fence: { status: 'confirmed' }, closure: { status: !slot.child ? 'not-created' : slot.runtime?.closed ? 'confirmed' : 'unknown' },
-      opening: { status: slot.runtime?.done || (!slot.runtime && slot.cleanupSettled) ? 'settled' : 'unknown' },
-      cleanup: { status: slot.cleanupSettled ? 'settled' : 'unknown' }, persistence: { ...(slot.runtime?.persistence ?? { status: 'unchanged' }) },
-      detachedCleanup: 'unknown', queueRecovery: 'not-applicable' }
+    return {
+      ...args,
+      fence: { status: 'confirmed' },
+      closure: {
+        status: !slot.child
+          ? 'not-created'
+          : slot.runtime?.closed
+            ? 'confirmed'
+            : 'unknown',
+      },
+      opening: {
+        status: slot.runtime?.done || (!slot.runtime && slot.cleanupSettled)
+          ? 'settled'
+          : 'unknown',
+      },
+      cleanup: { status: slot.cleanupSettled ? 'settled' : 'unknown' },
+      persistence: {
+        ...(slot.runtime?.persistence ?? { status: 'unchanged' }),
+      },
+      detachedCleanup: 'unknown',
+      queueRecovery: 'not-applicable',
+    }
   }
 
   private startupInstalled(slot: StartupSlot): boolean {
@@ -129,11 +147,25 @@ export class HomeOwner {
   }
 
   wireState(): OwnerState {
-    const slot = this.startup, runtime = slot.runtime, installed = this.startupInstalled(slot)
-    const removed = installed || runtime?.closed || (slot.fenced && slot.cleanupSettled && !slot.child)
-    const target = { ...slot.target, sessionId: runtime?.persistence.sessionId ?? slot.target.sessionId }
-    return { ...this.state, startup: { target: removed || this.closed ? null : target,
-      receipt: slot.receipt ? this.startupReceipt(slot, slot.receipt) : null } }
+    const slot = this.startup
+    const runtime = slot.runtime
+    const installed = this.startupInstalled(slot)
+    const removed =
+      installed ||
+      runtime?.closed ||
+      (slot.fenced && slot.cleanupSettled && !slot.child)
+    const target = {
+      ...slot.target,
+      sessionId: runtime?.persistence.sessionId ?? slot.target.sessionId,
+    }
+
+    return {
+      ...this.state,
+      startup: {
+        target: removed || this.closed ? null : target,
+        receipt: slot.receipt ? this.startupReceipt(slot, slot.receipt) : null,
+      },
+    }
   }
 
   reconnectStartup(): void {
@@ -144,42 +176,97 @@ export class HomeOwner {
 
   private retainStartup(runtime: MainStartup, lifecycle: object): void {
     const slot = this.startup
-    if (this.closed || this.lifecycle !== lifecycle || (slot.runtime && slot.runtime !== runtime) || runtime.done || runtime.installed) throw Error('Stale main startup callback.')
+    if (
+      this.closed ||
+      this.lifecycle !== lifecycle ||
+      (slot.runtime && slot.runtime !== runtime) ||
+      runtime.done ||
+      runtime.installed
+    ) {
+      throw Error('Stale main startup callback.')
+    }
+
     if (!slot.runtime) {
       slot.runtime = runtime
-      void runtime.settled.then(() => { if (this.startup === slot && !this.closed) this.options.onChange() })
+      void runtime.settled.then(() => {
+        if (this.startup === slot && !this.closed) this.options.onChange()
+      })
     }
+
     if (runtime.child && slot.child !== runtime.child) {
       if (slot.child) throw Error('Main startup child changed.')
       slot.child = runtime.child
-      void runtime.child.closed.then(() => { if (this.startup === slot && !this.closed) this.options.onChange() })
+      void runtime.child.closed.then(() => {
+        if (this.startup === slot && !this.closed) this.options.onChange()
+      })
     }
-    if (slot.fenced) { runtime.cancel(); throw Error('Main startup was stopped.') }
+
+    if (slot.fenced) {
+      runtime.cancel()
+      throw Error('Main startup was stopped.')
+    }
+
     this.options.onChange()
   }
 
   async forceStartup(args: StartupForceArgs): Promise<StartupForceReceipt> {
     const checked = checkArguments('startup.force', args)
     if (!checked.ok) throw Error('Invalid startup Force arguments.')
-    const slot = this.startup, runtime = slot.runtime, target = { ...slot.target, sessionId: runtime?.persistence.sessionId ?? slot.target.sessionId }
-    if (this.closed || this.startupInstalled(slot) || Object.keys(target).some(key => target[key as keyof StartupTarget] !== args.target[key as keyof StartupTarget])) throw Error('Stale main startup authority.')
-    const identity = JSON.stringify(target), prior = slot.attempts.get(args.attemptId)
+
+    const slot = this.startup
+    const runtime = slot.runtime
+    const target = {
+      ...slot.target,
+      sessionId: runtime?.persistence.sessionId ?? slot.target.sessionId,
+    }
+    if (
+      this.closed ||
+      this.startupInstalled(slot) ||
+      Object.keys(target).some(
+        key =>
+          target[key as keyof StartupTarget] !==
+          args.target[key as keyof StartupTarget],
+      )
+    ) {
+      throw Error('Stale main startup authority.')
+    }
+
+    const identity = JSON.stringify(target)
+    const prior = slot.attempts.get(args.attemptId)
     if (prior) {
       if (prior.identity !== identity) throw Error('Startup attempt identity changed.')
       return prior.result
     }
+
     slot.fenced = this.stopped = true
     clearTimeout(this.timer)
     runtime?.cancel()
     // Never wait for cancellation, Application.open/close or durable acknowledgment before signaling.
     slot.child?.force()
+
     const result = (async () => {
       if (slot.child && !runtime?.closed) {
         let timer: NodeJS.Timeout | undefined
-        try { await Promise.race([slot.child.closed, new Promise(resolve => { timer = setTimeout(resolve, 2000) })]) }
-        finally { clearTimeout(timer) }
+        try {
+          await Promise.race([
+            slot.child.closed,
+            new Promise(resolve => {
+              timer = setTimeout(resolve, 2000)
+            }),
+          ])
+        } finally {
+          clearTimeout(timer)
+        }
       }
-      if (this.closed || this.startup !== slot || slot.target.epoch !== args.target.epoch) throw Error('Stale main startup receipt.')
+
+      if (
+        this.closed ||
+        this.startup !== slot ||
+        slot.target.epoch !== args.target.epoch
+      ) {
+        throw Error('Stale main startup receipt.')
+      }
+
       slot.receipt = this.startupReceipt(slot, args)
       this.options.onChange()
       return slot.receipt
@@ -190,13 +277,26 @@ export class HomeOwner {
 
   async resetMain<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.startup
-    if (!previous.cleanupSettled || (previous.runtime && !previous.runtime.done) || (previous.child && !previous.runtime?.closed && !previous.runtime?.installed)) throw Error('Previous main startup cleanup is unconfirmed.')
-    if (this.closed || !this.app) throw Error('Main startup application is unavailable.')
+    if (
+      !previous.cleanupSettled ||
+      (previous.runtime && !previous.runtime.done) ||
+      (previous.child &&
+        !previous.runtime?.closed &&
+        !previous.runtime?.installed)
+    ) {
+      throw Error('Previous main startup cleanup is unconfirmed.')
+    }
+    if (this.closed || !this.app) {
+      throw Error('Main startup application is unavailable.')
+    }
+
     const slot = this.startup = this.newStartup()
     this.options.onChange()
     try {
       const result = await operation()
-      if (!this.closed && !slot.fenced && this.startup === slot && this.app) this.main = this.app.runtime.main as PiMainSession
+      if (!this.closed && !slot.fenced && this.startup === slot && this.app) {
+        this.main = this.app.runtime.main as PiMainSession
+      }
       return result
     } finally { slot.cleanupSettled = true; this.options.onChange() }
   }
@@ -248,8 +348,15 @@ export class HomeOwner {
   }
 
   private async open(): Promise<void> {
-    const { root } = this.options, slot = this.startup, lifecycle = this.lifecycle = {}
-    const check = () => { if (this.closed || slot.fenced || this.startup !== slot) throw Error('Main startup was stopped.') }
+    const { root } = this.options
+    const slot = this.startup
+    const lifecycle = this.lifecycle = {}
+    const check = () => {
+      if (this.closed || slot.fenced || this.startup !== slot) {
+        throw Error('Main startup was stopped.')
+      }
+    }
+
     try {
       check()
       const { HobkinApplication } = await import('hobkin/src/cli/application.mjs')

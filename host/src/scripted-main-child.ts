@@ -6,12 +6,19 @@ import { createScriptedSessionFactory } from './scripted.ts'
 
 /** Fixed packaged entry: neither bootstrap nor home configuration chooses this factory. */
 export function runScriptedMainChild(channel = process) {
-  return runMainSessionChild(channel, { openSession: (options, dependencies) =>
-    openConversation(options, { ...dependencies, scriptedMain: true, createSession: async sessionOptions => {
-      if (typeof sessionOptions.agentDir !== 'string') throw Error('Scripted main requires its captured agent directory.')
-      const createSession = await createScriptedSessionFactory(sessionOptions.agentDir)
-      return createSession(sessionOptions)
-    } }) })
+  return runMainSessionChild(channel, {
+    openSession: (options, dependencies) =>
+      openConversation(options, {
+        ...dependencies,
+        scriptedMain: true,
+        createSession: async sessionOptions => {
+          if (typeof sessionOptions.agentDir !== 'string') throw Error('Scripted main requires its captured agent directory.')
+
+          const createSession = await createScriptedSessionFactory(sessionOptions.agentDir)
+          return createSession(sessionOptions)
+        },
+      }),
+  })
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -64,7 +64,15 @@ test('a page holding the provider list hears of each provider that connects, and
 })
 
 test('model loss keeps Stop and agent canvases available without allowing a message', () => {
-  const state: HostState = { ...initialHostState, home: '/home', link: 'open', owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, snapshot: { busy: true, stopControls }, models: { ...MODELS, models: [] }, signIn: { status: 'signed-out' } }
+  const state: HostState = {
+    ...initialHostState,
+    home: '/home',
+    link: 'open',
+    owner: { state: 'live', limits: { images: 4, imageBytes: 1 } },
+    snapshot: { busy: true, stopControls },
+    models: { ...MODELS, models: [] },
+    signIn: { status: 'signed-out' },
+  }
   assert.equal(availabilityOf(state).ready, false)
   assert.equal(availability.canStopConversation(state), true)
   const signingIn: HostState['signIn'] = { status: 'signing-in', provider: 'openai', lines: [] }
@@ -89,7 +97,18 @@ test('Stop dispatches without a model and reports a disconnected refusal', { tim
   try {
     const { useChat } = await import('../src/features/chat/chat-store.ts')
     const { hostStore } = await import('../src/lib/host/client.ts')
-    hostStore.setState({ ...initialHostState, home: '/isolated', link: 'open', owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, models: { ...MODELS, models: [] }, signIn: { status: 'signed-out' }, snapshot: { busy: true, stopControls: { ...stopControls, home: '/isolated' } } }, true)
+    hostStore.setState(
+      {
+        ...initialHostState,
+        home: '/isolated',
+        link: 'open',
+        owner: { state: 'live', limits: { images: 4, imageBytes: 1 } },
+        models: { ...MODELS, models: [] },
+        signIn: { status: 'signed-out' },
+        snapshot: { busy: true, stopControls: { ...stopControls, home: '/isolated' } },
+      },
+      true,
+    )
     const calls: string[] = []
     t.mock.method(HostConnection.prototype, 'command', async (name: string, args: unknown) => {
       calls.push(name)

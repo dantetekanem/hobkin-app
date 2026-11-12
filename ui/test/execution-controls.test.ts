@@ -7,11 +7,30 @@ import type { StartupForceArgs, StartupForceReceipt, StopExecutionArgs, StopExec
 
 const row = { kind: 'main' as const, runId: 'turn:1', parentId: null, rootId: 'turn:1', label: 'hobkin', canStop: true, canForce: true }
 const state = (): HostState => ({ ...initialHostState, home: '/isolated', link: 'open' as const, owner: { state: 'live' as const, limits: { images: 4, imageBytes: 1 } }, snapshot: { busy: false, stopControls: { home: '/isolated', epoch: 'host:1', targets: [row] } } })
-const receipt = (args: StopExecutionArgs): StopExecutionReceipt => ({ ...args, stop: { status: 'unknown' }, closure: { status: 'unknown' }, descendants: { status: 'unknown', agents: [], cleanupScope: 'captured-rpc-children', detachedCleanup: 'unknown' }, queueRecovery: { status: 'unknown' } })
+const receipt = (args: StopExecutionArgs): StopExecutionReceipt => ({
+  ...args,
+  stop: { status: 'unknown' },
+  closure: { status: 'unknown' },
+  descendants: {
+    status: 'unknown',
+    agents: [],
+    cleanupScope: 'captured-rpc-children',
+    detachedCleanup: 'unknown',
+  },
+  queueRecovery: { status: 'unknown' },
+})
 
 test('retained live controls authorize exact UUID/root rows, not busy or observations', () => {
   const host = state()
-  host.snapshot.stopControls!.targets.push(...Array.from({ length: 5 }, (_, n) => ({ ...row, kind: 'agent' as const, agentId: `uuid:${n}`, parentId: n ? `uuid:${n - 1}` : row.runId, label: 'duplicate' })))
+  host.snapshot.stopControls!.targets.push(
+    ...Array.from({ length: 5 }, (_, n) => ({
+      ...row,
+      kind: 'agent' as const,
+      agentId: `uuid:${n}`,
+      parentId: n ? `uuid:${n - 1}` : row.runId,
+      label: 'duplicate',
+    })),
+  )
   assert.equal(executionTargets(host).length, 6)
   assert.equal(executionTargets({ ...host, link: 'lost' }).length, 0)
   assert.equal(executionTargets({ ...host, owner: null }).length, 0)
@@ -19,7 +38,8 @@ test('retained live controls authorize exact UUID/root rows, not busy or observa
   const target = executionTargets(host)[5]!
   const sent: unknown[] = []
   const answer = confirmExecution(target, () => executionTargets(host), () => sent.push(target))
-  answer(true); answer(true)
+  answer(true)
+  answer(true)
   assert.deepEqual(sent, [target])
   const stale = confirmExecution(target, () => executionTargets(host), () => { sent.push(target) })
   host.snapshot.stopControls!.epoch = 'host:2'
@@ -28,8 +48,23 @@ test('retained live controls authorize exact UUID/root rows, not busy or observa
 })
 
 test('closed execution feedback is retained once without live authority', () => {
-  const target = { ...executionTargets(state())[0]!, kind: 'agent' as const, agentId: 'nested:uuid:7', parentId: 'uuid:6' }
-  const args = { target: { home: target.home, epoch: target.epoch, kind: target.kind, runId: target.runId, agentId: target.agentId }, mode: 'stop' as const, attemptId: 'closed' }
+  const target = {
+    ...executionTargets(state())[0]!,
+    kind: 'agent' as const,
+    agentId: 'nested:uuid:7',
+    parentId: 'uuid:6',
+  }
+  const args = {
+    target: {
+      home: target.home,
+      epoch: target.epoch,
+      kind: target.kind,
+      runId: target.runId,
+      agentId: target.agentId,
+    },
+    mode: 'stop' as const,
+    attemptId: 'closed',
+  }
   const result = { target, text: 'Stop: confirmed', receipt: receipt(args), order: 1 }
   const results = { [executionKey(target)]: result }
   assert.deepEqual(executionFeedbackRows([], results).map(({ active, result }) => [active, result]), [[false, result]])
@@ -69,23 +104,43 @@ test('Force runs independently of pending Stop; echoes and old epochs cannot pub
     assert.equal(useExecution.getState().pending[executionKey(target, 'stop')], true)
     assert.match(useExecution.getState().results[executionKey(target)]!.text, /closure unknown.*detached.*unknown/i)
     assert.ok(useExecution.getState().results[executionKey(target)]!.order > 0)
-    finish(receipt(calls[0]!)); await stop
+    finish(receipt(calls[0]!))
+    await stop
     assert.equal(useExecution.getState().results[executionKey(target)]!.receipt?.mode, 'force', 'late Stop cannot downgrade the newer Force feedback')
     const old = runExecution(target, 'stop')
     hostStore.setState({ epoch: 2 })
     finish(receipt(calls[2]!)); await old
     assert.deepEqual(useExecution.getState().results, {})
     hostStore.setState(state(), true)
-    t.mock.method(HostConnection.prototype, 'command', async (_name: string, args: StopExecutionArgs) => receipt({ ...args, attemptId: 'wrong' }))
+    t.mock.method(HostConnection.prototype, 'command', async (_name: string, args: StopExecutionArgs) =>
+      receipt({ ...args, attemptId: 'wrong' }),
+    )
     await assert.rejects(runExecution(target, 'force'), /receipt.*match/i)
-    hostStore.setState({ snapshot: { ...hostStore.getState().snapshot, stopControls: { ...hostStore.getState().snapshot.stopControls!, targets: [] } } })
+    hostStore.setState({
+      snapshot: {
+        ...hostStore.getState().snapshot,
+        stopControls: {
+          ...hostStore.getState().snapshot.stopControls!,
+          targets: [],
+        },
+      },
+    })
     assert.equal(executionFeedbackRows([], useExecution.getState().results)[0]?.result?.target.runId, target.runId, 'an error remains tied to its closed target')
     const nestedHost = state()
-    nestedHost.snapshot.stopControls!.targets.push({ ...row, kind: 'agent', agentId: 'owned:uuid:5', parentId: 'owned:uuid:4', label: 'duplicate' })
+    nestedHost.snapshot.stopControls!.targets.push({
+      ...row,
+      kind: 'agent',
+      agentId: 'owned:uuid:5',
+      parentId: 'owned:uuid:4',
+      label: 'duplicate',
+    })
     hostStore.setState(nestedHost, true)
     const nested = executionTargets(hostStore.getState())[1]!
     let sent: StopExecutionArgs | undefined
-    t.mock.method(HostConnection.prototype, 'command', async (_name: string, args: StopExecutionArgs) => { sent = args; return receipt(args) })
+    t.mock.method(HostConnection.prototype, 'command', async (_name: string, args: StopExecutionArgs) => {
+      sent = args
+      return receipt(args)
+    })
     await runExecution(nested, 'force', 'not-approved')
     hostStore.setState({ snapshot: { ...hostStore.getState().snapshot, stopControls: { ...nestedHost.snapshot.stopControls!, targets: [nestedHost.snapshot.stopControls!.targets[0]!] } } })
     assert.equal(executionFeedbackRows(executionTargets(hostStore.getState()), useExecution.getState().results).find(({ target }) => target.agentId === nested.agentId)?.active, false)
@@ -107,7 +162,14 @@ test('main recovery applies once after closure, preserving later draft and newly
     const entry = { id: 1, text: 'queued', images: 0, at: 1, accepted: false }
     useChat.setState({ draft: { ...useChat.getState().draft, text: 'later draft' }, outbox: { ...useChat.getState().outbox, entries: [entry] } })
     let finish!: () => void
-    t.mock.method(HostConnection.prototype, 'command', (_name: string, args: StopExecutionArgs) => new Promise(resolve => { finish = () => resolve({ ...receipt(args), queueRecovery: { status: 'confirmed', unsent: ['queued'] } }) }))
+    t.mock.method(HostConnection.prototype, 'command', (_name: string, args: StopExecutionArgs) =>
+      new Promise(resolve => {
+        finish = () => resolve({
+          ...receipt(args),
+          queueRecovery: { status: 'confirmed', unsent: ['queued'] },
+        })
+      }),
+    )
     useChat.getState().stop()
     useChat.setState({ outbox: { ...useChat.getState().outbox, entries: [entry, { ...entry, id: 2 }] } })
     hostStore.setState({ snapshot: { stopControls: { ...state().snapshot.stopControls!, targets: [] } } })
@@ -117,10 +179,16 @@ test('main recovery applies once after closure, preserving later draft and newly
     assert.match(useChat.getState().draft.text, /later draft/)
     assert.deepEqual(useChat.getState().outbox.entries.map(e => e.id), [2])
     hostStore.setState({ snapshot: state().snapshot })
-    useChat.getState().stop(); finish(); await new Promise<void>(done => setImmediate(done))
+    useChat.getState().stop()
+    finish()
+    await new Promise<void>(done => setImmediate(done))
     assert.equal(useChat.getState().draft.text.match(/queued/g)?.length, 1)
-    t.mock.method(HostConnection.prototype, 'command', async (_name: string, args: StopExecutionArgs) => ({ ...receipt(args), queueRecovery: { status: 'confirmed', unsent: ['duplicate'], alreadyReturned: true } }))
-    useChat.getState().stop(); await new Promise<void>(done => setImmediate(done))
+    t.mock.method(HostConnection.prototype, 'command', async (_name: string, args: StopExecutionArgs) => ({
+      ...receipt(args),
+      queueRecovery: { status: 'confirmed', unsent: ['duplicate'], alreadyReturned: true },
+    }))
+    useChat.getState().stop()
+    await new Promise<void>(done => setImmediate(done))
     assert.doesNotMatch(useChat.getState().draft.text, /duplicate/)
     hostStore.setState(initialHostState, true)
   } finally { aliases.deregister() }
