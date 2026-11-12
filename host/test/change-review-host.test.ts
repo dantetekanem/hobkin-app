@@ -87,7 +87,7 @@ test('a finished change is reviewed once per commit, in the background', async (
 
   assert.equal(runs.length, 1, 'the same commit is reviewed once')
   assert.deepEqual([...new Set(states)], ['queued', 'running', 'ready'])
-  const running = seen.find((status) => status.state === 'running' && status.steps)
+  const running = seen.find((status) => status.state === 'running' && status.percent === 40)
   assert.deepEqual(running?.steps?.map((step) => `${step.id}:${step.status}`), ['triage:done', 'map-proof:running'], 'a running review says how each step stands')
   const done = assessments.status(target, head)
   assert.equal(done.state, 'ready')
@@ -278,7 +278,6 @@ test('a finished change’s review starts its change review, and opens with the 
         change: changeSource({ find: () => ({ project: 'shop', title: 'Round the total', branch: 'hobkin/4c9e21-round-the-total', head }), repoOf: () => repo, baseOf: async () => 'main' }),
         pull: { head: async () => null, read: async () => Promise.reject(new Error('no pull requests here')) },
       },
-      agent: async () => null,
       work: () => ({ workAction: async () => ({}) }),
       card: () => null,
       // As the live host knows it, from the change's card on the Work screen.
@@ -328,7 +327,7 @@ const SAMPLE = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sam
 const SAMPLE_FILES = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
 
 test('review.list has every review the host knows, newest first, with when each started and how it stands', async (t) => {
-  const { repo, head } = project(t)
+  const { repo, base, head } = project(t)
   const root = temporaryDirectory(t)
   let clock = Date.parse('2026-11-12T15:00:00Z')
   const now = () => clock
@@ -358,7 +357,6 @@ test('review.list has every review the host knows, newest first, with when each 
       change: changeSource({ find: () => ({ project: 'shop', title: 'Round the total', branch: 'hobkin/4c9e21-round-the-total', head }), repoOf: () => repo, baseOf: async () => 'main' }),
       pull: { head: async () => null, read: async () => Promise.reject(new Error('no pull requests here')) },
     },
-    agent: async () => null,
     work: () => ({ workAction: async () => ({}) }),
     card: () => null,
     head: (target) => (target.kind === 'change' ? head : null),
@@ -382,14 +380,15 @@ test('review.list has every review the host knows, newest first, with when each 
       ['pr:acme/web/12', 'pull', 'Tighten the login form', 'acme/web', 'ready', undefined, '2026-11-12T09:00:00.000Z'],
     ],
   )
-  assert.equal(preparing[1]!.assessment, undefined, 'a pull request has no change review')
+  assert.deepEqual(preparing[1]!.assessment, { state: 'idle', head: SAMPLE.change.head }, 'a pull request lists its change review too, here not run yet')
   assert.equal(reviews.status(id).startedAt, '2026-11-12T15:00:00.000Z')
 
   // Its graph is ready, so its preparation says no start; its change review runs, and keeps the time it started.
   await running
   const [change] = reviews.list().reviews
   assert.deepEqual([change!.id, change!.state, change!.phase, change!.startedAt, change!.head], [id, 'ready', null, undefined, head])
-  assert.deepEqual(change!.assessment, { state: 'running', head, percent: 40, now: 'map-proof: running the tests of total', eta: 30, startedAt: '2026-11-12T15:00:00.000Z' }, 'the list leaves the steps out')
+  const request = { kind: 'change', project: 'shop', title: 'Round the total', base, head, files: 1, added: 1, removed: 1 }
+  assert.deepEqual(change!.assessment, { state: 'running', head, percent: 40, now: 'map-proof: running the tests of total', eta: 30, startedAt: '2026-11-12T15:00:00.000Z', request }, 'the list says what it reviews, and leaves the steps and the log out')
   assert.equal(reviews.status(id).assessment?.startedAt, '2026-11-12T15:00:00.000Z', 'the status keeps it across every update')
   assert.equal(reviews.status(id).assessment?.steps?.length, 1)
 
@@ -430,10 +429,8 @@ test('hobkin is told when a change review is ready, once a run, and when a pull 
   const reviews = new Reviews({
     store: reviewStore(temporaryDirectory(t)),
     sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('no changes here')) }, pull: sampleReviewSource() },
-    agent: async () => null,
     work: () => ({ workAction: async () => ({}) }),
     card: () => null,
-    skill: () => 'You arrange a change review.',
     onReady: ({ target, review, at }) => ready.push(`${target.kind}:${review.change.title}:${typeof at}`),
   })
   t.after(() => reviews.close())

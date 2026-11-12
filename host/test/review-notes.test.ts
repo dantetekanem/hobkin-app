@@ -18,7 +18,6 @@ function reviewsIn(home: string, actions: unknown[][] = []) {
   return new Reviews({
     store: reviewStore(home),
     sources: { change: changeSource({ find: () => null, repoOf: () => null, baseOf: async () => 'main' }), pull: pullSource({ gh: async () => ({ kind: 'missing' }) }) },
-    agent: async () => null,
     work: () => ({
       workAction: async (...args: unknown[]) => {
         actions.push(args)

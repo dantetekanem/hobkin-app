@@ -30,7 +30,6 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
   const reviews = new Reviews({
     store,
     sources: { change: { head: async () => at, read: async () => Promise.reject(new Error('Nothing is read again here.')) }, pull: pullSource({ gh: async () => ({ kind: 'missing' }) }) },
-    agent: async () => null,
     work: () => ({
       workAction: async (...args: unknown[]) => {
         actions.push(args)
@@ -186,6 +185,4 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   const after = store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null))
   assert.deepEqual(after, [['n1', 1000], ['n2', 1000], ['n3', null]])
   assert.match((await reviews.preview(id, 'comment', '')).post!.body, /^Commented\.$/)
-  // A pull request from GitHub gets a review here. Merging it is GitHub's.
-  await assert.rejects(reviews.preview(id, 'approve-merge', ''), /Merge it on GitHub/)
 })

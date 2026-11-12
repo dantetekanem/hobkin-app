@@ -7,7 +7,12 @@ test('reads the GitHub repository a project pushes to from its origin', () => {
   assert.equal(githubRepoOf('https://github.com/acme/shop.git'), 'acme/shop')
   assert.equal(githubRepoOf('git@github.com:acme/shop.git'), 'acme/shop')
   assert.equal(githubRepoOf('ssh://git@github.com/acme/shop'), 'acme/shop')
+  // As clones write them too: a user in the address, plain http, a port, a trailing slash.
+  assert.equal(githubRepoOf('https://dev@github.com/acme/shop.git'), 'acme/shop')
+  assert.equal(githubRepoOf('http://github.com/acme/shop/'), 'acme/shop')
+  assert.equal(githubRepoOf('ssh://git@github.com:22/acme/shop.git'), 'acme/shop')
   assert.equal(githubRepoOf('https://gitlab.com/acme/shop.git'), null)
+  assert.equal(githubRepoOf('https://github.com.evil.invalid/acme/shop.git'), null)
 })
 
 test('opens a pull request by pushing the reviewed commit to the branch and asking GitHub for it', async () => {

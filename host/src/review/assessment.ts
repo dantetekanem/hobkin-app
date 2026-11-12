@@ -1,9 +1,10 @@
 /**
- * The change review of a finished hobkin change (spec 032): once a change ships, the host checks it out in a review
- * worktree of its own and runs the change-review package on it in the background. Triage, the node map with proof
- * from the project's own tests, a level per unit and the story the user reads. One review runs at a time, because a
- * project's tests are heavy, and each commit is reviewed once. What it writes stays in the home beside the change's
- * review, so it opens at once and survives a restart.
+ * The change review of a finished hobkin change or of a GitHub pull request (spec 032): the host checks the change out
+ * in a review worktree of its own and runs the change-review package on it in the background. Triage, the node map
+ * with proof from the project's own tests, a level per unit and the story the user reads. One review runs at a time,
+ * because a project's tests are heavy, and each commit is reviewed once. What it writes stays in the home beside the
+ * change's review, so it opens at once and survives a restart. While it runs, its status says what it reviews and keeps
+ * a short log of what it did, in plain words.
  *
  * The engine stands apart from this app (`packages/change-review`); this file only hands it a checkout, a range and a
  * model, and reads back what it wrote.
@@ -13,8 +14,11 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
-import type { AssessmentStatus, AssessmentSummary, ChangeAssessment, Level, Units } from '#shared/review/assessment.ts'
+import { LEVEL_WORDS, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type ChangeAssessment, type Level, type StoryWords, type Units } from '#shared/review/assessment.ts'
+import { count } from '#shared/review/prose.ts'
 import type { Review } from '#shared/review/types.ts'
+import { STEP_IDS } from '../../../packages/change-review/src/types.ts'
+import { unitStory, type UnitPlace } from './unit-story.ts'
 
 const run = promisify(execFile)
 const GIT_TIMEOUT_MS = 120_000
@@ -49,7 +53,7 @@ export interface ProgressLike {
   steps: { id: string; status: string; done: number; total: number; seconds: number | null; note?: string }[]
 }
 
-/** What the host reads of a rated node in the engine's graph.json. */
+/** What the host reads of a node in the engine's graph.json. */
 interface GraphNode {
   id: string
   kind: string
@@ -60,6 +64,8 @@ interface GraphNode {
   change: 'added' | 'modified' | 'removed' | 'none'
   level: { current: Level } | null
   critical: boolean
+  /** A removed definition something still refers to says so here. */
+  extras?: { broken?: string }
 }
 
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
@@ -101,8 +107,13 @@ export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'n
 /** Runs git in a folder, as itself: no shell, a timeout, and never a prompt for a password. */
 export type GitRun = (cwd: string, ...args: string[]) => Promise<string>
 
-export const gitIn: GitRun = async (cwd, ...args) =>
-  (await run('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })).stdout.trim()
+/** git with this time limit, for work that reaches GitHub and may take longer, such as a fetch. */
+export const gitWithin =
+  (timeoutMs: number): GitRun =>
+  async (cwd, ...args) =>
+    (await run('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })).stdout.trim()
+
+export const gitIn: GitRun = gitWithin(GIT_TIMEOUT_MS)
 
 /** Only a linked worktree has a `.git` file, so a folder that passes this is never the project's own. */
 const isLinkedTree = (tree: string) => Boolean(statSync(join(tree, '.git'), { throwIfNoEntry: false })?.isFile())
@@ -221,24 +232,104 @@ export function summarize(result: AssessResult, at: string): AssessmentSummary {
   }
 }
 
+/** A pull request, as a review target. */
+type PullTarget = Extract<ReviewTarget, { kind: 'pull' }>
+
+/** The review tree of a target's repository: one per project, and one per pull request repository. */
+export function treeOf(root: string, target: ReviewTarget): string {
+  return join(root, 'client', 'review-trees', target.kind === 'change' ? target.slug : `pr+${target.owner}+${target.repo}`)
+}
+
+/** The most lines a run's log keeps: the latest. */
+export const LOG_LINES = 40
+
+/** Every step of a run, none started, for a run that waits its turn: the engine plans all of them every time. */
+export const pendingSteps = (): NonNullable<AssessmentStatus['steps']> => STEP_IDS.map((id) => ({ id, status: 'pending', done: 0, total: 1, seconds: null }))
+
+/** Each step of the engine, in plain words, for the log. */
+const STEP_WORDS: Record<string, string> = {
+  triage: 'Sorting the changed files',
+  'map-search': 'Finding every changed definition',
+  'map-proof': "Running the project's tests",
+  'risk-floor': 'Rating each definition',
+  'risk-model': 'The careful model pass',
+  shape: 'Grouping the definitions into units',
+  story: 'Writing the story',
+  'blind-check': 'The blind check',
+}
+
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
+
+/**
+ * What the engine says it is doing, as a line of the log in plain words. Its step's name goes, a test run says what it
+ * showed, and a step that ended says how.
+ */
+export function progressWords(now: string): string {
+  const ran = /^map-proof: (baseline|revert|probe) run for (.+): (\d+) test files?, exit (\d+)$/.exec(now)
+  if (ran) {
+    const [, kind, who, files, exit] = ran
+    const tests = count(Number(files), 'test file')
+    const failed = exit !== '0'
+    if (kind === 'baseline' && who === 'every candidate test') return `Ran ${tests} at the change's commit: ${failed ? 'some fail' : 'they pass'}.`
+    if (kind === 'baseline') return `Ran ${tests} of ${who} again, on their own: ${failed ? 'they still fail' : 'they pass'}.`
+    if (kind === 'revert') return `Put ${who} back as it was and ran ${tests}: ${failed ? 'they fail, so they prove it' : 'they still pass, so they do not prove it'}.`
+    return `Made ${who} fail and ran ${tests}: ${failed ? 'they notice, so they prove it' : 'they do not notice'}.`
+  }
+  const step = /^([a-z-]+): (.*)$/.exec(now)
+  if (!step || !STEP_WORDS[step[1]!]) return sentence(capitalized(now))
+  const [, id, said] = step
+  const name = STEP_WORDS[id!]!
+  if (said === 'done') return `${name}: done.`
+  const ended = /^(skipped|failed), (.*)$/.exec(said!)
+  if (ended) return `${name}: ${ended[1]}, ${sentence(ended[2]!)}`
+  return sentence(capitalized(said!))
+}
+
+/** A finished run's levels in words: the worst, then how many parts sit at each. */
+function finishedWords(summary: AssessmentSummary): string {
+  const parts = [
+    summary.needsYou ? `${count(summary.needsYou, 'part')} ${summary.needsYou === 1 ? 'needs' : 'need'} you` : '',
+    summary.worthALook ? `${count(summary.worthALook, 'part')} ${summary.worthALook === 1 ? 'is' : 'are'} worth a look` : '',
+    summary.safe ? `${count(summary.safe, 'part')} ${summary.safe === 1 ? 'is' : 'are'} safe` : '',
+  ].filter(Boolean)
+  return `${LEVEL_WORDS[summary.level]}${summary.critical ? ', with something critical' : ''}.${parts.length ? ` ${capitalized(parts.join(', '))}.` : ''}`
+}
+
 export interface AssessmentsOptions {
   root: string
   run: AssessRun
-  /** The project's own folder, or null when hobkin knows none. */
+  /** A finished change's project folder, or null when hobkin knows none. */
   repoOf: (slug: string) => string | null
+  /** A pull request's repository on this Mac, with its head in it, found, cloned or fetched as needed. Without it no pull request is reviewed. */
+  pullRepo?: (target: PullTarget, head: string, say: (text: string) => void) => Promise<string>
   git?: GitRun
   onChange?: () => void
-  /** A run finished and its review is ready, with its summary. Once for each run that finishes. */
-  onReady?: (ready: { target: ReviewTarget & { kind: 'change' }; head: string; summary: AssessmentSummary }) => void
+  /** A run finished and its review is ready, with its summary and what it reviewed. Once for each run that finishes. */
+  onReady?: (ready: { target: ReviewTarget; head: string; summary: AssessmentSummary; request?: AssessmentRequest }) => void
   log?: (line: string) => void
   now?: () => number
 }
 
-interface Job {
-  target: ReviewTarget & { kind: 'change' }
+/** One change review to run. */
+export interface AssessJob {
+  target: ReviewTarget
   head: string
   base: string
   description: AssessRequest['description']
+  /** What it reviews, for its status. */
+  request?: AssessmentRequest
+  /** What the preparation of its graph did before it, so its log reads from the start. */
+  log?: readonly AssessmentLogLine[]
+  /** When the user asked for it, so the time a window shows counts from there. */
+  startedAt?: string
+}
+
+/** What a run reviews, its log, and when it was asked for, kept beside how it stands. */
+interface RunRecord {
+  request?: AssessmentRequest
+  log: AssessmentLogLine[]
+  startedAt: string
 }
 
 /** Why a run that close() stopped failed. */
@@ -246,8 +337,11 @@ const STOPPED = 'The review was stopped before it finished.'
 
 /** Every change review this host has run or is running, one at a time, each commit once. */
 export class Assessments {
-  private readonly queue: Job[] = []
+  private readonly queue: AssessJob[] = []
   private readonly live = new Map<string, AssessmentStatus>()
+  private readonly records = new Map<string, RunRecord>()
+  /** The last one waiting for each review tree, so a tree has one user at a time. */
+  private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
   private working: Promise<void> | null = null
   private readonly options: AssessmentsOptions
@@ -267,11 +361,21 @@ export class Assessments {
     this.options.onChange?.()
   }
 
+  /** Adds a line to the run's log, keeping the latest `LOG_LINES`. */
+  private say(target: ReviewTarget, head: string, text: string, step?: string) {
+    const record = this.records.get(this.key(target, head))
+    if (!record) return
+    record.log.push({ at: this.clockIso(), ...(step ? { step } : {}), text })
+    if (record.log.length > LOG_LINES) record.log.splice(0, record.log.length - LOG_LINES)
+  }
+
   /** How the review of this commit stands: from this host's memory, else from what an earlier run left in the home. */
   status(target: ReviewTarget, head: string | null): AssessmentStatus {
     if (!head) return { state: 'idle', head: null }
+    const record = this.records.get(this.key(target, head))
+    const kept = record ? { ...(record.request ? { request: record.request } : {}), ...(record.log.length ? { log: [...record.log] } : {}) } : {}
     const known = this.live.get(this.key(target, head))
-    if (known) return known
+    if (known) return { ...known, ...kept }
     const folder = assessmentFolder(this.options.root, target, head)
     const summary = readJson<AssessmentSummary>(join(folder, 'summary.json'))
     if (summary) return { state: 'ready', head, summary }
@@ -280,16 +384,19 @@ export class Assessments {
   }
 
   /**
-   * Reviews a finished change at `head` in the background. A commit already reviewed, queued or under way is left as
-   * it is, so the same commit is never reviewed twice. `again` reviews it once more.
+   * Reviews a change at `head` in the background. A commit already reviewed, queued or under way is left as it is, so
+   * the same commit is never reviewed twice. `again` reviews it once more.
    */
-  start(job: Job, { again = false }: { again?: boolean } = {}): AssessmentStatus {
+  start(job: AssessJob, { again = false }: { again?: boolean } = {}): AssessmentStatus {
     const now = this.status(job.target, job.head)
     if (now.state === 'queued' || now.state === 'running') return now
     if (now.state === 'ready' && !again) return now
     if (this.queue.some((entry) => this.key(entry.target, entry.head) === this.key(job.target, job.head))) return now
+    const startedAt = job.startedAt ?? this.clockIso()
+    this.records.set(this.key(job.target, job.head), { ...(job.request ? { request: job.request } : {}), log: (job.log ?? []).slice(-LOG_LINES), startedAt })
+    if (this.working) this.say(job.target, job.head, 'Waiting for the change review before it to finish.')
     this.queue.push(job)
-    this.set(job.target, job.head, { state: 'queued', head: job.head })
+    this.set(job.target, job.head, { state: 'queued', head: job.head, startedAt, percent: 0, eta: null, now: 'waiting its turn', steps: pendingSteps() })
     this.working ??= this.work().finally(() => {
       this.working = null
     })
@@ -304,50 +411,98 @@ export class Assessments {
       await this.one(job).catch((error: unknown) => {
         const message = messageOf(error)
         this.options.log?.(`Change review of ${reviewIdOf(job.target)} at ${job.head.slice(0, 7)} failed: ${message}`)
+        this.say(job.target, job.head, `Stopped: ${message}`)
         this.set(job.target, job.head, { state: 'failed', head: job.head, error: message })
       })
     }
   }
 
-  private async one({ target, head, base, description }: Job) {
-    const { root, repoOf, git = gitIn, log } = this.options
+  /** The repository a target's change is in on this Mac: a project's own folder, or a pull request's clone. */
+  private async repoFor(target: ReviewTarget, head: string, say: (text: string) => void): Promise<string> {
+    if (target.kind === 'change') {
+      const repo = this.options.repoOf(target.slug)
+      if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
+      return repo
+    }
+    if (!this.options.pullRepo) throw new Error('This host checks out no pull requests, so it cannot review one.')
+    return this.options.pullRepo(target, head, say)
+  }
+
+  /**
+   * Readies the review tree of the target's repository at `head` and lends it to `use`, one user at a time, so a run's
+   * tests and a preparation's scan never share a checkout. The tree is the review's own, never the user's folder.
+   */
+  async inTree<Value>(target: ReviewTarget, repo: string, head: string, use: (tree: string) => Promise<Value>, say?: (text: string) => void): Promise<Value> {
+    const tree = treeOf(this.options.root, target)
+    const before = this.turns.get(tree) ?? Promise.resolve()
+    let release = () => {}
+    const mine = new Promise<void>((resolve) => (release = resolve))
+    const tail = before.then(() => mine)
+    this.turns.set(tree, tail)
+    try {
+      await before
+      say?.(`Readying the review checkout at ${head.slice(0, 7)}.`)
+      await readyReviewTree({ repo, tree, head, git: this.options.git ?? gitIn, log: this.options.log })
+      return await use(tree)
+    } finally {
+      release()
+      if (this.turns.get(tree) === tail) this.turns.delete(tree)
+    }
+  }
+
+  private async one({ target, head, base, description }: AssessJob) {
+    const { root } = this.options
     const { signal } = this.controller
-    const repo = repoOf(target.slug)
-    if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
+    const say = (text: string, step?: string) => this.say(target, head, text, step)
     // Every update of a run says when it started, so a window that opens late still counts from the start.
-    const startedAt = this.clockIso()
-    this.set(target, head, { state: 'running', head, percent: 0, now: 'checking the change out in the review tree', startedAt })
-    const tree = await readyReviewTree({ repo, tree: join(root, 'client', 'review-trees', target.slug), head, git, log })
+    const startedAt = this.records.get(this.key(target, head))?.startedAt ?? this.clockIso()
+    const running = (status: Omit<AssessmentStatus, 'state' | 'head' | 'startedAt'>) => this.set(target, head, { state: 'running', head, startedAt, ...status })
+    running({ percent: 0, now: 'checking the change out in the review tree', eta: null, steps: pendingSteps() })
+    const repo = await this.repoFor(target, head, say)
     if (signal.aborted) throw new Error(STOPPED)
-    const out = assessmentFolder(root, target, head)
-    mkdirSync(out, { recursive: true, mode: 0o700 })
-    // The run rewrites the story and its units, so a summary of the last one never stands beside them.
-    rmSync(join(out, 'summary.json'), { force: true })
-    const result = await this.options.run({
-      cwd: tree,
-      base,
+    const result = await this.inTree(
+      target,
+      repo,
       head,
-      out,
-      description,
-      signal,
-      onProgress: (progress) =>
-        this.set(target, head, {
-          state: 'running',
+      async (tree) => {
+        if (signal.aborted) throw new Error(STOPPED)
+        const out = assessmentFolder(root, target, head)
+        mkdirSync(out, { recursive: true, mode: 0o700 })
+        // The run rewrites the story and its units, so a summary of the last one never stands beside them.
+        rmSync(join(out, 'summary.json'), { force: true })
+        let said = ''
+        return this.options.run({
+          cwd: tree,
+          base,
           head,
-          percent: progress.percent,
-          now: progress.now,
-          eta: progress.eta_seconds,
-          startedAt,
-          steps: progress.steps.map(({ id, status, done, total, seconds, note }) => ({ id, status, done, total, seconds, ...(note ? { note } : {}) })),
-        }),
-    })
+          out,
+          description,
+          signal,
+          onProgress: (progress) => {
+            if (progress.now !== said) {
+              said = progress.now
+              say(progressWords(progress.now), progress.steps.find((step) => step.status === 'running')?.id)
+            }
+            running({
+              percent: progress.percent,
+              now: progress.now,
+              eta: progress.eta_seconds,
+              steps: progress.steps.map(({ id, status, done, total, seconds, note }) => ({ id, status, done, total, seconds, ...(note ? { note } : {}) })),
+            })
+          },
+        })
+      },
+      say,
+    )
     // A run stopped on the way has not finished, whatever it answered, so no summary says it has.
     if (signal.aborted) throw new Error(STOPPED)
     const summary = summarize(result, this.clockIso())
-    writeWhole(join(out, 'summary.json'), JSON.stringify(summary))
+    writeWhole(join(assessmentFolder(root, target, head), 'summary.json'), JSON.stringify(summary))
+    say(`Finished: ${finishedWords(summary)}`)
     this.set(target, head, { state: 'ready', head, summary })
     try {
-      this.options.onReady?.({ target, head, summary })
+      const request = this.records.get(this.key(target, head))?.request
+      this.options.onReady?.({ target, head, summary, ...(request ? { request } : {}) })
     } catch (error) {
       this.options.log?.(`Change review of ${reviewIdOf(target)} at ${head.slice(0, 7)}: what was told of it failed: ${messageOf(error)}`)
     }
@@ -384,6 +539,27 @@ export class Assessments {
         return [{ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level, critical: node.critical, unit: unit?.id ?? null }]
       }),
     }
+  }
+
+  /**
+   * The review as its change review tells it: each node at its unit's level, and one step per unit in the order the
+   * story walks, after an opening with the change's claim. Null until a change review is ready for the review's commit.
+   */
+  present(target: ReviewTarget, review: Review): Review | null {
+    const assessment = this.read(target, review.change.head)
+    if (!assessment?.units) return null
+    const folder = assessmentFolder(this.options.root, target, review.change.head)
+    const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
+    const places: UnitPlace[] = (graph?.nodes ?? []).map(({ id, kind, path, lines, change, extras }) => ({ id, kind, path, lines, change, ...(extras?.broken ? { broken: true } : {}) }))
+    const levelled = withLevels(review, assessment)
+    const story = unitStory(levelled, {
+      units: assessment.units.units,
+      places,
+      words: readJson<StoryWords>(join(folder, 'story-words.json')),
+      story: assessment.story,
+      buckets: assessment.triage?.buckets ?? [],
+    })
+    return { ...levelled, story }
   }
 
   /** Waits for whatever is queued or under way. For tests and for closing. */

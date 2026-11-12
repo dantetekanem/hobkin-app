@@ -24,6 +24,11 @@ test('the chat line says which review is ready, its level when it has one, and h
     'The change review of "Round the total" in shop is ready: safe. Open it from its card in Work, or from Work › AI Reviews.',
   )
   assert.equal(readyLine(pull), 'The AI review of acme/web#12 "Tighten the login form" is ready. Open it from Work › AI Reviews.')
+  // A pull request's change review says its level too.
+  assert.equal(
+    readyLine({ ...pull, summary: { ...summary, critical: false, needsYou: 1, worthALook: 0 } }),
+    'The AI review of acme/web#12 "Tighten the login form" is ready: high risk. 1 part needs you. Open it from Work › AI Reviews.',
+  )
 })
 
 test('hobkin is told in its chat once, as its own notice naming the review, and asked to show it', async (t) => {

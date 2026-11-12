@@ -5,7 +5,7 @@
  */
 import type { BlindCheck, Level, Progress, Triage, Units } from '../../packages/change-review/src/types.ts'
 
-export type { Level, Units, Unit, Triage, Progress, BlindCheck } from '../../packages/change-review/src/types.ts'
+export type { Level, Units, Unit, Triage, Progress, BlindCheck, StoryWords } from '../../packages/change-review/src/types.ts'
 
 /** The card's line: the worst level, whether anything is critical, and how many units sit at each level. */
 export interface AssessmentSummary {

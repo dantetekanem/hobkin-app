@@ -6,6 +6,8 @@
 declare module 'hobkin/src/cli/work/store.mjs' {
   /** A project as hobkin keeps it. `path` is the folder it was chosen from, when it was chosen from one. */
   export function readProject(root: string, slug: string): { slug: string; name?: string; path?: string; [key: string]: unknown } | null
+  /** Every project hobkin keeps, each as `readProject` gives it. */
+  export function readProjects(root: string): { slug: string; name?: string; path?: string; [key: string]: unknown }[]
   /** Where hobkin keeps a project's files. `clone` is its own copy of the repository, for a project that has no folder. */
   export const paths: (root: string, slug: string) => { directory: string; clone: string; [key: string]: string }
 }

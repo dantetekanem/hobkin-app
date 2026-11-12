@@ -1,23 +1,23 @@
 /**
  * Change Review in the host: reviews prepared in the background, kept as artifacts in the home, and opened at once.
  *
- * A review is prepared once for each commit of its change. The host reads the change and owns every code range,
- * the agent with the change-review skill arranges the story, and the host checks what it returns before anyone
- * sees it. A change that moves to a new commit gets a new review, and the old one stays where it was.
- * Specs: 005-review-model, 009-review-notes.
+ * A review is prepared once for each commit of its change. The host reads the change and owns every code range: it
+ * draws the graph and checks it before anyone sees it. Then the change review (spec 032) runs on it, for a finished
+ * change and a pull request alike, and once that is ready the review is told as its units. A change that moves to a
+ * new commit gets a new review, and the old one stays where it was. Specs: 005-review-model, 009-review-notes, 032.
  */
 import { createHash } from 'node:crypto'
-import { completeReview, draftReview, modelRequest } from '#shared/review/prepare.ts'
+import { completeReview, draftReview } from '#shared/review/prepare.ts'
 import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
-import type { AssessmentStatus } from '#shared/review/assessment.ts'
+import type { AssessmentLogLine, AssessmentRequest, AssessmentStatus } from '#shared/review/assessment.ts'
+import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
-import { askForChanges, pullReviewPost, type Verdict } from '#shared/review/verdict.ts'
+import { askForChanges, pullReviewPost, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
-import { agentPrompt, changeReviewSkill, type ReviewAgent } from './agent.ts'
-import { withLevels, type Assessments } from './assessment.ts'
+import { LOG_LINES, pendingSteps, type Assessments } from './assessment.ts'
 import { ghText, type GhCall } from './gh.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
@@ -60,7 +60,6 @@ export interface Publisher {
 export interface ReviewsOptions {
   store: ReviewStore
   sources: { change: ReviewSource; pull: ReviewSource }
-  agent: ReviewAgent
   /** hobkin's work actions, for a verdict on a finished change. Throws with the reason while hobkin is not open. */
   work: () => { workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown> }
   /** The card of a finished change, or null when hobkin no longer lists it. */
@@ -73,17 +72,16 @@ export interface ReviewsOptions {
   head?: (target: ReviewTarget) => string | null
   onChange?: () => void
   log?: (line: string) => void
-  /** The skill, so a test can hand in its own. */
-  skill?: () => string
   now?: () => number
   /**
-   * The change review of finished changes (spec 032): started once a change's graph is ready, one commit once, and
-   * read back when the review opens. A host given none reviews nothing that way.
+   * The change review (spec 032) of finished changes and pull requests: started once a review's graph is ready, one
+   * commit once, and read back when the review opens. A host given none reviews nothing that way, and its reviews keep
+   * the host's own steps.
    */
   assessments?: Assessments
   /**
-   * A pull request's review the user asked for is ready. A finished change is told by its change review instead, and a
-   * review the background prepared on its own is not told at all.
+   * A pull request's review the user asked for is ready, on a host with no change reviews. With them, the change review
+   * tells it once it is ready instead, and a review the background prepared on its own is not told at all.
    */
   onReady?: (ready: { target: ReviewTarget; review: Review; at: string }) => void
   /** What a review is about before its file can say: a finished change's title and project, as the Work screen has them. */
@@ -102,6 +100,18 @@ interface Publication {
   pull: { head: string; title: string; body: string }
 }
 
+/** How a pull request is merged, as its repository allows: squashed, with a merge commit, or rebased. */
+type MergeMethod = 'squash' | 'merge' | 'rebase'
+
+/** What approve and merge does to a pull request: the review it posts first, if any, and how it merges. */
+interface Merge {
+  post: PullReviewPost | null
+  method: MergeMethod
+  base: string
+  /** The user opened it: GitHub lets nobody approve their own pull request. */
+  mine: boolean
+}
+
 /** A verdict's preview, with the review, card and pull request it was built from. */
 interface Planned {
   preview: VerdictPreview
@@ -110,6 +120,18 @@ interface Planned {
   card: ChangeCard | null
   /** For `approve` on a finished change. */
   publication?: Publication
+  /** For `approve-merge` on a pull request. */
+  merge?: Merge
+}
+
+/** What a preparation did, for the log its change review takes over, and what it reviews once it is read. */
+interface RunLog {
+  head: string | null
+  startedAt: string
+  lines: AssessmentLogLine[]
+  request?: AssessmentRequest
+  /** Why it stopped, when it did. */
+  error?: string
 }
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
@@ -119,6 +141,29 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /** What a review is about when neither a run nor hobkin nor the home can say: the target's own names. */
 const aboutFromTarget = (target: ReviewTarget) =>
   target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` }
+
+/** What a change review reviews, as its status says it: the project, the title, both commits and the size. */
+function requestOf(target: ReviewTarget, review: Review): AssessmentRequest {
+  const { change } = review
+  return {
+    kind: target.kind,
+    project: change.project,
+    ...(target.kind === 'pull' ? { number: target.number } : {}),
+    title: change.title,
+    base: change.base,
+    head: change.head,
+    files: change.files,
+    added: change.additions,
+    removed: change.deletions,
+  }
+}
+
+/** The words for how a pull request is merged, in a preview. */
+const MERGE_WORDS: Record<MergeMethod, string> = {
+  squash: 'by squashing its commits into one',
+  merge: 'with a merge commit',
+  rebase: 'by rebasing its commits onto it',
+}
 
 /** How often an opened review asks where its change is now, when the app does not already know. */
 export const LOOK_AGAIN_MS = 60_000
@@ -143,6 +188,8 @@ export class Reviews {
   private readonly changedAt = new Map<string, number>()
   /** What each review is about, as its change read when it was prepared. */
   private readonly about = new Map<string, { title: string; project: string }>()
+  /** What each review's latest preparation did. */
+  private readonly runs = new Map<string, RunLog>()
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
@@ -163,6 +210,14 @@ export class Reviews {
     this.options.onChange?.()
   }
 
+  /** Adds a line to what the review's preparation did, keeping the latest. */
+  private say(id: string, text: string) {
+    const run = this.runs.get(id)
+    if (!run) return
+    run.lines.push({ at: new Date(this.now()).toISOString(), text })
+    if (run.lines.length > LOG_LINES) run.lines.splice(0, run.lines.length - LOG_LINES)
+  }
+
   private target(id: string): ReviewTarget {
     const target = targetOfReviewId(id)
     if (!target) throw new Error(`There is no review named ${id}.`)
@@ -179,6 +234,29 @@ export class Reviews {
     return { ...IDLE_STATUS(id), state: 'ready', preparedAt: newest.meta?.preparedAt ?? new Date(newest.at).toISOString(), storyBy: newest.meta?.storyBy ?? null }
   }
 
+  /** A preparation of this review is waiting or under way. */
+  private preparing(id: string): boolean {
+    return this.running.has(id) || this.queue.some((job) => reviewIdOf(job.target) === id)
+  }
+
+  /**
+   * How a review's change review stands at `head`: as it runs or ran; queued behind the graph it starts from while that
+   * is prepared, with what the preparation did so far; or failed, with why, when the preparation could not finish.
+   * Undefined on a host with no change reviews.
+   */
+  private assessmentOf(id: string, target: ReviewTarget, head: string | null): AssessmentStatus | undefined {
+    const { assessments } = this.options
+    if (!assessments) return undefined
+    const known = assessments.status(target, head)
+    const run = this.runs.get(id)
+    if (!run || known.state === 'queued' || known.state === 'running' || (head && run.head && run.head !== head)) return known
+    const preparing = this.preparing(id)
+    if (!preparing && !(run.error && (known.state === 'idle' || known.state === 'failed'))) return known
+    const shared = { head: run.head ?? head, startedAt: run.startedAt, ...(run.request ? { request: run.request } : {}), log: [...run.lines] }
+    if (!preparing) return { state: 'failed', ...shared, error: run.error }
+    return { state: 'queued', ...shared, percent: 0, eta: null, now: run.lines.at(-1)?.text ?? 'Waiting for its turn.', steps: pendingSteps() }
+  }
+
   /**
    * How a review's preparation stands. A ready review is outdated when its change is at a commit no review was built
    * for: it still opens, and says so, until a newer one is ready.
@@ -188,14 +266,14 @@ export class Reviews {
     const known = this.stored(id)
     const head = this.options.head?.(target) ?? known.head
     const at = head ?? this.opened.get(id)?.review.change.head ?? null
-    const assessment = target.kind === 'change' && this.options.assessments ? { assessment: this.options.assessments.status(target, at) } : {}
-    return { ...known, head, stale: known.state === 'ready' && head != null && !this.options.store.has(target, head), ...assessment }
+    const assessment = this.assessmentOf(id, target, at)
+    return { ...known, head, stale: known.state === 'ready' && head != null && !this.options.store.has(target, head), ...(assessment ? { assessment } : {}) }
   }
 
   /**
    * Every review the host knows, newest first: what it prepared or is preparing since it started, and every review in
-   * the home. Each says what it is about, how its preparation stands, and, for a finished change, how its change
-   * review does, without its steps.
+   * the home. Each says what it is about, how its preparation stands, and how its change review does, without its steps
+   * or its log.
    */
   list(): ReviewList {
     const stored = new Map(this.options.store.list().map((entry) => [reviewIdOf(entry.target), entry]))
@@ -206,7 +284,7 @@ export class Reviews {
       const kept = stored.get(id)
       const head = status.head ?? kept?.change?.head ?? null
       const about = this.about.get(id) ?? this.options.describe?.(target) ?? kept?.change ?? aboutFromTarget(target)
-      const known = target.kind === 'change' && this.options.assessments ? this.options.assessments.status(target, head) : undefined
+      const known = this.assessmentOf(id, target, head)
       const times = [this.changedAt.get(id), Date.parse(status.preparedAt ?? ''), Date.parse(known?.summary?.at ?? ''), Date.parse(known?.startedAt ?? '')].filter(
         (time): time is number => time != null && Number.isFinite(time),
       )
@@ -221,7 +299,7 @@ export class Reviews {
         phase: status.phase,
         ...(status.startedAt ? { startedAt: status.startedAt } : {}),
         error: status.error,
-        ...(known ? { assessment: withoutSteps(known) } : {}),
+        ...(known ? { assessment: forList(known) } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]
@@ -263,9 +341,13 @@ export class Reviews {
       return now
     }
     if (this.running.has(id) && !refresh) return now
+    const ahead = this.queue.length + this.running.size
     this.queue.push({ target, head: null, refresh })
     const at = this.now()
-    this.set(id, { state: now.state === 'ready' ? 'ready' : 'preparing', phase: 'queued', startedAt: new Date(at).toISOString() }, at)
+    const startedAt = new Date(at).toISOString()
+    this.runs.set(id, { head: null, startedAt, lines: [] })
+    if (ahead > 0) this.say(id, `Waiting for ${count(ahead, 'review')} ahead of it.`)
+    this.set(id, { state: now.state === 'ready' ? 'ready' : 'preparing', phase: 'queued', startedAt }, at)
     void this.work()
     return this.status(id)
   }
@@ -280,6 +362,9 @@ export class Reviews {
           const message = messageOf(error)
           this.asked.delete(id)
           this.options.log?.(`Review ${id} could not be prepared: ${message}`)
+          const log = this.runs.get(id)
+          if (log) log.error = message
+          this.say(id, `Stopped: ${message}`)
           // An older review still opens, and says the newer one could not be prepared.
           this.set(id, { state: this.options.store.newest(job.target) ? 'ready' : 'failed', phase: null, error: message })
         })
@@ -295,48 +380,52 @@ export class Reviews {
 
   private async run({ target, refresh }: Job) {
     const id = reviewIdOf(target)
-    const { store, agent } = this.options
+    const { store } = this.options
     const source = target.kind === 'change' ? this.options.sources.change : this.options.sources.pull
+    const say = (text: string) => this.say(id, text)
     this.set(id, { phase: 'reading', error: null })
+    say(target.kind === 'pull' ? `Asking GitHub where #${target.number} is.` : 'Looking up the commit the change is at.')
     const head = await source.head(target)
     if (!head) throw new Error(target.kind === 'change' ? 'This change has no branch to read any more.' : 'This pull request is not open any more.')
+    const log = this.runs.get(id)
+    if (log) log.head = head
     // Ready, but for an older commit: it opens while the newer one is prepared.
     this.set(id, { head, stale: this.status(id).state === 'ready' && !store.has(target, head) })
 
     // One preparation for each commit: a review already made for it is used as it is.
     const cached = refresh ? null : store.read(target, head)
     if (cached) {
+      say(`The graph of ${head.slice(0, 7)} is drawn already.`)
       // Ready already, so there is no news to tell.
       this.asked.delete(id)
       this.opened.delete(id)
+      if (log) log.request = requestOf(target, cached.review)
       this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null })
       this.assess(target, cached.review)
       return
     }
 
-    const input = await source.read(target, head)
+    const input = await source.read(target, head, { say, titled: (title) => this.about.set(id, { title, project: aboutFromTarget(target).project }) })
     this.about.set(id, { title: input.change.title, project: input.change.project })
+    const { capture } = input
+    if (log) log.request = { kind: target.kind, project: input.change.project, ...(target.kind === 'pull' ? { number: target.number } : {}), title: input.change.title, base: capture.base, head, files: capture.files.length, added: capture.additions, removed: capture.deletions }
+    say(`Read ${count(capture.files.length, 'changed file')}: ${count(capture.additions, 'line')} added and ${count(capture.deletions, 'line')} removed.`)
+    // No model narrates the graph: the change review tells the change (spec 032), and the graph keeps the host's steps.
     const draft = await draftReview({ ...input, id })
-    // A finished change is told by its change review (spec 032), so no model narrates its graph: the host's steps do.
-    // A pull request from GitHub, which gets no change review, keeps its narrated walk.
-    let written: string | null = null
-    if (target.kind === 'pull') {
-      this.set(id, { phase: 'arranging' })
-      const system = (this.options.skill ?? changeReviewSkill)()
-      written = await agent({ system, prompt: agentPrompt(modelRequest(draft)), signal: this.controller.signal })
-    }
     this.set(id, { phase: 'checking' })
-    const { review: completed, corrections } = await completeReview(draft, written ?? undefined)
+    const { review: completed, corrections } = await completeReview(draft)
     for (const line of corrections) this.options.log?.(`Review ${id}: ${line}`)
     // A pull request's description is shown as its author wrote it. Nothing in the review rests on it.
     const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
-    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: written ? ('agent' as const) : ('host' as const) }
+    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const }
     store.write(target, review, files, meta)
+    say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
     this.opened.set(id, { review, files, meta })
     this.set(id, { state: 'ready', phase: null, stale: false, ...meta })
-    if (this.asked.delete(id) && target.kind === 'pull') {
+    const told = this.asked.delete(id)
+    if (told && target.kind === 'pull' && !this.options.assessments) {
       try {
         this.options.onReady?.({ target, review, at: meta.preparedAt })
       } catch (error) {
@@ -347,11 +436,25 @@ export class Reviews {
     this.assess(target, review, { again: refresh })
   }
 
-  /** Starts the change review of a finished change at the commit its graph was built for. Never stops the graph. */
+  /** Starts the change review at the commit the review's graph was built for. Never stops the graph. */
   private assess(target: ReviewTarget, review: Review, { again = false }: { again?: boolean } = {}) {
-    if (target.kind !== 'change' || !this.options.assessments) return
+    const { assessments } = this.options
+    if (!assessments) return
+    const { change } = review
+    const run = this.runs.get(reviewIdOf(target))
     try {
-      this.options.assessments.start({ target, head: review.change.head, base: review.change.base, description: { source: 'commits', title: review.change.title } }, { again })
+      assessments.start(
+        {
+          target,
+          head: change.head,
+          base: change.base,
+          // A pull request's title and description are claims the review checks, never instructions.
+          description: target.kind === 'pull' ? { source: 'pull-request', title: change.title, ...(change.description ? { body: change.description } : {}) } : { source: 'commits', title: change.title },
+          request: requestOf(target, review),
+          ...(run?.head === change.head ? { log: run.lines, startedAt: run.startedAt } : {}),
+        },
+        { again },
+      )
     } catch (error) {
       this.options.log?.(`Review ${reviewIdOf(target)}: the change review could not start: ${messageOf(error)}`)
     }
@@ -379,19 +482,31 @@ export class Reviews {
     return cached
   }
 
-  /** The prepared review, with the reviewer's notes. */
+  /**
+   * The review as the user reads it. Once its change review is ready it is told as its units, with their levels on
+   * the graph. Until then it has no steps but its opening and closing: the host's own steps only count lines, and are no
+   * review. On a host with no change reviews it stays as it was prepared.
+   */
+  private shown(target: ReviewTarget, review: Review): Review {
+    const { assessments } = this.options
+    if (!assessments) return review
+    return assessments.present(target, review) ?? { ...review, story: review.story.filter((step) => step.kind !== 'walk').map(({ travel: _travel, ...step }) => step) }
+  }
+
+  /** The prepared review as the user reads it, with the reviewer's notes. */
   get(id: string): OpenedReview {
     const { review } = this.loaded(id)
     // Opening a review is when its change is looked up, when the app does not already know where it is.
     if (!this.options.head?.(this.target(id))) void this.lookAgain(id)
     const status = this.status(id)
     const target = this.target(id)
-    const assessment = target.kind === 'change' ? (this.options.assessments?.read(target, review.change.head) ?? null) : null
+    const { assessments } = this.options
+    const assessment = this.assessmentOf(id, target, review.change.head)
     return {
-      review: assessment ? withLevels(review, assessment) : review,
+      review: this.shown(target, review),
       notes: this.options.store.notes(target),
-      status: { ...status, stale: status.head != null && status.head !== review.change.head, ...(target.kind === 'change' && this.options.assessments ? { assessment: this.options.assessments.status(target, review.change.head) } : {}) },
-      ...(target.kind === 'change' ? { assessment } : {}),
+      status: { ...status, stale: status.head != null && status.head !== review.change.head, ...(assessment ? { assessment } : {}) },
+      ...(assessments ? { assessment: assessments.read(target, review.change.head) } : {}),
     }
   }
 
@@ -414,9 +529,9 @@ export class Reviews {
     this.options.store.saveNotes(target, { entries: merged.map((note) => ({ op: 'put', note })), draft: notes.draft })
   }
 
-  /** Moves the reviewer's view to a step, by its number from 1, or to a node. The window follows. */
+  /** Moves the reviewer's view to a step, by its number from 1 in the story they read, or to a node. The window follows. */
   show(id: string, place: { step?: number; node?: string }): ReviewCursor {
-    const { review } = this.loaded(id)
+    const review = this.shown(this.target(id), this.loaded(id).review)
     const { step, node } = place
     if ((step == null) === (node == null)) throw new Unavailable('Name a step or a node to show, and only one.')
     if (step != null && !isStepNumber(step, review)) throw new Unavailable(`This review has ${review.story.length} steps.`)
@@ -432,7 +547,7 @@ export class Reviews {
    */
   note(id: string, { intent, text, step, node, wire }: { intent: NoteIntent; text: string; step?: number; node?: string; wire?: string }): Note {
     const target = this.target(id)
-    const { review } = this.loaded(id)
+    const review = this.shown(target, this.loaded(id).review)
     const edge = wire == null ? undefined : review.edges.find((entry) => entry.id === wire)
     if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
     if (wire != null && !edge) throw new Unavailable(`This review has no wire ${wire}.`)
@@ -467,7 +582,8 @@ export class Reviews {
   /** The preview, and the review, card and pull request it was built from, so a verdict does exactly what was shown. */
   private async planned(id: string, verdict: Verdict, summary: string, head?: string): Promise<Planned> {
     const target = this.target(id)
-    const { review, files } = this.loaded(id)
+    const { files, review: prepared } = this.loaded(id)
+    const review = this.shown(target, prepared)
     const at = review.change.head
     if (head != null && !at.startsWith(head)) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
     // Every token holds the commit it was shown for, so no verdict ever acts on another one.
@@ -477,14 +593,32 @@ export class Reviews {
     const loose = new Set(detachedNotes(notes, (fileId, side) => (side === 'added' ? byId.get(fileId)?.head : byId.get(fileId)?.base) ?? null))
 
     if (target.kind === 'pull') {
-      if (verdict === 'approve-merge') throw new Unavailable('A pull request from GitHub gets a review here. Merge it on GitHub.')
+      const name = `${target.owner}/${target.repo}#${target.number}`
+      const lineComments = (post: PullReviewPost) => (post.comments.length ? `with ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines` : 'with no comments on lines')
+      const pinned = `At commit ${at.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
+      if (verdict === 'approve-merge') {
+        const { mine, method, base } = await this.pullFacts(target)
+        // GitHub lets nobody approve their own pull request: what the user wrote still goes, as a comment, and then it merges.
+        const post = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
+        const says = !mine || post.comments.length > 0 || post.body !== 'Commented.'
+        const lines = mine
+          ? [
+              'GitHub does not let you approve your own pull request, so this merges it without an approval.',
+              ...(says ? [`Comment on ${name} on GitHub first, as you, through gh, ${lineComments(post)}.`] : []),
+              `Merge ${name} into ${base} ${MERGE_WORDS[method]}, as you, through gh.`,
+              pinned,
+            ]
+          : [`Approve ${name} on GitHub, as you, through gh, ${lineComments(post)}.`, `Then merge it into ${base} ${MERGE_WORDS[method]}.`, pinned]
+        const merge: Merge = { post: says ? post : null, method, base, mine }
+        return { review, card: null, merge, preview: { verdict, lines, ...(says ? { post } : {}), confirm: token(merge) } }
+      }
+      // GitHub would refuse it, so it is refused here, before anything is sent.
+      if (verdict === 'approve' && this.options.gh && (await this.pullFacts(target)).mine) {
+        throw new Unavailable('GitHub does not let you approve your own pull request. Approve and merge merges it without an approval, or leave a comment.')
+      }
       const post = pullReviewPost(review, notes, verdict, summary, loose)
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
-      const lines = [
-        `${words} ${target.owner}/${target.repo}#${target.number} on GitHub, as you, through gh.`,
-        `At commit ${at.slice(0, 7)}, the one this review was built from.`,
-        post.comments.length ? `With ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines.` : 'With no comments on lines.',
-      ]
+      const lines = [`${words} ${name} on GitHub, as you, through gh.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`]
       return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
     }
 
@@ -511,22 +645,63 @@ export class Reviews {
   }
 
   /**
+   * What GitHub says of a pull request before it is approved or merged: whether the user opened it, the branch it merges
+   * into, and how its repository lets it be merged, squashed first, then with a merge commit, then rebased.
+   */
+  private async pullFacts(target: Extract<ReviewTarget, { kind: 'pull' }>): Promise<{ mine: boolean; method: MergeMethod; base: string }> {
+    const { gh } = this.options
+    if (!gh) throw new Unavailable('This host merges nothing on GitHub.')
+    const api = async <Value>(path: string) => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
+    const repo = `repos/${target.owner}/${target.repo}`
+    type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string } }, { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
+    let facts: Facts
+    try {
+      facts = (await Promise.all([api('user'), api(`${repo}/pulls/${target.number}`), api(repo)])) as Facts
+    } catch (error) {
+      throw new Unavailable(messageOf(error))
+    }
+    const [viewer, pull, settings] = facts
+    const method: MergeMethod | null = settings.allow_squash_merge === true ? 'squash' : settings.allow_merge_commit !== false ? 'merge' : settings.allow_rebase_merge !== false ? 'rebase' : null
+    if (!method) throw new Unavailable(`${target.owner}/${target.repo} allows no way to merge a pull request.`)
+    const mine = Boolean(viewer.login && pull.user?.login && viewer.login.toLowerCase() === pull.user.login.toLowerCase())
+    return { mine, method, base: pull.base?.ref ?? 'its base branch' }
+  }
+
+  /**
    * Does a verdict the user confirmed: only when `confirm` is the token of exactly what they were shown, and `head`,
-   * when given, the commit of the review they were shown. A pull request gets one GitHub review through gh, and a
-   * finished change one of hobkin's own work actions.
+   * when given, the commit of the review they were shown. A pull request gets one GitHub review through gh, and
+   * approve and merge merges it too; a finished change gets one of hobkin's own work actions.
    */
   async verdict(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
     // Done with what the token was checked against: a review prepared again meanwhile is never the one acted on.
-    const { preview, review, card, publication } = await this.planned(id, verdict, summary, head)
+    const { preview, review, card, publication, merge } = await this.planned(id, verdict, summary, head)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')
     const target = this.target(id)
 
     if (target.kind === 'pull') {
-      if (!this.options.gh) throw new Unavailable('This host posts nothing to GitHub.')
-      const answer = await ghText(this.options.gh, ['api', '--hostname', 'github.com', '--method', 'POST', `repos/${target.owner}/${target.repo}/pulls/${target.number}/reviews`, '--input', '-'], JSON.stringify(preview.post))
-      const posted = JSON.parse(answer || '{}') as { html_url?: string }
-      this.markSent(target, verdict)
-      return { message: `Posted to GitHub${posted.html_url ? `: ${posted.html_url}` : '.'}` }
+      const { gh } = this.options
+      if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
+      const name = `${target.owner}/${target.repo}#${target.number}`
+      const post = async (body: PullReviewPost) => {
+        const answer = await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'POST', `repos/${target.owner}/${target.repo}/pulls/${target.number}/reviews`, '--input', '-'], JSON.stringify(body))
+        // The comments went with it, so they are never sent twice.
+        this.markSent(target, verdict)
+        return (JSON.parse(answer || '{}') as { html_url?: string }).html_url
+      }
+      if (merge) {
+        const posted = merge.post ? await post(merge.post) : null
+        try {
+          // `sha` is the commit this review was built from: GitHub refuses the merge if the pull request has moved since.
+          await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'PUT', `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, '--input', '-'], JSON.stringify({ sha: review.change.head, merge_method: merge.method }))
+        } catch (error) {
+          if (merge.post) throw new Error(`${merge.mine ? 'Your comments went' : 'It was approved'} on GitHub, but it was not merged: ${messageOf(error)}`)
+          throw error
+        }
+        const before = merge.post ? (merge.mine ? ', after your comments' : ', after approving it') : ''
+        return { message: `Merged ${name} into ${merge.base}${before}.${posted ? ` ${posted}` : ''}` }
+      }
+      const posted = await post(preview.post!)
+      return { message: `Posted to GitHub${posted ? `: ${posted}` : '.'}` }
     }
 
     if (publication) {
@@ -605,8 +780,8 @@ function isStepNumber(step: number, review: Review): boolean {
   return Number.isInteger(step) && step >= 1 && step <= review.story.length
 }
 
-/** A change review's status as a list shows it: the steps are for the review that is open. */
-function withoutSteps({ steps: _steps, ...status }: AssessmentStatus): AssessmentStatus {
+/** A change review's status as a list shows it: the steps and the log are for the review that is open. */
+function forList({ steps: _steps, log: _log, ...status }: AssessmentStatus): AssessmentStatus {
   return status
 }
 

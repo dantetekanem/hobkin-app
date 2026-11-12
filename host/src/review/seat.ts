@@ -1,31 +1,35 @@
 /**
- * Change Review's place in the host: where its changes are read from, who arranges their stories, what is prepared
- * in the background, and the commands the window runs. Specs: 005-review-model (S6), 009-review-notes, 024-github.
+ * Change Review's place in the host: where its changes are read from, what is prepared in the background, the change
+ * review that tells each one, and the commands the window runs. Specs: 005-review-model (S6), 009-review-notes,
+ * 024-github, 032-change-review.
  */
 import { existsSync } from 'node:fs'
-import { paths, readProject } from 'hobkin/src/cli/work/store.mjs'
+import { paths, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
+import type { Vicinity } from '#shared/review/vicinity.ts'
 import type { HostHandlers } from '../commands.ts'
+import { findGh } from '../github-gh.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
-import { noReviewAgent, piModelRunner, piReviewAgent } from './agent.ts'
+import { piModelRunner } from './agent.ts'
 import { Assessments } from './assessment.ts'
 import { reviewCode, reviewMap } from './guide.ts'
 import { chatTeller } from './notify.ts'
 import type { GhCall } from './gh.ts'
+import { pullCheckout, type PullTarget, type Say } from './pull-checkout.ts'
 import { Reviews, type Watched } from './reviews.ts'
 import { sampleReviewSource } from './sample-source.ts'
 import { gitPublisher } from './publish.ts'
 import { changeSource, pullSource } from './sources.ts'
 import { reviewStore } from './store.ts'
-import { scanVicinity } from './vicinity-scan.ts'
+import { scanVicinity, type ScanRun } from './vicinity-scan.ts'
 
 export interface ReviewSeat {
   root: string
-  /** The real model arranges the stories. Otherwise the host does alone, and nothing is spent. */
+  /** Change reviews run, with the real models. Otherwise the host prepares graphs alone, and nothing is spent. */
   live: boolean
   /** hobkin's data folder. Throws, with the reason, while hobkin is not open in this host. */
   data: () => string
@@ -37,12 +41,24 @@ export interface ReviewSeat {
    */
   app: () => { workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>; requestRefresh?(): void }
   runtime: () => Promise<PiModelRuntime | undefined>
-  /** gh, to read pull requests. Without it a pull request reads as the sample change, as the GitHub page shows sample data. */
+  /**
+   * gh, to read pull requests, which are checked out on this Mac to be reviewed. Without it a pull request reads as the
+   * sample change, as the GitHub page shows sample data.
+   */
   gh?: GhCall
   log?: (line: string) => void
 }
 
 const finishedIn = (work: WorkState | null): FinishedChange[] => (work?.finished ?? []).flatMap((group) => group.changes)
+
+/** The folders hobkin keeps its projects in: the one each was chosen from, or hobkin's own copy of it. */
+const projectFolders = (data: string) => readProjects(data).map((project) => project.path ?? paths(data, project.slug).clone)
+
+/** gh as git's way to sign in to GitHub, the way `gh auth setup-git` would set it, for hobkin's own clones only. */
+function ghCredentialHelper(): string | null {
+  const gh = findGh()
+  return gh ? `!${JSON.stringify(gh)} auth git-credential` : null
+}
 
 export function hostReviews(seat: ReviewSeat): Reviews {
   const find = (slug: string, item: string) => finishedIn(seat.work()).find((change) => change.slug === slug && change.item === item) ?? null
@@ -59,21 +75,27 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const change = target.kind === 'change' ? find(target.slug, target.item) : null
     return change && { title: change.title, project: change.project }
   }
-  // The change review of each finished change (spec 032): its own tests run in a review worktree, and the careful pass
-  // and the blind check go to the tiers. Only a live host runs it: the scripted one runs no tests and asks no model.
+  // A pull request is reviewed on this Mac: in the user's clone of its repository, else in a clone of hobkin's own.
+  const checkout = seat.gh ? pullCheckout({ root: seat.root, folders: () => projectFolders(seat.data()), gh: seat.gh, credentialHelper: ghCredentialHelper() }) : undefined
+  // The change review of each finished change and each pull request asked for (spec 032): their own tests run in a
+  // review worktree, and the careful pass and the blind check go to the tiers. Only a live host runs it: the scripted one
+  // runs no tests and asks no model.
   const assessments = seat.live
     ? new Assessments({
         root: seat.root,
         repoOf,
+        ...(checkout ? { pullRepo: (target, head, say) => checkout.repoFor(target, head, say) } : {}),
         run: async (request) => {
           const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
           const result = await reviewChange({ ...request, model })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy }
         },
-        onReady: ({ target, head, summary }) => {
+        // Told once for each run that finishes, with the review to open.
+        onReady: ({ target, head, summary, request }) => {
           const about = describe(target)
-          void tell?.({ id: reviewIdOf(target), kind: 'change', title: about?.title ?? target.item, project: about?.project ?? target.slug, head, at: summary.at, summary })
+          const named = target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` }
+          void tell?.({ id: reviewIdOf(target), kind: target.kind, title: request?.title ?? about?.title ?? named.title, project: request?.project ?? about?.project ?? named.project, head, at: summary.at, summary })
         },
         log: seat.log,
       })
@@ -94,9 +116,15 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         // The call-graph scan runs only where reviews are real, never for the scripted host.
         ...(seat.live ? { vicinity: (repo: string, base: string, head: string) => scanVicinity({ repo, base, head }) } : {}),
       }),
-      pull: seat.gh ? pullSource({ gh: seat.gh }) : sampleReviewSource(),
+      pull: seat.gh
+        ? pullSource({
+            gh: seat.gh,
+            ...(checkout ? { checkout } : {}),
+            // The call-graph scan runs only where reviews are real, never for the scripted host.
+            ...(assessments ? { vicinity: pullVicinity(assessments) } : {}),
+          })
+        : sampleReviewSource(),
     },
-    agent: seat.live ? piReviewAgent({ root: seat.root, data: seat.data, runtime: seat.runtime }) : noReviewAgent,
     work: seat.app,
     // A finished change's commit is on its card already. A pull request's is asked of GitHub when its review is open.
     head: (target) => (target.kind === 'change' ? (find(target.slug, target.item)?.head ?? null) : null),
@@ -108,6 +136,24 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),
     log: seat.log,
   })
+}
+
+/**
+ * A pull request's life cycle: scanned in its review checkout, at its head, while no change review uses that checkout,
+ * so callers are read as the pull request has them.
+ */
+export function pullVicinity(assessments: Assessments, run?: ScanRun): (target: PullTarget, repo: string, base: string, head: string, say?: Say) => Promise<Vicinity> {
+  return (target, repo, base, head, say) =>
+    assessments.inTree(
+      target,
+      repo,
+      head,
+      (tree) => {
+        say?.('Mapping the callers and callees.')
+        return scanVicinity({ repo: tree, base, head, ...(run ? { run } : {}) })
+      },
+      say,
+    )
 }
 
 /** What the background prepares: every finished change at its commit. */

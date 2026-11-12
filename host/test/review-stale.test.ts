@@ -25,7 +25,7 @@ function reviewsAt(t: TestContext, id: string, { current = null as string | null
       throw new Error('Nothing is rebuilt in this test.')
     },
   }
-  const reviews = new Reviews({ store, sources: { change: source, pull: source }, agent: async () => null, work: () => ({ workAction: async () => null }), card: () => null, head: () => current })
+  const reviews = new Reviews({ store, sources: { change: source, pull: source }, work: () => ({ workAction: async () => null }), card: () => null, head: () => current })
   return { reviews, asked: () => asked }
 }
 

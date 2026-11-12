@@ -16,9 +16,12 @@ export type GitRun = (repo: string, args: readonly string[]) => Promise<string>
 
 const runGit: GitRun = async (repo, args) => (await exec('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })).stdout
 
-/** `owner/name` of a GitHub remote, from its https or ssh address. Null for anywhere else. */
+/**
+ * `owner/name` of a GitHub remote, from its https or ssh address, with or without a user in it, a port or `.git`. Null
+ * for anywhere else.
+ */
 export function githubRepoOf(url: string): string | null {
-  const found = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(url.trim())
+  const found = /^(?:(?:https?|ssh|git):\/\/(?:[^@/\s]+@)?github\.com(?::\d+)?\/|(?:[\w.-]+@)?github\.com:)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(url.trim())
   return found ? `${found[1]}/${found[2]}` : null
 }
 

@@ -6,8 +6,11 @@
 import { spawn } from 'node:child_process'
 import { findGh, type GhOutcome } from '../github-gh.ts'
 
-/** Runs gh with these arguments, and with `input` on its standard input when given. */
-export type GhCall = (args: readonly string[], input?: string) => Promise<GhOutcome>
+/**
+ * Runs gh with these arguments, and with `input` on its standard input when given. `timeoutMs` gives one slow call,
+ * such as a clone, longer than the usual limit.
+ */
+export type GhCall = (args: readonly string[], input?: string, options?: { timeoutMs?: number }) => Promise<GhOutcome>
 
 export const REVIEW_GH_TIMEOUT_MS = 30_000
 
@@ -16,9 +19,10 @@ const QUIET = { GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_NO_EXTEN
 const MAX_OUTPUT = 64 * 1024 * 1024
 
 export function spawnGh({ file, timeoutMs = REVIEW_GH_TIMEOUT_MS }: { file?: string | null; timeoutMs?: number } = {}): GhCall {
-  return (args, input) =>
+  return (args, input, options) =>
     new Promise((resolve) => {
       const program = file === undefined ? findGh() : file
+      const limit = options?.timeoutMs ?? timeoutMs
       if (!program) return resolve({ kind: 'missing' })
       const child = spawn(program, [...args], { env: { ...process.env, ...QUIET }, stdio: ['pipe', 'pipe', 'pipe'] })
       const out: Buffer[] = []
@@ -33,8 +37,8 @@ export function spawnGh({ file, timeoutMs = REVIEW_GH_TIMEOUT_MS }: { file?: str
       }
       const timer = setTimeout(() => {
         child.kill('SIGTERM')
-        finish({ kind: 'timeout', ms: timeoutMs })
-      }, timeoutMs)
+        finish({ kind: 'timeout', ms: limit })
+      }, limit)
       child.stdout.on('data', (chunk: Buffer) => {
         size += chunk.length
         if (size > MAX_OUTPUT) {
@@ -54,8 +58,8 @@ export function spawnGh({ file, timeoutMs = REVIEW_GH_TIMEOUT_MS }: { file?: str
 }
 
 /** gh's answer, or an error that says in plain words why there is none. */
-export async function ghText(gh: GhCall, args: readonly string[], input?: string): Promise<string> {
-  const outcome = await gh(args, input)
+export async function ghText(gh: GhCall, args: readonly string[], input?: string, options?: { timeoutMs?: number }): Promise<string> {
+  const outcome = await gh(args, input, options)
   if (outcome.kind === 'done') return outcome.stdout
   if (outcome.kind === 'missing') throw new Error('gh is not installed, so GitHub cannot be read. Install it with `brew install gh`.')
   if (outcome.kind === 'timeout') throw new Error(`gh did not answer within ${Math.round(outcome.ms / 1000)} seconds.`)

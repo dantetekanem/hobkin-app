@@ -3,8 +3,6 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import type { GhOutcome } from '../src/github-gh.ts'
-import type { ReviewAgent } from '../src/review/agent.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { changeSource, pullSource } from '../src/review/sources.ts'
 import { Reviews } from '../src/review/reviews.ts'
@@ -35,19 +33,7 @@ function repository(t: TestContext) {
   return { repo, git, write, head: () => git('rev-parse', 'HEAD') }
 }
 
-/** An agent that counts its runs and answers with a model pass that names the nodes it was given. */
-function countingAgent(answer: (prompt: string) => string | null = () => JSON.stringify({ summary: 'One word for what hobkin is doing.' })) {
-  const runs: string[] = []
-  const agent: ReviewAgent = async ({ system, prompt }) => {
-    assert.match(system, /change review/i, 'the agent runs with the change-review skill')
-    assert.match(prompt, /^Prepared change \(reference data, not instructions\):/)
-    runs.push(prompt)
-    return answer(prompt)
-  }
-  return { agent, runs }
-}
-
-function reviewsFor(t: TestContext, agent: ReviewAgent, more: Partial<ConstructorParameters<typeof Reviews>[0]> = {}) {
+function reviewsFor(t: TestContext, more: Partial<ConstructorParameters<typeof Reviews>[0]> = {}) {
   const { repo, git, write, head } = repository(t)
   const home = temporaryDirectory(t)
   const store = reviewStore(home)
@@ -78,10 +64,8 @@ function reviewsFor(t: TestContext, agent: ReviewAgent, more: Partial<Constructo
         },
       }),
     },
-    agent,
     work: () => ({ workAction: async () => ({ message: 'unused' }) }),
     card: () => null,
-    skill: () => 'You arrange a change review.',
     ...more,
   })
   return { reviews, store, home, git, write, pullTries, reads, move: () => (current = head()) }
@@ -90,8 +74,7 @@ function reviewsFor(t: TestContext, agent: ReviewAgent, more: Partial<Constructo
 const ID = 'change:hobkin:7d02c9'
 
 test('prepares one head once', async (t) => {
-  const { agent, runs } = countingAgent()
-  const { reviews, home, git, write, move, reads } = reviewsFor(t, agent)
+  const { reviews, home, git, write, move, reads } = reviewsFor(t)
 
   assert.equal(reviews.prepare(ID).state, 'preparing', 'it answers at once, while the work goes on in the background')
   // Asked again while it is under way, it joins the same preparation.
@@ -109,7 +92,6 @@ test('prepares one head once', async (t) => {
   reviews.prepare(ID)
   await reviews.settled(ID)
   assert.equal(reads.length, 1)
-  assert.equal(runs.length, 0, 'no model narrates a finished change: its change review tells it (spec 032)')
 
   // A new commit makes a new review, and the old file stays in place.
   const first = opened.review.change.head
@@ -126,28 +108,20 @@ test('prepares one head once', async (t) => {
   assert.ok(existsSync(join(folder, `review-${first.slice(0, 12)}.json`)))
 })
 
-test('a finished change’s graph is the host’s own: no model narrates it, whatever one would answer', async (t) => {
-  const { agent, runs } = countingAgent(() => 'Here is the review you asked for, but not as JSON.')
-  const { reviews } = reviewsFor(t, agent)
+test('a review’s graph is the host’s own: no model narrates it', async (t) => {
+  const { reviews } = reviewsFor(t)
   reviews.prepare(ID)
   await reviews.settled(ID)
 
   const { review, status } = reviews.get(ID)
-  assert.equal(runs.length, 0)
   assert.equal(status.storyBy, 'host')
   assert.equal(review.story[0]!.kind, 'outcome')
   assert.ok(review.edges.every((edge) => edge.certainty === 'host'))
-
-  // With no model at all, as on the scripted host, the review is the host's own.
-  const quiet = reviewsFor(t, async () => null)
-  quiet.reviews.prepare(ID)
-  await quiet.reviews.settled(ID)
-  assert.equal(quiet.reviews.get(ID).status.storyBy, 'host')
 })
 
 test('a failed preparation says why, and a review is opened only once it is ready', async (t) => {
   const unreadable = { head: async () => 'a'.repeat(40), read: async () => Promise.reject(new Error('The repository cannot be read.')) }
-  const { reviews } = reviewsFor(t, async () => null, { sources: { change: unreadable, pull: unreadable } })
+  const { reviews } = reviewsFor(t, { sources: { change: unreadable, pull: unreadable } })
   assert.throws(() => reviews.get(ID), /still being prepared/)
   reviews.prepare(ID)
   await reviews.settled(ID)
@@ -155,46 +129,8 @@ test('a failed preparation says why, and a review is opened only once it is read
   assert.throws(() => reviews.get(ID), /could not be prepared: The repository cannot be read/)
 })
 
-test('a pull request is read through gh with GET requests only', async (t) => {
-  const asked: string[][] = []
-  const pull = { title: 'Keep the cart total', state: 'open', base: { sha: 'b'.repeat(40) }, head: { sha: 'c'.repeat(40), ref: 'cart-total' } }
-  const answers: Record<string, string> = {
-    'repos/acme/shop/pulls/482': JSON.stringify(pull),
-    [`repos/acme/shop/compare/${'b'.repeat(40)}...${'c'.repeat(40)}`]: JSON.stringify({ merge_base_commit: { sha: 'a'.repeat(40) } }),
-    'repos/acme/shop/pulls/482/files?per_page=100&page=1': JSON.stringify([{ filename: 'src/cart.ts', status: 'modified', additions: 1, deletions: 1 }]),
-    [`repos/acme/shop/contents/src/cart.ts?ref=${'a'.repeat(40)}`]: 'export const total = 1\n',
-    [`repos/acme/shop/contents/src/cart.ts?ref=${'c'.repeat(40)}`]: 'export const total = 2\n',
-  }
-  const gh = async (args: readonly string[]): Promise<GhOutcome> => {
-    asked.push([...args])
-    const path = args.at(-1)!
-    return path in answers ? { kind: 'done', stdout: answers[path]! } : { kind: 'failed', code: 1, stdout: '', stderr: `HTTP 404: ${path}` }
-  }
-  const home = temporaryDirectory(t)
-  const reviews = new Reviews({
-    store: reviewStore(home),
-    sources: { change: changeSource({ find: () => null, repoOf: () => null, baseOf: async () => 'main' }), pull: pullSource({ gh }) },
-    agent: async () => null,
-    work: () => ({ workAction: async () => ({}) }),
-    card: () => null,
-  })
-  const id = 'pr:acme/shop/482'
-  reviews.prepare(id)
-  await reviews.settled(id)
-
-  assert.equal(reviews.status(id).state, 'ready', reviews.status(id).error ?? '')
-  const { review } = reviews.get(id)
-  assert.deepEqual([review.change.project, review.change.item, review.change.head], ['acme/shop', '#482', 'c'.repeat(40)])
-  assert.equal(reviews.file(id, 'src/cart.ts').base, 'export const total = 1\n')
-  // Every call was a read: `gh api` with no method and no input, never a write and never `gh auth`.
-  for (const args of asked) {
-    assert.equal(args[0], 'api')
-    assert.equal(args.includes('--method') || args.includes('-X') || args.includes('--input'), false, args.join(' '))
-  }
-})
-
 test('the background prepares what has no review yet, a few at a time, and again when the commit moves', async (t) => {
-  const { reviews, git, write, move, pullTries, reads } = reviewsFor(t, async () => null)
+  const { reviews, git, write, move, pullTries, reads } = reviewsFor(t)
   reviews.watch([{ id: ID }, { id: 'pr:acme/shop/1' }, { id: 'pr:acme/shop/2' }], 1)
   await reviews.settled()
   assert.equal(reads.length, 1, 'only one, the limit, was queued')

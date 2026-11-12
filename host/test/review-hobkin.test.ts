@@ -23,7 +23,6 @@ function seated(t: TestContext) {
   const all = new Reviews({
     store,
     sources: { change: { head: async () => null, read: async () => { throw new Error('unused') } }, pull: { head: async () => null, read: async () => { throw new Error('unused') } } },
-    agent: async () => null,
     work: () => ({ workAction: async () => null }),
     card: () => null,
     head: () => sample.change.head,
