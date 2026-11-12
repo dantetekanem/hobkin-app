@@ -24,13 +24,13 @@ const reapAtExit = () => {
  * It never retries; failure, cancellation and exit end every waiter, and only this handle stops the child.
  */
 export function startRpcProcess({
-  command, args, cwd, env, spawnProcess = spawn, signalProcess = signalGroup, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
+  command, args, cwd, env, ipc = false, onControl = () => {}, spawnProcess = spawn, signalProcess = signalGroup, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
 }) {
   const child = spawnProcess(command, args, {
     cwd,
     shell: false,
     detached: process.platform !== 'win32',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe', ...(ipc ? ['ipc'] : [])],
     env,
   });
   live.add(child);
@@ -160,6 +160,13 @@ export function startRpcProcess({
   child.stderr.on('data', chunk => { stderr = (stderr + clean(chunk)).slice(-2000); });
   child.stdin.on('error', error => { if (!stopping) fail(error); });
   child.on('error', fail);
+  if (ipc) child.on('message', record => {
+    if (failure || exited) return;
+    try {
+      if (Buffer.byteLength(JSON.stringify(record)) > 65536) throw Error('Main child control record exceeded its byte limit.');
+      onControl(record);
+    } catch (error) { fail(error); }
+  });
   // Exit revokes PID/PGID authority; only close confirms captured stdio closure.
   const markExited = () => {
     exited = true;
@@ -178,6 +185,11 @@ export function startRpcProcess({
   return {
     pid: child.pid,
     request,
+    sendControl(record) {
+      if (!ipc || failure || exited || !child.connected) throw failure ?? Error('Main child control channel is unavailable.');
+      if (Buffer.byteLength(JSON.stringify(record)) > 65536) throw Error('Main child control record exceeded its byte limit.');
+      child.send(record, error => { if (error) fail(error); });
+    },
     send: record => { if (!failure && !exited && child.stdin.writable) write(record); },
     fail,
     terminate,

@@ -16,6 +16,7 @@ import { attachUserBash } from './user-bash.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { hobkinCommand } from './work/chat.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
+import hobkinBridge from './hobkin-extension.mjs';
 
 /** Caller holds the conversation reservation until the SDK and its compaction/retries settle. */
 export async function withPiCancellation(session, signal, operation) {
@@ -233,9 +234,10 @@ export function followEntryLink(argv = process.argv) {
   if (argv[1] && existsSync(argv[1])) argv[1] = realpathSync(argv[1]);
 }
 
-async function openConversation(
+export async function openConversation(
   { root, config, expected, file, fresh = false, customTools = [], modelSettings },
-  { createSession, agentDir, resourceCandidates = [], modelRuntime: suppliedModelRuntime, loadSdk = () => import('@earendil-works/pi-coding-agent') } = {},
+  { createSession, agentDir, resourceCandidates = [], modelRuntime: suppliedModelRuntime, deferExtensionBinding = false, rpcBridge,
+    loadSdk = () => import('@earendil-works/pi-coding-agent') } = {},
 ) {
   refuseInProcess(config);
   validateBinding({ harness: 'pi', ...config.main });
@@ -268,13 +270,15 @@ async function openConversation(
     // The loader must not resolve/install configured packages, even with discovery flags off.
     settingsManager: SettingsManager.inMemory({}),
     ...resources.loader,
-    extensionFactories: [...builtIns, createMemoryExtension(root)],
+    additionalExtensionPaths: [...resources.loader.additionalExtensionPaths, ...(rpcBridge?.clientExtensionPath ? [rpcBridge.clientExtensionPath] : [])],
+    extensionFactories: [...builtIns, rpcBridge ? hobkinBridge : createMemoryExtension(root)],
     appendSystemPrompt,
   });
   await resourceLoader.reload();
   resources.assertLoaded(resourceLoader);
   let options = {
     cwd: config.main.cwd,
+    agentDir: effectiveAgentDir,
     sessionManager: manager,
     customTools,
     thinkingLevel: config.main.effort,
@@ -282,7 +286,8 @@ async function openConversation(
     resourceLoader,
   };
   let modelRuntime = suppliedModelRuntime;
-  if (!createSession && !modelRuntime) modelRuntime = await ModelRuntime.create({ allowModelNetwork: false });
+  if (!createSession && !modelRuntime) modelRuntime = await ModelRuntime.create({ allowModelNetwork: false,
+    ...(rpcBridge ? { authPath: join(effectiveAgentDir, 'auth.json'), modelsPath: join(effectiveAgentDir, 'models.json') } : {}) });
   let model;
   if (modelRuntime && config.main.model) {
     const resolved = resolveCliModel({ cliModel: config.main.model, modelRuntime });
@@ -301,7 +306,9 @@ async function openConversation(
     });
     options = { ...options, customTools: [...customTools, settingsTool] };
   }
-  options.tools = [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name)];
+  const bridgeTools = rpcBridge ? ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'owned_agent',
+    ...(rpcBridge.clientExtensionPath ? ['client'] : [])] : [];
+  options.tools = [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name), ...bridgeTools];
   const { session, modelFallbackMessage } = await (createSession ?? createAgentSession)(options);
   currentSession.current = session;
   if (modelFallbackMessage || !keptEffort(session.model, config.main.effort, session.thinkingLevel)
@@ -310,12 +317,31 @@ async function openConversation(
     throw Error(modelFallbackMessage ?? 'Pi model or thinking binding changed.');
   }
   compactAtForceLevel(settingsManager, [...(session.modelRuntime?.getAvailableSnapshot?.() ?? []), session.model].filter(Boolean));
-  try {
-    await session.bindExtensions({});
+  const validateTools = () => {
+    resources.assertLoaded(resourceLoader);
+    if (rpcBridge?.clientExtensionPath && !resourceLoader.getExtensions().extensions.some(item => item.path === rpcBridge.clientExtensionPath)) {
+      throw Error('The Hobkin client extension is unavailable.');
+    }
     const active = session.getActiveToolNames();
     if (active.some(name => !options.tools.includes(name)) || options.tools.some(name => !active.includes(name))) {
       throw Error('Main SDK tools missing or unexpectedly re-enabled by an extension.');
     }
+  };
+  if (deferExtensionBinding) {
+    const bind = session.bindExtensions.bind(session);
+    let bindingStarted = false;
+    session.bindExtensions = async hooks => {
+      if (bindingStarted) throw Error('Main SDK extensions already bound.');
+      bindingStarted = true;
+      await bind(hooks);
+      validateTools();
+    };
+    return { session, services: { cwd: config.main.cwd, agentDir: effectiveAgentDir,
+      settingsManager, resourceLoader, modelRuntime: session.modelRuntime ?? modelRuntime, diagnostics: [], assertMainInvariants: validateTools } };
+  }
+  try {
+    await session.bindExtensions({});
+    validateTools();
     return attachUserBash(session);
   } catch (error) {
     await closePiSession(session);

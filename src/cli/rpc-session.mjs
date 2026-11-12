@@ -12,6 +12,7 @@ import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
+import { startMainSessionChild } from './main-session-child.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 
 export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
@@ -346,12 +347,17 @@ function within(promise, ms, message) {
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
   { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts },
-  { spawnProcess, startupTimeoutMs = 180000, graceMs, clientBridge } = {},
+  { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap } = {},
 ) {
   if (clientBridge !== undefined && (typeof clientBridge?.extensionPath !== 'string'
     || !isAbsolute(clientBridge.extensionPath) || clientBridge.tool?.name !== 'client'
     || typeof clientBridge.tool.execute !== 'function')) {
     throw Error('Invalid configured client bridge.');
+  }
+  if (bootstrap && (config.launcher || bootstrap.root !== root || bootstrap.file !== file || bootstrap.expected?.sessionId !== expected?.sessionId
+    || bootstrap.config?.main?.cwd !== config.main.cwd || bootstrap.config.main.model !== config.main.model
+    || bootstrap.config.main.effort !== config.main.effort || bootstrap.clientExtensionPath !== clientBridge?.extensionPath)) {
+    throw Error('Main child bootstrap differs from its parent binding.');
   }
   if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
     throw Error('Main Pi conversation was recorded in a different directory than the configured cwd.');
@@ -391,21 +397,25 @@ export async function openRpcSession(
     ...(clientBridge ? ['--extension', clientBridge.extensionPath] : []),
     ...prompts.flatMap(text => ['--append-system-prompt', text]),
   ]);
-  session.attach(startRpcProcess({
+  const startProcess = bootstrap ? options => startMainSessionChild(bootstrap, { ...options, startupTimeoutMs }) : startRpcProcess;
+  session.attach(startProcess({
     command,
     args,
     cwd: config.main.cwd,
     env: piEnvironment(config.launcher),
     spawnProcess,
+    signalProcess,
     // A reply never exceeds the transcript it describes.
     maxRecordBytes: MAX_SESSION_BYTES,
     name: 'Main Pi',
     onRecord: record => session.accept(record),
   }));
   try {
+    const bootstrapped = bootstrap ? await session.child.ready : null;
     const state = await within(session.child.request('get_state'), startupTimeoutMs, `Main Pi did not become ready within ${startupTimeoutMs / 1000} seconds.`);
     const model = state.model && `${state.model.provider}/${state.model.id}`;
-    if (!state.sessionId || state.sessionFile !== resolve(file) || (expected && state.sessionId !== expected.sessionId)) {
+    if (!state.sessionId || state.sessionFile !== resolve(file) || (expected && state.sessionId !== expected.sessionId)
+      || (bootstrapped && state.sessionId !== bootstrapped.sessionId)) {
       throw Error('Main Pi conversation identity changed.');
     }
     if (!keptEffort(state.model, config.main.effort, state.thinkingLevel) || !model || (config.main.model && model !== config.main.model)) {
