@@ -64,6 +64,8 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
 { "id": "<id>", "state": "branch", "summary": "What changed, in a sentence.", "proof": "What failed first, then what passes now.", "left": "What remains, including any missing permission, access or decision." }
 ```
 
+Write `summary`, `proof` and `left` as plain sentences for a person, with normal spaces between words and numbers, as in the description: `returned 61 records (23 high, 29 moderate, 9 low)`, never `returned61 records (23high/29moderate/9low)`. The user reads them on a card.
+
 Use `"state": "pr"` with `"pr": "<url>"` when you opened a PR. Use `"state": "done"` only when the assigned outcome is complete and needed no code change, with what you found in `summary`, unless this run is a review. Missing permission or access is not completion; report it without marking the item done. A repository with no remote ends at `branch`. Never merge.
 
 Record an outcome when the item reaches a supported state. If part of the item will not come together, preserve what works and report the rest. Commit or file follow-up implementation work only when authorized; use the existing decision channel for permission, decisions or access rather than filing them as executable work. One ticket per need: search `items` first, and leave what is already filed alone. A run that ends without recording one goes back in the queue one grade lower, and the next run starts from your branch.
