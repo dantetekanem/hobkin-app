@@ -4,11 +4,13 @@ import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
 import { byPriority, byRank, grades, MAX_AGENTS, readMode, setAgents } from 'hobkin/src/cli/work/store.mjs'
 import {
   GRADES,
+  ISSUE_PICKUPS,
   PR_MODES,
   type ChangeChoice,
   type FinishedChange,
   type FinishedGroup,
   type Grade,
+  type IssuePickup,
   type PrMode,
   type ProjectState,
   type QueueRow,
@@ -84,6 +86,7 @@ interface ProjectStatus {
   rank?: number
   priority?: string
   prMode?: string
+  issues?: string
   level?: string
   paused?: boolean
   open?: number
@@ -121,11 +124,16 @@ const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.sli
  */
 
 const LONGEST_CARD_LINE = 280
-/** One line whatever an agent wrote, and short enough to read at a glance. */
-const cardLine = (text: string | null | undefined): string | null => {
+/** hobkin sends a proof whole up to this, and a card shows a few lines of it and all of it on Show all (`LONGEST_PROOF` in its `src/cli/work/reads.mjs`). */
+const LONGEST_PROOF = 2000
+/** One line whatever an agent wrote, and short enough to read at a glance. A longer one ends at its last whole word, with an ellipsis. */
+const cardLine = (text: string | null | undefined, most = LONGEST_CARD_LINE): string | null => {
   const flat = String(text ?? '').replace(/\s+/g, ' ').trim()
   if (!flat) return null
-  return flat.length > LONGEST_CARD_LINE ? `${flat.slice(0, LONGEST_CARD_LINE - 1)}…` : flat
+  if (flat.length <= most) return flat
+  const room = flat.slice(0, most - 1)
+  const whole = flat[most - 1] === ' ' ? room : room.replace(/\s*\S*$/, '')
+  return `${(whole || room).replace(/[\s,;:]+$/, '')}…`
 }
 
 const rated = ({ safety }: ReadyRow) => Boolean(safety) && !safety!.stale
@@ -194,7 +202,7 @@ function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
     head: entry.head ?? null,
     pr: entry.pr ?? null,
     about: cardLine(entry.about ?? entry.summary),
-    proof: cardLine(entry.proof),
+    proof: cardLine(entry.proof, LONGEST_PROOF),
     review: reviewLine(entry),
     yes: mergeLine(entry),
     reason: reasonOf(entry, group),
@@ -252,6 +260,7 @@ const projectOf = (project: ProjectStatus): WorkProject => ({
   state: PROJECT_STATES.includes(project.state as ProjectState) ? (project.state as ProjectState) : 'proposed',
   priority: gradeOf(project.priority) ?? 'P2',
   prMode: PR_MODES.includes(project.prMode as PrMode) ? (project.prMode as PrMode) : 'off',
+  issues: ISSUE_PICKUPS.includes(project.issues as IssuePickup) ? (project.issues as IssuePickup) : 'off',
   level: project.level ?? 'important',
   paused: Boolean(project.paused),
   open: project.open ?? 0,
@@ -345,8 +354,10 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       // Start now says whether the row started, or what still holds it.
       return message ? { ...done, message } : done
     },
-    'work.project': async ({ slug, priority, prs }) => {
-      await (priority ? app().workAction('priority', slug, priority) : app().workAction('prs', slug, prs))
+    'work.project': async ({ slug, priority, prs, issues }) => {
+      if (priority) await app().workAction('priority', slug, priority)
+      else if (prs) await app().workAction('prs', slug, prs)
+      else await app().workAction('issues', slug, issues)
       return done
     },
     'work.proposal': async ({ slug, answer }) => {

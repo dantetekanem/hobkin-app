@@ -50,6 +50,10 @@ export interface GitHubPull {
   author: string | null
   review: ReviewState
   checks: ChecksState
+  /** Lines added and removed, and files changed, as GitHub counts them now. A host older than these does not send them. */
+  additions?: number
+  deletions?: number
+  changedFiles?: number
 }
 
 /** What one read brings back, each list the most recently updated first. */
@@ -122,21 +126,24 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
     ...rest,
   })
 
-  const arriving = round % 2 === 1 ? [pull('api', 1194, 'Log the request id with every error', 1, { author: 'mira', review: 'waiting', checks: 'pending' })] : []
+  /** Lines added and removed, and files, as GitHub counts them. The ones an AI review read say the same. */
+  const size = (additions: number, deletions: number, changedFiles: number) => ({ additions, deletions, changedFiles })
+
+  const arriving = round % 2 === 1 ? [pull('api', 1194, 'Log the request id with every error', 1, { author: 'mira', review: 'waiting', checks: 'pending', ...size(22, 3, 2) })] : []
   return {
     connection: 'connected',
     login: SAMPLE_GITHUB_LOGIN,
     reviews: [
       ...arriving,
-      pull('storefront', 482, 'Keep the cart total between page loads', 25, { author: 'mira', labels: ['performance'], review: 'waiting', checks: 'passing' }),
-      pull('api', 1190, 'Retry webhook deliveries with a backoff', 190, { author: 'devon', review: 'waiting', checks: 'pending' }),
-      pull('docs', 77, 'Explain the new sign-in steps', 1500, { author: 'sam', labels: ['docs'], review: 'waiting', checks: 'none' }),
+      pull('storefront', 482, 'Keep the cart total between page loads', 25, { author: 'mira', labels: ['performance'], review: 'waiting', checks: 'passing', ...size(120, 14, 6) }),
+      pull('api', 1190, 'Retry webhook deliveries with a backoff', 190, { author: 'devon', review: 'waiting', checks: 'pending', ...size(86, 31, 4) }),
+      pull('docs', 77, 'Explain the new sign-in steps', 1500, { author: 'sam', labels: ['docs'], review: 'waiting', checks: 'none', ...size(48, 6, 2) }),
     ],
     pulls: [
-      pull('storefront', 479, 'Fix the login redirect after a password reset', 120, { labels: ['bug'], review: 'approved', checks: 'passing' }),
-      pull('api', 1185, 'Move rate limits into the gateway', 310, { review: 'changes-requested', checks: 'failing' }),
-      pull('storefront', 470, 'Try a lighter product grid', 2900, { labels: ['experiment'], draft: true, checks: 'pending' }),
-      pull('docs', 71, 'Document the export command', 5800, { review: 'waiting', checks: 'passing' }),
+      pull('storefront', 479, 'Fix the login redirect after a password reset', 120, { labels: ['bug'], review: 'approved', checks: 'passing', ...size(18, 4, 2) }),
+      pull('api', 1185, 'Move rate limits into the gateway', 310, { review: 'changes-requested', checks: 'failing', ...size(310, 120, 9) }),
+      pull('storefront', 470, 'Try a lighter product grid', 2900, { labels: ['experiment'], draft: true, checks: 'pending', ...size(240, 198, 11) }),
+      pull('docs', 71, 'Document the export command', 5800, { review: 'waiting', checks: 'passing', ...size(140, 0, 3) }),
     ],
     issues: [
       issue('storefront', 468, 'The checkout button stays disabled in Safari', 40, { labels: ['bug', 'checkout'], assigned: true }),

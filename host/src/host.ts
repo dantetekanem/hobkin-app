@@ -37,6 +37,7 @@ import { Canvas } from './canvas.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
 import { workFrom, workHandlers } from './work.ts'
+import { workIssueHandlers } from './work-issues.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
 import { hostReviews, reviewHandlers, toPrepare } from './review/seat.ts'
@@ -378,6 +379,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     // The Work screen's actions, each one of hobkin's own work actions.
     ...workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
+    // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
+    ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
     // Action Items answered from the window, each through hobkin's own decision or learning action (012).

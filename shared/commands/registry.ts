@@ -8,7 +8,7 @@ import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState } from '../protocol/models.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
-import { GRADES, PR_MODES } from '../protocol/work.ts'
+import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 
@@ -483,16 +483,19 @@ export const COMMANDS = {
   },
   'work.queue': {
     description:
-      "Act on a row of hobkin's queue, named by hobkin's own name for it in `row` (such as `item:storefront:3fa9c1`): `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `now` starts it at once, as one extra worker when none is free, while a pause, the budget, any stop and the gap between starts still hold it, and hobkin says which. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
+      "Act on a row of hobkin's queue, named by hobkin's own name for it in `row` (such as `item:storefront:3fa9c1`): `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `now` starts it at once, as one extra worker when none is free and without waiting out the gap between starts, while a pause, the budget and any stop still hold it, and hobkin says which. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
     runs: 'host',
     args: Type.Object({ row: words(256), action: oneOf(['run', 'now', 'skip', 'back']) }, { additionalProperties: false }),
   },
   'work.project': {
     description:
-      'Change one setting of a project work mode works on: `priority`, P0 to P3, sets how often it runs and its place in the queue, and `prs` sets where its finished work goes: `off` keeps it on a local branch, `draft` opens a draft PR, `published` opens a PR.',
+      'Change one setting of a project work mode works on: `priority`, P0 to P3, sets how often it runs and its place in the queue, `prs` sets where its finished work goes: `off` keeps it on a local branch, `draft` opens a draft PR, `published` opens a PR, and `issues` sets which of its open GitHub issues hobkin files as work by itself, every 15 minutes: `off`, `labeled` (only those labeled hobkin) or `all`.',
     runs: 'host',
-    args: Type.Object({ slug: projectSlug, priority: Type.Optional(oneOf(GRADES)), prs: Type.Optional(oneOf(PR_MODES)) }, { additionalProperties: false }),
-    rule: ({ priority, prs }) => ((priority === undefined) !== (prs === undefined) ? null : 'need "priority" or "prs", and only one of them'),
+    args: Type.Object(
+      { slug: projectSlug, priority: Type.Optional(oneOf(GRADES)), prs: Type.Optional(oneOf(PR_MODES)), issues: Type.Optional(oneOf(ISSUE_PICKUPS)) },
+      { additionalProperties: false },
+    ),
+    rule: ({ priority, prs, issues }) => ([priority, prs, issues].filter((setting) => setting !== undefined).length === 1 ? null : 'need "priority", "prs" or "issues", and only one of them'),
   },
   'work.proposal': {
     description:
@@ -531,6 +534,15 @@ export const COMMANDS = {
           maxItems: 50,
         }),
       },
+      { additionalProperties: false },
+    ),
+  },
+  'work.issue': {
+    description:
+      "Add a GitHub issue to hobkin's work queue, by its repository `owner/name` and its number: the host finds the hobkin project whose repository is github.com/owner/name, reads the issue through gh, only reading, and files it with hobkin's own `issue` work action, first in the queue. A bug label makes it a fix, a security label security work. Adding it again changes nothing and says so. Refused with the reason when no hobkin project is that repository.",
+    runs: 'host',
+    args: Type.Object(
+      { repo: Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$', maxLength: 200 }), number: Type.Integer({ minimum: 1, maximum: 1000000000 }) },
       { additionalProperties: false },
     ),
   },
@@ -704,6 +716,8 @@ export interface CommandResults {
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */
   'work.group': { message: string; lines: string[] }
+  /** What hobkin said: the issue was added, or it was already filed. */
+  'work.issue': { message: string }
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
   'agent.say': { queued: boolean }

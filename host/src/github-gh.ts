@@ -23,7 +23,7 @@ export const GH_QUERY = [
   search('authored', 'is:issue is:open author:@me', 'issue'),
   '}',
   'fragment pull on PullRequest {',
-  '  number title url updatedAt isDraft reviewDecision',
+  '  number title url updatedAt isDraft reviewDecision additions deletions changedFiles',
   '  repository { nameWithOwner }',
   '  author { login }',
   '  labels(first: 10) { nodes { name } }',
@@ -152,10 +152,17 @@ function checksOf(node: unknown): ChecksState {
   }
 }
 
+/** Lines added and removed, and files changed, when GitHub sent all three. */
+function sizeOf(node: unknown): Pick<GitHubPull, 'additions' | 'deletions' | 'changedFiles'> {
+  const [additions, deletions, changedFiles] = ['additions', 'deletions', 'changedFiles'].map((key) => at(node, key))
+  const counted = [additions, deletions, changedFiles].every((count) => Number.isInteger(count) && (count as number) >= 0)
+  return counted ? { additions: additions as number, deletions: deletions as number, changedFiles: changedFiles as number } : {}
+}
+
 function pullOf(node: unknown): GitHubPull | null {
   const row = rowOf(node)
   if (!row) return null
-  return { ...row, draft: at(node, 'isDraft') === true, author: text(at(node, 'author', 'login')), review: reviewOf(node), checks: checksOf(node) }
+  return { ...row, draft: at(node, 'isDraft') === true, author: text(at(node, 'author', 'login')), review: reviewOf(node), checks: checksOf(node), ...sizeOf(node) }
 }
 
 const newestFirst = <Row extends { updatedAt: string }>(rows: Row[]): Row[] => [...rows].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))

@@ -9,8 +9,12 @@ export type Grade = 'P0' | 'P1' | 'P2' | 'P3'
 /** Where a project's finished work goes: a local branch with its description, a draft PR, or a PR. hobkin's `prModes`. */
 export type PrMode = 'off' | 'draft' | 'published'
 
+/** Which of a project's open GitHub issues it files as work by itself: none, only those labeled `hobkin`, or every one. hobkin's `issueModes`. */
+export type IssuePickup = 'off' | 'labeled' | 'all'
+
 export const GRADES: readonly Grade[] = ['P0', 'P1', 'P2', 'P3']
 export const PR_MODES: readonly PrMode[] = ['off', 'draft', 'published']
+export const ISSUE_PICKUPS: readonly IssuePickup[] = ['off', 'labeled', 'all']
 
 /** One row of hobkin's queue, in hobkin's order (`plan` in its `workStatus`). */
 export interface QueueRow {
@@ -48,6 +52,8 @@ export interface WorkProject {
   state: ProjectState
   priority: Grade
   prMode: PrMode
+  /** Which of its open GitHub issues it picks up by itself. A host older than this setting does not send it, and then it is off. */
+  issues?: IssuePickup
   /** `casual`, `important`, `critical` or `max`: the model and how hard it thinks. */
   level: string
   paused: boolean

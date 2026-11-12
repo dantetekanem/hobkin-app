@@ -69,7 +69,7 @@ function connected(read: GitHubRead): Extract<GitHubRead, { found: 'connected' }
 test('reads the three lists from one gh answer', () => {
   const stdout = answer({
     // A node GitHub left empty, and one it hid, stand among the real ones.
-    reviews: [pullNode(7, { reviewRequests: { totalCount: 1 }, commits: rollup('SUCCESS'), labels: { nodes: [{ name: 'docs' }, null] } }), {}, null],
+    reviews: [pullNode(7, { reviewRequests: { totalCount: 1 }, commits: rollup('SUCCESS'), labels: { nodes: [{ name: 'docs' }, null] }, additions: 64, deletions: 12, changedFiles: 3 }), {}, null],
     pulls: [pullNode(3, { reviewDecision: 'APPROVED', commits: rollup('SUCCESS'), author: { login: 'octocat' } }), pullNode(4, { isDraft: true, author: null })],
     // Issue 11 is both assigned to the user and opened by them.
     assigned: [issueNode(10, '2026-11-08T09:00:00Z', { labels: { nodes: [{ name: 'bug' }] } }), issueNode(11, '2026-11-09T09:00:00Z'), null],
@@ -91,8 +91,12 @@ test('reads the three lists from one gh answer', () => {
     author: 'mira',
     review: 'waiting',
     checks: 'passing',
+    additions: 64,
+    deletions: 12,
+    changedFiles: 3,
   }
   assert.deepEqual(read.lists.reviews, [expected], 'a node GitHub left empty or hid is skipped')
+  assert.deepEqual(Object.keys(read.lists.pulls[0]!).filter((key) => ['additions', 'deletions', 'changedFiles'].includes(key)), [], 'a size GitHub did not send is left out')
   assert.deepEqual(
     read.lists.pulls.map(({ number, draft, author, review, checks }) => ({ number, draft, author, review, checks })),
     [
