@@ -177,7 +177,9 @@ const NEEDS: FinishedChange[] = [
     head: sha('c0ffee12'),
     pr: null,
     about: 'The cart lived in three files that each kept part of its state. It is one module now, with one place that writes it.',
-    proof: 'pnpm test: 214 pass.',
+    // A long proof as hobkin sends one: its first 260 characters, cut inside a word (`LONGEST_PROOF` in its `src/cli/work/reads.mjs`).
+    proof:
+      'pnpm test: 214 pass, with new tests for adding, removing and merging cart lines in the one module. pnpm typecheck passes. Checkout was run by hand with a guest and a signed-in customer: the totals, the shipping and the saved cart matched before and after the m',
     yes: 'It conflicts with the default branch, so it cannot merge until an agent rebases it.',
     reason: 'It conflicts with the default branch.',
     safety: { grade: 'safe', rating: 'B', stale: false },
