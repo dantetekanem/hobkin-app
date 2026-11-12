@@ -69,15 +69,17 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 
 ## Steps
 
-- [ ] S1 (A1, A2). The package, its contract, and triage.
-- [ ] S2 (A3, A4). Facts from search, the floor table, and risk events.
-- [ ] S3 (A5). Git, the scan, and proof by running tests.
-- [ ] S4 (A6, A7). Units and the story.
-- [ ] S5 (A8, A9). The pipeline: the model pass and its prompt, the blind check, progress.
-- [ ] S6 (A10). The host: the review worktree, the model runner, the background run, the artifacts.
+- [x] S1 (A1, A2). The package, its contract, and triage.
+- [x] S2 (A3, A4). Facts from search, the floor table, and risk events.
+- [x] S3 (A5). Git, the scan, and proof by running tests.
+- [x] S4 (A6, A7). Units and the story.
+- [x] S5 (A8, A9). The pipeline: the model pass and its prompt, the blind check, progress.
+- [x] S6 (A10). The host: the review worktree, the model runner, the background run, the artifacts.
 - [ ] S7 (A11, A12, A13). The Review screen on the story, the page rework, the card's level, and the verdict buttons.
 - [ ] S8 (A14). pi-agentic-search: the scan fix and the search facts, on a branch there.
 
 ## Open questions
+
+- In this repository most proof comes out `isolated` (tests call functions directly), so most units floor at `high` by rule 4, as FOUNDATION intends. A project could name its own life-cycle test paths and runbook in a config file at its root; that is not built yet.
 
 - A big monorepo's tests can be slow to boot. The budget in `reference/budget.md` assumes one to three minutes per test file. If proof runs long, it could run only for nodes whose floor is not already decided without it.

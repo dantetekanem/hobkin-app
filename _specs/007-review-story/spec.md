@@ -17,7 +17,7 @@ Reviewing a change is a guided walk. The right arrow moves to the next step: the
 ## Decisions
 
 - A step has a title, a teaching text, one to three focus nodes, the acceptance ids it serves, and the wire the camera rides in on when the step's focus connects to the previous one.
-- Focus has three levels. Focus nodes are sharp with an accent ring. Their direct neighbors are dimmed and sharp. Everything else is blurred and faded. Wires that touch the focus stay bright, and the others fade.
+- Focus has three levels. Focus nodes are sharp with an accent ring. Their direct neighbors are dimmed and sharp. Everything else is faded, never so far that it cannot be read, and not blurred (the user, 2026-11-12: the page was too dim and blurred to read; this replaces "blurred and faded"). Wires that touch the focus stay bright, and the others fade.
 - Moving to a step:
   1. A pulse travels along the connecting wire from the previous focus to the new one, and the camera follows it. Without a connecting wire the camera glides straight.
   2. Nodes and wires seen for the first time draw in, each wire from its visible end.
