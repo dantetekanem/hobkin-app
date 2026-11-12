@@ -215,6 +215,39 @@ async function gone(pid: number): Promise<boolean> {
   return false
 }
 
+test('a program ends when it exits, even when something it started keeps its output open', async (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'change-review-run-')))
+  const pidFiles: string[] = []
+  t.after(() => {
+    for (const file of pidFiles) {
+      try {
+        process.kill(Number(readFileSync(file, 'utf8')), 'SIGKILL')
+      } catch {
+        // Never started, or already gone.
+      }
+    }
+    rmSync(dir, { recursive: true, force: true })
+  })
+  for (const group of [false, true]) {
+    const pidFile = join(dir, `grandchild-${group}.pid`)
+    pidFiles.push(pidFile)
+    // The program starts a child in a group of its own that holds the same stdout, says so, and exits at once.
+    const script = `
+      const { spawn } = require('node:child_process')
+      spawn(process.execPath, ['-e', "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)", ${JSON.stringify(pidFile)}], { stdio: ['ignore', 'inherit', 'inherit'], detached: true }).unref()
+      console.log('started')
+    `
+    const waited = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000).unref())
+    const run = await Promise.race([runProgram(process.execPath, ['-e', script], { cwd: dir, timeoutMs: 60_000, group }), waited])
+    assert.ok(run, `it ends once the program exits (group: ${group})`)
+    assert.equal(run.started, true)
+    if (!run.started) return
+    assert.equal(run.code, 0)
+    assert.equal(run.timedOut, false)
+    assert.match(run.stdout.toString('utf8'), /started/)
+  }
+})
+
 test('a program that cannot start says why and is not a run', async () => {
   const run = await runProgram('/no/such/program', [], { cwd: tmpdir(), timeoutMs: 5_000 })
   assert.equal(run.started, false)

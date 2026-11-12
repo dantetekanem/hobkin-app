@@ -585,16 +585,21 @@ export const checkParses: ParseCheck = async (path, original, changed) => {
 export interface NodeProof {
   value: Proof
   evidence: string
-  /** The test files that failed on the mutation: they observe the definition. */
+  /** The test files that failed on the mutation and passed again alone at head: they observe the definition. */
   observedBy: string[]
   /** Doubles of the definition found in those files, as `path:line: text`. */
   doubles: string[]
+  /** The test files that ran with the definition changed and still passed: they ran, and do not observe it. */
+  stillPass: string[]
 }
 
-/** How one test file did with the definition changed. */
+/**
+ * How one test file did with the definition changed. `not-run`: the runner found no test in it. `unsettled`: it
+ * failed with the change made, and failed again when run alone at head with nothing changed.
+ */
 export interface Observation {
   candidate: TestCandidate
-  outcome: 'passed' | 'failed' | 'timed-out'
+  outcome: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'unsettled'
   doubles: string[]
 }
 
@@ -604,19 +609,26 @@ const lifecycleTests = (size: number) => (size === 1 ? 'a life-cycle test' : 'li
 
 /**
  * The proof a mutation's runs give (FOUNDATION 4.2). Only a test that failed observes the change; one that was cut
- * short proves nothing either way. A failing test that stubs the definition is coverage, not validation.
+ * short, that the runner did not run, or that fails at head too proves nothing either way. A failing test that stubs
+ * the definition is coverage, not validation.
  */
 export function proofOf({ symbol, mutation, observations, timeoutMs }: { symbol: string; mutation: 'revert' | 'probe'; observations: readonly Observation[]; timeoutMs?: number }): NodeProof {
   const what = mutation === 'revert' ? `${symbol} is put back to base` : `${symbol} is made to throw`
-  const failed = observations.filter((item) => item.outcome === 'failed')
-  const observedBy = failed.map((item) => item.candidate.path)
-  const doubles = failed.flatMap((item) => item.doubles)
-  const answer = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy, doubles })
   const paths = (items: readonly Observation[]) => items.map((item) => item.candidate.path)
+  const ended = (outcome: Observation['outcome']) => paths(observations.filter((item) => item.outcome === outcome))
+  const failed = observations.filter((item) => item.outcome === 'failed')
+  const observedBy = paths(failed)
+  const doubles = failed.flatMap((item) => item.doubles)
+  const stillPass = ended('passed')
+  const answer = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy, doubles, stillPass })
 
   if (failed.length === 0) {
-    const cut = paths(observations.filter((item) => item.outcome === 'timed-out'))
+    const cut = ended('timed-out')
     if (cut.length) return answer('unknown', `${listed(cut)} did not finish within ${timeoutMs ? `${timeoutMs / 1000} seconds` : 'the time limit'} when ${what}.`)
+    const unsettled = ended('unsettled')
+    if (unsettled.length) return answer('unknown', `${fail(unsettled)} when ${what}, and again at head with nothing changed: that failure does not show the change.`)
+    const notRun = ended('not-run')
+    if (notRun.length) return answer('unknown', `the test runner found no test to run in ${listed(notRun)} when ${what}.`)
     const passed = paths(observations)
     const one = passed.length === 1
     return answer('none', `${listed(passed)} ${one ? 'still passes' : 'still pass'} when ${what}: nothing in ${one ? 'it' : 'them'} ${mutation === 'revert' ? 'checks the change' : 'reaches it'}.`)
@@ -651,7 +663,8 @@ export function doublesIn(text: string, path: string, symbol: string, nodePath: 
 // ───────────────────────── Running tests ─────────────────────────
 
 type Started = Extract<ProgramRun, { started: true }>
-type Outcome = Observation['outcome']
+/** How a test file did in a run. `not-run`: the runner found no test to run in it. */
+type Outcome = 'passed' | 'failed' | 'timed-out' | 'not-run'
 type Ran = { outcomes: Map<string, Outcome> } | { stopped: string }
 
 interface Runner {
@@ -678,7 +691,16 @@ function tailOf(run: Started, timeoutMs: number): string {
   return lines
 }
 
-const outcomeOf = (run: Started): Outcome => (run.timedOut ? 'timed-out' : run.code === 0 ? 'passed' : 'failed')
+/**
+ * What vitest and jest say when the files they were given hold no test their configuration runs. They then exit
+ * non-zero, which is not a test failing: the file did not run.
+ */
+const NO_TESTS = [/^\s*No test files found\b/m, /^\s*No tests found\b/m]
+
+const outcomeOf = (run: Started): Outcome => (run.timedOut ? 'timed-out' : NO_TESTS.some((said) => said.test(run.tail)) ? 'not-run' : run.code === 0 ? 'passed' : 'failed')
+
+/** The files a run records as failed: none when it passed, was stopped, or ran no test. */
+const failedIn = (run: Started, files: readonly string[]): string[] => (run.code === 0 || run.aborted || outcomeOf(run) === 'not-run' ? [] : [...files])
 
 /** The tests run as the repository runs them, quietly, and not as children of whatever runner started this proof. */
 function testEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
@@ -718,7 +740,7 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
   const first = await start(runner, files)
   if ('stopped' in first) return first
   if (files.length === 1 || first.code === 0 || first.aborted) {
-    runner.record(testRunOf(runner, files, kind, node, first, first.code === 0 || first.aborted ? [] : [...files]))
+    runner.record(testRunOf(runner, files, kind, node, first, failedIn(first, files)))
     if (first.aborted) return { stopped: 'the proof was stopped.' }
     return { outcomes: new Map(files.map((file) => [file, outcomeOf(first)])) }
   }
@@ -736,8 +758,8 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
       break
     }
   }
-  runner.record(testRunOf(runner, files, kind, node, first, alone.filter(([, run]) => run.code !== 0).map(([file]) => file)))
-  for (const [file, run] of alone) runner.record(testRunOf(runner, [file], kind, node, run, run.code === 0 ? [] : [file]))
+  runner.record(testRunOf(runner, files, kind, node, first, alone.flatMap(([file, run]) => failedIn(run, [file]))))
+  for (const [file, run] of alone) runner.record(testRunOf(runner, [file], kind, node, run, failedIn(run, [file])))
   return stopped ? { stopped } : { outcomes: new Map(alone.map(([file, run]) => [file, outcomeOf(run)])) }
 }
 
@@ -778,8 +800,8 @@ export interface ProofResult {
   clean: boolean
 }
 
-const unknown = (evidence: string): NodeProof => ({ value: 'unknown', evidence, observedBy: [], doubles: [] })
-const settled = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy: [], doubles: [] })
+const unknown = (evidence: string): NodeProof => ({ value: 'unknown', evidence, observedBy: [], doubles: [], stillPass: [] })
+const settled = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy: [], doubles: [], stillPass: [] })
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** Why the checkout is not the change exactly as committed, or, when it is, the full id of its head. */
@@ -825,9 +847,11 @@ function restore(file: string, original: Buffer) {
 
 /**
  * Proves each node by running its candidate tests, at head and then with the node changed. A modified definition
- * gets its own changes put back to base; an added one is made to throw; a removed one is not applicable. The file
- * comes back byte for byte after every run, also on a timeout or abort, and the checkout is checked to be the
- * change again before the next node. Nothing is recorded for a run that did not happen.
+ * gets its own changes put back to base; an added one is made to throw; a removed one is not applicable. A test file
+ * that fails with the node changed is run once more alone at head, recorded as a `baseline` run of that node, and
+ * observes the node only if it passes there. The file comes back byte for byte after every run, also on a timeout or
+ * abort, and the checkout is checked to be the change again before the next node. Nothing is recorded for a run that
+ * did not happen.
  */
 export async function runProof(request: ProofRequest): Promise<ProofResult> {
   const { cwd, nodes, candidates, runbook: book, diffs, doublePatterns, signal, onRun, parses = checkParses } = request
@@ -875,7 +899,10 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
     }
     const passing = plan.tests.filter((test) => atHead.get(test.path) === 'passed')
     if (passing.length === 0) {
-      answers[node.id] = unknown(`its tests fail or hang at head, before anything is changed: ${listed(plan.tests.map((test) => test.path))}.`)
+      const notRun = plan.tests.filter((test) => atHead.get(test.path) === 'not-run').map((test) => test.path)
+      const failing = plan.tests.map((test) => test.path).filter((path) => !notRun.includes(path))
+      const said = [failing.length ? `its tests fail or hang at head, before anything is changed: ${listed(failing)}` : '', notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '']
+      answers[node.id] = unknown(`${said.filter(Boolean).join('; ')}.`)
       continue
     }
     const proved = await proveNode({ runner, repo, head: checked.head, node, passing, diffs, doublePatterns, parses })
@@ -936,9 +963,20 @@ async function proveNode({
   if (!back) return { stopped: `${node.path} or the checkout did not come back exactly as it was.` }
   if ('stopped' in ran) return ran
 
+  // A file that failed with the change made observes it only if it passes again run alone at head: one that fails
+  // there too is flaky, fails only beside other files, or never ran, and says nothing about the change.
+  const again = new Map<string, Outcome>()
+  for (const candidate of passing.filter((test) => ran.outcomes.get(test.path) === 'failed')) {
+    const confirmed = await runFiles(runner, [candidate.path], 'baseline', node.id)
+    if ('stopped' in confirmed) return confirmed
+    again.set(candidate.path, confirmed.outcomes.get(candidate.path) ?? 'timed-out')
+  }
+  if (again.size && !(await repo.clean({ untracked: false }))) return { stopped: 'the tests at head changed tracked files, so later runs would not test the change.' }
+
   const observations = passing.map((candidate): Observation => {
     // Every file has an outcome; were one missing, it would prove nothing rather than count as a failure.
-    const outcome = ran.outcomes.get(candidate.path) ?? 'timed-out'
+    const during = ran.outcomes.get(candidate.path) ?? 'timed-out'
+    const outcome = during === 'failed' && again.get(candidate.path) !== 'passed' ? 'unsettled' : during
     const doubles = outcome === 'failed' ? doublesIn(readOr(join(runner.cwd, candidate.path)), candidate.path, node.symbol, node.path, doublePatterns) : []
     return { candidate, outcome, doubles }
   })

@@ -274,9 +274,13 @@ export interface TestRun {
   command: string
   /** Test files it ran. */
   tests: string[]
-  /** `baseline`: the tests at head. `revert`: this node's changed lines put back to base. `probe`: this node's body made to fail. */
+  /**
+   * `baseline`: the tests at head; with `node` set, a test that failed with that node changed, run alone at head again
+   * to see that it passes there. `revert`: this node's changed lines put back to base. `probe`: this node's body made
+   * to fail.
+   */
   kind: 'baseline' | 'revert' | 'probe'
-  /** For a mutation run, the node it changed. */
+  /** For a mutation run, the node it changed; for a baseline run, the node whose failing test it runs again. */
   node?: string
   condition_state: 'default' | 'on' | 'off'
   exit_code: number

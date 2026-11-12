@@ -223,9 +223,11 @@ test('the proof value follows what failed: changed life-cycle tests first, doubl
   assert.equal(value([{ candidate: flowNew, outcome: 'failed', doubles: ['x'] }, { candidate: unit, outcome: 'failed', doubles: [] }]), 'isolated', 'a test without the double still proves it')
   assert.equal(value([{ candidate: unit, outcome: 'passed', doubles: [] }]), 'none')
   assert.equal(value([{ candidate: unit, outcome: 'timed-out', doubles: [] }]), 'unknown', 'a run cut short proves nothing')
+  assert.equal(value([{ candidate: flowOld, outcome: 'not-run', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }]), 'unknown', 'a file the runner did not run proves nothing')
+  assert.equal(value([{ candidate: flowOld, outcome: 'unsettled', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }]), 'unknown', 'a failure that happens at head too proves nothing')
 
   const answer = proofOf({ symbol: 'total', mutation: 'probe', observations: [{ candidate: flowOld, outcome: 'failed', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }] })
-  assert.deepEqual(answer, { value: 'lifecycle', evidence: 'test/flow/old.test.ts fails when total is made to throw: a life-cycle test this diff did not change.', observedBy: ['test/flow/old.test.ts'], doubles: [] })
+  assert.deepEqual(answer, { value: 'lifecycle', evidence: 'test/flow/old.test.ts fails when total is made to throw: a life-cycle test this diff did not change.', observedBy: ['test/flow/old.test.ts'], doubles: [], stillPass: ['test/unit.test.ts'] })
 })
 
 test('a double counts when it names the definition or its module', () => {
@@ -314,18 +316,20 @@ test('a test that fails on revert proves the definition, one that still passes d
     evidence: 'test/flow/rounding.test.ts fails when total is put back to base: a life-cycle test this diff added or changed.',
     observedBy: ['test/flow/rounding.test.ts'],
     doubles: [],
+    stillPass: ['test/shop.test.ts'],
   })
   assert.deepEqual(answer('n3'), {
     value: 'none',
     evidence: 'test/flow/checkout.test.ts still passes when checkout is put back to base: nothing in it checks the change.',
     observedBy: [],
     doubles: [],
+    stillPass: ['test/flow/checkout.test.ts'],
   })
   assert.equal(answer('n2')?.value, 'lifecycle', 'an unchanged life-cycle test reaches the added discount through checkout')
   assert.deepEqual(answer('n2')?.observedBy, ['test/flow/checkout.test.ts', 'test/shop.test.ts'])
   assert.equal(answer('n4')?.value, 'unknown')
   assert.match(answer('n4')?.evidence ?? '', /test\/shop\.test\.ts did not finish within 3 seconds when spin is put back to base/)
-  assert.deepEqual(answer('n5'), { value: 'not-applicable', evidence: 'removed: there is nothing left to run.', observedBy: [], doubles: [] })
+  assert.deepEqual(answer('n5'), { value: 'not-applicable', evidence: 'removed: there is nothing left to run.', observedBy: [], doubles: [], stillPass: [] })
 
   assert.deepEqual(result.findings, [{ rule: 'failing-test', text: 'test/broken.test.ts fails at head, before anything is changed.', by: 'proof' }])
   assert.deepEqual(
@@ -339,9 +343,13 @@ test('a test that fails on revert proves the definition, one that still passes d
       ['revert', 'n1', 'test/flow/rounding.test.ts test/shop.test.ts', 'test/flow/rounding.test.ts'],
       ['revert', 'n1', 'test/flow/rounding.test.ts', 'test/flow/rounding.test.ts'],
       ['revert', 'n1', 'test/shop.test.ts', ''],
+      // Each file that failed with the change made passes again alone at head, so its failure was the change's.
+      ['baseline', 'n1', 'test/flow/rounding.test.ts', ''],
       ['probe', 'n2', 'test/flow/checkout.test.ts test/shop.test.ts', 'test/flow/checkout.test.ts test/shop.test.ts'],
       ['probe', 'n2', 'test/flow/checkout.test.ts', 'test/flow/checkout.test.ts'],
       ['probe', 'n2', 'test/shop.test.ts', 'test/shop.test.ts'],
+      ['baseline', 'n2', 'test/flow/checkout.test.ts', ''],
+      ['baseline', 'n2', 'test/shop.test.ts', ''],
       ['revert', 'n3', 'test/flow/checkout.test.ts', ''],
       ['revert', 'n4', 'test/shop.test.ts', 'test/shop.test.ts'],
     ],
@@ -372,9 +380,70 @@ test('the proof refuses a checkout that is not exactly the change, and runs noth
   writeFileSync(join(dir, 'src/shop.ts'), `${SHOP_HEAD}// edited\n`)
   const dirty = await prove(head)
   assert.equal(dirty.refused, 'the checkout has uncommitted changes, so its tests would not run the change as committed.')
-  assert.deepEqual(dirty.nodes.n1, { value: 'unknown', evidence: `tests were not run: ${dirty.refused}`, observedBy: [], doubles: [] })
+  assert.deepEqual(dirty.nodes.n1, { value: 'unknown', evidence: `tests were not run: ${dirty.refused}`, observedBy: [], doubles: [], stillPass: [] })
   assert.deepEqual(dirty.runs, [])
   assert.equal(readFileSync(join(dir, 'src/shop.ts'), 'utf8'), `${SHOP_HEAD}// edited\n`, 'nothing was touched')
+})
+
+test('a test the runner never ran, or one that also fails at head, proves nothing', async (t) => {
+  const dir = tempDir(t, 'proof-unsettled')
+  const count = join(tempDir(t, 'proof-count'), 'runs')
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', timeout: 30_000 }).trim()
+  const shop = (a: number, b: number, c: number) => `export function a() {\n  return ${a}\n}\n\nexport function b() {\n  return ${b}\n}\n\nexport function c() {\n  return ${c}\n}\n`
+  git('init', '--quiet', '--initial-branch=main')
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module' }),
+    // Like vitest: a file its configuration leaves out is not run, and a run left with no file says so and fails.
+    'runner.mjs': "import { spawnSync } from 'node:child_process'\nconst files = process.argv.slice(2).filter((file) => !file.includes('.excluded.'))\nif (files.length === 0) {\n  console.log('No test files found, exiting with code 1')\n  process.exit(1)\n}\nprocess.exit(spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit' }).status ?? 1)\n",
+    'src/shop.js': shop(0, 0, 0),
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Start')
+  const base = git('rev-parse', 'HEAD')
+  writeIn(dir, {
+    'src/shop.js': shop(1, 2, 3),
+    'test/flow/a.excluded.test.js': `${TEST_HEADER}import { a } from '../../src/shop.js'\n\ntest('a is one', () => {\n  assert.equal(a(), 1)\n})\n`,
+    // Passes the first time it runs and fails every time after, whatever the code says.
+    'test/b.test.js': `${TEST_HEADER}import { readFileSync, writeFileSync } from 'node:fs'\nimport { b } from '../src/shop.js'\n\ntest('b passes once', () => {\n  let runs = 0\n  try {\n    runs = Number(readFileSync(process.env.CHANGE_REVIEW_COUNT, 'utf8'))\n  } catch {}\n  writeFileSync(process.env.CHANGE_REVIEW_COUNT, String(runs + 1))\n  assert.equal(runs, 0)\n  assert.equal(typeof b(), 'number')\n})\n`,
+    'test/c.test.js': `${TEST_HEADER}import { c } from '../src/shop.js'\n\ntest('c is three', () => {\n  assert.equal(c(), 3)\n})\n`,
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Change a, b and c')
+  const head = git('rev-parse', 'HEAD')
+
+  const result = await runProof({
+    cwd: dir,
+    head,
+    nodes: [
+      { id: 'n1', symbol: 'a', kind: 'function', path: 'src/shop.js', lines: [1, 3], change: 'modified' },
+      { id: 'n2', symbol: 'b', kind: 'function', path: 'src/shop.js', lines: [5, 7], change: 'modified' },
+      { id: 'n3', symbol: 'c', kind: 'function', path: 'src/shop.js', lines: [9, 11], change: 'modified' },
+    ],
+    candidates: { n1: [candidate('test/flow/a.excluded.test.js', true, false)], n2: [candidate('test/b.test.js', false, false)], n3: [candidate('test/c.test.js', false, false)] },
+    runbook: detectRunbook(dir, { command: [process.execPath, 'runner.mjs'], env: { CHANGE_REVIEW_COUNT: count } }),
+    diffs: await gitRepo(dir).diffs(base, head),
+    doublePatterns: DOUBLES,
+    timeoutMs: 20_000,
+  })
+
+  // The passing first run named the left-out file too; run alone, it is seen not to run at all.
+  assert.deepEqual(result.nodes.n1, { value: 'unknown', evidence: 'the test runner found no test to run in test/flow/a.excluded.test.js when a is put back to base.', observedBy: [], doubles: [], stillPass: [] })
+  assert.deepEqual(result.nodes.n2, { value: 'unknown', evidence: 'test/b.test.js fails when b is put back to base, and again at head with nothing changed: that failure does not show the change.', observedBy: [], doubles: [], stillPass: [] })
+  assert.deepEqual(result.nodes.n3?.observedBy, ['test/c.test.js'])
+  assert.equal(result.nodes.n3?.value, 'isolated')
+  assert.deepEqual(result.findings, [])
+  assert.deepEqual(
+    result.runs.map((run) => [run.kind, run.node ?? '', run.tests.join(' '), run.failed.join(' ')]),
+    [
+      ['baseline', '', 'test/flow/a.excluded.test.js test/b.test.js test/c.test.js', ''],
+      ['revert', 'n1', 'test/flow/a.excluded.test.js', ''],
+      ['revert', 'n2', 'test/b.test.js', 'test/b.test.js'],
+      ['baseline', 'n2', 'test/b.test.js', 'test/b.test.js'],
+      ['revert', 'n3', 'test/c.test.js', 'test/c.test.js'],
+      ['baseline', 'n3', 'test/c.test.js', ''],
+    ],
+  )
+  assert.equal(git('status', '--porcelain'), '', 'the checkout is clean')
 })
 
 test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
@@ -401,7 +470,7 @@ test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
     diffs: await gitRepo(dir).diffs(base, head),
     doublePatterns: DOUBLES,
   })
-  assert.deepEqual(result.nodes.n1, { value: 'unknown', evidence: 'could not put it back to base: src/latin.js is not plain UTF-8 text, so it is not rewritten.', observedBy: [], doubles: [] })
+  assert.deepEqual(result.nodes.n1, { value: 'unknown', evidence: 'could not put it back to base: src/latin.js is not plain UTF-8 text, so it is not rewritten.', observedBy: [], doubles: [], stillPass: [] })
   assert.deepEqual(result.runs.map((run) => run.kind), ['baseline'])
   assert.ok(readFileSync(join(dir, 'src/latin.js')).equals(latin('2')))
 })

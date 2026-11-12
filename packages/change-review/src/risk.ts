@@ -37,6 +37,9 @@ const floorOf = (node: ReviewNode): Floor => {
 
 const oneOf = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value)
 
+/** A test that fails or hangs at head is a result, not an argument: the level it sets holds like a floor. */
+const fromFailingTest = (event: RiskEvent) => event.by === 'proof' || event.rule === 'failing-test' || event.rule === 'test-timeout'
+
 /** Why an event is not valid on its own (FOUNDATION 5.2 and the risk-event schema), or null. */
 function malformed(event: RiskEvent): string | null {
   if (typeof event.evidence !== 'string' || event.evidence.trim().length < MIN_EVIDENCE) return `evidence is shorter than ${MIN_EVIDENCE} characters`
@@ -73,14 +76,17 @@ function mergeWatch(into: Watch | null, from: Watch | undefined): Watch | null {
 /**
  * Applies the risk events to the nodes. Every node starts again from its floor, so applying the same events twice, or
  * to a graph that already has them, gives the same graph (FOUNDATION 14). A raise is always valid. A lowering needs an
- * evidence kind, nothing lowers a node below high while its floor is rule 3 or 4 (missing proof), and nothing lowers a
- * break that search found (rule 1): an argument is not a search result. Events that
- * break a rule are returned in `rejected` with the reason and change nothing.
+ * evidence kind, nothing lowers a node below high while its floor is rule 3 or 4 (missing proof), nothing lowers a
+ * break that search found (rule 1), and nothing lowers a level that a test failing or hanging at head set: an argument
+ * is not a search result or a test run. Events that break a rule are returned in `rejected` with the reason and change
+ * nothing.
  */
 export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly RiskEvent[]): { nodes: ReviewNode[]; rejected: RejectedEvent[] } {
   const rejected: RejectedEvent[] = []
   const next = new Map<string, ReviewNode>()
   const floors = new Map<string, Floor>()
+  /** The level a failing or hanging test set on a node: later events can raise it, never lower it. */
+  const held = new Map<string, Level>()
 
   for (const node of nodes) {
     const f = floorOf(node)
@@ -119,9 +125,15 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
         rejected.push({ event, reason: `floor rule ${f.rule} is missing proof: only a test that runs lowers it` })
         continue
       }
+      const hold = held.get(event.node)
+      if (hold && RANK[event.level] < RANK[hold]) {
+        rejected.push({ event, reason: `a test that fails or hangs at head set this node to ${hold}: only a test that runs lowers it` })
+        continue
+      }
     }
 
     if (RANK[event.level] !== RANK[level.current]) level.current = event.level
+    if (fromFailingTest(event) && RANK[event.level] > RANK[held.get(event.node) ?? 'safe']) held.set(event.node, event.level)
     if (level.current !== 'high') node.critical = false
     else if (event.critical === true) node.critical = true
     if (event.confidence) node.confidence = event.confidence

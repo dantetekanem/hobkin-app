@@ -51,6 +51,34 @@ describe('effect', () => {
     const f = deriveFacts(input("def key\n  'order:v2'\nend", "def key\n  'order:v1'\nend", { changedLines: [2], removed: [{ oldStart: 2, lines: ["  'order:v1'"] }] }))
     assert.equal(f.facts.effect.value, 'behaviour')
   })
+  it('behaviour: lines that only look like comments, read the way their language reads them', () => {
+    // Ruby: `**opts` is a double splat.
+    const splat = deriveFacts(input('def call(**opts)\n  run(\n    **opts.merge(capture: false)\n  )\nend', 'def call(**opts)\n  run(\n    **opts\n  )\nend', { changedLines: [3], removed: [{ oldStart: 3, lines: ['    **opts'] }] }))
+    // TypeScript: an expression continued on a line that starts with `*`.
+    const product = deriveFacts(input('function total(price: number, qty: number) {\n  return price\n    * qty * 1.2\n}', 'function total(price: number, qty: number) {\n  return price\n    * qty\n}', { path: 'src/total.ts', changedLines: [3], removed: [{ oldStart: 3, lines: ['    * qty'] }] }))
+    // A URL inside a template string.
+    const url = deriveFacts(input('function endpoint() {\n  return `\n    //api.example.com/v2\n  `\n}', 'function endpoint() {\n  return `\n    //api.example.com/v1\n  `\n}', { path: 'src/endpoint.ts', changedLines: [3], removed: [{ oldStart: 3, lines: ['    //api.example.com/v1'] }] }))
+    assert.deepEqual([splat, product, url].map((f) => f.facts.effect.value), ['behaviour', 'behaviour', 'behaviour'])
+  })
+  it('text: comments as TypeScript and Ruby write them, the `*` lines of a block comment included', () => {
+    const ts = deriveFacts(input('/**\n * Sums the items.\n * Rounded to cents.\n */\nfunction total() {\n  // why\n  return 1\n}', '/**\n * Sums the items.\n */\nfunction total() {\n  return 1\n}', { path: 'src/total.ts', changedLines: [3, 6] }))
+    const ruby = deriveFacts(input('=begin\nWhy total is one.\n=end\ndef total\n  1\nend', 'def total\n  1\nend', { changedLines: [1, 2, 3] }))
+    assert.deepEqual([ts.facts.effect.value, ruby.facts.effect.value], ['text', 'text'])
+  })
+  it('a removed line is read where it was at base: a comment there is text, a line not found there is behaviour', () => {
+    const base = 'def total\n  # old note\n  1\nend'
+    const found = deriveFacts(input('def total\n  1\nend', base, { changedLines: [], removed: [{ oldStart: 2, lines: ['  # old note'] }] }))
+    const lost = deriveFacts(input('def total\n  1\nend', base, { changedLines: [], removed: [{ oldStart: 3, lines: ['  # old note'] }] }))
+    assert.deepEqual([found.facts.effect.value, lost.facts.effect.value], ['text', 'behaviour'])
+  })
+  it('behaviour: lines deleted inside a definition that is still there', () => {
+    const f = deriveFacts(input('def total\n  1\nend', 'def total\n  log\n  1\nend', { changedLines: [], removed: [{ oldStart: 2, lines: ['  log'] }] }))
+    assert.equal(f.facts.effect.value, 'behaviour')
+    assert.match(f.facts.effect.evidence, /deleted inside/)
+    // Its name need not be on its first line: a decorator can come before it.
+    const decorated = deriveFacts(input('@memo\ntotal() {\n  return 1\n}', '@memo\ntotal() {\n  log()\n  return 1\n}', { path: 'src/cart.ts', symbol: 'Cart.total', changedLines: [], removed: [{ oldStart: 3, lines: ['  log()'] }] }))
+    assert.equal(decorated.facts.effect.value, 'behaviour')
+  })
   it('interface: signature changed, reported or seen', () => {
     const reported = deriveFacts(input('def total(tax)\n  1\nend', 'def total\n  1\nend', { changedLines: [1], signatureChanged: true }))
     assert.equal(reported.facts.effect.value, 'interface')

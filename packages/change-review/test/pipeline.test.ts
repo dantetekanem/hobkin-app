@@ -4,37 +4,60 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import type { ProofResult } from '../src/proof.ts'
 import { reviewChange } from '../src/pipeline.ts'
 import type { ScanOutcome } from '../src/scan.ts'
-import type { Level, ModelRunner, Progress, Scan, Units } from '../src/types.ts'
+import type { Level, ModelRunner, Progress, Scan, ScanAnchor, Units } from '../src/types.ts'
 
-/** A small Node project: `total` gains rounding with a test that sees it, and a constant changes that nothing reads. */
-function project(t: TestContext) {
+/** A git repository whose base commit holds `before` and whose head commit holds `after` on top of it. */
+function repoOf(t: TestContext, before: Record<string, string>, after: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), 'change-review-pipeline-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const repo = join(root, 'shop')
   mkdirSync(repo)
   const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
-  const write = (path: string, text: string) => {
-    mkdirSync(join(repo, path, '..'), { recursive: true })
-    writeFileSync(join(repo, path), text)
+  const commit = (files: Record<string, string>, message: string) => {
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(repo, path, '..'), { recursive: true })
+      writeFileSync(join(repo, path), text)
+    }
+    git('add', '.')
+    git('commit', '--quiet', '-m', message)
+    return git('rev-parse', 'HEAD')
   }
   git('init', '--quiet', '--initial-branch=main')
-  write('package.json', JSON.stringify({ name: 'shop', type: 'module', scripts: { test: 'node --test' } }))
-  write('src/total.js', 'export function total(a, b) {\n  return a + b\n}\n')
-  write('src/config.js', 'export const PRECISION = 2\n')
-  write('src/money.ts', 'export type Money = number\n')
-  git('add', '.')
-  git('commit', '--quiet', '-m', 'Start')
-  const base = git('rev-parse', 'HEAD')
-  write('src/total.js', 'export function total(a, b) {\n  return Math.round(a + b)\n}\n')
-  write('src/config.js', 'export const PRECISION = 3\n')
-  write('src/money.ts', 'export type Money = { cents: number }\n')
-  write('test/total.test.js', "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\nimport { total } from '../src/total.js'\n\ntest('rounds the total', () => {\n  assert.equal(total(1.2, 1.4), 3)\n})\n")
-  git('add', '.')
-  git('commit', '--quiet', '-m', 'Round the total')
-  return { repo, base, head: git('rev-parse', 'HEAD'), out: join(root, 'out'), git }
+  const base = commit(before, 'Start')
+  return { repo, base, head: commit(after, 'Change'), out: join(root, 'out'), git }
 }
+
+const PACKAGE = JSON.stringify({ name: 'shop', type: 'module', scripts: { test: 'node --test' } })
+const TEST_HEADER = "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\n"
+
+/** A small Node project: `total` gains rounding with a test that sees it, and a constant changes that nothing reads. */
+function project(t: TestContext) {
+  return repoOf(
+    t,
+    { 'package.json': PACKAGE, 'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n', 'src/config.js': 'export const PRECISION = 2\n', 'src/money.ts': 'export type Money = number\n' },
+    {
+      'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n',
+      'src/config.js': 'export const PRECISION = 3\n',
+      'src/money.ts': 'export type Money = { cents: number }\n',
+      'test/total.test.js': `${TEST_HEADER}import { total } from '../src/total.js'\n\ntest('rounds the total', () => {\n  assert.equal(total(1.2, 1.4), 3)\n})\n`,
+    },
+  )
+}
+
+/** A scan of the given anchors and nothing else. */
+const scanWith = (anchors: ScanAnchor[], dangling: Scan['dangling'] = []): Scan => ({
+  anchors,
+  nodes: Object.fromEntries(anchors.map(({ id, symbol, kind, path, startLine, endLine }) => [id, { id, symbol, kind, path, startLine, endLine }])),
+  edges: [],
+  dangling,
+  tests: [],
+  files: [],
+  coverage: { truncated: false, truncatedBy: 'none', skippedAnchors: 0, unresolved: 0, notes: [] },
+})
+const scanning = (scan: Scan) => async (): Promise<ScanOutcome> => ({ ok: true, scan })
 
 /** What agentic-search would report for that change. */
 const scanOf = (): Scan => ({
@@ -103,15 +126,19 @@ test('the blind check runs once and never lowers', async (t) => {
   assert.equal(result.graph.nodes.find((node) => node.id === 'n5')?.kind, 'test', 'a helper in a test file is a test, never a unit')
   assert.match(result.units.units.find((unit) => unit.nodes.includes('n4'))?.title ?? '', /changes a type, erased before the code runs/)
   assert.equal(result.blind.ran, true)
-  assert.deepEqual(result.blind.actions.map((action) => action.answer).sort(), ['thin-evidence', 'told-badly'])
+  // Raising PRECISION moved it ahead of total: each action names the unit that holds its nodes after the check.
+  const unitOf = (node: string) => result.units.units.find((unit) => unit.nodes.includes(node))!
+  assert.deepEqual(result.blind.actions.map((action) => [action.unit, action.answer]).sort(), [[unitOf('n1').id, 'told-badly'], [unitOf('n2').id, 'thin-evidence']].sort())
+  assert.match(result.story, new RegExp(`- Unit ${result.units.units.indexOf(unitOf('n2')) + 1}: raised to high: could not be shown simply`))
   assert.equal(result.storyBy, 'model')
   assert.match(result.story, /^# Round the total/)
   assert.match(result.story, /`total` now rounds every sum to a whole number/)
 
-  // Proof came from running the project's own test: it passed at head and failed with the rounding undone.
+  // Proof came from running the project's own test: it passed at head, failed with the rounding undone, and passed
+  // again alone at head.
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.equal(total.facts.proof.value, 'isolated')
-  assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert'])
+  assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert', 'baseline'])
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 
   for (const name of ['triage.json', 'graph.json', 'risk-events.jsonl', 'units.json', 'story.md', 'blind-check.json', 'progress.json', 'progress.jsonl']) {
@@ -138,4 +165,122 @@ test('progress names the step and measures every one', async (t) => {
   const lines = readFileSync(join(out, 'progress.jsonl'), 'utf8').trim().split('\n')
   assert.equal(lines.length, seen.length, 'every change of progress is appended as one line')
   assert.deepEqual(JSON.parse(readFileSync(join(out, 'progress.json'), 'utf8')), result.progress)
+})
+
+test('rule 11 needs an unchanged life-cycle test that ran and still passed with the change undone, not one that never ran', async (t) => {
+  const flags = 'const on = new Set()\n\nexport function setFlag(name, value) {\n  if (value) on.add(name)\n  else on.delete(name)\n}\n\nexport function isEnabled(name) {\n  return on.has(name)\n}\n'
+  const total = (branch: string) => `import { isEnabled } from './flags.js'\n\nexport function total(a, b) {\n${branch}  return a + b\n}\n`
+  const onTest = `${TEST_HEADER}import { setFlag } from '../../src/flags.js'\nimport { total } from '../../src/total.js'\n\ntest('with new-total on, the total is rounded', () => {\n  setFlag('new-total', true)\n  assert.equal(total(1.2, 1.4), 3)\n})\n`
+  const offTest = `${TEST_HEADER}import { total } from '../../src/total.js'\n\ntest('with new-total off, the total is the plain sum', () => {\n  assert.equal(total(1, 2), 3)\n})\n`
+  const said: string[] = []
+  // node --test runs `.test.js` files, never `.check.js` ones: the first off-path test is never run.
+  for (const offPath of ['test/e2e/total-off.check.js', 'test/e2e/total-off.test.js']) {
+    const { repo, base, head, out } = repoOf(
+      t,
+      { 'package.json': PACKAGE, 'src/flags.js': flags, 'src/total.js': total(''), [offPath]: offTest },
+      { 'src/total.js': total("  if (isEnabled('new-total')) {\n    return Math.round(a + b)\n  }\n"), 'test/e2e/total-on.test.js': onTest },
+    )
+    const anchors: ScanAnchor[] = [
+      {
+        id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 3, endLine: 8, changedLines: [4, 5, 6], status: 'modified',
+        tests: [{ id: 'n2', symbol: 'with new-total on, the total is rounded', path: 'test/e2e/total-on.test.js', line: 6 }, { id: 'n3', symbol: 'with new-total off, the total is the plain sum', path: offPath, line: 5 }],
+      },
+      { id: 'n2', symbol: 'with new-total on, the total is rounded', kind: 'test', path: 'test/e2e/total-on.test.js', startLine: 6, endLine: 9, changedLines: [1, 2, 3, 4, 5, 6, 7, 8, 9], status: 'added', tests: [] },
+    ]
+    const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith(anchors)) })
+    const node = result.graph.nodes.find((item) => item.id === 'n1')!
+    assert.deepEqual([node.facts.exposure.value, node.facts.undo.value, node.facts.proof.value, node.extras.conditionOnProven], ['nobody-yet', 'flag', 'lifecycle-observed', true], offPath)
+    said.push(`${node.level?.current} by rule ${node.level?.rule}, off path proven: ${node.extras.offPathProven}`)
+  }
+  assert.deepEqual(said, ['mid by rule 12, off path proven: false', 'safe by rule 11, off path proven: true'])
+})
+
+test('a model that fails leaves every level at its floor, and the review finishes and says so', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const model: ModelRunner = async ({ pass }) => {
+    throw new Error(`the ${pass} model is down`)
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
+  const step = (id: string) => result.progress.steps.find((item) => item.id === id)!
+
+  assert.deepEqual(levelsOf(result.units), { n1: 'high', n2: 'mid', n4: 'safe' })
+  assert.ok(result.problems.some((problem) => /careful pass failed: the review model is down/.test(problem)), result.problems.join('\n'))
+  assert.deepEqual([step('risk-model').status, step('blind-check').status], ['skipped', 'skipped'])
+  assert.match(step('risk-model').note ?? '', /the review model is down/)
+  assert.match(step('blind-check').note ?? '', /the checker model is down/)
+  assert.equal(result.blind.ran, false)
+  assert.equal(result.storyBy, 'host')
+  assert.equal(result.progress.percent, 100)
+})
+
+test('a review stopped by its signal ends with an error that says so, never with a result that looks finished', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const before = new AbortController()
+  before.abort()
+  await assert.rejects(reviewChange({ cwd: repo, base, head, out: join(out, 'before'), signal: before.signal, clock: steadyClock(), scan: scanning(scanOf()) }), /stopped/)
+
+  // Stopped while the tests run: the proof comes back with nothing proven, as a stopped proof does.
+  const during = new AbortController()
+  const proof = async (): Promise<ProofResult> => {
+    during.abort()
+    return { nodes: {}, runs: [], findings: [], clean: true }
+  }
+  await assert.rejects(reviewChange({ cwd: repo, base, head, out: join(out, 'during'), signal: during.signal, clock: steadyClock(), scan: scanning(scanOf()), proof }), /stopped/)
+  const progress = JSON.parse(readFileSync(join(out, 'during', 'progress.json'), 'utf8')) as Progress
+  assert.deepEqual(progress.steps.filter((step) => step.status === 'failed').map((step) => [step.id, step.note]), [['map-proof', 'the review was stopped']])
+  assert.equal(existsSync(join(out, 'during', 'story.md')), false, 'no story is written for a review cut short')
+})
+
+test('a removed definition is decided by what still refers to it: nothing is safe, something is broken', async (t) => {
+  const keep = 'export function keep() {\n  return 1\n}\n'
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'src/shop.js': `${keep}\nexport function unused() {\n  return 2\n}\n\nexport function called() {\n  return 3\n}\n`, 'src/user.js': "import { called } from './shop.js'\n\nexport const three = called()\n" },
+    { 'src/shop.js': keep },
+  )
+  const removed = (id: string, symbol: string, startLine: number, value: number): ScanAnchor => ({
+    id, symbol, kind: 'function', path: 'src/shop.js', startLine, endLine: startLine + 2, changedLines: [], removed: [{ oldStart: startLine - 1, lines: ['', `export function ${symbol}() {`, `  return ${value}`, '}'] }], tests: [],
+  })
+  const dangling = [{ symbol: 'called', path: 'src/shop.js', references: [{ path: 'src/user.js', line: 1, text: "import { called } from './shop.js'" }] }]
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith([removed('n1', 'unused', 5, 2), removed('n2', 'called', 9, 3)], dangling)) })
+  const of = (id: string) => result.graph.nodes.find((node) => node.id === id)!
+
+  assert.deepEqual(['n1', 'n2'].map((id) => [of(id).change, of(id).facts.proof.value]), [['removed', 'not-applicable'], ['removed', 'not-applicable']])
+  assert.deepEqual([of('n1').level?.current, of('n1').level?.rule, of('n1').extras.unreferencedRemoval], ['safe', 2, true])
+  assert.deepEqual([of('n2').level?.current, of('n2').extras.unreferencedRemoval], ['high', undefined], 'src/user.js still refers to it')
+  assert.deepEqual([of('x1').level?.current, of('x1').level?.rule, of('x1').critical], ['high', 1, true])
+})
+
+test('a test failing at head is a finding only on the nodes it is a candidate of, matched by its exact path', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const failing = (path: string) => ({ rule: 'failing-test', text: `${path} fails at head, before anything is changed.`, by: 'proof' })
+  const proof = async (): Promise<ProofResult> => ({
+    nodes: { n1: { value: 'lifecycle', evidence: 'test/total.test.js fails when total is put back to base.', observedBy: ['test/total.test.js'], doubles: [], stillPass: [] } },
+    runs: [],
+    findings: [failing('test/total.test.js'), failing('vendor/test/total.test.js')],
+    clean: true,
+  })
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanOf()), proof })
+  const total = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual(total.findings.filter((finding) => finding.rule === 'failing-test').map((finding) => finding.text), [failing('test/total.test.js').text])
+})
+
+test('lines deleted inside a definition that is still there make it modified, proven by its tests', async (t) => {
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'package.json': PACKAGE, 'src/total.js': 'export function total(items) {\n  items = items.filter((item) => item > 0)\n  return items.reduce((sum, item) => sum + item, 0)\n}\n' },
+    {
+      'src/total.js': 'export function total(items) {\n  return items.reduce((sum, item) => sum + item, 0)\n}\n',
+      'test/total.test.js': `${TEST_HEADER}import { total } from '../src/total.js'\n\ntest('negative items count', () => {\n  assert.equal(total([1, -1, 2]), 2)\n})\n`,
+    },
+  )
+  // The search tool gives no status: every changed line at head is gone, but the definition is not.
+  const anchor: ScanAnchor = {
+    id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [], removed: [{ oldStart: 2, lines: ['  items = items.filter((item) => item > 0)'] }],
+    tests: [{ id: 'n2', symbol: 'negative items count', path: 'test/total.test.js', line: 5 }],
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith([anchor])) })
+  const total = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual([total.change, total.facts.effect.value, total.facts.proof.value], ['modified', 'behaviour', 'isolated'])
+  assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert', 'baseline'])
 })

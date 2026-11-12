@@ -1,3 +1,4 @@
+import { lineKinds, type LineKind } from './comments.ts'
 import { isNotRequestPath, rx, sensitiveOf } from './config.ts'
 import type { ReviewConfig } from './config.ts'
 import type { Condition, Effect, Exposure, Fact, Facts, FloorExtras, Guard, ScanAnchor, Undo } from './types.ts'
@@ -35,23 +36,64 @@ export interface NodeFacts {
 // ───────────────────────── Reading lines ─────────────────────────
 
 const SEVERITY: Effect[] = ['interface', 'data', 'load', 'behaviour', 'text']
-const SCRIPT = /\.(?:[cm]?[jt]sx?)$/
 
 const isBlank = (text: string) => text.trim() === ''
-
-/** A comment line, by the path's language: `#` starts one in Ruby and shell, not in JS or TS. */
-function isComment(text: string, path: string): boolean {
-  const t = text.trim()
-  if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('*')) return true
-  return t.startsWith('#') && !SCRIPT.test(path)
-}
 
 /** Lines that only open or close a block. They belong to a condition's shape, not to what the code does. */
 const isCloser = (text: string) => /^(end|else|\{|\}|\)|\}\s*else\s*\{?|else\s*\{?)$/.test(text.trim())
 
-const isIgnorable = (text: string, path: string) => isBlank(text) || isComment(text, path)
-
 const matches = (pattern: string, text: string) => rx(pattern).test(text)
+
+/** Which of the node's lines hold nothing that runs, as the file's language reads them (comments.ts). */
+interface Reading {
+  /** Line `n` at head is blank or only a comment. False for a line that cannot be read. */
+  quiet(n: number): boolean
+  /** The lines the diff removed, each with whether it was blank or only a comment where it stood at base. */
+  removed: { text: string; quiet: boolean }[]
+}
+
+const read = new WeakMap<readonly string[], LineKind[]>()
+const isQuiet = (kind: LineKind | undefined) => kind === 'blank' || kind === 'comment'
+
+/** Every line's kind, read once per file: a comment depends on what the lines above it opened. */
+function kindsOf(path: string, lines: readonly string[] | null): LineKind[] {
+  if (!lines) return []
+  let kinds = read.get(lines)
+  if (!kinds) {
+    kinds = lineKinds(path, lines.join('\n'))
+    read.set(lines, kinds)
+  }
+  return kinds
+}
+
+/** A removed line is read at the base line it came from; one not found there cannot be read, so it counts as code. */
+function readingOf({ anchor, path, head, base }: FactsInput): Reading {
+  const atHead = kindsOf(path, head)
+  const atBase = kindsOf(path, base)
+  return {
+    quiet: (n) => isQuiet(atHead[n - 1]),
+    removed: (anchor.removed ?? []).flatMap((block) =>
+      block.lines.map((text, offset) => {
+        const at = block.oldStart - 1 + offset
+        return { text, quiet: base?.[at] === text && isQuiet(atBase[at]) }
+      }),
+    ),
+  }
+}
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Whether the anchor's definition is gone at head: the lines the diff removed name it, and none of its lines at head
+ * does. Anything less is a definition still there, with lines deleted inside it, which tests can prove.
+ */
+export function goneAtHead(anchor: Pick<ScanAnchor, 'symbol' | 'startLine' | 'endLine' | 'removed'>, head: readonly string[] | null): boolean {
+  const name = anchor.symbol.split(/#|::|\./).filter(Boolean).at(-1) ?? ''
+  if (!name) return false
+  const named = new RegExp(`(?<![\\w$])${escape(name)}(?![\\w$])`)
+  const removed = (anchor.removed ?? []).some((block) => block.lines.some((line) => named.test(line)))
+  return removed && !(head ?? []).slice(anchor.startLine - 1, anchor.endLine).some((line) => named.test(line))
+}
 
 // ───────────────────────── Flag checks and the lines they dominate ─────────────────────────
 
@@ -87,7 +129,7 @@ function matchCheck(text: string, config: ReviewConfig): { name: string; index: 
  * It reads the shapes `if`/`unless` blocks, `return ... if`/`unless` guards, JS `if (..) return`, and `... if flag`.
  * A flag stored or passed along is `expr`: nothing it governs is proven.
  */
-function gateRegions(lines: string[], start: number, end: number, config: ReviewConfig, path: string): { checks: Check[]; marks: Map<number, Mark[]> } {
+function gateRegions(lines: string[], start: number, end: number, config: ReviewConfig, reading: Reading): { checks: Check[]; marks: Map<number, Mark[]> } {
   const at = (n: number) => lines[n - 1] ?? ''
   const checks: Check[] = []
   const marks = new Map<number, Mark[]>()
@@ -97,7 +139,7 @@ function gateRegions(lines: string[], start: number, end: number, config: Review
 
   for (let n = start; n <= end; n += 1) {
     const text = at(n)
-    if (isComment(text, path)) continue
+    if (reading.quiet(n)) continue
     const hit = matchCheck(text, config)
     if (!hit) continue
     const id = checks.length
@@ -185,11 +227,11 @@ const migrationPath = (path: string, config: ReviewConfig) => matches(config.ung
 const ungateablePath = (path: string, config: ReviewConfig) => Object.values(config.ungateable).some((p) => matches(p, path))
 const loadPath = (path: string, config: ReviewConfig) => matches(config.ungateable.config, path) || matches(config.ungateable.dependency, path)
 
-function deriveEffect(input: FactsInput): EffectResult {
+function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
   const { anchor, path, head, config } = input
   const textOf = (n: number): string | undefined => head?.[n - 1]
   const changed = anchor.changedLines
-  const removed = (anchor.removed ?? []).flatMap((r) => r.lines)
+  const removed = reading.removed
   const reasons = new Map<Effect, string>()
   const note = (effect: Effect, why: string) => {
     if (!reasons.has(effect)) reasons.set(effect, why)
@@ -199,8 +241,8 @@ function deriveEffect(input: FactsInput): EffectResult {
 
   const whitespace = new Set(anchor.whitespaceOnly ?? [])
   const texts = changed.map((n) => ({ n, text: textOf(n) }))
-  const code = texts.filter(({ n, text }) => !whitespace.has(n) && (text === undefined || !isIgnorable(text, path)))
-  const removedCode = removed.filter((line) => !isIgnorable(line, path))
+  const code = texts.filter(({ n }) => !whitespace.has(n) && !reading.quiet(n))
+  const removedCode = removed.filter((line) => !line.quiet).map((line) => line.text)
   const allWhitespace = changed.length > 0 && changed.every((n) => whitespace.has(n))
 
   const nothingReported = changed.length === 0 && removed.length === 0
@@ -221,7 +263,10 @@ function deriveEffect(input: FactsInput): EffectResult {
     else if (anchor.signatureChanged === undefined && changed.includes(anchor.startLine) && (anchor.removed ?? []).some((r) => r.lines.some(looksLikeDefinition)) && anchor.status !== 'added') {
       note('interface', found('the definition line changed'))
     }
-    if (changed.length === 0 && removedCode.length > 0) note('interface', found('a definition was removed'))
+    if (changed.length === 0 && removedCode.length > 0) {
+      if (goneAtHead(anchor, head)) note('interface', found('a definition was removed'))
+      else note('behaviour', found('lines were deleted inside the definition'))
+    }
 
     // data
     const signals = config.signals
@@ -265,20 +310,19 @@ function deriveEffect(input: FactsInput): EffectResult {
 // ───────────────────────── Exposure and undo ─────────────────────────
 
 /** Whether the old code is still what runs with the condition off: every off-branch line was there at base, and nothing from base was lost. */
-function offPathIsOld(lines: string[], range: [number, number], marks: Map<number, Mark[]>, anchor: ScanAnchor, base: string[] | null, path: string): boolean {
+function offPathIsOld(lines: string[], range: [number, number], marks: Map<number, Mark[]>, reading: Reading, base: string[] | null): boolean {
   const trimmed = (text: string) => text.trim()
-  const real = (text: string) => !isIgnorable(text, path) && !isCloser(text)
   const baseSet = new Set((base ?? []).map(trimmed))
   const headSet = new Set<string>()
   const off: string[] = []
   for (let n = range[0]; n <= range[1]; n += 1) {
     const text = lines[n - 1] ?? ''
-    if (!real(text)) continue
+    if (reading.quiet(n) || isCloser(text)) continue
     headSet.add(trimmed(text))
     if ((marks.get(n) ?? []).some((m) => m.state === 'off')) off.push(trimmed(text))
   }
   if (!off.every((text) => baseSet.has(text))) return false
-  const lost = (anchor.removed ?? []).flatMap((r) => r.lines).filter(real).map(trimmed)
+  const lost = reading.removed.filter((line) => !line.quiet && !isCloser(line.text)).map((line) => trimmed(line.text))
   return lost.every((text) => headSet.has(text))
 }
 
@@ -288,10 +332,10 @@ interface ExposureResult {
   hosts: boolean
 }
 
-function deriveConditions(input: FactsInput): { checks: Check[]; stateAt: (line: number) => Mark[]; viaGuards: boolean; marks: Map<number, Mark[]> } {
-  const { anchor, head, config, path } = input
+function deriveConditions(input: FactsInput, reading: Reading): { checks: Check[]; stateAt: (line: number) => Mark[]; viaGuards: boolean; marks: Map<number, Mark[]> } {
+  const { anchor, head, config } = input
   const range: [number, number] = [anchor.startLine, anchor.endLine]
-  const { checks, marks } = head ? gateRegions(head, range[0], range[1], config, path) : { checks: [] as Check[], marks: new Map<number, Mark[]>() }
+  const { checks, marks } = head ? gateRegions(head, range[0], range[1], config, reading) : { checks: [] as Check[], marks: new Map<number, Mark[]>() }
   const guards = anchor.guards
   const fromTool = new Map<number, Mark[]>()
   if (guards) {
@@ -308,10 +352,10 @@ function deriveConditions(input: FactsInput): { checks: Check[]; stateAt: (line:
   return { checks, stateAt, viaGuards: guards !== undefined, marks }
 }
 
-function deriveExposure(input: FactsInput, effect: EffectResult): ExposureResult {
+function deriveExposure(input: FactsInput, effect: EffectResult, reading: Reading): ExposureResult {
   const { anchor, path, head, base, config } = input
   const range: [number, number] = [anchor.startLine, anchor.endLine]
-  const { checks, stateAt, viaGuards, marks } = deriveConditions(input)
+  const { checks, stateAt, viaGuards, marks } = deriveConditions(input, reading)
   const changed = anchor.changedLines
   const added = new Set(changed)
 
@@ -332,7 +376,7 @@ function deriveExposure(input: FactsInput, effect: EffectResult): ExposureResult
   const relevant = changed.filter((line) => {
     const text = head?.[line - 1]
     if (text === undefined) return true
-    if (isIgnorable(text, path) || isCloser(text) || (anchor.whitespaceOnly ?? []).includes(line)) return false
+    if (reading.quiet(line) || isCloser(text) || (anchor.whitespaceOnly ?? []).includes(line)) return false
     return !stateAt(line).some((m) => m.state === 'scaffold')
   })
 
@@ -345,7 +389,7 @@ function deriveExposure(input: FactsInput, effect: EffectResult): ExposureResult
     const notOn = relevant.find((_, i) => states[i]?.some((m) => m.state !== 'on'))
     if (unguarded !== undefined) reason = `line ${unguarded} is not behind any condition check`
     else if (notOn !== undefined) reason = `line ${notOn} runs with the condition off or in a form that is not traced`
-    else if (!offPathIsOld(head, range, marks, anchor, base, path)) reason = 'the off path differs from the old code'
+    else if (!offPathIsOld(head, range, marks, reading, base)) reason = 'the off path differs from the old code'
     else {
       const strict = states.every((s) => s.some((m) => !checks[m.check]?.subset))
       const first = checks[states[0]?.[0]?.check ?? 0]
@@ -379,8 +423,9 @@ function deriveUndo(exposure: Exposure, effect: EffectResult, path: string, conf
  */
 export function deriveFacts(input: FactsInput): NodeFacts {
   const { anchor, path, config } = input
-  const effect = deriveEffect(input)
-  const exposure = deriveExposure(input, effect)
+  const reading = readingOf(input)
+  const effect = deriveEffect(input, reading)
+  const exposure = deriveExposure(input, effect, reading)
   const undo = deriveUndo(exposure.fact.value, effect, path, config)
   const extras: FloorExtras = {}
   if (effect.additive) extras.additiveSchema = true

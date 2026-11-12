@@ -44,12 +44,14 @@ export type ProgramRun =
       stderr: Buffer
       /** The end of stdout and stderr together, in the order they came. */
       tail: string
-      /** Measured from start to close. */
+      /** Measured from start until its output closed, or a moment after it exited. */
       seconds: number
     }
 
 const STDERR_BYTES = 1024 * 1024
 const TAIL_BYTES = 16 * 1024
+/** How long the output of a program that has exited may stay open before it is cut off from this side. */
+const CLOSE_GRACE_MS = 1_000
 
 /** Chunks of output, keeping at most `limit` bytes: the last ones. */
 function keeper(limit: number) {
@@ -76,7 +78,8 @@ function keeper(limit: number) {
 /**
  * Runs a program with no shell. It is stopped with SIGTERM, then SIGKILL, when it outlives `timeoutMs` or `signal`
  * aborts. With `group`, the stop reaches everything it started, and whatever it leaves running when it exits is
- * stopped too, so nothing outlives the run.
+ * stopped too, so nothing outlives the run. The run ends when the program has exited and its output has closed; when
+ * something it started in a group of its own still holds that output a moment after the exit, the output is cut off.
  */
 export function runProgram(program: string, args: readonly string[], options: RunOptions): Promise<ProgramRun> {
   const { cwd, env = process.env, timeoutMs, graceMs = 2_000, signal, input, maxBytes = 64 * 1024 * 1024, overflow = 'stop', ignoreStdout = false } = options
@@ -98,6 +101,7 @@ export function runProgram(program: string, args: readonly string[], options: Ru
     let overflowed = false
     let settled = false
     let killTimer: NodeJS.Timeout | undefined
+    let closeTimer: NodeJS.Timeout | undefined
 
     const send = (name: NodeJS.Signals) => {
       try {
@@ -124,7 +128,25 @@ export function runProgram(program: string, args: readonly string[], options: Ru
       settled = true
       clearTimeout(timer)
       clearTimeout(killTimer)
+      clearTimeout(closeTimer)
       signal?.removeEventListener('abort', onAbort)
+    }
+    const finish = (code: number | null, closedBy: NodeJS.Signals | null) => {
+      if (settled) return
+      done()
+      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy()
+      resolve({
+        started: true,
+        code: code ?? 128 + (closedBy ? (constants.signals[closedBy] ?? 0) : 0),
+        signal: closedBy,
+        timedOut,
+        aborted,
+        overflow: overflowed,
+        stdout: stdout.buffer(),
+        stderr: stderr.buffer(),
+        tail: tail.buffer().toString('utf8'),
+        seconds: Math.round(performance.now() - startedAt) / 1000,
+      })
     }
 
     child.stdout?.on('data', (chunk: Buffer) => {
@@ -147,26 +169,15 @@ export function runProgram(program: string, args: readonly string[], options: Ru
       done()
       resolve({ started: false, reason: error.message })
     })
-    // What the group leaves running when its first program exits is stopped: nothing outlives the run.
-    child.on('exit', () => {
+    // What the group leaves running when its first program exits is stopped: nothing outlives the run. The output
+    // closes once everything holding it lets go, which a program started in a group of its own may never do. The cut
+    // waits until output already waiting has been read, even when the grace ran out while this process was busy.
+    child.on('exit', (code, closedBy) => {
+      clearTimeout(timer)
       if (group) send('SIGKILL')
+      closeTimer = setTimeout(() => setImmediate(() => finish(code, closedBy)), CLOSE_GRACE_MS)
     })
-    child.on('close', (code, closedBy) => {
-      if (settled) return
-      done()
-      resolve({
-        started: true,
-        code: code ?? 128 + (closedBy ? (constants.signals[closedBy] ?? 0) : 0),
-        signal: closedBy,
-        timedOut,
-        aborted,
-        overflow: overflowed,
-        stdout: stdout.buffer(),
-        stderr: stderr.buffer(),
-        tail: tail.buffer().toString('utf8'),
-        seconds: Math.round(performance.now() - startedAt) / 1000,
-      })
-    })
+    child.on('close', finish)
     if (input !== undefined) child.stdin?.end(input)
   })
 }

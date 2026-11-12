@@ -127,6 +127,16 @@ describe('applyRiskEvents', () => {
     assert.deepEqual(a?.findings.map((f) => [f.rule, f.by]), [['behaviour-changed-no-test-changed', 'floor'], ['retry', 'model']])
   })
 
+  it('a level a failing test set is a floor: no later event lowers it, whatever evidence it names', () => {
+    const failing = event({ node: 'a', level: 'high', aspect: 'failure', rule: 'failing-test', by: 'proof', evidence: 'test/flow/checkout.test.ts fails at head, before anything is changed.' })
+    const hung = event({ node: 'b', level: 'high', aspect: 'failure', rule: 'test-timeout', evidence: 'test/flow/cart.test.ts did not finish within 180 seconds at head.' })
+    const lower = (id: string) => event({ node: id, level: 'mid', direction: 'down', evidence_kind: 'equivalent', evidence: 'The existing request tests run the changed lines and pass.' })
+    const { nodes, rejected } = apply([node('a'), node('b')], [failing, lower('a'), hung, lower('b')])
+    assert.deepEqual([levelOf(nodes, 'a'), levelOf(nodes, 'b')], ['high', 'high'])
+    assert.equal(rejected.length, 2)
+    assert.match(rejected[0]?.reason ?? '', /fails or hangs at head/)
+  })
+
   it('uses by when set', () => {
     const { nodes } = apply([node('a')], [event({ node: 'a', by: 'blind-check' })])
     assert.equal(nodes[0]?.findings.at(-1)?.by, 'blind-check')

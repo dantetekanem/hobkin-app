@@ -4,14 +4,15 @@
  * progress.json, and everything a step decides is written beside it, so the story never says what the files do not.
  *
  * The checkout at `cwd` must hold the change at `head`, clean: proof changes a definition, runs its tests and puts it
- * back. Without a model the review still finishes: levels stay at their floors and the story is written from facts.
+ * back. Without a model, or with one that fails, the review still finishes: levels stay at their floors and the story
+ * is written from facts. A review its signal stops ends with an error, never with a result that looks finished.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { blindActions, runBlindCheck } from './blind.ts'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, rx, type ReviewConfig } from './config.ts'
 import { curate } from './curate.ts'
-import { deriveFacts, type CallerSite } from './facts.ts'
+import { deriveFacts, goneAtHead, type CallerSite } from './facts.ts'
 import { gitRepo } from './git.ts'
 import { readReviewAnswer, reviewRequest } from './model.ts'
 import { progressFiles, trackProgress } from './progress.ts'
@@ -20,7 +21,7 @@ import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
 import { renderStory } from './story.ts'
 import { checkBuckets, triage as triageOf } from './triage.ts'
-import type { BlindAction, BlindCheck, ChangeDescription, FileDiff, Graph, GraphEdge, Level, ModelRunner, Progress, Question, ReviewNode, RiskEvent, Scan, ScanAnchor, StoryWords, Triage, Unit, Units } from './types.ts'
+import type { BlindAction, BlindCheck, ChangeDescription, FileDiff, Graph, GraphEdge, Level, ModelRunner, Progress, Question, ReviewNode, RiskEvent, Scan, ScanAnchor, StepId, StoryWords, Triage, Unit, Units } from './types.ts'
 
 export interface ReviewChangeOptions {
   /** The checkout of the change at `head`, clean, at the repository's top folder. */
@@ -125,15 +126,19 @@ function kindOf(anchor: ScanAnchor, inTests: boolean): ReviewNode['kind'] {
 }
 
 /**
- * Whether a definition is new: the search tool says so when it can; otherwise a definition whose every line changed
- * and that took nothing away at base is taken as added.
+ * Whether a definition is new, changed or gone: the search tool says so when it can. Otherwise one with no changed
+ * line at head is removed only when it is shown gone, since one still there had lines deleted inside it; and one
+ * whose every line changed and that took nothing away at base is taken as added.
  */
-function changeOf(anchor: ScanAnchor): ReviewNode['change'] {
+function changeOf(anchor: ScanAnchor, atHead: readonly string[] | null): ReviewNode['change'] {
   if (anchor.status) return anchor.status
-  if (!anchor.changedLines.length) return 'removed'
+  if (!anchor.changedLines.length) return goneAtHead(anchor, atHead) ? 'removed' : 'modified'
   const span = anchor.endLine - anchor.startLine + 1
   return anchor.changedLines.length >= span && !(anchor.removed ?? []).some((block) => block.lines.length) ? 'added' : 'modified'
 }
+
+/** The name a symbol is called by: `total` for `Cart#total` or `Billing::Cart.total`. */
+const shortName = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).at(-1) ?? symbol
 
 /** The changed lines of one node, from the hunks that touch it, as a small diff. */
 function changedExcerpt(diffs: readonly FileDiff[], node: Pick<ReviewNode, 'path' | 'lines'>): string {
@@ -195,17 +200,36 @@ function carryWords(words: StoryWords, from: readonly Unit[], to: readonly Unit[
   return { ...words, units }
 }
 
+/** The blind check's actions name units as it saw them; after reshaping, each names the unit that holds the same nodes. */
+function actionsOn(actions: readonly BlindAction[], seen: readonly Unit[], now: readonly Unit[]): BlindAction[] {
+  const keyOf = new Map(seen.map((unit) => [unit.id, unitKey(unit)]))
+  const idOf = new Map(now.map((unit) => [unitKey(unit), unit.id]))
+  return actions.map((action) => ({ ...action, unit: idOf.get(keyOf.get(action.unit) ?? '') ?? action.unit }))
+}
+
+/** What a call gave, or why it failed: a model that throws is a step not done, never a review that cannot be made. */
+async function attempt<T>(call: () => Promise<T>): Promise<{ value: T } | { failed: string }> {
+  try {
+    return { value: await call() }
+  } catch (error) {
+    return { failed: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 const STEP_UP: Record<Level, Level> = { safe: 'mid', mid: 'high', high: 'high' }
 
 /**
- * Reviews the change from `base` to `head`. Throws only when the review cannot be made at all: the checkout cannot be
+ * Reviews the change from `base` to `head`. Throws when the review cannot be made at all: the checkout cannot be
  * read, or a code change gave the scan nothing to map (a wrong root or an unsupported language, never "nothing to
- * review"). Anything less is said in the story and in `problems`.
+ * review"); and when `signal` stops it, with an `AbortError` that says so. Anything less is said in the story and in
+ * `problems`.
  */
 export async function reviewChange(options: ReviewChangeOptions): Promise<ReviewChangeResult> {
   const { cwd, base, head, out } = options
   const config = options.config ?? DEFAULT_CONFIG
   const signal = options.signal ?? new AbortController().signal
+  const stopped = () => Object.assign(new Error('The review was stopped before it finished.', { cause: signal.reason }), { name: 'AbortError' })
+  if (signal.aborted) throw stopped()
   const clock = options.clock ?? (() => new Date())
   const model = options.model ?? null
   const problems: string[] = []
@@ -229,15 +253,23 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       options.onProgress?.(progress)
     },
   })
+  /** Between steps: a review its signal stopped ends here, the step it stopped at marked failed. */
+  const halt = (step: StepId) => {
+    if (!signal.aborted) return
+    tracker.fail(step, 'the review was stopped')
+    throw stopped()
+  }
   tracker.start('triage', 1, `triage: ${triage.totals.files} files sorted into ${triage.buckets.length} buckets; checking what replaces reading them`)
   triage = await checkBuckets(triage, repo, meta)
   save('triage.json', triage)
   tracker.end('triage')
 
   // 2. The map, by search.
+  halt('map-search')
   const mapped = filesToMap(triage)
   tracker.start('map-search', 1, `map-search: asking agentic-search for every changed definition in ${mapped.size} files`)
   const scanned = await (options.scan ?? runScan)({ cwd, base, head, signal })
+  halt('map-search')
   const scan: Scan = scanned.ok ? scanned.scan : { anchors: [], nodes: {}, edges: [], dangling: [], tests: [], files: [], coverage: { truncated: true, truncatedBy: 'failed', skippedAnchors: 0, unresolved: 0, notes: [] } }
   if (scanned.ok) tracker.end('map-search')
   else {
@@ -255,10 +287,11 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const testFiles = new Set(triage.buckets.filter((bucket) => bucket.kind === 'test').flatMap((bucket) => bucket.paths))
   const nodes: ReviewNode[] = []
   for (const anchor of scan.anchors.filter((item) => mapped.has(item.path))) {
+    const atHead = await linesAt(head, anchor.path)
     const derived = deriveFacts({
       anchor,
       path: anchor.path,
-      head: await linesAt(head, anchor.path),
+      head: atHead,
       base: await linesAt(base, anchor.path),
       config,
       callers: callersOf(scan, anchor),
@@ -271,7 +304,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       symbol: anchor.symbol,
       path: anchor.path,
       lines: [anchor.startLine, anchor.endLine],
-      change: changeOf(anchor),
+      change: changeOf(anchor, atHead),
       changed_lines: anchor.changedLines,
       ...(anchor.language ? { language: anchor.language } : {}),
       entries: entriesOf(scan, anchor, config),
@@ -334,6 +367,14 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   for (const node of nodes.filter((item) => item.kind === 'general' && item.change !== 'removed')) {
     node.facts.proof = { value: 'not-applicable', evidence: 'takes effect when the code loads or deploys: decided by what it does, not by a test' }
   }
+  // A removed definition has nothing left to run. Nothing that remains refers to it (rule 2, safe) unless the scan
+  // reports a reference to a removed definition of its name, wherever it was, or was cut short; a reference found
+  // makes the broken node beside it, at rule 1.
+  for (const node of nodes.filter((item) => item.change === 'removed' && item.kind !== 'test' && !item.extras.broken)) {
+    node.facts.proof = { value: 'not-applicable', evidence: 'removed: there is nothing left to run' }
+    const referred = scan.dangling.some((entry) => shortName(entry.symbol) === shortName(node.symbol))
+    if (!referred && !scan.coverage.truncated) node.extras.unreferencedRemoval = true
+  }
   const provable = nodes.filter((node) => node.kind === 'function' && node.change !== 'removed' && node.facts.effect.value !== 'text')
   tracker.start('map-proof', provable.length, provable.length ? 'map-proof: finding how this repository runs its tests' : 'map-proof: nothing that runs needs proof')
   const runbook = detectRunbook(cwd, options.runbook)
@@ -365,6 +406,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       tracker.tick('map-proof', proved.size, `map-proof: ${run.kind} run for ${who}: ${run.tests.length} test ${run.tests.length === 1 ? 'file' : 'files'}, exit ${run.exit_code}`)
     },
   })
+  halt('map-proof')
   if (proof.refused) problems.push(`Tests did not run: ${proof.refused}`)
   else if (!proof.clean) problems.push('The checkout was not clean after the test runs.')
   const proofEvents: RiskEvent[] = []
@@ -375,17 +417,18 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     if (answer) node.facts.proof = { value: answer.value, evidence: answer.evidence }
     const mine = new Set((candidates[node.id] ?? []).map((candidate) => candidate.path))
     node.runs = proof.runs.filter((run) => run.node === node.id || (run.kind === 'baseline' && run.tests.some((test) => mine.has(test))))
-    // A test that fails at head, before anything is changed, is a finding at high.
-    for (const finding of proof.findings.filter((item) => [...mine].some((path) => item.text.includes(path)))) {
+    // A test that fails at head, before anything is changed, is a finding at high. Its text starts with the test's path.
+    for (const finding of proof.findings.filter((item) => [...mine].some((path) => item.text.startsWith(`${path} `)))) {
       node.findings.push(finding)
       proofEvents.push({ node: node.id, level: 'high', direction: 'up', aspect: 'failure', evidence: finding.text, rule: finding.rule, by: 'proof' })
     }
-    // Rule 11 needs the condition on in a test that observes it, and the off path held by an unchanged test.
+    // Rule 11 needs the condition on in a test that observes it, and the off path held by an unchanged life-cycle test
+    // that ran and still passed with the change undone: one never run, failing or cut short holds nothing.
     if (node.facts.exposure.value === 'nobody-yet' && answer) {
       const flags = node.conditions.map((condition) => condition.name)
       const turnsOn = (path: string) => config.flags.testOn.some((pattern) => flags.some((flag) => (readOr(join(cwd, path)) ?? '').match(rx(pattern))?.groups?.flag === flag))
       node.extras.conditionOnProven = answer.observedBy.some(turnsOn)
-      node.extras.offPathProven = (candidates[node.id] ?? []).some((candidate) => candidate.lifecycle && !candidate.changed && !answer.observedBy.includes(candidate.path))
+      node.extras.offPathProven = (candidates[node.id] ?? []).some((candidate) => candidate.lifecycle && !candidate.changed && answer.stillPass.includes(candidate.path))
     }
   }
   tracker.end('map-proof', proof.refused ? `map-proof: no test ran: ${proof.refused}` : undefined)
@@ -412,13 +455,20 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   let words: StoryWords = meta.description.title ? { title: meta.description.title } : {}
   let storyBy: 'model' | 'host' = 'host'
   const assessed = applied.nodes.filter((node) => node.level?.current !== 'safe' || node.hosts_condition).length
+  halt('risk-model')
   tracker.start('risk-model', model ? 1 : 0, model ? `risk-model: one careful pass over ${assessed} nodes that are mid, high or hold a new check` : 'risk-model: no model')
   if (!model) tracker.skip('risk-model', 'no model to ask: levels stay at their floors and the story is written from the facts')
   else {
     const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code: Object.fromEntries(nodes.map((node) => [node.id, changedExcerpt(diffs, node)])) })
     problems.push(...request.cut.map((cut) => `Left out of the careful pass: ${cut}`))
-    const text = await model({ pass: 'review', system: request.system, prompt: request.prompt, signal })
-    if (text == null) tracker.skip('risk-model', 'the model gave no answer: levels stay at their floors')
+    const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
+    // A call the signal stopped is the review stopping, not the model failing.
+    halt('risk-model')
+    const text = 'value' in asked ? asked.value : null
+    if ('failed' in asked) {
+      problems.push(`The careful pass failed: ${asked.failed}. Levels stay at their floors.`)
+      tracker.skip('risk-model', `the careful pass failed (${asked.failed}): levels stay at their floors`)
+    } else if (text == null) tracker.skip('risk-model', 'the model gave no answer: levels stay at their floors')
     else {
       const answer = readReviewAnswer(text, { nodes: applied.nodes, units: units.units, claims: triage.claims })
       problems.push(...answer.problems.map((problem) => `From the careful pass: ${problem}`))
@@ -450,29 +500,34 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
 
   // 8. One blind check, then rules: raise one step, ask, or note that it was told badly. Never lower, never loop.
   const blind: BlindRecord = { ran: false, answer: null, check: null, actions: [], openQuestions: [] }
+  halt('blind-check')
   if (!model) {
     blind.note = 'no model to ask'
     tracker.skip('blind-check', 'no model to ask')
   } else {
     tracker.start('blind-check', 1, 'blind-check: a fresh, cheap model reads only the story and the units')
-    const checked = await runBlindCheck(model, { story, units: units.units }, signal)
-    blind.answer = checked.answer
-    blind.check = checked.check
-    if (!checked.check) {
-      blind.note = 'the checker gave no answer that could be read, so the check did not run'
+    const asked = await attempt(() => runBlindCheck(model, { story, units: units.units }, signal))
+    halt('blind-check')
+    const checked = 'value' in asked ? asked.value : null
+    blind.answer = checked?.answer ?? null
+    blind.check = checked?.check ?? null
+    if (!checked?.check) {
+      blind.note = 'failed' in asked ? `the checker failed (${asked.failed}), so the check did not run` : 'the checker gave no answer that could be read, so the check did not run'
+      if ('failed' in asked) problems.push(`The blind check failed: ${asked.failed}. It counts as not run.`)
       tracker.skip('blind-check', blind.note)
     } else {
       blind.ran = true
       const outcome = blindActions(checked.check, units.units)
-      blind.actions = outcome.actions
       blind.openQuestions = outcome.openQuestions
       const old = units.units
       events = [...events, ...outcome.events.map((event) => ({ ...event, by: 'blind-check' }))]
       applied = applyRiskEvents(before, events)
       const reshaped = shape(applied.nodes)
       units = withBlindOutcome(reshaped, old, outcome)
+      // A raise can renumber the units: each action follows its nodes to the unit that holds them now.
+      blind.actions = actionsOn(outcome.actions, old, units.units)
       words = carryWords(words, old, units.units)
-      story = renderStory({ triage, graph: graphOf(applied.nodes), units, words, blind: checked.check, actions: outcome.actions })
+      story = renderStory({ triage, graph: graphOf(applied.nodes), units, words, blind: checked.check, actions: blind.actions })
       save('units.json', units)
       save('story.md', story)
       save('risk-events.jsonl', events.map((event) => JSON.stringify(event)).join('\n') + '\n')
