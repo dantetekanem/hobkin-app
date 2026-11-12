@@ -13,8 +13,11 @@ interface State {
   message: string | null
 }
 
-/** One explicit confirmation, bound to this mounted target and its saved notes. */
-export function createVerdict({ id, command, saveNotes, current }: { id: string; command: VerdictCommands; saveNotes: () => Promise<void>; current: () => boolean }) {
+/**
+ * One explicit confirmation, bound to this mounted target and its saved notes. `done` hears of a verdict the host did,
+ * even when the panel that asked for it has gone since.
+ */
+export function createVerdict({ id, command, saveNotes, current, done }: { id: string; command: VerdictCommands; saveNotes: () => Promise<void>; current: () => boolean; done?: (verdict: Verdict) => void }) {
   const store = createStore<State>(() => ({ busy: false, preview: null, error: null, message: null }))
   let generation = 0
   let disposed = false
@@ -49,6 +52,7 @@ export function createVerdict({ id, command, saveNotes, current }: { id: string;
     try {
       const result = await command('review.verdict', { id, verdict, summary: '', confirm: shown.confirm })
       if (active(turn)) store.setState({ message: result.message })
+      done?.(verdict)
     } catch (error) {
       if (active(turn)) store.setState({ error: error instanceof Error ? error.message : String(error) })
     } finally {
@@ -60,26 +64,31 @@ export function createVerdict({ id, command, saveNotes, current }: { id: string;
 }
 
 /**
- * The verdicts the host carries out itself, after it has said exactly what they will do: a finished hobkin change's
- * Approve, which opens its pull request, and Approve and merge, which lands it as its card does. hobkin's main agent is
- * told the verdict is the reviewer's, so these never go to it as words.
+ * Whether a verdict takes the reviewer's comments with it, as the host marks them: every verdict but a finished change's
+ * Approve and Approve and merge, which leave them for the fixes.
  */
-export function shownFirst(id: string, verdict: Verdict): boolean {
-  return targetOfReviewId(id)?.kind === 'change' && (verdict === 'approve' || verdict === 'approve-merge')
+export function sendsComments(id: string, verdict: Verdict): boolean {
+  return !(targetOfReviewId(id)?.kind === 'change' && (verdict === 'approve' || verdict === 'approve-merge'))
 }
 
 /**
- * The verdict buttons of the review panel. A choice the host carries out shows what it will do on the first yes and
- * does it on the second (`confirm`). Any other choice, Send fixes and a pull request's own, is asked of hobkin by `ask`.
+ * The verdict buttons of the review panel. Every choice is the host's own verdict: the first yes shows exactly what it
+ * will do (`choose`), and the second does it (`confirm`). The comments it takes, as the notes stood when the host showed
+ * it (`comments`), are marked sent once it is done (`markSent`), as the host marks them in the home.
  */
-export function createVerdictChoices({ ask, ...options }: Parameters<typeof createVerdict>[0] & { ask: (verdict: Verdict) => Promise<void> }) {
-  const flow = createVerdict(options)
-  const choose = (verdict: Verdict): Promise<void> => {
-    if (shownFirst(options.id, verdict)) return flow.preview(verdict)
-    // Asking hobkin instead: what the host showed or said last is not what happens now.
-    flow.cancel()
-    flow.setState({ error: null, message: null })
-    return ask(verdict)
+export function createVerdictChoices({ comments = () => [], markSent = () => {}, ...options }: Omit<Parameters<typeof createVerdict>[0], 'done'> & { comments?: () => string[]; markSent?: (ids: readonly string[]) => void }) {
+  let carried: string[] = []
+  const flow = createVerdict({
+    ...options,
+    done: () => {
+      if (carried.length > 0) markSent(carried)
+      carried = []
+    },
+  })
+  const choose = async (verdict: Verdict): Promise<void> => {
+    carried = []
+    await flow.preview(verdict)
+    if (flow.getState().preview?.verdict === verdict && sendsComments(options.id, verdict)) carried = comments()
   }
   return Object.assign(flow, { choose })
 }

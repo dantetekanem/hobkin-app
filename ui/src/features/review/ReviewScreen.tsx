@@ -7,7 +7,7 @@ import type { Verdict } from '#shared/review/verdict.ts'
 import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
 import { createReviewLoader, type ReviewLoader } from './loader.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
-import { escapeReview } from './entry.ts'
+import { escapeReview, reviewTakesEscape } from './entry.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
@@ -224,9 +224,9 @@ function Stage({ review, source, loader, live, close, verdict }: { review: Revie
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing) return
       const target = event.target as HTMLElement
       if (event.key === 'Escape') {
-        // Fields in the note editor/finder handle Escape themselves, preserving their draft before leaving.
-        if (target.closest('input, textarea') && (session.getState().editor || session.getState().finder)) return
-        if (target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return
+        // A field leaves itself and keeps its words (the note editor, the finder, the box to ask hobkin), and a dialog,
+        // a menu or a list closes itself. Neither ever closes the review.
+        if (!reviewTakesEscape(target)) return
         let left = false
         escapeReview(session.getState(), () => { left = true; useView.getState().closeReview() })
         // Whatever closed may have held the keyboard, such as the code panel. It stays in the review.
@@ -254,11 +254,11 @@ function Stage({ review, source, loader, live, close, verdict }: { review: Revie
         },
         talk: () => steps?.dispatchEvent(new Event('rv-talk')),
         verdict: (kind: Verdict) => {
-          // The keyboard goes to the choice, which opens the panel. A choice the host carries out shows at once what it
-          // will do, and waits for a second yes. Any other waits for Enter: one key alone asks hobkin nothing.
+          // The key is the first yes: the choice shows what it will do, and waits for a second. The keyboard goes with
+          // it, which opens the panel. One key alone does nothing.
           const choice = steps?.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)
           choice?.focus({ preventScroll: true })
-          if (choice?.hasAttribute('data-shows')) choice.click()
+          choice?.click()
         },
       })
       if (used) event.preventDefault()

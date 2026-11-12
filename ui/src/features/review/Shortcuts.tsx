@@ -40,7 +40,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
     keys: [
       [['A'], 'Approve a hobkin change: shows how its pull request opens, and Enter opens it'],
       [['M'], 'Approve and merge a hobkin change: shows how it lands, and Enter lands it'],
-      [['X'], 'Send the fixes, or request changes on a pull request'],
+      [['X'], "Send the fixes to hobkin's agent, or request changes on a pull request: shows what goes, and Enter sends it"],
     ],
   },
   {

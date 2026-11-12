@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
-import type { Review, StoryStep } from '#shared/review/types.ts'
+import { targetOfReviewId } from '#shared/review/ids.ts'
+import type { VerdictPreview } from '#shared/review/status.ts'
+import type { Review } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import { reviewMemory } from '../state/context.tsx'
-import { createVerdictChoices, shownFirst, type VerdictCommands } from '../verdict.ts'
-import { verdictRequest } from './request.ts'
+import { createVerdictChoices, type VerdictCommands } from '../verdict.ts'
 
 /** What each verdict is called, for a finished hobkin change and for a pull request from GitHub. */
 const CHOICES: Record<'change' | 'pull', { verdict: Verdict; label: string; keys?: string }[]> = {
@@ -26,6 +26,10 @@ const CHOICES: Record<'change' | 'pull', { verdict: Verdict; label: string; keys
   ],
 }
 
+/** The choices that send the reviewer's comments, and have nothing to send without one. */
+const needsComment = (verdict: Verdict) => verdict === 'request-changes' || verdict === 'comment'
+const unsentComments = (notes: readonly Note[]) => notes.filter((note) => note.intent === 'comment' && note.sent == null).map((note) => note.id)
+
 const noHost: VerdictCommands = async () => {
   throw new Error('Hobkin is not connected here.')
 }
@@ -33,57 +37,56 @@ const nothingToSave = async () => {}
 const inField = () => document.activeElement?.closest('input, textarea, [contenteditable="true"]') != null
 
 /**
- * The verdict, in the review panel. A finished change's Approve and Approve and merge are the host's own: the first
- * yes shows exactly what will happen, the second (Enter, or Yes) does it, and the host's answer, or why it cannot,
- * shows here. Send fixes, and a pull request's choices, ask hobkin in its main conversation, and the review closes.
- * The A, M and X keys bring the keyboard to their choice.
+ * The verdict, in the review panel. Every choice is the host's own verdict: the first yes shows exactly what will
+ * happen (for a pull request, the review GitHub will get), the second (Enter, or Yes) does it, and the host's answer,
+ * or why it cannot, shows here. The comments that went with it are marked sent, as the host marks them in the home.
+ * The A, M and X keys are the first yes of their choice.
  */
-export function Actions({ review, notes, live, step, node, close, verdict, saveNotes }: {
+export function Actions({ review, notes, live, verdict, saveNotes }: {
   review: Review
   notes: readonly Note[]
   live: boolean
-  step: StoryStep | undefined
-  node: string | undefined
-  close: () => void
-  /** The host's verdict commands, for a live review. Without them the host's choices wait. */
+  /** The host's verdict commands, for a live review. Without them nothing can be chosen. */
   verdict?: VerdictCommands | null
   /** Keeps the reviewer's notes in the host first, so what the host shows is what goes. */
   saveNotes?: () => Promise<void>
 }) {
-  const [sending, setSending] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  const kind = review.id.startsWith('pr:') ? 'pull' : 'change'
-  const comments = notes.filter((note) => note.intent === 'comment' && note.sent == null).length
+  const kind = targetOfReviewId(review.id)?.kind === 'pull' ? 'pull' : 'change'
+  const comments = unsentComments(notes).length
   const yes = useRef<HTMLButtonElement>(null)
   // Once the second yes is given, the host is doing it: nothing may hide what it answers.
   const doing = useRef(false)
   const buttons = useRef(new Map<Verdict, HTMLButtonElement>())
   const [chosen, setChosen] = useState<Verdict | null>(null)
 
-  // A request to hobkin in its main conversation, with the comments that go with it. The conversation is where it happens.
-  const ask = async (choice: Verdict) => {
-    const request = verdictRequest(review, notes, choice)
-    if (!live || sending || !request) return
-    setSending(true)
-    setProblem(null)
-    try {
-      await runCommand('conversation.send', { text: request.text, review: { id: review.id, ...(step ? { step: step.id } : {}), ...(node ? { node } : {}) } })
-      if (request.sends.length > 0) reviewMemory.getState().markSent(review, request.sends, Date.now())
-      close()
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error))
-      setSending(false)
-    }
-  }
-  const latestAsk = useRef(ask)
-  latestAsk.current = ask
-
   const choices = useMemo(
-    () => createVerdictChoices({ id: review.id, command: verdict ?? noHost, saveNotes: saveNotes ?? nothingToSave, current: () => true, ask: (choice) => latestAsk.current(choice) }),
-    [review.id, verdict, saveNotes],
+    () =>
+      createVerdictChoices({
+        id: review.id,
+        command: verdict ?? noHost,
+        saveNotes: saveNotes ?? nothingToSave,
+        current: () => true,
+        comments: () => unsentComments(reviewMemory.getState().notesOf(review)),
+        markSent: (ids) => reviewMemory.getState().markSent(review, ids, Date.now()),
+      }),
+    [review, verdict, saveNotes],
   )
   useEffect(() => choices.connect(), [choices])
   const flow = useStore(choices)
+
+  // What a shown verdict sends is the notes as they stood. When they change, it is taken back, to be shown again.
+  useEffect(() => {
+    let known = reviewMemory.getState().of(review).notes
+    return reviewMemory.subscribe((state) => {
+      const now = state.of(review).notes
+      if (now === known) return
+      known = now
+      const { preview, busy } = choices.getState()
+      if (doing.current || !(preview || busy)) return
+      choices.cancel()
+      choices.setState({ message: 'Your notes changed, so that was taken back. Choose it again to see what goes now.' })
+    })
+  }, [choices, review])
 
   // Once the host has said what will happen, the keyboard waits on the yes, so Enter does it.
   useEffect(() => {
@@ -94,7 +97,6 @@ export function Actions({ review, notes, live, step, node, close, verdict, saveN
   }
   const choose = (choice: Verdict) => {
     setChosen(choice)
-    setProblem(null)
     void choices.choose(choice)
   }
   const confirm = async () => {
@@ -120,7 +122,6 @@ export function Actions({ review, notes, live, step, node, close, verdict, saveN
     >
       <div className="flex flex-wrap gap-1.5">
         {CHOICES[kind].map((choice) => {
-          const host = shownFirst(review.id, choice.verdict)
           const primary = choice.verdict === 'approve'
           return (
             <Button
@@ -132,18 +133,16 @@ export function Actions({ review, notes, live, step, node, close, verdict, saveN
               size="sm"
               data-stop
               data-verdict={choice.verdict}
-              // The host's own choices show what they will do as soon as their key is pressed: the yes is a second key.
-              data-shows={host ? '' : undefined}
-              aria-pressed={host ? flow.preview?.verdict === choice.verdict : undefined}
+              aria-pressed={flow.preview?.verdict === choice.verdict}
               variant={primary ? 'default' : 'outline'}
               className="h-8 px-3 text-[13px]"
               // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
               // A second press then does nothing.
-              disabled={!live || sending || (host ? !verdict : verdictRequest(review, notes, choice.verdict) == null)}
+              disabled={!live || !verdict || (needsComment(choice.verdict) && comments === 0)}
               onClick={() => choose(choice.verdict)}
             >
               {choice.label}
-              {choice.verdict === 'request-changes' || choice.verdict === 'comment' ? <span className="tabular-nums">{comments}</span> : null}
+              {needsComment(choice.verdict) ? <span className="tabular-nums">{comments}</span> : null}
               {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
             </Button>
           )
@@ -151,22 +150,17 @@ export function Actions({ review, notes, live, step, node, close, verdict, saveN
       </div>
 
       {flow.preview ? (
-        <div role="group" aria-label={`What ${label} will do`} className="flex flex-col gap-2.5 rounded-xl bg-background p-3 ring-1 ring-border-strong/60">
+        <div role="group" aria-label={`What ${label} will do`} className="rv-scroll flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto rounded-xl bg-background p-3 ring-1 ring-border-strong/60">
           <p className="font-heading text-[12px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{label} will</p>
           <ul className="flex flex-col gap-1.5 text-[14px] leading-[1.45] text-pretty">
             {flow.preview.lines.map((line, index) => (
               <li key={index}>{line}</li>
             ))}
           </ul>
-          {flow.preview.note ? <pre className="rv-scroll max-h-48 overflow-y-auto font-sans text-[13px] leading-[1.45] whitespace-pre-wrap">{flow.preview.note}</pre> : null}
+          {flow.preview.note ? <pre className="rounded-lg bg-secondary/70 p-2.5 font-sans text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{flow.preview.note}</pre> : null}
+          {flow.preview.post ? <GitHubPost post={flow.preview.post} /> : null}
           <div className="flex flex-wrap gap-1.5">
-            <Button
-              ref={yes}
-              size="sm"
-              data-stop
-              className="h-8 px-3 text-[13px]"
-              onClick={() => void confirm()}
-            >
+            <Button ref={yes} size="sm" data-stop className="h-8 px-3 text-[13px]" onClick={() => void confirm()}>
               Yes, {label.toLowerCase()}
               <Kbd className="bg-primary-foreground/15 text-primary-foreground">↵</Kbd>
             </Button>
@@ -187,27 +181,46 @@ export function Actions({ review, notes, live, step, node, close, verdict, saveN
         </div>
       ) : null}
 
-      <div role="status" className={cn('text-[13px] leading-snug [overflow-wrap:anywhere]', flow.error || problem ? 'text-bad-fg' : flow.message ? 'text-foreground' : 'text-muted-foreground')}>
+      <div role="status" className={cn('text-[13px] leading-snug [overflow-wrap:anywhere]', flow.error ? 'text-bad-fg' : flow.message ? 'text-foreground' : 'text-muted-foreground')}>
         {!live ? (
           'Sample review. Nothing is sent.'
         ) : flow.busy ? (
           'Waiting for the host…'
         ) : flow.error ? (
           flow.error
-        ) : problem ? (
-          problem
-        ) : sending ? (
-          'Asking Hobkin…'
         ) : flow.message && !flow.preview ? (
           <Markdown text={flow.message} />
         ) : flow.preview ? (
           'Nothing is done until you say yes.'
         ) : kind === 'change' ? (
-          'Approve and Approve and merge show what they will do first. Send fixes asks Hobkin in the conversation, and the review closes.'
+          'Each choice shows what it will do first. Nothing happens until you say yes.'
         ) : (
-          'Hobkin carries it out in the conversation, and the review closes.'
+          'Each choice shows the review GitHub will get. Nothing is posted until you say yes.'
         )}
       </div>
     </section>
+  )
+}
+
+const EVENT: Record<NonNullable<VerdictPreview['post']>['event'], string> = { APPROVE: 'an approval', COMMENT: 'a comment', REQUEST_CHANGES: 'a request for changes' }
+
+/** The review GitHub will get, as the host will post it: its kind, its words, and each comment on its lines. */
+function GitHubPost({ post }: { post: NonNullable<VerdictPreview['post']> }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-secondary/70 p-2.5" aria-label="The review GitHub will get">
+      <p className="font-heading text-[12.5px] font-semibold text-muted-foreground">
+        GitHub gets {EVENT[post.event]}, on commit {post.commit_id.slice(0, 7)}
+      </p>
+      <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{post.body}</p>
+      {post.comments.map((comment, index) => (
+        <div key={index} className="flex flex-col gap-0.5 border-t border-border pt-2">
+          <p className="font-mono text-[12px] [overflow-wrap:anywhere] text-muted-foreground">
+            {comment.path}, {comment.start_line ? `lines ${comment.start_line} to ${comment.line}` : `line ${comment.line}`}
+            {comment.side === 'LEFT' ? ', as it was' : ''}
+          </p>
+          <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{comment.body}</p>
+        </div>
+      ))}
+    </div>
   )
 }

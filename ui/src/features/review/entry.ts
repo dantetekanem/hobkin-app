@@ -29,3 +29,11 @@ export function escapeReview(session: EscapableSession, close: () => void): void
   else if (session.code != null) session.closeCode()
   else close()
 }
+
+/**
+ * Whether an Escape is the review's to take. One pressed in a field is the field's: it leaves the field and keeps its
+ * words, and never closes the review. One in a dialog, a menu or a list is theirs too.
+ */
+export function reviewTakesEscape(target: { closest(selector: string): unknown }): boolean {
+  return target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"]') == null
+}

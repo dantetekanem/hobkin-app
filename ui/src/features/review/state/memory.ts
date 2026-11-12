@@ -79,7 +79,7 @@ export interface MemoryState {
   /** Changes a note's words or its intent. A note left with no words is removed. */
   editNote(review: Review, id: string, change: { text?: string; intent?: NoteIntent }): void
   removeNote(review: Review, id: string): void
-  /** Marks questions as handed over to hobkin, so they are not sent twice. */
+  /** Marks notes as sent: questions handed over to hobkin, comments that went with a verdict. None is sent twice. */
   markSent(review: Review, ids: readonly string[], at: number): void
   setDraft(review: Review, draft: NoteDraft | null): void
   setPanelShare(share: number): void
@@ -198,7 +198,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
           },
           removeNote: (review, id) => update(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'remove', id }] })),
           markSent: (review, ids, at) => {
-            const sent = get().notesOf(review).filter((note) => ids.includes(note.id) && note.intent === 'question')
+            const sent = get().notesOf(review).filter((note) => ids.includes(note.id) && note.sent == null)
             if (sent.length > 0) update(review, (memory) => ({ ...memory, notes: [...memory.notes, ...sent.map((note) => ({ op: 'put' as const, note: { ...note, sent: at } }))] }))
           },
           setDraft: (review, draft) => update(review, (memory) => ({ ...memory, draft })),

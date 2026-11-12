@@ -219,7 +219,7 @@ export function StepsPanel({ canvas, chrome, unit }: { canvas: Size; chrome: Pan
           </section>
 
           <div className="border-t border-border px-4 py-3.5">
-            <Actions review={review} notes={notes} live={chrome.live} step={step} node={pointed ?? focus[0]} close={chrome.close} verdict={chrome.verdict} saveNotes={chrome.saveNotes} />
+            <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} />
           </div>
 
           <footer className="flex flex-col gap-1.5 border-t border-border px-4 py-3 text-[12px] text-muted-foreground">
