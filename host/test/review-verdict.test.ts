@@ -186,3 +186,101 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   assert.deepEqual(after, [['n1', 1000], ['n2', 1000], ['n3', null]])
   assert.match((await reviews.preview(id, 'comment', '')).post!.body, /^Commented\.$/)
 })
+
+/** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
+function pullSeat(t: TestContext, { viewer = 'me', author = 'dev', settings = { allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true } as Record<string, boolean>, refuseMerge = null as string | null } = {}) {
+  const id = 'pr:acme/shop/482'
+  const store = reviewStore(temporaryDirectory(t))
+  store.write(targetOfReviewId(id)!, sample, files)
+  const calls: { args: readonly string[]; input?: string }[] = []
+  const github = { settings }
+  const gh = async (args: readonly string[], input?: string): Promise<GhOutcome> => {
+    calls.push({ args, input })
+    const path = args.find((arg) => arg === 'user' || arg.startsWith('repos/'))
+    if (path === 'user') return { kind: 'done', stdout: JSON.stringify({ login: viewer }) }
+    if (path === 'repos/acme/shop') return { kind: 'done', stdout: JSON.stringify(github.settings) }
+    if (path === 'repos/acme/shop/pulls/482') return { kind: 'done', stdout: JSON.stringify({ user: { login: author }, base: { ref: 'main' } }) }
+    if (path === 'repos/acme/shop/pulls/482/reviews') return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#pullrequestreview-1' }) }
+    if (path === 'repos/acme/shop/pulls/482/merge') {
+      return refuseMerge ? { kind: 'failed', code: 1, stdout: '', stderr: refuseMerge } : { kind: 'done', stdout: JSON.stringify({ merged: true, sha: 'e'.repeat(40) }) }
+    }
+    return { kind: 'failed', code: 1, stdout: '', stderr: `HTTP 404: ${args.join(' ')}` }
+  }
+  const reviews = new Reviews({
+    store,
+    sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('unused')) }, pull: pullSource({ gh }) },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    gh,
+    now: () => 1000,
+  })
+  /** What was sent: every call that was not a read. */
+  const sent = () => calls.filter((call) => call.args.includes('--method'))
+  return { id, reviews, store, calls, sent, github, target: targetOfReviewId(id)! }
+}
+
+const PINNED = `At commit ${sample.change.head.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
+
+test("approve and merge on someone else's pull request approves it, then merges the reviewed commit the way its repository allows", async (t) => {
+  const { id, reviews, sent } = pullSeat(t)
+  const preview = await reviews.preview(id, 'approve-merge', 'Ship it.')
+  assert.deepEqual(preview.lines, ['Approve acme/shop#482 on GitHub, as you, through gh, with no comments on lines.', 'Then merge it into main by squashing its commits into one.', PINNED])
+  assert.equal(preview.post?.event, 'APPROVE')
+  assert.deepEqual(sent(), [], 'a preview only reads GitHub')
+
+  assert.deepEqual(await reviews.verdict(id, 'approve-merge', 'Ship it.', preview.confirm), { message: 'Merged acme/shop#482 into main, after approving it. https://github.com/acme/shop/pull/482#pullrequestreview-1' })
+  const [approve, merge] = sent()
+  assert.deepEqual(approve!.args, ['api', '--hostname', 'github.com', '--method', 'POST', 'repos/acme/shop/pulls/482/reviews', '--input', '-'])
+  assert.deepEqual(JSON.parse(approve!.input!), preview.post)
+  // `sha` is the reviewed commit, so GitHub refuses the merge if the pull request moved since.
+  assert.deepEqual(merge!.args, ['api', '--hostname', 'github.com', '--method', 'PUT', 'repos/acme/shop/pulls/482/merge', '--input', '-'])
+  assert.deepEqual(JSON.parse(merge!.input!), { sha: sample.change.head, merge_method: 'squash' })
+})
+
+test('the merge method is the repository’s: squash when it allows it, else a merge commit, else rebase', async (t) => {
+  const merged = async (settings: Record<string, boolean>) => {
+    const seat = pullSeat(t, { settings })
+    const preview = await seat.reviews.preview(seat.id, 'approve-merge', '')
+    await seat.reviews.verdict(seat.id, 'approve-merge', '', preview.confirm)
+    return [preview.lines[1], JSON.parse(seat.sent().at(-1)!.input!).merge_method]
+  }
+  assert.deepEqual(await merged({ allow_squash_merge: false, allow_merge_commit: true, allow_rebase_merge: true }), ['Then merge it into main with a merge commit.', 'merge'])
+  assert.deepEqual(await merged({ allow_squash_merge: false, allow_merge_commit: false, allow_rebase_merge: true }), ['Then merge it into main by rebasing its commits onto it.', 'rebase'])
+  const none = pullSeat(t, { settings: { allow_squash_merge: false, allow_merge_commit: false, allow_rebase_merge: false } })
+  await assert.rejects(none.reviews.preview(none.id, 'approve-merge', ''), /allows no way to merge a pull request/)
+
+  // The repository changing its settings after the preview changes what would be done, so the yes no longer goes.
+  const seat = pullSeat(t)
+  const preview = await seat.reviews.preview(seat.id, 'approve-merge', '')
+  seat.github.settings = { allow_squash_merge: false, allow_merge_commit: true }
+  await assert.rejects(seat.reviews.verdict(seat.id, 'approve-merge', '', preview.confirm), /has changed since it was shown/)
+  assert.deepEqual(seat.sent(), [])
+})
+
+test('on the user’s own pull request, approve and merge merges it without an approval and says so; approve alone is refused before anything is sent', async (t) => {
+  const { id, reviews, sent, store, target } = pullSeat(t, { viewer: 'Dev', author: 'dev' })
+  await assert.rejects(reviews.preview(id, 'approve', 'Looks right.'), /GitHub does not let you approve your own pull request/)
+  await assert.rejects(reviews.verdict(id, 'approve', 'Looks right.', 'any'), /GitHub does not let you approve your own pull request/)
+
+  const preview = await reviews.preview(id, 'approve-merge', '')
+  assert.deepEqual(preview.lines, ['GitHub does not let you approve your own pull request, so this merges it without an approval.', 'Merge acme/shop#482 into main by squashing its commits into one, as you, through gh.', PINNED])
+  assert.equal(preview.post, undefined, 'with nothing written, nothing is posted first')
+  assert.deepEqual(await reviews.verdict(id, 'approve-merge', '', preview.confirm), { message: 'Merged acme/shop#482 into main.' })
+  assert.deepEqual(sent().map((call) => call.args[4]), ['PUT'], 'only the merge went')
+
+  // What the user wrote still goes, as a comment, before the merge.
+  reviews.saveNotes(id, { entries: [{ op: 'put', note: note('n1', { text: 'Rename it later.' }) }], draft: null })
+  const commented = await reviews.preview(id, 'approve-merge', '')
+  assert.equal(commented.lines[1], 'Comment on acme/shop#482 on GitHub first, as you, through gh, with no comments on lines.')
+  assert.equal(commented.post?.event, 'COMMENT')
+  await reviews.verdict(id, 'approve-merge', '', commented.confirm)
+  assert.deepEqual(sent().slice(1).map((call) => call.args[4]), ['POST', 'PUT'])
+  assert.equal(store.notes(target).entries.every((entry) => entry.op === 'put' && entry.note.sent === 1000), true, 'the comment is marked sent')
+})
+
+test('a merge GitHub refuses after the approval went says both', async (t) => {
+  const { id, reviews, sent } = pullSeat(t, { refuseMerge: 'Pull Request is not mergeable (HTTP 405)' })
+  const preview = await reviews.preview(id, 'approve-merge', '')
+  await assert.rejects(reviews.verdict(id, 'approve-merge', '', preview.confirm), /^Error: It was approved on GitHub, but it was not merged: gh said: Pull Request is not mergeable \(HTTP 405\)$/)
+  assert.deepEqual(sent().map((call) => call.args[4]), ['POST', 'PUT'])
+})

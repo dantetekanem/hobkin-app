@@ -8,11 +8,12 @@ import type { Review } from './types.ts'
 
 /**
  * `approve` on a pull request is a GitHub review, and on a finished hobkin change the yes to open its pull request.
- * `approve-merge` is only for a finished change: it lands it as its card does.
+ * `approve-merge` lands a finished change as its card does, and merges a pull request through GitHub after approving
+ * it (or, on the user's own, after the comments they wrote: GitHub lets nobody approve their own).
  */
 export type Verdict = 'comment' | 'approve' | 'approve-merge' | 'request-changes'
 
-/** The verdicts a pull request from GitHub can get here: a review. */
+/** The GitHub reviews a pull request can get here. Approve and merge posts one of them, then merges. */
 export type PullVerdict = Exclude<Verdict, 'approve-merge'>
 
 /** One GitHub review: `POST /repos/{owner}/{repo}/pulls/{number}/reviews`. */
