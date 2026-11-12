@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
 import { runModelSettings } from '../src/cli/model-settings.mjs';
-import { readSettings, updateSettings } from '../src/cli/settings.mjs';
+import { readSettings, readTiers, updateSettings, updateTiers } from '../src/cli/settings.mjs';
 
 const model = { provider: 'openai-codex', id: 'gpt-6-luna', reasoning: true, thinkingLevelMap: { xhigh: 'xhigh' } };
 function fixture(t, background = {}) {
@@ -323,4 +323,37 @@ test('a tier is inspected and set by its name: a model and an effort of its own,
   await assert.rejects(updateSettings(root, { scope: 'mid', scheduleId: 'x', effort: 'low' }, { modelRuntime }), /routineId needs scope routines/);
   assert.equal(loadConfig(root).tiers.mid, undefined);
   assert.equal(readSettings(root, 'all').tiers, undefined, 'the tiers are asked for by name');
+});
+
+test('the tiers and the two review tiers are read and saved together, as a settings window needs them', { concurrency: false }, async t => {
+  const root = fixture(t);
+  assert.deepEqual(readTiers(root), {
+    main: { model: 'openai-codex/old', effort: 'medium' },
+    tiers: {
+      fast: { model: 'openai-codex/old', effort: 'low', follows: 'background' },
+      mid: { model: 'openai-codex/old', effort: 'medium', follows: 'main' },
+      high: { model: 'openai-codex/old', effort: 'medium', follows: 'main' },
+      max: { model: 'openai-codex/old', effort: 'medium', follows: 'main' },
+    },
+    review: { reviewer: 'high', quick: 'fast' },
+  });
+
+  const saved = await updateTiers(root, { tiers: { high: { model: 'openai-codex/gpt-6-luna', effort: 'xhigh' }, mid: { model: 'openai-codex/gpt-6-luna', effort: 'low' } }, review: { reviewer: 'max' } }, { modelRuntime });
+  assert.deepEqual(saved.tiers.high, { model: 'openai-codex/gpt-6-luna', effort: 'xhigh', follows: null });
+  assert.deepEqual(saved.review, { reviewer: 'max', quick: 'fast' });
+  assert.deepEqual(saved, readTiers(root));
+  const config = loadConfig(root);
+  assert.deepEqual([config.tiers, config.review], [{ high: { model: 'openai-codex/gpt-6-luna', effort: 'xhigh' }, mid: { model: 'openai-codex/gpt-6-luna', effort: 'low' } }, { reviewer: 'max', quick: 'fast' }]);
+
+  // A tier given null goes back to following, and the others stay.
+  assert.deepEqual((await updateTiers(root, { tiers: { mid: null } }, { modelRuntime })).tiers.mid, { model: 'openai-codex/old', effort: 'medium', follows: 'main' });
+  assert.deepEqual(Object.keys(loadConfig(root).tiers), ['high']);
+
+  // Nothing is saved when any part cannot be: a model Pi does not have, an effort the model does not offer, a tier that does not exist.
+  const before = readFileSync(join(root, 'config.json'), 'utf8');
+  await assert.rejects(updateTiers(root, { tiers: { fast: { model: 'openai-codex/missing', effort: 'low' } }, review: { quick: 'mid' } }, { modelRuntime }), /not installed/);
+  await assert.rejects(updateTiers(root, { tiers: { fast: { model: 'openai-codex/gpt-6-luna', effort: 'extreme' } } }, { modelRuntime }), /cannot run at extreme/);
+  await assert.rejects(updateTiers(root, { review: { quick: 'huge' } }, { modelRuntime }), /tier must be one of/);
+  await assert.rejects(updateTiers(root, { tiers: { huge: null } }, { modelRuntime }), /tier must be one of/);
+  assert.equal(readFileSync(join(root, 'config.json'), 'utf8'), before);
 });

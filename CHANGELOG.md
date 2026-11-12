@@ -3,6 +3,7 @@
 ## 2026-11-12
 
 - Give every handed-off job the model its work needs. Every `hobkin session` ran on the checks model, whatever the job was, so a feature that spans a system was written by the same model that reads logs. A job now names a tier with `--tier`, and the command refuses one without it and says what each tier is for: `fast` for collecting, searching and small mechanical edits, `mid` for ordinary features, fixes, reviews and checks, `high` for work that spans a system or needs careful analysis, and `max` for rare, high-risk work the user asks for by name. A tier is a model and an effort kept in `config.json` under `tiers`, and `model_settings` inspects or sets one by its name. Until a tier is set, `fast` runs on the checks model and the others on the chat model, so code is no longer written on the checks model. The main agent is told how to choose, and each run keeps the tier beside the model and effort it meant. Work mode still takes its model from the project's level.
+- Keep the two tiers a change review uses. A review's Reviewer builds it and Quick checks it, on the `high` and `fast` tiers until the user names others, kept in `config.json` under `review`. `readTiers` and `updateTiers` read and save every tier and both review tiers in one write, or nothing when any part cannot be saved, so a settings window can show and change them.
 
 ## 2026-11-06
 

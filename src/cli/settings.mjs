@@ -5,7 +5,7 @@ import { getSupportedThinkingLevels } from '@earendil-works/pi-ai';
 import { atomicJson, loadConfig } from './config.mjs';
 import { cadences, efforts, loadSchedules, routinesFolder } from './schedules.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
-import { tierBinding, tierNames } from './tiers.mjs';
+import { assertTier, reviewTiers, tierBinding, tierNames, validateReview } from './tiers.mjs';
 
 // A tier is a scope of its own, by its name. `all` is the chat, the checks and the routines, as it always was.
 const scopes = ['main', 'background', 'routines', 'all', ...tierNames];
@@ -177,5 +177,38 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
   }
   return { scope, persisted: { status: 'complete', settings: safeSnapshot(root, scope, scheduleId), completed }, activeRuntime, unchangedScopes: scopesFor(state.targets) };
 }
+/** The tiers as a settings window shows them: the chat's own model, every tier as it runs now, and the tier of each review role. */
+export function readTiers(root) {
+  const config = loadConfig(resolveDataRoot(root));
+  return { main: { model: config.main.model, effort: config.main.effort }, tiers: tiersOf(config), review: reviewTiers(config) };
+}
+
+/**
+ * Saves tiers and review tiers in one write, or nothing at all. `tiers` gives a tier a model and an effort of its own,
+ * or null to let it follow again; `review` names the tier of a review role. Every model is checked against Pi's
+ * catalog and credentials, and every effort against what its model offers, before anything is written.
+ */
+export async function updateTiers(root, { tiers = {}, review = {} } = {}, { modelRuntime } = {}) {
+  root = resolveDataRoot(root);
+  const config = loadConfig(root);
+  const own = { ...config.tiers };
+  for (const [name, setting] of Object.entries(tiers)) {
+    assertTier(name);
+    if (setting === null) {
+      delete own[name];
+      continue;
+    }
+    const model = resolveModel(setting?.model, modelRuntime);
+    const supported = getSupportedThinkingLevels(model);
+    if (!supported.includes(setting.effort)) throw Error(`The ${name} tier cannot run at ${setting.effort} on ${setting.model}, which offers ${supported.join(', ')}.`);
+    own[name] = { model: `${model.provider}/${model.id}`, effort: setting.effort };
+  }
+  validateReview(review);
+  const next = { ...config, tiers: own, ...(Object.keys(review).length || config.review ? { review: { ...reviewTiers(config), ...review } } : {}) };
+  if (!Object.keys(own).length) delete next.tiers;
+  atomicJson(join(root, 'config.json'), next);
+  return readTiers(root);
+}
+
 function scopesFor(targets) { return ['main', 'background', 'routines'].filter(scope => !targets[scope]); }
 function safeSnapshot(root, scope, scheduleId) { try { return readSettings(root, scope, scheduleId); } catch (error) { return { error: error.message }; } }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { tierBinding, tierNames, validateTiers } from '../src/cli/tiers.mjs';
+import { reviewTiers, tierBinding, tierNames, validateReview, validateTiers } from '../src/cli/tiers.mjs';
 
 const config = {
   main: { cwd: '/work', model: 'anthropic/chat', effort: 'high' },
@@ -34,4 +34,13 @@ test('tiers in the configuration are a model and an effort for each name hobkin 
   assert.throws(() => validateTiers({ fast: { model: 'p/x', effort: 'extreme' } }), /effort/);
   assert.throws(() => validateTiers({ fast: { effort: 'low' } }), /model/);
   assert.throws(() => validateTiers([]), /tiers/);
+});
+
+test('a change review uses two tiers, the Reviewer on high and Quick on fast until the user names others', () => {
+  assert.deepEqual(reviewTiers(config), { reviewer: 'high', quick: 'fast' });
+  assert.deepEqual(reviewTiers({ ...config, review: { reviewer: 'max' } }), { reviewer: 'max', quick: 'fast' });
+  assert.equal(validateReview(undefined), undefined);
+  assert.throws(() => validateReview({ reviewer: 'huge' }), /tier must be one of/);
+  assert.throws(() => validateReview({ checker: 'fast' }), /review names a tier for reviewer and quick/);
+  assert.throws(() => validateReview('high'), /review names a tier for reviewer and quick/);
 });

@@ -15,6 +15,24 @@ export const tierUses = {
   max: 'rare, high-risk work on security, data or recovery, and only when the user asks for it by name',
 };
 
+/**
+ * The two tiers a change review uses: the Reviewer builds it, reading the change and rating its risk, and Quick checks
+ * the finished review once. Each names one of the four tiers, kept in `config.json` under `review`.
+ */
+export const reviewRoles = ['reviewer', 'quick'];
+const defaultReview = { reviewer: 'high', quick: 'fast' };
+
+export function validateReview(review) {
+  if (review === undefined) return review;
+  const named = review && typeof review === 'object' && !Array.isArray(review) && Object.keys(review).every(role => reviewRoles.includes(role));
+  if (!named) throw Error('review names a tier for reviewer and quick, and nothing else');
+  for (const tier of Object.values(review)) assertTier(tier);
+  return review;
+}
+
+/** The tier each review role runs on now: the one the user named, or its default. */
+export const reviewTiers = config => ({ ...defaultReview, ...config.review });
+
 /** Work that names no tier is ordinary work. */
 const DEFAULT_TIER = 'mid';
 
