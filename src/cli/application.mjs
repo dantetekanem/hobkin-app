@@ -24,6 +24,7 @@ import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { startSessionJob, takeSessionRequests } from './session-jobs.mjs';
+import { tierBinding } from './tiers.mjs';
 import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
@@ -970,18 +971,29 @@ export class HobkinApplication {
     void this.runtime.send(scheduledBrief(failures)).catch(() => {});
   }
 
-  /** Sessions `hobkin session` asked for start here as background jobs, on the checks' model. Resolves once they have all ended. */
+  /**
+   * Sessions `hobkin session` asked for start here as background jobs, each on the model of the tier its work was
+   * given (`tiers.mjs`). The tiers are read as they stand now, so one the user just set is used by the next job.
+   * Resolves once they have all ended.
+   */
   tickSessions() {
     const root = this.runtime.directory;
-    const { model, effort } = this.config.background;
     return this.runner.serialize(async () => {
       if (this.runner.stopped) return [];
       const state = await this.runtime.state();
       const capacity = Math.max(0, this.config.concurrency - this.runner.scheduledJobCount(state));
       // Reserve synchronously, but release admission before waiting for any job to finish.
       this.sessionJobs ??= new Set();
-      for (const session of takeSessionRequests(root, capacity)) {
-        const job = startSessionJob({ root, runner: this.runner, model, effort }, session)
+      const requests = takeSessionRequests(root, capacity);
+      let config = this.config;
+      try {
+        if (requests.length) config = loadConfig(root);
+      } catch {
+        // A configuration that cannot be read just now leaves the tiers as hobkin last knew them.
+      }
+      for (const session of requests) {
+        const { model, effort, tier } = tierBinding(config, session.tier);
+        const job = startSessionJob({ root, runner: this.runner, model, effort, tier }, session)
           .catch(() => {})
           .finally(() => {
             this.sessionJobs.delete(job);

@@ -320,6 +320,10 @@ While the pile stands, hobkin brings the next two as one decision, the top two i
 
 The next pair comes once both of the last one have moved: landed, declined, graded or dropped. A row that a yes already took at a commit is not brought again at that commit, so a review that changed nothing is not paid for twice.
 
+### Which model does a handed-off job
+
+Every job the main agent hands to `hobkin session` names a tier with `--tier`, and the tier decides the model: `fast` for collecting, searching and small mechanical edits, `mid` for ordinary features, fixes, reviews and checks, `high` for work that spans a system or needs careful analysis, and `max` for rare, high-risk work you ask for by name. The command refuses a job with no tier. A tier is a model and an effort of its own, kept in `config.json` under `tiers`. Ask the main agent to set one, such as "use the strongest model at high effort for the high tier", or to show them all. Until you set a tier, `fast` runs on the checks model and the others on the chat model. Each run in the agents list keeps the tier it was given. Work mode is separate: it takes its model from the project's level.
+
 ### Hearing back from agents
 
 When a `hobkin session` ends, Chat gets one line with its title and what happened, from the first lines of its report, and the report joins Reports, so Enter opens it and `r` replies to it. A session that stopped without a report says so. Its follower runs in a process of its own, so a session that ends with hobkin closed is told at the next open, once. The main agent hears of it with your next message, so it never answers as if it does not know. When it starts a session with `--wake`, because it means to carry on afterwards, it gets a turn of its own as soon as the session ends instead, and never needs to check for the report on a timer.

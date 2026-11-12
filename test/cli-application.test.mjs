@@ -1145,6 +1145,35 @@ test('a session `hobkin session` asked for runs as a job: it shows, streams, tak
   assert.deepEqual(sessionsToPost(h.root), [], 'the run posts its own notice, so the session log does not post it twice');
 });
 
+test('a session runs on the model of the tier it was given: its own when set, the chat model for work, the checks model for fast', async t => {
+  const h = fixture(t);
+  h.config.concurrency = 4;
+  // The fixture's chat runs on fixture/local at medium.
+  Object.assign(h.config.background, { model: 'fixture/checks', effort: 'low' });
+  atomicJson(join(h.root, 'config.json'), h.config);
+  const seen = [];
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async request => { seen.push(request); return { status: 'completed', text: 'Done.', cost: null }; } });
+  t.after(() => app.close());
+  const ranOn = async (title, tier) => {
+    const started = await startSession({ root: h.root, title, brief: 'Go.', cwd: h.root, approved: true, ...(tier ? { tier } : {}) });
+    await app.tickSessions();
+    const request = seen.at(-1);
+    const run = (await app.runtime.state()).runs[`session:${started.name}`];
+    assert.deepEqual([run.model, run.effort, run.tier], [request.model, request.effort, tier ?? 'mid'], 'the run keeps the tier beside what it meant');
+    return [request.model, request.effort];
+  };
+
+  assert.deepEqual(await ranOn('Find usages', 'fast'), ['fixture/checks', 'low']);
+  assert.deepEqual(await ranOn('Fix totals', 'mid'), ['fixture/local', 'medium']);
+  assert.deepEqual(await ranOn('Rework billing', 'high'), ['fixture/local', 'medium']);
+  assert.deepEqual(await ranOn('No tier named'), ['fixture/local', 'medium'], 'work that names no tier is ordinary work, never the checks model');
+
+  // A tier the user sets while hobkin runs is used by the next job, with no restart.
+  atomicJson(join(h.root, 'config.json'), { ...h.config, tiers: { high: { model: 'fixture/strong', effort: 'xhigh' } } });
+  assert.deepEqual(await ranOn('Rework billing again', 'high'), ['fixture/strong', 'xhigh']);
+  assert.deepEqual(await ranOn('Fix totals again', 'mid'), ['fixture/local', 'medium']);
+});
+
 test('Reports prefer a session run over its log fallback and retain distinct same-title fallback reports', { timeout: 10000 }, async t => {
   const h = fixture(t);
   const title = 'Repeated session title';

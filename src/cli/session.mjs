@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync
 import { join, resolve } from 'node:path';
 import { injectedLessons } from './learning/store.mjs';
 import { recordSessionStart } from './session-log.mjs';
+import { assertTier } from './tiers.mjs';
 
 const MAX_TITLE_LENGTH = 20;
 // Two or three is a job. More than that is a batch the user should see as a list first, and 26 sessions once started from a guess.
@@ -62,16 +63,18 @@ function requestJob(root, request) {
  * Hands massive work to a full Pi session the user can watch. Nothing waits for it: the running hobkin takes the request and
  * runs it as one of its background jobs (`session-jobs.mjs`), shown in its agents list. `keep` is for a whole conversation the
  * user means to carry on in, and the command's `note` says the job still ends with its work. `wake` gives the main agent a turn
- * as soon as the session ends, so it can carry on without checking for the report on a timer.
+ * as soon as the session ends, so it can carry on without checking for the report on a timer. `tier` names the model the
+ * work needs (`tiers.mjs`); a session with none is ordinary work.
  */
-export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, keep = false, wake = false, approved = false, now = Date.now() }) {
+export async function startSession({ root, title = 'session', cwd = process.cwd(), brief, keep = false, wake = false, approved = false, tier, now = Date.now() }) {
   if (!brief.trim()) throw Error('A session needs a brief: pipe in what to do, what is known and what finished looks like.');
+  if (tier !== undefined) assertTier(tier);
   if (keep && wake) throw Error('--wake is for work handed off to end with a report, and --keep is for a conversation the user carries on in, so leave one of them out.');
   if (!approved) assertNotABurst(root, now);
   const name = sessionName(title);
   const report = join(handoffs(root), `${name}.report.md`);
   saveBrief(root, name, brief, report);
   recordSessionStart(root, { name, title, report, ...(wake ? { wake } : {}) }, now);
-  requestJob(root, { name, title, cwd: resolve(cwd), wake });
+  requestJob(root, { name, title, cwd: resolve(cwd), wake, ...(tier ? { tier } : {}) });
   return { name, report, watch: "hobkin's agents list, where it shows within a second while hobkin runs", ...(keep ? { note: NOTHING_TO_KEEP } : {}) };
 }

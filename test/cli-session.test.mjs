@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { parseArguments } from '../src/cli/main.mjs';
+import { main, parseArguments } from '../src/cli/main.mjs';
 import { readBrief, startSession } from '../src/cli/session.mjs';
 
 const dataFolder = t => {
@@ -88,6 +88,29 @@ test('sessions from long ago do not count against a new one', async t => {
 test('--approved reaches a session', () => {
   assert.equal(parseArguments(['session', '--approved']).approved, true);
   assert.throws(() => parseArguments(['status', '--approved']), /Unknown or incomplete option/);
+});
+
+test('a session carries the tier its work needs, and a tier hobkin does not have is refused', async t => {
+  const root = dataFolder(t);
+  assert.equal(parseArguments(['session', '--tier', 'high']).tier, 'high');
+  assert.throws(() => parseArguments(['status', '--tier', 'high']), /Unknown or incomplete option/);
+
+  const started = await startSession({ root, title: 'Fix totals', brief: 'Fix the totals.', cwd: root, tier: 'high' });
+  assert.deepEqual(requestsIn(root), [{ name: started.name, title: 'Fix totals', cwd: root, wake: false, tier: 'high' }]);
+  await assert.rejects(startSession({ root, brief: 'Go.', cwd: root, tier: 'huge' }), /tier must be one of fast, mid, high, max/);
+  assert.equal(requestsIn(root).length, 1, 'nothing is asked for a tier that does not exist');
+});
+
+test('the command asks for a tier by name, with what each is for, so every job is given one on purpose', async t => {
+  const root = dataFolder(t);
+  const run = args => main(['session', '--home', root, '--title', 'Fix totals', '--cwd', root, ...args], { write() {} }, { input: Readable.from(['Fix the totals.']) });
+  await assert.rejects(run([]), error => {
+    assert.match(error.message, /^Name the tier this job needs with --tier:/);
+    for (const tier of ['fast', 'mid', 'high', 'max']) assert.match(error.message, new RegExp(`\\b${tier}\\b`));
+    return true;
+  });
+  assert.equal(await run(['--tier', 'mid']), 0);
+  assert.equal(requestsIn(root)[0].tier, 'mid');
 });
 
 test('a session needs a brief, since nobody is there to give it one', async () => {

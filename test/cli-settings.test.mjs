@@ -290,3 +290,37 @@ test('a catalog that cannot be read again keeps the one it has', async t => {
 
   assert.deepEqual(availableModels, [`${model.provider}/${model.id}`]);
 });
+
+test('a tier is inspected and set by its name: a model and an effort of its own, saved beside the chat and checks settings', { concurrency: false }, async t => {
+  const root = fixture(t);
+  // Not set yet: fast follows the checks model, and the tiers that write code follow the chat model.
+  assert.deepEqual(readSettings(root, 'high'), {
+    scope: 'high',
+    tiers: {
+      fast: { model: 'openai-codex/old', effort: 'low', follows: 'background' },
+      mid: { model: 'openai-codex/old', effort: 'medium', follows: 'main' },
+      high: { model: 'openai-codex/old', effort: 'medium', follows: 'main' },
+      max: { model: 'openai-codex/old', effort: 'medium', follows: 'main' },
+    },
+  });
+
+  const result = await updateSettings(root, { scope: 'high', model: 'openai-codex/gpt-6-luna', effort: 'xhigh' }, { modelRuntime });
+  assert.deepEqual([result.persisted.status, result.persisted.completed], ['complete', ['high']]);
+  assert.deepEqual(result.persisted.settings.tiers.high, { model: 'openai-codex/gpt-6-luna', effort: 'xhigh', follows: null });
+  const config = loadConfig(root);
+  assert.deepEqual(config.tiers, { high: { model: 'openai-codex/gpt-6-luna', effort: 'xhigh' } });
+  assert.deepEqual([config.main.model, config.background.model], ['openai-codex/old', 'openai-codex/old'], 'the chat and the checks keep their own');
+  assert.equal(result.activeRuntime.status, 'unchanged');
+
+  // Only the effort: the tier keeps the model it had.
+  await updateSettings(root, { scope: 'high', effort: 'high' }, { modelRuntime });
+  assert.deepEqual(loadConfig(root).tiers.high, { model: 'openai-codex/gpt-6-luna', effort: 'high' });
+  // A tier that follows another takes that model as its own once it is given an effort.
+  await updateSettings(root, { scope: 'fast', effort: 'minimal' }, { modelRuntime });
+  assert.deepEqual(loadConfig(root).tiers.fast, { model: 'openai-codex/old', effort: 'minimal' });
+
+  await assert.rejects(updateSettings(root, { scope: 'mid', model: 'openai-codex/missing' }, { modelRuntime }), /not installed/);
+  await assert.rejects(updateSettings(root, { scope: 'mid', scheduleId: 'x', effort: 'low' }, { modelRuntime }), /routineId needs scope routines/);
+  assert.equal(loadConfig(root).tiers.mid, undefined);
+  assert.equal(readSettings(root, 'all').tiers, undefined, 'the tiers are asked for by name');
+});

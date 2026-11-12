@@ -5,12 +5,19 @@ import { getSupportedThinkingLevels } from '@earendil-works/pi-ai';
 import { atomicJson, loadConfig } from './config.mjs';
 import { cadences, efforts, loadSchedules, routinesFolder } from './schedules.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
+import { tierBinding, tierNames } from './tiers.mjs';
 
-const scopes = ['main', 'background', 'routines', 'all'];
+// A tier is a scope of its own, by its name. `all` is the chat, the checks and the routines, as it always was.
+const scopes = ['main', 'background', 'routines', 'all', ...tierNames];
 function selected(scope) {
   if (!scopes.includes(scope)) throw Error(`scope must be one of: ${scopes.join(', ')}`);
-  return { main: scope === 'main' || scope === 'all', background: scope === 'background' || scope === 'all', routines: scope === 'routines' || scope === 'all' };
+  return { main: scope === 'main' || scope === 'all', background: scope === 'background' || scope === 'all', routines: scope === 'routines' || scope === 'all', tier: tierNames.includes(scope) ? scope : null };
 }
+/** Every tier as it runs now, so asking for one shows them all: its own model and effort, or whose it follows. */
+const tiersOf = config => Object.fromEntries(tierNames.map(name => {
+  const { model, effort, follows } = tierBinding(config, name);
+  return [name, { model, effort, follows }];
+}));
 function inspect(root, scope, scheduleId) {
   const targets = selected(scope);
   if (scheduleId !== undefined && scope !== 'routines') throw Error('routineId needs scope routines.');
@@ -33,6 +40,7 @@ function snapshot(scope, { targets, config, schedules }) {
     ...(targets.main ? { main: { model: config.main.model, effort: config.main.effort } } : {}),
     ...(targets.background ? { background: { harness: config.background.harness, model: config.background.model, effort: config.background.effort } } : {}),
     ...(targets.routines ? { routines: schedules.map(({ id, cadence, enabled, harness, model, effort }) => ({ id, cadence, enabled, harness, model, effort })) } : {}),
+    ...(targets.tier ? { tiers: tiersOf(config) } : {}),
   };
 }
 export function readSettings(root, scope = 'all', scheduleId) {
@@ -88,6 +96,7 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
   const state = inspect(root, scope, scheduleId);
   if (reference === undefined && effort === undefined) throw Error('Specify model, effort, or both.');
   const bindings = [
+    ...(state.targets.tier ? [{ scope: state.targets.tier, harness: 'pi' }] : []),
     ...(state.targets.main ? [{ scope: 'main', harness: 'pi' }] : []),
     ...(state.targets.background ? [{ scope: 'background', harness: state.config.background.harness }] : []),
     ...state.schedules.map(item => ({ scope: `routines:${item.id}`, harness: item.harness, path: item.path })),
@@ -106,6 +115,17 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
   assertRunnable(state.schedules, resolved, effort, modelRuntime);
   const initial = snapshot(scope, state);
   const config = state.config;
+  if (state.targets.tier) {
+    // A tier holds a model and an effort of its own: what it was not given now, it keeps, or takes from the one it followed.
+    const now = tierBinding(config, state.targets.tier);
+    const model = resolved ? `${resolved.provider}/${resolved.id}` : now.model;
+    if (!model) throw Error(`Name a model for the ${state.targets.tier} tier: the one it follows has none set.`);
+    const level = effort ?? now.effort;
+    const target = resolved ?? catalogModel(model, modelRuntime);
+    const supported = target ? getSupportedThinkingLevels(target) : [level];
+    if (!supported.includes(level)) throw Error(`The ${state.targets.tier} tier cannot run at ${level} on ${model}, which offers ${supported.join(', ')}.`);
+    config.tiers = { ...config.tiers, [state.targets.tier]: { model, effort: level } };
+  }
   if (state.targets.main) {
     if (resolved) config.main.model = `${resolved.provider}/${resolved.id}`;
     if (effort !== undefined) config.main.effort = effort;
@@ -118,8 +138,9 @@ export async function updateSettings(root, request, { modelRuntime, applyCurrent
   const completed = [];
   let attempting = 'config.json';
   try {
-    if (state.targets.main || state.targets.background) {
+    if (state.targets.main || state.targets.background || state.targets.tier) {
       atomicJson(join(root, 'config.json'), config);
+      if (state.targets.tier) completed.push(state.targets.tier);
       if (state.targets.main) completed.push('main');
       if (state.targets.background) completed.push('background');
     }

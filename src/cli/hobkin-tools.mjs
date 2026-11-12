@@ -2,8 +2,9 @@ import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { efforts, inRoutineWords } from './schedules.mjs';
+import { tierNames } from './tiers.mjs';
 
-const settingsScope = Type.Union(['main', 'background', 'routines', 'all'].map(value => Type.Literal(value)));
+const settingsScope = Type.Union(['main', 'background', 'routines', 'all', ...tierNames].map(value => Type.Literal(value)));
 const settingsEffort = Type.Union([...new Set(Object.values(efforts).flat())].map(value => Type.Literal(value)));
 const routineId = Type.Optional(Type.String({ minLength: 1, maxLength: 80, pattern: '^[a-z0-9][a-z0-9._-]*$' }));
 const settingsParameters = Type.Union([
@@ -85,7 +86,7 @@ export function createSettingsTool(run) {
   return defineTool({
     name: 'model_settings',
     label: 'Model and effort settings',
-    description: 'Inspect or update model and effort for exactly main, background, routines, or all. Add routineId with scope routines to target one routine. Inspect lists availableModels. Updates require an installed provider/model reference and persist only Hobkin settings, never Pi global defaults. Main updates also change this session without saving Pi defaults and apply from the next model call; the receipt separates saved settings from the observed active binding.',
+    description: 'Inspect or update model and effort for exactly main, background, routines, or all, or for one tier of delegated work by its name: fast, mid, high or max. Inspecting a tier lists all four, each with its own model and effort or the setting it follows until it is set. Add routineId with scope routines to target one routine. Inspect lists availableModels. Updates require an installed provider/model reference and persist only Hobkin settings, never Pi global defaults. Main updates also change this session without saving Pi defaults and apply from the next model call; the receipt separates saved settings from the observed active binding.',
     parameters: settingsParameters,
     async execute(_id, request, signal) {
       if (!Check(settingsParameters, request)) throw Error('Invalid model settings request.');

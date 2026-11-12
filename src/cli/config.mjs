@@ -6,6 +6,7 @@ import { cadences, routinesFolder, validateBinding } from './schedules.mjs';
 import { validateLauncher } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { validatePersona } from './persona.mjs';
+import { validateTiers } from './tiers.mjs';
 import { validateResourceSelection, resolveResourcePolicy } from './resource-policy.mjs';
 
 export const defaultRoot = () => process.env.HOBKIN_HOME || join(homedir(), '.hobkin');
@@ -124,6 +125,7 @@ export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   validateLauncher(config.launcher);
   validatePersona(config.persona);
   validateResourceSelection(config.resourceSelection);
+  validateTiers(config.tiers);
   // Jobs have no automatic deadline; a timeoutMs left in older configs is ignored.
   if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) {
     throw Error('Invalid execution limits.');
