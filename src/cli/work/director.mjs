@@ -10,14 +10,14 @@ import { recordEvent } from '../events.mjs';
 import { runHarness as defaultRunHarness } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
-import { hourShareOf, withStart } from './budget.mjs';
+import { budgetFor, fitsDay, fitsHour, hourShareOf, withStart } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { declineStopped, toldStop } from './controls.mjs';
 import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
-import { countsAgainst, ideasWanted, planWork } from './plan.mjs';
+import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
@@ -253,7 +253,7 @@ export class WorkDirector {
       ...(priority ? { countedStarts: withStart(mode.countedStarts, priority, this.lastStartAt) } : {}),
     });
     const tokens = { today: used, limit };
-    const cost = { estimate: entry.estimate, kind: entry.lane === 'do' ? 'do' : entry.kind, planKey: entry.key };
+    const cost = { estimate: entry.estimate, kind: entry.lane === 'do' ? 'do' : entry.kind, planKey: entry.key, grade: entry.grade };
     if (entry.lane === 'discover') return this.startDiscovery(mode.folder, tokens, cost);
     const project = readProject(this.root, entry.slug);
     if (entry.lane === 'do') return this.startDo(project, entry.item, cost);
@@ -267,14 +267,70 @@ export class WorkDirector {
   meterRuns() {
     const now = this.now();
     for (const run of this.running()) {
-      const { offset = 0, grewAt = null } = run.meter ?? {};
-      const meter = followUsage(run.sessionFile, run.meter);
-      run.meter = { ...meter, grewAt: meter.offset > offset ? now : grewAt };
-      Object.assign(run, { tokens: meter.tokens, cached: meter.cached });
-      if (run.stalled || run.meter.grewAt === null || now - run.meter.grewAt < QUIET_MS) continue;
+      this.meterRun(run);
+      if (run.stalled || run.activityUnknown || run.lastActivityAt === null || now - run.lastActivityAt < QUIET_MS) continue;
       run.stalled = true;
       this.killRun(run.id);
     }
+  }
+
+  meterRun(run) {
+    const { offset = 0, grewAt = null } = run.meter ?? {};
+    const meter = followUsage(run.sessionFile, run.meter);
+    run.meter = { ...meter, grewAt: meter.offset > offset ? this.now() : grewAt };
+    const rows = this.runtime.ownedLifecycle?.snapshot(run.id);
+    const children = new Map((rows ?? run.children ?? [])
+      .filter(child => child.rootId === run.id && child.id !== run.id)
+      .map(child => [child.id, child]));
+    run.children = [...children.values()];
+    run.tokens = meter.tokens;
+    run.cached = meter.cached;
+    run.childReserved = 0;
+    run.usageIncomplete = false;
+    run.cleanupUnknown = false;
+    run.incompleteEvents ??= {};
+    run.lastActivityAt = run.meter.grewAt;
+    run.activityUnknown = false;
+    for (const child of run.children) {
+      const terminal = ['completed', 'failed', 'cancelled'].includes(child.status);
+      const usage = child.usage;
+      const amount = field => usage?.[field]?.value ?? 0;
+      const tokens = amount('input') + amount('cacheWrite') + amount('output');
+      const incomplete = !usage || usage.incomplete
+        || ['input', 'output', 'cacheRead', 'cacheWrite'].some(field => usage[field]?.state !== 'complete')
+        || (terminal && !usage.sealed);
+      run.tokens += tokens;
+      run.cached += amount('cacheRead');
+      run.usageIncomplete ||= incomplete;
+      run.cleanupUnknown ||= child.status === 'unknown'
+        || !terminal && child.status !== 'running' && child.status !== 'queued' && child.status !== 'cancelling';
+      if (terminal && incomplete) run.incompleteEvents[child.id] ??= new Date(this.now()).toISOString();
+      if (!terminal) run.childReserved += Math.max(0, (run.estimate?.fresh ?? 0) - tokens);
+      if (Number.isFinite(child.lastActivityAt)) run.lastActivityAt = Math.max(run.lastActivityAt ?? 0, child.lastActivityAt);
+      else if (!terminal) run.activityUnknown = true;
+    }
+  }
+
+  admitHelper(entry, { rootId, parentId }) {
+    if (rootId !== entry.id || !this.running().includes(entry) || this.runner.stopped
+      || entry.stopping || entry.declined || entry.stalled || entry.moved) return false;
+    const mode = readMode(this.root);
+    const now = this.now();
+    if (!mode.enabled || mode.pausedAt || mode.queueSkipped.includes(entry.planKey)
+      || [mode.usagePause, mode.subscriptionPause].some(pause => Date.parse(pause?.until) > now)
+      || pendingCancels(this.root).some(cancel => cancel.run === entry.id)) return false;
+    if (entry.slug) {
+      const project = readProject(this.root, entry.slug);
+      if (project?.state !== 'chosen' || project.paused) return false;
+      if (entry.item && readItems(this.root, entry.slug).find(item => item.id === entry.item)?.state !== 'doing') return false;
+    }
+    if (!Array.isArray(this.runtime.ownedLifecycle?.snapshot(entry.id))) return false;
+    for (const run of this.running()) this.meterRun(run);
+    if (parentId !== entry.id && !entry.children.some(child => child.id === parentId && child.status === 'running')) return false;
+    const fresh = entry.estimate?.fresh;
+    const budget = budgetFor(this.root, mode, now, this.running());
+    return Number.isFinite(fresh) && fresh >= 0 && !budget.helperHold && fitsDay(budget, fresh)
+      && (skipsTheHour(entry) || fitsHour(budget, fresh));
   }
 
   // A run works on its own branch in the user's folder. If the folder has left that branch, whatever it commits next lands somewhere else.
@@ -763,7 +819,7 @@ export class WorkDirector {
     return withSessionCost({ status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null }, sessionFile);
   }
 
-  start({ key, planKey, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, instructions, prepare, work, settle, handed = null }) {
+  start({ key, planKey, grade, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, instructions, prepare, work, settle, handed = null }) {
     const harnessId = handed?.harnessId ?? randomUUID();
     // Its first run already ended in the record as left running, and an id is only ever used once.
     const id = `work:${slug ?? 'discover'}:${lane}:${handed ? randomUUID() : harnessId}`;
@@ -782,7 +838,7 @@ export class WorkDirector {
     };
     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
     const startedAt = handed?.startedAt ?? new Date(this.now()).toISOString();
-    const entry = { id, harnessId, kind, model, slug, lane, item, planKey, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: 'pi', startedAt, report: handed?.report };
+    const entry = { id, harnessId, grade, kind, model, slug, lane, item, planKey, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: 'pi', startedAt, report: handed?.report };
     // It takes messages while it works, as a running check does: `message_check` reaches it by its schedule. The runner closes its inbox when it ends.
     const inbox = handed ? null : Promise.withResolvers();
     inbox?.promise.catch(() => {});
@@ -806,7 +862,11 @@ export class WorkDirector {
         prompt,
         sessionFile,
         signal,
-      }, { onEvent: event => this.runner.onActivity(id, event), onReady: send => inbox.resolve(send) });
+      }, {
+        beforeSpawn: identity => !signal.aborted && this.admitHelper(entry, identity),
+        onEvent: event => this.runner.onActivity(id, event),
+        onReady: send => inbox.resolve(send),
+      });
     };
     const effect = async signal => {
       const place = handed?.place ?? (prepare ? await prepare(entry) : { cwd });
@@ -823,15 +883,29 @@ export class WorkDirector {
     this.active.set(key, entry);
     const { work: finished } = this.runner.startTracked(request, effect);
     const closed = finished.then(run => {
+      const own = sessionUsage(sessionFile);
+      if (this.active.get(key) !== entry) return;
+      this.meterRun(entry);
+      if (run?.id !== id || run.harnessId !== harnessId || (run.result?.id && run.result.id !== harnessId)
+        || (run.result?.sessionId && run.result.sessionId !== own.sessionId)) {
+        entry.cleanupUnknown = true;
+        entry.childAdmissionHold = true;
+        return;
+      }
+      if (entry.children.length && (!run.result?.sessionId || run.result.sessionId !== own.sessionId)) {
+        entry.usageIncomplete = true;
+        entry.incompleteEvents.parent ??= new Date(this.now()).toISOString();
+      }
+      entry.cleanupUnknown ||= entry.children.some(child => !['completed', 'failed', 'cancelled'].includes(child.status));
+      entry.usageIncomplete ||= entry.cleanupUnknown;
       this.active.delete(key);
-      const { tokens, cached } = sessionUsage(sessionFile);
-      recordEvent(this.root, 'run_tokens', { id, tokens, cached });
+      const { tokens, cached, usageIncomplete, cleanupUnknown, incompleteEvents } = entry;
+      recordEvent(this.root, 'run_tokens', { id, tokens, cached, usageIncomplete, cleanupUnknown });
       // When it began goes with what it spent, so the forecast can time the next run like it.
-      const facts = { slug, lane, kind, startedAt, ...(level ? { level } : {}) };
-      // A run with no tokens never got as far as a reply, so it spent nothing, however often it comes round.
-      // It still leaves a mark, or its project stays left alone and takes every start. With no `level` it is no max run.
-      if (tokens) recordTokens(this.root, { ...facts, tokens, cached }, this.now());
-      else recordTokens(this.root, { slug, lane, kind, tokens: 0, cached: 0, estimated: true }, this.now());
+      const estimated = !tokens && !entry.children.length;
+      const facts = { slug, lane, kind, startedAt, ...(!estimated && level ? { level } : {}) };
+      recordTokens(this.root, { ...facts, tokens, cached, usageIncomplete, cleanupUnknown, incompleteEvents,
+        ...(estimated ? { estimated: true } : {}) }, this.now());
       if (run?.status === 'completed') this.clearUsagePause();
       // Deciding on a finished branch reads git, and a failure there costs its review, never the run's outcome.
       return Promise.resolve(settle?.(run, entry)).catch(() => {}).finally(() => {

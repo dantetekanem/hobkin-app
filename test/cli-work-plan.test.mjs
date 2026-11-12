@@ -1378,3 +1378,21 @@ test('first guesses sit above what real sessions cost', () => {
     assert.ok(firstGuess[kind].cached > cached, kind);
   }
 });
+
+test('Work descendant incomplete holds expire only outside both budget windows', { timeout: 10000 }, t => {
+  const root = dataRoot(t), mode = { dailyTokens: 1000000 };
+  const at = new Date(2026, 5, 1, 23, 50).getTime();
+  recordTokens(root, { kind: 'look', tokens: 9, cached: 4, usageIncomplete: true }, at);
+  assert.equal(budgetFor(root, mode, at + 20 * 60000).helperHold, true, 'rolling hour crosses midnight');
+  assert.equal(budgetFor(root, mode, at + HOUR).helperHold, false, 'both windows expired at the exact hour');
+  recordTokens(root, { kind: 'look', tokens: 3, usageIncomplete: true }, now);
+  assert.equal(budgetFor(root, mode, now + 2 * HOUR).helperHold, true, 'same local day survives hour expiry');
+  assert.equal(budgetFor(root, mode, at + HOUR).helperHold, false);
+  assert.deepEqual(costHistory(root), [], 'partial lower bounds cannot train full-run estimates');
+  recordTokens(root, { tokens: 7, usageIncomplete: true, incompleteEvents: { child: new Date(now).toISOString() } }, at + HOUR);
+  const expired = budgetFor(root, mode, at + HOUR);
+  assert.equal(expired.helperHold, false, 'parent settlement must not restart the child window');
+  assert.equal(expired.used, 7, 'the lower bound still spends in its settlement day');
+  recordTokens(root, { tokens: 0, cleanupUnknown: true, usageIncomplete: true }, now - 3 * 24 * HOUR);
+  assert.equal(budgetFor(root, mode, at + HOUR).helperHold, true, 'unknown cleanup never expires with spend windows');
+});

@@ -32,7 +32,7 @@ export const firstGuess = {
 export function costHistory(root) {
   const levelOf = new Map(readProjects(root).map(({ slug, level }) => [slug, level]));
   return tokenEvents(root)
-    .filter(event => !event.estimated && event.tokens > 0)
+    .filter(event => !event.estimated && !event.usageIncomplete && event.tokens > 0)
     .map(({ kind, lane, level, slug, tokens, cached }) => ({ kind: kind ?? lane, level: level ?? levelOf.get(slug), tokens, cached }));
 }
 
@@ -60,7 +60,9 @@ export function budgetFor(root, mode, now, running = []) {
   const today = events.filter(event => sameDay(event.at, now));
   const hour = events.filter(event => now - Date.parse(event.at) < HOUR_MS);
   const spending = totalOf(running, 'tokens');
-  const reserved = running.reduce((sum, run) => sum + Math.max(0, (run.estimate?.fresh ?? 0) - (run.tokens ?? 0)), 0);
+  const reserved = running.reduce((sum, run) => sum
+    + Math.max(0, (run.estimate?.fresh ?? 0) - (run.meter?.tokens ?? run.tokens ?? 0))
+    + (run.childReserved ?? 0), 0);
   return {
     limit,
     used: totalOf(today, 'tokens') + spending,
@@ -70,6 +72,9 @@ export function budgetFor(root, mode, now, running = []) {
     hourUsed: totalOf(hour, 'tokens') + spending,
     hourEvents: hour,
     reserved,
+    helperHold: [...running, ...events].some(event => event.cleanupUnknown || event.childAdmissionHold
+      || Object.values(event.incompleteEvents ?? (event.usageIncomplete ? { parent: event.at } : {}))
+        .some(at => sameDay(at, now) || now - Date.parse(at) < HOUR_MS)),
   };
 }
 

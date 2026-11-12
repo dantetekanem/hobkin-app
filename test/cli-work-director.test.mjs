@@ -1895,3 +1895,156 @@ test('the user\'s directions reach every run', async t => {
   assert.match(h.work(h.calls[0]).directions, /Leave the auth code alone/);
   assert.match(readFileSync(paths(h.root, 'api').directions, 'utf8'), /auth/);
 });
+
+test('Work descendant accounting recomputes own cumulative usage and genuine activity', { timeout: 10000 }, async t => {
+  const { budgetFor } = await import('../src/cli/work/budget.mjs');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'work-descendant-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let clock = Date.parse('2026-06-01T12:00:00Z');
+  const kills = [], rows = [];
+  const director = new WorkDirector({ root, config, now: () => clock,
+    runtime: { ownedLifecycle: { snapshot: id => id === 'synthetic-parent' ? rows : null } },
+    runner: { kill: async id => kills.push(id) } });
+  const file = join(root, 'parent.jsonl');
+  writeFileSync(file, `${JSON.stringify({ id: 'synthetic-session' })}\n${JSON.stringify({ message: { role: 'assistant', usage: { input: 10, output: 2, cacheWrite: 3, cacheRead: 7 } } })}\n`);
+  const parent = { id: 'synthetic-parent', sessionFile: file, estimate: { fresh: 100 }, kind: 'look', level: 'important' };
+  director.active.set('synthetic', parent);
+  const child = (id, parentId, input, status = 'running') => ({ id, parentId, rootId: parent.id, status, lastActivityAt: clock,
+    usage: { incomplete: false, sealed: status === 'completed', ...Object.fromEntries(['input', 'output', 'cacheWrite', 'cacheRead'].map(field => [field, { value: field === 'input' ? input : 0, state: 'complete' }])) } });
+  rows.push(child('synthetic-child', parent.id, 20), child('synthetic-grandchild', 'synthetic-child', 30));
+  rows[0].usage.cacheRead.value = 4;
+  rows.push(rows[0], { ...child('foreign-child', parent.id, 999), rootId: 'foreign-parent' });
+  director.meterRuns(); director.meterRuns();
+  assert.deepEqual([parent.tokens, parent.cached, parent.meter.tokens], [65, 11, 15]);
+  assert.equal(budgetFor(root, { dailyTokens: 10000 }, clock, [parent]).reserved, 235);
+  clock += HOUR + 1;
+  rows[1].lastActivityAt = clock;
+  director.meterRuns();
+  assert.deepEqual(kills, []);
+  clock += HOUR + 1;
+  director.meterRuns(); director.meterRuns();
+  assert.deepEqual(kills, [parent.id], 'passive reads must not refresh activity');
+  rows[0].status = 'failed'; rows[0].usage.incomplete = true;
+  rows[1].status = 'completed';
+  director.meterRuns();
+  assert.equal(parent.tokens, 65, 'terminal incomplete usage retains the lower bound');
+  assert.equal(director.running().length, 1, 'terminal children do not settle the parent');
+});
+
+test('Work descendant admission refreshes reservations and only parent completion settles once', { timeout: 10000 }, async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'work-descendant-admission-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const ready = Promise.withResolvers(), ending = Promise.withResolvers(), finished = Promise.withResolvers();
+  let request, execution, options;
+  const rows = [];
+  let clock = Date.parse('2026-06-01T12:00:00Z');
+  const runner = { jobs: new Map(), inboxes: new Map(), onActivity() {},
+    startTracked(admission, effect) { request = admission; execution = effect(new AbortController().signal); return { work: finished.promise }; } };
+  const runtime = { state: async () => ({ runs: {} }), ownedLifecycle: { snapshot: id => id === request.id ? rows : null } };
+  writeMode(root, { enabled: true, dailyTokens: 12000 });
+  const director = new WorkDirector({ root, config, runtime, runner, now: () => clock,
+    runHarness: async (parent, callbacks) => {
+      options = callbacks;
+      writeFileSync(parent.sessionFile, `${JSON.stringify({ id: 'synthetic-parent-session' })}\n${JSON.stringify({ message: { role: 'assistant', usage: { input: 10, output: 0, cacheWrite: 0, cacheRead: 0 } } })}\n`);
+      ready.resolve();
+      await ending.promise;
+      return { id: parent.id, sessionId: 'synthetic-parent-session', status: 'completed' };
+    } });
+  director.start({ key: 'synthetic-parent', lane: 'look', kind: 'look', title: 'Synthetic parent', cwd: root,
+    level: 'important', estimate: { fresh: 100, cached: 20 }, model: 'fixture/local', effort: 'medium', work: () => ({}) });
+  await ready.promise;
+  const parent = director.running()[0];
+  await t.test('synchronous admission', () => {
+    const admit = () => options.beforeSpawn({ rootId: request.id, parentId: request.id });
+    assert.equal(typeof options.beforeSpawn, 'function');
+    director.lastStartAt = clock;
+    writeMode(root, { agents: 1, countedStarts: [{ priority: 'P3', at: new Date(clock).toISOString() }] });
+    assert.equal(admit(), true, 'parent slot, start gap and P3 count are not charged again');
+    assert.equal(options.beforeSpawn({ rootId: 'foreign-root', parentId: request.id }), false);
+    for (const change of [{ enabled: false }, { pausedAt: new Date(clock).toISOString() },
+      { usagePause: { until: new Date(clock + HOUR).toISOString() } }, { subscriptionPause: { until: new Date(clock + HOUR).toISOString() } }]) {
+      writeMode(root, change);
+      assert.equal(admit(), false);
+      writeMode(root, { enabled: true, pausedAt: null, usagePause: null, subscriptionPause: null });
+    }
+    parent.declined = true;
+    assert.equal(admit(), false);
+    parent.declined = false;
+    rows.push({ id: 'synthetic-child', rootId: request.id, parentId: request.id, status: 'queued', lastActivityAt: null, usage: null });
+    assert.equal(admit(), true);
+    assert.equal(parent.childReserved, 100, 'queued helper has its own full reservation');
+    rows[0].status = 'running';
+    assert.equal(options.beforeSpawn({ rootId: request.id, parentId: 'synthetic-child' }), true);
+    rows[0].status = 'unknown';
+    assert.equal(admit(), false);
+    rows[0].status = 'running';
+    writeMode(root, { dailyTokens: 1800 });
+    parent.grade = 'P0';
+    assert.equal(admit(), false, 'routine look still observes hour share');
+    parent.kind = 'study';
+    assert.equal(admit(), true, 'existing non-look P0 hour exemption');
+    writeMode(root, { dailyTokens: 150 });
+    assert.equal(admit(), false, 'P0 cannot bypass daily budget');
+    assert.equal(rows.length, 1, 'refusal allocates nothing');
+    assert.equal(director.lastStartAt, clock);
+    writeMode(root, { dailyTokens: 12000 });
+    const project = chooseProject(root, root, 'casual', clock);
+    parent.slug = project.slug;
+    assert.equal(admit(), true);
+    skipProject(root, project.slug);
+    assert.equal(admit(), false, 'a newly skipped project is held');
+    parent.slug = undefined;
+  });
+  const complete = value => ({ value, state: 'complete' });
+  rows[0] = { id: 'synthetic-child', rootId: request.id, parentId: request.id, status: 'completed', usage: { incomplete: false, sealed: true,
+    input: complete(0), output: complete(0), cacheWrite: complete(0), cacheRead: complete(0) } };
+  director.meterRuns();
+  assert.equal(tokenEvents(root).length, 0, 'child completion is not parent completion');
+  rows[0].usage.input = complete(5);
+  rows[0].usage.incomplete = true;
+  director.meterRun(parent);
+  clock += 2 * HOUR;
+  director.meterRun(parent); director.meterRun(parent);
+  ending.resolve();
+  const result = await execution;
+  finished.resolve({ ...request, status: 'completed', result });
+  await director.closing;
+  assert.deepEqual(tokenEvents(root).map(({ tokens, cached, usageIncomplete }) => [tokens, cached, usageIncomplete]), [[15, 0, true]]);
+  assert.equal(tokenEvents(root)[0].incompleteEvents['synthetic-child'], new Date(clock - 2 * HOUR).toISOString());
+  rows[0].usage.input = complete(999);
+  director.meterRuns();
+  assert.equal(tokenEvents(root).length, 1, 'late child facts cannot append another settlement');
+  assert.equal(director.running().length, 0);
+  assert.equal(options.beforeSpawn({ rootId: request.id, parentId: request.id }), false);
+});
+
+test('Work descendant empty max settlement does not use the daily max budget', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  const sessionId = 'synthetic-max-session';
+  const runParent = async (key, input) => {
+    h.agent = request => {
+      const entries = [{ type: 'session', id: sessionId }];
+      if (input !== null) {
+        entries.push({
+          type: 'message',
+          message: { role: 'assistant', usage: { input, output: 0 } },
+        });
+      }
+      writeFileSync(request.sessionFile, `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`);
+      h.result = { id: request.id, sessionId, status: 'failed', error: 'No output.' };
+    };
+    h.director.start({ key, lane: 'do', title: 'Synthetic max parent', purpose: 'work-do', cwd: h.root,
+      level: 'max', kind: 'do', model: 'fixture/main', effort: 'xhigh', work: () => ({}) });
+    await h.settled();
+  };
+  await runParent('empty-max', null);
+  const [empty] = tokenEvents(h.root);
+  assert.deepEqual([empty.kind, empty.level, empty.startedAt, empty.estimated], ['do', undefined, new Date(h.clock).toISOString(), true]);
+  assert.equal(planWork(h.root, { now: h.clock }).budget.maxRuns, 0);
+  await runParent('measured-max', 10);
+  const runs = Object.values(h.runtime.data.runs);
+  assert.ok(runs.every(run => run.harnessId === run.result.id && run.result.sessionId === sessionId));
+  assert.equal(tokenEvents(h.root)[1].tokens, 10);
+  assert.equal(tokenEvents(h.root)[1].level, 'max');
+  assert.equal(planWork(h.root, { now: h.clock }).budget.maxRuns, 1);
+});
