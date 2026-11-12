@@ -65,7 +65,7 @@ export async function openPiSession(
   const adopted = adoptedSession(root);
   const file = mainSessionFile(root, saved, adopted, fresh);
   const expected = fresh ? null : saved ?? adopted;
-  if (config.launcher || dependencies.isolatedMain === true) {
+  if (config.launcher || dependencies.isolatedMain === true || typeof dependencies.createSession !== 'function') {
     const bootstrap = config.launcher ? dependencies.bootstrap : {
       root, file, expected, config: { main: config.main, background: config.background, resourceSelection: config.resourceSelection },
       agentDir: dependencies.agentDir, resourceCandidates: dependencies.resourceCandidates ?? [],

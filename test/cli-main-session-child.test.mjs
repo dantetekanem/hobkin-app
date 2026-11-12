@@ -202,7 +202,7 @@ test('captured child is Force-addressable before bootstrap readiness and only cl
   await Promise.all([ready, pending, transport.closed]);
 });
 
-test('the opt-in RPC opener waits for bootstrap and routes the captured client callback', async t => {
+for (const isolatedMain of [undefined, true]) test(`the ${isolatedMain ? 'opt-in' : 'default'} RPC opener waits for bootstrap and routes the captured client callback`, async t => {
   const h = processFixture(t), received = [], extensionPath = join(h.data.root, 'client.mjs');
   h.payload.clientExtensionPath = extensionPath;
   let call;
@@ -218,7 +218,7 @@ test('the opt-in RPC opener waits for bootstrap and routes the captured client c
   let captured;
   const startup = { signal: new AbortController().signal, wait: promise => promise, capture: child => { captured = child; } };
   const opening = openPiSession({ ...h.payload, config: { ...h.payload.config, unrelated: forbidden }, saved: h.data.expected, startup }, { ...h.dependencies,
-    isolatedMain: true, recoverScriptedHistory: true, loadSdk: forbidden, createSession: forbidden, pickModel: forbidden, clientBridge: { extensionPath, tool }, agentDir: h.data.root });
+    isolatedMain, recoverScriptedHistory: true, loadSdk: forbidden, ...(isolatedMain ? { createSession: forbidden } : {}), pickModel: forbidden, clientBridge: { extensionPath, tool }, agentDir: h.data.root });
   opening.catch(() => {});
   assert.ok(captured?.ready, 'public entry captures the child before any SDK or readiness wait');
   assert.deepEqual(h.sent[0], { ...h.payload, type: 'hobkin/main/bootstrap', version: 1, id: h.sent[0].id, agentDir: h.data.root, recoverScriptedHistory: true });
@@ -240,6 +240,13 @@ test('the opt-in RPC opener waits for bootstrap and routes the captured client c
   assert.deepEqual(session.getContextUsage(), { tokens: 10 });
   assert.deepEqual(session.messages, [{ role: 'user', content: 'saved history' }]);
   const closing = session.dispose(); h.child.emit('close', 0, null); await closing;
+});
+
+test('an injected session factory retains its local test seam', async t => {
+  const h = processFixture(t);
+  await assert.rejects(openPiSession({ ...h.payload, saved: h.data.expected }, { createSession: forbidden, spawnProcess: forbidden,
+    loadSdk: async () => { throw Error('injected local SDK'); } }), /injected local SDK/);
+  assert.deepEqual(h.sent, []);
 });
 
 test('isolated entry rejects saved paths and identities before spawning', async t => {
