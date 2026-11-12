@@ -1,3 +1,4 @@
+import { Map as MapIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
@@ -117,12 +118,7 @@ export function WorkScreen() {
       <div ref={main} inert={discovering} className={`${SCREEN_SCROLLER} pb-20`}>
       <div className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
         <Hero>
-          <Header work={work} live={live} working={agents.length} />
-          {worldAvailable ? <Button data-stop="" data-opens="world" onClick={() => {
-            useView.getState().openScreen('world')
-            useView.getState().engageCanvas()
-            requestCanvasFocus()
-          }}>Open world</Button> : null}
+          <Header work={work} live={live} working={agents.length} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
         <Rise>
           <section aria-label="At work" className="flex flex-col gap-3">
@@ -191,7 +187,18 @@ function controlsOf(item: HTMLElement): HTMLElement[] {
 }
 
 /** What work mode is doing, in a line, with its switch. Turning it on starts nothing by itself. */
-function Header({ work, live, working }: { work: WorkState | null; live: boolean; working: number }) {
+/** World is a page of its own, opened from Work. */
+function openWorld() {
+  useView.getState().openScreen('world')
+  useView.getState().engageCanvas()
+  requestCanvasFocus()
+}
+
+/**
+ * Work's heading: what is going on, the way to World beside the mode switch on the same line, and what the mode means.
+ * The World button sits in that row, aligned with the switch, rather than under the heading as a primary action.
+ */
+function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; live: boolean; working: number; onOpenWorld?: () => void }) {
   const busy = useWorkUi((state) => Boolean(state.busy['mode']))
   const said = useWorkUi((state) => state.said['mode'])
   const [askingFolder, setAskingFolder] = useState(false)
@@ -230,7 +237,15 @@ function Header({ work, live, working }: { work: WorkState | null; live: boolean
         <p className="font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]" aria-live="polite">
           {title}
         </p>
-        <ModeSwitch on={work.enabled} busy={busy} onToggle={() => turn(!work.enabled)} />
+        <div className="flex items-center gap-2">
+          {onOpenWorld ? (
+            <Button variant="outline" size="sm" data-stop="" data-opens="world" onClick={onOpenWorld}>
+              <MapIcon aria-hidden="true" />
+              Open world
+            </Button>
+          ) : null}
+          <ModeSwitch on={work.enabled} busy={busy} onToggle={() => turn(!work.enabled)} />
+        </div>
       </div>
       <p className="max-w-[72ch] text-[13.5px] leading-relaxed text-muted-foreground">{line}</p>
       {work.enabled && work.held ? <p className="max-w-[72ch] text-[13.5px] leading-relaxed text-warn-fg">{work.held}</p> : null}
