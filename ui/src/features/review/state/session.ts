@@ -13,6 +13,7 @@ import type { PendingAsk } from '../panel/thread.ts'
 import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
+import type { NotesShown } from './quick-notes.ts'
 
 /** What the last move put on screen, kept so the graph can play it once: what draws in and the wire to ride. */
 export interface Move {
@@ -66,6 +67,8 @@ export interface Session {
   asks: readonly PendingAsk[]
   /** The reviewer is talking to hobkin: the panel stays open, with the conversation, until they go back to the graph. */
   talking: boolean
+  /** The notes panel on the canvas: the notes about a node, or taken on a step, read beside the node. Null when closed. */
+  notesShown: NotesShown | null
 
   step(delta: number): void
   goTo(index: number): void
@@ -111,6 +114,12 @@ export interface Session {
   /** Messages the conversation shows now, which need no place of their own. */
   dropAsks(keys: readonly string[]): void
   setTalking(talking: boolean): void
+  /**
+   * Opens the notes panel beside a node, for a quick read of its comments and questions. `node` lists the notes about
+   * that node. `step`, the step's index in the story from 0 as `goTo` takes it, goes to that step and lists the notes
+   * taken on it. Null closes the panel, and so does a node or a step the review does not have.
+   */
+  showNotes(target: { node?: string; step?: number } | null): void
 }
 
 /** The node whose code a focus opens: the first that points at lines. */
@@ -171,6 +180,8 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         hovered: null,
         hover: hoverLevels(next.view, null),
         pointed: null,
+        // The notes panel belongs to what it was opened beside.
+        notesShown: null,
         // An open code panel follows the story, so stepping with code on screen reads like a tour.
         code: before.code == null ? null : (codeTarget(next.view, next.focus) ?? before.code),
       })
@@ -207,6 +218,7 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       history: NO_HISTORY,
       asks: [],
       talking: false,
+      notesShown: null,
 
       step: (delta) => {
         const { story } = get()
@@ -371,6 +383,21 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       },
       setTalking: (talking) => {
         if (talking !== get().talking) set({ talking })
+      },
+      showNotes: (target) => {
+        const close = () => {
+          if (get().notesShown) set({ notesShown: null })
+        }
+        if (!target) return close()
+        if (target.step != null) {
+          const step = Number.isInteger(target.step) ? get().view.story[target.step] : undefined
+          if (!step) return close()
+          get().goTo(target.step)
+          set({ notesShown: { kind: 'step', step: step.id } })
+          return
+        }
+        if (target.node == null || !get().nodeOf.has(target.node)) return close()
+        set({ notesShown: { kind: 'node', node: target.node } })
       },
     }
   })
