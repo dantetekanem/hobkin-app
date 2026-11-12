@@ -451,9 +451,9 @@ export const COMMANDS = {
   },
   'work.queue': {
     description:
-      "Act on a row of hobkin's queue, named by hobkin's own name for it in `row` (such as `item:storefront:3fa9c1`): `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
+      "Act on a row of hobkin's queue, named by hobkin's own name for it in `row` (such as `item:storefront:3fa9c1`): `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `now` starts it at once, as one extra worker when none is free, while a pause, the budget, any stop and the gap between starts still hold it, and hobkin says which. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
     runs: 'host',
-    args: Type.Object({ row: words(256), action: oneOf(['run', 'skip', 'back']) }, { additionalProperties: false }),
+    args: Type.Object({ row: words(256), action: oneOf(['run', 'now', 'skip', 'back']) }, { additionalProperties: false }),
   },
   'work.project': {
     description:
@@ -659,7 +659,8 @@ export interface CommandResults {
   'integrations.add': IntegrationsState
   'integrations.remove': IntegrationsState
   'work.mode': { enabled: boolean }
-  'work.queue': { ok: true }
+  /** What hobkin said, when it says something: `now` says whether the row started or what still holds it. */
+  'work.queue': { ok: true; message?: string }
   'work.project': { ok: true }
   'work.proposal': { ok: true }
   /** How many work agents may run at once now. */

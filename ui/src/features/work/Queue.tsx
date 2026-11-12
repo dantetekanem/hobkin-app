@@ -12,7 +12,7 @@ import { runWork, useWorkUi } from './store.ts'
 
 /**
  * hobkin's queue, in hobkin's order, and the projects work mode works on. A queue row runs next, is skipped or is
- * put back, as the terminal's keys do. A project's priority and where its finished work goes can be changed.
+ * put back, as the terminal's keys do, or starts now. A project's priority and where its finished work goes can be changed.
  */
 
 /** As many rows as the terminal shows: every P0 stays in sight, and the rest fill what room is left (`rowsInSight` in hobkin's `src/cli/ui.mjs`). */
@@ -26,6 +26,9 @@ function rowsInSight(queue: readonly QueueRow[]): QueueRow[] {
 }
 
 const tokens = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** What Start now does, in hobkin's terms (`pickNow` in its `src/cli/work/store.mjs`). */
+const START_NOW_TITLE = 'Starts it at once, as one extra worker when none is free. A pause, the budget, any stop and the gap between starts still hold it.'
 
 interface Shared {
   live: boolean
@@ -63,7 +66,7 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[row.key]))
   const said = useWorkUi((state) => state.said[row.key])
-  const act = (action: 'run' | 'skip' | 'back') => void runWork({ do: 'queue', key: row.key, action }, { live, place: row.key })
+  const act = (action: 'run' | 'now' | 'skip' | 'back') => void runWork({ do: 'queue', key: row.key, action }, { live, place: row.key })
   const primary = row.skipped ? () => act('back') : () => act('run')
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -116,6 +119,9 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
               <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('run')}>
                 Run next
               </Button>
+              <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled title={START_NOW_TITLE} onClick={() => act('now')}>
+                Start now
+              </Button>
               <Button variant="ghost" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('skip')} className="text-muted-foreground">
                 Skip
               </Button>
@@ -123,8 +129,9 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
           )}
         </span>
       </div>
-      {said?.tone === 'refused' ? (
-        <SaidLine tone="refused" className="px-13 pb-2">
+      {/* A refusal, or what hobkin said of Start now: that it started, or what still holds it. */}
+      {said ? (
+        <SaidLine tone={said.tone} className="px-13 pb-2">
           {said.text}
         </SaidLine>
       ) : null}

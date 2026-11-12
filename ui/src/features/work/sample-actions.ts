@@ -14,6 +14,9 @@ export const MOVED = 'storefront:4c9e21'
 
 const MOVED_WHY = 'moved since it was offered, so nothing merged. It needs reading again.'
 
+/** Start now with no host: no agent runs on sample data. */
+const NOTHING_STARTS = 'This is sample data, so nothing starts here. With a host, hobkin starts it at once, as one extra worker when none is free.'
+
 /** What hobkin says once a card's choice is carried out (`src/cli/work/controls.mjs`). */
 function saidOf({ title, project }: FinishedChange, choice: HobkinChoice): string {
   const named = `"${title}" on ${project}`
@@ -98,6 +101,7 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
     case 'queue': {
       const row = state.queue.find(({ key }) => key === action.key)
       if (!row) return { refused: 'That row has already left the queue.' }
+      if (action.action === 'now') return { refused: NOTHING_STARTS }
 
       // `queued` counts the rows that are not skipped.
       let queued = state.queued

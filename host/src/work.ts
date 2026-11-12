@@ -314,8 +314,8 @@ type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal'
 /** y and n on a proposal in the terminal: take it, or leave it alone. */
 const PROPOSAL_ANSWERS = { take: 'choose', skip: 'skip' } as const
 
-/** The terminal's keys on a queue row: Enter runs it next, s skips it, and s on a skipped row puts it back. */
-const QUEUE_ACTIONS = { run: 'run', skip: 'later', back: 'back' } as const
+/** The terminal's keys on a queue row: Enter runs it next, s skips it, and s on a skipped row puts it back. Start now has no key there. */
+const QUEUE_ACTIONS = { run: 'run', now: 'now', skip: 'later', back: 'back' } as const
 const CHANGE_ACTIONS = { merge: 'merge', 'merge-pr': 'mergePr', 'refresh-merge': 'refreshMerge', review: 'review', ask: 'ask', decline: 'decline' } as const
 
 interface Reply {
@@ -340,8 +340,10 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       return { enabled: false }
     },
     'work.queue': async ({ row, action }) => {
-      await app().workAction(QUEUE_ACTIONS[action], row)
-      return done
+      const said = await app().workAction(QUEUE_ACTIONS[action], row)
+      const message = messageOf(said)
+      // Start now says whether the row started, or what still holds it.
+      return message ? { ...done, message } : done
     },
     'work.project': async ({ slug, priority, prs }) => {
       await (priority ? app().workAction('priority', slug, priority) : app().workAction('prs', slug, prs))

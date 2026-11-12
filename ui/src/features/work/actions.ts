@@ -13,7 +13,7 @@ export type HobkinChoice = Exclude<ChangeChoice, 'diff' | 'open'> | 'changes'
 
 export type WorkAction =
   | { do: 'mode'; on: boolean; folder?: string }
-  | { do: 'queue'; key: string; action: 'run' | 'skip' | 'back' }
+  | { do: 'queue'; key: string; action: 'run' | 'now' | 'skip' | 'back' }
   | { do: 'priority'; slug: string; priority: Grade }
   | { do: 'prs'; slug: string; prs: PrMode }
   | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
