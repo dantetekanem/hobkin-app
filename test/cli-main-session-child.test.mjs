@@ -225,9 +225,12 @@ for (const [isolatedMain, scriptedMain, failure] of [[undefined, false], [true, 
       : request.type === 'get_messages' ? { messages: [{ role: 'user', content: 'saved history' }] } : { contextUsage: { tokens: 10 } };
     emit({ type: 'response', id: request.id, success: true, data });
   });
+  const saved = Object.freeze({
+    ...h.data.expected, connectedAt: '2026-11-12T12:00:00.000Z', baseline: 1.5,
+  });
   let captured;
   const startup = { signal: new AbortController().signal, wait: promise => promise, capture: child => { captured = child; } };
-  const opening = openPiSession({ ...h.payload, config: { ...h.payload.config, unrelated: forbidden }, saved: h.data.expected, startup }, { ...h.dependencies,
+  const opening = openPiSession({ ...h.payload, config: { ...h.payload.config, unrelated: forbidden }, saved, startup }, { ...h.dependencies,
     isolatedMain, scriptedMain, recoverScriptedHistory: true, loadSdk: forbidden, ...(isolatedMain ? { createSession: forbidden } : {}), pickModel: forbidden, clientBridge: { extensionPath, tool }, agentDir: h.data.root });
   opening.catch(() => {});
   assert.ok(captured?.ready, 'public entry captures the child before any SDK or readiness wait');

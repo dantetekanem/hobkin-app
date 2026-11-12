@@ -67,7 +67,9 @@ export async function openPiSession(
   const expected = fresh ? null : saved ?? adopted;
   if (config.launcher || dependencies.isolatedMain === true || typeof dependencies.createSession !== 'function') {
     const bootstrap = config.launcher ? dependencies.bootstrap : {
-      root, file, expected, config: { main: config.main, background: config.background, resourceSelection: config.resourceSelection },
+      root, file,
+      expected: expected ? { sessionId: expected.sessionId, sessionFile: expected.sessionFile } : null,
+      config: { main: config.main, background: config.background, resourceSelection: config.resourceSelection },
       agentDir: dependencies.agentDir, resourceCandidates: dependencies.resourceCandidates ?? [],
       clientExtensionPath: dependencies.clientBridge?.extensionPath, recoverScriptedHistory: dependencies.recoverScriptedHistory,
     };
