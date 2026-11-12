@@ -78,7 +78,10 @@ export interface ReviewNode {
   level?: ReviewLevel
   /** The unit of the change review's story that tells this node, such as `u2`, once it has rated it. */
   unit?: string
-  /** For unchanged context the call-graph scan found: where it sits in the request's life cycle. */
+  /**
+   * Where it sits in the request's life cycle: for unchanged context the call-graph scan found, a caller or a callee; for
+   * changed code, how far its entry is and the way a request takes to it.
+   */
   lifecycle?: ReviewLifecycle
   /** Where a request enters the code, when this code or context node is such a place. */
   entry?: ReviewEntry
@@ -97,11 +100,20 @@ export interface ReviewNode {
   position: { x: number; y: number }
 }
 
-/** How unchanged context stands to the change, in the request's life cycle. */
+/** How a node stands in the request's life cycle. */
 export interface ReviewLifecycle {
-  /** `caller`: it leads to the changed code, `hops` calls away. `callee`: the changed lines call it, one call away. */
-  role: 'caller' | 'callee'
+  /**
+   * For unchanged context, `caller`: it leads to the changed code, `hops` calls away; `callee`: the changed lines call it,
+   * one call away. For changed code, `changed`: `hops` calls from the change out to its entry, 0 when the node is itself
+   * the entry, such as a controller action its route reaches.
+   */
+  role: 'caller' | 'callee' | 'changed'
   hops: number
+  /**
+   * The way a request takes, in a line, such as "GET /users/:id → UsersController#show → full_name", or why none was
+   * found, such as "No route reaches it within 4 calls". Optional for context.
+   */
+  path?: string
 }
 
 /**
