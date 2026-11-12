@@ -22,6 +22,7 @@ syncBuiltinESMExports();
 const { startMainSessionChild, runMainSessionChild } = await import('../src/cli/main-session-child.mjs');
 const { openRpcSession, PiRpcSession } = await import('../src/cli/rpc-session.mjs');
 const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
+const { openPiSession } = await import('../src/cli/pi-session.mjs');
 
 function bootstrap(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-child-')));
@@ -63,7 +64,9 @@ function childFixture(t) {
 }
 
 test('native runner binds once, preserves same-session reload and refuses replacements before teardown', async t => {
-  const h = childFixture(t);
+  const h = childFixture(t), open = h.dependencies.openSession;
+  h.data.recoverScriptedHistory = true;
+  h.dependencies.openSession = (options, deps) => { assert.equal(deps.recoverScriptedHistory, true); return open(options, deps); };
   const running = runMainSessionChild(h.channel, h.dependencies);
   h.channel.emit('message', h.data);
   await running;
@@ -120,7 +123,7 @@ test('malformed or untrusted bootstrap refuses before SDK loading', async t => {
   for (const patch of [{ version: 2 }, { pid: 22 }, { module: '/tmp/other.mjs' }, { config: { ...h.data.config, auth: 'secret' } },
     { config: { ...h.data.config, background: { harness: 'pi', effort: 'medium', cwd() {} } } },
     { file: '/tmp/not-owned.jsonl' }, { resourceCandidates: [{ id: 'x', kind: 'extensions', installed: true, path: '/tmp/x', execute() {} }] },
-    { id: 123 }, { id: 'x'.repeat(65537) },
+    { id: 123 }, { id: 'x'.repeat(65537) }, { recoverScriptedHistory: 'true' }, { recoverScriptedHistory: {} },
     { resourceCandidates: Array.from({ length: 30 }, (_, i) => ({ id: `test.${i}`, kind: 'extensions', installed: true, path: `/${'x'.repeat(3000)}` })) }]) {
     const channel = new EventEmitter(); channel.send = () => {};
     const running = runMainSessionChild(channel, { loadSdk: forbidden, openSession: forbidden });
@@ -212,7 +215,13 @@ test('the opt-in RPC opener waits for bootstrap and routes the captured client c
       : request.type === 'get_messages' ? { messages: [{ role: 'user', content: 'saved history' }] } : { contextUsage: { tokens: 10 } };
     emit({ type: 'response', id: request.id, success: true, data });
   });
-  const opening = openRpcSession({ ...h.payload, prompts: [] }, { ...h.dependencies, bootstrap: h.payload, clientBridge: { extensionPath, tool } });
+  let captured;
+  const startup = { signal: new AbortController().signal, wait: promise => promise, capture: child => { captured = child; } };
+  const opening = openPiSession({ ...h.payload, config: { ...h.payload.config, unrelated: forbidden }, saved: h.data.expected, startup }, { ...h.dependencies,
+    isolatedMain: true, recoverScriptedHistory: true, loadSdk: forbidden, createSession: forbidden, pickModel: forbidden, clientBridge: { extensionPath, tool }, agentDir: h.data.root });
+  opening.catch(() => {});
+  assert.ok(captured?.ready, 'public entry captures the child before any SDK or readiness wait');
+  assert.deepEqual(h.sent[0], { ...h.payload, type: 'hobkin/main/bootstrap', version: 1, id: h.sent[0].id, agentDir: h.data.root, recoverScriptedHistory: true });
   assert.equal(received.length, 0, 'no native command precedes trusted readiness');
   const tools = ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'owned_agent'];
   for (const [statusKey, names] of [['hobkin/bridge', tools], ['hobkin/bridge/client', ['client']]]) {
@@ -231,6 +240,13 @@ test('the opt-in RPC opener waits for bootstrap and routes the captured client c
   assert.deepEqual(session.getContextUsage(), { tokens: 10 });
   assert.deepEqual(session.messages, [{ role: 'user', content: 'saved history' }]);
   const closing = session.dispose(); h.child.emit('close', 0, null); await closing;
+});
+
+test('isolated entry rejects saved paths and identities before spawning', async t => {
+  const h = processFixture(t);
+  for (const saved of [{ ...h.data.expected, sessionFile: join(h.data.root, 'outside.jsonl') }, { ...h.data.expected, sessionId: 'wrong' }]) {
+    await assert.rejects(openPiSession({ ...h.payload, saved }, { isolatedMain: true, spawnProcess: forbidden, loadSdk: forbidden }), /outside|identity/);
+  }
 });
 
 test('a fresh native identity must match the captured bootstrap attestation', async t => {
@@ -384,8 +400,11 @@ for (const acknowledgment of ['commit', 'error']) test(`cancelled reset retains 
 
 test('configured startup captures its fixed transport before any native request', async t => {
   const h = startupFixture(t, attempt => { if (attempt.child) attempt.cancel(); });
-  h.runtime.createMain = ({ startup }) => openRpcSession({ ...h.payload, startup, prompts: [] }, { ...h.dependencies,
-    spawnProcess: () => h.child });
+  h.data.config.launcher = { command: ['fixture-pi'] };
+  h.runtime.createMain = ({ startup }) => openPiSession({ ...h.payload, saved: h.data.expected, startup }, { ...h.dependencies,
+    isolatedMain: true, loadSdk: forbidden, spawnProcess: (command, _args, options) => {
+      assert.equal(command, 'fixture-pi'); assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe']); return h.child;
+    } });
   const requests = []; h.child.stdin.on('data', bytes => requests.push(bytes.toString()));
   const opening = h.runtime.connect(); opening.catch(() => {}); await new Promise(resolve => setImmediate(resolve));
   assert.ok(h.runtime.mainStartup?.child, 'configured transport captured before readiness'); await assert.rejects(opening, /cancelled/);

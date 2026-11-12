@@ -222,6 +222,38 @@ test('deferred readiness validates the tool set after native binding', async t =
   await assert.rejects(result.session.bindExtensions({ mode: 'rpc' }), /missing|re-enabled/);
 });
 
+test('unopted entry retains its injected SDK session even with recovery requested', async t => {
+  const h = await fixture(t);
+  Object.assign(h.dependencies, { recoverScriptedHistory: true, modelRuntime: {} });
+  assert.equal(await h.open(), h.session);
+});
+
+for (const [type, provider, explicit, recovery] of [
+  ['model_change', 'hobkin-client', false, true], ['message', 'hobkin-client', false, true],
+  ['model_change', 'real', false, true], ['message', 'real', false, true], [null, null, false, true],
+  ['model_change', 'hobkin-client', true, true], ['model_change', 'hobkin-client', false, false],
+  ['model_change', 'hobkin-client', false, 'unavailable'],
+]) test(`child history recovery: ${type}/${provider}, explicit=${explicit}, recovery=${recovery}`, async t => {
+  const h = await fixture(t), loadSdk = h.dependencies.loadSdk, createSession = h.dependencies.createSession;
+  const model = { provider: 'fixture', id: 'chosen' }, shouldPick = type && provider === 'hobkin-client' && !explicit && recovery !== false;
+  const branch = type ? [{ type: 'model_change', provider: provider === 'hobkin-client' ? 'real' : 'hobkin-client' },
+    type === 'message' ? { type, message: { role: 'assistant', provider } } : { type, provider }, { type: 'message', message: { role: 'user' } }] : [];
+  let picks = 0;
+  h.config.main.model = explicit ? 'fixture/chosen' : null; h.session.model = model;
+  Object.assign(h.dependencies, { modelRuntime: {}, rpcBridge: {}, recoverScriptedHistory: recovery !== false,
+    pickModel: async () => { assert.ok(shouldPick); picks++; return recovery === 'unavailable' ? undefined : model; } });
+  h.dependencies.loadSdk = async () => ({ ...await loadSdk(),
+    SessionManager: { open: () => ({ getSessionId: () => 'fake', getBranch: () => branch }) }, resolveCliModel: () => ({ model }) });
+  h.dependencies.createSession = async options => ({ ...await createSession(options),
+    modelFallbackMessage: !options.model && type ? 'fixture unavailable history' : undefined });
+  const { openConversation } = await import('../src/cli/pi-session.mjs');
+  const opening = openConversation({ root: h.root, config: h.config, file: join(h.root, 'sessions', 'main.jsonl') }, h.dependencies);
+  if (type && !explicit && (!shouldPick || recovery === 'unavailable')) await assert.rejects(opening, /unavailable history/);
+  else await opening;
+  assert.equal(picks, shouldPick ? 1 : 0);
+  assert.equal(h.options().model, explicit || (shouldPick && recovery !== 'unavailable') ? model : undefined);
+});
+
 test('unsupported or stale resource selections refuse before SDK loading', async t => {
   const h = await fixture(t);
   h.config.resourceSelection = { version: 1, purposes: { main: { mcp: ['mcp.example'] } } };

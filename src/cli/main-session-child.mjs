@@ -18,7 +18,8 @@ const identityString = value => typeof value === 'string' && value.length > 0 &&
 
 function validateBootstrap(value) {
   try { value = structuredClone(value); } catch { throw Error('Invalid main child bootstrap values.'); }
-  fields(value, ['type', 'version', 'id', 'root', 'file', 'expected', 'config', 'agentDir', 'resourceCandidates', 'clientExtensionPath']);
+  fields(value, ['type', 'version', 'id', 'root', 'file', 'expected', 'config', 'agentDir', 'resourceCandidates', 'clientExtensionPath', 'recoverScriptedHistory']);
+  if (value.recoverScriptedHistory !== undefined && typeof value.recoverScriptedHistory !== 'boolean') throw Error('Invalid main child bootstrap history recovery.');
   if (value.type !== 'hobkin/main/bootstrap' || value.version !== 1 || typeof value.id !== 'string' || !/^[\w-]{1,100}$/.test(value.id)) throw Error('Invalid main child bootstrap version or ID.');
   if (![value.root, value.file, value.config?.main?.cwd].every(absolute)
     || (value.agentDir !== undefined && !absolute(value.agentDir))
@@ -116,6 +117,7 @@ export function runMainSessionChild(channel = process, {
       if (stopped) return;
       const { session, services } = await openSession({ root: data.root, config: data.config, file: data.file, expected }, {
         loadSdk, agentDir: data.agentDir, resourceCandidates: data.resourceCandidates, deferExtensionBinding: true,
+        recoverScriptedHistory: data.recoverScriptedHistory,
         rpcBridge: data.clientExtensionPath ? { clientExtensionPath: data.clientExtensionPath } : {},
       });
       const refuse = async () => { throw Error('Main session replacement belongs to the Hobkin parent.'); };

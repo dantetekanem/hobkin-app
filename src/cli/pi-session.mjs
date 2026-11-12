@@ -65,8 +65,13 @@ export async function openPiSession(
   const adopted = adoptedSession(root);
   const file = mainSessionFile(root, saved, adopted, fresh);
   const expected = fresh ? null : saved ?? adopted;
-  if (config.launcher) {
-    // Every Pi process runs behind the launcher, so its managed extensions and credentials apply.
+  if (config.launcher || dependencies.isolatedMain === true) {
+    const bootstrap = config.launcher ? dependencies.bootstrap : {
+      root, file, expected, config: { main: config.main, background: config.background, resourceSelection: config.resourceSelection },
+      agentDir: dependencies.agentDir, resourceCandidates: dependencies.resourceCandidates ?? [],
+      clientExtensionPath: dependencies.clientBridge?.extensionPath, recoverScriptedHistory: dependencies.recoverScriptedHistory,
+    };
+    // Every configured Pi process stays behind its launcher and credentials.
     validateBinding({ harness: 'pi', ...config.main });
     claimSessionFile(file, { fresh, expected });
     return openRpcSession({
@@ -81,7 +86,7 @@ export async function openPiSession(
       stopWorkload,
       ownedAgent,
       prompts: mainPrompts(root, config),
-    }, dependencies);
+    }, { ...dependencies, bootstrap });
   }
   return openConversation({
     root,
@@ -91,7 +96,7 @@ export async function openPiSession(
     fresh,
     customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createOwnedAgentSessionTool(ownedAgent)],
     modelSettings: { root, config },
-  }, dependencies);
+  }, { ...dependencies, recoverScriptedHistory: false });
 }
 
 function refuseInProcess(config) {
@@ -236,9 +241,19 @@ export function followEntryLink(argv = process.argv) {
   if (argv[1] && existsSync(argv[1])) argv[1] = realpathSync(argv[1]);
 }
 
+async function pickInitialModel(modelRuntime, settings) {
+  let resolver;
+  try { resolver = await import(new URL('./core/model-resolver.js', import.meta.resolve('@earendil-works/pi-coding-agent')).href); }
+  catch { return undefined; }
+  return (await resolver.findInitialModel({ scopedModels: [], isContinuing: false,
+    defaultProvider: settings.getDefaultProvider(), defaultModelId: settings.getDefaultModel(),
+    defaultThinkingLevel: settings.getDefaultThinkingLevel(), modelThinkingLevels: settings.getAllModelThinkingLevels(), modelRuntime })).model;
+}
+
 export async function openConversation(
   { root, config, expected, file, fresh = false, customTools = [], modelSettings },
   { createSession, agentDir, resourceCandidates = [], modelRuntime: suppliedModelRuntime, deferExtensionBinding = false, rpcBridge,
+    recoverScriptedHistory = false, pickModel = pickInitialModel,
     loadSdk = () => import('@earendil-works/pi-coding-agent') } = {},
 ) {
   refuseInProcess(config);
@@ -297,6 +312,10 @@ export async function openConversation(
       throw Error(resolved.error ?? resolved.warning ?? 'Main model is unavailable.');
     }
     model = resolved.model;
+  }
+  if (recoverScriptedHistory === true && !config.main.model && modelRuntime) {
+    const last = manager.getBranch().findLast(entry => entry.type === 'model_change' || (entry.type === 'message' && entry.message.role === 'assistant'));
+    if ((last?.type === 'model_change' ? last.provider : last?.message?.provider) === 'hobkin-client') model = await pickModel(modelRuntime, settingsManager);
   }
   if (modelRuntime) options = { ...options, modelRuntime, model };
   const currentSession = { current: null };
