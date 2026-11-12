@@ -26,6 +26,7 @@ const CONFIRM = '0'.repeat(64)
 const NOTHING_SENT = 'Sample: nothing is sent from here.'
 const REFRESHING = `An agent is bringing it up to date with ${INTO}, and hobkin merges it once that run ends well.`
 const MERGED = `Merged into ${INTO} at ${REFRESHED.slice(0, 7)}.`
+const ALREADY_MERGED = `Already merged into ${INTO} at ${REFRESHED.slice(0, 7)}.`
 
 interface Sample {
   /** When Approve and merge was confirmed (ms), or null before. */
@@ -39,13 +40,17 @@ const iso = (ms: number) => new Date(ms).toISOString()
 export function sampleLandings(clock: () => number = Date.now) {
   const samples = new Map<string, Sample>()
   const sampleOf = (id: string): Sample => {
-    let sample = samples.get(id)
-    if (!sample) samples.set(id, (sample = { yes: null, notes: { entries: [], draft: null } }))
+    const known = samples.get(id)
+    if (known) return known
+    const sample: Sample = { yes: null, notes: { entries: [], draft: null } }
+    samples.set(id, sample)
     return sample
   }
   const landingOf = ({ yes }: Sample): ReviewLanding | null => {
     if (yes == null) return null
-    if (clock() - yes < SAMPLE_REFRESH_MS) return { state: 'refreshing', at: iso(yes), into: INTO, message: REFRESHING }
+    if (clock() - yes < SAMPLE_REFRESH_MS) {
+      return { state: 'refreshing', at: iso(yes), into: INTO, message: REFRESHING }
+    }
     return { state: 'merged', sha: REFRESHED, at: iso(yes + SAMPLE_REFRESH_MS), into: INTO, message: MERGED }
   }
 
@@ -54,18 +59,26 @@ export function sampleLandings(clock: () => number = Date.now) {
     const statusOf = async (): Promise<ReviewStatus> => {
       const { change } = await source.getReview(id)
       const landing = landingOf(sampleOf(id))
-      return { ...IDLE_STATUS(id), state: 'ready', head: landing ? REFRESHED : change.head, preparedAt: PREPARED_AT, ...(landing ? { landing } : {}) }
+      return {
+        ...IDLE_STATUS(id),
+        state: 'ready',
+        // The made-up agent moves the branch as it brings it up to date, as a real one does.
+        head: landing ? REFRESHED : change.head,
+        preparedAt: PREPARED_AT,
+        ...(landing ? { landing } : {}),
+      }
     }
     const previewOf = (verdict: Verdict, head: string): VerdictPreview => {
       const landing = landingOf(sampleOf(id))
-      if (landing?.state === 'merged') return { verdict, lines: [`Already merged into ${INTO} at ${REFRESHED.slice(0, 7)}.`], confirm: CONFIRM }
+      if (landing?.state === 'merged') return { verdict, lines: [ALREADY_MERGED], confirm: CONFIRM }
       if (verdict !== 'approve-merge') return { verdict, lines: [NOTHING_SENT], confirm: CONFIRM }
       if (landing) return { verdict, lines: [REFRESHING], confirm: CONFIRM }
-      return {
-        verdict,
-        lines: [`It conflicts with ${INTO}: an agent brings it up to date, then hobkin merges it.`, `At commit ${head.slice(0, 7)}, the one this review was built from.`, NOTHING_SENT],
-        confirm: CONFIRM,
-      }
+      const lines = [
+        `It conflicts with ${INTO}: an agent brings it up to date, then hobkin merges it.`,
+        `At commit ${head.slice(0, 7)}, the one this review was built from.`,
+        NOTHING_SENT,
+      ]
+      return { verdict, lines, confirm: CONFIRM }
     }
 
     return (async (name: string, args: { fileId?: string; entries?: NoteEntry[]; draft?: ReviewNotes['draft']; verdict?: Verdict; head?: string }) => {
@@ -76,18 +89,24 @@ export function sampleLandings(clock: () => number = Date.now) {
           return statusOf()
         case 'review.get': {
           const review = await source.getReview(id)
-          return { review, notes: windowNotes?.(review) ?? sample.notes, status: await statusOf(), assessment: (await source.getAssessment?.(id)) ?? null } satisfies OpenedReview
+          return {
+            review,
+            notes: windowNotes?.(review) ?? sample.notes,
+            status: await statusOf(),
+            assessment: (await source.getAssessment?.(id)) ?? null,
+          } satisfies OpenedReview
         }
         case 'review.file':
           return source.getFile(id, args.fileId ?? '')
         case 'review.notes':
           sample.notes = { entries: args.entries ?? [], draft: args.draft ?? null }
           return { ok: true }
-        case 'review.preview':
-          return previewOf(args.verdict ?? 'approve', args.head ?? (await source.getReview(id)).change.head)
+        case 'review.preview': {
+          const head = args.head ?? (await source.getReview(id)).change.head
+          return previewOf(args.verdict ?? 'approve', head)
+        }
         case 'review.verdict': {
-          const landing = landingOf(sample)
-          if (landing?.state === 'merged') return { message: `Already merged into ${INTO} at ${REFRESHED.slice(0, 7)}.` }
+          if (landingOf(sample)?.state === 'merged') return { message: ALREADY_MERGED }
           if (args.verdict !== 'approve-merge') return { message: NOTHING_SENT }
           sample.yes ??= clock()
           return { message: REFRESHING }

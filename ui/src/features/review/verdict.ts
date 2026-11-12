@@ -214,27 +214,29 @@ export interface VerdictScreen {
  * reviewer has left is never closed.
  */
 export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<void> {
-  const leave = (kind: 'tada' | 'done') => {
+  const closeWith = (kind: 'tada' | 'done') => {
     screen.celebrate(kind, message)
     if (screen.here()) screen.close()
   }
-  if (verdict !== 'approve-merge') return leave('done')
-  if (screen.kind === 'pull') return leave('tada')
+
+  if (verdict !== 'approve-merge') return closeWith('done')
+  if (screen.kind === 'pull') return closeWith('tada')
   const landing = await screen.landing().catch(() => null)
-  if (landing?.state === 'merged') return leave('tada')
-  if (landing?.state !== 'refreshing') return leave('done')
+  if (landing?.state === 'merged') return closeWith('tada')
+  if (landing?.state !== 'refreshing') return closeWith('done')
   if (!screen.here()) return
-  let over = false
-  let stop: (() => void) | null = null
-  const heard = (now: ReviewLanding | null) => {
-    if (over || now?.state === 'refreshing') return
-    over = true
-    stop?.()
-    if (now?.state === 'merged' && screen.here()) {
-      screen.celebrate('tada', now.message ?? message)
-      screen.close()
-    }
+
+  let settled = false
+  let stopFollowing = () => {}
+  const hear = (now: ReviewLanding | null) => {
+    if (settled || now?.state === 'refreshing') return
+    settled = true
+    stopFollowing()
+    if (now?.state !== 'merged' || !screen.here()) return
+    screen.celebrate('tada', now.message ?? message)
+    screen.close()
   }
-  stop = screen.follow(heard)
-  if (over) stop()
+  stopFollowing = screen.follow(hear)
+  // `follow` tells how it lands at once, which can settle it before there is anything to stop.
+  if (settled) stopFollowing()
 }

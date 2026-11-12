@@ -53,7 +53,7 @@ export const startsByItself = (id: string): boolean => !id.startsWith('pr:')
 function heldStill(status: ReviewStatus, review: Review | null, kept: ReviewStatus | null): ReviewStatus {
   if (!status.landing || !review) return status
   const { head } = review.change
-  const own = [status.assessment, kept?.assessment].find((assessment) => assessment?.head === head)
+  const ownAssessment = [status.assessment, kept?.assessment].find((assessment) => assessment?.head === head)
   return {
     id: status.id,
     state: 'ready',
@@ -65,13 +65,13 @@ function heldStill(status: ReviewStatus, review: Review | null, kept: ReviewStat
     storyBy: kept?.storyBy ?? status.storyBy,
     ...(status.cursor ? { cursor: status.cursor } : {}),
     ...(status.notesAt != null ? { notesAt: status.notesAt } : {}),
-    ...(own ? { assessment: own } : {}),
+    ...(ownAssessment ? { assessment: ownAssessment } : {}),
     landing: status.landing,
   }
 }
 
 /** Why a change that lands, with no review kept of it, shows none: none is prepared for it any more. */
-const landedWithout = (landing: ReviewLanding) =>
+const whyNoReview = (landing: ReviewLanding) =>
   landing.state === 'merged' ? 'This change is merged. It has no review to show.' : 'This change is being brought up to date to merge. It has no review to show.'
 
 export function createReviewLoader({ id, scope, memory, command, sample, now = Date.now }: Options) {
@@ -189,9 +189,9 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         store.setState({ preparation, ...clock(preparation) })
         if (!opens(preparation)) {
           // One that lands with no review kept, and none under way, waits for none: none is prepared for it.
-          const without = preparation.landing && !underWay(preparation) ? landedWithout(preparation.landing) : null
-          const unfinished = preparation.state === 'failed' || without ? 'error' : 'preparing'
-          store.setState({ status: store.getState().review ? 'ready' : unfinished, error: without ?? preparation.error })
+          const noReview = preparation.landing && !underWay(preparation) ? whyNoReview(preparation.landing) : null
+          const unfinished = preparation.state === 'failed' || noReview ? 'error' : 'preparing'
+          store.setState({ status: store.getState().review ? 'ready' : unfinished, error: noReview ?? preparation.error })
           return
         }
         const opened = await command('review.get', { id })
@@ -317,7 +317,8 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
   }
   /** Keeps a status for the open review, only when something changed, so an open review does not draw again every second. */
   const keep = (status: ReviewStatus) => {
-    if (JSON.stringify(status) !== JSON.stringify(store.getState().preparation)) store.setState({ preparation: status, ...clock(status) })
+    if (JSON.stringify(status) === JSON.stringify(store.getState().preparation)) return
+    store.setState({ preparation: status, ...clock(status) })
   }
   /**
    * Asks the host now how the change lands, and keeps what it says for the open review: null when it says nothing. A
@@ -333,12 +334,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
   /** Hears how the change lands now, and again each time that changes, until the function it answers is called. */
   const follow = (heard: (landing: ReviewLanding | null) => void): (() => void) => {
     const landingOf = (state: LoadState) => state.preparation?.landing ?? null
-    let last = JSON.stringify(landingOf(store.getState()))
+    let told = JSON.stringify(landingOf(store.getState()))
     const stop = store.subscribe((state) => {
-      const said = JSON.stringify(landingOf(state))
-      if (said === last) return
-      last = said
-      heard(landingOf(state))
+      const landing = landingOf(state)
+      if (JSON.stringify(landing) === told) return
+      told = JSON.stringify(landing)
+      heard(landing)
     })
     heard(landingOf(store.getState()))
     return stop

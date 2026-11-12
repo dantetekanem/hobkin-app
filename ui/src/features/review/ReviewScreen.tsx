@@ -98,7 +98,13 @@ export function ReviewScreen() {
       return { entries: saved.notes, draft: saved.draft }
     }
     const landing = sampleLanding(id, live, sampleSource, windowNotes)
-    const source = live ? { command: commandsOnHost(home) } : isSamplePull(id) ? { command: sampleHost(id, sampleSource, windowNotes) } : landing ? { command: landing } : { sample: sampleSource }
+    const source = live
+      ? { command: commandsOnHost(home) }
+      : isSamplePull(id)
+        ? { command: sampleHost(id, sampleSource, windowNotes) }
+        : landing
+          ? { command: landing }
+          : { sample: sampleSource }
     return createReviewLoader({ id, scope, memory: reviewMemory, ...source })
   }, [reviewId, home, live])
 

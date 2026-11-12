@@ -35,10 +35,12 @@ const PRIMARY: Verdict = 'approve-merge'
 
 /** Where a change landed, in a line: "Merged into main at e44106a · 4:13 PM", with the day when it was not today. */
 function mergedWords({ into, sha, at }: ReviewLanding): string {
+  const where = `Merged${into ? ` into ${into}` : ''}${sha ? ` at ${sha.slice(0, 7)}` : ''}`
   const when = timeOf(at)
-  const time = when == null ? null : new Date(when).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const day = when == null ? null : dayLabel(when, Date.now())
-  return [`Merged${into ? ` into ${into}` : ''}${sha ? ` at ${sha.slice(0, 7)}` : ''}`, time && (day === 'Today' ? time : `${day}, ${time}`)].filter(Boolean).join(' · ')
+  if (when == null) return where
+  const time = new Date(when).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const day = dayLabel(when, Date.now())
+  return `${where} · ${day === 'Today' ? time : `${day}, ${time}`}`
 }
 
 /**
@@ -173,6 +175,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, statu
             const waiting = armed === choice.verdict
             const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
             const primary = choice.verdict === PRIMARY
+            const secondClick = choice.verdict === 'approve-merge' && moved ? 'Click again to merge it as it is now' : 'Click again to confirm'
             return (
               <Button
                 key={choice.verdict}
@@ -197,7 +200,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, statu
               >
                 {waiting ? (
                   <>
-                    <span className="truncate">{choice.verdict === 'approve-merge' && moved ? 'Click again to merge it as it is now' : 'Click again to confirm'}</span>
+                    <span className="truncate">{secondClick}</span>
                     <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
                   </>
                 ) : working ? (

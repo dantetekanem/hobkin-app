@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { AssessmentStatus } from '../../shared/review/assessment.ts'
 import { IDLE_STATUS, type OpenedReview, type ReviewLanding, type ReviewStatus } from '../../shared/review/status.ts'
 import type { Review } from '../../shared/review/types.ts'
-import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewLoader, type ReviewCommands } from '../src/features/review/loader.ts'
 import { failureOf, underWay } from '../src/features/review/preparing-model.ts'
 import { ReviewLoad } from '../src/features/review/ReviewLoad.ts'
@@ -261,13 +260,22 @@ test('nothing pops up later for a review the reviewer left, or for a change that
   assert.equal(goneRefreshing.following(), false)
 })
 
-test("the reviewer's own approve and merge, through the open review: it stays open while an agent brings it up to date, and closes with Merged! when it merged", async () => {
-  for (const conflicts of [true, false]) {
-    const host = hostOf({ conflicts })
-    await host.loader.load()
-    const seen: string[] = []
-    let here = true
-    const landed = (verdict: Verdict, message: string) =>
+/**
+ * An open review of the finished change, wired as the window wires it: its verdict choices over the host, and what the
+ * review does once a verdict has landed, with everything that happened to the review.
+ */
+async function openReview({ conflicts = false } = {}) {
+  const host = hostOf({ conflicts })
+  await host.loader.load()
+  const seen: string[] = []
+  let here = true
+  const choices = createVerdictChoices({
+    id: ID,
+    head: REVIEWED,
+    command: host.command,
+    saveNotes: async () => {},
+    current: () => true,
+    landed: (verdict, message) =>
       afterVerdict(verdict, message, {
         kind: 'change',
         here: () => here,
@@ -275,48 +283,63 @@ test("the reviewer's own approve and merge, through the open review: it stays op
         celebrate: (kind) => void seen.push(kind),
         landing: host.loader.look,
         follow: host.loader.follow,
-      })
-    const choices = createVerdictChoices({ id: ID, head: REVIEWED, command: host.command, saveNotes: async () => {}, current: () => true, landed })
-    await choices.press('approve-merge')
-    await choices.press('approve-merge')
-    assert.equal(host.asked('review.verdict'), 1)
-    if (!conflicts) {
-      assert.deepEqual(seen, ['tada', 'close'], 'merged at once')
+      }),
+  })
+  return {
+    host,
+    choices,
+    seen,
+    /** Both clicks of Approve and merge. */
+    approveAndMerge: async () => {
+      await choices.press('approve-merge')
+      await choices.press('approve-merge')
+    },
+    /** The reviewer leaves the review, which closes it. */
+    leave: () => {
+      here = false
       host.loader.dispose()
-      continue
-    }
-    // Still open, and the yes is done: the panel says it is being brought up to date.
-    assert.deepEqual(seen, [])
-    assert.equal(choices.getState().busy, false)
-    assert.equal(host.loader.getState().preparation?.landing?.state, 'refreshing')
-    host.say({ head: REFRESHED })
-    await ticks(host.loader, 2)
-    assert.deepEqual(seen, [])
-    host.say({ landing: merged })
-    await ticks(host.loader)
-    assert.deepEqual(seen, ['tada', 'close'])
-
-    // Once more, and the reviewer leaves while it is brought up to date: its merge later shows nothing.
-    const again = hostOf({ conflicts })
-    await again.loader.load()
-    const quiet: string[] = []
-    const away = createVerdictChoices({
-      id: ID,
-      head: REVIEWED,
-      command: again.command,
-      saveNotes: async () => {},
-      current: () => true,
-      landed: (verdict, message) => afterVerdict(verdict, message, { kind: 'change', here: () => here, close: () => void quiet.push('close'), celebrate: (kind) => void quiet.push(kind), landing: again.loader.look, follow: again.loader.follow }),
-    })
-    await away.press('approve-merge')
-    await away.press('approve-merge')
-    here = false
-    again.loader.dispose()
-    again.say({ landing: merged })
-    await ticks(again.loader, 2)
-    assert.deepEqual(quiet, [])
-    host.loader.dispose()
+    },
   }
+}
+
+test("the reviewer's own approve and merge of a change that merges at once closes the review with Merged!", async () => {
+  const review = await openReview()
+
+  await review.approveAndMerge()
+
+  assert.equal(review.host.asked('review.verdict'), 1)
+  assert.deepEqual(review.seen, ['tada', 'close'])
+  review.host.loader.dispose()
+})
+
+test("the reviewer's own approve and merge of a change an agent brings up to date first: the review stays open, and closes with Merged! once it merged", async () => {
+  const review = await openReview({ conflicts: true })
+
+  await review.approveAndMerge()
+
+  // The yes is done, and the review stays open while its branch is brought up to date and moves.
+  assert.deepEqual(review.seen, [])
+  assert.equal(review.choices.getState().busy, false)
+  assert.equal(review.host.loader.getState().preparation?.landing?.state, 'refreshing')
+  review.host.say({ head: REFRESHED })
+  await ticks(review.host.loader, 2)
+  assert.deepEqual(review.seen, [])
+
+  review.host.say({ landing: merged })
+  await ticks(review.host.loader)
+  assert.deepEqual(review.seen, ['tada', 'close'])
+  review.host.loader.dispose()
+})
+
+test('a reviewer who left while an agent brings the change up to date sees nothing when it merges later', async () => {
+  const review = await openReview({ conflicts: true })
+  await review.approveAndMerge()
+
+  review.leave()
+  review.host.say({ landing: merged })
+  await ticks(review.host.loader, 2)
+
+  assert.deepEqual(review.seen, [])
 })
 
 test('a host that no longer lists a finished change says so plainly: it was merged or closed, which is no failure', async () => {
