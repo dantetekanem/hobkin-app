@@ -4,12 +4,14 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 
+// A level names the tier of each kind of run (`tiers.mjs`): a look reads, and a do writes what gets merged, so a do is
+// never on the fast tier. The efforts are what a run takes while its tier has no model of its own.
 export const levels = {
-  // Super critical work goes ahead of critical, on the same model and effort, under limits of its own. Each run is the dearest there is, so its looks stay this far apart at any priority.
-  max: { rank: -1, priority: 'P0', fewestHoursBetweenLooks: 12, lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
-  critical: { rank: 0, priority: 'P0', lookEffort: 'high', doEffort: 'xhigh', model: 'main' },
-  important: { rank: 1, priority: 'P1', lookEffort: 'medium', doEffort: 'high', model: 'main' },
-  casual: { rank: 2, priority: 'P2', lookEffort: 'low', doEffort: 'medium', model: 'background' },
+  // Super critical work goes ahead of critical, under limits of its own. Each run is the dearest there is, so its looks stay this far apart at any priority.
+  max: { rank: -1, priority: 'P0', fewestHoursBetweenLooks: 12, lookEffort: 'high', doEffort: 'xhigh', lookTier: 'max', doTier: 'max' },
+  critical: { rank: 0, priority: 'P0', lookEffort: 'high', doEffort: 'xhigh', lookTier: 'high', doTier: 'high' },
+  important: { rank: 1, priority: 'P1', lookEffort: 'medium', doEffort: 'high', lookTier: 'mid', doTier: 'high' },
+  casual: { rank: 2, priority: 'P2', lookEffort: 'low', doEffort: 'medium', lookTier: 'fast', doTier: 'mid' },
 };
 export const grades = ['P0', 'P1', 'P2', 'P3'];
 // Each look takes one of seven lenses in turn, so these bring every lens round in 7 hours at P0, a week at P1, three weeks at P2 and seven weeks at P3.

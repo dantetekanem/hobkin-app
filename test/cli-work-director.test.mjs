@@ -1162,7 +1162,29 @@ test('level sets model and effort', async t => {
   const run = (slug, purpose) => h.calls.find(call => call.purpose === purpose && h.work(call).project.slug === slug);
   assert.deepEqual([run('billing', 'work-do').model, run('billing', 'work-do').effort], ['fixture/main', 'xhigh']);
   assert.deepEqual([run('billing', 'work-look').effort], ['high']);
-  assert.deepEqual([run('site', 'work-do').model, run('site', 'work-do').effort], ['fixture/background', 'medium']);
+  // A casual project is looked at on the checks model, and its code is written on the chat model: never on the checks model.
+  assert.deepEqual([run('site', 'work-look').model, run('site', 'work-look').effort], ['fixture/background', 'low']);
+  assert.deepEqual([run('site', 'work-do').model, run('site', 'work-do').effort], ['fixture/main', 'medium']);
+});
+
+test('a level names the tier of each kind of run, and a tier the user set brings its own model and effort', async t => {
+  const h = fixture(t);
+  h.agent = doesItsJob(h);
+  h.director.config = { ...config, tiers: { high: { model: 'fixture/strong', effort: 'high' }, fast: { model: 'fixture/quick', effort: 'minimal' } } };
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'billing'), 'critical');
+  chooseProject(h.root, repository(h.base, 'site'), 'casual');
+  setProjectPriority(h.root, 'site', 'P0');
+  fileItem(h.root, 'billing', item);
+  fileItem(h.root, 'site', item);
+  await h.ticks(8);
+
+  const run = (slug, purpose) => h.calls.find(call => call.purpose === purpose && h.work(call).project.slug === slug);
+  // Critical: look and do on the high tier. Casual: look on fast, do on mid, which follows the chat model.
+  assert.deepEqual([run('billing', 'work-do').model, run('billing', 'work-do').effort], ['fixture/strong', 'high']);
+  assert.deepEqual([run('billing', 'work-look').model, run('billing', 'work-look').effort], ['fixture/strong', 'high']);
+  assert.deepEqual([run('site', 'work-look').model, run('site', 'work-look').effort], ['fixture/quick', 'minimal']);
+  assert.deepEqual([run('site', 'work-do').model, run('site', 'work-do').effort], ['fixture/main', 'medium']);
 });
 
 test('a run lands the way its project says, whatever its level, and stays a local branch until the project says otherwise', async t => {

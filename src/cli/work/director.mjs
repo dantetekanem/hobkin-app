@@ -5,11 +5,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
+import { loadConfig } from '../config.mjs';
 import { buildContext } from '../context.mjs';
 import { recordEvent } from '../events.mjs';
 import { runHarness as defaultRunHarness } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
+import { tierBinding } from '../tiers.mjs';
 import { budgetFor, fitsDay, fitsHour, hourShareOf, withStart } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
@@ -443,8 +445,20 @@ export class WorkDirector {
     this.concludeDiscovery({ status: 'unfinished', folder, reason: 'The token limit stopped it.', nextAt: null });
   }
 
-  modelFor(level) {
-    return this.config[levels[level].model].model;
+  /**
+   * The model and effort of a look or a do: the tier the project's level gives that kind of run, read as the tiers
+   * stand now. A tier with a model of its own brings its effort too. One that follows the chat or the checks model
+   * keeps the effort the level always gave.
+   */
+  bindingFor(level, lane) {
+    let config = this.config;
+    try {
+      config = loadConfig(this.root);
+    } catch {
+      // No configuration on disk to read just now: the tiers are as this director was given them.
+    }
+    const { model, effort, follows } = tierBinding(config, levels[level][`${lane}Tier`]);
+    return { model, effort: follows ? levels[level][`${lane}Effort`] : effort };
   }
 
   command(subcommand) {
@@ -687,8 +701,7 @@ export class WorkDirector {
       cwd: tree,
       level,
       ...cost,
-      model: this.modelFor(level),
-      effort: levels[level].lookEffort,
+      ...this.bindingFor(level, 'look'),
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: entry => this.place(entry, { project, tree, writes: looksThatWrite.includes(focus) }),
       work: place => ({ lane: 'look', focus, tokens, place, ...ideas, ...this.describeLook(project, focus) }),
@@ -735,8 +748,7 @@ export class WorkDirector {
       cwd: tree,
       level,
       ...cost,
-      model: this.modelFor(level),
-      effort: levels[level].doEffort,
+      ...this.bindingFor(level, 'do'),
       instructions: `Finish this item on ${project.name}: ${item.title}`,
       prepare: entry => this.place(entry, { project, tree, branch, resume, writes: item.kind === 'pr-fix' }),
       work: place => ({
