@@ -1,7 +1,7 @@
 import type { CommandArgs, ExecutionTarget, StartupTarget, StartupForceReceipt, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import type { StopControlTarget } from '#shared/protocol/snapshot.ts'
-import type { ChangeChoice, FinishedChange, FinishedGroup, Grade, PrMode } from '#shared/protocol/work.ts'
+import type { ChangeChoice, FinishedChange, FinishedGroup, Grade, IssuePickup, PrMode } from '#shared/protocol/work.ts'
 
 /**
  * What the Work screen asks for. Each is one of hobkin's own work actions, carried out by the host
@@ -16,13 +16,16 @@ export type WorkAction =
   | { do: 'queue'; key: string; action: 'run' | 'now' | 'skip' | 'back' }
   | { do: 'priority'; slug: string; priority: Grade }
   | { do: 'prs'; slug: string; prs: PrMode }
+  | { do: 'issues'; slug: string; issues: IssuePickup }
+  /** Add to queue on the GitHub page: hobkin files the issue on the project whose repository it is in. */
+  | { do: 'issue'; repo: string; number: number }
   | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
   | { do: 'agents'; agents: number }
   | { do: 'change'; change: FinishedChange; choice: HobkinChoice; note?: string }
   | { do: 'group'; group: FinishedGroup }
   | { do: 'stop'; run: string; how: 'for-now' | 'not-approved' }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.change' | 'work.group' | 'agent.stop'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.issue' | 'work.proposal' | 'work.agents' | 'work.change' | 'work.group' | 'agent.stop'
 
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
@@ -208,6 +211,10 @@ export function commandFor(action: WorkAction): WorkCall {
       return { name: 'work.project', args: { slug: action.slug, priority: action.priority } }
     case 'prs':
       return { name: 'work.project', args: { slug: action.slug, prs: action.prs } }
+    case 'issues':
+      return { name: 'work.project', args: { slug: action.slug, issues: action.issues } }
+    case 'issue':
+      return { name: 'work.issue', args: { repo: action.repo, number: action.number } }
     case 'proposal':
       return { name: 'work.proposal', args: { slug: action.slug, answer: action.answer } }
     case 'agents':

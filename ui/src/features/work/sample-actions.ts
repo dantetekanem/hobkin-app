@@ -17,6 +17,9 @@ const MOVED_WHY = 'moved since it was offered, so nothing merged. It needs readi
 /** Start now with no host: no agent runs on sample data. */
 const NOTHING_STARTS = 'This is sample data, so nothing starts here. With a host, hobkin starts it at once, as one extra worker when none is free.'
 
+/** Add to queue with no host: the sample's issues belong to no project hobkin works on. */
+const NOTHING_ADDED = 'This is sample data, so nothing was added. With a host, hobkin files the issue on the project whose repository it is in, first in the queue.'
+
 /** What hobkin says once a card's choice is carried out (`src/cli/work/controls.mjs`). */
 function saidOf({ title, project }: FinishedChange, choice: HobkinChoice): string {
   const named = `"${title}" on ${project}`
@@ -123,6 +126,10 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
       return { state: { ...state, agents: action.agents, agentsAllowed: action.agents }, message: '' }
     case 'prs':
       return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, prMode: action.prs } : project)) }, message: '' }
+    case 'issues':
+      return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, issues: action.issues } : project)) }, message: '' }
+    case 'issue':
+      return { refused: NOTHING_ADDED }
     case 'change': {
       const { change, choice } = action
       if (choice === 'merge' && change.key === MOVED) return { refused: `"${change.title}" ${MOVED_WHY}` }

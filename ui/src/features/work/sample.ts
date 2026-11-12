@@ -177,9 +177,9 @@ const NEEDS: FinishedChange[] = [
     head: sha('c0ffee12'),
     pr: null,
     about: 'The cart lived in three files that each kept part of its state. It is one module now, with one place that writes it.',
-    // A long proof as hobkin sends one: its first 260 characters, cut inside a word (`LONGEST_PROOF` in its `src/cli/work/reads.mjs`).
+    // A long proof, which hobkin sends whole up to 2000 characters (`LONGEST_PROOF` in its `src/cli/work/reads.mjs`): two lines show, and all of it on Show all.
     proof:
-      'pnpm test: 214 pass, with new tests for adding, removing and merging cart lines in the one module. pnpm typecheck passes. Checkout was run by hand with a guest and a signed-in customer: the totals, the shipping and the saved cart matched before and after the m',
+      'pnpm test: 214 pass, with new tests for adding, removing and merging cart lines in the one module. pnpm typecheck passes. Checkout was run by hand with a guest and a signed-in customer: the totals, the shipping and the saved cart matched before and after the move. The three files that each kept part of the cart are gone, and nothing imports them any more. A cart saved by the old code loads in the new module, checked against a copy of 120 carts from last week, with 0 differences.',
     yes: 'It conflicts with the default branch, so it cannot merge until an agent rebases it.',
     reason: 'It conflicts with the default branch.',
     safety: { grade: 'safe', rating: 'B', stale: false },
@@ -221,6 +221,7 @@ function projects(now: number): WorkProject[] {
   const project = (rest: Partial<WorkProject> & Pick<WorkProject, 'slug' | 'priority' | 'prMode' | 'level'>): WorkProject => ({
     name: rest.slug,
     state: 'chosen',
+    issues: 'off',
     paused: false,
     open: 0,
     prs: 0,
@@ -232,7 +233,7 @@ function projects(now: number): WorkProject[] {
     ...rest,
   })
   return [
-    project({ slug: 'storefront', priority: 'P0', prMode: 'draft', level: 'critical', open: 4, prs: 1, branches: 2, unmerged: 3, nextLookAt: at(0.7) }),
+    project({ slug: 'storefront', priority: 'P0', prMode: 'draft', issues: 'labeled', level: 'critical', open: 4, prs: 1, branches: 2, unmerged: 3, nextLookAt: at(0.7) }),
     project({ slug: 'billing-api', priority: 'P1', prMode: 'off', level: 'important', open: 7, branches: 2, left: 1, unmerged: 2, nextLookAt: at(5) }),
     project({ slug: 'docs-site', priority: 'P2', prMode: 'published', level: 'casual', open: 2, prs: 1, nextLookAt: at(50) }),
     // What the look for projects found and the user has not answered, and one they left alone.

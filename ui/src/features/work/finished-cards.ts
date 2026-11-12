@@ -8,21 +8,15 @@ export function needsFirst(groups: readonly FinishedGroup[]): FinishedGroup[] {
 }
 
 /**
- * How much of a proof hobkin sends a card (`LONGEST_PROOF` in its `src/cli/work/reads.mjs`). It cuts the proof there,
- * inside a word, and says nothing, so a line this long that does not end a sentence was cut.
+ * Where a hobkin from before 2026-11-12 cut a proof: at 260 characters, inside a word, saying nothing, so a proof
+ * exactly this long that does not end a sentence was cut. hobkin now sends a proof whole up to 2000 characters, and
+ * hobkin and the host cut a longer line at a word themselves and end it with "…".
  */
-const HOBKIN_PROOF_MOST = 260
-const ENDS_A_SENTENCE = /[.!?)\]"'`]$/
+const OLDER_HOBKIN_PROOF_CUT = 260
+const ENDS_A_SENTENCE = /[.!?)\]"'`…]$/
 
-/**
- * A card's line as it should read when it arrived cut inside a word: ended at its last whole word, with an ellipsis.
- * The host's own cut ends in "…", and hobkin's cuts a proof at 260 characters without one. A line that was not cut
- * stays as it is.
- */
+/** A card's line as it should read: one an older hobkin cut inside a word ends at its last whole word, with an ellipsis. Any other stays as it came. */
 export function endAtWord(text: string): string {
-  const flagged = text.endsWith('…')
-  const cut = flagged || (text.length >= HOBKIN_PROOF_MOST && !ENDS_A_SENTENCE.test(text))
-  if (!cut) return text
-  const kept = (flagged ? text.slice(0, -1) : text).replace(/\s*\S*$/, '').replace(/[\s,;:/–-]+$/, '')
-  return `${kept}…`
+  if (text.length !== OLDER_HOBKIN_PROOF_CUT || ENDS_A_SENTENCE.test(text)) return text
+  return `${text.replace(/\s*\S*$/, '').replace(/[\s,;:/–-]+$/, '')}…`
 }

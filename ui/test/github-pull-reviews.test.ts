@@ -63,7 +63,19 @@ test('review requested, your pull requests, and the others reviewed by AI, each 
   const [cached] = sections.reviewed
   assert.deepEqual([cached!.title, cached!.repo, cached!.number, cached!.pull], ['Cache the session lookups', 'acme/web', 9, null])
   assert.deepEqual(cached!.size, { added: 64, removed: 12, files: 3 }, 'what the review read: lines added and removed, and files')
-  assert.equal(sections.requested[1]!.size, null, 'a pull request no review has read has no size yet')
+  assert.equal(sections.requested[1]!.size, null, 'a pull request that neither GitHub nor a review has counted has no size')
+})
+
+test("a pull request GitHub lists shows GitHub's own count of its lines and files, newer than what its review read", () => {
+  const request = { kind: 'pull' as const, project: 'acme/web', number: 9, title: 'Cache the session lookups', base: HEAD, head: HEAD, files: 3, added: 64, removed: 12 }
+  const rows = rowsOf({ reviews: [review('pr:acme/web/9', { assessment: { state: 'ready', head: HEAD, request } })] })
+  const counted = { ...pull('acme/web', 9), additions: 70, deletions: 15, changedFiles: 4 }
+
+  const sections = pullSections({ reviews: [counted], pulls: [{ ...pull('acme/api', 3), additions: 2, deletions: 0, changedFiles: 1 }] }, rows)
+
+  assert.deepEqual(sections.requested[0]!.size, { added: 70, removed: 15, files: 4 })
+  assert.deepEqual(sections.mine[0]!.size, { added: 2, removed: 0, files: 1 }, 'before any review has read it')
+  assert.deepEqual(pullSections({ reviews: [pull('acme/web', 9)], pulls: [] }, rows).requested[0]!.size, { added: 64, removed: 12, files: 3 }, 'from a host that does not send the count, the review says it')
 })
 
 test('the sample shows every state the page has: running, none, ready, failed, and two that left the lists', () => {

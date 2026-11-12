@@ -27,7 +27,7 @@ export interface PullEntry {
   /** `owner/repo` */
   repo: string
   number: number | null
-  /** What its AI review read: lines added and removed, and files. Null until a review has read it. */
+  /** Lines added and removed, and files: GitHub's count for one GitHub lists, else what its AI review read. Null while neither has said. */
   size: { added: number; removed: number; files: number } | null
 }
 
@@ -58,6 +58,11 @@ function sizeOf(row: ReviewRow | undefined): PullEntry['size'] {
   return request ? { added: request.added, removed: request.removed, files: request.files } : null
 }
 
+/** GitHub's own count, for the pull request as it is now. A host older than the count does not send it. */
+function countedBy({ additions, deletions, changedFiles }: GitHubPull): PullEntry['size'] {
+  return additions === undefined || deletions === undefined || changedFiles === undefined ? null : { added: additions, removed: deletions, files: changedFiles }
+}
+
 /** The page's three lists. `rows` are every review that ran, newest first, as `rowsOf` gives them; only pull requests' count. */
 export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows: readonly ReviewRow[], most = RECENT_MOST): PullSections {
   const pulls = rows.filter(({ item }) => item.kind === 'pull')
@@ -68,7 +73,7 @@ export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows
     const id = pullReviewId(pull.url)
     const row = id ? byId.get(id) : undefined
     if (id) listed.add(id)
-    return { id, pull, ai: aiOf(row), title: pull.title, repo: pull.repo, number: pull.number, size: sizeOf(row) }
+    return { id, pull, ai: aiOf(row), title: pull.title, repo: pull.repo, number: pull.number, size: countedBy(pull) ?? sizeOf(row) }
   }
   const unlisted = (pull: GitHubPull) => {
     const id = pullReviewId(pull.url)

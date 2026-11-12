@@ -327,7 +327,7 @@ function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: '
       key: 'issues',
       label: 'Your issues',
       items: github.issues,
-      row: (issue, order) => <IssueRow key={`issues:${issue.url}`} issue={issue} now={now} variants={variants} order={order} />,
+      row: (issue, order) => <IssueRow key={`issues:${issue.url}`} issue={issue} live={live} now={now} variants={variants} order={order} />,
       empty: 'No open issue is assigned to you or was opened by you.',
       more: github.more.issues,
     })

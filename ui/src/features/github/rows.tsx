@@ -1,4 +1,4 @@
-import { Check, CircleDashed, CircleDot, Clock, GitPullRequest, GitPullRequestDraft, Minus, PenLine, Sparkles, UserRound, X, type LucideIcon } from 'lucide-react'
+import { Check, CircleDashed, CircleDot, Clock, GitPullRequest, GitPullRequestDraft, ListPlus, Minus, PenLine, Sparkles, UserRound, X, type LucideIcon } from 'lucide-react'
 import { motion, type Variants } from 'motion/react'
 import { createContext, useContext, useState, type MouseEvent, type ReactNode } from 'react'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
@@ -9,7 +9,8 @@ import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
-import { LevelCounts, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
+import { LevelCounts, ReviewBadge, ReviewProgress, SaidLine } from '@/features/work/parts.tsx'
+import { runWork, useWorkUi } from '@/features/work/store.ts'
 import { runCommand, type ChecksState, type GitHubIssue, type ReviewState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { openOnGitHub, openPullRequestReview } from './open.ts'
@@ -113,7 +114,7 @@ function Labels({ labels }: { labels: string[] }) {
   )
 }
 
-/** Lines added and removed, and files, as the AI review read them. */
+/** Lines added and removed, and files, as GitHub counts them, or as the AI review read them for one GitHub no longer lists. */
 function Size({ size }: { size: NonNullable<PullEntry['size']> }) {
   return (
     <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 font-heading text-[12.5px] font-medium tabular-nums">
@@ -261,8 +262,11 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
   )
 }
 
-/** An issue, with why it is on the list: assigned to the user, opened by them, or both. It opens on github.com. */
-export function IssueRow({ issue, now, ...placed }: Placed & { issue: GitHubIssue; now: number }) {
+/**
+ * An issue, with why it is on the list: assigned to the user, opened by them, or both. It opens on github.com, and
+ * Add to queue on its right files it as work on the project whose repository it is in.
+ */
+export function IssueRow({ issue, live, now, ...placed }: Placed & { issue: GitHubIssue; live: boolean; now: number }) {
   const updated = Date.parse(issue.updatedAt)
   return (
     <Piece {...placed} className="relative">
@@ -285,8 +289,29 @@ export function IssueRow({ issue, now, ...placed }: Placed & { issue: GitHubIssu
             <Labels labels={issue.labels} />
           </p>
         </div>
+        <AddToQueue issue={issue} live={live} />
       </div>
     </Piece>
+  )
+}
+
+/**
+ * Add to queue: hobkin files the issue on the project whose repository it is in, first in the queue, and its answer
+ * stays on the row: added, already filed, or why not. The button waits while hobkin reads the issue.
+ */
+function AddToQueue({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+  const place = `issue:${issue.url}`
+  const busy = useWorkUi((state) => Boolean(state.busy[place]))
+  const said = useWorkUi((state) => state.said[place])
+
+  return (
+    <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
+      <Button variant="outline" data-stop="" disabled={busy} focusableWhenDisabled onClick={() => void runWork({ do: 'issue', repo: issue.repo, number: issue.number }, { live, place })}>
+        <ListPlus aria-hidden="true" />
+        {busy ? 'Adding…' : 'Add to queue'}
+      </Button>
+      {said ? <SaidLine tone={said.tone}>{said.text}</SaidLine> : null}
+    </div>
   )
 }
 

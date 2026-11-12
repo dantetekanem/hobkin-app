@@ -5,6 +5,7 @@ import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
+import type { IssuePickup } from '#shared/protocol/work.ts'
 import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { discoverableProjects, trackedProjects } from './projects.ts'
@@ -21,7 +22,7 @@ import { runWork, useWorkUi, type Said } from './store.ts'
 const tokens = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
 /** What Start now does, in hobkin's terms (`pickNow` in its `src/cli/work/store.mjs`). */
-const START_NOW_TITLE = 'Starts it at once, as one extra worker when none is free. A pause, the budget, any stop and the gap between starts still hold it.'
+const START_NOW_TITLE = 'Starts it at once, as one extra worker when none is free, without waiting out the gap between starts. A pause, the budget and any stop still hold it.'
 
 interface Shared {
   live: boolean
@@ -192,6 +193,13 @@ const LANDINGS: readonly { value: PrMode; label: string }[] = [
   { value: 'published', label: 'PR' },
 ]
 
+/** Which of a project's open GitHub issues hobkin files as work by itself, every 15 minutes (`issueModes` in hobkin). */
+const PICKUPS: readonly { value: IssuePickup; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'labeled', label: 'Labeled hobkin' },
+  { value: 'all', label: 'All' },
+]
+
 const plural = (amount: number, one: string, many = `${one}s`) => `${amount} ${amount === 1 ? one : many}`
 
 /** What a project has going, as the terminal's Work tab says it (`projectStatus` in hobkin's `src/cli/ui.mjs`). */
@@ -339,6 +347,17 @@ function ProjectItem({ project, live, now, variants, order }: { project: WorkPro
               options={LANDINGS}
               disabled={busy}
               onChoose={(prs) => void runWork({ do: 'prs', slug: project.slug, prs }, place)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="eyebrow">Pick up issues</span>
+            <Segmented
+              label={`Which open GitHub issues ${project.name} files as work by itself`}
+              name={`issues-${project.slug}`}
+              value={project.issues ?? 'off'}
+              options={PICKUPS}
+              disabled={busy}
+              onChoose={(issues) => void runWork({ do: 'issues', slug: project.slug, issues }, place)}
             />
           </div>
         </div>
