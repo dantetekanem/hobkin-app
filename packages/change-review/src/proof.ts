@@ -38,6 +38,8 @@ export interface RunbookOverride {
 }
 
 const SCRIPT_FILES = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx']
+/** The endings of a JavaScript or TypeScript test file. A fixture or helper beside the tests is not one, and running it may never end. */
+const SCRIPT_TEST_FILES = SCRIPT_FILES.flatMap((ending) => [`.test${ending}`, `.spec${ending}`, `_test${ending}`, `-test${ending}`])
 
 const isFolder = (path: string) => {
   try {
@@ -94,9 +96,9 @@ function packageRunbook(cwd: string): Runbook | null {
   const dependencies = { ...object(pkg.dependencies), ...object(pkg.devDependencies) }
   const bin = (name: string) => join(cwd, 'node_modules', '.bin', name)
   // The node that runs this package runs node --test too: an app opened from the Finder may have no node on PATH.
-  if (/\bnode\b[^&|;]*\s--test\b/.test(script)) return runbook([process.execPath, '--test'], SCRIPT_FILES, 'the test script in package.json runs node --test')
-  const vitest = existsSync(bin('vitest')) ? runbook([bin('vitest'), 'run'], SCRIPT_FILES, 'vitest, from package.json') : null
-  const jest = existsSync(bin('jest')) ? runbook([bin('jest'), '--runTestsByPath'], SCRIPT_FILES, 'jest, from package.json') : null
+  if (/\bnode\b[^&|;]*\s--test\b/.test(script)) return runbook([process.execPath, '--test'], SCRIPT_TEST_FILES, 'the test script in package.json runs node --test')
+  const vitest = existsSync(bin('vitest')) ? runbook([bin('vitest'), 'run'], SCRIPT_TEST_FILES, 'vitest, from package.json') : null
+  const jest = existsSync(bin('jest')) ? runbook([bin('jest'), '--runTestsByPath'], SCRIPT_TEST_FILES, 'jest, from package.json') : null
   if (/\bvitest\b/.test(script) && vitest) return vitest
   if (/\bjest\b/.test(script) && jest) return jest
   if ('vitest' in dependencies && vitest) return vitest
@@ -157,6 +159,16 @@ function conventionNames(path: string): string[] {
   return [...new Set(names)]
 }
 
+/** Whether a script's text imports a file: a module path that ends with the file's name, with or without its ending. */
+function importsFile(text: string | null, path: string): boolean {
+  if (text === null) return false
+  const ending = extname(path)
+  const parts = path.slice(0, path.length - ending.length).split('/')
+  // An index file is imported by its folder's name.
+  const name = parts.at(-1) === 'index' && parts.length > 1 ? parts.at(-2)! : parts.at(-1)!
+  return new RegExp(`['"][^'"\\n]*\\b${escape(name)}(?:/index)?(?:\\.[cm]?[jt]sx?)?['"]`).test(text)
+}
+
 /**
  * The test files that may prove a node: the tests the scan links to it, the test files this diff changed that name
  * it, and the files named after its source file. Only files that exist are kept, the node's own file never.
@@ -184,7 +196,13 @@ export async function candidateTests({
     if (!said.includes(why)) reasons.set(path, [...said, why])
   }
   const anchor = scan.anchors.find((item) => item.id === node.id) ?? scan.anchors.find((item) => item.path === node.path && item.symbol === node.symbol)
-  for (const test of anchor?.tests ?? []) add(test.path, `the scan links it to ${node.symbol}`)
+  // The scan links tests by name, and a common name reaches tests of other code. In JavaScript and TypeScript a test
+  // that runs the definition directly imports its file; one that goes through the life cycle is kept on its name.
+  const script = SCRIPT_FILES.includes(extname(node.path))
+  for (const test of anchor?.tests ?? []) {
+    if (script && !isLifecycleTest(test.path) && !importsFile(await read(test.path), node.path)) continue
+    add(test.path, `the scan links it to ${node.symbol}`)
+  }
   const name = shortName(node.symbol)
   const named = asWord(name)
   for (const path of changedTestPaths) {

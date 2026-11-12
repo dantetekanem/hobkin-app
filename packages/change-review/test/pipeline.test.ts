@@ -23,11 +23,13 @@ function project(t: TestContext) {
   write('package.json', JSON.stringify({ name: 'shop', type: 'module', scripts: { test: 'node --test' } }))
   write('src/total.js', 'export function total(a, b) {\n  return a + b\n}\n')
   write('src/config.js', 'export const PRECISION = 2\n')
+  write('src/money.ts', 'export type Money = number\n')
   git('add', '.')
   git('commit', '--quiet', '-m', 'Start')
   const base = git('rev-parse', 'HEAD')
   write('src/total.js', 'export function total(a, b) {\n  return Math.round(a + b)\n}\n')
   write('src/config.js', 'export const PRECISION = 3\n')
+  write('src/money.ts', 'export type Money = { cents: number }\n')
   write('test/total.test.js', "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\nimport { total } from '../src/total.js'\n\ntest('rounds the total', () => {\n  assert.equal(total(1.2, 1.4), 3)\n})\n")
   git('add', '.')
   git('commit', '--quiet', '-m', 'Round the total')
@@ -40,11 +42,16 @@ const scanOf = (): Scan => ({
     { id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [{ id: 'n3', symbol: 'rounds the total', path: 'test/total.test.js', line: 5 }] },
     { id: 'n2', symbol: 'PRECISION', kind: 'constant', path: 'src/config.js', startLine: 1, endLine: 1, changedLines: [1], language: 'javascript', status: 'modified', loadTime: true, tests: [] },
     { id: 'n3', symbol: 'rounds the total', kind: 'test', path: 'test/total.test.js', startLine: 5, endLine: 7, changedLines: [1, 2, 3, 4, 5, 6, 7], language: 'javascript', status: 'added', tests: [] },
+    // A type, erased before the code runs, and a helper inside a test file: neither is a unit to review on its own.
+    { id: 'n4', symbol: 'Money', kind: 'type', path: 'src/money.ts', startLine: 1, endLine: 1, changedLines: [1], language: 'javascript', status: 'modified', tests: [] },
+    { id: 'n5', symbol: 'cents', kind: 'function', path: 'test/total.test.js', startLine: 1, endLine: 1, changedLines: [1], language: 'javascript', status: 'added', tests: [] },
   ],
   nodes: {
     n1: { id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3 },
     n2: { id: 'n2', symbol: 'PRECISION', kind: 'constant', path: 'src/config.js', startLine: 1, endLine: 1 },
     n3: { id: 'n3', symbol: 'rounds the total', kind: 'test', path: 'test/total.test.js', startLine: 5, endLine: 7 },
+    n4: { id: 'n4', symbol: 'Money', kind: 'type', path: 'src/money.ts', startLine: 1, endLine: 1 },
+    n5: { id: 'n5', symbol: 'cents', kind: 'function', path: 'test/total.test.js', startLine: 1, endLine: 1 },
   },
   edges: [],
   dangling: [],
@@ -92,7 +99,9 @@ test('the blind check runs once and never lowers', async (t) => {
   assert.deepEqual(calls, { review: 1, checker: 1 }, 'one careful pass and one blind check')
   // The test that sees the rounding is not a life-cycle test, so total stays high: no argument lowers missing proof.
   assert.ok(result.rejected.some((entry) => entry.event.node === 'n1' && /rule 4/.test(entry.reason)))
-  assert.deepEqual(levelsOf(result.units), { n1: 'high', n2: 'high' }, 'the checker lowered nothing and raised the constant one step')
+  assert.deepEqual(levelsOf(result.units), { n1: 'high', n2: 'high', n4: 'safe' }, 'the checker lowered nothing and raised the constant one step')
+  assert.equal(result.graph.nodes.find((node) => node.id === 'n5')?.kind, 'test', 'a helper in a test file is a test, never a unit')
+  assert.match(result.units.units.find((unit) => unit.nodes.includes('n4'))?.title ?? '', /changes a type, erased before the code runs/)
   assert.equal(result.blind.ran, true)
   assert.deepEqual(result.blind.actions.map((action) => action.answer).sort(), ['thin-evidence', 'told-badly'])
   assert.equal(result.storyBy, 'model')

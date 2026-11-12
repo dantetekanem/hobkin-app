@@ -326,6 +326,8 @@ export interface FloorExtras {
   unreferencedRemoval?: boolean
   /** Rule 2: a bucket from FOUNDATION section 6 whose checks all passed. */
   bucketChecksPassed?: boolean
+  /** Rule 2: a type and nothing else (a TypeScript type alias or interface): erased before the code runs, checked by the compiler. */
+  typeOnly?: boolean
   /** Rules 6 and 9: the schema change adds without constraining, rewriting or locking. */
   additiveSchema?: boolean
   /** Rule 3 applies to code that runs in a request, job or consumer. False for test helpers, scripts and build tooling. Default true. */

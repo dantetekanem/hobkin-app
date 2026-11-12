@@ -196,7 +196,7 @@ const PROVEN: Record<Proof, string> = {
   isolated: 'only an isolated test shows it',
   mocked: 'its test mocks it',
   none: 'no test shows it',
-  unknown: 'no test shows it',
+  unknown: 'its tests could not run',
   'not-applicable': '',
 }
 
@@ -210,10 +210,13 @@ function titleOf(node: ReviewNode): string {
   const condition = node.conditions.find((item) => item.added)
   if (node.hosts_condition) return `The new check on \`${condition?.name ?? 'a condition'}\` in ${name} runs for everyone`
   if (isSchema(node)) return `${name} changes the schema${node.extras?.additiveSchema ? ', only by adding' : ''}`
+  if (node.extras?.typeOnly) return `${name} ${node.change === 'added' ? 'is a new type' : node.change === 'removed' ? 'is a removed type' : 'changes a type'}, erased before the code runs`
   const facts = normalizedFacts(node)
   const proof = PROVEN[facts.proof.value as Proof] ?? 'no test shows it'
   const verb = node.change === 'removed' ? 'is removed' : node.change === 'added' ? `is new and ${BEHAVES[facts.effect.value as Effect] ?? 'changes behaviour'}` : (BEHAVES[facts.effect.value as Effect] ?? 'changes')
-  return `${name} ${verb}${AUDIENCE[facts.exposure.value as Exposure] ?? ''}${proof ? `, and ${proof}` : ''}`
+  // "changes what runs at load" already says when; "at load" again would say it twice.
+  const audience = facts.effect.value === 'load' && facts.exposure.value === 'at-load' ? '' : (AUDIENCE[facts.exposure.value as Exposure] ?? '')
+  return `${name} ${verb}${audience}${proof ? `, and ${proof}` : ''}`
 }
 
 function whereOf(node: ReviewNode, onPath: boolean, stop: number): string {

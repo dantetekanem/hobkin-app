@@ -97,3 +97,10 @@ describe('floor cases', () => {
     assert.deepEqual(input, copy)
   })
 })
+
+it('a type and nothing else is safe by rule 2: the compiler checks it, not a test', () => {
+  const result = floor({ effect: 'interface', proof: 'not-applicable', exposure: 'everyone', undo: 'rollback', typeOnly: true })
+  assert.equal(result.level, 'safe')
+  assert.equal(result.rule, 2)
+  assert.match(result.why, /a type only/)
+})

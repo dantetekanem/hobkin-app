@@ -34,6 +34,12 @@ test('the runbook is how this repository runs given test files, and none when no
   const commandOf = (dir: string) => detectRunbook(dir)?.command ?? null
 
   assert.deepEqual(commandOf(layout({ 'package.json': JSON.stringify({ scripts: { test: 'node --test "test/**/*.test.ts"' } }) })), [process.execPath, '--test'])
+  // A fixture under test/ is not a test: run as one, a server in it would never end.
+  const nodeBook = detectRunbook(layout({ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }) }))!
+  const runs = (path: string) => nodeBook.accepts.some((ending) => path.endsWith(ending))
+  assert.equal(runs('host/test/fixtures/mcp-server.mjs'), false)
+  assert.equal(runs('ui/test/home-model.test.ts'), true)
+  assert.equal(runs('test/cart.spec.js'), true)
   const vitest = layout({ 'package.json': JSON.stringify({ scripts: { test: 'vitest' } }), 'node_modules/.bin/vitest': '' })
   assert.deepEqual(commandOf(vitest), [join(vitest, 'node_modules/.bin/vitest'), 'run'])
   assert.equal(commandOf(layout({ 'package.json': JSON.stringify({ scripts: { test: 'vitest' } }) })), null, 'never installs a runner it does not find')
@@ -79,6 +85,26 @@ test('candidate tests: what the scan links, changed tests that name the symbol, 
     { path: 'test/rounding.test.ts', why: 'this diff changed it and it names total', lifecycle: false, changed: true },
     { path: 'test/models/cart_test.rb', why: 'named after app/models/cart.rb', lifecycle: false, changed: false },
   ])
+})
+
+test('a test the scan links only by name must import the definition’s file, unless it goes through the life cycle', async () => {
+  const files: Record<string, string> = {
+    'test/canvas.test.ts': "import { open } from '../src/canvas.ts'\nopen()",
+    'test/home.test.ts': "import { open } from '../src/home/model.ts'\nopen()",
+    'test/flow/app.test.ts': 'await app.open()',
+    'src/home/model.ts': '',
+  }
+  const linked = ['test/canvas.test.ts', 'test/home.test.ts', 'test/flow/app.test.ts'].map((path, index) => ({ id: `t${index}`, symbol: 'open', path, line: 1 }))
+  const scan = { anchors: [{ id: 'n1', tests: linked }] } as unknown as Scan
+  const found = await candidateTests({
+    node: { id: 'n1', symbol: 'open', path: 'src/home/model.ts' },
+    scan,
+    changedTestPaths: [],
+    isLifecycleTest: (path) => path.includes('/flow/'),
+    exists: (path) => path in files,
+    read: (path) => files[path] ?? null,
+  })
+  assert.deepEqual(found.map((candidate) => candidate.path).sort(), ['test/flow/app.test.ts', 'test/home.test.ts'])
 })
 
 // ───────────────────────── Mutations ─────────────────────────

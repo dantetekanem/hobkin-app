@@ -114,10 +114,13 @@ function filesToMap(result: Triage): Set<string> {
   return files
 }
 
-/** The kind of node a scan anchor makes: tests apart, then what takes effect at load, then definitions. */
-function kindOf(anchor: ScanAnchor): ReviewNode['kind'] {
-  if (anchor.kind === 'test') return 'test'
-  if (['constant', 'statement', 'declaration'].includes(anchor.kind) || anchor.loadTime) return 'general'
+/** A TypeScript type alias or interface: erased before the code runs, so the compiler checks it, not a test. */
+const isTypeOnly = (anchor: ScanAnchor) => ['type', 'interface', 'type_alias'].includes(anchor.kind) && /\.[cm]?tsx?$/.test(anchor.path)
+
+/** The kind of node a scan anchor makes: tests apart (with every helper in a test file), then types and what takes effect at load, then definitions. */
+function kindOf(anchor: ScanAnchor, inTests: boolean): ReviewNode['kind'] {
+  if (anchor.kind === 'test' || inTests) return 'test'
+  if (isTypeOnly(anchor) || ['constant', 'statement', 'declaration'].includes(anchor.kind) || anchor.loadTime) return 'general'
   return 'function'
 }
 
@@ -249,6 +252,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     return lines.get(key)!
   }
   const bucketOf = (path: string) => triage.buckets.find((bucket) => bucket.paths.includes(path))?.id
+  const testFiles = new Set(triage.buckets.filter((bucket) => bucket.kind === 'test').flatMap((bucket) => bucket.paths))
   const nodes: ReviewNode[] = []
   for (const anchor of scan.anchors.filter((item) => mapped.has(item.path))) {
     const derived = deriveFacts({
@@ -263,7 +267,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     const bucket = bucketOf(anchor.path)
     nodes.push({
       id: anchor.id,
-      kind: kindOf(anchor),
+      kind: kindOf(anchor, testFiles.has(anchor.path)),
       symbol: anchor.symbol,
       path: anchor.path,
       lines: [anchor.startLine, anchor.endLine],
@@ -272,7 +276,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       ...(anchor.language ? { language: anchor.language } : {}),
       entries: entriesOf(scan, anchor, config),
       facts: { ...derived.facts, proof: { value: 'unknown', evidence: 'tests have not run yet' } },
-      extras: derived.extras,
+      extras: isTypeOnly(anchor) ? { ...derived.extras, typeOnly: true } : derived.extras,
       conditions: derived.conditions,
       hosts_condition: derived.hosts_condition,
       runs: [],

@@ -15,6 +15,7 @@ export function floor(input: FloorInput): Floor {
   if (effect === 'text') return row(2, 'safe', 'only comments, whitespace or translations changed.')
   if (input.unreferencedRemoval) return row(2, 'safe', 'the removal is not referred to by anything that remains.')
   if (input.bucketChecksPassed) return row(2, 'safe', 'the checks for this kind of change all passed.')
+  if (input.typeOnly) return row(2, 'safe', 'a type only: it is erased before the code runs, and the compiler checks it, not a test.')
   if (MISSING_PROOF.has(proof) && input.runsInRequest !== false) return row(3, 'high', 'no test that runs shows the changed lines work.')
   if (proof === 'isolated') return row(4, 'high', 'only tests that call it directly run the changed lines; no life cycle test reaches the change.')
   if (undo === 'none' && exposure !== 'nobody-yet') return row(5, 'high', 'nothing undoes it and it is not hidden behind a condition.')
