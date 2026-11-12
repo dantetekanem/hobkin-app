@@ -38,10 +38,14 @@ type Raw = Record<string, unknown>
 const record = (value: unknown): Raw | undefined => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Raw) : undefined)
 const word = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined)
 
-/** The tests of a search answer, which may sit at the top or under `details`. A test without a path or a label is left out. */
+/**
+ * The tests of a search answer. The tool writes them under `details.entryTests`, beside the files the search matched;
+ * an answer with them at the top or straight under `details` is read too. A test without a path or a label is left out.
+ */
 export function readEntryTests(answer: unknown): { tests: EntryTest[]; notes: string[] } {
   const root = record(answer)
-  const body = Array.isArray(root?.tests) ? root : record(root?.details)
+  const details = record(root?.details)
+  const body = [root, details, record(details?.entryTests), record(root?.entryTests)].find((place) => Array.isArray(place?.tests))
   const tests: EntryTest[] = []
   for (const item of Array.isArray(body?.tests) ? body.tests : []) {
     const raw = record(item)

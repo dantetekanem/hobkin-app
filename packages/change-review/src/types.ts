@@ -302,9 +302,10 @@ export interface TestRun {
   /**
    * `baseline`: the tests at head; with `node` set, a test that failed with that node changed, run alone at head again
    * to see that it passes there. `revert`: this node's changed lines put back to base. `probe`: this node's body made
-   * to fail.
+   * to fail. `reach`: a changed node's body made to fail, for the life-cycle tests that still passed with its change
+   * put back: one that fails now runs through the node.
    */
-  kind: 'baseline' | 'revert' | 'probe'
+  kind: 'baseline' | 'revert' | 'probe' | 'reach'
   /** For a mutation run, the node it changed; for a baseline run, the node whose failing test it runs again. */
   node?: string
   condition_state: 'default' | 'on' | 'off'
@@ -374,6 +375,8 @@ export interface FloorExtras {
    * way that already ran. False or absent for a new definition.
    */
   changedInPlace?: boolean
+  /** Rule 7: a test this diff added or changed fails without the change, so the finding "no test changed with it" does not hold. */
+  testChangedWithIt?: boolean
   /** Rule 11: a test reaches the change with the condition on. */
   conditionOnProven?: boolean
   /** Rule 11: the off path is still proven by an unchanged test. */

@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { blindActions, runBlindCheck } from './blind.ts'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, rx, type ReviewConfig } from './config.ts'
 import { curate } from './curate.ts'
+import { type EntriesSearch, type EntryAbove, searchEntriesAbove } from './entries.ts'
 import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from './entrytests.ts'
 import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.ts'
 import { gitRepo } from './git.ts'
@@ -70,6 +71,12 @@ export interface ReviewChangeOptions {
   proof?: (request: ProofRequest) => Promise<ProofResult>
   /** The search for the life-cycle tests of an entry point; agentic-search by default. */
   entryTests?: EntryTestSearch
+  /**
+   * The walk from each changed definition's callers up to its entry points, through helpers and view templates.
+   * agentic-search by default, with the scan it goes with: a review whose scan is handed in walks only when a walk
+   * is handed in too.
+   */
+  entriesAbove?: EntriesSearch
   signal?: AbortSignal
   clock?: () => Date
   onProgress?: (progress: Progress) => void
@@ -115,6 +122,9 @@ const DOUBLE_PATTERNS = [
 
 /** How far up the call graph the review looks for the entry points above a node. */
 const ENTRY_HOPS = 4
+/** The most entry points above one node whose tests are looked for, the nearest first, and the most life-cycle test files run for it. */
+const MOST_ENTRIES = 4
+const MOST_FLOW_FILES = 6
 
 /** Written in full beside the file, then put in place, so a reader never sees half of it. */
 function writeWhole(file: string, text: string) {
@@ -479,7 +489,28 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     }
     return searched.get(symbol)!
   }
+  // The entry points above each definition: the callers the scan lists, followed a call at a time to where a request
+  // enters. A caller that is an entry point already is one; the others are where the walk starts.
+  const above: Record<string, EntryAbove[]> = {}
+  const walk = options.entriesAbove ?? (options.scan ? null : searchEntriesAbove)
+  const starts = provable.flatMap((node) => {
+    const anchor = scan.anchors.find((item) => item.id === node.id)
+    const callers = (anchor?.callSites ?? []).filter((site) => !site.entry).map(({ path, line }) => ({ path, line }))
+    return anchor && !anchor.entry && callers.length ? [{ id: node.id, callers }] : []
+  })
+  if (walk && starts.length) {
+    tracker.tick('map-proof', 0, `map-proof: following the callers of ${starts.length} changed ${starts.length === 1 ? 'definition' : 'definitions'} up to where a request enters`)
+    const walked = await attempt(() => walk({ cwd, starts, isEntry: (path) => isEntryPath(path, config), signal }))
+    halt('map-proof')
+    if ('failed' in walked) problems.push(`The search for entry points failed: ${walked.failed}. Request tests above the changed definitions are not among the candidates.`)
+    else {
+      Object.assign(above, walked.value.entries)
+      problems.push(...walked.value.notes.map((note) => `Entry points: ${note}`))
+    }
+  }
   for (const node of provable) {
+    const found = [...(above[node.id] ?? [])].sort((a, b) => a.hops - b.hops).map((entry) => entry.symbol)
+    for (const symbol of found) if (!node.entries.some((entry) => entry === symbol || entry.startsWith(`${symbol} (`))) node.entries.push(symbol)
     candidates[node.id] = await candidateTests({
       node,
       scan,
@@ -489,7 +520,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       read: (path) => readOr(join(cwd, path)),
     })
     const anchor = scan.anchors.find((item) => item.id === node.id)
-    for (const symbol of anchor ? entrySymbolsOf(anchor) : []) {
+    for (const symbol of new Set([...(anchor ? entrySymbolsOf(anchor) : []), ...found.slice(0, MOST_ENTRIES)])) {
       const outcome = await testsOfEntry(symbol)
       halt('map-proof')
       if (!outcome.ok) continue
@@ -502,6 +533,13 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
           if (!have.why.includes(why)) have.why = `${have.why}; ${why}`
         } else candidates[node.id]!.push({ path: hit.path, why, lifecycle: true, changed: changedTests.includes(hit.path) })
       }
+    }
+    // Each life-cycle test file is a slow run of its own: the ones this diff changed first, then as found.
+    const flows = candidates[node.id]!.filter((candidate) => candidate.lifecycle).sort((a, b) => Number(b.changed) - Number(a.changed))
+    if (flows.length > MOST_FLOW_FILES) {
+      const left = new Set(flows.slice(MOST_FLOW_FILES))
+      candidates[node.id] = candidates[node.id]!.filter((candidate) => !left.has(candidate))
+      problems.push(`${left.size} of the ${flows.length} life-cycle test files found for ${node.symbol} were not run: ${MOST_FLOW_FILES} are run for one definition.`)
     }
   }
   const proved = new Set<string>()
@@ -518,6 +556,12 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       if (run.node) proved.add(run.node)
       const who = run.node ? (nodes.find((node) => node.id === run.node)?.symbol ?? run.node) : 'every candidate test'
       const testFileWord = run.tests.length === 1 ? 'file' : 'files'
+      // A reach run is said in words of its own: a host that reads the other kinds as proof would say it proves the change.
+      if (run.kind === 'reach') {
+        const went = run.exit_code === 0 ? 'none runs through it' : 'at least one runs through it'
+        tracker.tick('map-proof', proved.size, `map-proof: made ${who} fail and ran ${run.tests.length} request test ${testFileWord} that pass with and without the change: ${went}`)
+        return
+      }
       tracker.tick('map-proof', proved.size, `map-proof: ${run.kind} run for ${who}: ${run.tests.length} test ${testFileWord}, exit ${run.exit_code}`)
     },
   })
@@ -532,6 +576,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     }
     const answer = proof.nodes[node.id]
     if (answer) node.facts.proof = { value: answer.value, evidence: answer.evidence }
+    if (answer?.observedBy.some((path) => changedTests.includes(path))) node.extras.testChangedWithIt = true
     const mine = new Set((candidates[node.id] ?? []).map((candidate) => candidate.path))
     node.runs = proof.runs.filter((run) => run.node === node.id || (run.kind === 'baseline' && run.tests.some((test) => mine.has(test))))
     // A test that fails at head, before anything is changed, is a finding at high. Its text starts with the test's path.

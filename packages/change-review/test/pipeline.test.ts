@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import type { EntriesSearch } from '../src/entries.ts'
 import type { ProofRequest, ProofResult } from '../src/proof.ts'
 import { reviewChange } from '../src/pipeline.ts'
 import type { ScanOutcome } from '../src/scan.ts'
@@ -306,7 +307,7 @@ test('a test failing at head is a finding only on the nodes it is a candidate of
   const { repo, base, head, out } = project(t)
   const failing = (path: string) => ({ rule: 'failing-test', text: `${path} fails at head, before anything is changed.`, by: 'proof' })
   const proof = async (): Promise<ProofResult> => ({
-    nodes: { n1: { value: 'lifecycle', evidence: 'test/total.test.js fails when total is put back to base.', observedBy: ['test/total.test.js'], doubles: [], stillPass: [] } },
+    nodes: { n1: { value: 'lifecycle', evidence: 'test/total.test.js fails when total is put back to base.', observedBy: ['test/total.test.js'], doubles: [], stillPass: [], reachedBy: [] } },
     runs: [],
     findings: [failing('test/total.test.js'), failing('vendor/test/total.test.js')],
     clean: true,
@@ -426,4 +427,117 @@ test('a search that fails or hangs is a note in the problems and the review goes
   const refused = await reviewChange({ cwd: repo, base, head, out: `${out}-2`, clock: steadyClock(), scan: scanning(scan), entryTests: async () => ({ ok: false, reason: 'the search took longer than 30 seconds.' }) })
   assert.ok(refused.problems.some((problem) => /life-cycle tests of total.*longer than 30 seconds/.test(problem)))
   assert.ok(refused.graph.nodes.some((node) => node.id === 'n1'))
+})
+
+// ───────────────────────── A helper, a script and a README: the change these rules were calibrated on ─────────────────────────
+
+const POSTS_BASE = "import { findUser, findUsers } from '../users.js'\n\nexport function linkUserTags(text) {\n  return text.replace(/@(\\d+)/g, (_all, id) => findUser(Number(id))?.name ?? 'someone')\n}\n"
+const POSTS_HEAD = "import { findUser, findUsers } from '../users.js'\n\nexport function linkUserTags(text) {\n  const ids = [...text.matchAll(/@(\\d+)/g)].map((match) => Number(match[1]))\n  const users = findUsers(ids)\n  return text.replace(/@(\\d+)/g, (_all, id) => users.get(Number(id))?.name ?? 'someone')\n}\n"
+const USERS = "const USERS = new Map([[1, { name: 'Ana' }], [2, { name: 'Bo' }]])\nexport const lookups = { count: 0 }\n\nexport function findUser(id) {\n  lookups.count += 1\n  return USERS.get(id)\n}\n\nexport function findUsers(ids) {\n  lookups.count += 1\n  return new Map(ids.filter((id) => USERS.has(id)).map((id) => [id, USERS.get(id)]))\n}\n"
+
+/**
+ * A helper that looks users up once instead of once for each mention, with direct tests added for it and an older
+ * request test above it that never counts lookups; a new script with no file ending and its test; and a README.
+ */
+function mentionsProject(t: TestContext) {
+  return repoOf(
+    t,
+    {
+      'package.json': PACKAGE,
+      'README.md': '# Shop\n',
+      'src/users.js': USERS,
+      'src/helpers/posts.js': POSTS_BASE,
+      'src/render.js': "import { linkUserTags } from './helpers/posts.js'\n\nexport function renderPost(post) {\n  return `<p>${linkUserTags(post.message)}</p>`\n}\n",
+      'src/handlers/topics.js': "import { renderPost } from '../render.js'\n\nexport function showTopic(topic) {\n  return topic.posts.map(renderPost).join('')\n}\n",
+      'test/e2e/topics.test.js': `${TEST_HEADER}import { showTopic } from '../../src/handlers/topics.js'\n\ntest('a topic shows its posts with mentions as names', () => {\n  assert.equal(showTopic({ posts: [{ message: 'hi @1' }] }), '<p>hi Ana</p>')\n})\n`,
+    },
+    {
+      'README.md': '# Shop\n\n## Production errors\n\nRun `bin/production-errors`.\n',
+      'src/helpers/posts.js': POSTS_HEAD,
+      'bin/production-errors': "#!/usr/bin/env node\nconst token = process.env.SENTRY_AUTH_TOKEN\nif (!token) process.exit(1)\nconsole.log(JSON.stringify({ complete: true }))\n",
+      'test/bin/production-errors.test.js': `${TEST_HEADER}\ntest('the report says it is complete', () => {\n  assert.ok(true)\n})\n`,
+      'test/helpers/posts.test.js': `${TEST_HEADER}import { linkUserTags } from '../../src/helpers/posts.js'\nimport { lookups } from '../../src/users.js'\n\ntest('repeated mentions are one lookup', () => {\n  lookups.count = 0\n  assert.equal(linkUserTags('@1 @1 @2'), 'Ana Ana Bo')\n  assert.equal(lookups.count, 1)\n})\n\ntest('a missing user keeps a fallback', () => {\n  assert.equal(linkUserTags('@9'), 'someone')\n})\n`,
+    },
+  )
+}
+
+/** What the scan reports for it: the helper with its one caller, a helper and not an entry point, and nothing for the script. */
+const mentionsScan = (): Scan =>
+  scanWith([
+    {
+      id: 'n1', symbol: 'linkUserTags', kind: 'function', path: 'src/helpers/posts.js', startLine: 3, endLine: 7, changedLines: [4, 5, 6], language: 'javascript', status: 'modified',
+      callers: { total: 1, shown: 1, complete: true },
+      callSites: [{ id: 'c1', symbol: 'renderPost', path: 'src/render.js', line: 4, guards: [] }],
+      tests: [{ id: 'n2', symbol: 'repeated mentions are one lookup', path: 'test/helpers/posts.test.js', line: 6 }],
+    },
+    { id: 'n2', symbol: 'repeated mentions are one lookup', kind: 'test', path: 'test/helpers/posts.test.js', startLine: 6, endLine: 10, changedLines: [6, 7, 8, 9, 10], language: 'javascript', status: 'added', tests: [] },
+    { id: 'n3', symbol: 'a missing user keeps a fallback', kind: 'test', path: 'test/helpers/posts.test.js', startLine: 12, endLine: 14, changedLines: [12, 13, 14], language: 'javascript', status: 'added', tests: [] },
+  ])
+
+/** The way up, as the search tool finds it: the caller is a helper, and the handler above it is where a request enters. */
+const mentionsEntries: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, [{ symbol: 'showTopic', path: 'src/handlers/topics.js', hops: 2 }]])), notes: [] })
+const mentionsEntryTests = async ({ symbol }: { symbol: string }) => ({ ok: true as const, tests: symbol === 'showTopic' ? [{ path: 'test/e2e/topics.test.js', found: 'route', detail: 'showTopic' }] : [], notes: [] })
+
+test('a helper its direct tests prove, with an older request test running through it, is mid; the script nobody could read is said, at high; the README is counted', async (t) => {
+  const { repo, base, head, out, git } = mentionsProject(t)
+  const asked: { id: string; callers: readonly { path: string; line: number }[] }[] = []
+  const entriesAbove: EntriesSearch = async (request) => {
+    asked.push(...request.starts)
+    return mentionsEntries(request)
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove, entryTests: mentionsEntryTests })
+
+  // The walk starts from the helper's caller, and the entry point it finds brings its request test to the proof.
+  assert.deepEqual(asked, [{ id: 'n1', callers: [{ path: 'src/render.js', line: 4 }] }])
+  const helper = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual(helper.entries, ['showTopic'])
+  assert.equal(helper.facts.proof.value, 'lifecycle')
+  assert.equal(
+    helper.facts.proof.evidence,
+    'test/helpers/posts.test.js fails when linkUserTags is put back to base; test/e2e/topics.test.js runs through linkUserTags and passes with the change (it fails when linkUserTags is made to throw): a life-cycle test this diff did not change.',
+  )
+  assert.deepEqual(helper.runs.map((run) => run.kind), ['baseline', 'revert', 'revert', 'revert', 'baseline', 'reach'])
+  // Rule 7: a test goes through a request to it. A test changed with it shows the change, so nothing says none did.
+  assert.deepEqual([helper.level?.current, helper.level?.rule, helper.extras.testChangedWithIt], ['mid', 7, true])
+  assert.deepEqual(helper.findings, [])
+  // Only the test that counts lookups failed with the change put back: the run says where.
+  const reverted = helper.runs.find((run) => run.kind === 'revert' && run.tests.length === 1 && run.failed.length === 1)!
+  assert.ok(reverted.failed_at!.some((at) => at.line >= 6 && at.line <= 10) && !reverted.failed_at!.some((at) => at.line >= 12), JSON.stringify(reverted.failed_at))
+
+  assert.deepEqual(
+    result.units.units.map((unit) => [unit.level, unit.title]),
+    [
+      ['high', '`bin/production-errors` was not checked: the search tool found no definition in it'],
+      ['mid', '`linkUserTags` changes behaviour, and a test goes through a request to it'],
+    ],
+  )
+  assert.equal(result.units.units[1]!.where, 'Reached from showTopic.')
+  assert.equal(result.units.attention.files_skipped, 1, 'the README is counted, not read')
+  assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 2\. No test shows unit 1\./)
+  assert.ok(result.progress.steps.every((step) => step.status === 'done' || step.status === 'skipped'))
+  assert.equal(git('status', '--porcelain'), '')
+})
+
+test('with no request test above it, the same helper is mid by rule 4b and says what no test does', async (t) => {
+  const { repo, base, head, out } = mentionsProject(t)
+  const none: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, []])), notes: ['The search for entry points stopped: agentic-search is not installed.'] })
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: none })
+  const helper = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual([helper.facts.proof.value, helper.level?.current, helper.level?.rule], ['isolated', 'mid', 4])
+  assert.equal(helper.facts.proof.evidence, 'test/helpers/posts.test.js fails when linkUserTags is put back to base; no life-cycle test was found to try.')
+  assert.deepEqual(helper.findings.map((finding) => finding.rule), ['direct-tests-only'])
+  assert.ok(result.problems.includes('Entry points: The search for entry points stopped: agentic-search is not installed.'), result.problems.join('\n'))
+  assert.equal(result.units.units.find((unit) => unit.nodes.includes('n1'))!.title, '`linkUserTags` changes behaviour, and tests that call it directly fail without the change')
+})
+
+test('a scan handed in brings no walk of its own, and a walk that throws is a note', async (t) => {
+  const { repo, base, head, out } = mentionsProject(t)
+  const plain = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()) })
+  assert.deepEqual(plain.graph.nodes.find((node) => node.id === 'n1')!.entries, [])
+  const failing: EntriesSearch = async () => {
+    throw new Error('boom')
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out: `${out}-2`, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: failing })
+  assert.ok(result.problems.some((problem) => /The search for entry points failed: boom/.test(problem)), result.problems.join('\n'))
+  assert.equal(result.graph.nodes.find((node) => node.id === 'n1')!.facts.proof.value, 'isolated')
 })

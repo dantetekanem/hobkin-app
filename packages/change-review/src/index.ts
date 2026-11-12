@@ -11,6 +11,7 @@ export { progressFiles, trackProgress, type ProgressOptions, type ProgressTracke
 export { PROMPT_LIMIT, readReviewAnswer, reviewRequest, type DraftUnit, type ReviewAnswer, type ReviewInput, type ReviewRequest } from './model.ts'
 export { blindActions, checkerRequest, readCheckerAnswer, runBlindCheck, type BlindOutcome, type CheckerInput } from './blind.ts'
 export { gitRepo, parsePatch, runProgram, type GitRepo } from './git.ts'
-export { findAgenticSearch, readPack, runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
+export { findAgenticSearch, readPack, runScan, scanAnchors, type AnchorScanRequest, type ScanOutcome, type ScanRequest } from './scan.ts'
+export { entriesAbove, searchEntriesAbove, type AnchorScan, type EntriesOutcome, type EntriesRequest, type EntriesSearch, type EntryAbove } from './entries.ts'
 export { candidateTests, detectRunbook, runProof, type NodeProof, type ProofRequest, type ProofResult, type Runbook, type RunbookOverride, type TestCandidate } from './proof.ts'
 export { reviewChange, type BlindRecord, type ReviewChangeOptions, type ReviewChangeResult } from './pipeline.ts'

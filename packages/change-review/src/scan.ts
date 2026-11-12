@@ -381,7 +381,29 @@ const option = (flagName: string, value: number | undefined) => (value === undef
  * Scans the change from `base` to `head` in the checkout at `cwd`. The pack holds source, so it is written to a
  * folder of its own, read, and removed. A scan that cannot run answers why, never a partial scan.
  */
-export async function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers = true, signal }: ScanRequest): Promise<ScanOutcome> {
+export function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers = true, signal }: ScanRequest): Promise<ScanOutcome> {
+  return scanOf(['--diff', `${base}..${head}`], { cwd, program, timeoutMs, maxAnchors, maxNodes, depth, allCallers, signal })
+}
+
+export interface AnchorScanRequest {
+  cwd: string
+  /** The places to scan, each `path:line`: the definition that holds the line is the anchor. */
+  anchors: readonly string[]
+  program?: string
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+/**
+ * Scans the definitions that hold the given places, one call deep, with every call site of each: who calls them, and
+ * whether each is where a request enters. The same question the diff scan answers for a changed definition, asked of
+ * one that did not change, so the way from a change up to its entry points can be followed a caller at a time.
+ */
+export function scanAnchors({ cwd, anchors, program, timeoutMs = SCAN_TIMEOUT_MS, signal }: AnchorScanRequest): Promise<ScanOutcome> {
+  return scanOf(anchors.flatMap((anchor) => ['--anchor', anchor]), { cwd, program, timeoutMs, maxAnchors: anchors.length, depth: 1, allCallers: true, signal })
+}
+
+async function scanOf(target: string[], { cwd, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers, signal }: Omit<ScanRequest, 'base' | 'head'>): Promise<ScanOutcome> {
   const file = program ?? findAgenticSearch()
   if (!file) return { ok: false, reason: 'agentic-search is not installed.' }
   const folder = mkdtempSync(join(tmpdir(), 'change-review-scan-'))
@@ -389,8 +411,7 @@ export async function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEO
     const out = join(folder, 'pack')
     const args = [
       'scan',
-      '--diff',
-      `${base}..${head}`,
+      ...target,
       '--cwd',
       cwd,
       '--json',

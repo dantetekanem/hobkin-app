@@ -1,8 +1,10 @@
 /**
  * Proof by running the repository's own tests where the change is checked out (FOUNDATION 4.2). A test proves a
  * definition when it passes at head and fails once that definition is changed: a modified definition gets its own
- * changes put back to base, an added one is made to throw. The changed file gets its exact bytes back before anything
- * else runs, and the proof refuses a checkout that is not exactly the change. No coverage tooling, clone or sandbox.
+ * changes put back to base, an added one is made to throw. A modified definition that only direct tests prove is
+ * then made to throw for the life-cycle tests that still passed: one that fails runs through it, so the change is on
+ * a request's way and a test shows it. The changed file gets its exact bytes back before anything else runs, and the
+ * proof refuses a checkout that is not exactly the change. No coverage tooling, clone or sandbox.
  */
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -607,6 +609,15 @@ export interface NodeProof {
   doubles: string[]
   /** The test files that ran with the definition changed and still passed: they ran, and do not observe it. */
   stillPass: string[]
+  /** The life-cycle tests among those that run through the definition: they fail once it is made to throw. */
+  reachedBy: string[]
+}
+
+/** Which life-cycle tests run through a definition that direct tests prove: those tried, those that do, or why none could be tried. */
+export interface Reach {
+  tried: readonly TestCandidate[]
+  reached: readonly TestCandidate[]
+  why?: string
 }
 
 /**
@@ -626,17 +637,20 @@ const lifecycleTests = (size: number) => (size === 1 ? 'a life-cycle test' : 'li
 /**
  * The proof a mutation's runs give (FOUNDATION 4.2). Only a test that failed observes the change; one that was cut
  * short, that the runner did not run, or that fails at head too proves nothing either way. A failing test that stubs
- * the definition is coverage, not validation.
+ * the definition is coverage, not validation. A life-cycle test that passes both ways and runs through the
+ * definition (`reach`) counts only beside a test that fails without the change: reach alone proves nothing.
  */
 export function proofOf({
   symbol,
   mutation,
   observations,
+  reach,
   timeoutMs,
 }: {
   symbol: string
   mutation: 'revert' | 'probe'
   observations: readonly Observation[]
+  reach?: Reach
   timeoutMs?: number
 }): NodeProof {
   const what = mutation === 'revert' ? `${symbol} is put back to base` : `${symbol} is made to throw`
@@ -646,7 +660,7 @@ export function proofOf({
   const observedBy = paths(failed)
   const doubles = failed.flatMap((item) => item.doubles)
   const stillPass = ended('passed')
-  const answer = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy, doubles, stillPass })
+  const answer = (value: Proof, evidence: string, reachedBy: string[] = []): NodeProof => ({ value, evidence, observedBy, doubles, stillPass, reachedBy })
 
   if (failed.length === 0) {
     const cut = ended('timed-out')
@@ -669,7 +683,23 @@ export function proofOf({
   if (changedFlows.length) return answer('lifecycle-observed', `${fail(paths(changedFlows))} when ${what}: ${lifecycleTests(changedFlows.length)} this diff added or changed.`)
   const flows = real.filter((item) => item.candidate.lifecycle)
   if (flows.length) return answer('lifecycle', `${fail(paths(flows))} when ${what}: ${lifecycleTests(flows.length)} this diff did not change.`)
-  return answer('isolated', `${fail(paths(real))} when ${what}; no life-cycle test does.`)
+  const shown = `${fail(paths(real))} when ${what}`
+  const through = reach?.reached ?? []
+  if (through.length) {
+    // The newest evidence names the value: a test this diff changed that runs through it, else one from before.
+    const changed = through.filter((candidate) => candidate.changed)
+    const named = changed.length ? changed : through
+    const names = named.map((candidate) => candidate.path)
+    const runs = `${listed(names)} ${names.length === 1 ? 'runs' : 'run'} through ${symbol} and ${names.length === 1 ? 'passes' : 'pass'} with the change (${names.length === 1 ? 'it fails' : 'they fail'} when ${symbol} is made to throw)`
+    const which = `${lifecycleTests(names.length)} this diff ${changed.length ? 'added or changed' : 'did not change'}`
+    return answer(changed.length ? 'lifecycle-observed' : 'lifecycle', `${shown}; ${runs}: ${which}.`, through.map((candidate) => candidate.path))
+  }
+  if (reach?.why) return answer('isolated', `${shown}; whether a life-cycle test runs through it could not be checked: ${reach.why}`)
+  if (reach?.tried.length) {
+    const files = `${reach.tried.length} life-cycle test file${reach.tried.length === 1 ? ' was' : 's were'}`
+    return answer('isolated', `${shown}; ${files} run with ${symbol} made to throw, and none runs through it.`)
+  }
+  return answer('isolated', `${shown}; no life-cycle test was found to try.`)
 }
 
 /**
@@ -864,8 +894,8 @@ export interface ProofResult {
   clean: boolean
 }
 
-const unknown = (evidence: string): NodeProof => ({ value: 'unknown', evidence, observedBy: [], doubles: [], stillPass: [] })
-const settled = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy: [], doubles: [], stillPass: [] })
+const unknown = (evidence: string): NodeProof => ({ value: 'unknown', evidence, observedBy: [], doubles: [], stillPass: [], reachedBy: [] })
+const settled = (value: Proof, evidence: string): NodeProof => ({ value, evidence, observedBy: [], doubles: [], stillPass: [], reachedBy: [] })
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** Why the checkout is not the change exactly as committed, or, when it is, the full id of its head. */
@@ -913,9 +943,10 @@ function restore(file: string, original: Buffer) {
  * Proves each node by running its candidate tests, at head and then with the node changed. A modified definition
  * gets its own changes put back to base; an added one is made to throw; a removed one is not applicable. A test file
  * that fails with the node changed is run once more alone at head, recorded as a `baseline` run of that node, and
- * observes the node only if it passes there. The file comes back byte for byte after every run, also on a timeout or
- * abort, and the checkout is checked to be the change again before the next node. Nothing is recorded for a run that
- * did not happen.
+ * observes the node only if it passes there. When only direct tests fail for a modified definition, the life-cycle
+ * tests that still passed run once more with the definition made to throw (`reach`): one that fails runs through it.
+ * The file comes back byte for byte after every run, also on a timeout or abort, and the checkout is checked to be the
+ * change again before the next node. Nothing is recorded for a run that did not happen.
  */
 export async function runProof(request: ProofRequest): Promise<ProofResult> {
   const { cwd, nodes, candidates, runbook: book, diffs, doublePatterns, signal, onRun, parses = checkParses } = request
@@ -1023,16 +1054,20 @@ async function proveNode({
   const unsafe = await parses(node.path, text, changed.text)
   if (unsafe) return cannot(unsafe)
 
-  let ran: Ran
-  try {
-    writeFileSync(file, changed.text)
-    ran = await runFiles(runner, passing.map((test) => test.path), mutation, node.id)
-  } finally {
-    restore(file, original)
+  /** The tests run with the file changed to `mutated`, and the file put back whatever happens. */
+  const runWith = async (mutated: string, tests: readonly TestCandidate[], kind: TestRun['kind']): Promise<Ran> => {
+    let ran: Ran
+    try {
+      writeFileSync(file, mutated)
+      ran = await runFiles(runner, tests.map((test) => test.path), kind, node.id)
+    } finally {
+      restore(file, original)
+    }
+    const fileIsBack = readFileSync(file).equals(original)
+    const checkoutIsBack = fileIsBack && (await repo.clean({ untracked: false })) && (await repo.head()) === head
+    return checkoutIsBack ? ran : { stopped: `${node.path} or the checkout did not come back exactly as it was.` }
   }
-  const fileIsBack = readFileSync(file).equals(original)
-  const checkoutIsBack = fileIsBack && (await repo.clean({ untracked: false })) && (await repo.head()) === head
-  if (!checkoutIsBack) return { stopped: `${node.path} or the checkout did not come back exactly as it was.` }
+  const ran = await runWith(changed.text, passing, mutation)
   if ('stopped' in ran) return ran
 
   // A file that failed with the change made observes it only if it passes again run alone at head: one that fails
@@ -1057,5 +1092,21 @@ async function proveNode({
         : []
     return { candidate, outcome, doubles }
   })
-  return { answer: proofOf({ symbol: node.symbol, mutation, observations, timeoutMs: runner.timeoutMs }) }
+  // Direct tests alone show the change: is it on a request's way? The life-cycle tests that still passed with the
+  // change put back are run with the definition made to throw. They passed twice already, so one that fails now
+  // fails because it runs through the definition.
+  const failed = observations.filter((item) => item.outcome === 'failed' && item.doubles.length === 0)
+  const waiting = observations.filter((item) => item.outcome === 'passed' && item.candidate.lifecycle).map((item) => item.candidate)
+  let reach: Reach | undefined
+  if (mutation === 'revert' && failed.length > 0 && !failed.some((item) => item.candidate.lifecycle) && waiting.length > 0) {
+    const thrown = probeNode(text, node)
+    const cannotThrow = 'why' in thrown ? thrown.why : await parses(node.path, text, thrown.text)
+    if ('why' in thrown || cannotThrow) reach = { tried: [], reached: [], why: cannotThrow ?? '' }
+    else {
+      const through = await runWith(thrown.text, waiting, 'reach')
+      if ('stopped' in through) return through
+      reach = { tried: waiting, reached: waiting.filter((test) => through.outcomes.get(test.path) === 'failed') }
+    }
+  }
+  return { answer: proofOf({ symbol: node.symbol, mutation, observations, ...(reach ? { reach } : {}), timeoutMs: runner.timeoutMs }) }
 }

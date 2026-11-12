@@ -22,6 +22,8 @@ test('the tests of an answer are read at the top or under details, and one with 
   ]
   assert.deepEqual(readEntryTests(ANSWER), { tests: expected, notes: ['one test file was not readable'] })
   assert.deepEqual(readEntryTests({ text: '', details: ANSWER }).tests, expected)
+  // As agentic-search writes it today: beside the files of the search, under `entryTests`.
+  assert.deepEqual(readEntryTests({ text: 'No code matches found', details: { query: 'OrdersController#create', intent: 'tests', files: [], entryTests: ANSWER } }), { tests: expected, notes: ['one test file was not readable'] })
   assert.deepEqual(readEntryTests({ text: 'x', details: { files: [] } }), { tests: [], notes: [] })
   assert.deepEqual(readEntryTests('nonsense'), { tests: [], notes: [] })
 })

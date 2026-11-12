@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import { findAgenticSearch, readPack, runScan } from '../src/scan.ts'
+import { findAgenticSearch, readPack, runScan, scanAnchors } from '../src/scan.ts'
 
 /** A trimmed pack written by agentic-search 0.7.1 for a commit of this repository, code text left out. */
 const PACK: unknown = JSON.parse(readFileSync(new URL('./fixtures/scan-pack.json', import.meta.url), 'utf8'))
@@ -236,6 +236,18 @@ test('call sites with an unexpected shape are left out whole, and an edge with o
   assert.deepEqual(scan.anchors[0]!.callers, { total: 2, shown: 2, complete: true })
   assert.equal(scan.anchors[0]!.callSites, undefined)
   assert.deepEqual(scan.edges[0], { from: 'n2', to: 'n1', relationship: 'called_by', resolution: 'exact' })
+})
+
+test('scanAnchors scans the places it is given, one call deep, with every call site', async (t) => {
+  const fake = fakeProgram(t, `fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(out + '/pack.json', ${JSON.stringify(JSON.stringify(PACK))})`)
+  const answer = await scanAnchors({ cwd: fake.dir, anchors: ['app/helpers/posts_helper.rb:23', 'app/views/posts/_post.html.erb:79'], program: fake.program })
+  assert.equal(answer.ok, true)
+  const args = fake.args()
+  const out = args[args.indexOf('--output-dir') + 1]!
+  assert.deepEqual(args.filter((arg) => arg !== out), [
+    'scan', '--anchor', 'app/helpers/posts_helper.rb:23', '--anchor', 'app/views/posts/_post.html.erb:79', '--cwd', fake.dir, '--json', '--output-dir', '--callers', 'all', '--max-anchors', '2', '--max-depth', '1',
+  ])
+  assert.equal(existsSync(out), false)
 })
 
 test('runScan asks for every call site', async (t) => {

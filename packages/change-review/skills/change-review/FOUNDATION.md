@@ -69,20 +69,28 @@ A node can have several. The most severe drives the level: `data` and `interface
 
 ### 4.2 Proof: is it shown to work?
 
-Established by running tests in isolation, with line coverage. This is the base of the whole system.
+Established by running the repository's own tests, in isolation, with the change in place and with it undone. This is the base of the whole system.
+
+Two things are asked of the tests, and they are different questions:
+
+- **Does a test show the change?** A test shows it when it passes at head and fails once the definition's own changes are put back to base (an added definition is made to throw). A test that passes both ways ran, and says nothing about the change.
+- **Is the change on a request's way?** A life cycle test (request, controller, integration, system, job) runs through a definition when it fails once the definition is made to throw. A test can run through a change and still not show it: one that renders a page and checks the status does not notice a query that became one.
+
+Line coverage would answer the second question and never the first, which is why it is not what the proof rests on.
 
 | Value | Meaning |
 |---|---|
-| `lifecycle-observed` | A test enters through an entry point (controller, job, consumer), moves through the request life cycle unmocked, executes the changed lines, and that test was added or changed by this diff |
-| `lifecycle` | Same, but the test predates the diff and is unchanged |
-| `isolated` | Only tests that call the definition directly execute the changed lines |
-| `mocked` | The only tests that touch it replace it, or what it talks to, with a double |
-| `none` | No test executes the changed lines |
+| `lifecycle-observed` | A test shows the change, and a life cycle test that this diff added or changed moves through the request to it, unmocked. One test may do both |
+| `lifecycle` | Same, but the life cycle test predates the diff and is unchanged |
+| `isolated` | Only tests that call the definition directly show the change, and no life cycle test runs through it. The evidence says whether any was found and tried |
+| `mocked` | The only tests that show it replace it, or what it talks to, with a double |
+| `none` | No test fails without the change, whatever runs through it |
 | `unknown` | Tests could not be run |
 
 Rules:
 
-- **Reach is measured, not inferred.** A request test (`post checkout_url`) has no static link to the code it drives; routing sits in between. In a fixture, the scan gave such a test no edge to the controller action. So the system runs the life cycle tests of the entry points above the change with line coverage, and checks that the changed lines executed.
+- **Reach is measured, not inferred.** A request test (`post checkout_url`) has no static link to the code it drives; routing sits in between. In a fixture, the scan gave such a test no edge to the controller action. So the system finds the entry points above the change, following its callers a call at a time through helpers and view templates to where a request enters, takes the life cycle tests of those entry points, and runs them with the definition made to throw. What this shows is that the definition ran, not each changed line.
+- **Looked for is said.** "No life cycle test runs through it" is said only when some were run. When none was found to try, or the way up was cut short, the evidence says that instead.
 - **The state matters.** For code that runs only with a flag on, the test must turn the flag on. A flag-off test passing proves the old path, which is a different and also useful fact.
 - **A test is named, not only its file.** A run that fails says where, when the runner prints it. A test of a failed file that the run did not fail in passed both ways: it does not prove the change, and is not said to.
 - **A double on the path downgrades the test to `mocked`.** Stubbing the network edge of the system is fine. Stubbing the changed definition, its callers between entry and change, or what it writes to, is not.
@@ -135,7 +143,7 @@ Deterministic, first match wins. The floor is computed from the four facts; no m
 | 4c | Proof is `isolated`, for code that does not run in a request, job or consumer (a script, a build tool): calling it is its life cycle | the rows below decide, and never `safe` |
 | 5 | Undo is `none` and exposure is not `nobody-yet` | `high` |
 | 6 | Effect is `data` or `interface`, exposure is `everyone` or `at-load`, and it is not an additive schema change | `high` |
-| 7 | Exposure is `everyone`, effect is `behaviour`, proof is `lifecycle` or `lifecycle-observed`. With `lifecycle` only, add the finding "behaviour changed, no test changed with it" | `mid` |
+| 7 | Exposure is `everyone`, effect is `behaviour`, proof is `lifecycle` or `lifecycle-observed`. With `lifecycle` only, and no test of this diff showing the change, add the finding "behaviour changed, no test changed with it" | `mid` |
 | 8 | Undo is `flag-with-residue` | `mid` |
 | 9 | Effect is `load`, or an additive schema change | `mid` |
 | 10 | Exposure is `subset` | `mid` |
@@ -319,6 +327,7 @@ Defaults to start from. None is a finding.
 | 15 | Request test exists but stubs the changed service | behaviour | mocked | any | any | high (rule 3) |
 | 16 | Comment-only change in a hot method | text | not applicable | everyone | rollback | safe (rule 2) |
 | 17 | Helper changed in place, same signature, no write; its direct tests fail without the change and no request test reaches it | behaviour | isolated | everyone | rollback | mid (rule 4b) |
+| 20 | Same helper, and an unchanged request test of the action whose view calls it runs through it and passes both ways | behaviour | lifecycle | everyone | rollback | mid (rule 7); a model may lower with `equivalent` |
 | 18 | Same helper, but the change also writes a column | data | isolated | everyone | rollback | high (rule 4a) |
 | 19 | New script under `bin/`, with tests that call its entry | behaviour | isolated | everyone (not in a request) | rollback | mid (rule 12, through 4c) |
 

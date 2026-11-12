@@ -253,6 +253,25 @@ test('the proof value follows what failed: changed life-cycle tests first, doubl
   assert.equal(value([{ candidate: flowNew, outcome: 'failed', doubles: [] }, { candidate: unit, outcome: 'failed', doubles: [] }]), 'lifecycle-observed')
   assert.equal(value([{ candidate: flowOld, outcome: 'failed', doubles: [] }, { candidate: flowNew, outcome: 'passed', doubles: [] }]), 'lifecycle')
   assert.equal(value([{ candidate: unit, outcome: 'failed', doubles: [] }, { candidate: flowOld, outcome: 'passed', doubles: [] }]), 'isolated')
+  // A direct test shows the change, and a request test that passes both ways runs through the definition: together
+  // they are what a life-cycle test is asked for. Without a test that fails, running through it proves nothing.
+  const direct = [{ candidate: unit, outcome: 'failed' as const, doubles: [] }, { candidate: flowOld, outcome: 'passed' as const, doubles: [] }, { candidate: flowNew, outcome: 'passed' as const, doubles: [] }]
+  const through = (reached: TestCandidate[], why?: string) => proofOf({ symbol: 'total', mutation: 'revert', observations: direct, reach: { tried: [flowOld, flowNew], reached, ...(why ? { why } : {}) } })
+  assert.deepEqual(through([flowOld]), {
+    value: 'lifecycle',
+    evidence: 'test/unit.test.ts fails when total is put back to base; test/flow/old.test.ts runs through total and passes with the change (it fails when total is made to throw): a life-cycle test this diff did not change.',
+    observedBy: ['test/unit.test.ts'],
+    doubles: [],
+    stillPass: ['test/flow/old.test.ts', 'test/flow/new.test.ts'],
+    reachedBy: ['test/flow/old.test.ts'],
+  })
+  assert.equal(through([flowOld, flowNew]).value, 'lifecycle-observed')
+  assert.match(through([flowOld, flowNew]).evidence, /test\/flow\/new\.test\.ts runs through total .*: a life-cycle test this diff added or changed\.$/)
+  assert.deepEqual([through([]).value, through([]).evidence], ['isolated', 'test/unit.test.ts fails when total is put back to base; 2 life-cycle test files were run with total made to throw, and none runs through it.'])
+  assert.equal(through([], 'no function body to replace was found in lines 1 to 4.').evidence, 'test/unit.test.ts fails when total is put back to base; whether a life-cycle test runs through it could not be checked: no function body to replace was found in lines 1 to 4.')
+  assert.equal(proofOf({ symbol: 'total', mutation: 'revert', observations: [{ candidate: unit, outcome: 'failed', doubles: [] }] }).evidence, 'test/unit.test.ts fails when total is put back to base; no life-cycle test was found to try.')
+  const unseen = proofOf({ symbol: 'total', mutation: 'revert', observations: [{ candidate: flowOld, outcome: 'passed', doubles: [] }], reach: { tried: [flowOld], reached: [flowOld] } })
+  assert.deepEqual([unseen.value, unseen.reachedBy], ['none', []], 'a test that runs through it and checks nothing proves nothing')
   assert.equal(value([{ candidate: flowNew, outcome: 'failed', doubles: ['test/flow/new.test.ts:3: mock.method(shop, "total")'] }]), 'mocked')
   assert.equal(value([{ candidate: flowNew, outcome: 'failed', doubles: ['x'] }, { candidate: unit, outcome: 'failed', doubles: [] }]), 'isolated', 'a test without the double still proves it')
   assert.equal(value([{ candidate: unit, outcome: 'passed', doubles: [] }]), 'none')
@@ -261,7 +280,59 @@ test('the proof value follows what failed: changed life-cycle tests first, doubl
   assert.equal(value([{ candidate: flowOld, outcome: 'unsettled', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }]), 'unknown', 'a failure that happens at head too proves nothing')
 
   const answer = proofOf({ symbol: 'total', mutation: 'probe', observations: [{ candidate: flowOld, outcome: 'failed', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }] })
-  assert.deepEqual(answer, { value: 'lifecycle', evidence: 'test/flow/old.test.ts fails when total is made to throw: a life-cycle test this diff did not change.', observedBy: ['test/flow/old.test.ts'], doubles: [], stillPass: ['test/unit.test.ts'] })
+  assert.deepEqual(answer, { value: 'lifecycle', evidence: 'test/flow/old.test.ts fails when total is made to throw: a life-cycle test this diff did not change.', observedBy: ['test/flow/old.test.ts'], doubles: [], stillPass: ['test/unit.test.ts'], reachedBy: [] })
+})
+
+test('a definition its direct test proves is also shown to be on a request’s way: the request tests that still pass are run with it made to throw', async (t) => {
+  const dir = tempDir(t, 'reach')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  const HEADER = "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\n"
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'src/shop.ts': 'export function total(items: number[]): number {\n  return items.reduce((sum, item) => sum + item, 0)\n}\n\nexport function checkout(items: number[]): number {\n  return total(items)\n}\n\nexport function ping(): string {\n  return \'pong\'\n}\n',
+    // Request tests from before the change: one goes through total and never checks the cents, one never reaches it.
+    'test/flow/checkout.test.ts': `${HEADER}import { checkout } from '../../src/shop.ts'\n\ntest('checkout gives a number', () => {\n  assert.equal(typeof checkout([1, 2]), 'number')\n})\n`,
+    'test/flow/ping.test.ts': `${HEADER}import { ping } from '../../src/shop.ts'\n\ntest('ping answers', () => {\n  assert.equal(ping(), 'pong')\n})\n`,
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Start')
+  const base = git('rev-parse', 'HEAD')
+  writeIn(dir, {
+    'src/shop.ts': 'export function total(items: number[]): number {\n  const sum = items.reduce((sum, item) => sum + item, 0)\n  return Math.round(sum * 100) / 100\n}\n\nexport function checkout(items: number[]): number {\n  return total(items)\n}\n\nexport function ping(): string {\n  return \'pong\'\n}\n',
+    'test/total.test.ts': `${HEADER}import { total } from '../src/shop.ts'\n\ntest('totals are rounded to cents', () => {\n  assert.equal(total([0.1, 0.2]), 0.3)\n})\n`,
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Round totals')
+  const head = git('rev-parse', 'HEAD')
+  const flow = (path: string): TestCandidate => ({ path, why: 'a request test of the entry above', lifecycle: true, changed: false })
+  const result = await runProof({
+    cwd: dir,
+    head,
+    nodes: [{ id: 'n1', symbol: 'total', kind: 'function', path: 'src/shop.ts', lines: [1, 4], change: 'modified' }],
+    candidates: { n1: [{ path: 'test/total.test.ts', why: 'named after it', lifecycle: false, changed: true }, flow('test/flow/checkout.test.ts'), flow('test/flow/ping.test.ts')] },
+    runbook: detectRunbook(dir),
+    diffs: await gitRepo(dir).diffs(base, head),
+    doublePatterns: DOUBLES,
+    timeoutMs: 20_000,
+  })
+
+  assert.deepEqual(result.nodes.n1, {
+    value: 'lifecycle',
+    evidence: 'test/total.test.ts fails when total is put back to base; test/flow/checkout.test.ts runs through total and passes with the change (it fails when total is made to throw): a life-cycle test this diff did not change.',
+    observedBy: ['test/total.test.ts'],
+    doubles: [],
+    stillPass: ['test/flow/checkout.test.ts', 'test/flow/ping.test.ts'],
+    reachedBy: ['test/flow/checkout.test.ts'],
+  })
+  const both = 'test/flow/checkout.test.ts test/flow/ping.test.ts'
+  assert.deepEqual(
+    result.runs.filter((run) => run.kind === 'reach').map((run) => [run.node, run.tests.join(' '), run.failed.join(' ')]),
+    [['n1', both, 'test/flow/checkout.test.ts'], ['n1', 'test/flow/checkout.test.ts', 'test/flow/checkout.test.ts'], ['n1', 'test/flow/ping.test.ts', '']],
+    'only the request tests that still passed with the change put back are run with it made to throw',
+  )
+  assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
+  assert.equal(result.clean, true)
 })
 
 test('a double counts when it names the definition or its module', () => {
@@ -350,6 +421,7 @@ test('a test that fails on revert proves the definition, one that still passes d
     observedBy: ['test/flow/rounding.test.ts'],
     doubles: [],
     stillPass: ['test/shop.test.ts'],
+    reachedBy: [],
   })
   assert.deepEqual(answer('n3'), {
     value: 'none',
@@ -357,12 +429,13 @@ test('a test that fails on revert proves the definition, one that still passes d
     observedBy: [],
     doubles: [],
     stillPass: ['test/flow/checkout.test.ts'],
+    reachedBy: [],
   })
   assert.equal(answer('n2')?.value, 'lifecycle', 'an unchanged life-cycle test reaches the added discount through checkout')
   assert.deepEqual(answer('n2')?.observedBy, ['test/flow/checkout.test.ts', 'test/shop.test.ts'])
   assert.equal(answer('n4')?.value, 'unknown')
   assert.match(answer('n4')?.evidence ?? '', /test\/shop\.test\.ts did not finish within 3 seconds when spin is put back to base/)
-  assert.deepEqual(answer('n5'), { value: 'not-applicable', evidence: 'removed: there is nothing left to run.', observedBy: [], doubles: [], stillPass: [] })
+  assert.deepEqual(answer('n5'), { value: 'not-applicable', evidence: 'removed: there is nothing left to run.', observedBy: [], doubles: [], stillPass: [], reachedBy: [] })
 
   assert.deepEqual(result.findings, [{ rule: 'failing-test', text: 'test/broken.test.ts fails at head, before anything is changed.', by: 'proof' }])
   // A run that failed says where: the places in its test files the runner named.
@@ -418,7 +491,7 @@ test('the proof refuses a checkout that is not exactly the change, and runs noth
   writeFileSync(join(dir, 'src/shop.ts'), `${SHOP_HEAD}// edited\n`)
   const dirty = await prove(head)
   assert.equal(dirty.refused, 'the checkout has uncommitted changes, so its tests would not run the change as committed.')
-  assert.deepEqual(dirty.nodes.n1, { value: 'unknown', evidence: `tests were not run: ${dirty.refused}`, observedBy: [], doubles: [], stillPass: [] })
+  assert.deepEqual(dirty.nodes.n1, { value: 'unknown', evidence: `tests were not run: ${dirty.refused}`, observedBy: [], doubles: [], stillPass: [], reachedBy: [] })
   assert.deepEqual(dirty.runs, [])
   assert.equal(readFileSync(join(dir, 'src/shop.ts'), 'utf8'), `${SHOP_HEAD}// edited\n`, 'nothing was touched')
 })
@@ -497,6 +570,7 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
     observedBy: [],
     doubles: [],
     stillPass: [],
+    reachedBy: [],
   })
   assert.deepEqual(result.nodes.n2, {
     value: 'unknown',
@@ -504,6 +578,7 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
     observedBy: [],
     doubles: [],
     stillPass: [],
+    reachedBy: [],
   })
   assert.deepEqual(result.nodes.n3?.observedBy, ['test/c.test.js'])
   assert.equal(result.nodes.n3?.value, 'isolated')
@@ -562,6 +637,7 @@ test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
     observedBy: [],
     doubles: [],
     stillPass: [],
+    reachedBy: [],
   })
   assert.deepEqual(result.runs.map((run) => run.kind), ['baseline'])
   assert.ok(readFileSync(join(dir, 'src/latin.js')).equals(latin('2')))

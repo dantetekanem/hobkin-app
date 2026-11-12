@@ -61,6 +61,7 @@ describe('floor table rows', () => {
     const old = run({ proof: 'lifecycle' })
     assert.equal(old.rule, 7)
     assert.deepEqual(old.finding, { rule: 'behaviour-changed-no-test-changed', text: 'behaviour changed, no test changed with it', by: 'floor' })
+    assert.equal(run({ proof: 'lifecycle', testChangedWithIt: true }).finding, undefined, 'a test changed with it shows the change, while an older one goes through the request')
   })
   it('row 8: residue is mid', () => {
     assert.equal(run({ exposure: 'nobody-yet', undo: 'flag-with-residue', effect: 'data', proof: 'lifecycle-observed' }).rule, 8)
@@ -84,7 +85,7 @@ describe('floor table rows', () => {
 })
 
 describe('floor cases', () => {
-  it('the nineteen cases of FOUNDATION section 14', () => {
+  it('the twenty cases of FOUNDATION section 14', () => {
     const flagged = { conditionOnProven: true, offPathProven: true }
     const cases: [string, Partial<FloorInput>, Level, number, boolean?][] = [
       ['1', { exposure: 'nobody-yet', undo: 'flag', proof: 'lifecycle-observed', ...flagged }, 'safe', 11],
@@ -106,8 +107,9 @@ describe('floor cases', () => {
       ['17', { proof: 'isolated', changedInPlace: true }, 'mid', 4],
       ['18', { proof: 'isolated', changedInPlace: true, effect: 'data' }, 'high', 4],
       ['19', { proof: 'isolated', runsInRequest: false }, 'mid', 12],
+      ['20', { proof: 'lifecycle', changedInPlace: true, testChangedWithIt: true }, 'mid', 7],
     ]
-    assert.equal(cases.length, 19)
+    assert.equal(cases.length, 20)
     for (const [name, patch, level, rule, critical = false] of cases) {
       const f = run(patch)
       assert.deepEqual([name, f.level, f.rule, f.critical], [name, level, rule, critical])

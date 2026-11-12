@@ -37,7 +37,7 @@ export function floor(input: FloorInput): Floor {
   }
   if (exposure === 'everyone' && effect === 'behaviour' && (proof === 'lifecycle' || proof === 'lifecycle-observed')) {
     const why = 'It changes what everyone gets, and a test runs it through a request.'
-    if (proof === 'lifecycle-observed') return row(7, 'mid', why)
+    if (proof === 'lifecycle-observed' || input.testChangedWithIt) return row(7, 'mid', why)
     return row(7, 'mid', why, { finding: { rule: 'behaviour-changed-no-test-changed', text: 'behaviour changed, no test changed with it', by: 'floor' } })
   }
   if (undo === 'flag-with-residue') return row(8, 'mid', 'Turning the condition off leaves behind what it wrote.')
