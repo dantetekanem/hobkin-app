@@ -1,21 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { staleAnchors, validateReview } from '#shared/review/validate.ts'
+import { openReview } from '#shared/review/validate.ts'
 import { pullAssessment, pullFiles, pullReview } from '../src/features/review/sample/pull.ts'
 import { isSamplePull, SAMPLE_PULL } from '../src/features/review/sample/pull-id.ts'
 
-/**
- * Every anchor checked against its file's bytes, as the sample source opens it, and every rule of the validator. The
- * validator still asks every node to be the focus of a step and knows no `proves-change`: the host's story of units
- * (spec 032) teaches it both. Until it has, those are the only rules the sample may break.
- */
-const PENDING = /is not the focus of any step\.$|: proves-change is not a status of a test\.$/
+/** Opened the way the sample source opens it: held to every rule of the validator, and every anchor to its file's bytes. */
 function open(id: string) {
-  const review = pullReview(id)
   const files = new Map(pullFiles().map((file) => [file.fileId, file]))
-  assert.deepEqual(staleAnchors(review, (fileId, side) => (side === 'added' ? files.get(fileId)?.head : files.get(fileId)?.base) ?? null), [])
-  assert.deepEqual(validateReview(review).filter((problem) => !PENDING.test(problem)), [])
-  return review
+  return openReview(pullReview(id), (fileId, side) => (side === 'added' ? files.get(fileId)?.head : files.get(fileId)?.base) ?? null)
 }
 
 test('every sample pull request opens the sample pull request, under its own id', () => {
