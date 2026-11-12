@@ -24,13 +24,18 @@ export interface UnitPlace {
   broken?: boolean
 }
 
-/** One run of test files the change review made: at head (`baseline`), or with a definition put back or made to fail. */
+/**
+ * One run of test files the change review made: at head (`baseline`), with a definition put back (`revert`) or made to
+ * fail (`probe`), or with a definition made to fail to see which request tests run through it (`reach`).
+ */
 export interface UnitRun {
   kind: string
   /** The definition a mutation run changed, by its id in the change review's graph. */
   node?: string
   tests: readonly string[]
   failed: readonly string[]
+  /** Where in its test files the run failed, when its output said. A test of a failed file with no place here passed. */
+  failed_at?: readonly { path: string; line: number }[]
 }
 
 export interface UnitStoryParts {
@@ -71,10 +76,12 @@ function holdsPlace(review: Review): (node: ReviewNode, place: UnitPlace) => boo
  * The graph's nodes in the change review's words. Code that belongs to a unit says what the unit says of it: its own
  * member line when the unit groups several, else the unit's "what changed". A test says what it covers and how the
  * change review's runs went: it proves the change (it fails when the change is put back), it fails at the change's
- * commit, it passes, or it was not run, and why.
+ * commit, it passes, or it was not run, and why. A test proves the change only when the run failed in that test: where
+ * a run says which places failed, another test of the same file passed, and says so.
  */
 export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
   const holds = holdsPlace(review)
+  const files = new Map(review.files.map((file) => [file.id, file]))
   const unitOf = new Map(parts.units.flatMap((unit) => unit.nodes.map((id) => [id, unit] as const)))
   const symbolOf = new Map(parts.places.map((place) => [place.id, place.symbol ?? place.id]))
   const code = parts.places.filter((place) => place.kind !== 'test' && !place.broken)
@@ -90,14 +97,22 @@ export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
     if (node.kind !== 'test' || node.status == null || !node.subtitle) return node
     const path = node.subtitle
     const ran = parts.runs.filter((run) => run.tests.includes(path))
-    const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && run.failed.includes(path))
-    const proves = [...new Set(ran.filter((run) => (run.kind === 'revert' || run.kind === 'probe') && run.node && run.failed.includes(path)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
-    const passes = ran.some((run) => run.kind === 'baseline' && !run.failed.includes(path))
+    const here = node.anchors.filter((anchor) => anchor.side !== 'deleted' && files.get(anchor.fileId)?.path === path)
+    /** The run failed in this test: in its file, and at one of its own lines when the run says where it failed. */
+    const failedIn = (run: UnitRun) =>
+      run.failed.includes(path) && (run.failed_at == null || run.failed_at.some((at) => at.path === path && here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))
+    const namesOf = (kinds: readonly string[]) => [...new Set(ran.filter((run) => kinds.includes(run.kind) && run.node && failedIn(run)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
+    const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && failedIn(run))
+    const proves = namesOf(['revert', 'probe'])
+    const reaches = namesOf(['reach'])
+    const passes = ran.some((run) => run.kind === 'baseline' && !failedIn(run))
     const status: NodeStatus = failsAtHead ? 'failed' : proves.length ? 'proves-change' : passes ? 'passed' : 'not-run'
     const result = {
       failed: "It fails at the change's commit.",
       'proves-change': `It proves the change: it fails when ${listed(proves.slice(0, 2))}${proves.length > 2 ? ' and more' : ''} ${proves.length === 1 ? 'is' : 'are'} put back.`,
-      passed: "It passes at the change's commit, and no change put back made it fail.",
+      passed: reaches.length
+        ? `It runs through ${listed(reaches.slice(0, 2))} and passes, with the change and with it put back: it does not check the change itself.`
+        : "It passes at the change's commit, and no change put back made it fail.",
       'not-run': `Not run${parts.notRun ? `: ${parts.notRun.replace(/\.$/, '')}` : ' by the change review'}.`,
     }[status as 'failed' | 'proves-change' | 'passed' | 'not-run']
     return { ...node, status, summary: cleanProse(`${testCovers(review.nodes, review.edges, node).said} ${result}`, PROSE_LIMIT.summary) }

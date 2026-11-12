@@ -122,6 +122,12 @@ describe('floor cases', () => {
   })
 })
 
+it('a test is safe by rule 2 whatever it holds: it is proof for the code it runs, not a change to rate', () => {
+  const result = floor({ effect: 'data', proof: 'not-applicable', exposure: 'everyone', undo: 'rollback', runsInRequest: false, isTest: true })
+  assert.deepEqual([result.level, result.rule], ['safe', 2])
+  assert.equal(result.why, 'A test: it is proof for the code it runs, and is read with that code.')
+})
+
 it('a type and nothing else is safe by rule 2: the compiler checks it, not a test', () => {
   const result = floor({ effect: 'interface', proof: 'not-applicable', exposure: 'everyone', undo: 'rollback', typeOnly: true })
   assert.equal(result.level, 'safe')

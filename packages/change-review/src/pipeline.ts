@@ -390,9 +390,12 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     const change = changeOf(anchor, atHead)
     // A definition that was there at base and is still there keeps the callers it had (floor rule 4b).
     if (change === 'modified') derived.extras.changedInPlace = true
+    const kind = kindOf(anchor, testFiles.has(anchor.path))
+    // A test is proof for the code it runs: what it writes or serializes is no change to rate (floor rule 2).
+    if (kind === 'test') derived.extras.isTest = true
     nodes.push({
       id: anchor.id,
-      kind: kindOf(anchor, testFiles.has(anchor.path)),
+      kind,
       symbol: anchor.symbol,
       path: anchor.path,
       lines: [anchor.startLine, anchor.endLine],

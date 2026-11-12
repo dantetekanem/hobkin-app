@@ -312,6 +312,12 @@ export interface TestRun {
   seconds: number
   /** Test files that failed in this run. */
   failed: string[]
+  /**
+   * Where the failures were, when the runner's output names places in the run's test files: a failing test's own
+   * line, the line of its failed assertion. A test of a file that failed, with no place of its own here, passed.
+   * Absent when the run passed or its output named no place.
+   */
+  failed_at?: { path: string; line: number }[]
   /** The last lines of output, for a run that failed. */
   output_tail?: string
 }
@@ -355,6 +361,8 @@ export interface FloorExtras {
   unreferencedRemoval?: boolean
   /** Rule 2: a bucket from FOUNDATION section 6 whose checks all passed. */
   bucketChecksPassed?: boolean
+  /** Rule 2: a test, or a helper in a test file. It is proof for the code it runs, and is never rated as a change of its own. */
+  isTest?: boolean
   /** Rule 2: a type and nothing else (a TypeScript type alias or interface): erased before the code runs, checked by the compiler. */
   typeOnly?: boolean
   /** Rules 6 and 9: the schema change adds without constraining, rewriting or locking. */

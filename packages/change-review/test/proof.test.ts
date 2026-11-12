@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { gitRepo } from '../src/git.ts'
-import { candidateTests, detectRunbook, doublesIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
+import { candidateTests, detectRunbook, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
 import type { FileDiff, Scan, TestRun } from '../src/types.ts'
 
 function tempDir(t: TestContext, name: string): string {
@@ -222,6 +222,27 @@ test('a probe replaces the body of an added definition with a failing statement,
 
 // ───────────────────────── The value ─────────────────────────
 
+test('a failing run says where in its test files it failed, from what the runner printed', () => {
+  const files = ['test/helpers/posts_helper_test.rb', 'test/models/user_test.rb']
+  const rails = [
+    'Failure:',
+    'PostsHelperTest#test_batches_distinct_ids [test/helpers/posts_helper_test.rb:38]:',
+    'Expected: 1',
+    '  Actual: 3',
+    '',
+    'bin/rails test test/helpers/posts_helper_test.rb:28',
+    '',
+    'Failure:',
+    'PostsHelperTest#test_repeated_mentions [/work/shop/test/helpers/posts_helper_test.rb:18]:',
+    '28 tests, 157 assertions, 2 failures, 0 errors, 0 skips',
+  ].join('\n')
+  assert.deepEqual(failuresIn(rails, files), [18, 28, 38].map((line) => ({ path: 'test/helpers/posts_helper_test.rb', line })))
+  const node = 'test at test/a.test.js:8:1\n✖ fails (0.3ms)\n      at TestContext.<anonymous> (file:///work/shop/test/a.test.js:9:10)\n      at Test.run (node:internal/test_runner/test:1402:25)'
+  assert.deepEqual(failuresIn(node, ['test/a.test.js']), [{ path: 'test/a.test.js', line: 8 }, { path: 'test/a.test.js', line: 9 }])
+  assert.deepEqual(failuresIn('28 tests, 157 assertions, 0 failures', files), [])
+  assert.deepEqual(failuresIn('mytest/a.test.js:4', ['test/a.test.js']), [], 'another file whose name ends the same way is not this one')
+})
+
 test('the proof value follows what failed: changed life-cycle tests first, doubles last', () => {
   const candidate = (path: string, lifecycle: boolean, changed: boolean): TestCandidate => ({ path, why: 'test', lifecycle, changed })
   const flowNew = candidate('test/flow/new.test.ts', true, true)
@@ -344,6 +365,11 @@ test('a test that fails on revert proves the definition, one that still passes d
   assert.deepEqual(answer('n5'), { value: 'not-applicable', evidence: 'removed: there is nothing left to run.', observedBy: [], doubles: [], stillPass: [] })
 
   assert.deepEqual(result.findings, [{ rule: 'failing-test', text: 'test/broken.test.ts fails at head, before anything is changed.', by: 'proof' }])
+  // A run that failed says where: the places in its test files the runner named.
+  const reverted = result.runs.find((run) => run.kind === 'revert' && run.node === 'n1' && run.tests.length === 1 && run.failed.length === 1)!
+  assert.ok(reverted.failed_at?.length, 'the failing run names where it failed')
+  assert.deepEqual([...new Set(reverted.failed_at!.map((at) => at.path))], ['test/flow/rounding.test.ts'])
+  assert.equal(result.runs.find((run) => run.failed.length === 0)?.failed_at, undefined)
   assert.deepEqual(
     result.runs.map((run) => [run.kind, run.node ?? '', run.tests.join(' '), run.failed.join(' ')]),
     [

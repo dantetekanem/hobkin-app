@@ -735,6 +735,24 @@ function outcomeOf(run: Started): Outcome {
   return run.code === 0 ? 'passed' : 'failed'
 }
 
+/**
+ * The places in the given test files that a run's output names, in order. Runners name a file and a line for a test
+ * that failed (minitest's `[path:line]` and Rails's line to run it again, node's `test at path:line`, a stack trace)
+ * and nothing for one that passed, so these are where the failures were.
+ */
+export function failuresIn(output: string, files: readonly string[]): { path: string; line: number }[] {
+  const found = new Map<string, { path: string; line: number }>()
+  for (const path of files) {
+    // The path as given, or at the end of a longer one: `/work/shop/test/a.test.js:9`, never `mytest/a.test.js:9`.
+    const named = new RegExp(`(?<![\\w.-])${escape(path)}:(\\d+)`, 'g')
+    for (const match of output.matchAll(named)) {
+      const line = Number(match[1])
+      if (line > 0) found.set(`${path}:${line}`, { path, line })
+    }
+  }
+  return [...found.values()].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
+}
+
 /** The files a run records as failed: none when it passed, was stopped, or ran no test. */
 const failedIn = (run: Started, files: readonly string[]): string[] => (run.code === 0 || run.aborted || outcomeOf(run) === 'not-run' ? [] : [...files])
 
@@ -762,6 +780,7 @@ async function start(runner: Runner, files: readonly string[]): Promise<Started 
 }
 
 function testRunOf(runner: Runner, files: readonly string[], kind: TestRun['kind'], node: string | undefined, run: Started, failed: string[]): TestRun {
+  const failedAt = failed.length ? failuresIn(run.tail, failed) : []
   return {
     command: commandLine([...runner.book.command, ...files]),
     tests: [...files],
@@ -771,6 +790,7 @@ function testRunOf(runner: Runner, files: readonly string[], kind: TestRun['kind
     exit_code: run.code,
     seconds: run.seconds,
     failed,
+    ...(failedAt.length ? { failed_at: failedAt } : {}),
     ...(run.code !== 0 ? { output_tail: tailOf(run, runner.timeoutMs) } : {}),
   }
 }

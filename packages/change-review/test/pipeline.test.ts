@@ -169,6 +169,7 @@ test('the blind check runs once and never lowers', async (t) => {
   assert.ok(result.rejected.some((entry) => entry.event.node === 'n1' && /rule 4/.test(entry.reason)))
   assert.deepEqual(levelsOf(result.units), { n1: 'mid', n2: 'high', n4: 'safe' }, 'the checker lowered nothing and raised the constant one step')
   assert.equal(result.graph.nodes.find((node) => node.id === 'n5')?.kind, 'test', 'a helper in a test file is a test, never a unit')
+  assert.deepEqual(['n3', 'n5'].map((id) => [result.graph.nodes.find((node) => node.id === id)?.level?.current, result.graph.nodes.find((node) => node.id === id)?.level?.rule]), [['safe', 2], ['safe', 2]], 'a test carries no risk of its own')
   assert.match(result.units.units.find((unit) => unit.nodes.includes('n4'))?.title ?? '', /changes a type, erased before the code runs/)
   assert.equal(result.blind.ran, true)
   // Raising PRECISION moved it ahead of total: each action names the unit that holds its nodes after the check.

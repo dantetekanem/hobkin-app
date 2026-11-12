@@ -3,6 +3,7 @@
  * count and lookup, marks what cannot be trusted, and groups nodes by structure, never by level. Every unit is built
  * by one function, so every unit has the same fields in the same order whatever its level.
  */
+import { lineKinds } from './comments.ts'
 import type {
   Bucket, CodeShown, Effect, Exposure, Fact, Facts, FileDiff, Graph, GraphEdge, Hunk, Level, Proof, Question,
   ReviewNode, Triage, Undo, Unit, Units, Watch,
@@ -602,6 +603,74 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
   return { unit, stop: BUCKET_STOP, entry: '', sensitive: 0, path: bucket.folder, line: 0 }
 }
 
+/** Whether a file's diff changes a line that runs: one added at head or removed at base that is not blank or only a comment. A line that cannot be read counts as one that runs. */
+function changesCode(input: CurateInput, file: FileDiff): boolean {
+  const kindsAt = (side: 'head' | 'base') => {
+    const text = input.source?.(side === 'base' ? (file.oldPath ?? file.path) : file.path, side)
+    return text == null ? null : lineKinds(file.path, text)
+  }
+  const [head, base] = [kindsAt('head'), kindsAt('base')]
+  const runs = (kinds: ReturnType<typeof kindsAt>, at: number) => {
+    const kind = kinds?.[at - 1]
+    return kind !== 'blank' && kind !== 'comment'
+  }
+  for (const hunk of file.hunks) {
+    let [oldLine, newLine] = [hunk.oldLines === 0 ? hunk.oldStart + 1 : hunk.oldStart, hunk.newLines === 0 ? hunk.newStart + 1 : hunk.newStart]
+    for (const line of hunk.lines) {
+      if (line[0] === '+') {
+        if (runs(head, newLine)) return true
+        newLine += 1
+      } else if (line[0] === '-') {
+        if (runs(base, oldLine)) return true
+        oldLine += 1
+      } else {
+        oldLine += 1
+        newLine += 1
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * A code file the scan was given and found no definition in, though lines that run changed in it: a script with no
+ * file ending, a language the search tool does not read. Nothing in it was checked, so it is a unit of its own that
+ * says so, at high (FOUNDATION section 7: a failure to report, never "nothing to review").
+ */
+function unreadDraft(bucket: Bucket, file: FileDiff): Draft {
+  const path = file.path
+  const changed = file.hunks.flatMap((hunk) => hunk.lines)
+  const [added, removed] = [changed.filter((line) => line[0] === '+').length, changed.filter((line) => line[0] === '-').length]
+  const hunk = file.hunks[0]!
+  const excerpt: Excerpt = { lines: hunk.lines.slice(0, 12), range: [hunk.newStart, hunk.newStart + Math.max(hunk.newLines, 1) - 1], cut: Math.max(0, changed.length - 12) }
+  const unit: Omit<Unit, 'id'> = {
+    title: `\`${path}\` was not checked: the search tool found no definition in it`,
+    level: 'high',
+    critical: false,
+    nodes: [],
+    buckets: [bucket.id],
+    represents: { files: 1, lines: added + removed },
+    grouping: 'bucket',
+    story_order: BUCKET_STOP,
+    where: `In \`${bucket.folder}\`. What calls it, and what it calls, was not looked for.`,
+    what: `${plural(added, 'line')} added and ${removed} removed that this review did not read. Read the file yourself.`,
+    code: [shown(path, 'the first changed lines', excerpt)],
+    facts: {
+      effect: { value: 'behaviour', evidence: 'lines that run changed, and none was read as part of a definition' },
+      proof: { value: 'unknown', evidence: 'no definition was found to run tests against' },
+      exposure: { value: 'everyone', evidence: 'no condition in front of it was looked for' },
+      undo: { value: 'rollback', evidence: 'reverting the deploy restores the file' },
+    },
+    why_level: ['The search tool found no definition in this file, so nothing in it was checked: none of the four facts, and no test was run for it.'],
+    would_change: [{ text: 'Give the file a form the search tool reads, such as the file ending of its language, and review again', level: 'mid' }],
+    watch: { signals: [], gaps: ['nothing in this file was assessed'] },
+    questions: [],
+    unverified: `the search tool found no definition in ${path}`,
+    reading_minutes: MINUTES.high,
+  }
+  return { unit, stop: BUCKET_STOP, entry: '', sensitive: 0, path, line: 0 }
+}
+
 // ───────────────────────── Grouping ─────────────────────────
 
 /** The sole caller of a node in the graph, or undefined when it has none or several. */
@@ -673,6 +742,14 @@ export function curate(input: CurateInput): Units {
     const absorbed = sitesRead ? inside : inside.filter((node) => levelOf(node) === level)
     for (const node of absorbed) claimed.add(node.id)
     drafts.push(bucketDraft(work, bucket, absorbed, sitesRead ? level : undefined))
+  }
+  // A code file with no node, and lines that run changed in it: said, never left out.
+  const mapped = new Set(graph.nodes.map((node) => node.path))
+  for (const path of input.scannedFiles ?? []) {
+    const bucket = input.triage.buckets.find((item) => item.paths.includes(path))
+    const file = input.diffs.find((item) => item.path === path)
+    if (mapped.has(path) || bucket?.kind !== 'code' || bucket.treatment !== 'scan' || !file?.hunks.length) continue
+    if (changesCode(input, file)) drafts.push(unreadDraft(bucket, file))
   }
   const fileLevelUnits = drafts.length
 

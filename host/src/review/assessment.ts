@@ -67,7 +67,7 @@ interface GraphNode {
   /** A removed definition something still refers to says so here. */
   extras?: { broken?: string }
   /** The test runs that concern it. */
-  runs?: { kind: string; node?: string; tests?: string[]; failed?: string[] }[]
+  runs?: { kind: string; node?: string; tests?: string[]; failed?: string[]; failed_at?: { path: string; line: number }[] }[]
   /** Its proof, with what it rests on: `tests were not run: …` when no test could run. */
   facts?: { proof?: { evidence?: string } }
 }
@@ -625,7 +625,7 @@ export class Assessments {
     // Every run once: a run that concerns several definitions is listed under each of them.
     const runs = new Map<string, UnitRun>()
     for (const node of graph?.nodes ?? []) {
-      for (const run of node.runs ?? []) runs.set(JSON.stringify([run.kind, run.node ?? null, run.tests ?? []]), { kind: run.kind, ...(run.node ? { node: run.node } : {}), tests: run.tests ?? [], failed: run.failed ?? [] })
+      for (const run of node.runs ?? []) runs.set(JSON.stringify([run.kind, run.node ?? null, run.tests ?? []]), { kind: run.kind, ...(run.node ? { node: run.node } : {}), tests: run.tests ?? [], failed: run.failed ?? [], ...(run.failed_at ? { failed_at: run.failed_at } : {}) })
     }
     const words = readJson<StoryWords>(join(folder, 'story-words.json'))
     const levelled = withLevels(review, assessment)

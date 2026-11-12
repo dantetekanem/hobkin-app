@@ -84,6 +84,7 @@ Rules:
 
 - **Reach is measured, not inferred.** A request test (`post checkout_url`) has no static link to the code it drives; routing sits in between. In a fixture, the scan gave such a test no edge to the controller action. So the system runs the life cycle tests of the entry points above the change with line coverage, and checks that the changed lines executed.
 - **The state matters.** For code that runs only with a flag on, the test must turn the flag on. A flag-off test passing proves the old path, which is a different and also useful fact.
+- **A test is named, not only its file.** A run that fails says where, when the runner prints it. A test of a failed file that the run did not fail in passed both ways: it does not prove the change, and is not said to.
 - **A double on the path downgrades the test to `mocked`.** Stubbing the network edge of the system is fine. Stubbing the changed definition, its callers between entry and change, or what it writes to, is not.
 - **The codebase must have these tests.** The system does not write throwaway tests or boot a server to make up for missing ones. Missing is the finding.
 - Proof does not apply to buckets that are not read line by line (section 6). They have their own checks.
@@ -127,7 +128,7 @@ Deterministic, first match wins. The floor is computed from the four facts; no m
 | # | Condition | Floor |
 |---|---|---|
 | 1 | Something is broken or missing: what remains refers to something removed (definition, file, constant), or an expected translation key or locale is absent | `high`, critical |
-| 2 | Effect is `text`; or a removal that nothing remaining refers to; or a bucket from section 6 whose checks all passed | `safe` |
+| 2 | Effect is `text`; or a removal that nothing remaining refers to; or a bucket from section 6 whose checks all passed; or a test, which is proof for the code it runs and never a change rated on its own | `safe` |
 | 3 | Proof is `none`, `mocked` or `unknown`, for code that runs in a request, job or consumer | `high` |
 | 4a | Proof is `isolated`, and the way callers use the change is new or changed: the definition is new; or effect is `data` or `interface`; or it sits behind a condition (`nobody-yet`, `subset`); or undo is not `rollback` | `high` |
 | 4b | Proof is `isolated`, the definition was changed in place, effect is `behaviour`, exposure is `everyone` and undo is `rollback`. Add the finding "direct tests fail without the change; no request test goes through it" | `mid` |
@@ -191,7 +192,7 @@ Collapsing these is safe and deliberate. The risk in them is a missing piece or 
 
 A unit is one thing the reviewer decides on. The map can fail a reviewer three ways, and shaping answers each:
 
-- **No nodes.** For a code change this is a failure to report (wrong root, unsupported language), never "nothing to review". For a change with no code, units come from buckets.
+- **No nodes.** For a code change this is a failure to report (wrong root, unsupported language), never "nothing to review". For a change with no code, units come from buckets. One code file with no node, among files that have them, is the same failure in small: a script with no file ending, a language the search tool does not read. When lines that run changed in it, it is a unit of its own at `high` that says nothing in it was checked. When only comments or blank lines changed, it is no unit.
 - **Too many nodes.** Group by structure: a definition with the private helpers changed with it; a mechanical bucket; a bucket from section 6. Never group by level. If there are still too many, split the review into parts by entry point and say so.
 - **Inconsistent nodes.** Checked by count and lookup before shaping. What cannot be repaired by rebuilding is kept, marked `unverified`, and treated as `high`.
 

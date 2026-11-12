@@ -114,6 +114,34 @@ test('a test says how the change review ran it: failing at the change’s commit
   assert.match(words([], 'no way to run this repository’s tests was found.').summary, /Not run: no way to run this repository’s tests was found\.$/)
 })
 
+test('only a test the run failed in proves the change: another test of the same file passed both ways', async () => {
+  const graph = await review()
+  const test = graph.nodes.find((node) => node.kind === 'test')!
+  const file = 'test/models/cart_test.rb'
+  const reverted = (failed_at: { path: string; line: number }[]) =>
+    unitWords(graph, { units: [], places, words: null, runs: [{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'revert', node: 'n1', tests: [file], failed: [file], failed_at }] }).find((node) => node.id === test.id)!
+  // The test is lines 2 to 4 of its file.
+  assert.equal(reverted([{ path: file, line: 3 }]).status, 'proves-change')
+  const other = reverted([{ path: file, line: 40 }])
+  assert.equal(other.status, 'passed')
+  assert.match(other.summary, /It passes at the change's commit, and no change put back made it fail\.$/)
+  assert.equal(reverted([{ path: 'test/models/order_test.rb', line: 3 }]).status, 'passed', 'a failure in another file is not this test’s')
+})
+
+test('a request test that still passes with the change undone, and fails when the definition is made to fail, goes through it', async () => {
+  const graph = await review()
+  const test = graph.nodes.find((node) => node.kind === 'test')!
+  const file = 'test/models/cart_test.rb'
+  const told = unitWords(graph, {
+    units: [],
+    places: places.map((place) => (place.id === 'n1' ? { ...place, symbol: 'Cart#total' } : place)),
+    words: null,
+    runs: [{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'revert', node: 'n1', tests: [file], failed: [] }, { kind: 'reach', node: 'n1', tests: [file], failed: [file] }],
+  }).find((node) => node.id === test.id)!
+  assert.equal(told.status, 'passed')
+  assert.match(told.summary, /It runs through Cart#total and passes, with the change and with it put back: it does not check the change itself\.$/)
+})
+
 test('code of a unit says what the unit says of it: its member line, else what changed', async () => {
   const graph = await review()
   const units = [unit('u1', 1, { nodes: ['n1', 'n2'], members: [{ node: 'n1', name: 'total', what: 'Rounds the total.' }], what: 'The totals change.' })]

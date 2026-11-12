@@ -263,6 +263,39 @@ test('a failed breaking check makes the bucket high and critical, an unrun check
   assert.deepEqual([unrun.level, unrun.critical], ['high', false])
 })
 
+test('a code file the scan found no definition in is a unit of its own, high, and says nothing in it was checked', () => {
+  const helper = node('link', { path: 'app/helpers/posts_helper.rb', ...withLevel('mid') })
+  const code = bucket('b1', { folder: 'app/helpers', paths: [helper.path], files: 1 })
+  const scripts = bucket('b2', { folder: 'bin', change: 'added', paths: ['bin/report'], files: 1, added: 3 })
+  const head = '#!/usr/bin/env ruby\n\nputs Report.new.run\n'
+  const diff: FileDiff = { path: 'bin/report', hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3, lines: head.trimEnd().split('\n').map((line) => `+${line}`) }] }
+  const result = curate({
+    graph: graph([helper]),
+    triage: triage([code, scripts]),
+    diffs: [diff],
+    scannedFiles: [helper.path, 'bin/report'],
+    source: (path, side) => (path === 'bin/report' && side === 'head' ? head : null),
+  })
+  assert.deepEqual(result.units.map((unit) => [unit.level, unit.nodes.length]), [['high', 0], ['mid', 1]], 'the unread file comes first')
+  const unit = result.units[0]!
+  assert.equal(unit.title, '`bin/report` was not checked: the search tool found no definition in it')
+  assert.equal(unit.what, '3 lines added and 0 removed that this review did not read. Read the file yourself.')
+  assert.deepEqual([unit.grouping, unit.buckets, unit.represents], ['bucket', ['b2'], { files: 1, lines: 3 }])
+  assert.deepEqual([unit.facts.proof.value, unit.unverified], ['unknown', 'the search tool found no definition in bin/report'])
+  assert.match(unit.why_level[0] ?? '', /^The search tool found no definition in this file, so nothing in it was checked/)
+  assert.equal(unit.code[0]?.path, 'bin/report')
+  assert.match(unit.code[0]?.diff ?? '', /puts Report\.new\.run/)
+})
+
+test('a code file with no definition found makes no unit when only comments and blank lines changed in it', () => {
+  const helper = node('link', { path: 'app/helpers/posts_helper.rb', ...withLevel('mid') })
+  const code = bucket('b1', { folder: 'app', paths: [helper.path, 'app/models/cart.rb'], files: 2 })
+  const diff: FileDiff = { path: 'app/models/cart.rb', hunks: [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 3, lines: ['+# frozen_string_literal: true', '-# an old note', ' ', ' class Cart'] }] }
+  const texts: Record<string, string> = { head: '# frozen_string_literal: true\n\nclass Cart\nend\n', base: '# an old note\n\nclass Cart\nend\n' }
+  const result = curate({ graph: graph([helper]), triage: triage([code]), diffs: [diff], scannedFiles: code.paths, source: (path, side) => (path === 'app/models/cart.rb' ? texts[side]! : null) })
+  assert.deepEqual(result.units.map((unit) => unit.nodes), [['link']])
+})
+
 test('a code change with no nodes is a scan failure', () => {
   const code = bucket('b1', { paths: ['app/a.rb'], files: 1 })
   assert.throws(() => curate({ graph: graph([]), triage: triage([code]), diffs: [] }), /scan failure/)
