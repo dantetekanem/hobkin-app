@@ -97,7 +97,12 @@ export interface ReviewsOptions {
    * when it conflicts, and at the commit its branch is at now. A host given none lands it the way its card says.
    */
   merging?: (target: ChangeTarget, change: { reviewed: string; current: string; pr: boolean }) => Promise<MergePlan>
+  /** What moved on a pull request since the commit its review read, from a checkout of it. Without it, only that it moved is said. */
+  pullMoved?: (target: PullTarget, from: string, to: string) => Promise<Moved>
 }
+
+/** A pull request, as a review target. */
+type PullTarget = Extract<ReviewTarget, { kind: 'pull' }>
 
 /** A finished hobkin change, as a review target. */
 type ChangeTarget = Extract<ReviewTarget, { kind: 'change' }>
@@ -124,6 +129,8 @@ interface Merge {
   base: string
   /** The user opened it: GitHub lets nobody approve their own pull request. */
   mine: boolean
+  /** The commit it merges: where the pull request is now, as the preview showed it. */
+  head: string
 }
 
 /** A verdict's preview, with the review, card and pull request it was built from. */
@@ -221,9 +228,10 @@ export const LOOK_AGAIN_MS = 60_000
 
 /**
  * The rules the host draws a graph by. A review asked for whose graph was drawn by older rules is drawn again: 2 is the
- * graph whose nodes say what they are and whose tests, dependencies and pull request life cycles are wired.
+ * graph whose nodes say what they are and whose tests, dependencies and pull request life cycles are wired; 3 draws
+ * the request's life cycle out to its entry points and routes.
  */
-export const GRAPH_RULES = 2
+export const GRAPH_RULES = 3
 
 /** Every review the host has prepared or is preparing, and what to do with them. */
 export class Reviews {
@@ -669,7 +677,7 @@ export class Reviews {
       return { review, card: null, done: said, preview: { verdict, lines: [said], confirm: token('refreshing') } }
     }
     // Approve and merge lands where the branch is now and says what moved, so a moved head is no refusal there.
-    const lands = target.kind === 'change' && verdict === 'approve-merge' && this.options.merging != null
+    const lands = verdict === 'approve-merge' && (target.kind === 'pull' || this.options.merging != null)
     if (head != null && !at.startsWith(head) && !lands) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
     const notes = foldNotes(this.options.store.notes(target).entries as NoteEntry[])
     const byId = new Map(files.map((file) => [file.fileId, file]))
@@ -680,19 +688,28 @@ export class Reviews {
       const lineComments = (post: PullReviewPost) => (post.comments.length ? `with ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines` : 'with no comments on lines')
       const pinned = `At commit ${at.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
       if (verdict === 'approve-merge') {
-        const { mine, method, base } = await this.pullFacts(target)
+        const { mine, method, base, head: now } = await this.pullFacts(target)
+        // It merges where the pull request is now, which the preview says: a head that moved since the review is no refusal.
+        const reviewed = head != null && !at.startsWith(head) ? head : at
+        const current = now ?? reviewed
+        const movedOn = !(current.startsWith(reviewed) || reviewed.startsWith(current))
+        const said = movedOn ? await this.pullMovedWords(target, reviewed, current, base) : null
         // GitHub lets nobody approve their own pull request: what the user wrote still goes, as a comment, and then it merges.
-        const post = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
+        const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
+        // A review with no line to place goes on the commit it merges; lines stay on the commit they were written on.
+        const post = movedOn && written.comments.length === 0 ? { ...written, commit_id: current } : written
         const says = !mine || post.comments.length > 0 || post.body !== 'Commented.'
+        const at7 = current.slice(0, 7)
+        const tail = said ? [said, `This merges ${at7}, the commit shown here. GitHub refuses if the pull request moves again before then.`] : [pinned]
         const lines = mine
           ? [
               'GitHub does not let you approve your own pull request, so this merges it without an approval.',
               ...(says ? [`Comment on ${name} on GitHub first, as you, through gh, ${lineComments(post)}.`] : []),
               `Merge ${name} into ${base} ${MERGE_WORDS[method]}, as you, through gh.`,
-              pinned,
+              ...tail,
             ]
-          : [`Approve ${name} on GitHub, as you, through gh, ${lineComments(post)}.`, `Then merge it into ${base} ${MERGE_WORDS[method]}.`, pinned]
-        const merge: Merge = { post: says ? post : null, method, base, mine }
+          : [`Approve ${name} on GitHub, as you, through gh, ${lineComments(post)}.`, `Then merge it into ${base} ${MERGE_WORDS[method]}.`, ...tail]
+        const merge: Merge = { post: says ? post : null, method, base, mine, head: current }
         return { review, card: null, merge, preview: { verdict, lines, ...(says ? { post } : {}), confirm: token(merge) } }
       }
       // GitHub would refuse it, so it is refused here, before anything is sent.
@@ -742,12 +759,12 @@ export class Reviews {
    * What GitHub says of a pull request before it is approved or merged: whether the user opened it, the branch it merges
    * into, and how its repository lets it be merged, squashed first, then with a merge commit, then rebased.
    */
-  private async pullFacts(target: Extract<ReviewTarget, { kind: 'pull' }>): Promise<{ mine: boolean; method: MergeMethod; base: string }> {
+  private async pullFacts(target: PullTarget): Promise<{ mine: boolean; method: MergeMethod; base: string; head: string | null }> {
     const { gh } = this.options
     if (!gh) throw new Unavailable('This host merges nothing on GitHub.')
     const api = async <Value>(path: string) => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
     const repo = `repos/${target.owner}/${target.repo}`
-    type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string } }, { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
+    type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string }; head?: { sha?: string } }, { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
     let facts: Facts
     try {
       facts = (await Promise.all([api('user'), api(`${repo}/pulls/${target.number}`), api(repo)])) as Facts
@@ -758,7 +775,19 @@ export class Reviews {
     const method: MergeMethod | null = settings.allow_squash_merge === true ? 'squash' : settings.allow_merge_commit !== false ? 'merge' : settings.allow_rebase_merge !== false ? 'rebase' : null
     if (!method) throw new Unavailable(`${target.owner}/${target.repo} allows no way to merge a pull request.`)
     const mine = Boolean(viewer.login && pull.user?.login && viewer.login.toLowerCase() === pull.user.login.toLowerCase())
-    return { mine, method, base: pull.base?.ref ?? 'its base branch' }
+    return { mine, method, base: pull.base?.ref ?? 'its base branch', head: pull.head?.sha ?? null }
+  }
+
+  /** What moved on a pull request since its review, in a line: from a checkout of it when the host has one. */
+  private async pullMovedWords(target: PullTarget, from: string, to: string, base: string): Promise<string> {
+    const at = to.slice(0, 7)
+    if (!this.options.pullMoved) return `Since this review it moved to ${at}.`
+    try {
+      return movedWords(await this.options.pullMoved(target, from, to), base, at)
+    } catch (error) {
+      this.options.log?.(`Review ${reviewIdOf(target)} could not say what moved: ${messageOf(error)}`)
+      return `Since this review it moved to ${at}.`
+    }
   }
 
   /**
@@ -786,8 +815,8 @@ export class Reviews {
       if (merge) {
         const posted = merge.post ? await post(merge.post) : null
         try {
-          // `sha` is the commit this review was built from: GitHub refuses the merge if the pull request has moved since.
-          await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'PUT', `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, '--input', '-'], JSON.stringify({ sha: review.change.head, merge_method: merge.method }))
+          // `sha` is the commit the preview showed: GitHub refuses the merge if the pull request has moved since.
+          await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'PUT', `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, '--input', '-'], JSON.stringify({ sha: merge.head, merge_method: merge.method }))
         } catch (error) {
           if (merge.post) throw new Error(`${merge.mine ? 'Your comments went' : 'It was approved'} on GitHub, but it was not merged: ${messageOf(error)}`)
           throw error

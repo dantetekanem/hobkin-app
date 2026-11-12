@@ -204,3 +204,27 @@ test('the host reads where a change landed from hobkin’s own records: merged w
   assert.deepEqual([reviews.status('change:shop:a11111').landing?.state, reviews.status('change:shop:a11111').landing?.at], ['refreshing', '2026-11-12T20:51:00.000Z'])
   assert.equal(reviews.status('change:shop:b22222').landing, undefined, 'a change still waiting for its yes has none')
 })
+
+test('a change its default branch already holds is reviewed over its own commits, never as an empty change', async (t) => {
+  const read = async (repo: string, head: string, recorded: string | null = null) => {
+    const source = changeSource({ find: () => ({ project: 'shop', title: 'Round the total', branch: BRANCH, head }), repoOf: () => repo, baseOf: async () => 'main', recorded: () => recorded })
+    return (await source.read({ kind: 'change', slug: 'shop', item: 'f07742' }, head)).capture
+  }
+  const start = (git: (...args: string[]) => string) => git('rev-list', '--max-parents=0', 'main')
+
+  // Merged with a merge commit after main moved on: the change starts where main stood before that merge.
+  const merged = project(t)
+  merged.moveMain()
+  merged.git('merge', '--quiet', '--no-ff', '-m', 'Merge: Round the total', BRANCH)
+  const byMerge = await read(merged.repo, merged.reviewed)
+  assert.deepEqual([byMerge.base, byMerge.files.map((file) => file.path)], [start(merged.git), ['src/total.js']])
+
+  // Fast-forwarded: where its last review said it started, when that is behind it.
+  const forwarded = project(t)
+  const forkedAt = start(forwarded.git)
+  forwarded.git('merge', '--quiet', '--ff-only', BRANCH)
+  assert.deepEqual((await read(forwarded.repo, forwarded.reviewed, forkedAt)).files.map((file) => file.path), ['src/total.js'])
+  // With no review to say so, its own last commit.
+  const alone = await read(forwarded.repo, forwarded.reviewed)
+  assert.deepEqual([alone.base, alone.files.length], [forkedAt, 1])
+})

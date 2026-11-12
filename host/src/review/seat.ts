@@ -18,10 +18,10 @@ import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
 import { piModelRunner } from './agent.ts'
 import { Assessments } from './assessment.ts'
 import { reviewCode, reviewMap } from './guide.ts'
-import { mergePlan } from './landing.ts'
+import { mergePlan, movedSince } from './landing.ts'
 import { chatTeller } from './notify.ts'
 import type { GhCall } from './gh.ts'
-import { pullCheckout, type PullTarget, type Say } from './pull-checkout.ts'
+import { pullCheckout, pullRefs, type PullTarget, type Say } from './pull-checkout.ts'
 import { Reviews, type Watched } from './reviews.ts'
 import { sampleReviewSource } from './sample-source.ts'
 import { gitPublisher } from './publish.ts'
@@ -124,10 +124,13 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         log: seat.log,
       })
     : undefined
+  const store = reviewStore(seat.root)
   return new Reviews({
     ...(assessments ? { assessments } : {}),
     describe,
     landing,
+    // What moved on a pull request since its review: read from its checkout, fetching its new head first when needed.
+    ...(checkout ? { pullMoved: async (target: PullTarget, from: string, to: string) => movedSince({ repo: await checkout.repoFor(target, to), from, to, tip: pullRefs(target).base }) } : {}),
     // A yes merges a change that merges cleanly straight away, whatever its card would do, at the commit its branch is at.
     merging: async (target, { reviewed, current, pr }) => {
       const repo = repoOf(target.slug)
@@ -135,7 +138,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       return mergePlan({ repo, into: await intoOf(repo), reviewed, current, pr })
     },
     onReady: ({ target, review, at }) => void tell?.({ id: reviewIdOf(target), kind: target.kind, title: review.change.title, project: review.change.project, head: review.change.head, at }),
-    store: reviewStore(seat.root),
+    store,
     sources: {
       change: changeSource({
         find: (slug, item) => {
@@ -144,6 +147,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         },
         repoOf,
         baseOf: defaultBranch,
+        // A change merged already is reviewed over its own range, as its last review read it.
+        recorded: (target) => store.latest(target)?.review.change.base ?? null,
         // The call-graph scan runs only where reviews are real, never for the scripted host.
         ...(seat.live ? { vicinity: (repo: string, base: string, head: string) => scanVicinity({ repo, base, head }) } : {}),
       }),

@@ -46,6 +46,20 @@ export interface ChangeFacts {
   head: string | null
 }
 
+/**
+ * Where a change its default branch already holds started: before the merge that brought it in; else where an earlier
+ * review of it started, when that is behind it; else its own last commit, so the review always shows what it changed.
+ */
+async function ownStart({ reader, into, head, recorded }: { reader: GitReader; into: string; head: string; recorded: string | null }): Promise<string> {
+  const before = await reader.beforeMergeOf(head, into)
+  if (before) {
+    const base = await reader.mergeBase(before, head)
+    if (base !== head) return base
+  }
+  if (recorded && recorded !== head && (await reader.contains(head, recorded))) return recorded
+  return (await reader.commit(head)).parent
+}
+
 /** A finished hobkin change, read with git in the project's own repository. */
 export function changeSource({
   find,
@@ -53,6 +67,7 @@ export function changeSource({
   baseOf,
   git = gitReader,
   vicinity,
+  recorded,
 }: {
   /** The change as the Work screen has it, or null when hobkin no longer lists it. */
   find: (slug: string, item: string) => ChangeFacts | null
@@ -63,6 +78,8 @@ export function changeSource({
   git?: (repo: string) => GitReader
   /** The unchanged code around the change, from a call-graph scan of the repository. Without it the review shows none. */
   vicinity?: (repo: string, base: string, head: string) => Promise<Vicinity>
+  /** Where an earlier review of the change said it started, for a change its default branch already holds. */
+  recorded?: (target: ReviewTarget) => string | null
 }): ReviewSource {
   const where = (target: ReviewTarget) => {
     if (target.kind !== 'change') throw new Error('Not a finished change.')
@@ -81,7 +98,10 @@ export function changeSource({
     async read(target, head, watch) {
       const { facts, repo, target: change } = where(target)
       const reader = git(repo)
-      const base = await reader.mergeBase(await baseOf(repo), head)
+      const into = await baseOf(repo)
+      const forked = await reader.mergeBase(into, head)
+      // Merged already, its default branch holds every commit, so the change is its own range, never an empty one.
+      const base = forked === head ? await ownStart({ reader, into, head, recorded: recorded?.(target) ?? null }) : forked
       const capture = await captureChange(reader, base, head)
       const specPath = specPathFor(facts.branch, capture.files)
       const specText = specPath ? await reader.text(head, specPath) : null

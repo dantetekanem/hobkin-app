@@ -1,6 +1,6 @@
 /**
  * Reads a change from a git repository for the review passes. Only `git log`, `git diff`, `git merge-base`,
- * `git rev-parse` and `git show` ever run, so the repository is never changed.
+ * `git rev-parse`, `git rev-list` and `git show` ever run, so the repository is never changed.
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -24,6 +24,10 @@ export interface GitReader extends ChangeReader {
   mergeBase(left: string, right: string): Promise<string>
   /** A file's text at a commit, or null when it is not there or is binary. */
   text(commit: string, path: string): Promise<string | null>
+  /** Whether `older` is `newer` or one of its ancestors. */
+  contains(newer: string, older: string): Promise<boolean>
+  /** Where `into` stood before the merge that brought `head` into it, or null when no merge did, as for a fast-forward. */
+  beforeMergeOf(head: string, into: string): Promise<string | null>
 }
 
 export function gitReader(repository: string): GitReader {
@@ -62,6 +66,15 @@ export function gitReader(repository: string): GitReader {
     },
     async mergeBase(left, right) {
       return (await git('merge-base', left, right)).toString('utf8').trim()
+    },
+    async contains(newer, older) {
+      return git('merge-base', '--is-ancestor', older, newer).then(() => true, () => false)
+    },
+    async beforeMergeOf(head, into) {
+      // The oldest merge on the branch's own line that holds `head`: its first parent is where the branch stood before it.
+      const merges = (await git('rev-list', '--merges', '--first-parent', '--ancestry-path', '--reverse', `${head}..${into}`).catch(() => Buffer.from(''))).toString('utf8').split('\n').filter(Boolean)
+      if (!merges[0]) return null
+      return (await git('rev-parse', '--verify', '--quiet', `${merges[0]}^1`).catch(() => Buffer.from(''))).toString('utf8').trim() || null
     },
     async changed(base, head) {
       const fields = (await git('diff', '--name-status', '-M', '-z', base, head)).toString('utf8').split('\0')

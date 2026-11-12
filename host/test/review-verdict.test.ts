@@ -5,6 +5,7 @@ import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { GhOutcome } from '../src/github-gh.ts'
+import type { Moved } from '../src/review/landing.ts'
 import { GRAPH_RULES, Reviews, type ChangeCard, type Publisher } from '../src/review/reviews.ts'
 import { pullSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
@@ -188,7 +189,17 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
 })
 
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
-function pullSeat(t: TestContext, { viewer = 'me', author = 'dev', settings = { allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true } as Record<string, boolean>, refuseMerge = null as string | null } = {}) {
+function pullSeat(
+  t: TestContext,
+  {
+    viewer = 'me',
+    author = 'dev',
+    settings = { allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true } as Record<string, boolean>,
+    refuseMerge = null as string | null,
+    current = sample.change.head,
+    moved = undefined as Moved | undefined,
+  } = {},
+) {
   const id = 'pr:acme/shop/482'
   const store = reviewStore(temporaryDirectory(t))
   store.write(targetOfReviewId(id)!, sample, files)
@@ -199,7 +210,7 @@ function pullSeat(t: TestContext, { viewer = 'me', author = 'dev', settings = { 
     const path = args.find((arg) => arg === 'user' || arg.startsWith('repos/'))
     if (path === 'user') return { kind: 'done', stdout: JSON.stringify({ login: viewer }) }
     if (path === 'repos/acme/shop') return { kind: 'done', stdout: JSON.stringify(github.settings) }
-    if (path === 'repos/acme/shop/pulls/482') return { kind: 'done', stdout: JSON.stringify({ user: { login: author }, base: { ref: 'main' } }) }
+    if (path === 'repos/acme/shop/pulls/482') return { kind: 'done', stdout: JSON.stringify({ user: { login: author }, base: { ref: 'main' }, head: { sha: current } }) }
     if (path === 'repos/acme/shop/pulls/482/reviews') return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#pullrequestreview-1' }) }
     if (path === 'repos/acme/shop/pulls/482/merge') {
       return refuseMerge ? { kind: 'failed', code: 1, stdout: '', stderr: refuseMerge } : { kind: 'done', stdout: JSON.stringify({ merged: true, sha: 'e'.repeat(40) }) }
@@ -212,6 +223,8 @@ function pullSeat(t: TestContext, { viewer = 'me', author = 'dev', settings = { 
     work: () => ({ workAction: async () => ({}) }),
     card: () => null,
     gh,
+    // What moved since the review, as a checkout of the pull request would say it.
+    ...(moved ? { pullMoved: async () => moved } : {}),
     now: () => 1000,
   })
   /** What was sent: every call that was not a read. */
@@ -283,4 +296,26 @@ test('a merge GitHub refuses after the approval went says both', async (t) => {
   const preview = await reviews.preview(id, 'approve-merge', '')
   await assert.rejects(reviews.verdict(id, 'approve-merge', '', preview.confirm), /^Error: It was approved on GitHub, but it was not merged: gh said: Pull Request is not mergeable \(HTTP 405\)$/)
   assert.deepEqual(sent().map((call) => call.args[4]), ['POST', 'PUT'])
+})
+
+test('a pull request that moved since its review is merged where it is now: the preview says what moved, and the yes is pinned to it', async (t) => {
+  const { id, reviews, sent } = pullSeat(t, { current: NEWER, moved: { rebased: false, same: false, subjects: ['Fix the rounding'] } })
+  // The screen shows the review of the older commit: approve and merge is not refused for it.
+  const preview = await reviews.preview(id, 'approve-merge', '', sample.change.head)
+  assert.deepEqual(preview.lines, [
+    'Approve acme/shop#482 on GitHub, as you, through gh, with no comments on lines.',
+    'Then merge it into main by squashing its commits into one.',
+    'Since this review it gained 1 commit: "Fix the rounding".',
+    'This merges fffffff, the commit shown here. GitHub refuses if the pull request moves again before then.',
+  ])
+  await reviews.verdict(id, 'approve-merge', '', preview.confirm, sample.change.head)
+  const [approve, merge] = sent()
+  assert.equal(JSON.parse(approve!.input!).commit_id, NEWER, 'the approval goes on the commit it merges')
+  assert.deepEqual(JSON.parse(merge!.input!), { sha: NEWER, merge_method: 'squash' })
+
+  // Rebased, the same change: said so. With no checkout to read, only that it moved.
+  const rebased = pullSeat(t, { current: NEWER, moved: { rebased: true, same: true, subjects: [] } })
+  assert.equal((await rebased.reviews.preview(rebased.id, 'approve-merge', '')).lines[2], 'Since this review it was rebased onto main: the same change, now at fffffff.')
+  const unread = pullSeat(t, { current: NEWER })
+  assert.equal((await unread.reviews.preview(unread.id, 'approve-merge', '')).lines[2], 'Since this review it moved to fffffff.')
 })
