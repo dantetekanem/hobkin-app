@@ -1,0 +1,77 @@
+/*
+ * The preparing view and the card over an open review (Preparing.tsx, preparing/*). The movement only says that work
+ * goes on: the running step breathes, a new log line slides in, and a bar with no percent yet sweeps. With reduced
+ * motion (`data-reduced` on the view, from the app's Movement setting and the Mac's) it all holds still.
+ */
+
+/* The running step's mark: a ring that grows and fades, like a breath. */
+.pv-breath::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 9999px;
+  border: 2px solid var(--hb-accent);
+  opacity: 0;
+  animation: pv-breath 1.8s var(--ease-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes pv-breath {
+  from {
+    opacity: 0.7;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+/* A new line of the log slides in. Its opacity, which says how old it is, is set on the line and left alone after. */
+.pv-line {
+  animation: pv-line-in 260ms var(--ease-out) backwards;
+}
+
+@keyframes pv-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* A bar with no percent yet: a short band sweeps across it. */
+.pv-sweep {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 32%;
+  border-radius: inherit;
+  background: var(--hb-accent);
+  animation: pv-sweep 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes pv-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+/* The log fades out at its top once it scrolls, so the oldest lines read as going away. */
+.pv-log[data-overflow='true'] {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 36px);
+}
+
+[data-reduced='true'] .pv-breath::after,
+[data-reduced='true'] .pv-line {
+  animation: none;
+}
+
+/* Still, a bar with no percent is a quiet full band rather than a moving one. */
+[data-reduced='true'] .pv-sweep {
+  animation: none;
+  width: 100%;
+  opacity: 0.35;
+}

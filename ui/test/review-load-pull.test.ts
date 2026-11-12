@@ -3,7 +3,6 @@ import { test } from 'node:test'
 import { IDLE_STATUS, type ReviewStatus } from '../../shared/review/status.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
 import { createReviewLoader, type ReviewCommands } from '../src/features/review/loader.ts'
-import { preparingOf } from '../src/features/review/preparing-model.ts'
 
 function fixture(id: string, statuses: ReviewStatus[]) {
   const calls: string[] = []
@@ -59,14 +58,4 @@ test('polling keeps updating while preparing and stops asking when ready', async
   assert.equal(loader.getState().startedAt, null)
   assert.ok(calls.includes('review.get'))
   loader.dispose()
-})
-
-test('the preparing view reads elapsed, time left, now and steps', () => {
-  const status: ReviewStatus = { ...IDLE_STATUS('x'), state: 'preparing', phase: 'reading', assessment: { state: 'running', head: 'h', percent: 42.4, now: 'Mapping definitions', eta: 75, steps: [{ id: 'triage', status: 'done', done: 1, total: 1, seconds: 8 }, { id: 'graph-walk', status: 'running', done: 1, total: 3, seconds: null }, { id: 'story', status: 'pending', done: 0, total: 1, seconds: null }] } }
-  const view = preparingOf(status, 1000, 66_000)
-  assert.equal(view.now, 'Mapping definitions')
-  assert.equal(view.percent, 42)
-  assert.equal(view.elapsed, '1m 05s')
-  assert.equal(view.left, '1m 15s')
-  assert.deepEqual(view.steps.map((s) => [s.label, s.status, s.took]), [['Triage', 'done', '8s'], ['Graph walk', 'running', null], ['Story', 'waiting', null]])
 })

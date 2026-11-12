@@ -5,6 +5,7 @@ import type { ReviewNotes, ReviewStatus } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import { ReviewRefused } from '#shared/review/validate.ts'
 import { mergeHostNotes } from './notes/merge.ts'
+import { startOf, underWay } from './preparing-model.ts'
 import { memoryKey, type MemoryState } from './state/memory.ts'
 import type { StoreApi } from 'zustand/vanilla'
 
@@ -12,7 +13,10 @@ type ReviewCommand = 'review.status' | 'review.prepare' | 'review.get' | 'review
 export type ReviewCommands = <Name extends ReviewCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
 interface LoadState {
   status: 'loading' | 'awaiting' | 'preparing' | 'ready' | 'refused' | 'error'
-  /** When this window first saw the review being prepared (ms), for the time it has taken. Null when nothing is under way. */
+  /**
+   * When the run under way started (ms), for the time it has taken: the host's own time when it says, else when this
+   * window first saw it. Null when nothing is under way.
+   */
   startedAt: number | null
   review: Review | null
   preparation: ReviewStatus | null
@@ -99,11 +103,24 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       void flushNotes()
     })
   }
-  /** Starts the clock when a review is first seen under way, and stops it once nothing is. */
+  /**
+   * Starts the clock when a run is first seen under way, at the host's own time when it says one, and stops it once
+   * nothing is. The earliest start is kept, so the time never starts over between a graph and its change review.
+   */
   const clock = (status: ReviewStatus): { startedAt: number | null } => {
-    const underWay = status.state === 'preparing' || status.assessment?.state === 'queued' || status.assessment?.state === 'running'
-    return { startedAt: underWay ? store.getState().startedAt ?? now() : null }
+    if (!underWay(status)) return { startedAt: null }
+    const kept = store.getState().startedAt
+    return { startedAt: Math.min(startOf(status) ?? kept ?? now(), kept ?? Infinity) }
   }
+  /**
+   * A pull request opens once its first change review is ready, or has stopped: its graph alone is a walk node by node,
+   * not a review. A finished change opens on its graph while its change review runs.
+   */
+  const waits = (status: ReviewStatus): boolean => {
+    const run = status.assessment?.state
+    return !startsByItself(id) && !store.getState().review && (run === 'queued' || run === 'running')
+  }
+  const opens = (status: ReviewStatus) => status.state === 'ready' && !waits(status)
   const executeLoad = async (refresh: boolean) => {
     disposed = false
     const turn = ++generation
@@ -120,15 +137,17 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       if (command) {
         preparation = refresh ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
         if (disposed || turn !== generation) return
-        if (preparation.state === 'idle' && !startsByItself(id) && !refresh) {
+        // Nothing prepared and nothing under way, its change review included.
+        const idle = preparation.state === 'idle' && !underWay(preparation)
+        if (idle && !startsByItself(id) && !refresh) {
           // Opening a pull request asks nothing of the host; "Start AI review" does.
           store.setState({ preparation, status: store.getState().review ? 'ready' : 'awaiting', startedAt: null })
           return
         }
-        if (preparation.state === 'idle') preparation = await command('review.prepare', { id })
+        if (idle) preparation = await command('review.prepare', { id })
         if (disposed || turn !== generation) return
         store.setState({ preparation, ...clock(preparation) })
-        if (preparation.state !== 'ready') {
+        if (!opens(preparation)) {
           const unfinished = preparation.state === 'failed' ? 'error' : 'preparing'
           store.setState({ status: store.getState().review ? 'ready' : unfinished, error: preparation.error })
           return
@@ -141,6 +160,8 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       } else {
         if (!sample) throw new Error('No review source is available.')
         review = await sample.getReview(id)
+        // A sample's units load as a live review's do.
+        assessment = (await sample.getAssessment?.(id)) ?? null
       }
       if (disposed || turn !== generation) return
       // The model id stays intact for host commands; only browser memory is namespaced by its source.
@@ -189,8 +210,9 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     try {
       const preparation = await command('review.prepare', { id })
       if (disposed || turn !== generation) return
-      store.setState({ preparation, status: preparation.state === 'failed' ? 'error' : preparation.state === 'ready' ? 'loading' : 'preparing', error: preparation.error, ...clock(preparation) })
-      if (preparation.state === 'ready') await load()
+      const ready = opens(preparation)
+      store.setState({ preparation, status: preparation.state === 'failed' ? 'error' : ready ? 'loading' : 'preparing', error: preparation.error, ...clock(preparation) })
+      if (ready) await load()
     } catch (error) {
       if (!disposed && turn === generation) store.setState({ status: 'error', error: reason(error) })
     }
