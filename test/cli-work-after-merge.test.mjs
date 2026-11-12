@@ -40,7 +40,8 @@ function finished(h, branch, change = {}) {
 /** Finished work filed for issue acme/api#`number`, as the GitHub page or a project's pick-up files it. */
 function fromIssue(h, number, branch, change = {}) {
   const issue = { repo: 'acme/api', number, url: `https://github.invalid/acme/api/issues/${number}` };
-  const { id } = fileItem(h.root, 'api', { key: `gh-issue:acme/api#${number}`, kind: 'fix', title: `Issue ${number}`, brief: 'What goes wrong.', issue }, NOW);
+  const filing = { key: `gh-issue:acme/api#${number}`, kind: 'fix', title: `Issue ${number}`, brief: 'What goes wrong.', issue };
+  const { id } = fileItem(h.root, 'api', filing, NOW);
   return updateItem(h.root, 'api', id, { state: 'branch', branch, ...proved, ...change }, NOW);
 }
 
@@ -48,14 +49,14 @@ const read = (h, { id }) => readItems(h.root, 'api').find(item => item.id === id
 const lines = h => clientNoticesToPost(h.root).map(({ line, tone }) => [line, tone]);
 const survey = (h, pulls = []) => surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify(pulls) });
 
-/** gh as the test plays it: it writes down what it was asked, and answers an issue's state as told. A close it throws on fails like gh does. */
-function fakeGh({ state = 'OPEN', close = null } = {}) {
+/** gh as the test plays it: it writes down what it was asked, and answers an issue's state as told. Given `closeError`, the close fails as gh does. */
+function fakeGh({ state = 'OPEN', closeError = null } = {}) {
   const asked = [];
   const gh = async args => {
     asked.push(args);
     if (args[0] !== 'issue') throw Error(`Not an issue command: ${args.join(' ')}`);
     if (args[1] === 'view') return JSON.stringify({ state });
-    if (close) throw close;
+    if (closeError) throw closeError;
     return '';
   };
   return { gh, asked };
@@ -71,9 +72,9 @@ test('a merge ends the work at once: nothing waits for the user, and what its ru
   await survey(h);
 
   await mergeItem(h.root, 'api', item.id, { now: NOW });
-  const waiting = readWaiting(h.root, { now: NOW, reports: [] });
   await afterMerges(h.root, { now: NOW + 1000, gh: neverGh });
   await afterMerges(h.root, { now: NOW + 2000, gh: neverGh });
+  const waiting = readWaiting(h.root, { now: NOW + 2000, reports: [] });
 
   assert.equal(read(h, item).state, 'merged');
   assert.deepEqual([...waiting.branches, ...waiting.yours].map(row => row.item), [], 'no card asks to mark it done');
@@ -133,7 +134,7 @@ test('a gh that cannot close the issue is told once in plain words, and the merg
   branched(h.checkout, 'hobkin/12-fix', 'login.txt', 'login\n');
   const item = fromIssue(h, 12, 'hobkin/12-fix');
   const refused = Object.assign(Error('Command failed: gh issue close'), { stderr: 'HTTP 403: Resource not accessible by personal access token\nmore detail' });
-  const { gh, asked } = fakeGh({ close: refused });
+  const { gh, asked } = fakeGh({ closeError: refused });
 
   await mergeItem(h.root, 'api', item.id, { now: NOW });
   await afterMerges(h.root, { now: NOW + 1000, gh });
@@ -151,21 +152,36 @@ test('work merged before this pass existed is left alone, and a note that only s
   const receipt = finished(h, 'hobkin/abc', { left: 'Nothing pushed, opened, merged, deployed or released' });
 
   await mergeItem(h.root, 'api', receipt.id, { now: NOW });
-  const settled = await afterMerges(h.root, { now: NOW + 1000, gh: neverGh });
+  const followed = await afterMerges(h.root, { now: NOW + 1000, gh: neverGh });
 
-  assert.deepEqual(settled.map(({ id }) => id), [receipt.id]);
+  assert.deepEqual(followed.map(({ id }) => id), [receipt.id]);
   assert.deepEqual(lines(h), []);
   assert.equal(read(h, before).afterMerge, undefined);
 });
 
-test("the director's tick follows every merge, without gh holding the tick", async t => {
+test("the director's tick follows every merge by itself, and a slow gh holds back neither the tick nor another merge's line", async t => {
   const h = director(t);
   studied(h, 'api');
-  const { id } = fileItem(h.root, 'api', { key: 'merged one', kind: 'fix', title: 'Merged one', brief: 'Evidence.' }, h.clock);
-  updateItem(h.root, 'api', id, { state: 'merged', left: 'Tell the team.', ...AFTER_MERGE }, h.clock);
+  const merged = (title, change) => {
+    const { id } = fileItem(h.root, 'api', { key: title, kind: 'fix', title, brief: 'Evidence.' }, h.clock);
+    updateItem(h.root, 'api', id, { state: 'merged', ...AFTER_MERGE, ...change }, h.clock);
+  };
+  merged('From an issue', { issue: { repo: 'acme/api', number: 9, url: 'https://github.invalid/acme/api/issues/9' } });
+  merged('Merged one', { left: 'Tell the team.' });
+  let answerTheIssue = () => {};
+  h.gh = args => (args[0] === 'issue'
+    ? new Promise(resolve => { answerTheIssue = () => resolve(JSON.stringify({ state: 'CLOSED' })); })
+    : Promise.reject(Error('This repository has no remote.')));
 
   await h.director.tick();
+  const whileGhWorks = lines(h);
+  answerTheIssue();
   await h.director.settlingMerges;
+  await h.director.surveying;
 
-  assert.deepEqual(lines(h), [['Merged "Merged one" on api. Still for you: Tell the team.', 'useful']]);
+  assert.deepEqual(whileGhWorks, [['Merged "Merged one" on api. Still for you: Tell the team.', 'useful']]);
+  assert.deepEqual(lines(h).map(([line]) => line), [
+    'Merged "Merged one" on api. Still for you: Tell the team.',
+    'Merged "From an issue" on api. GitHub had already closed acme/api#9.',
+  ]);
 });

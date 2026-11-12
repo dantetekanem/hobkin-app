@@ -17,7 +17,9 @@ const defaultGh = ghWithin(GH_TIMEOUT_MS);
 // The longest line a notice keeps (`client-notices.mjs`). A long note is cut at a word to fit, rather than mid-word.
 const LONGEST_LINE = 600;
 
-const isDue = item => item.state === 'merged' && item.afterMerge === AFTER_MERGE.afterMerge;
+const { afterMerge: DUE } = AFTER_MERGE;
+const isDue = ({ state, afterMerge }) => state === 'merged' && afterMerge === DUE;
+
 const flat = text => String(text ?? '').replace(/\s+/g, ' ').trim();
 const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim();
 const atAWord = (text, most) => (text.length <= most ? text : `${text.slice(0, most - 1).replace(/\s*\S*$/, '')}…`);
@@ -25,28 +27,33 @@ const atAWord = (text, most) => (text.length <= most ? text : `${text.slice(0, m
 /** What fixed it, for the issue's closing comment: the PR the work merged as, or else the commit it landed as. */
 const fixedBy = ({ pr, landed, branch }) => pr ?? landed?.sha ?? branch;
 
-const stateIn = text => {
+/** The state `gh issue view --json state` printed, or null when its answer says none. */
+function stateOf(answer) {
   try {
-    return JSON.parse(text)?.state ?? null;
+    return JSON.parse(answer)?.state ?? null;
   } catch {
     return null;
   }
-};
+}
 
 /**
  * Closes the issue as completed, unless GitHub has closed it already, as it does once a PR that fixes it merges into the default branch. What
  * happened comes back as a sentence for Chat. A failure is one of those sentences, so it never undoes the merge.
  */
-async function closeIssue({ issue: { repo, number }, ...item }, gh) {
+async function closeIssue(item, gh) {
+  const { repo, number } = item.issue;
   const named = `${repo}#${number}`;
   try {
-    const state = stateIn(await gh(['issue', 'view', String(number), '--repo', repo, '--json', 'state']));
+    const state = stateOf(await gh(['issue', 'view', String(number), '--repo', repo, '--json', 'state']));
     if (!state) throw Error('gh did not say whether it is still open.');
     if (state === 'CLOSED') return { issue: 'already', said: `GitHub had already closed ${named}.` };
-    await gh(['issue', 'close', String(number), '--repo', repo, '--reason', 'completed', '--comment', `Fixed by ${fixedBy(item)}, merged by hobkin.`]);
+
+    const comment = `Fixed by ${fixedBy(item)}, merged by hobkin.`;
+    await gh(['issue', 'close', String(number), '--repo', repo, '--reason', 'completed', '--comment', comment]);
     return { issue: 'closed', said: `Closed ${named} on GitHub.` };
   } catch (error) {
-    return { issue: 'failed', said: `hobkin could not close ${named} on GitHub: ${firstLine(error.stderr || error.message) || 'gh did not say why.'}` };
+    const why = firstLine(error.stderr || error.message) || 'gh did not say why.';
+    return { issue: 'failed', said: `hobkin could not close ${named} on GitHub: ${why}` };
   }
 }
 
@@ -54,22 +61,34 @@ async function closeIssue({ issue: { repo, number }, ...item }, gh) {
 function lineFor(project, item, closing) {
   const left = saysWhatIsLeft(item) ? `Still for you: ${flat(item.left)}` : null;
   if (!closing && !left) return null;
+
   const opening = [`Merged "${flat(item.title)}" on ${nameOf(project)}.`, closing?.said].filter(Boolean).join(' ');
-  return left ? `${opening} ${atAWord(left, Math.max(LONGEST_LINE - opening.length - 1, 1))}` : opening;
+  if (!left) return opening;
+
+  const room = Math.max(LONGEST_LINE - opening.length - 1, 1);
+  return `${opening} ${atAWord(left, room)}`;
 }
 
 /**
  * Follows every merge not followed yet, on every project, and answers what it did for each. An item that merged before this pass existed carries
- * no mark, so nothing is told or closed for it now. Only gh is ever waited on: work with no issue is followed at once.
+ * no mark, so nothing is told or closed for it now. Only gh is ever waited on, and work with no issue needs none, so it is followed first, at
+ * once: an issue gh is slow to answer holds back no other merge's line.
  */
 export async function afterMerges(root, { now = Date.now(), gh = defaultGh } = {}) {
-  const due = readProjects(root).flatMap(project => readItems(root, project.slug).filter(isDue).map(item => ({ project, item })));
+  const due = readProjects(root).flatMap(project => readItems(root, project.slug)
+    .filter(isDue)
+    .map(item => ({ project, item })));
+  const needsGh = ({ item }) => Boolean(item.issue);
+  const inTurn = [...due.filter(entry => !needsGh(entry)), ...due.filter(needsGh)];
+
   const followed = [];
-  for (const { project, item } of due) {
+  for (const { project, item } of inTurn) {
     const closing = item.issue ? await closeIssue(item, gh) : null;
+
     const line = lineFor(project, item, closing);
     const tone = closing?.issue === 'failed' ? 'blocked' : 'useful';
     if (line) postClientNotice(root, { key: `merged:${project.slug}:${item.id}`, line, tone }, now);
+
     const came = closing ? { issue: closing.issue } : {};
     updateItem(root, project.slug, item.id, { afterMerge: { at: new Date(now).toISOString(), ...came } }, now);
     followed.push({ slug: project.slug, id: item.id, title: item.title, ...came });

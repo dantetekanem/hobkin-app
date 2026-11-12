@@ -31,7 +31,9 @@ const leftForTheUser = item => Boolean(item.left) && !overStates.includes(item.s
   && !(item.state === 'done' && (item.leftKind === 'delivery' || deliveryDisclaimer(item.left)));
 
 /** A note a run left that tells the user something: not empty, and not only a receipt of what the run did not deliver. */
-export const saysWhatIsLeft = ({ left, leftKind }) => Boolean(String(left ?? '').trim()) && leftKind !== 'delivery' && !deliveryDisclaimer(left);
+export const saysWhatIsLeft = ({ left, leftKind }) => Boolean(String(left ?? '').trim())
+  && leftKind !== 'delivery'
+  && !deliveryDisclaimer(left);
 
 /** Classification is presentation, not permission to ship or evidence that work finished. Unknown text stays visible. */
 export const attentionKind = ({ leftKind, left }) => {
