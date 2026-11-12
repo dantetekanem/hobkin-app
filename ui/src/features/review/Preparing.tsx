@@ -45,23 +45,22 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
   }, [status])
   const enter = reduced
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: tween.enter }
-    : { initial: { opacity: 0, transform: 'translateY(14px)' }, animate: { opacity: 1, transform: 'translateY(0px)' }, transition: { transform: spring.rise, opacity: tween.enter } }
+    : { initial: { opacity: 0, transform: 'translateY(14px)' }, animate: { opacity: 1, transform: 'translateY(0px)' }, transition: { transform: spring.push, opacity: tween.enter } }
 
   return (
     <div ref={root} data-reduced={reduced} className="@container scroll-quiet h-full overflow-y-auto">
       <motion.div {...enter} className="mx-auto flex w-full max-w-[1040px] flex-col gap-5 px-6 pt-28 pb-12 @3xl:px-10">
-        <Header subject={run.subject} run={run} awaiting={awaiting} reduced={reduced} />
+        <Header run={run} awaiting={awaiting} reduced={reduced} />
         {awaiting ? (
           <Ask start={() => void loader.start()} close={closeReview} />
         ) : (
           <>
             <CloseLine close={closeReview} />
-            <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] @3xl:items-start">
-              <div className="flex min-w-0 flex-col gap-5">
-                <Now run={run} reduced={reduced} />
-                <Log run={run} />
-              </div>
-              <Steps run={run} />
+            {/* Narrow, one column: now, the steps, the log. Wide, the steps go to the right of the other two. */}
+            <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] @3xl:grid-rows-[auto_1fr] @3xl:items-start">
+              <Now run={run} reduced={reduced} />
+              <Steps run={run} className="@3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1" />
+              <Log run={run} className="@3xl:col-start-1 @3xl:row-start-2" />
             </div>
           </>
         )}
@@ -71,7 +70,8 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
 }
 
 /** What is reviewed, and how the review of it stands, with hobkin at work beside it. */
-function Header({ subject, run, awaiting, reduced }: { subject: Subject | null; run: Run; awaiting: boolean; reduced: boolean }) {
+function Header({ run, awaiting, reduced }: { run: Run; awaiting: boolean; reduced: boolean }) {
+  const { subject } = run
   const Place = subject?.kind === 'change' ? FolderGit2 : GitPullRequest
   const stopped = !awaiting && run.state === 'failed'
   const mood: Mood = awaiting ? 'hello' : stopped ? 'confused' : run.state === 'queued' ? 'idle' : 'working'
@@ -158,7 +158,7 @@ function Now({ run, reduced }: { run: Run; reduced: boolean }) {
     : { initial: { opacity: 0, transform: 'translateY(10px)' }, animate: { opacity: 1, transform: 'translateY(0px)' }, exit: { opacity: 0, transform: 'translateY(-10px)' }, transition: { transform: spring.push, opacity: tween.enter } }
   const times = [run.elapsed ? `${run.elapsed} so far` : 'Just started', run.left ? `about ${run.left} left` : null].filter(Boolean).join(' · ')
   return (
-    <section aria-label="Now" className={cn(CARD, '@3xl:p-6')}>
+    <section aria-label="Now" className={cn(CARD, 'min-w-0 @3xl:col-start-1 @3xl:row-start-1 @3xl:p-6')}>
       <div className="flex items-baseline justify-between gap-3">
         <h2 className={HEADING}>Now</h2>
         {run.position ? (
@@ -188,10 +188,10 @@ function Now({ run, reduced }: { run: Run; reduced: boolean }) {
   )
 }
 
-function Log({ run }: { run: Run }) {
+function Log({ run, className }: { run: Run; className?: string }) {
   const count = run.log.length
   return (
-    <section aria-label="Log" className={CARD}>
+    <section aria-label="Log" className={cn(CARD, 'min-w-0', className)}>
       <div className="flex items-baseline justify-between gap-3">
         <h2 className={HEADING}>Log</h2>
         {count ? <span className="text-[14px] text-muted-foreground tabular-nums">{count === 1 ? '1 line' : `${count} lines`}</span> : null}
@@ -201,10 +201,10 @@ function Log({ run }: { run: Run }) {
   )
 }
 
-function Steps({ run }: { run: Run }) {
+function Steps({ run, className }: { run: Run; className?: string }) {
   const ended = run.steps.filter((step) => step.status === 'done' || step.status === 'skipped').length
   return (
-    <section aria-label="Steps" className={CARD}>
+    <section aria-label="Steps" className={cn(CARD, className)}>
       <div className="mb-4 flex items-baseline justify-between gap-3">
         <h2 className={HEADING}>Steps</h2>
         {run.steps.length ? (

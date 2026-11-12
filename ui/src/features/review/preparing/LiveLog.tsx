@@ -1,5 +1,5 @@
 import { ArrowDown } from 'lucide-react'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { cn } from '@/lib/utils.ts'
 import type { LogLine } from '../preparing-model.ts'
 
@@ -36,6 +36,16 @@ export function LiveLog({ lines, className, stop = false }: { lines: LogLine[]; 
     element.scrollTop = element.scrollHeight
     setFollowing(true)
   }
+  // Up and Down scroll the log while it has room, and only then: at its ends they walk the view's controls (`data-stop`).
+  const onKeyDown = (event: KeyboardEvent) => {
+    const element = box.current
+    if (!element || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') || event.metaKey || event.altKey || event.ctrlKey) return
+    const down = event.key === 'ArrowDown'
+    const room = down ? element.scrollHeight - element.scrollTop - element.clientHeight > 1 : element.scrollTop > 0
+    if (!room) return
+    element.scrollBy({ top: down ? 44 : -44 })
+    event.preventDefault()
+  }
 
   return (
     <div className="relative min-w-0">
@@ -49,6 +59,7 @@ export function LiveLog({ lines, className, stop = false }: { lines: LogLine[]; 
         {...(stop ? { 'data-stop': '' } : {})}
         data-overflow={overflowing}
         onScroll={onScroll}
+        onKeyDown={onKeyDown}
         className={cn('pv-log scroll-quiet overflow-y-auto overscroll-contain font-mono text-[14px] leading-[1.6] outline-offset-2 select-text [font-variant-ligatures:none]', className)}
       >
         {lines.length ? (
