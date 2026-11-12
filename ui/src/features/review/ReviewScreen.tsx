@@ -9,6 +9,7 @@ import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
 import { createReviewLoader, type ReviewLoader } from './loader.ts'
 import { Preparing } from './Preparing.tsx'
 import { RunCard } from './preparing/RunCard.tsx'
+import { sampleLanding } from './preparing/sample-landing.ts'
 import { sampleHost } from './preparing/sample-run.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
 import { isSamplePull } from './sample/pull-id.ts'
@@ -89,13 +90,15 @@ export function ReviewScreen() {
   const loader = useMemo(() => {
     const id = reviewId ?? 'sample'
     const scope = live ? `host:${home}` : 'sample'
-    // With no host, a sample pull request is prepared by a made-up host, so its preparation and rebuilds can be seen.
-    // Its notes stay the window's own.
+    // With no host, a sample pull request is prepared by a made-up host, so its preparation and rebuilds can be seen,
+    // and the sample finished change lands through one, so its refresh and its merge can be seen. Their notes stay the
+    // window's own. A live review's commands are only ever the connected host's.
     const windowNotes = (review: Review): ReviewNotes => {
       const saved = reviewMemory.getState().of({ ...review, memoryScope: scope } as Review)
       return { entries: saved.notes, draft: saved.draft }
     }
-    const source = live ? { command: commandsOnHost(home) } : isSamplePull(id) ? { command: sampleHost(id, sampleSource, windowNotes) } : { sample: sampleSource }
+    const landing = sampleLanding(id, live, sampleSource, windowNotes)
+    const source = live ? { command: commandsOnHost(home) } : isSamplePull(id) ? { command: sampleHost(id, sampleSource, windowNotes) } : landing ? { command: landing } : { sample: sampleSource }
     return createReviewLoader({ id, scope, memory: reviewMemory, ...source })
   }, [reviewId, home, live])
 
@@ -109,8 +112,8 @@ export function ReviewScreen() {
   }, [loader])
 
   // The verdict and the messages to hobkin go to the same host the review came from, and nowhere once another host has
-  // taken its place.
-  const verdict = useMemo<VerdictCommands | null>(() => (live ? commandsOnHost(home) : null), [home, live])
+  // taken its place. The sample finished change's verdict goes to its made-up host, so it can be seen to land.
+  const verdict = useMemo<VerdictCommands | null>(() => (live ? commandsOnHost(home) : sampleLanding(reviewId ?? 'sample', live, sampleSource)), [home, live, reviewId])
   const ask = useMemo<AskCommand | null>(() => (live ? commandsOnHost(home) : null), [home, live])
 
   return <ReviewLoad loader={loader} renderReview={(review) => (
