@@ -1,13 +1,14 @@
 /**
- * Asking hobkin from the review. The box in the panel and the quick links beside a unit's questions in the code panel
- * send the same way: one message into hobkin's conversation, with the review, the step and the node, so hobkin knows
- * what "this" is. The message shows at once in the review's conversation, and the panel stays open while the
- * reviewer talks.
+ * Asking hobkin from the review. The box in the panel, the quick links of "What matters" and the quick links beside a
+ * unit's questions in the code panel all send the same way: one message into hobkin's conversation, with the review,
+ * the step and the node, so hobkin knows what "this" is. The message shows at once in the review's conversation, the
+ * review keeps it as soon as hobkin has it, and the panel stays open while the reviewer talks.
  */
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
-import type { Level } from '#shared/review/assessment.ts'
+import type { Level, Unit } from '#shared/review/assessment.ts'
 import { RISK_WORDS, type StepUnit } from '../reading/model.ts'
 import type { SessionStore } from '../state/session.ts'
+import { sentEntry, type ThreadEntry } from './thread.ts'
 
 export type AskCommand = (name: 'conversation.send', args: CommandArgs<'conversation.send'>) => Promise<CommandResults['conversation.send']>
 
@@ -28,11 +29,25 @@ export function changeAsk(unit: Pick<StepUnit, 'title'>, change: { text: string;
   return `${about(unit)}the change review says this would make it ${RISK_WORDS[change.level].toLowerCase()}: ${sentence(change.text)} How would we do it?`
 }
 
+/** A unit that needs a look, asked of hobkin: why it has its level, and where to look. */
+export function unitAsk(unit: Pick<Unit, 'title' | 'level'>): string {
+  return `${about(unit)}why is it ${RISK_WORDS[unit.level].toLowerCase()}, and what should I check first?`
+}
+
+/** What the change says it does, asked of hobkin against the code. */
+export function claimAsk(): string {
+  return 'Does the code do what this change says it does, and nothing more?'
+}
+
+/** Keeps a message hobkin took with the review, so the review's conversation has it before hobkin's own does. */
+export type KeepSent = (entry: ThreadEntry) => void
+
 /**
  * Sends words to hobkin from the review, about the step the reviewer is on and a node: the one given, such as the node
- * whose code is open, else the one the reviewer pointed at, else the first in focus. True once hobkin has them.
+ * whose code is open, else the one the reviewer pointed at, else the first in focus. True once hobkin has them, and
+ * then `keep` has them too.
  */
-export async function askHobkin(session: SessionStore, command: AskCommand, text: string, node?: string | null): Promise<boolean> {
+export async function askHobkin(session: SessionStore, command: AskCommand, text: string, { node, keep }: { node?: string | null; keep?: KeepSent } = {}): Promise<boolean> {
   const words = text.trim()
   if (!words) return false
   const state = session.getState()
@@ -42,6 +57,9 @@ export async function askHobkin(session: SessionStore, command: AskCommand, text
   try {
     const { queued } = await command('conversation.send', { text: words, review: { id: state.review.id, ...(step ? { step } : {}), ...(on ? { node: on } : {}) } })
     session.getState().settleAsk(key, queued ? 'queued' : 'taken')
+    // Gone already when the conversation showed it first: the review keeps that copy instead.
+    const sent = session.getState().asks.find((ask) => ask.key === key)
+    if (sent) keep?.(sentEntry(sent))
     return true
   } catch (error) {
     session.getState().settleAsk(key, { error: error instanceof Error ? error.message : String(error) })

@@ -21,13 +21,15 @@
   /* The dots under the graph: barely there, for depth. */
   --rv-dot: color-mix(in oklab, var(--hb-text) 24%, transparent);
   /*
-   * Where the reviewer talks to hobkin: a band darker than the panel, with a breath of the periwinkle of the site's
-   * hills, the agent's own color, apart from the panel and from yellow. Its field is a little lighter, and what the
-   * reviewer said sits on the periwinkle.
+   * Where the reviewer talks to hobkin: a band across the panel in the periwinkle of the site's hills, the agent's own
+   * color, darker than the warm panel and apart from yellow (the user, 2026-11-12: "a different color to
+   * differentiate", "the darker bg, not a boxed one"). What the reviewer said sits on a lighter periwinkle. Secondary
+   * text on the band passes 4.5 to 1 in both themes; its error text is a deeper red, which does too.
    */
-  --rv-ask: color-mix(in oklab, var(--hb-code) 6%, color-mix(in oklab, var(--hb-text) 6%, var(--hb-tone-3)));
-  --rv-ask-field: color-mix(in oklab, var(--hb-surface) 72%, var(--rv-ask));
-  --rv-ask-you: color-mix(in oklab, var(--hb-code) 16%, var(--hb-surface));
+  --rv-ask: oklch(0.855 0.032 266);
+  --rv-ask-you: oklch(0.935 0.028 266);
+  --rv-ask-line: color-mix(in oklab, var(--hb-code) 32%, transparent);
+  --rv-ask-bad: color-mix(in oklab, var(--hb-bad-fg) 78%, var(--hb-text));
   /* The code panel's explanation, on the app's own surface beside the code's. */
   --rv-explain: var(--hb-tone-2);
 }
@@ -36,9 +38,10 @@
   --rv-ring-edge: transparent;
   --rv-float: var(--hb-surface-2);
   --rv-dot: color-mix(in oklab, var(--hb-text) 17%, transparent);
-  --rv-ask: color-mix(in oklab, var(--hb-code) 7%, var(--hb-bg));
-  --rv-ask-field: color-mix(in oklab, var(--hb-text) 7%, var(--rv-ask));
-  --rv-ask-you: color-mix(in oklab, var(--hb-code) 20%, var(--hb-surface));
+  --rv-ask: oklch(0.17 0.035 270);
+  --rv-ask-you: oklch(0.28 0.06 268);
+  --rv-ask-line: color-mix(in oklab, var(--hb-code) 36%, transparent);
+  --rv-ask-bad: var(--hb-bad-fg);
   --rv-explain: var(--hb-tone-1);
 }
 
@@ -653,6 +656,10 @@
     1px 0 0 var(--hb-border),
     14px 0 36px rgb(0 0 0 / 0.08);
 }
+/* Hidden, the panel leaves a strip of its own color over what it holds, with the way to bring it back. */
+.rv-strip {
+  background: var(--hb-tone-1);
+}
 
 /* A note marker: how many notes a node or a wire has. */
 .rv-notes {
@@ -826,6 +833,11 @@
   --level: var(--hb-ok);
   --level-fg: var(--hb-ok-fg);
 }
+/* The change review under way: the badge fills from the left as far as it has come, in the agent's periwinkle. */
+.rv-risk[data-progress='true'] {
+  --level-fg: var(--hb-code-fg);
+  background-image: linear-gradient(90deg, color-mix(in oklab, var(--hb-code) 18%, transparent) var(--rv-progress), transparent var(--rv-progress));
+}
 /* Critical: filled, so it is never missed. Ink on the coral in both themes. */
 .rv-risk-critical {
   background: var(--hb-bad);
@@ -857,35 +869,35 @@
 .rv-count[data-level='safe'] {
   --level: var(--hb-ok);
 }
-.rv-count[data-none='true'] {
-  opacity: 0.55;
+/* None at a level: a ring instead of a dot. The count keeps its color, so it reads as well as the others. */
+.rv-count[data-none='true']::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--level);
 }
 
-/* A long paragraph folded to its first lines, fading out where it is cut. */
-.rv-folded,
-.rv-ask-folded {
-  max-height: 7.5em;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, black 62%, transparent);
-  mask-image: linear-gradient(to bottom, black 62%, transparent);
-}
-.rv-ask-folded {
-  max-height: 12em;
-}
-
-/* Hobkin, to ask: a darker band across the panel, not a box. */
+/*
+ * Hobkin, to ask: a band across the full width of the panel, in its own color, not a box. It keeps one height: the
+ * conversation scrolls inside it and the field stays at its foot, on a line of the band's periwinkle that the focus
+ * draws over, so nothing around it moves.
+ */
 .rv-ask {
   background: var(--rv-ask);
+  box-shadow:
+    inset 0 1px 0 var(--rv-ask-line),
+    inset 0 -1px 0 var(--rv-ask-line);
 }
-.rv-ask-field {
-  background: var(--rv-ask-field);
+.rv-ask-input {
+  box-shadow: inset 0 1px 0 var(--rv-ask-line);
   transition: box-shadow var(--dur-fast) var(--ease-out);
 }
-.rv-ask-field:focus-within {
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--hb-focus) 70%, transparent);
+.rv-ask-input:focus-within {
+  box-shadow: inset 0 2px 0 var(--hb-focus);
 }
 .rv-ask-you {
   background: var(--rv-ask-you);
+}
+.rv-ask-bad {
+  color: var(--rv-ask-bad);
 }
 /* Hobkin is answering: three dots that rise in turn. Under reduced motion they stay still. */
 .rv-ask-dots {
@@ -929,14 +941,35 @@
   box-shadow: inset -1px 0 0 color-mix(in oklab, var(--hb-code-text) 12%, transparent);
   outline: none;
 }
-/* A quick link to ask hobkin about one item: the agent's periwinkle, so it reads as talking to it. */
+/* A unit that needs a look, in "What matters": the whole row goes to the step that tells it. */
+.rv-matter {
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.rv-matter:disabled {
+  cursor: default;
+}
+.rv-matter:focus-visible {
+  outline: 2px solid var(--hb-focus);
+  outline-offset: -2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-matter:not(:disabled):hover {
+    background: color-mix(in oklab, var(--hb-text) 6%, transparent);
+  }
+}
+
+/* A quick link to ask hobkin about one item: the agent's periwinkle, so it reads as talking to it, and as the band it sends to. */
 .rv-ask-link {
   background: color-mix(in oklab, var(--hb-code) 14%, transparent);
   color: var(--hb-code-fg);
 }
+/* Asked, or not connected: it stays as legible as before, only quieter behind. */
 .rv-ask-link:disabled {
-  background: color-mix(in oklab, var(--hb-code) 8%, transparent);
+  background: color-mix(in oklab, var(--hb-code) 7%, transparent);
   cursor: default;
+}
+.rv-ask-link-failed {
+  color: var(--hb-bad-fg);
 }
 @media (hover: hover) and (pointer: fine) {
   .rv-ask-link:not(:disabled):hover {
@@ -944,6 +977,20 @@
   }
 }
 
+/*
+ * The verdict's choices keep their size and their place whatever they say: a choice waiting for its second click is
+ * the same button inverted, reading "Click again to confirm", so nothing moves (the user, 2026-11-12: "approve and
+ * merge is doing a weird jump"). Without a host they stay legible.
+ */
+.rv-verdict[data-armed='true'],
+.rv-verdict[data-armed='true']:hover {
+  background: var(--hb-text);
+  border-color: var(--hb-text);
+  color: var(--hb-bg);
+}
+.rv-verdict:disabled {
+  opacity: 0.72;
+}
 /* A choice waiting for its second click: a line along its foot runs out over the ten seconds it waits. */
 .rv-confirm-time {
   position: absolute;
@@ -964,6 +1011,158 @@
 }
 .rv[data-reduced='true'] .rv-confirm-time {
   display: none;
+}
+
+/*
+ * The merge's moment (Celebration.tsx): "Merged!" in gold on a dark flat band across the whole window, a little taller
+ * than the word. One timeline, `--rv-merged-total` long, holds every phase as a share of it, so the pieces stay in
+ * step: the band opens from the middle outwards (0 to 17%, the strong ease-out), the word rises into place as it opens
+ * (5 to 22%), a light crosses the gold (24 to 50%, moving on screen, so ease-in-out), and everything fades away
+ * together (81 to 97%). Only transform and opacity change. It is fixed over the window and takes no pointer.
+ */
+.rv-merged {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  pointer-events: none;
+}
+.rv-merged-band,
+.rv-merged-word {
+  grid-area: 1 / 1;
+}
+.rv-merged-band {
+  justify-self: stretch;
+  align-self: stretch;
+  background: rgb(13 14 19 / 0.88);
+  box-shadow:
+    inset 0 1px 0 rgb(255 201 64 / 0.32),
+    inset 0 -1px 0 rgb(255 201 64 / 0.32),
+    0 18px 48px rgb(0 0 0 / 0.28);
+  transform-origin: center;
+  animation: rv-merged-band var(--rv-merged-total) both;
+}
+.rv-merged-word {
+  /* The gap above and below the word, and its copy's too, so the two sets of letters lie on each other. */
+  --rv-merged-pad: 0.14em 0.25em;
+  position: relative;
+  margin: 0;
+  padding: var(--rv-merged-pad);
+  font-size: clamp(64px, 9vw, 120px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  background-image: linear-gradient(172deg, #fff0b0 4%, #ffd54a 34%, #ffc940 58%, #e8a317 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 26px rgb(255 201 64 / 0.3));
+  animation: rv-merged-word var(--rv-merged-total) both;
+}
+/* The light: a window with soft edges crosses the word, and the brighter copy inside it moves back as far, so it stays on the gold. */
+.rv-merged-sheen,
+.rv-merged-sheen-window,
+.rv-merged-sheen-text {
+  position: absolute;
+  inset: 0;
+}
+.rv-merged-sheen {
+  overflow: hidden;
+}
+.rv-merged-sheen-window {
+  -webkit-mask-image: linear-gradient(100deg, transparent 34%, #000 50%, transparent 66%);
+  mask-image: linear-gradient(100deg, transparent 34%, #000 50%, transparent 66%);
+  animation: rv-merged-sheen-window var(--rv-merged-total) both;
+}
+.rv-merged-sheen-text {
+  padding: var(--rv-merged-pad);
+  background-image: linear-gradient(172deg, #fffdf2, #fff3c4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: rv-merged-sheen-text var(--rv-merged-total) both;
+}
+@keyframes rv-merged-band {
+  0% {
+    opacity: 0;
+    transform: scaleX(0);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  17%,
+  81% {
+    opacity: 1;
+    transform: scaleX(1);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  97%,
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+@keyframes rv-merged-word {
+  0%,
+  5% {
+    opacity: 0;
+    transform: translateY(0.22em) scale(0.96);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  22%,
+  81% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  97%,
+  100% {
+    opacity: 0;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes rv-merged-sheen-window {
+  0%,
+  24% {
+    transform: translateX(-100%);
+    animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  50%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes rv-merged-sheen-text {
+  0%,
+  24% {
+    transform: translateX(100%);
+    animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  50%,
+  100% {
+    transform: translateX(-100%);
+  }
+}
+/* Reduced motion: the band and the word fade in and out where they stand, with no scale, no travel and no light. */
+.rv-merged[data-reduced='true'] .rv-merged-band,
+.rv-merged[data-reduced='true'] .rv-merged-word {
+  animation-name: rv-merged-fade;
+}
+.rv-merged[data-reduced='true'] .rv-merged-sheen {
+  display: none;
+}
+@keyframes rv-merged-fade {
+  0% {
+    opacity: 0;
+  }
+  6%,
+  81% {
+    opacity: 1;
+  }
+  97%,
+  100% {
+    opacity: 0;
+  }
 }
 
 /* What is left on screen after a verdict, outside the review: its own surface, in both themes. */

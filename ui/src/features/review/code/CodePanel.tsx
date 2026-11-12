@@ -10,12 +10,13 @@ import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useTimings } from '../dev/dev.ts'
 import { KIND } from '../graph/kinds.tsx'
-import { askHobkin, type AskCommand } from '../panel/ask.ts'
+import type { AskCommand } from '../panel/ask.ts'
+import { useAskHobkin } from '../panel/use-ask.ts'
 import { toStepUnit, unitInFocus } from '../reading/model.ts'
 import { reviewMemory, useReduced, useReviewMemory, useRig, useSession, useSessionStore, useSource } from '../state/context.tsx'
 import { DiffView, type DiffViewHandle, type LineMark } from './DiffView.tsx'
 import type { Emphasis } from './diff-rows.ts'
-import { Explanation } from './Explanation.tsx'
+import { Explanation, type ExplainedUnit } from './Explanation.tsx'
 
 /** The share of the window's height the panel may take. */
 export const PANEL_SHARE = { initial: 0.3, min: 0.2, max: 0.7, step: 0.05 }
@@ -82,6 +83,7 @@ export function CodePanel({ height, windowHeight, units, ask }: {
   const picked = useSession((session) => session.selection)
   const lineCounts = useSession((session) => session.counts.lines)
   const pointed = useSession((session) => session.pointed)
+  const stepUnit = useSession((session) => session.view.story[session.story.step]?.unit)
   const diffView = useRef<DiffViewHandle>(null)
   const sheet = useRef<HTMLElement>(null)
   const [narrow, setNarrow] = useState(false)
@@ -102,14 +104,14 @@ export function CodePanel({ height, windowHeight, units, ask }: {
   const [fileOf, setFileOf] = useState<Record<string, string>>({})
   const active = tabs.find((tab) => tab.node.id === shownCode && (fileOf[tab.node.id] ?? tab.fileId) === tab.fileId) ?? tabs.find((tab) => tab.node.id === shownCode) ?? tabs[0]
 
-  // What the change review says about this code: the unit of the node shown, else the unit of what is in focus.
-  const unit = useMemo(() => {
+  // What the change review says about this code: the unit of the node shown, else the unit the step tells, else the
+  // most worrying unit of what is in focus.
+  const unit = useMemo<ExplainedUnit | undefined>(() => {
     const focused = focus.map((id) => nodeOf.get(id)).filter((node): node is ReviewNode => node != null)
-    const found = unitInFocus(units, active ? [active.node] : [], null) ?? unitInFocus(units, focused, pointed)
-    return found ? toStepUnit(found) : undefined
-  }, [active, focus, nodeOf, pointed, units])
-  const shownNode = active?.node.id
-  const askAbout = useMemo(() => (ask ? (words: string) => askHobkin(store, ask, words, shownNode) : null), [ask, shownNode, store])
+    const found = unitInFocus(units, active ? [active.node] : [], null) ?? units?.find((entry) => entry.id === stepUnit) ?? unitInFocus(units, focused, pointed)
+    return found ? { ...toStepUnit(found), what: found.what, where: found.where } : undefined
+  }, [active, focus, nodeOf, pointed, stepUnit, units])
+  const askAbout = useAskHobkin(ask, active?.node.id)
 
   // Two columns when there is room for both, two tabs when there is not. Only a change of side draws again.
   useLayoutEffect(() => {
@@ -251,7 +253,7 @@ export function CodePanel({ height, windowHeight, units, ask }: {
   const diff = (
     <div className="h-full min-h-0 min-w-0">
       {!file ? (
-        <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-60">{fileId ? 'Reading the file…' : 'This node points at no file.'}</p>
+        <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-75">{fileId ? 'Reading the file…' : 'This node points at no file.'}</p>
       ) : 'failed' in file ? (
         <p className="dv-note px-4 py-5 font-sans text-[14px] opacity-70">{file.failed}</p>
       ) : (
@@ -307,7 +309,7 @@ export function CodePanel({ height, windowHeight, units, ask }: {
                 onClick={() => setTab(value)}
                 className={cn(
                   'rounded-full px-2.5 py-1 font-heading text-[12.5px] font-semibold transition-[background-color,opacity] duration-[160ms]',
-                  tab === value ? 'bg-[color-mix(in_oklab,var(--hb-code-text)_16%,transparent)]' : 'opacity-60 hover:opacity-100',
+                  tab === value ? 'bg-[color-mix(in_oklab,var(--hb-code-text)_16%,transparent)]' : 'opacity-75 hover:opacity-100',
                 )}
               >
                 {value === 'explain' ? 'Explanation' : 'Code'}
@@ -328,7 +330,7 @@ export function CodePanel({ height, windowHeight, units, ask }: {
                 onClick={() => select(tab)}
                 className={cn(
                   'max-w-[22ch] truncate rounded-full px-2.5 py-1 font-heading text-[12.5px] font-medium transition-[background-color,opacity] duration-[160ms]',
-                  tab === active ? 'bg-[color-mix(in_oklab,var(--hb-code-text)_14%,transparent)]' : 'opacity-60 hover:opacity-100',
+                  tab === active ? 'bg-[color-mix(in_oklab,var(--hb-code-text)_14%,transparent)]' : 'opacity-75 hover:opacity-100',
                 )}
               >
                 {tab.label}

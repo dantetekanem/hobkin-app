@@ -4,12 +4,14 @@ import type { Review } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import { targetLabel, type Note, type NoteIntent } from '../notes/notes.ts'
-import { reviewMemory, useReviewMemory, useSessionStore } from '../state/context.tsx'
+import { reviewMemory, useReviewMemory, useSession, useSessionStore } from '../state/context.tsx'
+import type { SessionStore } from '../state/session.ts'
+import { noteShown } from './sidebar.ts'
 
 /** How many comments and questions a step has, beside its title. */
 export function NoteMarks({ comments, questions }: { comments: number; questions: number }) {
   return (
-    <span className="mt-0.5 flex shrink-0 items-center gap-1.5 font-heading text-[12px] font-semibold text-muted-foreground tabular-nums">
+    <span className="mt-0.5 flex shrink-0 items-center gap-1.5 font-heading text-[12.5px] font-semibold text-muted-foreground tabular-nums">
       {comments > 0 ? (
         <span className="flex items-center gap-0.5" aria-label={`${comments} ${comments === 1 ? 'comment' : 'comments'}`}>
           <MessageSquare className="size-3" aria-hidden="true" />
@@ -42,24 +44,42 @@ export function NoteButton({ intent, keys, onClick }: { intent: NoteIntent; keys
   )
 }
 
-/** One note in the track: who wrote it, what it is about, and its words. Choosing it goes to what it is about. */
+/**
+ * Opens a note where it was written, for a quick read on the canvas (the user, 2026-11-12: "comments should open a
+ * panel near the node for quick read"): the notes beside the node it is about, or the node of its lines, else those
+ * taken on its step (`session.showNotes`). A node out of focus comes into focus first, so its notes open in sight.
+ */
+function openNearItsNode(store: SessionStore, note: Note): void {
+  const state = store.getState()
+  const place = noteShown(state.view.nodes, note, state.view.story)
+  if (!place) {
+    state.showNote(note.id)
+    return
+  }
+  if ('node' in place && !state.focus.includes(place.node)) state.focusOn(place.node)
+  store.getState().showNotes(place)
+}
+
+/** One note in the track: who wrote it, its step, what it is about, and its words. Choosing it opens it on the canvas. */
 export function NoteRow({ note, review }: { note: Note; review: Review }) {
   const store = useSessionStore()
   const Icon = note.intent === 'question' ? CircleHelp : MessageSquare
-  const stepIndex = review.story.findIndex((step) => step.id === note.step)
+  // Numbered by the story on screen, which can fold steps together.
+  const stepIndex = useSession((session) => session.view.story.findIndex((step) => step.id === note.step))
   const about = note.target.kind === 'step' ? null : targetLabel(review, note.target)
   const by = note.author === 'hobkin' ? 'Hobkin' : 'You'
 
   return (
     <li className="group flex items-start gap-2 rounded-lg bg-background px-2.5 py-2" data-author={note.author}>
       <Icon className={cn('mt-0.5 size-3.5 shrink-0', note.intent === 'question' ? 'text-sun-fg' : note.author === 'hobkin' ? 'text-primary' : 'text-muted-foreground')} aria-label={note.intent === 'question' ? 'Question' : 'Comment'} />
-      <button type="button" data-stop title={about ? `Go to ${about}` : undefined} onClick={() => store.getState().showNote(note.id)} className="min-w-0 flex-1 rounded-md text-left">
-        <span className="block font-heading text-[12px] font-semibold [overflow-wrap:anywhere] text-muted-foreground group-hover:underline underline-offset-2">
-          {by} · step {stepIndex + 1}
+      <button type="button" data-stop title={about ? `Read it beside ${about}` : 'Read it on its step'} onClick={() => openNearItsNode(store, note)} className="min-w-0 flex-1 rounded-md text-left">
+        <span className="block font-heading text-[12.5px] font-semibold [overflow-wrap:anywhere] text-muted-foreground group-hover:underline underline-offset-2">
+          {by}
+          {stepIndex >= 0 ? ` · step ${stepIndex + 1}` : ''}
           {about ? ` · on ${about}` : ''}
         </span>
         <span className="block text-[14px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{note.text}</span>
-        {note.sent ? <span className="mt-0.5 block text-[12px] text-muted-foreground">{note.intent === 'question' ? 'Asked' : 'Sent'}</span> : null}
+        {note.sent ? <span className="mt-0.5 block text-[12.5px] text-muted-foreground">{note.intent === 'question' ? 'Asked' : 'Sent'}</span> : null}
       </button>
       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity duration-[140ms] group-focus-within:opacity-100 group-hover:opacity-100">
         <button
@@ -166,7 +186,7 @@ export function NoteEditor({ review, target }: { review: Review; target: string 
         }}
         className="rv-scroll w-full resize-none bg-transparent text-[14px] leading-[1.5] outline-none placeholder:text-muted-foreground"
       />
-      <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-muted-foreground">
+      <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Kbd>↵</Kbd> keep
         </span>

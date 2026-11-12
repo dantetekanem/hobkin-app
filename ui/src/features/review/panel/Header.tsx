@@ -1,13 +1,15 @@
-import { ChevronDown, FolderGit2, GitPullRequest, Pin, RefreshCw, X } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronDown, ChevronsLeft, FolderGit2, GitPullRequest, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Kbd } from '@/components/ui/kbd.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { cn } from '@/lib/utils.ts'
-import { changeDescription, riskBadge, type RiskBadge } from '../reading/model.ts'
+import { headerBadge, type HeaderBadge } from './sidebar.ts'
 
 /**
  * The frame's menu floats over the top middle of the canvas: about this wide, reaching this far down. Where it lies over
@@ -15,42 +17,36 @@ import { changeDescription, riskBadge, type RiskBadge } from '../reading/model.t
  */
 export const MENU = { width: 560, bottom: 108, gap: 12 } as const
 
-/** A description longer than this folds to a few lines, and opens on a click. */
-const LONG = 320
-
 /**
  * The top of the review panel, the same for the whole review, whatever the step: which project changes, the change's
- * title, what it does in one paragraph, its overall risk as the change review rates it, its size and the commits it
- * was built from, and for a pull request from GitHub the description its author wrote, behind a button.
+ * title with its overall risk right under it, always there ("Safe", "Mid risk" or "High risk", how far along the
+ * change review is, that it failed and why, or that there is none), how many units sit at each level, its size and
+ * the commits it was built from, and for a pull request from GitHub the description its author wrote, behind a
+ * button. What the change does is told under "What matters".
  */
-export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, preparation, assessment, rebuild }: {
+export function PanelHeader({ review, overlap, onHide, onClose, live, preparation, assessment, rebuild }: {
   review: Review
   /** How much of the panel's width the frame's menu covers at its top. */
   overlap: number
-  pinned: boolean
-  onPin: () => void
+  onHide: () => void
   onClose: () => void
   live: boolean
   preparation: ReviewStatus | null
-  /** The change review of a finished change, once it is ready. */
+  /** The change review, once it is ready. */
   assessment: ChangeAssessment | null
   rebuild: () => void
 }) {
   const [described, setDescribed] = useState(false)
-  const [whole, setWhole] = useState(false)
   const target = targetOfReviewId(review.id)
   const pull = target?.kind === 'pull'
   const { project, item, title, files, additions, deletions, description, base, head } = review.change
   const Place = pull ? GitPullRequest : FolderGit2
-  const does = changeDescription(review, assessment)
-  const badge = riskBadge(assessment, preparation?.assessment)
-  const long = (does?.length ?? 0) > LONG
 
   return (
-    <header className="px-4 pt-3.5 pb-3">
+    <header className="px-4 pt-3 pb-3.5">
       {/* Floated, so the words beside it wrap clear of the menu and run full width below it. */}
       {overlap > 0 ? <div aria-hidden="true" className="float-right" style={{ width: overlap, height: MENU.bottom - 14 }} /> : null}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         <p className="flex min-w-0 flex-1 items-center gap-1.5 font-heading text-[13px] font-semibold text-muted-foreground" title={pull ? `${project}${item}` : `The project ${project}`}>
           <Place className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="truncate">
@@ -58,35 +54,23 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
             {pull ? ` ${item}` : ''}
           </span>
         </p>
-        <RoundToggle label={pinned ? 'Let this panel tuck away (S)' : 'Keep this panel open (S)'} pressed={pinned} onClick={onPin}>
-          <Pin />
-        </RoundToggle>
-        <RoundToggle label="Close the review (Esc)" onClick={onClose}>
+        <QuietButton label="Hide the panel" keys="S" onClick={onHide}>
+          <ChevronsLeft />
+        </QuietButton>
+        <QuietButton label="Close the review" keys="esc" onClick={onClose}>
           <X />
-        </RoundToggle>
+        </QuietButton>
       </div>
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
-      {does ? (
-        <div className="mt-1.5">
-          <div className={cn('text-[14px] leading-[1.5] text-pretty [overflow-wrap:anywhere]', long && !whole && 'rv-folded')}>
-            <Markdown text={does} />
-          </div>
-          {long ? (
-            <button type="button" data-stop onClick={() => setWhole((before) => !before)} className="font-heading text-[12.5px] font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-              {whole ? 'Show less' : 'Show all of it'}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {badge ? <Risk badge={badge} live={live} rebuild={rebuild} /> : null}
-      <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
+      <Risk badge={headerBadge(assessment, preparation?.assessment)} live={live} rebuild={rebuild} />
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
         <span>
           {files} {files === 1 ? 'file' : 'files'}
         </span>
         <span className="font-mono text-[12.5px]" aria-label={`${additions} lines added, ${deletions} removed`}>
           <span className="text-ok-fg">+{additions}</span> <span className="text-bad-fg">−{deletions}</span>
         </span>
-        <span className="font-mono text-[12px]" title="The commits this review was built from">
+        <span className="font-mono text-[12.5px]" title="The commits this review was built from">
           {base.slice(0, 7)}..{head.slice(0, 7)}
         </span>
         {pull ? (
@@ -95,7 +79,7 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
             data-stop
             aria-expanded={described}
             onClick={() => setDescribed((before) => !before)}
-            className="flex h-7 items-center gap-1 rounded-full bg-background px-2.5 font-heading text-[12.5px] font-medium text-foreground transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97] [&_svg]:size-3.5"
+            className="flex h-7 items-center gap-1 rounded-full bg-background px-2.5 font-heading text-[13px] font-medium text-foreground transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97] [&_svg]:size-3.5"
           >
             Description
             <ChevronDown aria-hidden="true" className={cn('transition-transform duration-[160ms] ease-[var(--ease-out)]', described && 'rotate-180')} />
@@ -119,73 +103,99 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
 }
 
 /**
- * The change's overall risk, as one badge: High risk, Mid risk or Safe, Critical beside it when something is, and how
- * many units sit at each level. Before the first rating it says how far along the review is, and why it stopped.
+ * The change's overall risk, as one badge under the title, which is always there. Rated: High risk, Mid risk or Safe,
+ * Critical beside it when something is, and how many units sit at each level, in small words under it. Under way: how
+ * far along it is, the badge filling as it goes, and what it is doing. Failed: why, in plain words, and a way to try
+ * again. None: "Not reviewed".
  */
-function Risk({ badge, live, rebuild }: { badge: RiskBadge; live: boolean; rebuild: () => void }) {
+function Risk({ badge, live, rebuild }: { badge: HeaderBadge; live: boolean; rebuild: () => void }) {
   if (badge.kind === 'rated') {
     const { counts } = badge
     return (
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span className="rv-risk" data-level={badge.level} title="The change review's rating of the whole change">
-          {badge.label}
-        </span>
-        {badge.critical ? <span className="rv-risk rv-risk-critical">Critical</span> : null}
-        <span className="flex items-center gap-2 font-heading text-[12.5px] font-semibold text-muted-foreground tabular-nums" aria-label={`${counts.high} high, ${counts.mid} mid and ${counts.safe} safe units`}>
+      <div className="mt-2 flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="rv-risk" data-level={badge.level} title="The change review's rating of the whole change">
+            {badge.label}
+          </span>
+          {badge.critical ? <span className="rv-risk rv-risk-critical">Critical</span> : null}
+        </div>
+        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-heading text-[12.5px] font-semibold text-muted-foreground tabular-nums" aria-label={`${counts.high} high, ${counts.mid} mid and ${counts.safe} safe units`}>
           {(['high', 'mid', 'safe'] as const).map((level) => (
             <span key={level} className="rv-count" data-level={level} data-none={counts[level] === 0}>
               {counts[level]} {level}
             </span>
           ))}
-        </span>
-        {badge.again ? <span className="text-[12.5px] text-muted-foreground">Reviewing it again…</span> : null}
+          {badge.again ? <span className="font-sans font-normal">{badge.again}</span> : null}
+        </p>
       </div>
     )
   }
-  if (badge.kind === 'rating') {
+  if (badge.kind === 'reviewing') {
+    const { percent } = badge
     return (
-      <div className="mt-2.5 flex min-w-0 items-center gap-2" role="status">
-        <span className="rv-risk" data-level="none">
-          {badge.queued ? 'Waiting to rate' : `Rating${badge.percent != null ? ` ${badge.percent}%` : '…'}`}
-        </span>
-        {badge.now ? <span className="min-w-0 truncate text-[12.5px] text-muted-foreground" title={badge.now}>{badge.now.charAt(0).toUpperCase() + badge.now.slice(1)}</span> : null}
+      <Status
+        badge={
+          <span className="rv-risk" data-level="none" data-progress={percent != null} style={percent != null ? ({ '--rv-progress': `${percent}%` } as CSSProperties) : undefined}>
+            {badge.label}
+          </span>
+        }
+      >
+        {badge.now ? <span className="truncate" title={badge.now}>{badge.now}</span> : null}
+      </Status>
+    )
+  }
+  if (badge.kind === 'failed') {
+    return (
+      <div className="mt-2 flex flex-col gap-1.5" role="status">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rv-risk gap-1.5" data-level="none">
+            <TriangleAlert aria-hidden="true" className="size-3.5" />
+            {badge.label}
+          </span>
+          {live ? (
+            <Button size="sm" variant="outline" data-stop className="h-7 px-2.5 text-[13px]" onClick={rebuild}>
+              <RefreshCw />
+              Try again
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-[13.5px] leading-snug text-pretty text-bad-fg [overflow-wrap:anywhere]">{badge.reason}</p>
       </div>
     )
   }
+  return <Status badge={<span className="rv-risk" data-level="none">{badge.label}</span>} />
+}
+
+function Status({ badge, children }: { badge: ReactNode; children?: ReactNode }) {
   return (
-    <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-2" role="status">
-      <span className="rv-risk" data-level="none" title={badge.error ?? undefined}>
-        Not rated
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[12.5px] text-bad-fg" title={badge.error ?? undefined}>
-        {badge.error ?? 'The change review stopped.'}
-      </span>
-      {live ? (
-        <Button size="sm" variant="outline" data-stop className="h-7 shrink-0 px-2.5 text-[12.5px]" onClick={rebuild}>
-          <RefreshCw />
-          Review again
-        </Button>
-      ) : null}
+    <div className="mt-2 flex min-w-0 flex-col gap-1.5" role="status">
+      <div className="flex">{badge}</div>
+      {children ? <p className="flex min-w-0 text-[13px] text-muted-foreground">{children}</p> : null}
     </div>
   )
 }
 
-function RoundToggle({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode }) {
+/** A quiet round button, its name and key in a tooltip. */
+function QuietButton({ label, keys, onClick, children }: { label: string; keys: string; onClick: () => void; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      data-stop
-      aria-label={label}
-      title={label}
-      {...(pressed !== undefined ? { 'aria-pressed': pressed } : {})}
-      onClick={onClick}
-      className={cn(
-        'grid size-7 shrink-0 place-items-center rounded-full transition-[background-color,transform] duration-[160ms] ease-[var(--ease-out)] active:scale-[0.94] [&_svg]:size-3.5',
-        pressed ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary',
-      )}
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            data-stop
+            aria-label={label}
+            onClick={onClick}
+            className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-[background-color,color,transform] duration-[160ms] ease-[var(--ease-out)] hover:bg-secondary hover:text-foreground active:scale-[0.94] [&_svg]:size-4"
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>
+        {label} <Kbd>{keys}</Kbd>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -196,14 +206,14 @@ function Outdated({ review, preparation, live, rebuild }: { review: Review; prep
   const moved = preparation.head != null && preparation.head !== review.change.head
   if (!moved && !rebuilding) return null
   return (
-    <div role="status" className="mt-2.5 flex items-start gap-2 rounded-xl bg-sun/15 px-2.5 py-2 text-[13px] leading-snug text-sun-fg">
+    <div role="status" className="mt-2.5 flex items-start gap-2 rounded-xl bg-sun/15 px-2.5 py-2 text-[13.5px] leading-snug text-sun-fg">
       <p className="min-w-0 flex-1">
         {rebuilding
           ? `Building the review again${preparation.head ? ` for ${preparation.head.slice(0, 7)}` : ''}. This one stays open until it is ready.`
           : `Outdated. Built for ${review.change.head.slice(0, 7)}, and the change is now at ${preparation.head!.slice(0, 7)}.`}
       </p>
       {rebuilding ? null : (
-        <Button size="sm" variant="outline" data-stop className="h-7 shrink-0 px-2.5 text-[12.5px]" onClick={rebuild}>
+        <Button size="sm" variant="outline" data-stop className="h-7 shrink-0 px-2.5 text-[13px]" onClick={rebuild}>
           <RefreshCw />
           Rebuild
         </Button>
