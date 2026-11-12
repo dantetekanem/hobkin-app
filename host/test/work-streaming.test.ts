@@ -8,7 +8,7 @@ import { exchangeOf, pauseOf } from '../../ui/src/features/agent-activity/steps.
 import { agentsFrom, childrenFrom } from '../../ui/src/lib/host/frame.ts'
 import { applyHostMessage, initialHostState, type HostState } from '../../ui/src/lib/host/state.ts'
 import { ActivityKeeper } from '../src/activity.ts'
-import { createScriptedModel } from '../src/scripted.ts'
+import { builtInReply, createScriptedModel } from '../src/scripted.ts'
 import { StateSync } from '../src/state-sync.ts'
 import { afterTest, temporaryDirectory } from './support.ts'
 
@@ -43,7 +43,7 @@ test('background Work streams through the application and host to the agent exch
   const root = temporaryDirectory(t)
   initialize(root, { cwd: root })
   setTelemetryUpload(root, false)
-  const model = await createScriptedModel(root)
+  const model = await createScriptedModel(root, { reply: builtInReply })
   const ready = deferred<{ request: HarnessRequest; callbacks: HarnessCallbacks }>()
   const finish = deferred<{ status: string; text: string }>()
   const heard: string[] = []
