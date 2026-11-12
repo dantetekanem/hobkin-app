@@ -57,9 +57,10 @@ export async function closePiSession(session) {
 
 /** Pi owns the transcript format. Durable stores only its identity and dispatch receipts. */
 export async function openPiSession(
-  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent },
+  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, startup },
   dependencies = {},
 ) {
+  startup?.signal.throwIfAborted();
   root = assertRuntimeAdmission(root);
   const adopted = adoptedSession(root);
   const file = mainSessionFile(root, saved, adopted, fresh);
@@ -69,6 +70,7 @@ export async function openPiSession(
     validateBinding({ harness: 'pi', ...config.main });
     claimSessionFile(file, { fresh, expected });
     return openRpcSession({
+      startup,
       root,
       config,
       file,

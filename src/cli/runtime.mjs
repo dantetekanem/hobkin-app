@@ -74,10 +74,11 @@ function recordMainStop(root, run, actions) {
 }
 
 export class HobkinRuntime {
-  constructor(root, config, { createMain = openPiSession, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
+    this.onMainStartup = onMainStartup;
     this.metricsNow = metricsNow;
     this.askQuestion = askQuestion;
     this.triggerSchedule = triggerSchedule;
@@ -197,10 +198,37 @@ export class HobkinRuntime {
   }
 
   async connectMain(fresh = false) {
-    const currentState = await this.state();
+    const prior = this.mainStartup;
+    if (prior && (!prior.done || (prior.error && prior.child && !prior.closed))) throw Error('Previous main startup cleanup is unconfirmed.');
+    const controller = new AbortController(), settled = Promise.withResolvers(), cancelled = Promise.withResolvers();
+    controller.signal.addEventListener('abort', () => cancelled.reject(controller.signal.reason), { once: true });
+    cancelled.promise.catch(() => {});
+    const startup = this.mainStartup = {
+      token: randomUUID(), fresh, child: null, closed: false, done: false, installed: false, error: null,
+      persistence: { status: 'unchanged' }, signal: controller.signal, settled: settled.promise,
+      cancel: () => { if (!startup.done && !startup.installed) controller.abort(Error('Main startup cancelled.')); },
+      wait: promise => Promise.race([promise, cancelled.promise]),
+      capture: child => {
+        startup.child = child;
+        child.closed.then(() => { startup.closed = true; });
+        this.onMainStartup?.(startup);
+        controller.signal.throwIfAborted();
+      },
+    };
+    const opening = (async () => { this.onMainStartup?.(startup); return this.#connectMain(fresh, startup); })()
+      .catch(error => { startup.error = error; controller.abort(error); throw error; })
+      .finally(() => { startup.done = true; settled.resolve(); });
+    return startup.wait(opening);
+  }
+
+  async #connectMain(fresh, startup) {
+    startup.signal.throwIfAborted();
+    const currentState = await startup.wait(this.state());
+    startup.signal.throwIfAborted();
     const saved = fresh ? null : currentState.main;
     let main;
     main = await this.createMain({
+      startup: this.onMainStartup ? startup : undefined,
       root: this.directory,
       config: this.config,
       saved,
@@ -216,18 +244,19 @@ export class HobkinRuntime {
         return turn.owned.request(request, signal);
       } : this.ownedAgent,
     });
-    if (this.closing || this.fault) {
-      await closePiSession(main);
+    if (startup.signal.aborted || this.closing || this.fault) {
+      if (!startup.child) await closePiSession(main);
+      startup.signal.throwIfAborted();
       this.check();
     }
     if (!main.sessionId || !main.sessionFile
       || (saved && (saved.sessionId !== main.sessionId || saved.sessionFile !== main.sessionFile))) {
-      await closePiSession(main);
+      if (!startup.child) await closePiSession(main);
       throw Error('Main Pi session identity is unavailable or changed.');
     }
     if (fresh && currentState.main
       && (currentState.main.sessionId === main.sessionId || currentState.main.sessionFile === main.sessionFile)) {
-      await closePiSession(main);
+      if (!startup.child) await closePiSession(main);
       throw Error('A fresh main session must have a new identity and transcript.');
     }
 
@@ -255,7 +284,9 @@ export class HobkinRuntime {
         this.notify(event.type === 'message_update' || event.type === 'tool_execution_update');
       });
       await this.change(state => {
+        startup.signal.throwIfAborted();
         if (fresh || !state.main) {
+          startup.persistence = { status: 'unknown', sessionId: main.sessionId, sessionFile: main.sessionFile };
           if (state.main) {
             state.sessionBaselines ??= {};
             state.sessionBaselines[state.main.sessionId] = { baseline: state.main.baseline };
@@ -268,15 +299,18 @@ export class HobkinRuntime {
           };
         }
       });
+      if (startup.persistence.status === 'unknown') startup.persistence.status = 'committed';
+      startup.signal.throwIfAborted();
     } catch (error) {
       unsubscribe?.();
-      await closePiSession(main);
+      if (!startup.child) await closePiSession(main);
       throw error;
     }
 
     const previous = this.main;
     const unsubscribePrevious = this.unsubscribe;
     this.main = main;
+    startup.installed = true;
     this.mainFeed = feed;
     this.unsubscribe = unsubscribe;
     this.mainFault = null;

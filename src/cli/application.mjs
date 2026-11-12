@@ -167,7 +167,7 @@ export class HobkinApplication {
     }
   }
 
-  static async open(root, { createMain, askQuestion, showDone, showRow, presence, runHarness, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
+  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -188,6 +188,7 @@ export class HobkinApplication {
     app.runtime = await HobkinRuntime.open(root, app.config, {
       ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle({ onChange: () => app.requestRefresh() }),
       createMain,
+      onMainStartup,
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
       messageCheck: request => app.runner.messageCheck(request),

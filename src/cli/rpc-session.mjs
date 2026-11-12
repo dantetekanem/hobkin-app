@@ -346,7 +346,7 @@ function within(promise, ms, message) {
 
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
-  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts },
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts, startup },
   { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap } = {},
 ) {
   if (clientBridge !== undefined && (typeof clientBridge?.extensionPath !== 'string'
@@ -398,6 +398,7 @@ export async function openRpcSession(
     ...prompts.flatMap(text => ['--append-system-prompt', text]),
   ]);
   const startProcess = bootstrap ? options => startMainSessionChild(bootstrap, { ...options, startupTimeoutMs }) : startRpcProcess;
+  startup?.signal.throwIfAborted();
   session.attach(startProcess({
     command,
     args,
@@ -410,9 +411,13 @@ export async function openRpcSession(
     name: 'Main Pi',
     onRecord: record => session.accept(record),
   }));
+  const wait = promise => startup ? startup.wait(promise) : promise;
   try {
-    const bootstrapped = bootstrap ? await session.child.ready : null;
-    const state = await within(session.child.request('get_state'), startupTimeoutMs, `Main Pi did not become ready within ${startupTimeoutMs / 1000} seconds.`);
+    startup?.capture(session.child);
+    const bootstrapped = bootstrap ? await wait(session.child.ready) : null;
+    startup?.signal.throwIfAborted();
+    const state = await wait(within(session.child.request('get_state'), startupTimeoutMs, `Main Pi did not become ready within ${startupTimeoutMs / 1000} seconds.`));
+    startup?.signal.throwIfAborted();
     const model = state.model && `${state.model.provider}/${state.model.id}`;
     if (!state.sessionId || state.sessionFile !== resolve(file) || (expected && state.sessionId !== expected.sessionId)
       || (bootstrapped && state.sessionId !== bootstrapped.sessionId)) {
@@ -428,10 +433,11 @@ export async function openRpcSession(
       throw Error('The Hobkin client extension did not activate.');
     }
     session.absorb(state);
-    await session.pull();
+    await wait(session.pull());
+    startup?.signal.throwIfAborted();
     return session;
   } catch (error) {
-    await session.dispose();
+    if (!startup) await session.dispose();
     throw error;
   }
 }

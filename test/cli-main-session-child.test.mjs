@@ -21,6 +21,7 @@ mock.method(globalThis, 'fetch', forbidden);
 syncBuiltinESMExports();
 const { startMainSessionChild, runMainSessionChild } = await import('../src/cli/main-session-child.mjs');
 const { openRpcSession } = await import('../src/cli/rpc-session.mjs');
+const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
 
 function bootstrap(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-child-')));
@@ -261,6 +262,97 @@ test('only the matching bootstrap response admits native RPC readiness', async t
       sessionId: 'saved', sessionFile: stale.data.file, cwd: stale.data.root, ...patch });
     await rejected;
   }
+});
+
+function startupFixture(t, onMainStartup = () => {}) {
+  const h = processFixture(t), state = { main: { ...h.data.expected }, runs: {} };
+  const runtime = new HobkinRuntime(h.data.root, h.data.config, { onMainStartup,
+    createMain: ({ startup }) => openRpcSession({ ...h.payload, startup, prompts: [] }, { ...h.dependencies, bootstrap: h.payload }) });
+  runtime.state = async () => structuredClone(state);
+  runtime.change = async update => update(state);
+  return { ...h, runtime, state };
+}
+
+test('startup cancellation before state resolves prevents creation and late activation', async t => {
+  const h = startupFixture(t), gate = Promise.withResolvers(); h.runtime.state = () => gate.promise;
+  const opening = h.runtime.connect(); opening.catch(() => {});
+  const attempt = h.runtime.mainStartup;
+  assert.ok(attempt, 'startup custody exists before state resolves');
+  attempt.cancel(); await assert.rejects(opening, /cancelled/); await attempt.settled;
+  gate.resolve(h.state); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(attempt.done, true); assert.equal(attempt.child, null); assert.equal(h.sent.length, 0);
+  let serial = 0; h.state.main = null;
+  h.runtime.createMain = async () => ({ sessionId: `next${++serial}`, sessionFile: `${h.data.file}.${serial}`, subscribe: () => () => {}, dispose() {}, getSessionStats: () => ({}) });
+  await h.runtime.connect(); const installed = h.runtime.mainStartup; await h.runtime.reset();
+  assert.notEqual(h.runtime.mainStartup, installed); installed.cancel(); assert.equal(installed.signal.aborted, false);
+});
+
+for (const failure of ['cancel', 'timeout', 'callback']) test(`startup ${failure} retains early child custody for explicit retry`, async t => {
+  const notices = [], h = startupFixture(t, attempt => { notices.push(attempt); if (failure === 'callback' && attempt.child) throw Error('capture callback failed'); });
+  const keepAlive = setTimeout(() => {}, 1000); t.after(() => clearTimeout(keepAlive));
+  const opening = h.runtime.connect(); opening.catch(() => {});
+  await new Promise(resolve => setImmediate(resolve));
+  const attempt = h.runtime.mainStartup;
+  assert.ok(attempt?.child, 'child captured before readiness'); assert.equal(notices[0], notices[1]);
+  if (failure === 'cancel') attempt.cancel();
+  await assert.rejects(opening, /cancelled|timed out|callback/); await attempt.settled;
+  assert.equal(attempt.done, true); assert.equal(attempt.closed, false); assert.deepEqual(h.signals, []);
+  await assert.rejects(h.runtime.connect(), /startup/); assert.equal(h.sent.length, 1);
+  attempt.child.force(); attempt.child.force(); assert.deepEqual(h.signals, ['SIGKILL', 'SIGKILL']);
+  h.child.emit('exit', null, 'SIGKILL'); await Promise.resolve(); assert.equal(attempt.closed, false);
+  h.child.emit('close', null, 'SIGKILL'); await attempt.child.closed; assert.equal(attempt.closed, true);
+  h.child.emit('message', { type: 'hobkin/main/ready', version: 1, id: h.sent[0].id, success: true,
+    sessionId: 'saved', sessionFile: h.data.file, cwd: h.data.root });
+  assert.equal(h.runtime.main, undefined); assert.equal(h.state.main.sessionId, 'saved');
+});
+
+test('reset cancellation at the persistence boundary retains the prior main and saved identity', async t => {
+  const h = startupFixture(t), boundary = Promise.withResolvers(), commit = Promise.withResolvers();
+  const previous = { sessionId: 'saved', dispose: forbidden }; h.runtime.main = previous;
+  const candidate = { sessionId: 'new', sessionFile: `${h.data.file}.new`, subscribe: () => () => {}, dispose() {}, getSessionStats: () => ({}) };
+  h.runtime.createMain = async () => candidate;
+  h.runtime.change = async update => { boundary.resolve(); await commit.promise; return update(h.state); };
+  const opening = h.runtime.reset(); opening.catch(() => {}); await boundary.promise;
+  assert.ok(h.runtime.mainStartup, 'reset uses startup custody too'); h.runtime.mainStartup.cancel(); commit.resolve();
+  await assert.rejects(opening, /cancelled/); await h.runtime.mainStartup.settled;
+  assert.equal(h.runtime.main, previous); assert.deepEqual(h.state.main, h.data.expected);
+});
+
+for (const acknowledgment of ['commit', 'error']) test(`cancelled reset retains Force through delayed ${acknowledgment} acknowledgment`, async t => {
+  const h = startupFixture(t), boundary = Promise.withResolvers(), commit = Promise.withResolvers();
+  const previous = { sessionId: 'saved', dispose: forbidden }; h.runtime.main = previous;
+  h.runtime.createMain = async ({ startup }) => {
+    startup.capture(startMainSessionChild(h.payload, h.dependencies));
+    return { sessionId: 'new', sessionFile: `${h.data.file}.new`, subscribe: () => () => {}, getSessionStats: () => ({}) };
+  };
+  h.runtime.change = async update => { update(h.state); boundary.resolve(); await commit.promise; };
+  const opening = h.runtime.reset(); opening.catch(() => {});
+  assert.ok(h.runtime.mainStartup, 'reset publishes startup before creating its child'); await boundary.promise;
+  const attempt = h.runtime.mainStartup; attempt.cancel(); await assert.rejects(opening, /cancelled/);
+  attempt.child.force(); assert.deepEqual(h.signals, ['SIGKILL']); assert.equal(attempt.persistence.status, 'unknown');
+  h.child.emit('close', null, 'SIGKILL'); await attempt.child.closed;
+  await assert.rejects(h.runtime.connectMain(true), /startup/); assert.equal(attempt.done, false);
+  if (acknowledgment === 'commit') commit.resolve(); else commit.reject(Error('commit acknowledgment lost'));
+  await attempt.settled; assert.equal(attempt.persistence.status, acknowledgment === 'commit' ? 'committed' : 'unknown');
+  assert.equal(h.runtime.main, previous); assert.equal(h.state.main.sessionId, 'new'); assert.equal(h.sent.length, 1);
+});
+
+test('configured startup captures its fixed transport before any native request', async t => {
+  const h = startupFixture(t, attempt => { if (attempt.child) attempt.cancel(); });
+  h.runtime.createMain = ({ startup }) => openRpcSession({ ...h.payload, startup, prompts: [] }, { ...h.dependencies,
+    spawnProcess: () => h.child });
+  const requests = []; h.child.stdin.on('data', bytes => requests.push(bytes.toString()));
+  const opening = h.runtime.connect(); opening.catch(() => {}); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.runtime.mainStartup?.child, 'configured transport captured before readiness'); await assert.rejects(opening, /cancelled/);
+  h.runtime.mainStartup.child.force(); assert.deepEqual(h.signals, ['SIGKILL']); assert.deepEqual(requests, []);
+});
+
+test('without a startup callback, failed openers keep legacy disposal', async t => {
+  const h = startupFixture(t); h.runtime.onMainStartup = undefined;
+  const keepAlive = setTimeout(() => {}, 1000); t.after(() => clearTimeout(keepAlive));
+  h.child.stdin.on('finish', () => h.child.emit('close', 0, null));
+  await assert.rejects(h.runtime.connect(), /timed out/);
+  assert.equal(h.child.stdin.writableEnded, true); assert.equal(h.runtime.mainStartup.child, null);
 });
 
 test('bootstrap timeout retains the captured process for explicit Force, and late ready cannot revive it', async t => {
