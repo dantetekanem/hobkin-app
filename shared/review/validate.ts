@@ -31,6 +31,12 @@ function inLifeCycle(node: ReviewNode): boolean {
   return (node.kind === 'code' || node.kind === 'file') && role === 'changed' && isCount(hops) && hops <= 9
 }
 
+/** A route as a routes file says it: one or more verbs in capitals, and a path from the root. */
+function isRoute(route: unknown): boolean {
+  if (!isRecord(route) || !Array.isArray(route.verbs) || route.verbs.length === 0) return false
+  return route.verbs.every((verb) => typeof verb === 'string' && /^[A-Z]{3,7}$/.test(verb)) && isCleanProse(route.path, PROSE_LIMIT.label) && (route.path as string).startsWith('/')
+}
+
 /** Why a wire of this kind cannot join these two kinds, or undefined when it can. */
 export function wireProblem(kind: ReviewEdge['kind'], from: NodeKind, to: NodeKind): string | undefined {
   const rule = WIRE_RULES[kind]
@@ -113,7 +119,7 @@ export function validateReview(value: unknown): string[] {
     }
     if (node.entry !== undefined && (!['code', 'context'].includes(node.kind) || !isRecord(node.entry) || typeof node.entry.kind !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(node.entry.kind) || typeof node.entry.exact !== 'boolean')) {
       problems.push(`${name}: an entry point is code or context, with a kind and whether it is exact.`)
-    }
+    } else if (node.entry?.route !== undefined && !isRoute(node.entry.route)) problems.push(`${name}: a route has its verbs, such as GET, and its path.`)
     if (!isRecord(node.position) || !Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) problems.push(`${name} has no place on the graph.`)
     if (!Array.isArray(node.anchors)) {
       problems.push(`${name} must list its anchors.`)

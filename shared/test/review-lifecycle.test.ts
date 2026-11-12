@@ -76,6 +76,10 @@ test('a model method a controller calls is reached from the route one step befor
     ['context', 'unchanged', 'config/routes.rb', { kind: 'route', exact: true, route: { verbs: ['GET'], path: '/users/:id' } }, { role: 'caller', hops: 2 }, [{ fileId: 'config/routes.rb', side: 'added', startLine: 2, endLine: 2, hash: hashLines(routes, 2, 2) }]],
   )
   assert.equal(drawn.summary, 'Unchanged. A request enters here: config/routes.rb sends GET /users/:id to UsersController#show.')
+  for (const route of [{ verbs: [], path: '/users/:id' }, { verbs: ['get'], path: '/users/:id' }, { verbs: ['GET'], path: 'users' }]) {
+    const broken = { ...review, nodes: review.nodes.map((node) => (node === drawn ? { ...node, entry: { ...node.entry!, route } } : node)) }
+    assert.equal(validateReview(broken).length, 1, JSON.stringify(route))
+  }
   assert.equal(titled(review, 'UsersController#show').change, 'unchanged')
   assert.deepEqual(wire(review, 'full_name', 'UsersController#show'), ['called-by', 'from line 3, found by name'])
   assert.deepEqual(wire(review, 'UsersController#show', 'GET /users/:id'), ['called-by', 'routes it from line 2'])
