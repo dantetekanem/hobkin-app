@@ -4,11 +4,14 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { createVerdictChoices, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { createVerdictChoices, heldDown, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
 const TOKEN: Record<Verdict, string> = { approve: 'a'.repeat(64), 'approve-merge': 'b'.repeat(64), 'request-changes': 'c'.repeat(64), comment: 'd'.repeat(64) }
+/** The commit of the review on screen, and a newer one its change has moved to since. */
+const SHOWN = '7d02c99f8c61be4291e0c2046d29787cbc1c010a'
+const NEWER = 'f'.repeat(40)
 
 /** A fake host that shows each verdict and then does it, in its own words. Nothing is posted anywhere. */
 const host = (name: string, args: any) => (name === 'review.preview' ? { verdict: args.verdict, lines: [`What ${args.verdict} does.`], confirm: TOKEN[args.verdict as Verdict] } : { message: `Done: ${args.verdict}` })
@@ -20,7 +23,7 @@ function panel(id: string, answer: (name: string, args: any) => unknown, wiring:
     calls.push({ name, args })
     return answer(name, args)
   }) as VerdictCommands
-  const choices = createVerdictChoices({ id, command, saveNotes: async () => void calls.push({ name: 'save', args: null }), current: () => true, ...wiring })
+  const choices = createVerdictChoices({ id, head: SHOWN, command, saveNotes: async () => void calls.push({ name: 'save', args: null }), current: () => true, ...wiring })
   return { choices, calls }
 }
 
@@ -31,12 +34,12 @@ test("approve and approve-and-merge reach the host's verdict", async () => {
 
     // The first yes saves the notes and asks the host what the verdict will do. Nothing is done yet.
     await choices.choose(verdict)
-    assert.deepEqual(calls, [{ name: 'save', args: null }, { name: 'review.preview', args: { id: CHANGE, verdict, summary: '' } }])
+    assert.deepEqual(calls, [{ name: 'save', args: null }, { name: 'review.preview', args: { id: CHANGE, verdict, summary: '', head: SHOWN } }])
     assert.deepEqual(choices.getState().preview?.lines, lines)
 
     // The second yes sends the token the host answered, and the host's own words come back.
     await choices.confirm()
-    assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id: CHANGE, verdict, summary: '', confirm: TOKEN[verdict] } })
+    assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id: CHANGE, verdict, summary: '', confirm: TOKEN[verdict], head: SHOWN } })
     assert.equal(calls.filter(({ name }) => name === 'review.verdict').length, 1)
     assert.equal(choices.getState().message, `Done: ${verdict}`)
     assert.equal(choices.getState().preview, null)
@@ -67,11 +70,55 @@ test("Send fixes and a pull request's own choices are the host's verdict too, sh
   for (const [id, verdict] of choices) {
     const panelFor = panel(id, host)
     await panelFor.choices.choose(verdict)
-    assert.deepEqual(panelFor.calls, [{ name: 'save', args: null }, { name: 'review.preview', args: { id, verdict, summary: '' } }], `${id} ${verdict} is shown first`)
+    assert.deepEqual(panelFor.calls, [{ name: 'save', args: null }, { name: 'review.preview', args: { id, verdict, summary: '', head: SHOWN } }], `${id} ${verdict} is shown first`)
     await panelFor.choices.confirm()
-    assert.deepEqual(panelFor.calls.at(-1), { name: 'review.verdict', args: { id, verdict, summary: '', confirm: TOKEN[verdict] } })
+    assert.deepEqual(panelFor.calls.at(-1), { name: 'review.verdict', args: { id, verdict, summary: '', confirm: TOKEN[verdict], head: SHOWN } })
     assert.equal(panelFor.choices.getState().message, `Done: ${verdict}`)
   }
+})
+
+test('a verdict is for the commit on screen: both yeses name it, and a host that holds a newer one refuses and says why', async () => {
+  // A host that holds the review of `held`, and refuses a yes for any other commit, as the host does.
+  const moved = 'This review is for commit 7d02c99; the change has moved to fffffff. Rebuild the review and look again.'
+  let held = SHOWN
+  const { choices, calls } = panel(CHANGE, (name, args) => {
+    if ((args as { head?: string }).head !== held) throw new Error(moved)
+    return host(name, args)
+  })
+  const heads = () => calls.flatMap(({ name, args }) => (name === 'save' ? [] : [[name, (args as { head?: string }).head]]))
+
+  // Both yeses name the commit of the review on screen.
+  await choices.choose('approve-merge')
+  await choices.confirm()
+  assert.deepEqual(heads(), [['review.preview', SHOWN], ['review.verdict', SHOWN]])
+  assert.equal(choices.getState().message, 'Done: approve-merge')
+
+  // The change moved on and the host prepared its review again: the first yes is refused, and the panel says why.
+  held = NEWER
+  await choices.choose('approve-merge')
+  assert.deepEqual([choices.getState().error, choices.getState().preview], [moved, null])
+
+  // It moves between the two yeses: the second is refused, and nothing is done.
+  held = SHOWN
+  await choices.choose('request-changes')
+  assert.ok(choices.getState().preview)
+  held = NEWER
+  await choices.confirm()
+  assert.equal(choices.getState().error, moved)
+  assert.equal(choices.getState().preview, null)
+  assert.deepEqual(heads().slice(2), [['review.preview', SHOWN], ['review.preview', SHOWN], ['review.verdict', SHOWN]], 'every ask names the commit on screen, never the newer one')
+})
+
+test('holding Enter never gives the second yes: a held key goes on as repeats, and only a key pressed anew presses the yes', () => {
+  // Enter on a choice asks what it will do, and is still down when the yes takes the keyboard: it goes on as repeats.
+  assert.equal(heldDown({ key: 'Enter', repeat: true }), true)
+  // So is Space, held while the choice was clicked: with its repeats stopped, letting it go presses nothing.
+  assert.equal(heldDown({ key: ' ', repeat: true }), true)
+  // Let go and pressed again, either presses the yes, as it presses any button.
+  assert.equal(heldDown({ key: 'Enter', repeat: false }), false)
+  assert.equal(heldDown({ key: ' ', repeat: false }), false)
+  // Every other key is left to the review, held or not: Escape steps back from the yes, A asks again.
+  for (const key of ['Escape', 'a', 'x']) assert.equal(heldDown({ key, repeat: true }), false)
 })
 
 test('the comments a verdict takes are marked sent once the host has done it, so they never go twice', async () => {

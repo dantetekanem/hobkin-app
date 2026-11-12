@@ -28,6 +28,8 @@ interface Options {
   sample?: ReviewSource
 }
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
+/** A finished change review, by its commit and when it finished: one run again at the same commit is another. */
+const finishedOf = (head: string | null, summary: { at: string } | undefined): string | null => (head ? `${head}@${summary?.at ?? ''}` : null)
 
 /** One open target. Host cache, file reads and draft saves all use this same target and source identity. */
 export function createReviewLoader({ id, scope, memory, command, sample }: Options) {
@@ -41,7 +43,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
   let notesRevision = 0
   let loading: Promise<void> | null = null
   let checking = false
-  /** The commit whose change review was last fetched, so a finished one is fetched once. */
+  /** The finished change review last fetched (`finishedOf`), so each one is fetched once, a run again at the same commit too. */
   let assessed: string | null = null
   const notesKey = JSON.stringify([scope, id])
   const notesOf = (review: Review): ReviewNotes => {
@@ -132,7 +134,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
         if (unsaved) { pending = unsaved; void flushNotes() }
       }
       watch(review)
-      assessed = assessment?.head ?? (preparation?.assessment?.state === 'ready' ? preparation.assessment.head : null)
+      assessed = assessment ? finishedOf(assessment.head, assessment.summary) : preparation?.assessment?.state === 'ready' ? finishedOf(preparation.assessment.head, preparation.assessment.summary) : null
       store.setState({ status: 'ready', review, preparation, assessment, error: null })
     } catch (error) {
       if (!disposed && turn === generation) store.setState({ status: store.getState().review ? 'ready' : error instanceof ReviewRefused ? 'refused' : 'error', error: reason(error) })
@@ -160,7 +162,8 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
    * While a review is open, asks the host how it stands: whether its change moved on, where hobkin moved the view,
    * whether hobkin left notes, which then join the window's own, and how its change review is getting on. The status
    * carries that progress, so nothing more is asked while it runs. Once it is ready, the review is fetched once more,
-   * for its story and the levels on its graph. A check that fails is tried again on the next one.
+   * for its story and the levels on its graph, and once more each time it is run again at the same commit (Rebuild, or
+   * Review again) and finishes. A check that fails is tried again on the next one.
    */
   const check = async (): Promise<void> => {
     const review = store.getState().review
@@ -172,7 +175,8 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       if (disposed || store.getState().review !== review) return
       // Kept only when something changed, so an open review does not draw again every second.
       if (JSON.stringify(status) !== JSON.stringify(before)) store.setState({ preparation: status })
-      const finished = status.assessment?.state === 'ready' && status.assessment.head !== assessed ? status.assessment.head : null
+      const ready = status.assessment?.state === 'ready' ? finishedOf(status.assessment.head, status.assessment.summary) : null
+      const finished = ready !== assessed ? ready : null
       if ((status.notesAt ?? 0) <= (before?.notesAt ?? 0) && !finished) return
       if (finished) assessed = finished
       const opened = await command('review.get', { id })

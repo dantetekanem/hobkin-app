@@ -14,10 +14,11 @@ interface State {
 }
 
 /**
- * One explicit confirmation, bound to this mounted target and its saved notes. `done` hears of a verdict the host did,
- * even when the panel that asked for it has gone since.
+ * One explicit confirmation, bound to this mounted target, the commit of the review on screen (`head`) and its saved
+ * notes. Both yeses name that commit, so the host refuses them, and says why, once the review it holds is for another.
+ * `done` hears of a verdict the host did, even when the panel that asked for it has gone since.
  */
-export function createVerdict({ id, command, saveNotes, current, done }: { id: string; command: VerdictCommands; saveNotes: () => Promise<void>; current: () => boolean; done?: (verdict: Verdict) => void }) {
+export function createVerdict({ id, head, command, saveNotes, current, done }: { id: string; head: string; command: VerdictCommands; saveNotes: () => Promise<void>; current: () => boolean; done?: (verdict: Verdict) => void }) {
   const store = createStore<State>(() => ({ busy: false, preview: null, error: null, message: null }))
   let generation = 0
   let disposed = false
@@ -32,7 +33,7 @@ export function createVerdict({ id, command, saveNotes, current, done }: { id: s
     try {
       await saveNotes()
       if (!active(turn)) return
-      const result = await command('review.preview', { id, verdict, summary: '' })
+      const result = await command('review.preview', { id, verdict, summary: '', head })
       if (!active(turn)) return
       choice = verdict
       store.setState({ preview: result })
@@ -50,7 +51,7 @@ export function createVerdict({ id, command, saveNotes, current, done }: { id: s
     choice = null
     store.setState({ busy: true, preview: null, error: null })
     try {
-      const result = await command('review.verdict', { id, verdict, summary: '', confirm: shown.confirm })
+      const result = await command('review.verdict', { id, verdict, summary: '', confirm: shown.confirm, head })
       if (active(turn)) store.setState({ message: result.message })
       done?.(verdict)
     } catch (error) {
@@ -69,6 +70,15 @@ export function createVerdict({ id, command, saveNotes, current, done }: { id: s
  */
 export function sendsComments(id: string, verdict: Verdict): boolean {
   return !(targetOfReviewId(id)?.kind === 'change' && (verdict === 'approve' || verdict === 'approve-merge'))
+}
+
+/**
+ * True for a key held down, which must not press the second yes. The yes takes the keyboard as soon as the host has said
+ * what will happen, and the key that asked for it may still be down then, such as Enter on its choice. A held key goes
+ * on as repeats, and only a key pressed anew says yes. Enter and Space are the keys that press a button.
+ */
+export function heldDown({ key, repeat }: { key: string; repeat: boolean }): boolean {
+  return repeat && (key === 'Enter' || key === ' ')
 }
 
 /**

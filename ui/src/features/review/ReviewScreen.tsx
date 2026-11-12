@@ -94,13 +94,14 @@ export function ReviewScreen() {
     }
   }, [home, live])
 
-  // The view the review shows, kept while it stays open: the stage starts again when a story arrives, with its levels.
+  // The view the review shows, kept while it stays open: the stage starts again when a story arrives, with its levels,
+  // a run again at the same commit too.
   const [shownMode, setShownMode] = useState<{ id: string; mode: ReviewMode } | null>(null)
   const kept = shownMode && shownMode.id === reviewId ? shownMode.mode : null
   const keepMode = useCallback((mode: ReviewMode) => setShownMode({ id: reviewId ?? 'sample', mode }), [reviewId])
 
   return <ReviewLoad loader={loader} renderReview={(review) => (
-    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}`}>
+    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}@${loader.getState().assessment?.summary.at ?? ''}`}>
       <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} keptMode={kept} keepMode={keepMode} />
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => (

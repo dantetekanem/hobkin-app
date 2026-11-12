@@ -4,6 +4,8 @@ import { createVerdict, type VerdictCommands } from '../src/features/review/verd
 import { finishedReviewId, escapeReview, reviewTakesEscape } from '../src/features/review/entry.ts'
 
 const token = 'aB  exact token\n'
+/** The commit of the review on screen. */
+const head = '7d02c99f8c61be4291e0c2046d29787cbc1c010a'
 function fixture() {
   const calls: { name: string; args: any }[] = []
   let fail = ''
@@ -13,7 +15,7 @@ function fixture() {
     if (fail === name) throw new Error('Try again')
     return name === 'review.preview' ? { verdict: args.verdict, lines: ['Exact host action'], confirm: token } : { ok: true, message: 'Done' }
   }) as VerdictCommands
-  const verdict = createVerdict({ id: 'change:project:item', command, saveNotes: async () => { calls.push({ name: 'save', args: null }); if (fail === 'save') throw new Error('Keep these words') }, current: () => valid })
+  const verdict = createVerdict({ id: 'change:project:item', head, command, saveNotes: async () => { calls.push({ name: 'save', args: null }); if (fail === 'save') throw new Error('Keep these words') }, current: () => valid })
   return { verdict, calls, fail: (name: string) => { fail = name }, leave: () => { valid = false } }
 }
 
@@ -22,9 +24,10 @@ test('preview saves visible notes first and only explicit confirmation sends the
     const { verdict, calls } = fixture()
     await verdict.preview(choice)
     assert.deepEqual(calls.map(({ name }) => name), ['save', 'review.preview'])
+    assert.deepEqual(calls.at(-1)?.args, { id: 'change:project:item', verdict: choice, summary: '', head })
     assert.deepEqual(verdict.getState().preview?.lines, ['Exact host action'])
     await verdict.confirm()
-    assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id: 'change:project:item', verdict: choice, summary: '', confirm: token } })
+    assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id: 'change:project:item', verdict: choice, summary: '', confirm: token, head } })
     await verdict.confirm()
     assert.equal(calls.filter(({ name }) => name === 'review.verdict').length, 1)
   }
@@ -56,7 +59,7 @@ test('cancel, changed source, and disposed requests cannot submit', async () => 
     assert.equal(f.calls.some(({ name }) => name === 'review.verdict'), false)
   }
   let saved!: () => void
-  const verdict = createVerdict({ id: 'change:p:i', command: (async () => { throw new Error('Cancelled preview ran') }) as VerdictCommands, saveNotes: () => new Promise<void>((resolve) => { saved = resolve }), current: () => true })
+  const verdict = createVerdict({ id: 'change:p:i', head, command: (async () => { throw new Error('Cancelled preview ran') }) as VerdictCommands, saveNotes: () => new Promise<void>((resolve) => { saved = resolve }), current: () => true })
   const pending = verdict.preview('approve')
   verdict.cancel()
   saved()
@@ -66,7 +69,7 @@ test('cancel, changed source, and disposed requests cannot submit', async () => 
 
 test('late preview replies stay cancelled, and effect reconnect allows a fresh explicit preview', async () => {
   let reply!: (value: any) => void
-  const flow = createVerdict({ id: 'change:p:i', command: (() => new Promise((resolve) => { reply = resolve })) as VerdictCommands, saveNotes: async () => {}, current: () => true })
+  const flow = createVerdict({ id: 'change:p:i', head, command: (() => new Promise((resolve) => { reply = resolve })) as VerdictCommands, saveNotes: async () => {}, current: () => true })
   const pending = flow.preview('approve')
   await Promise.resolve()
   flow.cancel()

@@ -119,3 +119,51 @@ test("a running change review's progress comes with the status the screen alread
   assert.equal(gets(), 2, 'the story is fetched once, when it is ready, and not again')
   loader.dispose()
 })
+
+test('a change review run again at the same commit reaches the open review once it finishes: its story, levels and units, fetched once more', async () => {
+  const review = { ...sample, id: 'change:project:item' } as Review
+  const head = review.change.head
+  const rated = idOf('send')
+  const first = finished()
+  const again: ChangeAssessment = { ...finished(), summary: { ...summary, level: 'mid', critical: false, at: '2026-11-12T11:30:00Z' }, story: '# Run again\n', units: { ...units, units: units.units.slice(3) } }
+  // The host's review comes with the levels of the change review it has, as it lays them on the graph.
+  let shown = first
+  let now: AssessmentStatus = { state: 'ready', head, summary: first.summary }
+  const calls: string[] = []
+  const command = (async (name: string) => {
+    calls.push(name)
+    const status: ReviewStatus = { ...IDLE_STATUS(review.id), state: 'ready', head, assessment: now }
+    if (name === 'review.get') {
+      const leveled = { ...review, nodes: review.nodes.map((node) => (node.id === rated ? { ...node, level: shown.summary.level } : node)) }
+      return { review: leveled, notes: { entries: [], draft: null }, status, assessment: shown } satisfies OpenedReview
+    }
+    if (name === 'review.notes') return { ok: true }
+    return status
+  }) as ReviewCommands
+  const loader = createReviewLoader({ id: review.id, scope: 'host:/fixture', command, memory: createReviewMemory() })
+  const gets = () => calls.filter((name) => name === 'review.get').length
+  const open = () => {
+    const { review: on, assessment } = loader.getState()
+    return { story: assessment?.story, level: on?.nodes.find((node) => node.id === rated)?.level, units: assessment?.units?.units.length }
+  }
+
+  await loader.load()
+  assert.deepEqual(open(), { story, level: 'high', units: 8 })
+
+  // Review again, from the card, the story page or Rebuild: the same commit is reviewed once more. The first one stays
+  // on screen meanwhile, and its progress needs nothing but the status.
+  now = { state: 'running', head, percent: 30, now: 'running the tests' }
+  await loader.check()
+  assert.deepEqual([open().story, gets()], [story, 1])
+
+  // It finishes at the same commit, with a newer summary: the open review follows it.
+  shown = again
+  now = { state: 'ready', head, summary: again.summary }
+  await loader.check()
+  assert.deepEqual(open(), { story: '# Run again\n', level: 'mid', units: 5 })
+  assert.equal(loader.getState().assessment?.summary.at, again.summary.at)
+  await loader.check()
+  await loader.check()
+  assert.equal(gets(), 2, 'it is fetched once more when it finishes, and not again')
+  loader.dispose()
+})

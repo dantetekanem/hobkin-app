@@ -10,7 +10,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import { reviewMemory } from '../state/context.tsx'
-import { createVerdictChoices, type VerdictCommands } from '../verdict.ts'
+import { createVerdictChoices, heldDown, type VerdictCommands } from '../verdict.ts'
 
 /** What each verdict is called, for a finished hobkin change and for a pull request from GitHub. */
 const CHOICES: Record<'change' | 'pull', { verdict: Verdict; label: string; keys?: string }[]> = {
@@ -37,10 +37,11 @@ const nothingToSave = async () => {}
 const inField = () => document.activeElement?.closest('input, textarea, [contenteditable="true"]') != null
 
 /**
- * The verdict, in the review panel. Every choice is the host's own verdict: the first yes shows exactly what will
- * happen (for a pull request, the review GitHub will get), the second (Enter, or Yes) does it, and the host's answer,
- * or why it cannot, shows here. The comments that went with it are marked sent, as the host marks them in the home.
- * The A, M and X keys are the first yes of their choice.
+ * The verdict, in the review panel. Every choice is the host's own verdict, for the commit of the review on screen: the
+ * first yes shows exactly what will happen (for a pull request, the review GitHub will get), the second (Enter, or Yes)
+ * does it, and the host's answer, or why it cannot, shows here. A key held down never gives the second yes. The
+ * comments that went with it are marked sent, as the host marks them in the home. The A, M and X keys are the first yes
+ * of their choice.
  */
 export function Actions({ review, notes, live, verdict, saveNotes }: {
   review: Review
@@ -63,6 +64,7 @@ export function Actions({ review, notes, live, verdict, saveNotes }: {
     () =>
       createVerdictChoices({
         id: review.id,
+        head: review.change.head,
         command: verdict ?? noHost,
         saveNotes: saveNotes ?? nothingToSave,
         current: () => true,
@@ -88,7 +90,8 @@ export function Actions({ review, notes, live, verdict, saveNotes }: {
     })
   }, [choices, review])
 
-  // Once the host has said what will happen, the keyboard waits on the yes, so Enter does it.
+  // Once the host has said what will happen, the keyboard waits on the yes, so Enter does it. A key still down from the
+  // choice only repeats there, and the yes stops repeats (`heldDown`): it takes a key pressed anew.
   useEffect(() => {
     if (flow.preview && !inField()) yes.current?.focus({ preventScroll: true })
   }, [flow.preview])
@@ -160,7 +163,17 @@ export function Actions({ review, notes, live, verdict, saveNotes }: {
           {flow.preview.note ? <pre className="rounded-lg bg-secondary/70 p-2.5 font-sans text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{flow.preview.note}</pre> : null}
           {flow.preview.post ? <GitHubPost post={flow.preview.post} /> : null}
           <div className="flex flex-wrap gap-1.5">
-            <Button ref={yes} size="sm" data-stop className="h-8 px-3 text-[13px]" onClick={() => void confirm()}>
+            <Button
+              ref={yes}
+              size="sm"
+              data-stop
+              className="h-8 px-3 text-[13px]"
+              // A stopped key presses nothing: Enter held from the choice, or Space held while it was clicked, does not say yes.
+              onKeyDown={(event) => {
+                if (heldDown(event)) event.preventDefault()
+              }}
+              onClick={() => void confirm()}
+            >
               Yes, {label.toLowerCase()}
               <Kbd className="bg-primary-foreground/15 text-primary-foreground">↵</Kbd>
             </Button>
