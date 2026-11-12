@@ -1,5 +1,5 @@
 import { CircleAlert, RotateCw } from 'lucide-react'
-import { AnimatePresence, motion, type Variants } from 'motion/react'
+import { AnimatePresence, type Variants } from 'motion/react'
 import { useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { GITHUB_LIMIT, type GitHubConnection } from '#shared/protocol/github.ts'
 import { useRemembered } from '@/app/location.ts'
@@ -14,9 +14,13 @@ import { rowVariants, useArriving } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
 import { runCommand, useGitHub, useHasHost, type GitHubState } from '@/lib/host/index.ts'
-import { spring, stagger, staggerDelay, tween } from '@/lib/motion.ts'
+import { stagger, staggerDelay, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { GroupHeading, IssueRow, NoteRow, PullRow } from './rows.tsx'
+import { rowsOf } from '@/features/work/ai-reviews.ts'
+import { PageTabs, TabCount } from '@/features/work/PageTabs.tsx'
+import { useReviewList } from '@/features/work/use-review-list.ts'
+import { pullSections, type PullSections } from './pull-reviews.ts'
+import { GroupHeading, IssueRow, NoteRow, PullCard } from './rows.tsx'
 
 /** The rows of the page (`rows.tsx` marks them) and the Refresh button: where the keyboard lands and returns to. */
 const ROW = '[data-github-row]'
@@ -87,9 +91,10 @@ function titleOf({ connection, reviews }: GitHubState): string {
 }
 
 /**
- * GitHub: the pull requests waiting for the user's review, their own pull requests with where each one's review
- * and checks stand, and their issues, read through gh with the login gh already has. Pull requests open in Review;
- * issues open on github.com. This file is the entry the frame mounts. Spec: 024-github.
+ * GitHub: the pull requests waiting for the user's review, their own pull requests with where each one's review and
+ * checks stand, the others the AI reviewed, and their issues, read through gh with the login gh already has. Each pull
+ * request shows its AI review (spec 032): Start AI review, how far along it is, or its level and Open review. Pull
+ * requests open in Review; issues open on github.com. This file is the entry the frame mounts. Spec: 024-github.
  *
  * Keys: Up and Down walk controls, Enter opens one, `r` reads GitHub again. Left and Right switch tabs; Tab and
  * Escape are the frame's.
@@ -104,6 +109,9 @@ export function GitHubScreen() {
   const still = useStill()
   const now = useNow(true, 30_000)
   const [tab, setTab] = useRemembered('githubTab')
+  // Each pull request's AI review, from the host's list of reviews, or the sample's without a host.
+  const reviews = useReviewList(hasHost)
+  const sections = pullSections(github, rowsOf(reviews.list))
 
   // Where the keyboard is in the screen: whether the screen holds it, and the place of the last row it was on.
   const keyboard = useRef({ held: false, row: 0 })
@@ -148,35 +156,34 @@ export function GitHubScreen() {
     <div ref={root} onKeyDown={onKeyDown} onFocus={onFocus} onBlur={onBlur} className={`${inMenu ? SCREEN_SCROLLER : SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-16`}>
       <div className={`flex flex-col gap-6 ${SCREEN_COLUMN}`}>
         <Hero>
-          <header className="px-3">
+          <header className="px-1">
             <h1 className="eyebrow">GitHub</h1>
             <p className="mt-1 font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]">{titleOf(github)}</p>
             <Status github={github} hasHost={hasHost} still={still} now={now} />
           </header>
         </Hero>
-        <div role="tablist" aria-label="GitHub lists" className="flex gap-1 px-3">
+        <div className="flex flex-col gap-6">
+          <PageTabs
+            id="github"
+            label="GitHub lists"
+            value={tab}
+            onChoose={setTab}
+            tabs={[
+              { value: 'pulls', label: 'Pull requests', extra: connected && github.reviews.length ? <TabCount tone="live">{github.reviews.length} to review</TabCount> : null },
+              { value: 'issues', label: 'Issues', extra: connected && github.issues.length ? <TabCount>{github.issues.length}</TabCount> : null },
+            ]}
+          />
+          {reviews.error && connected ? (
+            <p role="alert" className="px-1 text-[13.5px] leading-snug text-bad-fg">
+              The AI reviews could not be read, so no row shows one: {reviews.error}
+            </p>
+          ) : null}
           {(['pulls', 'issues'] as const).map((key) => (
-            <button key={key} id={`github-tab-${key}`} role="tab" type="button" data-stop="" aria-selected={tab === key} aria-controls={`github-panel-${key}`} tabIndex={tab === key ? 0 : -1}
-              onClick={() => setTab(key)}
-              onKeyDown={(event) => {
-                if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.nativeEvent.isComposing) return
-                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-                event.preventDefault()
-                const next = event.key === 'Home' ? 'pulls' : event.key === 'End' ? 'issues' : key === 'pulls' ? 'issues' : 'pulls'
-                setTab(next)
-                root.current?.querySelector<HTMLElement>(`#github-tab-${next}`)?.focus({ preventScroll: true })
-              }}
-              className="relative isolate rounded-full px-4 py-2 font-heading text-[13px] font-medium text-muted-foreground aria-selected:text-foreground">
-              {tab === key ? <motion.span layoutId={still ? undefined : 'github-tab'} className="absolute inset-0 -z-10 rounded-full bg-surface-2" transition={still ? tween.fade : spring.follow} /> : null}
-              {key === 'pulls' ? 'Pull Requests' : 'Issues'}
-            </button>
+            <section key={key} id={`github-panel-${key}`} role="tabpanel" aria-labelledby={`github-tab-${key}`} hidden={tab !== key}>
+              {connected && tab === key ? <Lists tab={key} github={github} sections={sections} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} /> : null}
+            </section>
           ))}
         </div>
-        {(['pulls', 'issues'] as const).map((key) => (
-          <section key={key} id={`github-panel-${key}`} role="tabpanel" aria-labelledby={`github-tab-${key}`} hidden={tab !== key}>
-            {connected && tab === key ? <Lists tab={key} github={github} still={still} now={now} onRowsLeft={keepKeyboard} /> : null}
-          </section>
-        ))}
         {needsGh ? (
           <Rise>
             <Connect missing={github.connection === 'missing'} />
@@ -242,6 +249,8 @@ function Status({ github, hasHost, still, now }: { github: GitHubState; hasHost:
 interface Group<Item> {
   key: string
   label: string
+  /** What the group holds, under its heading. */
+  about?: string
   items: readonly Item[]
   /** The row for one item, given its turn in the arrival. */
   row: (item: Item, order: number) => ReactNode
@@ -255,7 +264,7 @@ interface Group<Item> {
  * The selected tab's groups as one list, so its pieces land one after another as the screen arrives, and a row a refresh
  * brings rises in on its own. `onRowsLeft` runs once the rows that left have gone.
  */
-function Lists({ tab, github, still, now, onRowsLeft }: { tab: 'pulls' | 'issues'; github: GitHubState; still: boolean; now: number; onRowsLeft: () => void }) {
+function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: 'pulls' | 'issues'; github: GitHubState; sections: PullSections; live: boolean; still: boolean; now: number; onRowsLeft: () => void }) {
   const variants = useMemo(() => (still ? STILL_ROWS : rowVariants(false)), [still])
   const arriving = useArriving()
 
@@ -264,8 +273,8 @@ function Lists({ tab, github, still, now, onRowsLeft }: { tab: 'pulls' | 'issues
   const turn = () => (arriving ? order++ : -1)
   const pieces: ReactNode[] = []
 
-  const addGroup = <Item,>({ key, label, items, row, empty, more }: Group<Item>) => {
-    pieces.push(<GroupHeading key={`${key}:heading`} label={label} count={items.length} variants={variants} order={turn()} />)
+  const addGroup = <Item,>({ key, label, about, items, row, empty, more }: Group<Item>) => {
+    pieces.push(<GroupHeading key={`${key}:heading`} label={label} count={items.length} about={about} variants={variants} order={turn()} />)
     for (const item of items) {
       pieces.push(row(item, turn()))
     }
@@ -288,19 +297,30 @@ function Lists({ tab, github, still, now, onRowsLeft }: { tab: 'pulls' | 'issues
   if (tab === 'pulls') {
     addGroup({
       key: 'reviews',
-      label: 'Waiting for your review',
-      items: github.reviews,
-      row: (pull, order) => <PullRow key={`reviews:${pull.url}`} pull={pull} mine={false} now={now} variants={variants} order={order} />,
+      label: 'Review requested',
+      about: 'Open pull requests that ask for your review.',
+      items: sections.requested,
+      row: (entry, order) => <PullCard key={`reviews:${entry.pull?.url ?? entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
       empty: 'Nothing waits for your review.',
       more: github.more.reviews,
     })
     addGroup({
       key: 'pulls',
       label: 'Your pull requests',
-      items: github.pulls,
-      row: (pull, order) => <PullRow key={`pulls:${pull.url}`} pull={pull} mine now={now} variants={variants} order={order} />,
+      about: 'Your open pull requests, with where their review and checks stand.',
+      items: sections.mine,
+      row: (entry, order) => <PullCard key={`pulls:${entry.pull?.url ?? entry.id}`} entry={entry} mine live={live} now={now} variants={variants} order={order} />,
       empty: 'You have no open pull requests.',
       more: github.more.pulls,
+    })
+    addGroup({
+      key: 'ai',
+      label: 'Recently reviewed by AI',
+      about: 'Other pull requests the AI reviewed: merged or closed since, or opened from a link. Work’s AI Reviews tab lists every review.',
+      items: sections.reviewed,
+      row: (entry, order) => <PullCard key={`ai:${entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
+      empty: 'No other pull request has an AI review yet.',
+      more: false,
     })
   } else {
     addGroup({
@@ -314,7 +334,7 @@ function Lists({ tab, github, still, now, onRowsLeft }: { tab: 'pulls' | 'issues
   }
 
   return (
-    <ul aria-label="GitHub" className="relative flex flex-col">
+    <ul aria-label="GitHub" className="relative flex flex-col gap-2">
       <AnimatePresence mode="popLayout" onExitComplete={onRowsLeft}>
         {pieces}
       </AnimatePresence>

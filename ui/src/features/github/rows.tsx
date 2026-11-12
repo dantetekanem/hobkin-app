@@ -1,18 +1,26 @@
-import { Check, CircleDashed, CircleDot, Clock, GitPullRequest, GitPullRequestDraft, Minus, PenLine, UserRound, X, type LucideIcon } from 'lucide-react'
+import { Check, CircleDashed, CircleDot, Clock, GitPullRequest, GitPullRequestDraft, Minus, PenLine, Sparkles, UserRound, X, type LucideIcon } from 'lucide-react'
 import { motion, type Variants } from 'motion/react'
-import { createContext, useContext, type MouseEvent, type ReactNode } from 'react'
+import { createContext, useContext, useState, type MouseEvent, type ReactNode } from 'react'
+import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
+import { useView } from '@/app/view-store.ts'
+import { Button } from '@/components/ui/button.tsx'
+import { useNow } from '@/features/chat/use-now.ts'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
-import type { ChecksState, GitHubIssue, GitHubPull, ReviewState } from '@/lib/host/index.ts'
+import { clockWords } from '@/features/review/preparing-model.ts'
+import { LevelCounts, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
+import { runCommand, type ChecksState, type GitHubIssue, type ReviewState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { openOnGitHub, openPullRequestReview } from './open.ts'
+import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
 
 /**
- * The rows of the GitHub page. Each one is a link to its page on github.com and a stop in the screen's walk, so
- * Up and Down reach it and Enter opens it. A pull request opens through `openPullRequestReview`, which hands it to
- * Change Review. Each row drives its own arrival, so a row that a refresh brings rises in by itself, long after the
- * screen arrived.
+ * The rows of the GitHub page, as cards in the Work screen's manner. A card's title is a link to its page on
+ * github.com and the card's stop in the screen's walk, so Up and Down reach it and Enter opens it; the whole card is
+ * that link to the pointer. A pull request opens in Change Review, and its card shows its AI review on the right:
+ * Start AI review, how far along it is, or its level and Open review. Each row drives its own arrival, so a row that
+ * a refresh brings rises in by itself, long after the screen arrived.
  */
 
 /** Whether the rows can be reached: false while their tab is leaving, so Up and Down walk only the tab that is open. */
@@ -48,8 +56,8 @@ const CHECKS: Record<ChecksState, Said> = {
 
 function Chip({ label, tone, icon: Icon }: Said) {
   return (
-    <span className={cn('inline-flex h-5 items-center gap-1 rounded-full px-2 font-heading text-[11px] font-medium whitespace-nowrap', TONE[tone])}>
-      <Icon className="size-3" aria-hidden="true" />
+    <span className={cn('inline-flex h-6 items-center gap-1 rounded-full px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap', TONE[tone])}>
+      <Icon className="size-3.5" aria-hidden="true" />
       {label}
     </span>
   )
@@ -74,112 +82,223 @@ function Piece({ variants, order, className, children }: Placed & { className?: 
   )
 }
 
-function Row({ url, variants, order, onOpen, children }: Placed & { url: string; onOpen: (event: MouseEvent<HTMLAnchorElement>) => void; children: ReactNode }) {
+/** A card: its title link covers it, and what sits on top of it (the AI review's buttons) is raised above the link. */
+const CARD =
+  'relative isolate flex flex-wrap items-start gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 has-[[data-github-row]:focus-visible]:bg-tone-2'
+const TITLE_LINK =
+  "mt-1 block font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance outline-none after:absolute after:inset-0 after:rounded-3xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring"
+
+/** The card's title: the link to its page, and its stop in the walk. */
+function TitleLink({ url, title, onOpen }: { url: string; title: string; onOpen: (event: MouseEvent<HTMLAnchorElement>) => void }) {
   const walkable = useContext(Walkable)
   return (
-    <Piece variants={variants} order={order} className="relative">
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        data-stop={walkable ? '' : undefined}
-        data-github-row={walkable ? '' : undefined}
-        onClick={onOpen}
-        // A row brought into view keeps a little room around it, inside its tab's own scrolling.
-        className="group relative isolate flex w-full cursor-default scroll-mt-3 scroll-mb-6 items-start gap-3 rounded-2xl px-3 py-2.5 text-left outline-offset-[-2px]"
-      >
-        <span
-          aria-hidden="true"
-          className="absolute inset-0 -z-10 rounded-2xl bg-surface-2 opacity-0 transition-opacity duration-[160ms] ease-[ease] group-hover:opacity-60 group-focus-visible:opacity-100"
-        />
-        {children}
-      </a>
-    </Piece>
-  )
-}
-
-function Title({ title, at, now }: { title: string; at: string; now: number }) {
-  const when = Date.parse(at)
-  return (
-    <span className="flex items-baseline gap-2">
-      <span className="min-w-0 flex-1 truncate font-heading text-[14px] leading-snug font-medium tracking-[-0.01em]">{title}</span>
-      {Number.isFinite(when) ? (
-        <time dateTime={at} className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
-          {waited(when, now)} ago
-        </time>
-      ) : null}
-    </span>
+    <a href={url} target="_blank" rel="noopener noreferrer" data-stop={walkable ? '' : undefined} data-github-row={walkable ? '' : undefined} onClick={onOpen} className={cn(TITLE_LINK, 'scroll-mt-24 scroll-mb-6')}>
+      {title}
+    </a>
   )
 }
 
 const MOST_LABELS = 3
 
-function Where({ repo, number, by, labels }: { repo: string; number: number; by: string | null; labels: string[] }) {
+function Labels({ labels }: { labels: string[] }) {
   return (
-    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] leading-snug text-muted-foreground">
-      <span className="min-w-0 truncate font-mono">
-        {repo}#{number}
-      </span>
-      {by ? <span className="shrink-0">by @{by}</span> : null}
+    <>
       {labels.slice(0, MOST_LABELS).map((label) => (
-        <span key={label} className="max-w-[16ch] shrink-0 truncate rounded-full border border-border px-1.5 text-[11px] leading-4">
+        <span key={label} className="inline-flex h-6 max-w-[18ch] items-center truncate rounded-full border border-border px-2.5 text-[12.5px] text-muted-foreground">
           {label}
         </span>
       ))}
-      {labels.length > MOST_LABELS ? <span className="shrink-0 text-[11px]">+{labels.length - MOST_LABELS}</span> : null}
+      {labels.length > MOST_LABELS ? <span className="text-[12.5px] text-muted-foreground">+{labels.length - MOST_LABELS}</span> : null}
+    </>
+  )
+}
+
+/** Lines added and removed, and files, as the AI review read them. */
+function Size({ size }: { size: NonNullable<PullEntry['size']> }) {
+  return (
+    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 font-heading text-[12.5px] font-medium tabular-nums">
+      <span className="text-ok-fg">+{size.added}</span>
+      <span className="text-bad-fg">−{size.removed}</span>
+      <span className="text-muted-foreground">
+        · {size.files} {size.files === 1 ? 'file' : 'files'}
+      </span>
     </span>
   )
 }
 
-/** A pull request. One of the user's own shows where its review stands. One that waits for their review says who opened it. */
-export function PullRow({ pull, mine, now, ...placed }: Placed & { pull: GitHubPull; mine: boolean; now: number }) {
-  const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest
+/** A plain click opens the pull request's review. A click with a key held, or a middle click, is the browser's. */
+const opensHere = (event: MouseEvent<HTMLAnchorElement>) => !(event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+
+/**
+ * A pull request, with its AI review on the right. One that waits for the user's review says who opened it; one of
+ * theirs says where its review stands. One the AI reviewed that left GitHub's lists shows what the review knows.
+ */
+export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry: PullEntry; mine: boolean; live: boolean; now: number }) {
+  const { pull, id } = entry
+  const target = id ? targetOfReviewId(id) : null
+  const url = pull?.url ?? (target?.kind === 'pull' ? pullUrl(target) : null)
+  const updated = pull ? Date.parse(pull.updatedAt) : Number.NaN
+  const Icon = pull?.draft ? GitPullRequestDraft : GitPullRequest
+
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+    if (!opensHere(event)) return
     event.preventDefault()
-    openPullRequestReview(pull)
+    if (pull) openPullRequestReview(pull)
+    else if (id) useView.getState().openReviewFor(id)
   }
+
   return (
-    <Row url={pull.url} onOpen={open} {...placed}>
-      <Icon className={cn('mt-[3px] size-4 shrink-0', pull.draft ? 'text-muted-foreground' : 'text-ok-fg')} aria-hidden="true" />
-      <span className="relative min-w-0 flex-1">
-        <Title title={pull.title} at={pull.updatedAt} now={now} />
-        <Where repo={pull.repo} number={pull.number} by={mine ? null : pull.author} labels={pull.labels} />
-        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {mine ? <Chip {...REVIEW[pull.review]} /> : null}
-          <Chip {...CHECKS[pull.checks]} />
-          {pull.draft ? <Chip label="Draft" tone="quiet" icon={GitPullRequestDraft} /> : null}
-        </span>
-      </span>
-    </Row>
+    <Piece {...placed} className="relative">
+      <div className={CARD}>
+        <div className="min-w-[240px] flex-1">
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
+            <Icon className={cn('size-4 shrink-0', pull?.draft ? 'text-muted-foreground' : 'text-ok-fg')} aria-hidden="true" />
+            <span className="font-medium text-foreground">{entry.repo}</span>
+            {entry.number !== null ? <span className="tabular-nums">#{entry.number}</span> : null}
+            {pull?.author && !mine ? <span>· by @{pull.author}</span> : null}
+            {Number.isFinite(updated) ? (
+              <time dateTime={pull!.updatedAt} className="tabular-nums">
+                · updated {waited(updated, now)} ago
+              </time>
+            ) : null}
+          </p>
+          {url ? <TitleLink url={url} title={entry.title} onOpen={open} /> : <p className={TITLE_LINK}>{entry.title}</p>}
+          <p className="mt-2.5 flex flex-wrap items-center gap-1.5 empty:hidden">
+            {pull ? <Chip {...CHECKS[pull.checks]} /> : null}
+            {pull && mine ? <Chip {...REVIEW[pull.review]} /> : null}
+            {pull?.draft ? <Chip label="Draft" tone="quiet" icon={GitPullRequestDraft} /> : null}
+            {entry.size ? <Size size={entry.size} /> : null}
+            {pull ? <Labels labels={pull.labels} /> : null}
+          </p>
+        </div>
+        {id ? <AiReview id={id} ai={entry.ai} live={live} title={entry.title} /> : null}
+      </div>
+    </Piece>
   )
 }
 
-/** An issue, with why it is on the list: assigned to the user, opened by them, or both. */
+/** When it happened, for the AI review's line: the time so far, when it finished, or when it stopped. */
+function aiWhen(ai: PullAi, now: number): string | null {
+  if (ai.state === 'running') return ai.startedAt === null ? null : `${clockWords((now - ai.startedAt) / 1000)} so far`
+  if (ai.state === 'ready' && ai.row.at !== null) return `finished ${waited(ai.row.at, now)} ago`
+  return null
+}
+
+/**
+ * A pull request's AI review, on its card. None yet: Start AI review, which asks the host to prepare it and opens it.
+ * Running: how far along it is and what it is doing now. Ready: its level, its units at each level, and Open review.
+ * Failed: why, and Try again. A refusal says why on the card.
+ */
+function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boolean; title: string }) {
+  const [starting, setStarting] = useState(false)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const now = useNow(true, ai.state === 'running' ? 1_000 : 30_000)
+  const when = aiWhen(ai, now)
+  const openReview = (reviewId: string) => useView.getState().openReviewFor(reviewId)
+
+  const start = async (again: boolean) => {
+    setStarting(true)
+    setRefusal(null)
+    const why = await startAiReview(id, { live, prepare: (reviewId) => runCommand('review.prepare', { id: reviewId, ...(again ? { refresh: true } : {}) }), open: openReview })
+    setStarting(false)
+    setRefusal(why)
+  }
+
+  return (
+    <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
+      {ai.state === 'none' ? (
+        <>
+          <span className="text-[13px] text-muted-foreground">Not reviewed by AI yet</span>
+          <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled onClick={() => void start(false)}>
+            <Sparkles aria-hidden="true" />
+            {starting ? 'Starting…' : 'Start AI review'}
+          </Button>
+        </>
+      ) : null}
+      {ai.state === 'running' ? (
+        <>
+          <span className="flex w-full items-baseline justify-between gap-2 font-heading text-[14px] font-semibold">
+            AI review running
+            {ai.percent !== null ? <span className="tabular-nums">{ai.percent}%</span> : null}
+          </span>
+          <ReviewProgress percent={ai.percent} label={`AI review of ${title}`} />
+          <span role="status" className="line-clamp-2 text-[13.5px] leading-snug">
+            {ai.line}
+          </span>
+        </>
+      ) : null}
+      {ai.state === 'ready' ? (
+        <>
+          {ai.row.summary ? (
+            <ReviewBadge status={ai.row.item.assessment} size="md" />
+          ) : (
+            <span className="inline-flex h-7 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
+          )}
+          {ai.row.summary ? <LevelCounts summary={ai.row.summary} /> : null}
+          <Button variant="outline" data-stop="" onClick={() => openReview(id)}>
+            Open review
+          </Button>
+        </>
+      ) : null}
+      {ai.state === 'failed' ? (
+        <>
+          <span className="font-heading text-[14px] font-semibold text-bad-fg">AI review failed</span>
+          <span title={ai.line} className="line-clamp-3 text-[13px] leading-snug text-muted-foreground">
+            {ai.line}
+          </span>
+          <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled onClick={() => void start(true)}>
+            {starting ? 'Starting…' : 'Try again'}
+          </Button>
+        </>
+      ) : null}
+      {when ? <span className="text-[12.5px] text-muted-foreground tabular-nums">{when}</span> : null}
+      {refusal ? (
+        <p role="alert" className="text-[13px] leading-snug text-bad-fg">
+          {refusal}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** An issue, with why it is on the list: assigned to the user, opened by them, or both. It opens on github.com. */
 export function IssueRow({ issue, now, ...placed }: Placed & { issue: GitHubIssue; now: number }) {
+  const updated = Date.parse(issue.updatedAt)
   return (
-    <Row url={issue.url} onOpen={(event) => openOnGitHub(event, issue.url)} {...placed}>
-      <CircleDot className="mt-[3px] size-4 shrink-0 text-ok-fg" aria-hidden="true" />
-      <span className="relative min-w-0 flex-1">
-        <Title title={issue.title} at={issue.updatedAt} now={now} />
-        <Where repo={issue.repo} number={issue.number} by={null} labels={issue.labels} />
-        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {issue.assigned ? <Chip label="Assigned to you" tone="quiet" icon={UserRound} /> : null}
-          {issue.authored ? <Chip label="Opened by you" tone="quiet" icon={PenLine} /> : null}
-        </span>
-      </span>
-    </Row>
+    <Piece {...placed} className="relative">
+      <div className={CARD}>
+        <div className="min-w-[240px] flex-1">
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
+            <CircleDot className="size-4 shrink-0 text-ok-fg" aria-hidden="true" />
+            <span className="font-medium text-foreground">{issue.repo}</span>
+            <span className="tabular-nums">#{issue.number}</span>
+            {Number.isFinite(updated) ? (
+              <time dateTime={issue.updatedAt} className="tabular-nums">
+                · updated {waited(updated, now)} ago
+              </time>
+            ) : null}
+          </p>
+          <TitleLink url={issue.url} title={issue.title} onOpen={(event) => openOnGitHub(event, issue.url)} />
+          <p className="mt-2.5 flex flex-wrap items-center gap-1.5 empty:hidden">
+            {issue.assigned ? <Chip label="Assigned to you" tone="quiet" icon={UserRound} /> : null}
+            {issue.authored ? <Chip label="Opened by you" tone="quiet" icon={PenLine} /> : null}
+            <Labels labels={issue.labels} />
+          </p>
+        </div>
+      </div>
+    </Piece>
   )
 }
 
-/** A group's heading, with how many it holds. */
-export function GroupHeading({ label, count, ...placed }: Placed & { label: string; count: number }) {
+/** A group's heading, with how many it holds and, when it helps, what it holds. */
+export function GroupHeading({ label, count, about, ...placed }: Placed & { label: string; count: number; about?: string }) {
   return (
-    <Piece {...placed} className="px-3 pt-8 pb-1 first:pt-1">
+    <Piece {...placed} className="px-1 pt-8 pb-1 first:pt-0">
       <h2 className="eyebrow flex items-baseline gap-2">
         {label}
         <span className="tabular-nums">{count}</span>
       </h2>
+      {about ? <p className="mt-1 text-[13.5px] leading-snug text-muted-foreground">{about}</p> : null}
     </Piece>
   )
 }
@@ -187,7 +306,7 @@ export function GroupHeading({ label, count, ...placed }: Placed & { label: stri
 /** A quiet line in the list: a group with nothing in it, or one that holds only the most recent. */
 export function NoteRow({ children, ...placed }: Placed & { children: ReactNode }) {
   return (
-    <Piece {...placed} className="px-3 py-2 text-[13px] text-muted-foreground">
+    <Piece {...placed} className="rounded-3xl border border-dashed border-border px-5 py-4 text-[14px] leading-snug text-muted-foreground">
       {children}
     </Piece>
   )
