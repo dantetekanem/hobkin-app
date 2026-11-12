@@ -158,6 +158,13 @@ test('a story without high units says what it is, omits empty sections and repor
   assert.match(markdown, /\*\*Verdict: safe\*\*/)
 })
 
+test('the conclusion tells a unit only direct tests prove from one no test shows', () => {
+  const withProof = (id: string, value: 'isolated' | 'none'): Unit => ({ ...exampleUnits.units[0]!, id, facts: { ...exampleUnits.units[0]!.facts, proof: { value, evidence: '' } } })
+  const units: Units = { ...exampleUnits, attention: { units: 2, reading_minutes: 4 }, units: [withProof('u1', 'none'), withProof('u2', 'isolated')] }
+  const markdown = renderStory({ triage: exampleTriage, graph: exampleGraph(units.units), units })
+  assert.match(markdown, /\*\*Proof:\*\* .*No test shows unit 1\. Only tests that call it directly show unit 2: no test goes through a request to it\./)
+})
+
 test('what the blind check led to is reported in the conclusion', () => {
   const markdown = renderStory({
     triage: exampleTriage,

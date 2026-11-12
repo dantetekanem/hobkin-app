@@ -195,11 +195,12 @@ const BEHAVES: Record<Effect, string> = {
   data: 'changes data it writes, sends or keeps',
   load: 'changes what runs at load',
 }
-const AUDIENCE: Record<Exposure, string> = { 'nobody-yet': ' for nobody yet', subset: ' for a subset', everyone: ' for everyone', 'at-load': ' at load' }
+/** Who runs it, in a title, only where that tells something: with no condition in front of it, a change runs for everyone, as most do. */
+const AUDIENCE: Record<Exposure, string> = { 'nobody-yet': ' for nobody yet', subset: ' for a subset', everyone: '', 'at-load': ' at load' }
 const PROVEN: Record<Proof, string> = {
-  'lifecycle-observed': 'a test observes it',
-  lifecycle: 'a life cycle test reaches it',
-  isolated: 'only an isolated test shows it',
+  'lifecycle-observed': 'a test added with it goes through a request to it',
+  lifecycle: 'a test goes through a request to it',
+  isolated: 'tests that call it directly fail without the change',
   mocked: 'its test mocks it',
   none: 'no test shows it',
   unknown: 'its tests could not run',
@@ -239,9 +240,9 @@ function whereOf(node: ReviewNode, onPath: boolean): string {
   // An entry point once, by its name: the kind it is in brackets is data, not words.
   const entries = [...new Set(node.entries.map((entry) => entry.replace(/ \([\w -]+\)$/, '')))]
   if (entries.length) return `Reached from ${listed(entries.slice(0, 3))}${entries.length > 3 ? ` and ${entries.length - 3} more` : ''}.${condition}`
-  if (onPath) return `Called from code above it, with no entry point found.${condition}`
+  if (onPath) return `Other changed code calls it. No route, job or command was found that leads to it.${condition}`
   const load = node.facts?.effect?.value === 'load' || node.facts?.exposure?.value === 'at-load'
-  return `${load ? 'Takes effect when the file loads.' : 'No entry point was found above it.'}${condition}`
+  return `${load ? 'Takes effect when the file loads.' : 'No route, job or command was found that leads to it.'}${condition}`
 }
 
 /** What changed in a unit, in one short sentence: how many lines, in which definition. */

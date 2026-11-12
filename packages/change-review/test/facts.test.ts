@@ -45,7 +45,7 @@ describe('effect', () => {
   it('text: the anchor reports every changed line as whitespace only', () => {
     const f = deriveFacts(input('def total\n    1\nend', 'def total\n  1\nend', { changedLines: [2], whitespaceOnly: [2], removed: [{ oldStart: 2, lines: ['  1'] }] }))
     assert.equal(f.facts.effect.value, 'text')
-    assert.match(f.facts.effect.evidence, /search tool/)
+    assert.equal(f.facts.effect.evidence, 'every changed line is whitespace only')
   })
   it('a changed string literal is behaviour', () => {
     const f = deriveFacts(input("def key\n  'order:v2'\nend", "def key\n  'order:v1'\nend", { changedLines: [2], removed: [{ oldStart: 2, lines: ["  'order:v1'"] }] }))
@@ -84,7 +84,7 @@ describe('effect', () => {
     assert.equal(reported.facts.effect.value, 'interface')
     const seen = deriveFacts(input('def total(tax)\n  1\nend', 'def total\n  1\nend', { changedLines: [1], removed: [{ oldStart: 1, lines: ['def total'] }] }))
     assert.equal(seen.facts.effect.value, 'interface')
-    assert.match(seen.facts.effect.evidence, /patterns/)
+    assert.equal(seen.facts.effect.evidence, 'the definition line changed; also behaviour')
   })
   it('interface: a removed definition', () => {
     const f = deriveFacts(input('', 'def total\n  1\nend', { startLine: 1, endLine: 1, changedLines: [], removed: [{ oldStart: 1, lines: ['def total', '  1', 'end'] }] }))
@@ -99,7 +99,7 @@ describe('effect', () => {
     assert.equal(enq.facts.effect.value, 'data')
     const anchored = deriveFacts(input('def pay\n  x\nend', 'def pay\nend', { changedLines: [2], effects: [{ kind: 'cache', line: 2, text: 'x' }] }))
     assert.equal(anchored.facts.effect.value, 'data')
-    assert.match(anchored.facts.effect.evidence, /search tool/)
+    assert.equal(anchored.facts.effect.evidence, 'cache on line 2; also behaviour')
     const ts = deriveFacts(input('function pay() {\n  await db.query(row)\n}', null, { changedLines: [2], path: 'src/pay.ts', language: 'typescript' }))
     assert.equal(ts.facts.effect.value, 'behaviour')
     const tsWrite = deriveFacts(input('function pay() {\n  queue.enqueue(job)\n}', null, { changedLines: [2], path: 'src/pay.ts' }))
@@ -142,7 +142,7 @@ describe('conditions and exposure', () => {
     const [cond] = f.conditions
     assert.deepEqual([cond?.name, cond?.line, cond?.added], ['new_total', 2, true])
     assert.deepEqual(cond?.dominates, [{ line: 3, state: 'on' }])
-    assert.match(f.facts.exposure.evidence, /indent/)
+    assert.equal(f.facts.exposure.evidence, 'every changed line is on the on branch of new_total (line 2), and with it off the old code runs')
   })
   it('everyone: the off branch differs from the old code', () => {
     const f = deriveFacts(input(flagged.replace('old_total', 'older_total'), flaggedBase, { changedLines: [2, 3, 4, 5, 6] }))
@@ -166,12 +166,11 @@ describe('conditions and exposure', () => {
     assert.equal(f.facts.exposure.value, 'nobody-yet')
     assert.equal(f.conditions[0]?.name, 'new-total')
   })
-  it('uses the anchor guards when present, and says so', () => {
+  it('uses the anchor guards when present', () => {
     const head = 'def total\n  new_total\nend'
     const guards = [{ line: 2, guards: [{ line: 0, text: 'Features.enabled?(:new_total)', branch: 'then' as const }] }]
     const f = deriveFacts(input('def total\n  if Features.enabled?(:new_total)\n    new_total\n  end\nend', 'def total\nend', { changedLines: [2, 3, 4], guards: [{ line: 3, guards: [{ line: 2, text: 'Features.enabled?(:new_total)', branch: 'then' }] }] }))
     assert.equal(f.facts.exposure.value, 'nobody-yet')
-    assert.match(f.facts.exposure.evidence, /search tool/)
     const outside = deriveFacts(input(head, 'def total\nend', { changedLines: [2], guards }))
     assert.equal(outside.facts.exposure.value, 'everyone')
   })

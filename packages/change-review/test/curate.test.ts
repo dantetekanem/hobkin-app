@@ -138,7 +138,7 @@ test('a single node becomes a unit with every field, a claim title, and code tri
     source: (path, side) => (path === 'app/job.rb' && side === 'head' ? text : null),
   })
   const unit = result.units.find((item) => item.nodes.includes('round_money'))!
-  assert.equal(unit.title, '`round_money` changes behaviour for everyone, and no test shows it')
+  assert.equal(unit.title, '`round_money` changes behaviour, and no test shows it')
   assert.equal(unit.level, 'high')
   assert.equal(unit.critical, true)
   assert.equal(unit.grouping, 'single')
@@ -359,5 +359,15 @@ test('a unit says where it is reached from and what changed in short, plain sent
   const result = curate({ graph: graph([show, added]), triage: triageFor([show, added]), diffs: [] })
   const unitOf = (id: string) => result.units.find((unit) => unit.nodes.includes(id))!
   assert.deepEqual([unitOf('show').where, unitOf('show').what], ['Reached from ErrorsController#show.', 'Changes 4 lines in `show`.'])
-  assert.deepEqual([unitOf('count').where, unitOf('count').what], ['No entry point was found above it.', 'Adds `count`, 2 lines.'])
+  assert.deepEqual([unitOf('count').where, unitOf('count').what], ['No route, job or command was found that leads to it.', 'Adds `count`, 2 lines.'])
+})
+
+test('a title says what proves the change in plain words, and who runs it only when a condition holds it back', () => {
+  const titled = (proof: 'isolated' | 'lifecycle' | 'lifecycle-observed', exposure: 'everyone' | 'nobody-yet' = 'everyone') => {
+    const a = node('link_user_tags', withLevel('mid', { facts: { ...node('x').facts, proof: { value: proof, evidence: '' }, exposure: { value: exposure, evidence: '' } } }))
+    return curate({ graph: graph([a]), triage: triageFor([a]), diffs: [] }).units[0]!.title
+  }
+  assert.equal(titled('isolated'), '`link_user_tags` changes behaviour, and tests that call it directly fail without the change')
+  assert.equal(titled('lifecycle'), '`link_user_tags` changes behaviour, and a test goes through a request to it')
+  assert.equal(titled('lifecycle-observed', 'nobody-yet'), '`link_user_tags` changes behaviour for nobody yet, and a test added with it goes through a request to it')
 })

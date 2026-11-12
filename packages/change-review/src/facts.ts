@@ -251,8 +251,6 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
   const note = (effect: Effect, why: string) => {
     if (!reasons.has(effect)) reasons.set(effect, why)
   }
-  const reported = (what: string) => `${what} (from the search tool)`
-  const found = (what: string) => `${what} (from patterns)`
 
   const whitespace = new Set(anchor.whitespaceOnly ?? [])
   const texts = changed.map((n) => ({ n, text: textOf(n) }))
@@ -263,7 +261,7 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
   const nothingReported = changed.length === 0 && removed.length === 0
   const onlyText = !nothingReported && (allWhitespace || (code.length === 0 && removedCode.length === 0))
   if (onlyText) {
-    note('text', allWhitespace ? reported('every changed line is whitespace only') : found('only comment or blank lines changed'))
+    note('text', allWhitespace ? 'every changed line is whitespace only' : 'only comment or blank lines changed')
   }
 
   const migration = migrationPath(path, config)
@@ -274,17 +272,17 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
   if (!onlyText) {
     // interface
     const looksLikeDefinition = (line: string) => /^\s*(def |function\b|async function\b|class |module |export\b)|=>\s*\{?\s*$|\)\s*(:\s*[^={]+)?\{\s*$/.test(line)
-    if (anchor.signatureChanged === true) note('interface', reported('signature changed'))
+    if (anchor.signatureChanged === true) note('interface', 'signature changed')
     else if (anchor.signatureChanged === undefined) {
       const startLineChanged = changed.includes(anchor.startLine)
       const removedADefinition = (anchor.removed ?? []).some((block) => block.lines.some(looksLikeDefinition))
       if (startLineChanged && removedADefinition && anchor.status !== 'added') {
-        note('interface', found('the definition line changed'))
+        note('interface', 'the definition line changed')
       }
     }
     if (changed.length === 0 && removedCode.length > 0) {
-      if (goneAtHead(anchor, head)) note('interface', found('a definition was removed'))
-      else note('behaviour', found('lines were deleted inside the definition'))
+      if (goneAtHead(anchor, head)) note('interface', 'a definition was removed')
+      else note('behaviour', 'lines were deleted inside the definition')
     }
 
     // data
@@ -292,34 +290,34 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
     const lineHits = (pattern: string) => code.find(({ text }) => text !== undefined && matches(pattern, text))
     if (anchor.effects !== undefined) {
       const first = anchor.effects[0]
-      if (first) note('data', reported(`${first.kind} on line ${first.line}`))
+      if (first) note('data', `${first.kind} on line ${first.line}`)
     } else {
       for (const kind of ['write', 'enqueue', 'cache_key'] as const) {
         const hit = lineHits(signals[kind])
-        if (hit) note('data', found(`${kind} on line ${hit.n}`))
+        if (hit) note('data', `${kind} on line ${hit.n}`)
       }
     }
     for (const kind of ['cache_key', 'serialization'] as const) {
       const hit = lineHits(signals[kind])
-      if (hit) note('data', found(`${kind} on line ${hit.n}`))
-      else if (changed.length > 0 && matches(signals[kind], anchor.symbol)) note('data', found(`${kind} in the name ${anchor.symbol}`))
+      if (hit) note('data', `${kind} on line ${hit.n}`)
+      else if (changed.length > 0 && matches(signals[kind], anchor.symbol)) note('data', `${kind} in the name ${anchor.symbol}`)
     }
     if (migration) {
-      note('data', found(`schema or migration file ${path}`))
+      note('data', `schema or migration file ${path}`)
       destructive = matches(config.migration.destructive, changedText)
       additive = !destructive && changed.length > 0 && (matches(config.migration.additive, changedText) || (matches(config.ungateable.schema, path) && removedCode.length === 0))
     }
 
     // load
-    if (anchor.loadTime === true) note('load', reported('takes effect at load'))
-    else if (anchor.loadTime === undefined && (anchor.kind === 'constant' || anchor.kind === 'statement')) note('load', found(`${anchor.kind} changed`))
-    if (loadPath(path, config)) note('load', found(`configuration or dependency file ${path}`))
+    if (anchor.loadTime === true) note('load', 'takes effect at load')
+    else if (anchor.loadTime === undefined && (anchor.kind === 'constant' || anchor.kind === 'statement')) note('load', `${anchor.kind} changed`)
+    if (loadPath(path, config)) note('load', `configuration or dependency file ${path}`)
 
     // behaviour
     if (reasons.size === 0 || code.length > 0 || nothingReported) {
       let why = 'source lines not available, so treated as behaviour'
-      if (nothingReported) why = found('no changed lines reported')
-      else if (head) why = found('executable lines changed')
+      if (nothingReported) why = 'no changed lines reported'
+      else if (head) why = 'executable lines changed'
       note('behaviour', why)
     }
   }
@@ -356,7 +354,7 @@ interface ExposureResult {
   hosts: boolean
 }
 
-function deriveConditions(input: FactsInput, reading: Reading): { checks: Check[]; stateAt: (line: number) => Mark[]; viaGuards: boolean; marks: Map<number, Mark[]> } {
+function deriveConditions(input: FactsInput, reading: Reading): { checks: Check[]; stateAt: (line: number) => Mark[]; marks: Map<number, Mark[]> } {
   const { anchor, head, config } = input
   const range: [number, number] = [anchor.startLine, anchor.endLine]
   const { checks, marks } = head ? gateRegions(head, range[0], range[1], config, reading) : { checks: [] as Check[], marks: new Map<number, Mark[]>() }
@@ -373,13 +371,13 @@ function deriveConditions(input: FactsInput, reading: Reading): { checks: Check[
     if (own.some((m) => m.state === 'scaffold')) return own.filter((m) => m.state === 'scaffold')
     return guards ? (fromTool.get(line) ?? []) : own
   }
-  return { checks, stateAt, viaGuards: guards !== undefined, marks }
+  return { checks, stateAt, marks }
 }
 
 function deriveExposure(input: FactsInput, effect: EffectResult, reading: Reading): ExposureResult {
   const { anchor, path, head, base, config } = input
   const range: [number, number] = [anchor.startLine, anchor.endLine]
-  const { checks, stateAt, viaGuards, marks } = deriveConditions(input, reading)
+  const { checks, stateAt, marks } = deriveConditions(input, reading)
   const changed = anchor.changedLines
   const added = new Set(changed)
 
@@ -396,7 +394,6 @@ function deriveExposure(input: FactsInput, effect: EffectResult, reading: Readin
   }))
   const hosts = conditions.some((c) => c.added)
   const result = (value: Exposure, evidence: string): ExposureResult => ({ fact: { value, evidence }, conditions, hosts })
-  const how = viaGuards ? 'guards from the search tool' : 'indent-based branches'
 
   if (effect.main.value === 'text') return result('everyone', 'only text changed: nothing runs differently')
   if (effect.effects.includes('load') || ungateablePath(path, config)) return result('at-load', 'takes effect when code loads or deploys, before any request-time condition')
@@ -421,7 +418,7 @@ function deriveExposure(input: FactsInput, effect: EffectResult, reading: Readin
     else {
       const strict = states.every((s) => s.some((m) => !checks[m.check]?.subset))
       const first = checks[states[0]?.[0]?.check ?? 0]
-      const evidence = `every changed line is on the on branch of ${first?.name ?? 'the condition'} (line ${first?.line}), off path is the old code (${how})`
+      const evidence = `every changed line is on the on branch of ${first?.name ?? 'the condition'} (line ${first?.line}), and with it off the old code runs`
       return result(strict ? 'nobody-yet' : 'subset', evidence)
     }
   }
@@ -446,8 +443,9 @@ function deriveUndo(exposure: Exposure, effect: EffectResult, path: string, conf
 
 /**
  * Establishes effect, exposure and undo for one node, from the search tool's reported facts where present and from
- * patterns and indentation where not (the evidence says which). Pure: it reads only its input. Whatever is not proven
- * is the worse case: `everyone`, with the reason.
+ * patterns and indentation where not. The evidence is what was found, in words a person reviewing can read; how it was
+ * found stays out of it. Pure: it reads only its input. Whatever is not proven is the worse case: `everyone`, with the
+ * reason.
  */
 export function deriveFacts(input: FactsInput): NodeFacts {
   const { anchor, path, config } = input

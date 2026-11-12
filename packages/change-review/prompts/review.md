@@ -116,7 +116,7 @@ The words are what the person deciding whether to merge reads first, before any 
 - `setting`: the path in execution order, one line per stop: entry point, condition check, new path, old path, async hops. Each line says who runs that stop and which test moves through it. Only stops the data shows; at most 12 lines of at most 160 characters.
 - `units`: for each unit id, a `title` that is a claim the reviewer can agree or disagree with, never a file name (at most 100 characters), and a `what`: the unit's TL;DR. Say what changed and what it means for someone deciding to merge, in at most two short sentences, about 250 characters. Never more than 400.
 
-Words carry no level, no fact and no number that the data does not hold. Write no level in a title. Write no rule name, no "floor", no fact name (`effect`, `proof`, `exposure`, `undo`) and no count of changed lines in the words: say what the code does instead.
+Words carry no level, no fact and no number that the data does not hold. Write no level in a title. Write no rule name, no "floor", no fact name (`effect`, `proof`, `exposure`, `undo`), no fact value as it is coded (`isolated`, `lifecycle`, `nobody-yet`) and no count of changed lines in the words: say what the code does instead. Say what proves a change as what the tests do: "tests that call it directly fail without the change", "no test goes through a request to it". Say that a test does not go through a request only when the node's `runs` show that one was tried or none was found; never say a request "is not tested" for a node whose proof is `lifecycle` or `lifecycle-observed`. Say who runs a change only when a condition holds it back: a change with no condition in front of it runs for everyone, as most do.
 
 ## How to write
 

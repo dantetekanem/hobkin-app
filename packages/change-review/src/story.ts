@@ -20,7 +20,7 @@ export interface StoryInput {
 const ORDER: Level[] = ['high', 'mid', 'safe']
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 const SECTIONS: Record<Level, string> = { high: 'Needs you', mid: 'Worth a look', safe: 'Safe' }
-const WEAK_PROOF = ['none', 'unknown', 'mocked', 'isolated']
+const NO_PROOF = ['none', 'unknown', 'mocked']
 
 /** A unit as the story numbers it: high first, then mid, then safe, each in the order curate gave. */
 interface Numbered {
@@ -260,12 +260,14 @@ function conclusion(input: StoryInput, items: Numbered[], title: (unit: Unit) =>
 
   const runs = new Map<string, string>()
   for (const node of graph.nodes) for (const run of node.runs) runs.set(run.command, `\`${run.command}\` (${run.kind}, exit ${run.exit_code})`)
-  const weak = items.filter((item) => WEAK_PROOF.includes(item.unit.facts.proof.value)).map((item) => item.number)
+  const weak = items.filter((item) => NO_PROOF.includes(item.unit.facts.proof.value)).map((item) => item.number)
+  const direct = items.filter((item) => item.unit.facts.proof.value === 'isolated').map((item) => item.number)
   const shown = items.filter((item) => ['lifecycle', 'lifecycle-observed'].includes(item.unit.facts.proof.value)).map((item) => item.number)
   const proof = [
     runs.size ? `Tests that ran: ${[...runs.values()].join('; ')}.` : 'No test run was recorded for this review.',
     shown.length ? `A life cycle test executes ${unitsText(shown)}.` : '',
     weak.length ? `No test shows ${unitsText(weak)}.` : '',
+    direct.length ? `Only tests that call it directly show ${unitsText(direct)}: no test goes through a request to ${direct.length === 1 ? 'it' : 'them'}.` : '',
   ].filter(Boolean)
   lines.push(`**Proof:** ${proof.join(' ')}`, '')
 
