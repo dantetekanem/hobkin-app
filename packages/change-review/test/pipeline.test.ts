@@ -478,7 +478,7 @@ const mentionsScan = (): Scan =>
 const mentionsEntries: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, [{ symbol: 'showTopic', path: 'src/handlers/topics.js', hops: 2 }]])), notes: [] })
 const mentionsEntryTests = async ({ symbol }: { symbol: string }) => ({ ok: true as const, tests: symbol === 'showTopic' ? [{ path: 'test/e2e/topics.test.js', found: 'route', detail: 'showTopic' }] : [], notes: [] })
 
-test('a helper its direct tests prove, with an older request test running through it, is mid; the script nobody could read is said, at high; the README is counted', async (t) => {
+test('a helper its direct tests prove, with an older request test running through it, is mid; the new script nobody could read is said, at mid; the README is counted', async (t) => {
   const { repo, base, head, out, git } = mentionsProject(t)
   const asked: { id: string; callers: readonly { path: string; line: number }[] }[] = []
   const entriesAbove: EntriesSearch = async (request) => {
@@ -507,13 +507,13 @@ test('a helper its direct tests prove, with an older request test running throug
   assert.deepEqual(
     result.units.units.map((unit) => [unit.level, unit.title]),
     [
-      ['high', '`bin/production-errors` was not checked: the search tool found no definition in it'],
       ['mid', '`linkUserTags` changes behaviour, and a test goes through a request to it'],
+      ['mid', '`bin/production-errors` is new and was not checked: the search tool found no definition in it'],
     ],
   )
-  assert.equal(result.units.units[1]!.where, 'Reached from showTopic.')
+  assert.equal(result.units.units[0]!.where, 'Reached from showTopic.')
   assert.equal(result.units.attention.files_skipped, 1, 'the README is counted, not read')
-  assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 2\. No test shows unit 1\./)
+  assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 1\. No test shows unit 2\./)
   assert.ok(result.progress.steps.every((step) => step.status === 'done' || step.status === 'skipped'))
   assert.equal(git('status', '--porcelain'), '')
 })

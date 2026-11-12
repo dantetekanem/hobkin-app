@@ -328,6 +328,8 @@ export interface CurateInput {
   source?: (path: string, side: 'head' | 'base') => string | null
   /** Files triage marked `scan`, for the "every scanned file has a node" check. */
   scannedFiles?: readonly string[]
+  /** Whether code at a path runs in a request, job or consumer. A script or a build tool does not. Taken as true when not given. */
+  runsInRequest?: (path: string) => boolean
 }
 
 /** A unit before ids and parts, with what ordering needs. */
@@ -635,17 +637,24 @@ function changesCode(input: CurateInput, file: FileDiff): boolean {
 /**
  * A code file the scan was given and found no definition in, though lines that run changed in it: a script with no
  * file ending, a language the search tool does not read. Nothing in it was checked, so it is a unit of its own that
- * says so, at high (FOUNDATION section 7: a failure to report, never "nothing to review").
+ * says so (FOUNDATION section 7: a failure to report, never "nothing to review"). That it was not checked is said in
+ * its words. Its level is the risk that it breaks something: high only when it changes code that was already there,
+ * where a request can run it. A new file, or one no request runs, cannot break what works today: mid, for a look.
  */
-function unreadDraft(bucket: Bucket, file: FileDiff): Draft {
+function unreadDraft(bucket: Bucket, file: FileDiff, runsInRequest: boolean): Draft {
   const path = file.path
   const changed = file.hunks.flatMap((hunk) => hunk.lines)
   const [added, removed] = [changed.filter((line) => line[0] === '+').length, changed.filter((line) => line[0] === '-').length]
+  const isNew = removed === 0 && file.hunks.every((hunk) => hunk.oldLines === 0)
+  let level: Level = 'high'
+  let risk = 'It changes code that was already there, where a request can run it, so it can break what works today.'
+  if (isNew) [level, risk] = ['mid', 'It is a new file, so nothing that runs today changes because of it.']
+  else if (!runsInRequest) [level, risk] = ['mid', 'It does not run in a request, a job or a consumer.']
   const hunk = file.hunks[0]!
   const excerpt: Excerpt = { lines: hunk.lines.slice(0, 12), range: [hunk.newStart, hunk.newStart + Math.max(hunk.newLines, 1) - 1], cut: Math.max(0, changed.length - 12) }
   const unit: Omit<Unit, 'id'> = {
-    title: `\`${path}\` was not checked: the search tool found no definition in it`,
-    level: 'high',
+    title: `\`${path}\` ${isNew ? 'is new' : 'changed'} and was not checked: the search tool found no definition in it`,
+    level,
     critical: false,
     nodes: [],
     buckets: [bucket.id],
@@ -661,12 +670,12 @@ function unreadDraft(bucket: Bucket, file: FileDiff): Draft {
       exposure: { value: 'everyone', evidence: 'no condition in front of it was looked for' },
       undo: { value: 'rollback', evidence: 'reverting the deploy restores the file' },
     },
-    why_level: ['The search tool found no definition in this file, so nothing in it was checked: none of the four facts, and no test was run for it.'],
-    would_change: [{ text: 'Give the file a form the search tool reads, such as the file ending of its language, and review again', level: 'mid' }],
+    why_level: [risk, 'The search tool found no definition in this file, so nothing in it was checked: none of the four facts, and no test was run for it.'],
+    would_change: level === 'high' ? [{ text: 'Give the file a form the search tool reads, such as the file ending of its language, and review again', level: 'mid' }] : [],
     watch: { signals: [], gaps: ['nothing in this file was assessed'] },
     questions: [],
     unverified: `the search tool found no definition in ${path}`,
-    reading_minutes: MINUTES.high,
+    reading_minutes: MINUTES[level],
   }
   return { unit, stop: BUCKET_STOP, entry: '', sensitive: 0, path, line: 0 }
 }
@@ -749,7 +758,7 @@ export function curate(input: CurateInput): Units {
     const bucket = input.triage.buckets.find((item) => item.paths.includes(path))
     const file = input.diffs.find((item) => item.path === path)
     if (mapped.has(path) || bucket?.kind !== 'code' || bucket.treatment !== 'scan' || !file?.hunks.length) continue
-    if (changesCode(input, file)) drafts.push(unreadDraft(bucket, file))
+    if (changesCode(input, file)) drafts.push(unreadDraft(bucket, file, input.runsInRequest?.(path) ?? true))
   }
   const fileLevelUnits = drafts.length
 

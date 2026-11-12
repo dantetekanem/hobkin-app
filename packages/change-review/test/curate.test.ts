@@ -263,7 +263,7 @@ test('a failed breaking check makes the bucket high and critical, an unrun check
   assert.deepEqual([unrun.level, unrun.critical], ['high', false])
 })
 
-test('a code file the scan found no definition in is a unit of its own, high, and says nothing in it was checked', () => {
+test('a new code file the scan found no definition in is a unit of its own that says nothing in it was checked, at mid: it cannot break what runs today', () => {
   const helper = node('link', { path: 'app/helpers/posts_helper.rb', ...withLevel('mid') })
   const code = bucket('b1', { folder: 'app/helpers', paths: [helper.path], files: 1 })
   const scripts = bucket('b2', { folder: 'bin', change: 'added', paths: ['bin/report'], files: 1, added: 3 })
@@ -276,15 +276,34 @@ test('a code file the scan found no definition in is a unit of its own, high, an
     scannedFiles: [helper.path, 'bin/report'],
     source: (path, side) => (path === 'bin/report' && side === 'head' ? head : null),
   })
-  assert.deepEqual(result.units.map((unit) => [unit.level, unit.nodes.length]), [['high', 0], ['mid', 1]], 'the unread file comes first')
-  const unit = result.units[0]!
-  assert.equal(unit.title, '`bin/report` was not checked: the search tool found no definition in it')
+  assert.deepEqual(result.units.map((unit) => [unit.level, unit.nodes.length]), [['mid', 1], ['mid', 0]])
+  const unit = result.units[1]!
+  assert.equal(unit.title, '`bin/report` is new and was not checked: the search tool found no definition in it')
+  assert.deepEqual(unit.why_level, [
+    'It is a new file, so nothing that runs today changes because of it.',
+    'The search tool found no definition in this file, so nothing in it was checked: none of the four facts, and no test was run for it.',
+  ])
   assert.equal(unit.what, '3 lines added and 0 removed that this review did not read. Read the file yourself.')
   assert.deepEqual([unit.grouping, unit.buckets, unit.represents], ['bucket', ['b2'], { files: 1, lines: 3 }])
   assert.deepEqual([unit.facts.proof.value, unit.unverified], ['unknown', 'the search tool found no definition in bin/report'])
-  assert.match(unit.why_level[0] ?? '', /^The search tool found no definition in this file, so nothing in it was checked/)
   assert.equal(unit.code[0]?.path, 'bin/report')
   assert.match(unit.code[0]?.diff ?? '', /puts Report\.new\.run/)
+})
+
+test('an unread file that changes code already there is high only where a request runs it', () => {
+  const helper = node('link', { path: 'app/helpers/posts_helper.rb', ...withLevel('safe') })
+  const changed = (path: string): FileDiff => ({ path, hunks: [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [' start', '-run_old', '+run_new'] }] })
+  const run = (path: string, runsInRequest: boolean) => {
+    const code = bucket('b1', { folder: 'app', paths: [helper.path, path], files: 2 })
+    const result = curate({ graph: graph([helper]), triage: triage([code]), diffs: [changed(path)], scannedFiles: code.paths, runsInRequest: () => runsInRequest })
+    return result.units.find((unit) => unit.nodes.length === 0)!
+  }
+  const inRequest = run('app/middleware/throttle', true)
+  assert.deepEqual([inRequest.level, inRequest.title], ['high', '`app/middleware/throttle` changed and was not checked: the search tool found no definition in it'])
+  assert.equal(inRequest.why_level[0], 'It changes code that was already there, where a request can run it, so it can break what works today.')
+  const script = run('bin/deploy-notes', false)
+  assert.equal(script.level, 'mid')
+  assert.equal(script.why_level[0], 'It does not run in a request, a job or a consumer.')
 })
 
 test('a code file with no definition found makes no unit when only comments and blank lines changed in it', () => {

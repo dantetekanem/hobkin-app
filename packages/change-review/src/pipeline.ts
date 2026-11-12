@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { blindActions, runBlindCheck } from './blind.ts'
-import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, rx, type ReviewConfig } from './config.ts'
+import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, isNotRequestPath, rx, type ReviewConfig } from './config.ts'
 import { curate } from './curate.ts'
 import { type EntriesSearch, type EntryAbove, searchEntriesAbove } from './entries.ts'
 import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from './entrytests.ts'
@@ -621,7 +621,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     texts.set(`base:${path}`, (await linesAt(base, path))?.join('\n') ?? null)
   }
   const source = (path: string, side: 'head' | 'base') => texts.get(`${side}:${path}`) ?? null
-  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped] })
+  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], runsInRequest: (path) => !isNotRequestPath(path, config) })
   let units = shape(applied.nodes)
 
   // 5. One careful pass: levels, questions, what to watch, claims, and the story's words.

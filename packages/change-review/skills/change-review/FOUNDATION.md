@@ -121,6 +121,8 @@ The flag check itself is always `everyone`: its arguments are evaluated and the 
 
 ## 5. Levels
 
+**A level is the risk that the change breaks something: the code, or what runs in production.** It is not a measure of how much was checked, how large the change is, or how much attention the tool would like. What could not be checked is said in words, on the unit, beside the level. It raises the level only where what went unchecked can break something that works today.
+
 | Level | Meaning | Reviewer action |
 |---|---|---|
 | `safe` | Evidence on all four questions says this needs no attention | None required. Still shown in full. |
@@ -200,7 +202,7 @@ Collapsing these is safe and deliberate. The risk in them is a missing piece or 
 
 A unit is one thing the reviewer decides on. The map can fail a reviewer three ways, and shaping answers each:
 
-- **No nodes.** For a code change this is a failure to report (wrong root, unsupported language), never "nothing to review". For a change with no code, units come from buckets. One code file with no node, among files that have them, is the same failure in small: a script with no file ending, a language the search tool does not read. When lines that run changed in it, it is a unit of its own at `high` that says nothing in it was checked. When only comments or blank lines changed, it is no unit.
+- **No nodes.** For a code change this is a failure to report (wrong root, unsupported language), never "nothing to review". For a change with no code, units come from buckets. One code file with no node, among files that have them, is the same failure in small: a script with no file ending, a language the search tool does not read. When lines that run changed in it, it is a unit of its own that says nothing in it was checked. Its level is the risk of breaking, as for any unit: `high` when it changes code that was already there, where a request can run it; `mid` when the file is new or no request runs it, since it cannot break what works today. When only comments or blank lines changed, it is no unit.
 - **Too many nodes.** Group by structure: a definition with the private helpers changed with it; a mechanical bucket; a bucket from section 6. Never group by level. If there are still too many, split the review into parts by entry point and say so.
 - **Inconsistent nodes.** Checked by count and lookup before shaping. What cannot be repaired by rebuilding is kept, marked `unverified`, and treated as `high`.
 
