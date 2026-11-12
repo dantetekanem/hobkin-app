@@ -29,10 +29,39 @@ export interface AssessmentSummary {
  */
 export type AssessmentState = 'idle' | 'queued' | 'running' | 'ready' | 'failed'
 
+/** What a change review was asked to review, so the window can say it before the review exists. */
+export interface AssessmentRequest {
+  kind: 'change' | 'pull'
+  /** The project, or `owner/repo` for a pull request. */
+  project: string
+  /** A pull request's number. */
+  number?: number
+  title: string
+  /** The commits compared, in full. */
+  base: string
+  head: string
+  files: number
+  added: number
+  removed: number
+}
+
+/** One line of what a run did, oldest first, as the host's clock tells it. */
+export interface AssessmentLogLine {
+  /** ISO time. */
+  at: string
+  /** The step it belongs to, by id, when it belongs to one. */
+  step?: string
+  text: string
+}
+
 export interface AssessmentStatus {
   state: AssessmentState
   /** The commit it is for. */
   head: string | null
+  /** What it reviews: the project, the title, the commits and the size of the change. */
+  request?: AssessmentRequest
+  /** For a run under way or just ended: the latest lines of what it did, oldest first, at most 40. */
+  log?: AssessmentLogLine[]
   /** For a run under way: 0 to 100, weighted by each step's estimate. */
   percent?: number
   /** For a run under way: one sentence on what it is doing now. */

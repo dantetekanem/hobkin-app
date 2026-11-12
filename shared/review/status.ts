@@ -37,7 +37,10 @@ export interface ReviewStatus {
   cursor?: ReviewCursor
   /** When hobkin last left a note, so the window fetches the notes again. */
   notesAt?: number
-  /** For a finished change: how its change review (spec 032) stands at the commit the change is at. */
+  /**
+   * For a finished change, or a pull request the user asked to review: how its change review (spec 032) stands at the
+   * commit the change is at.
+   */
   assessment?: AssessmentStatus
 }
 
@@ -57,7 +60,7 @@ export interface OpenedReview {
   review: Review
   notes: ReviewNotes
   status: ReviewStatus
-  /** For a finished change: its change review (spec 032), once one is ready for the review's commit; null until then. */
+  /** For a finished change or a pull request: its change review (spec 032), once one is ready for the review's commit; null until then. */
   assessment?: ChangeAssessment | null
 }
 
@@ -111,7 +114,7 @@ export interface ReviewListItem {
   /** While a preparation is queued or under way: when it was asked for, as an ISO time. */
   startedAt?: string
   error: string | null
-  /** For a finished change: how its change review stands, without its steps. */
+  /** For a finished change or a pull request: how its change review stands, without its steps. */
   assessment?: AssessmentStatus
   /** When any of it last changed, as an ISO time. */
   updatedAt: string

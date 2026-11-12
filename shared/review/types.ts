@@ -139,6 +139,11 @@ export interface StoryStep {
   path?: string
   /** The change review's level for what this step shows, once it has rated it. */
   level?: ReviewLevel
+  /**
+   * The change review's unit this step tells (`u1`, `u2`...), once a change review is ready. Its claim, what changed,
+   * why it is rated as it is, its questions and what to watch are in the assessment's units, under this id.
+   */
+  unit?: string
 }
 
 /**
