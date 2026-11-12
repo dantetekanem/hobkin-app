@@ -169,7 +169,8 @@ test('the 80 node stress review lays out without overlap, with every node in its
 })
 
 test('a request reads left to right: where it enters, the callers, the change, what it calls; tests sit under it', () => {
-  const way = [node('route', 'context'), node('controller', 'context'), node('helper', 'code'), node('callee', 'context'), node('script', 'code')]
+  const entry = { kind: 'route', exact: true }
+  const way = [{ ...node('route', 'context'), entry }, node('controller', 'context'), node('helper', 'code'), node('callee', 'context'), node('script', 'code'), node('readme', 'file')]
   const lane = [node('t-helper', 'test'), node('t-script', 'test'), node('t-other', 'test'), node('A1', 'criterion')]
   const all = [...way, ...lane]
   const wires = [wire('route', 'controller'), wire('controller', 'helper'), wire('helper', 'callee'), wire('t-helper', 'helper'), wire('t-script', 'script'), wire('t-other', 'script'), wire('A1', 't-helper')]
@@ -179,7 +180,14 @@ test('a request reads left to right: where it enters, the callers, the change, w
   const kind = (id: string) => all.find((entry) => entry.id === id)!.kind
 
   assert.ok(x('route') < x('controller') && x('controller') < x('helper') && x('helper') < x('callee'), 'the way a request goes, left to right')
-  assert.equal(x('script'), x('route'), 'code nothing calls starts a way of its own')
+  // A way no entry reaches is not an entry: it starts at the column of the change, in a row of its own under the ways that do.
+  const entered = ['route', 'controller', 'helper', 'callee']
+  const enteredBottom = Math.max(...entered.map((id) => y(id) + NODE_SIZE[kind(id)].height))
+  for (const id of ['script', 'readme']) {
+    assert.equal(x(id), x('helper'), `${id} starts at the change's column`)
+    assert.ok(y(id) > enteredBottom, `${id} sits under the ways a request enters`)
+  }
+  assert.equal(new Set(way.filter((entry) => x(entry.id) === x('route')).map((entry) => entry.id)).size, 1, 'the first column holds only where a request enters')
   // Tests and acceptance lines are off the way: in a lane under it, each just left of what it covers, so its wire rises to it.
   const bottom = Math.max(...way.map((entry) => y(entry.id) + NODE_SIZE[entry.kind].height))
   for (const entry of lane) assert.ok(y(entry.id) >= bottom + LANE_GAP - 1, `${entry.id} sits under the way`)
