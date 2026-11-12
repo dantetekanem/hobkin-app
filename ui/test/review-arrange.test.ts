@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { layoutReview, nodeRect } from '#shared/review/layout.ts'
+import { nodeRect } from '#shared/review/layout.ts'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { arrange, isLineCount } from '../src/features/review/graph/arrange.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
@@ -51,22 +51,32 @@ test('tests fold into one card for each subject, with their helper, and never st
   assert.equal(shape.covers[titled(pull, 'links a handle with dots and dashes').id], titled(pull, 'link_user_tags').id)
 })
 
-test('the graph is a flow, and a changed node nothing wires stays in it', () => {
+test('the graph reads the way a request goes, with its tests in a lane under it', () => {
   const shape = arrange(pull)
-  // No block apart: the README and the CI file stand among the rest, where the layout puts any changed node.
-  const flow = layoutReview(shape.nodes, shape.edges)
-  for (const node of shape.nodes) assert.deepEqual(node.position, flow[node.id], node.title)
-  assert.ok(!('apart' in shape))
+  const at = (title: string) => shape.nodes.find((node) => node.title === title)!
+  const x = (title: string) => at(title).position.x
 
-  // Tests on the left, then the code, then what calls it.
-  const x = (title: string) => shape.nodes.find((node) => node.title === title)!.position.x
-  const group = shape.nodes.find((node) => node.title === '5 tests for link_user_tags')!.position.x
-  assert.ok(group < x('link_user_tags') && x('link_user_tags') < x('render_body'))
-  // Nothing overlaps, and the tests take three cards' height, not eighteen.
+  // Where a request enters, the unchanged code on its way, the change, then what the change calls.
+  for (const way of [['GET /posts/:id', 'PostsController#show', 'render_body', 'link_user_tags', 'User.find_by_handles'], ['GET /feed', 'FeedsController#index', 'render_body']]) {
+    for (let index = 1; index < way.length; index += 1) assert.ok(x(way[index - 1]!) < x(way[index]!), `${way[index - 1]} before ${way[index]}`)
+  }
+  // Its wires run as they are read: a caller's wire leaves it for what it calls.
+  assert.ok(shape.edges.some((edge) => edge.from === at('render_body').id && edge.to === at('link_user_tags').id && edge.kind === 'calls'))
+  assert.ok(shape.edges.some((edge) => edge.from === at('GET /posts/:id').id && edge.to === at('PostsController#show').id))
+
+  // Tests are off the way: each card sits under it, just left of what it covers.
+  const way = shape.nodes.filter((node) => node.kind !== 'test')
+  const bottom = Math.max(...way.map((node) => node.position.y + nodeRect(node.kind, node.position).height))
+  for (const group of Object.values(shape.groups)) {
+    const card = shape.nodes.find((node) => node.id === group.id)!
+    const subject = shape.nodes.find((node) => node.id === group.subject)!
+    assert.ok(card.position.y > bottom, `${card.title} sits under the way`)
+    assert.ok(card.position.x + 288 < subject.position.x, `${card.title} sits left of ${subject.title}`)
+  }
+  // A changed node nothing wires stays among the rest: there is no block apart.
+  assert.ok(!('apart' in shape))
+  // Nothing overlaps, and the same review always lays out the same way.
   for (const [index, one] of shape.nodes.entries()) for (const two of shape.nodes.slice(index + 1)) assert.equal(overlaps(one, two), false, `${one.title} and ${two.title}`)
-  const tests = shape.nodes.filter((node) => node.kind === 'test')
-  assert.ok(Math.max(...tests.map((node) => node.position.y)) - Math.min(...tests.map((node) => node.position.y)) < 3 * 200)
-  // The same review always lays out the same way.
   assert.deepEqual(arrange(pullReview('pr:hobkin-sample/storefront/482')).nodes, shape.nodes)
 })
 

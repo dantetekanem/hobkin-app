@@ -91,6 +91,15 @@ const FEEDS_CONTROLLER = lines(
   'end',
 )
 
+const ROUTES = lines(
+  'Rails.application.routes.draw do',
+  "  root 'posts#index'",
+  "  get '/posts/:id', to: 'posts#show', as: :post",
+  "  get '/feed', to: 'feeds#index', defaults: { format: :rss }",
+  '  resources :users, only: :show',
+  'end',
+)
+
 const USER = lines(
   'class User < ApplicationRecord',
   '  has_many :posts',
@@ -417,4 +426,5 @@ export const PULL_FILES: readonly SampleFile[] = [
   unchanged('app/controllers/posts_controller.rb', POSTS_CONTROLLER),
   unchanged('app/controllers/feeds_controller.rb', FEEDS_CONTROLLER),
   unchanged('app/models/user.rb', USER),
+  unchanged('config/routes.rb', ROUTES),
 ]

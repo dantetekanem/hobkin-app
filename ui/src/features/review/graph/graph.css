@@ -321,6 +321,68 @@
   color: var(--hb-bad-fg);
 }
 
+/* ───────────────────────────── Where a request enters ───────────────────────────── */
+
+/*
+ * A route reads as an entry pill at the start of its way: the verb on its chip and the path, large, so the way a
+ * request takes reads from it, left to right.
+ */
+.rv .rv-node[data-route='true'] .rv-card {
+  border-radius: 999px 28px 28px 999px;
+}
+.rv-route {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 16px 0 18px;
+}
+.rv-verb {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--hb-text);
+  color: var(--hb-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 18px;
+}
+.rv-route-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rv .rv-node[data-route='true'] .rv-body {
+  padding-left: 18px;
+}
+.rv[data-far='true'] .rv-route-path {
+  font-size: 22px;
+  line-height: 30px;
+}
+
+/* The way a request takes to changed code, in a quiet line under its title. The whole way is in its tooltip. */
+.rv-way {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--hb-muted);
+}
+.rv[data-far='true'] .rv-way {
+  display: none;
+}
+
 /* ───────────────────────────── Nodes nothing wires ───────────────────────────── */
 
 /* A changed node nothing wires stays in its place, and says so in a quiet line under its title. */

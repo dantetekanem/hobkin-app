@@ -55,11 +55,16 @@ test('the sample is shaped like the pull request the user reviewed: one helper, 
   assert.equal(alone.length, 2)
   for (const node of alone) assert.equal(wired.has(node.id), false, node.title)
 
-  // Three to five callers and callees the change did not touch, for the life cycle.
+  // Three to five callers and callees the change did not touch, for the life cycle, and the routes a request enters by.
   const around = review.nodes.filter((node) => node.change === 'unchanged')
-  assert.ok(around.length >= 3 && around.length <= 5)
+  const routes = around.filter((node) => node.entry?.kind === 'route')
+  assert.deepEqual(routes.map((node) => node.title), ['GET /posts/:id', 'GET /feed'])
+  const code = around.filter((node) => !routes.includes(node))
+  assert.ok(code.length >= 3 && code.length <= 5)
   assert.ok(around.every((node) => node.kind === 'context' && node.lifecycle))
-  assert.ok(around.some((node) => node.lifecycle!.role === 'caller') && around.some((node) => node.lifecycle!.role === 'callee'))
+  assert.ok(code.some((node) => node.lifecycle!.role === 'caller') && code.some((node) => node.lifecycle!.role === 'callee'))
+  // A route leads to the controller it sends requests to.
+  for (const route of routes) assert.ok(review.edges.some((edge) => edge.kind === 'called-by' && edge.to === route.id && review.nodes.find((node) => node.id === edge.from)?.entry?.kind === 'controller'))
 })
 
 test('its change review has four units: a high one with a question and a watch, a mid one and two safe ones', () => {

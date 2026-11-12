@@ -1,13 +1,14 @@
 /**
- * The graph as the canvas draws it (the user, 2026-11-12): tests never stand in a column, and the request's life cycle
- * reads left to right.
+ * The graph as the canvas draws it (the user, 2026-11-12): tests never stand in a column, and the graph reads in the
+ * order a request goes through it.
  *
  * Tests fold into one card for each subject, the node they cover, with the test helpers they use. More single tests
- * than a few fold by their file. The graph is laid out from what is drawn. A changed node nothing wires stays in its
- * place among the rest, and its card says so. A story step that focused a folded test focuses its card. Pure, and the
- * same review always comes out the same.
+ * than a few fold by their file. The graph is laid out from what is drawn, the request's way (`layoutRequest`): where it
+ * enters, the unchanged code that leads to the change, the change, what it calls, and the tests in a lane under it. A
+ * changed node nothing wires stays in its place among the rest, and its card says so. A story step that focused a
+ * folded test focuses its card. Pure, and the same review always comes out the same.
  */
-import { layoutReview } from '#shared/review/layout.ts'
+import { layoutRequest } from '#shared/review/layout.ts'
 import { fileName } from '#shared/review/paths.ts'
 import type { NodeStatus, Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { isUnchanged } from './levels.ts'
@@ -237,9 +238,16 @@ function joinWires(edges: readonly ReviewEdge[], end: (id: string) => string): {
   return { edges: [...joined.values()], wireOf }
 }
 
+/**
+ * A wire as a request goes along it. The review says a caller the change did not touch "is called by" the code on its
+ * left; on the canvas the caller stands before that code, so its wire runs from the caller and says it calls it.
+ */
+const requestWise = (edge: ReviewEdge): ReviewEdge => (edge.kind === 'called-by' ? { ...edge, kind: 'calls', from: edge.to, to: edge.from } : edge)
+
 export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arranged {
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
-  const { groups: folded, covers } = foldTests(review.nodes, review.edges, nodeOf)
+  const wires = review.edges.map(requestWise)
+  const { groups: folded, covers } = foldTests(review.nodes, wires, nodeOf)
   const groups: Record<string, TestGroup> = {}
   const groupOf: Record<string, string> = {}
   for (const group of folded) {
@@ -255,8 +263,8 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arra
     if (!card) drawn.push(node)
     else if (groups[card]!.tests[0] === node.id || (groups[card]!.tests.length === 0 && groups[card]!.helpers[0] === node.id)) drawn.push(cardOf(groups[card]!, nodeOf))
   }
-  const { edges, wireOf } = joinWires(review.edges, end)
-  const positions = layoutReview(drawn, edges)
+  const { edges, wireOf } = joinWires(wires, end)
+  const positions = layoutRequest(drawn, edges)
   const drawnOf = new Map(drawn.map((node) => [node.id, node]))
   const { steps: story, stepOf } = foldStory(review.story, end, wireOf, (id) => drawnOf.get(id)?.title ?? id, (id) => (groups[id]?.tests ?? []).map((test) => nodeOf.get(test)!))
 

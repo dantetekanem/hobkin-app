@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { ChevronDown, ChevronUp, Minus, MessageSquare, ShieldCheck, Unlink, X, Check } from 'lucide-react'
+import { ChevronDown, ChevronUp, Minus, MessageSquare, ShieldCheck, Signpost, Unlink, X, Check } from 'lucide-react'
 import { animate, motion } from 'motion/react'
 import { memo, useEffect, useRef } from 'react'
 import type { ReviewNode } from '#shared/review/types.ts'
@@ -31,7 +31,8 @@ function notesOn(session: Session, id: string): number {
  * Everything it shows comes from the review file. A test says what it covers and how it ran, and a card of folded tests
  * counts them and lists them in place. A count of lines is never the main text: it stays small in the footer. Code the
  * change did not touch is marked Unchanged and steps back, a changed node nothing wires says so quietly, and a focus
- * node counts the wires it folded away beside the pin they would leave by.
+ * node counts the wires it folded away beside the pin they would leave by. A route, where a request enters, reads as its
+ * verb and path, and changed code says the way a request takes to it.
  */
 function NodeCardComponent({ id }: NodeProps) {
   const store = useSessionStore()
@@ -63,7 +64,8 @@ function NodeCardComponent({ id }: NodeProps) {
   }, [arrival, reduced])
 
   if (!node) return null
-  const { icon: Icon, label } = KIND[node.kind]
+  const route = node.entry?.kind === 'route' ? node.entry.route : undefined
+  const { icon: Icon, label } = route ? { icon: Signpost, label: 'Route' } : KIND[node.kind]
   const status = statusOf(node)
   const unchanged = isUnchanged(node)
   // The mark on the top edge says Unchanged, so the status says it again only for a test, whose status is its result.
@@ -76,8 +78,10 @@ function NodeCardComponent({ id }: NodeProps) {
   // A changed node nothing wires stays in its place among the rest, and says so quietly (the user, 2026-11-12).
   const alone = !criterion && !pins?.in && !pins?.out && !node.supports?.length ? (node.unwired ?? (test ? 'No covered code found yet' : 'No caller found yet')) : null
   // What goes in and out, what a test covers, and that nothing wires it each take a line, so the summary gives one up.
-  const taken = [longTitle, Boolean(io), test && Boolean(covers || node.supports?.length), Boolean(alone)].filter(Boolean).length
-  const lines = criterion ? 3 : Math.max(0, 2 - taken)
+  // The way a request takes to changed code, in a line under its title: "GET /users/:id → UsersController#show → full_name".
+  const way = node.lifecycle?.role === 'changed' && node.lifecycle.path ? node.lifecycle.path : null
+  const taken = [longTitle, Boolean(io), test && Boolean(covers || node.supports?.length), Boolean(alone), Boolean(way)].filter(Boolean).length
+  const lines = criterion ? 3 : Math.max(0, route ? 1 - taken : 2 - taken)
 
   return (
     <>
@@ -101,17 +105,33 @@ function NodeCardComponent({ id }: NodeProps) {
           data-unchanged={unchanged}
           data-alert={needsALook(node)}
           data-group={group != null}
+          data-route={route != null}
           data-node={id}
         >
           <div className="rv-card">
             <header className="rv-head">
               <Icon className="rv-icon" aria-hidden="true" />
               <span className="rv-title" title={node.title}>
-                {node.title}
+                {route ? 'Where a request enters' : node.title}
               </span>
               <span className="rv-kind">{group ? 'Tests' : label}</span>
             </header>
+            {route ? (
+              <div className="rv-route" title={`${route.verbs.join(', ')} ${route.path}`}>
+                {route.verbs.map((verb) => (
+                  <span key={verb} className="rv-verb">
+                    {verb}
+                  </span>
+                ))}
+                <span className="rv-route-path">{route.path}</span>
+              </div>
+            ) : null}
             <div className="rv-body">
+              {way ? (
+                <p className="rv-way" title={way}>
+                  {way}
+                </p>
+              ) : null}
               {criterion ? null : (
                 <span className="rv-path" title={node.subtitle}>
                   <bdi>{node.subtitle}</bdi>

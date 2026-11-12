@@ -76,7 +76,7 @@ export function pinPoints(edge: LayoutEdge, nodes: readonly LayoutNode[], positi
  * How many columns to the right of its band's first column each node of a band sits: the longest chain of
  * wires that leads to it from other nodes of the band. A cycle is cut where a depth-first walk closes it.
  */
-function bandDepths(ids: readonly string[], edges: readonly LayoutEdge[]): Map<string, number> {
+function bandDepths(ids: readonly string[], edges: readonly LayoutEdge[], most = MAX_CODE_COLUMNS): Map<string, number> {
   const inBand = new Set(ids)
   const next = new Map<string, string[]>(ids.map((id) => [id, []]))
   for (const edge of edges) {
@@ -103,7 +103,7 @@ function bandDepths(ids: readonly string[], edges: readonly LayoutEdge[]): Map<s
       if (!cut.has(`${id}>${target}`)) depth.set(target, Math.max(depth.get(target)!, depth.get(id)! + 1))
     }
   }
-  for (const [id, value] of depth) depth.set(id, Math.min(value, MAX_CODE_COLUMNS - 1))
+  for (const [id, value] of depth) depth.set(id, Math.min(value, most - 1))
   return depth
 }
 
@@ -165,6 +165,12 @@ interface Placed {
 
 function place(nodes: readonly LayoutNode[], edges: readonly LayoutEdge[]): Placed {
   const columns = startingColumns(nodes, edges)
+  return { columns, tops: settleColumns(columns, edges) }
+}
+
+/** Packs every column on one line, then pulls each node toward what it is wired to, column by column, so wires run level. */
+function settleColumns(columns: Column[], edges: readonly LayoutEdge[]): Map<string, number> {
+  const nodes = columns.flatMap((column) => column.nodes)
   const columnOf = new Map<string, number>()
   columns.forEach((column, index) => column.nodes.forEach((node) => columnOf.set(node.id, index)))
   const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
@@ -215,7 +221,7 @@ function place(nodes: readonly LayoutNode[], edges: readonly LayoutEdge[]): Plac
   for (let index = 1; index < columns.length; index += 1) sweep(index, (other) => other < index)
   for (let index = columns.length - 2; index >= 0; index -= 1) sweep(index, (other) => other > index)
   for (let index = 0; index < columns.length; index += 1) sweep(index, (other) => other !== index)
-  return { columns, tops }
+  return tops
 }
 
 /** The columns of a review, left to right, each with its nodes from top to bottom. */
@@ -233,6 +239,76 @@ export function layoutReview(nodes: readonly LayoutNode[], edges: readonly Layou
   for (const column of columns) {
     for (const node of column.nodes) positions[node.id] = { x, y: Math.round(tops.get(node.id)! - highest) }
     x += Math.max(...column.nodes.map((node) => NODE_SIZE[node.kind].width)) + COLUMN_GAP
+  }
+  return positions
+}
+
+/** The kinds that are not on the way a request goes: they sit in the lane under it. */
+const LANE_KINDS: ReadonlySet<NodeKind> = new Set(['test', 'criterion'])
+/** Room between the way a request goes and the lane of tests under it. */
+export const LANE_GAP = 140
+/** How far left of what it covers a node of the lane sits, so its wire rises to it from the left, and the room beside it. */
+const LANE = { lead: 56, room: 40 } as const
+/** Past this many columns along the way, a deeper node shares the last. */
+export const MAX_WAY_COLUMNS = 8
+
+/**
+ * The graph in the order a request goes through it (the user, 2026-11-12), left to right: where it enters (a route, a
+ * job, a command), then the code that leads to the change, then the change, then what the change calls. Each node sits a
+ * column after every node wired into it, and code nothing calls starts a way of its own. Wires run as they are read:
+ * from the node on the left. Tests and acceptance lines are not on that way: they sit in a lane under it, each just left
+ * of what it covers, so its wire rises to it and never breaks the way.
+ */
+export function layoutRequest(nodes: readonly LayoutNode[], edges: readonly LayoutEdge[]): Positions {
+  const lane = nodes.filter((node) => LANE_KINDS.has(node.kind))
+  const way = nodes.filter((node) => !LANE_KINDS.has(node.kind))
+  const onWay = new Set(way.map((node) => node.id))
+  const wayEdges = edges.filter((edge) => onWay.has(edge.from) && onWay.has(edge.to))
+  const depth = bandDepths(way.map((node) => node.id), wayEdges, MAX_WAY_COLUMNS)
+  const columns: Column[] = []
+  for (let level = 0; level <= Math.max(-1, ...depth.values()); level += 1) {
+    const atLevel = way.filter((node) => depth.get(node.id) === level)
+    if (atLevel.length > 0) columns.push({ band: 'code', nodes: [...atLevel.filter((node) => node.kind !== 'file'), ...atLevel.filter((node) => node.kind === 'file')] })
+  }
+  const tops = settleColumns(columns, wayEdges)
+  const width = Math.max(...Object.values(NODE_SIZE).map((size) => size.width))
+  const highest = tops.size > 0 ? Math.min(...tops.values()) : 0
+  const positions: Positions = {}
+  columns.forEach((column, index) => {
+    for (const node of column.nodes) positions[node.id] = { x: index * (width + COLUMN_GAP), y: Math.round(tops.get(node.id)! - highest) }
+  })
+
+  if (lane.length > 0) {
+    const bottom = way.length > 0 ? Math.max(...way.map((node) => positions[node.id]!.y + NODE_SIZE[node.kind].height)) : -LANE_GAP
+    const leaving = (id: string) => edges.filter((edge) => edge.from === id && edge.to !== id).map((edge) => edge.to)
+    // Each wants to stand just left of the leftmost thing it covers: a test, of its code; a line, of its test or code.
+    const wanted = new Map<string, number>()
+    const leftOf = (ids: readonly (number | undefined)[]) => {
+      const xs = ids.filter((value): value is number => value != null)
+      return xs.length > 0 ? Math.min(...xs) - width - LANE.lead : 0
+    }
+    for (const node of lane.filter((entry) => entry.kind === 'test')) wanted.set(node.id, leftOf(leaving(node.id).map((id) => positions[id]?.x)))
+    for (const node of lane.filter((entry) => entry.kind === 'criterion')) wanted.set(node.id, leftOf(leaving(node.id).map((id) => positions[id]?.x ?? wanted.get(id))))
+    // Then each takes the first row where it has room, in the order of where they want to be.
+    const rows: [number, number][][] = []
+    const rowHeight = Math.max(...lane.map((node) => NODE_SIZE[node.kind].height))
+    const order = lane.map((node, index) => ({ node, index })).sort((a, b) => wanted.get(a.node.id)! - wanted.get(b.node.id)! || a.index - b.index)
+    for (const { node } of order) {
+      const left = wanted.get(node.id)!
+      const right = left + NODE_SIZE[node.kind].width
+      let row = 0
+      while (rows[row]?.some(([start, end]) => left < end + LANE.room && start < right + LANE.room)) row += 1
+      ;(rows[row] ??= []).push([left, right])
+      positions[node.id] = { x: Math.round(left), y: Math.round(bottom + LANE_GAP + row * (rowHeight + ROW_GAP)) }
+    }
+  }
+
+  // The whole graph starts at the origin.
+  const placed = Object.values(positions)
+  const [left, top] = [Math.min(0, ...placed.map((point) => point.x)), Math.min(0, ...placed.map((point) => point.y))]
+  for (const point of placed) {
+    point.x -= left
+    point.y -= top
   }
   return positions
 }

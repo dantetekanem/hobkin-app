@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { columnsOf, layoutReview, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, type LayoutEdge, type LayoutNode } from '../review/layout.ts'
+import { columnsOf, LANE_GAP, layoutRequest, layoutReview, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, type LayoutEdge, type LayoutNode } from '../review/layout.ts'
 import { stressReview } from '../review/stress.ts'
 import type { NodeKind } from '../review/types.ts'
 
@@ -166,4 +166,33 @@ test('the 80 node stress review lays out without overlap, with every node in its
   assert.ok(reach(['criterion']) < start(['test']))
   assert.ok(reach(['test']) < start(['code', 'file']))
   assert.ok(reach(['code', 'file']) < start(['context']))
+})
+
+test('a request reads left to right: where it enters, the callers, the change, what it calls; tests sit under it', () => {
+  const way = [node('route', 'context'), node('controller', 'context'), node('helper', 'code'), node('callee', 'context'), node('script', 'code')]
+  const lane = [node('t-helper', 'test'), node('t-script', 'test'), node('t-other', 'test'), node('A1', 'criterion')]
+  const all = [...way, ...lane]
+  const wires = [wire('route', 'controller'), wire('controller', 'helper'), wire('helper', 'callee'), wire('t-helper', 'helper'), wire('t-script', 'script'), wire('t-other', 'script'), wire('A1', 't-helper')]
+  const positions = layoutRequest(all, wires)
+  const x = (id: string) => positions[id]!.x
+  const y = (id: string) => positions[id]!.y
+  const kind = (id: string) => all.find((entry) => entry.id === id)!.kind
+
+  assert.ok(x('route') < x('controller') && x('controller') < x('helper') && x('helper') < x('callee'), 'the way a request goes, left to right')
+  assert.equal(x('script'), x('route'), 'code nothing calls starts a way of its own')
+  // Tests and acceptance lines are off the way: in a lane under it, each just left of what it covers, so its wire rises to it.
+  const bottom = Math.max(...way.map((entry) => y(entry.id) + NODE_SIZE[entry.kind].height))
+  for (const entry of lane) assert.ok(y(entry.id) >= bottom + LANE_GAP - 1, `${entry.id} sits under the way`)
+  assert.ok(x('t-helper') + NODE_SIZE.test.width < x('helper') && x('helper') - x('t-helper') < 2 * NODE_SIZE.test.width)
+  assert.ok(x('A1') + NODE_SIZE.criterion.width < x('t-helper'), 'the line its test proves sits left of that test')
+  // Two tests of the same code do not sit on each other.
+  assertNoOverlap(all, positions)
+  assert.ok(Math.abs(x('t-script') - x('t-other')) >= NODE_SIZE.test.width || y('t-script') !== y('t-other'))
+
+  // From the origin, in whole points, the same every time.
+  assert.equal(Math.min(...Object.values(positions).map((position) => position.x)), 0)
+  assert.equal(Math.min(...Object.values(positions).map((position) => position.y)), 0)
+  assert.ok(Object.values(positions).every((position) => Number.isInteger(position.x) && Number.isInteger(position.y)))
+  assert.deepEqual(layoutRequest(all, wires), positions)
+  assert.equal(kind('route'), 'context')
 })

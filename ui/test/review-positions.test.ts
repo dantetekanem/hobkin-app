@@ -7,6 +7,8 @@ import { applyMemory, createReviewMemory, memoryKey, memoryStorage } from '../sr
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const positionOf = (review: Review, storage: ReturnType<typeof memoryStorage>, id: string) =>
   applyMemory(review, createReviewMemory(storage).getState().of(review)).nodes.find((node) => node.id === id)!.position
+/** Where the canvas lays a node out when nobody moved it: in the order a request goes (graph/arrange.ts). */
+const laidOut = (review: Review, id: string) => positionOf(review, memoryStorage(), id)
 
 test("keeps a moved node's position for that review", () => {
   const storage = memoryStorage()
@@ -17,18 +19,18 @@ test("keeps a moved node's position for that review", () => {
 
   // Closing the review and opening it again is a new store over the same storage.
   assert.deepEqual(positionOf(sample, storage, moved.id), { x: 512, y: -41 }, 'the dropped place, on whole pixels')
-  assert.deepEqual(positionOf(sample, storage, still.id), still.position, 'a node nobody moved keeps the place the review gave it')
+  assert.deepEqual(positionOf(sample, storage, still.id), laidOut(sample, still.id), 'a node nobody moved keeps the place the canvas gave it')
 
   // The same change prepared again from another head is another review, with its own layout.
   const other = { ...sample, snapshot: 'f'.repeat(64) }
   assert.notEqual(memoryKey(other), memoryKey(sample))
-  assert.deepEqual(positionOf(other, storage, moved.id), moved.position)
+  assert.deepEqual(positionOf(other, storage, moved.id), laidOut(other, moved.id))
 
   // A second move replaces the first, and putting the layout back forgets every move.
   first.getState().moveNode(sample, moved.id, { x: 8, y: 8 })
   assert.deepEqual(positionOf(sample, storage, moved.id), { x: 8, y: 8 })
   first.getState().resetLayout(sample)
-  assert.deepEqual(positionOf(sample, storage, moved.id), moved.position)
+  assert.deepEqual(positionOf(sample, storage, moved.id), laidOut(sample, moved.id))
 })
 
 test('a saved position that makes no sense is ignored', () => {
@@ -42,5 +44,5 @@ test('a saved position that makes no sense is ignored', () => {
 
   // Storage written by something else, or left by an older version, never breaks a review.
   storage.setItem('hobkin-client-review', JSON.stringify({ state: { reviews: { [memoryKey(sample)]: { positions: { [node.id]: { x: 'left' } }, wires: 7 } } }, version: 1 }))
-  assert.deepEqual(positionOf(sample, storage, node.id), node.position)
+  assert.deepEqual(positionOf(sample, storage, node.id), laidOut(sample, node.id))
 })

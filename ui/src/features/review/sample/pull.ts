@@ -35,6 +35,12 @@ function lineOf(text: string, start: string): number {
   return index + 1
 }
 
+/** One line, the first that starts with these words. */
+function line(path: string, start: string): Range {
+  const at = lineOf(sideText(fileOf.get(path)!, 'added'), start)
+  return { side: 'added', startLine: at, endLine: at }
+}
+
 /** A Ruby block from the line that opens it to the `end` at its indentation, with the comment lines right above it. */
 function block(path: string, side: AnchorSide, opener: string): Range {
   const rows = splitLines(sideText(fileOf.get(path)!, side))
@@ -107,12 +113,14 @@ const both = (path: string, opener: string, baseOpener = opener) => [block(path,
 const CODE: Draft[] = [
   {
     id: 'u1', kind: 'code', path: HELPER, title: 'link_user_tags', change: 'modified', level: 'high', unit: 'u1',
+    lifecycle: { role: 'changed', hops: 3, path: 'GET /posts/:id → PostsController#show → render_body → link_user_tags' },
     ranges: both(HELPER, 'def link_user_tags'),
     summary: 'Links every @handle in a post body, dots and dashes too, after one lookup for all the users it names.',
     io: { in: 'a post body as HTML', out: 'the HTML with user tags linked' },
   },
   {
     id: 'u2', kind: 'code', path: SCRIPT, title: 'fetch_errors', change: 'added', level: 'mid', unit: 'u2',
+    lifecycle: { role: 'changed', hops: 0, path: 'No route reaches it within 4 calls: a script someone runs by hand' },
     ranges: [block(SCRIPT, 'added', 'def fetch_errors')],
     summary: 'Asks the production monitor for the errors since a time, with the token in ERRORS_TOKEN.',
     io: { in: 'a time', out: 'the errors, read from JSON' },
@@ -224,6 +232,18 @@ const CONTEXT: Draft[] = [
     ranges: [block('app/models/user.rb', 'added', 'def self.find_by_handles')],
     summary: 'Every user with one of the given handles, in one query.',
   },
+  {
+    id: 'c5', kind: 'context', path: 'config/routes.rb', title: 'GET /posts/:id', change: 'unchanged',
+    lifecycle: { role: 'caller', hops: 3 }, entry: { kind: 'route', exact: true, route: { verbs: ['GET'], path: '/posts/:id' } },
+    ranges: [line('config/routes.rb', "get '/posts/:id'")],
+    summary: 'A request for a post: the route to PostsController#show.',
+  },
+  {
+    id: 'c6', kind: 'context', path: 'config/routes.rb', title: 'GET /feed', change: 'unchanged',
+    lifecycle: { role: 'caller', hops: 3 }, entry: { kind: 'route', exact: true, route: { verbs: ['GET'], path: '/feed' } },
+    ranges: [line('config/routes.rb', "get '/feed'")],
+    summary: 'A request for the RSS feed: the route to FeedsController#index.',
+  },
 ]
 
 const DRAFTS = [...CODE, ...helperTests, ...fetchTests, ...reportTests, SUPPORT, ...FILES_ALONE, ...CONTEXT]
@@ -238,6 +258,8 @@ const EDGES: ReviewEdge[] = [
   wire('called-by', 'c1', 'c2', 'helpers.render_body(@post)'),
   wire('called-by', 'c1', 'c3', 'helpers.render_body(post)'),
   wire('calls', 'u1', 'c4', 'User.find_by_handles(handles)'),
+  wire('called-by', 'c2', 'c5', "to: 'posts#show'"),
+  wire('called-by', 'c3', 'c6', "to: 'feeds#index'"),
 ]
 
 const TITLE = 'Link user tags with dots and dashes, and add a production errors script'
