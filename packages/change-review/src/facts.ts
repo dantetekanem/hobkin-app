@@ -36,6 +36,8 @@ export interface NodeFacts {
 // ───────────────────────── Reading lines ─────────────────────────
 
 const SEVERITY: Effect[] = ['interface', 'data', 'load', 'behaviour', 'text']
+/** What takes effect when its file loads, when the search tool does not say: a constant, a statement in a class body, a require or an import, and the line that opens a class or a module. */
+const LOADS = new Set(['constant', 'statement', 'declaration', 'class', 'module'])
 
 const isBlank = (text: string) => text.trim() === ''
 
@@ -310,7 +312,7 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
 
     // load
     if (anchor.loadTime === true) note('load', 'takes effect at load')
-    else if (anchor.loadTime === undefined && (anchor.kind === 'constant' || anchor.kind === 'statement')) note('load', `${anchor.kind} changed`)
+    else if (anchor.loadTime === undefined && LOADS.has(anchor.kind)) note('load', `${anchor.kind === 'declaration' ? 'a line that runs as the file loads' : `a ${anchor.kind}`} changed`)
     if (loadPath(path, config)) note('load', `configuration or dependency file ${path}`)
 
     // behaviour

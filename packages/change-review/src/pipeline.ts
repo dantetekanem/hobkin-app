@@ -158,7 +158,7 @@ const isTypeOnly = (anchor: ScanAnchor) => ['type', 'interface', 'type_alias'].i
 /** The kind of node a scan anchor makes: tests apart (with every helper in a test file), then types and what takes effect at load, then definitions. */
 function kindOf(anchor: ScanAnchor, inTests: boolean): ReviewNode['kind'] {
   if (anchor.kind === 'test' || inTests) return 'test'
-  if (isTypeOnly(anchor) || ['constant', 'statement', 'declaration'].includes(anchor.kind) || anchor.loadTime) return 'general'
+  if (isTypeOnly(anchor) || ['constant', 'statement', 'declaration', 'class', 'module'].includes(anchor.kind) || anchor.loadTime) return 'general'
   return 'function'
 }
 

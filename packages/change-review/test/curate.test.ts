@@ -423,3 +423,30 @@ test('a title says what proves the change in plain words, and who runs it only w
   assert.equal(titled('lifecycle'), '`link_user_tags` changes behaviour, and a test goes through a request to it')
   assert.equal(titled('lifecycle-observed', 'nobody-yet'), '`link_user_tags` changes behaviour for nobody yet, and a test added with it goes through a request to it')
 })
+
+test('the lines of a new file that run as it loads are one unit, and its definitions stay their own', () => {
+  const loads = (id: string, line: number): ReviewNode => node(id, {
+    kind: 'general', symbol: id, path: 'bin/report', lines: [line, line], change: 'added', changed_lines: [line], entries: [],
+    facts: { ...node('x').facts, effect: { value: 'load', evidence: 'declaration changed' }, proof: { value: 'not-applicable', evidence: '' }, exposure: { value: 'at-load', evidence: '' }, undo: { value: 'rollback', evidence: '' } },
+    level: { floor: 'mid', rule: 9, current: 'mid', why: ['It takes effect at load, or adds to the schema.'], if: [] },
+  })
+  const run = node('run', { path: 'bin/report', lines: [6, 9], change: 'added', changed_lines: [6, 7, 8, 9], entries: [], ...withLevel('mid') })
+  const nodes = [loads('require json', 2), loads('require time', 3), loads('MAX_BYTES', 4), run]
+  const scripts = bucket('b1', { folder: 'bin', change: 'added', paths: ['bin/report'], files: 1, added: 9 })
+  const text = ['#!/usr/bin/env ruby', 'require "json"', 'require "time"', 'MAX_BYTES = 2', '', 'def run(args)', '  a = 1', '  puts a', 'end']
+  const diff: FileDiff = { path: 'bin/report', hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 9, lines: text.map((line) => `+${line}`) }] }
+  const result = curate({ graph: graph(nodes), triage: triage([scripts]), diffs: [diff], scannedFiles: ['bin/report'] })
+
+  assert.deepEqual(result.units.map((unit) => unit.nodes.join(',')).sort(), ['require json,require time,MAX_BYTES', 'run'])
+  const setup = result.units.find((unit) => unit.nodes.length === 3)!
+  assert.deepEqual([setup.level, setup.grouping, setup.represents], ['mid', 'new-file-setup', { nodes: 3 }])
+  assert.equal(setup.title, '`bin/report` is new: 3 lines run as it loads')
+  assert.equal(setup.what, 'New file. These run once, when it loads: `require json`, `require time` and `MAX_BYTES`.')
+  assert.deepEqual(setup.members?.map((member) => member.what), ['runs as the file loads', 'runs as the file loads', 'runs as the file loads'])
+  assert.match(setup.code[0]?.diff ?? '', /require "json"/)
+
+  // In a file that was already there, each such line is a change to what loads today, and stays a unit of its own.
+  const changed: FileDiff = { path: 'bin/report', hunks: [{ oldStart: 2, oldLines: 2, newStart: 2, newLines: 3, lines: ['-require "yaml"', '+require "json"', '+require "time"', ' MAX_BYTES = 2'] }] }
+  const existing = [loads('require json', 2), loads('require time', 3)].map((item) => ({ ...item, change: 'modified' as const }))
+  assert.equal(curate({ graph: graph(existing), triage: triage([{ ...scripts, change: 'modified' }]), diffs: [changed], scannedFiles: ['bin/report'] }).units.length, 2)
+})

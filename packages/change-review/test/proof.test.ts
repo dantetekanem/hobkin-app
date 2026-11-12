@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { gitRepo } from '../src/git.ts'
-import { candidateTests, detectRunbook, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
+import { candidateTests, checkParses, detectRunbook, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
 import type { FileDiff, Scan, TestRun } from '../src/types.ts'
 
 function tempDir(t: TestContext, name: string): string {
@@ -207,7 +207,7 @@ test('a revert puts back only the changes inside the definition, even when git a
   assert.deepEqual(revertNode(SHOP_HEAD, [1, 4], undefined), { why: 'the diff has no changes for this file.' })
 })
 
-test('a probe replaces the body of an added definition with a failing statement, or says why it cannot', () => {
+test('a probe replaces the body of an added definition with a failing statement, or says why it cannot', async () => {
   const probe = (text: string, path = 'src/a.ts') => probeNode(text, { id: 'n9', path, lines: [1, text.trimEnd().split('\n').length] })
   const THROW = "throw new Error('change-review probe n9')"
 
@@ -218,6 +218,12 @@ test('a probe replaces the body of an added definition with a failing statement,
   assert.deepEqual(probe('def total(items, rate = 1)\n  items.sum * rate\nend\n', 'app/cart.rb'), { text: "def total(items, rate = 1)\n  raise 'change-review probe n9'\nend\n" })
   assert.deepEqual(probe('def total = 1\n', 'app/cart.rb'), { why: 'no def with a body and an end was found in lines 1 to 1.' })
   assert.deepEqual(probe('export const C = () => <div />\n', 'ui/c.tsx'), { why: 'no probe is placed in .tsx files: nothing here can check that the result still parses.' })
+  // A script with no file ending is read in the language the scan gave it, as its `#!` line says.
+  const script = '#!/usr/bin/env ruby\ndef run(args)\n  puts args\nend\n'
+  assert.deepEqual(probeNode(script, { id: 'n1', path: 'bin/report', lines: [2, 4], language: 'ruby' }), { text: "#!/usr/bin/env ruby\ndef run(args)\n  raise 'change-review probe n1'\nend\n" })
+  assert.deepEqual(probeNode(script, { id: 'n1', path: 'bin/report', lines: [2, 4] }), { why: 'no probe is placed in extensionless files: nothing here can check that the result still parses.' })
+  assert.equal(await checkParses('bin/tool', 'function a() { return 1 }\n', 'function a() { throw new Error("x") }\n', 'javascript'), null)
+  assert.equal(await checkParses('bin/tool', 'function a() { return 1 }\n', 'function a() { return 1 }\n'), 'nothing here can check that bin/tool still parses.')
 })
 
 // ───────────────────────── The value ─────────────────────────

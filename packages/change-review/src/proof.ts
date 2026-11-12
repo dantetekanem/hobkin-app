@@ -339,6 +339,12 @@ export function revertNode(text: string, [start, end]: readonly [number, number]
   return { text: lines.join('\n') }
 }
 
+/** The file endings of the languages a script with none may be written in, by the language the scan read from its `#!` line. */
+const ENDING_OF_LANGUAGE: Record<string, string> = { ruby: '.rb', javascript: '.js', typescript: '.ts' }
+
+/** A file's ending, or the one its language goes by when its name has none. */
+const endingOf = (path: string, language?: string): string => extname(path) || ENDING_OF_LANGUAGE[language ?? ''] || ''
+
 /** Script files a probe can be checked in. JSX has no parser here. */
 const PROBED_SCRIPTS = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts'])
 const TYPESCRIPT = new Set(['.ts', '.mts', '.cts'])
@@ -348,12 +354,12 @@ const TYPESCRIPT = new Set(['.ts', '.mts', '.cts'])
  * statement that names the node. Placed only where the body is found from the code's own structure, and only in a
  * language whose result can be checked to still parse.
  */
-export function probeNode(text: string, node: { id: string; path: string; lines: readonly [number, number] }): Mutation {
+export function probeNode(text: string, node: { id: string; path: string; lines: readonly [number, number]; language?: string }): Mutation {
   const [start, end] = node.lines
   const lines = text.split('\n')
   if (start < 1 || end < start || end > lines.length) return { why: `lines ${start} to ${end} are not in the file.` }
   const marker = `change-review probe ${node.id.replace(/[^\w.-]/g, '_')}`
-  const ending = extname(node.path)
+  const ending = endingOf(node.path, node.language)
   if (ending === '.rb') return probeRuby(lines, start, end, marker)
   if (PROBED_SCRIPTS.has(ending)) return probeScript(text, lines, start, end, marker)
   return { why: `no probe is placed in ${ending || 'extensionless'} files: nothing here can check that the result still parses.` }
@@ -529,8 +535,8 @@ function probeRuby(lines: string[], start: number, end: number, marker: string):
 
 // ───────────────────────── Parse check ─────────────────────────
 
-/** Why the changed text is not safe to run, or null when it parses wherever the original does. */
-export type ParseCheck = (path: string, original: string, changed: string) => Promise<string | null>
+/** Why the changed text is not safe to run, or null when it parses wherever the original does. `language` says how to read a file whose name has no ending. */
+export type ParseCheck = (path: string, original: string, changed: string, language?: string) => Promise<string | null>
 
 const CHECK_TIMEOUT_MS = 20_000
 
@@ -587,8 +593,8 @@ async function rubyParses(texts: string[]): Promise<boolean[] | null> {
 }
 
 /** The parse check this package has: JavaScript and TypeScript through node, Ruby through `ruby -c`. */
-export const checkParses: ParseCheck = async (path, original, changed) => {
-  const ending = extname(path)
+export const checkParses: ParseCheck = async (path, original, changed, language) => {
+  const ending = endingOf(path, language)
   let verdict: boolean[] | null = null
   if (ending === '.rb') verdict = await rubyParses([original, changed])
   else if (PROBED_SCRIPTS.has(ending)) verdict = await scriptsParse(TYPESCRIPT.has(ending), [original, changed])
@@ -860,7 +866,7 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
 // ───────────────────────── The proof ─────────────────────────
 
 /** What the proof needs of a node; a `ReviewNode` is one. */
-export type ProofNode = Pick<ReviewNode, 'id' | 'symbol' | 'kind' | 'path' | 'lines' | 'change'>
+export type ProofNode = Pick<ReviewNode, 'id' | 'symbol' | 'kind' | 'path' | 'lines' | 'change'> & Pick<Partial<ReviewNode>, 'language'>
 
 export interface ProofRequest {
   /** The checkout's top folder, at `head`, clean. */
@@ -1051,7 +1057,7 @@ async function proveNode({
   if (!Buffer.from(text, 'utf8').equals(original)) return cannot(`${node.path} is not plain UTF-8 text, so it is not rewritten.`)
   const changed = mutation === 'probe' ? probeNode(text, node) : revertNode(text, node.lines, diffs.find((diff) => diff.path === node.path))
   if ('why' in changed) return cannot(changed.why)
-  const unsafe = await parses(node.path, text, changed.text)
+  const unsafe = await parses(node.path, text, changed.text, node.language)
   if (unsafe) return cannot(unsafe)
 
   /** The tests run with the file changed to `mutated`, and the file put back whatever happens. */
@@ -1100,7 +1106,7 @@ async function proveNode({
   let reach: Reach | undefined
   if (mutation === 'revert' && failed.length > 0 && !failed.some((item) => item.candidate.lifecycle) && waiting.length > 0) {
     const thrown = probeNode(text, node)
-    const cannotThrow = 'why' in thrown ? thrown.why : await parses(node.path, text, thrown.text)
+    const cannotThrow = 'why' in thrown ? thrown.why : await parses(node.path, text, thrown.text, node.language)
     if ('why' in thrown || cannotThrow) reach = { tried: [], reached: [], why: cannotThrow ?? '' }
     else {
       const through = await runWith(thrown.text, waiting, 'reach')

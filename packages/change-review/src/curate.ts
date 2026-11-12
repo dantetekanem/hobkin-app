@@ -433,6 +433,7 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
   const critical = level === 'high' && nodes.some((node) => node.critical)
   const memberWhat = (node: ReviewNode) => {
     if (node === owner && grouping === 'definition-with-helpers') return 'the definition'
+    if (grouping === 'new-file-setup') return 'runs as the file loads'
     return grouping === 'mechanical' ? 'the same change as the others' : 'a helper changed with it'
   }
   const members = nodes.map((node) => ({ node: node.id, name: short(node.symbol), what: memberWhat(node) }))
@@ -448,6 +449,14 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     title = `${nodes.length} sites change the same way: ${list} and ${nodes.length - 2} more`
     what = `The same change is repeated at ${nodes.length} sites. ${sites.length} are shown; the others differ only in the name.`
     why = [...whyOf([owner]), `Every site has the same hunk once its own name is set aside.`]
+  } else if (grouping === 'new-file-setup') {
+    // One excerpt from the first of them to the last: in a new file they sit together at the top.
+    const span: ReviewNode = { ...owner, lines: [owner.lines[0], nodes.at(-1)!.lines[1]] }
+    code = [ownCode(input, span, CODE_BUDGET, 'the lines that run as the file loads')]
+    const lines = nodes.reduce((sum, node) => sum + Math.max(node.changed_lines.length, 1), 0)
+    title = `\`${owner.path}\` is new: ${plural(lines, 'line')} run as it loads`
+    const named = nodes.slice(0, 6).map((node) => `\`${short(node.symbol)}\``)
+    what = `New file. These run once, when it loads: ${listed(named)}${nodes.length > 6 ? ` and ${nodes.length - 6} more` : ''}.`
   } else if (grouping === 'definition-with-helpers') {
     const helpers = nodes.slice(1)
     code = [shown(owner.path, 'the changed lines', own.lines.length ? own : { lines: [], cut: 0 })]
@@ -761,6 +770,23 @@ export function curate(input: CurateInput): Units {
     if (changesCode(input, file)) drafts.push(unreadDraft(bucket, file, input.runsInRequest?.(path) ?? true))
   }
   const fileLevelUnits = drafts.length
+
+  // The lines of a new file that run as it loads are told once: a require and a constant of a file that did not exist
+  // change nothing that loads today, and one unit for each would bury the definitions beside them.
+  const isNewFile = (path: string) => {
+    const file = input.diffs.find((item) => item.path === path)
+    return Boolean(file?.hunks.length) && file!.hunks.every((hunk) => hunk.oldLines === 0 && hunk.lines.every((line) => line[0] !== '-'))
+  }
+  const setup = new Map<string, ReviewNode[]>()
+  for (const node of code.filter((item) => !claimed.has(item.id) && item.kind === 'general' && item.change === 'added')) {
+    if (standsAlone(node, bucketOfNode(input.triage, node)) || !isNewFile(node.path)) continue
+    setup.set(node.path, [...(setup.get(node.path) ?? []), node])
+  }
+  for (const list of setup.values()) {
+    if (list.length < 2) continue
+    drafts.push(nodeDraft(work, list.sort(byPosition), 'new-file-setup', context))
+    for (const node of list) claimed.add(node.id)
+  }
 
   // Helpers fold into their owner; then identical sites fold into a mechanical unit; the rest stand alone.
   const open = code.filter((node) => !claimed.has(node.id))

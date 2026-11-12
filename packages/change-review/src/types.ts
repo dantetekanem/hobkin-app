@@ -512,7 +512,8 @@ export interface Unit {
   nodes: string[]
   buckets?: string[]
   represents?: { nodes?: number; files?: number; lines?: number }
-  grouping: 'single' | 'definition-with-helpers' | 'mechanical' | 'bucket'
+  /** `new-file-setup`: the lines of a new file that run as it loads (requires, constants, a class line), told once. */
+  grouping: 'single' | 'definition-with-helpers' | 'mechanical' | 'bucket' | 'new-file-setup'
   /** Position along the path the story walks: entry first. */
   story_order: number
   /** Its place on the path, in words. */

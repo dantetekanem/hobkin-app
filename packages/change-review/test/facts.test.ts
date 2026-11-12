@@ -117,6 +117,11 @@ describe('effect', () => {
     assert.equal(cfg.facts.effect.value, 'load')
     const dep = deriveFacts(input('"left-pad": "2.0.0"', null, { kind: 'statement', path: 'package.json', changedLines: [1] }))
     assert.equal(dep.facts.exposure.value, 'at-load')
+    // A require, an import, and a class or module line run once, as the file loads.
+    for (const [kind, line] of [['declaration', 'require "json"'], ['class', 'class Error < StandardError; end'], ['module', 'module Reports']] as const) {
+      const loaded = deriveFacts(input(line, null, { kind, changedLines: [1] }))
+      assert.deepEqual([kind, loaded.facts.effect.value, loaded.facts.exposure.value], [kind, 'load', 'at-load'])
+    }
     const loadTime = deriveFacts(input('before_action :x', null, { kind: 'statement', loadTime: true, changedLines: [1] }))
     assert.equal(loadTime.facts.effect.value, 'load')
   })
