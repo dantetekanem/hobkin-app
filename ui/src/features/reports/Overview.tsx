@@ -12,7 +12,6 @@ import { useActionCount } from '../actions/store.ts'
 import { useRoutines } from '../routines/store.ts'
 import { needsAttention, outcomeWeek, sinceLastLook, type OutcomeDay, type SourceAttention } from './briefing.ts'
 import { summarize, type Summary } from './inbox.ts'
-import { HomeIdeas } from './HomeIdeas.tsx'
 import type { Report, Tone } from './report.ts'
 import { useStill } from './still.ts'
 import { clockTime, dayKey, dayLabel } from './time.ts'
@@ -166,7 +165,6 @@ export function Overview({
   now,
   onOpen,
   quiet = false,
-  standalone = false,
 }: {
   list: readonly Report[]
   read: ReadonlySet<string>
@@ -174,8 +172,6 @@ export function Overview({
   onOpen: (id: string, from: HTMLElement) => void
   /** It slides back in beside a report that closed, already in place, so nothing in it arrives a second time. */
   quiet?: boolean
-  /** Home owns the outer scroller; Reports keeps its two-pane positioning. */
-  standalone?: boolean
 }) {
   const still = useStill()
   const attention = useHost((state) => state.snapshot.reportAttention)
@@ -197,14 +193,13 @@ export function Overview({
   return (
     // It drives its own arrival with the screen. Sliding back in beside a report that closed, it is already in place.
     <motion.div
-      className={standalone ? 'pointer-events-auto' : 'pointer-events-auto absolute inset-0 @max-[800px]:hidden'}
+      className="pointer-events-auto absolute inset-0 @max-[800px]:hidden"
       variants={still ? STILL_STAGE : STAGE}
       initial={quiet ? false : 'enter'}
       animate="center"
     >
-      <Hero className={standalone ? undefined : 'h-full'}>
-        <section aria-label="Briefing" className={cn('@container flex flex-col gap-6 rounded-[28px] bg-background p-7 pt-6', !standalone && 'scroll-quiet h-full overflow-y-auto')}>
-          <HomeIdeas list={list} read={read} now={now} onOpen={onOpen} />
+      <Hero className="h-full">
+        <section aria-label="Briefing" className="@container scroll-quiet flex h-full flex-col gap-6 overflow-y-auto rounded-[28px] bg-background p-7 pt-6">
           <header className="flex items-start gap-4">
             <div className="min-w-0 flex-1">
               <h2 className="eyebrow">Briefing</h2>
