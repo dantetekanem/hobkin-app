@@ -27,6 +27,19 @@ async function prepared(vicinity?: Vicinity): Promise<Review> {
   })
 }
 
+test('a story of units tells the change alone: tests and context in no step still make a valid review', async () => {
+  const review = await prepared({
+    links: [{ near: { changed: { path: 'app/models/user.rb', line: 3 } }, other: { path: 'app/controllers/users_controller.rb', symbol: 'UsersController#show', startLine: 2, endLine: 4 }, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: true, entry: { kind: 'controller', exact: true } }],
+  })
+  const fullName = review.nodes.find((node) => node.title === 'full_name')!
+  assert.ok(review.nodes.some((node) => node.kind === 'context'), 'the controller that calls it')
+  const story: Review['story'] = [
+    { id: 's1', kind: 'outcome', title: 'Say Mr or Ms first', text: 'A full name starts with a title.', focus: [], criteria: [] },
+    { id: 's2', kind: 'walk', title: 'The full name', text: 'It puts the title first.', focus: [fullName.id], criteria: [], unit: 'u1' },
+  ]
+  assert.deepEqual(validateReview({ ...review, story }), [])
+})
+
 test('changed code says how far its entry is and the way a request takes; only context is a caller or a callee', async () => {
   const review = await prepared()
   const fullName = review.nodes.find((node) => node.title === 'full_name')!

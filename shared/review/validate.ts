@@ -184,7 +184,7 @@ export function validateReview(value: unknown): string[] {
   }
 
   const criteria = new Set([...nodes.values()].filter((node) => node.kind === 'criterion').map((node) => node.id))
-  const focused = new Set<string>()
+  // A step focuses the nodes it tells. A story of units tells the change, so tests, context and routes may be in none.
   const stepIds = new Set<string>()
   const steps = review.story
   if (steps.length === 0) problems.push('The story has no steps.')
@@ -201,10 +201,7 @@ export function validateReview(value: unknown): string[] {
     if (!['outcome', 'walk', 'closing'].includes(step.kind)) problems.push(`${name} has an unknown kind.`)
     if (!isCleanProse(step.title, PROSE_LIMIT.title) || !step.title) problems.push(`${name}: the title is empty, has control characters or is over ${PROSE_LIMIT.title} characters.`)
     if (!isCleanProse(step.text, step.kind === 'walk' ? PROSE_LIMIT.stepText : HOST_TEXT_LIMIT)) problems.push(`${name}: the text has control characters or is too long.`)
-    for (const id of step.focus) {
-      if (!nodes.has(id)) problems.push(`${name} focuses ${String(id)}, which is not a node.`)
-      focused.add(id)
-    }
+    for (const id of step.focus) if (!nodes.has(id)) problems.push(`${name} focuses ${String(id)}, which is not a node.`)
     if (new Set(step.focus).size !== step.focus.length) problems.push(`${name} focuses a node twice.`)
     if (step.kind === 'walk' && (step.focus.length < 1 || step.focus.length > MAX_FOCUS)) problems.push(`${name} must focus one to ${MAX_FOCUS} nodes.`)
     if (step.kind !== 'walk' && step.focus.length > 0) problems.push(`${name} frames the whole graph and focuses no node.`)
@@ -217,7 +214,6 @@ export function validateReview(value: unknown): string[] {
       else if (!previous || !connectingEdge([edge], previous.focus ?? [], step.focus)) problems.push(`${name} rides a wire that does not join it to the step before.`)
     }
   })
-  for (const node of nodes.values()) if (!focused.has(node.id)) problems.push(`Node ${node.id} (${node.title}) is not the focus of any step.`)
 
   const closes = steps.at(-1)?.kind === 'closing'
   const hasClosing = Boolean(review.spec?.outOfScope.length || review.spec?.openQuestions.length || review.change.risk)

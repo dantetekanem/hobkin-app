@@ -285,7 +285,6 @@ test('the validator names what is wrong with a review', async () => {
 
   assert.match(broken((copy) => (copy.edges[0]!.to = 'nowhere')).join('\n'), /wire .* nowhere/i)
   assert.match(broken((copy) => (copy.story[1]!.focus = ['nowhere'])).join('\n'), /step .* nowhere/i)
-  assert.match(broken((copy) => copy.story.splice(1, 1)).join('\n'), /not the focus of any step/)
   assert.match(broken((copy) => (copy.story[0]!.kind = 'walk')).join('\n'), /first step/i)
   assert.match(broken((copy) => (copy.nodes[1]!.position = { ...copy.nodes[0]!.position })).join('\n'), /overlap/)
   assert.match(broken((copy) => (copy.nodes[0]!.summary = 'bad\u0000text')).join('\n'), /summary/)
