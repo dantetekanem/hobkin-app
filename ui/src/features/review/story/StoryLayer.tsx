@@ -1,18 +1,21 @@
+import { ViewportPortal } from '@xyflow/react'
 import { AnimatePresence, motion, useTransform } from 'motion/react'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { boundsOf, nodeRect, type Point } from '#shared/review/layout.ts'
+import { boundsOf, NODE_SIZE, nodeRect, type Point, type Rect } from '#shared/review/layout.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { wireCurve } from '../graph/wire-path.ts'
 import { STEPS_STRIP, stepsPanelWidth } from '../panel/StepsPanel.tsx'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
-import { composeShot, FRAME, pointToScreen, viewportFor, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
+import { composeShot, FRAME, frameFocus, pointToScreen, viewportFor, type Camera, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
+import { ExplanationBody, HungText, type HungPlace } from './Explanation.tsx'
 import { CardBody, type CardContent } from './StepCard.tsx'
 import { offPath } from './story.ts'
 import { wireEnds } from './travel.ts'
 
-/** How wide the text beside the focus is, for a canvas of a given width. */
+/** How wide the text beside the whole graph is, for a canvas of a given width. */
 const cardWidth = (canvas: number) => Math.round(Math.min(380, Math.max(288, canvas * 0.27)))
 
+/** The text of the opening or the closing beside the whole graph, in canvas pixels. */
 interface Placement {
   key: string
   card: PlacedCard
@@ -21,7 +24,7 @@ interface Placement {
   target: Viewport
 }
 
-/** Where a card comes in from: out of the focus it is about. */
+/** Where a card comes in from: out of the graph it is about. */
 const ARRIVES: Record<CardSide, string> = {
   right: 'translateX(-44px) translateY(0px) scale(0.92)',
   left: 'translateX(44px) translateY(0px) scale(0.92)',
@@ -31,8 +34,10 @@ const ARRIVES: Record<CardSide, string> = {
 const SETTLED = 'translateX(0px) translateY(0px) scale(1)'
 
 /**
- * Directs the story on screen: frames the focus inside the uncovered area whenever the step, the canvas
- * or the code panel changes, and places the step's text beside the focus.
+ * Directs the story on screen: frames the focus inside the uncovered area whenever the step, the canvas or the code
+ * panel changes, and tells the step in its node (the user, 2026-11-12). The camera frames the focus at a size its cards
+ * read at, never pulled back for what it is wired to, and hangs the step's text right under its node. The opening and
+ * the closing have no focus: they frame the whole graph and are told beside it.
  *
  * Each cause moves the camera its own way. A step travels, along the connecting wire when there is one.
  * The code panel opening carries the graph up in the same movement. A change of canvas size retargets,
@@ -49,10 +54,9 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
   const move = useSession((session) => session.move)
   const nodeOf = useSession((session) => session.nodeOf)
   const panelOpen = useSession((session) => session.panelOpen)
+  const codeOpen = useSession((session) => session.code != null)
   // The steps panel covers the left of the canvas by as much of it as is on screen.
   const side = panelOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP
-  // With the panel open the step is told there in full, and the card beside the focus keeps only its name.
-  const brief = panelOpen
 
   const content = useMemo<CardContent | null>(() => {
     if (story.detour) {
@@ -65,9 +69,14 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
     return step ? { kind: 'step', key: `step:${step.id}`, step, index: story.step, total: view.story.length } : null
   }, [nodeOf, story.detour, story.group, story.step, story.whole, view.story])
 
-  const width = cardWidth(canvas.width)
+  // With a focus the step is told in its node, at the node's width. Without one it is told beside the whole graph.
+  const inNode = content != null && focus.length > 0
+  const width = inNode ? NODE_SIZE[nodeOf.get(focus[0]!)?.kind ?? 'code'].width : cardWidth(canvas.width)
+  // With the code panel open, it explains the unit beside its code, and the node keeps only the step's name.
+  const brief = inNode && codeOpen
   const measure = useRef<HTMLDivElement>(null)
-  const last = useRef<{ move: number; panel: number; side: number; canvas: string; subject: string; card: number } | null>(null)
+  const last = useRef<{ move: number; panel: number; side: number; canvas: string; subject: string; text: number } | null>(null)
+  const [hung, setHung] = useState<HungPlace | null>(null)
   const [placement, setPlacement] = useState<Placement | null>(null)
   const canOpenCode = focus.some((id) => (nodeOf.get(id)?.anchors.length ?? 0) > 0)
   const actions = useMemo(
@@ -81,56 +90,86 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
 
   useLayoutEffect(() => {
     if (canvas.width < 2 || canvas.height < 2) return
-    const rects = view.nodes.map((node) => ({ id: node.id, rect: nodeRect(node.kind, node.position) }))
-    const focused = new Set(focus)
-    // With nothing in focus the whole graph is the subject.
-    const subject = focused.size > 0 ? rects.filter((entry) => focused.has(entry.id)) : rects
-    const others = focused.size > 0 ? rects.filter((entry) => !focused.has(entry.id)).map((entry) => entry.rect) : []
+    const rectOf = new Map<string, Rect>(view.nodes.map((node) => [node.id, nodeRect(node.kind, node.position)]))
+    const told = focus.filter((id) => rectOf.has(id))
     const area = rig.area(panelHeight, side)
     const height = content ? (measure.current?.offsetHeight ?? 0) : 0
-    // A story that opens or closes on the whole graph frames it closer. G, which asks for all of it, fits it whole.
-    const closer = focused.size === 0 && move.kind !== 'whole' ? FRAME.closer : 1
-    const shot = composeShot({ focus: subject.map((entry) => entry.rect), area, card: content && height > 0 ? { width, height } : null, others, closer })
+
+    let camera: Camera
+    let nextHung: HungPlace | null = null
+    let nextCard: Placement | null = null
+    let subject: Rect[]
+    if (told.length > 0) {
+      subject = told.map((id) => rectOf.get(id)!)
+      const shot = frameFocus({ focus: subject, area, text: content && height > 0 ? height : null })
+      camera = shot.camera
+      const node = shot.text ? told[shot.text.anchor] : undefined
+      if (shot.text && content && node) nextHung = { key: content.key, text: shot.text, wants: height, node, at: { x: rectOf.get(node)!.x, y: rectOf.get(node)!.y } }
+    } else {
+      // With nothing in focus the whole graph is the subject. A story that opens or closes on it frames it closer, and
+      // G, which asks for all of it, fits it whole.
+      subject = [...rectOf.values()]
+      const shot = composeShot({ focus: subject, area, card: content && height > 0 ? { width, height } : null, others: [], closer: move.kind !== 'whole' ? FRAME.closer : 1 })
+      camera = shot.camera
+      const box = boundsOf(subject)
+      if (shot.card && content) nextCard = { key: content.key, card: shot.card, anchor: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, target: viewportFor(shot.camera, area) }
+    }
 
     const now = {
       move: move.key,
       panel: panelHeight,
       side,
       canvas: `${canvas.width}x${canvas.height}`,
-      subject: subject.map(({ rect }) => `${rect.x},${rect.y}`).join(' '),
-      card: height,
+      subject: subject.map((rect) => `${rect.x},${rect.y}`).join(' '),
+      text: height,
     }
     const before = last.current
     // Nothing that decides the framing changed: a node elsewhere was moved, or the same step drew again.
     // The camera stays where the reviewer has it.
-    if (before && before.move === now.move && before.panel === now.panel && before.side === now.side && before.canvas === now.canvas && before.subject === now.subject && before.card === now.card) return
+    if (before && before.move === now.move && before.panel === now.panel && before.side === now.side && before.canvas === now.canvas && before.subject === now.subject && before.text === now.text) return
     last.current = now
-    if (!before || reduced) rig.goTo(shot.camera, { cut: true })
+    if (!before || reduced) rig.goTo(camera, { cut: true })
     else if (now.move !== before.move) {
       const edge = move.travel ? view.edges.find((entry) => entry.id === move.travel!.wire) : undefined
       const ends = edge ? wireEnds(edge, view.nodes) : null
-      rig.goTo(shot.camera, { ride: ends && move.travel ? { curve: wireCurve(ends.source, ends.target), reversed: move.travel.reversed } : null })
+      rig.goTo(camera, { ride: ends && move.travel ? { curve: wireCurve(ends.source, ends.target), reversed: move.travel.reversed } : null })
     }
     // The panel rising and the canvas growing are the frame's own springs. The camera rides along at their pace.
-    else rig.goTo(shot.camera, { transition: now.panel !== before.panel ? spring.sheet : spring.screen })
+    else rig.goTo(camera, { transition: now.panel !== before.panel ? spring.sheet : spring.screen })
 
-    const box = boundsOf(subject.map((entry) => entry.rect))
-    setPlacement(shot.card && content ? { key: content.key, card: shot.card, anchor: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, target: viewportFor(shot.camera, area) } : null)
+    setHung(nextHung)
+    setPlacement(nextCard)
     // `view.nodes` moves when the reviewer drops a node somewhere new, which re-frames too.
   }, [brief, canvas.width, canvas.height, content, focus, move, panelHeight, reduced, rig, side, view.edges, view.nodes, width])
 
-  const shown = placement && content && placement.key === content.key ? placement : null
+  const shownHung = hung && content && hung.key === content.key ? hung : null
+  const shownCard = placement && content?.kind === 'step' && placement.key === content.key ? { placement, content } : null
 
   return (
     <>
       {/* Measured before it is placed, so the camera knows how much room the text takes. */}
       <div ref={measure} aria-hidden="true" inert className="pointer-events-none invisible absolute top-0 left-0" style={{ width }}>
-        {content ? <CardBody content={content} review={review} actions={actions} canOpenCode={canOpenCode} brief={brief} /> : null}
+        {content ? (
+          inNode ? (
+            <ExplanationBody content={content} review={review} actions={actions} canOpenCode={canOpenCode} brief={brief} />
+          ) : content.kind === 'step' ? (
+            <CardBody content={content} review={review} />
+          ) : null
+        ) : null}
       </div>
+      <ViewportPortal>
+        <AnimatePresence>
+          {shownHung && content ? (
+            <HungText key={shownHung.key} place={shownHung} label={content.kind === 'step' ? 'This step' : 'This node'}>
+              <ExplanationBody content={content} review={review} actions={actions} canOpenCode={canOpenCode} brief={brief} />
+            </HungText>
+          ) : null}
+        </AnimatePresence>
+      </ViewportPortal>
       <AnimatePresence>
-        {shown && content ? (
-          <Card key={shown.key} placement={shown}>
-            <CardBody content={content} review={review} actions={actions} canOpenCode={canOpenCode} brief={brief} />
+        {shownCard ? (
+          <Card key={shownCard.placement.key} placement={shownCard.placement}>
+            <CardBody content={shownCard.content} review={review} />
           </Card>
         ) : null}
       </AnimatePresence>
@@ -140,8 +179,8 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
 }
 
 /**
- * The text beside the focus. It is placed in canvas pixels and tied to a point of the graph, so it travels
- * in with the node it is about and stays beside it when the reviewer pans.
+ * The text of the opening or the closing beside the whole graph. It is placed in canvas pixels and tied to a point of
+ * the graph, so it stays beside it when the reviewer pans.
  */
 function Card({ placement, children }: { placement: Placement; children: React.ReactNode }) {
   const rig = useRig()
@@ -158,7 +197,7 @@ function Card({ placement, children }: { placement: Placement; children: React.R
         aria-label="This step"
         className="rv-float rv-scroll pointer-events-auto overflow-y-auto rounded-[20px]"
         style={{ maxHeight: card.height }}
-        // It rises out of the focus once the camera is on its way, and leaves faster than it came.
+        // It rises out of the graph once the camera is on its way, and leaves faster than it came.
         initial={{ opacity: 0, transform: ARRIVES[card.side] }}
         animate={{ opacity: 1, transform: SETTLED, transition: { transform: { ...spring.rise, delay: 0.14 }, opacity: { ...tween.enter, delay: 0.14 } } }}
         exit={{ opacity: 0, transform: 'translateX(0px) translateY(0px) scale(0.96)', transition: tween.exit }}
@@ -169,10 +208,10 @@ function Card({ placement, children }: { placement: Placement; children: React.R
   )
 }
 
-/** Off the path with no card on screen, the way back is still one press away. */
+/** Off the path with no text on screen, the way back is still one press away. */
 function BackPill({ show, step, onBack }: { show: boolean; step: number; onBack: () => void }) {
   const rig = useRig()
-  // Above the rail, in the middle of what the steps panel leaves uncovered.
+  // Above the step pager, in the middle of what the steps panel leaves uncovered.
   const lift = useTransform(() => `translateX(calc(-50% + ${rig.side.get() / 2}px)) translateY(${-rig.panel.get()}px)`)
   return (
     <AnimatePresence>

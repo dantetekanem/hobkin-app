@@ -1,5 +1,6 @@
 import { Background, BackgroundVariant, ReactFlow, ViewportPortal, useNodesState, useStore as useFlowStore, type Edge, type Node, type NodeMouseHandler, type OnMove } from '@xyflow/react'
 import '@xyflow/react/dist/base.css'
+import './graph.css'
 import { motion, useTransform } from 'motion/react'
 import { useEffect, useMemo, useRef } from 'react'
 import { NODE_SIZE } from '#shared/review/layout.ts'

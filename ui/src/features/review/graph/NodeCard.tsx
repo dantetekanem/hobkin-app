@@ -5,19 +5,24 @@ import { memo, useEffect, useRef } from 'react'
 import { spring, tween } from '@/lib/motion.ts'
 import { useEntrance } from './entrance.tsx'
 import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
+import { hoverShown, isUnchanged } from './levels.ts'
 import { useReduced, useSession } from '../state/context.tsx'
 
 /** Long titles take two lines of the header, which leaves one line for the summary. */
 const TWO_LINE_TITLE = 34
+/** How many of the folded nodes a count names when the pointer is over it. */
+const NAMED = 6
 
 /**
  * One node of the graph: a rounded card with a header tinted by kind, where it lives, one line on what
- * changed, and small facts. Everything it shows comes from the review file.
+ * changed, and small facts. Everything it shows comes from the review file. Code the change did not touch is marked
+ * Unchanged and steps back, and a focus node counts the wires it folded away beside the pin they would leave by.
  */
 function NodeCardComponent({ id }: NodeProps) {
   const node = useSession((session) => session.nodeOf.get(id))
   const level = useSession((session) => session.levels.nodes[id] ?? 'rest')
-  const hover = useSession((session) => session.hover.nodes[id] ?? 'none')
+  const folded = useSession((session) => session.levels.folded?.[id])
+  const hover = useSession((session) => hoverShown(session.hover.nodes[id] ?? 'none', session.hovered, session.focus))
   const seen = useSession((session) => session.revealed.has(id))
   const pins = useSession((session) => session.pins[id])
   const notes = useSession((session) => session.counts.nodes[id] ?? 0)
@@ -38,6 +43,9 @@ function NodeCardComponent({ id }: NodeProps) {
   if (!node) return null
   const { icon: Icon, label } = KIND[node.kind]
   const status = statusOf(node)
+  const unchanged = isUnchanged(node)
+  // The mark on the top edge says Unchanged, so the status says it again only for a test, whose status is its result.
+  const quiet = unchanged && node.kind !== 'test'
   const criterion = node.kind === 'criterion'
   const longTitle = node.title.length > TWO_LINE_TITLE
   const io = !criterion && node.io && (node.io.in || node.io.out) ? node.io : null
@@ -63,6 +71,7 @@ function NodeCardComponent({ id }: NodeProps) {
           data-seen={seen}
           data-status={node.status}
           data-change={node.change}
+          data-unchanged={unchanged}
           data-alert={needsALook(node)}
           data-node={id}
         >
@@ -103,14 +112,27 @@ function NodeCardComponent({ id }: NodeProps) {
                 ) : criterion ? (
                   <span className="truncate text-muted-foreground">{node.proof?.startsWith('check:') ? 'By a check' : 'By a test'}</span>
                 ) : null}
-                <span className="rv-status" data-tone={status.tone}>
-                  <status.icon aria-hidden="true" />
-                  {status.text}
-                </span>
+                {quiet ? null : (
+                  <span className="rv-status" data-tone={status.tone}>
+                    <status.icon aria-hidden="true" />
+                    {status.text}
+                  </span>
+                )}
               </div>
             </div>
           </div>
-          {node.level ? <LevelBadge level={node.level} /> : null}
+          {unchanged ? (
+            <span className="rv-tags">
+              {node.level ? <LevelBadge level={node.level} /> : null}
+              <span className="rv-unchanged" title={node.kind === 'test' ? 'This test did not change. A Proof line names it.' : 'Not part of this change: code around it, on the way a request goes through.'}>
+                Unchanged
+              </span>
+            </span>
+          ) : node.level ? (
+            <LevelBadge level={node.level} />
+          ) : null}
+          {folded?.in.length ? <More side="left" ids={folded.in} /> : null}
+          {folded?.out.length ? <More side="right" ids={folded.out} /> : null}
           {notes > 0 ? (
             <span className="rv-notes" aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}>
               <MessageSquare aria-hidden="true" />
@@ -123,6 +145,19 @@ function NodeCardComponent({ id }: NodeProps) {
       </motion.div>
       <Handle type="source" position={Position.Right} isConnectable={false} />
     </>
+  )
+}
+
+/** The count of wires a focus node folded away on one side, naming the first few nodes they lead to. */
+function More({ side, ids }: { side: 'left' | 'right'; ids: readonly string[] }) {
+  const nodeOf = useSession((session) => session.nodeOf)
+  const names = ids.slice(0, NAMED).map((other) => nodeOf.get(other)?.title ?? other)
+  const rest = ids.length - names.length
+  const said = `${ids.length} more ${ids.length === 1 ? 'connection' : 'connections'} not drawn for this step: ${names.join(', ')}${rest > 0 ? `, and ${rest} more` : ''}`
+  return (
+    <span className="rv-more" data-side={side} title={said} aria-label={said}>
+      +{ids.length} more
+    </span>
   )
 }
 

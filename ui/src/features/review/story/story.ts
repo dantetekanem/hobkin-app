@@ -3,6 +3,7 @@
  * stepped off the path. Pure functions over a small state, so the walk can be tested without a screen.
  */
 import type { Review, ReviewEdge } from '#shared/review/types.ts'
+import { focusLevels } from '../graph/levels.ts'
 import type { StoredProgress } from '../state/memory.ts'
 
 export interface StoryState {
@@ -51,16 +52,19 @@ export function offPath(review: Story, state: StoryState): boolean {
   return state.detour != null || state.group != null || (state.whole && (review.story[state.step]?.focus.length ?? 0) > 0)
 }
 
-/** Marks what a focus puts on screen as drawn in, and says which of it is new. */
+/**
+ * Marks what a focus puts on screen as drawn in, and says which of it is new: the focus, and the wires and neighbors it
+ * draws. What it folds away is not on screen with it, so it does not draw in.
+ */
 function reveal(review: Story, revealed: readonly string[], focus: readonly string[]): { revealed: string[]; fresh: Fresh } {
   if (focus.length === 0) return { revealed: [...revealed], fresh: NOTHING }
   const before = new Set(revealed)
   const focused = new Set(focus)
-  const touching = review.edges.filter((edge) => focused.has(edge.from) || focused.has(edge.to))
-  const near = new Set(touching.flatMap((edge) => [edge.from, edge.to]))
+  const levels = focusLevels(review, focus)
+  const drawn = review.edges.filter((edge) => levels.wires[edge.id] === 'bright' || levels.wires[edge.id] === 'near')
 
-  const nodes = [...focus.filter((id) => !before.has(id)), ...review.nodes.map((node) => node.id).filter((id) => near.has(id) && !focused.has(id) && !before.has(id))]
-  const wires = touching.filter((edge) => !before.has(edge.id)).map((edge) => ({ id: edge.id, from: growsFrom(edge, before, focused) }))
+  const nodes = [...focus.filter((id) => !before.has(id)), ...review.nodes.map((node) => node.id).filter((id) => levels.nodes[id] === 'neighbor' && !before.has(id))]
+  const wires = drawn.filter((edge) => !before.has(edge.id)).map((edge) => ({ id: edge.id, from: growsFrom(edge, before, focused) }))
   return { revealed: [...revealed, ...nodes, ...wires.map((wire) => wire.id)], fresh: { nodes, wires } }
 }
 

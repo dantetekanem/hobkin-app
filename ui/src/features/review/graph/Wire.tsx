@@ -7,6 +7,7 @@ import { ease, tween } from '@/lib/motion.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { ENTRANCE } from './entrance-plan.ts'
 import { useWireEntrance } from './entrance.tsx'
+import { hoverShown, isUnchanged } from './levels.ts'
 import { wireCurve } from './wire-path.ts'
 
 /** How long a wire takes to draw in when the story reaches it. */
@@ -14,16 +15,19 @@ const DRAW = { duration: 0.42, ease: ease.out } as const
 
 /**
  * One wire. It leaves the right pin of its source and arrives at the left pin of its target.
- * At rest it is thin and tinted by its kind. Active, it is drawn over in the active color and carries a pulse
- * from source to target. A wire the model proposed stays dashed until the reviewer confirms it.
+ * At rest it is thin and tinted by its kind. On the step's path it is drawn over in the active color, carries a pulse
+ * from source to target and says what it is. A wire the model proposed stays dashed until the reviewer confirms it.
+ * A wire to code the change did not touch is quieter, and one the focus folded away is not drawn until the pointer is
+ * on its far end.
  */
 function WireComponent({ id, source, target }: EdgeProps) {
   const store = useSessionStore()
   const edge = useSession((session) => session.edgeOf.get(id))
   const fromKind = useSession((session) => session.nodeOf.get(source)?.kind)
   const toKind = useSession((session) => session.nodeOf.get(target)?.kind)
+  const unchanged = useSession((session) => isUnchanged(session.nodeOf.get(source)) || isUnchanged(session.nodeOf.get(target)))
   const level = useSession((session) => session.levels.wires[id] ?? 'rest')
-  const hover = useSession((session) => session.hover.wires[id] ?? 'none')
+  const hover = useSession((session) => hoverShown(session.hover.wires[id] ?? 'none', session.hovered, session.focus))
   const seen = useSession((session) => session.revealed.has(id))
   const open = useSession((session) => session.wire === id)
   const notes = useSession((session) => session.counts.wires[id] ?? 0)
@@ -66,7 +70,7 @@ function WireComponent({ id, source, target }: EdgeProps) {
 
   return (
     <>
-      <g className="rv-wire" data-wire={edge.kind} data-proposed={edge.proposed} data-level={level} data-hover={hover} data-seen={seen} data-active={active}>
+      <g className="rv-wire" data-wire={edge.kind} data-proposed={edge.proposed} data-unchanged={unchanged} data-level={level} data-hover={hover} data-seen={seen} data-active={active}>
         <path className="rv-wire-hit" d={curve.d} />
         {/* The entrance: the wire inks in after the nodes it joins, then settles into its resting line. */}
         <motion.g initial={entrance ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={entrance ? { ...tween.fade, delay: entrance.delay + ENTRANCE.draw * 0.7 } : { duration: 0 }}>
@@ -101,7 +105,7 @@ function WireComponent({ id, source, target }: EdgeProps) {
           </circle>
         ) : null}
       </g>
-      {level === 'bright' || open || notes > 0 ? (
+      {level === 'bright' || open || (notes > 0 && level !== 'folded') ? (
         <EdgeLabelRenderer>
           <button
             type="button"

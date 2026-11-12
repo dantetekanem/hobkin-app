@@ -1,6 +1,7 @@
 /**
  * Where the camera looks. Pure framing math: given what to show and the part of the canvas that is not
- * covered, it answers with a camera and with a place for the step's text beside the focus.
+ * covered, it answers with a camera and with a place for the step's text: hung under its node when the step
+ * has a focus, and beside the whole graph for the opening and the closing.
  */
 import { boundsOf, type Point, type Rect } from '#shared/review/layout.ts'
 
@@ -27,7 +28,7 @@ export interface Viewport {
 }
 
 /**
- * Pixels of the canvas that something lies over: the frame's menu at the top, the rail and the code panel at
+ * Pixels of the canvas that something lies over: the frame's menu at the top, the step pager and the code panel at
  * the bottom, and the steps panel on the left, by as much of it as is on screen.
  */
 export interface Cover {
@@ -51,10 +52,19 @@ export interface Shot {
 export const FRAME = {
   /** Room kept between the focus, or its text, and the edge of the uncovered area. */
   margin: 20,
-  /** Room between the focus and its text. */
+  /** Room between the whole graph and the text of the opening or the closing beside it. */
   gap: 20,
   /** The focus is shown at most a little over its real size, close enough to read (the user's 1.2, 2026-11-12). */
   maxZoom: 1.2,
+  /**
+   * The least a focus is framed at, so its cards read: two nodes side by side fit at it with the steps panel open. A focus
+   * spread wider is not pulled back for: the node its step is told on stays in the frame, with the nearest of the rest.
+   */
+  reading: 0.9,
+  /** Room between a node and the step's text hung under it, in points of the graph. */
+  hang: 14,
+  /** The least of that text worth showing. A short room gives up the rest of it, and the text scrolls. */
+  leastText: 110,
   /** The least of a card that is worth showing. A shorter area hides the text. */
   minCardHeight: 120,
   /**
@@ -91,6 +101,95 @@ export function pointToScreen(point: Point, viewport: Viewport): Point {
 
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), Math.max(low, high))
 const overlapArea = (a: Rect, b: Rect) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+const apart = (a: Rect, b: Rect) => Math.hypot(a.x + a.width / 2 - (b.x + b.width / 2), a.y + a.height / 2 - (b.y + b.height / 2))
+/** The margin kept at the edges of the uncovered area, less in a small one. */
+const marginOf = (area: Rect) => clamp(Math.min(area.width, area.height) * 0.08, 4, FRAME.margin)
+
+/** The step's text, hung under one of the focus nodes, in points of the graph. */
+export interface Hung extends Rect {
+  /** The focus node it hangs from, by its place in the focus. */
+  anchor: number
+}
+
+/**
+ * Where the step's text hangs: right under the first focus node with nothing else of the focus under it, as wide as that
+ * node, so the text reads as the node's own. The node lowest down always has that room, so the text is never on a focus node.
+ */
+export function hangText(focus: readonly Rect[], height: number): Hung | null {
+  if (focus.length === 0 || !(height > 0)) return null
+  const under = (anchor: number): Hung => {
+    const node = focus[anchor]!
+    return { anchor, x: node.x, y: node.y + node.height + FRAME.hang, width: node.width, height }
+  }
+  for (let anchor = 0; anchor < focus.length; anchor += 1) {
+    const place = under(anchor)
+    if (focus.every((node) => !overlaps(place, node))) return place
+  }
+  return under(focus.reduce((lowest, node, index) => (node.y + node.height > focus[lowest]!.y + focus[lowest]!.height ? index : lowest), 0))
+}
+
+export interface FocusShot {
+  camera: Camera
+  /** The step's text where it hangs, with the height it is given: less than it asked for in a short room, where it scrolls. */
+  text: Hung | null
+  /** Every focus node is in the frame. Not so for a focus spread too far to read: then the node the text hangs from is, with the nearest of the rest that fit. */
+  whole: boolean
+}
+
+export interface FocusInput {
+  /** The focus nodes, in graph coordinates, in the step's order. */
+  focus: readonly Rect[]
+  /** The uncovered part of the canvas, in canvas pixels. */
+  area: Rect
+  /** How tall the step's text is at the width of its node, in points of the graph. Null frames the focus alone. */
+  text?: number | null
+  maxZoom?: number
+  reading?: number
+}
+
+/**
+ * Frames a focus at a size its cards read at, with the step's text hung under its node. It never pulls back to take in
+ * what the focus is wired to, nor for a focus spread wider than reads: then the node the text hangs from stays in the
+ * frame with its text, and the rest of the focus comes along, nearest first, while it still fits. A short room shortens
+ * the text, down to its least, before it shrinks the cards.
+ */
+export function frameFocus({ focus, area, text = null, maxZoom = FRAME.maxZoom, reading = FRAME.reading }: FocusInput): FocusShot {
+  const margin = marginOf(area)
+  const room = { width: area.width - margin * 2, height: area.height - margin * 2 }
+  const fit = (box: Rect) => Math.max(0.01, Math.min(maxZoom, room.width / Math.max(1, box.width), room.height / Math.max(1, box.height)))
+  const hung = text != null ? hangText(focus, text) : null
+  const least = hung ? Math.min(hung.height, FRAME.leastText) : 0
+
+  /** These nodes with the text, the text shortened toward its least while that keeps them at a reading size. */
+  const take = (rects: readonly Rect[]) => {
+    if (!hung) {
+      const box = boundsOf(rects)
+      return { box, zoom: fit(box), text: null }
+    }
+    // Every point the text gives up shortens the frame by as much, until the nodes alone set its height.
+    const over = boundsOf([...rects, hung]).height - room.height / reading
+    const placed = { ...hung, height: clamp(hung.height - Math.max(0, over), least, hung.height) }
+    const box = boundsOf([...rects, placed])
+    return { box, zoom: fit(box), text: placed }
+  }
+
+  let best = take(focus)
+  let whole = true
+  if (best.zoom < reading - 1e-9 && focus.length > 1) {
+    const told = focus[hung?.anchor ?? 0]!
+    const kept = [told]
+    best = take(kept)
+    for (const rect of focus.filter((rect) => rect !== told).sort((a, b) => apart(a, told) - apart(b, told))) {
+      const trial = take([...kept, rect])
+      if (trial.zoom < reading - 1e-9) continue
+      kept.push(rect)
+      best = trial
+    }
+    whole = kept.length === focus.length
+  }
+  return { camera: { x: best.box.x + best.box.width / 2, y: best.box.y + best.box.height / 2, zoom: best.zoom }, text: best.text, whole }
+}
 
 export interface ShotInput {
   /** The nodes to frame, in graph coordinates. */
@@ -116,7 +215,7 @@ export interface ShotInput {
 export function composeShot({ focus, area, card = null, others = [], maxZoom = FRAME.maxZoom, closer = 1 }: ShotInput): Shot {
   const whole = boundsOf(focus)
   const box = closer > 1 ? { x: whole.x + (whole.width - whole.width / closer) / 2, y: whole.y + (whole.height - whole.height / closer) / 2, width: whole.width / closer, height: whole.height / closer } : whole
-  const margin = clamp(Math.min(area.width, area.height) * 0.08, 4, FRAME.margin)
+  const margin = marginOf(area)
   const [roomWidth, roomHeight] = [area.width - margin * 2, area.height - margin * 2]
   const fit = (width: number, height: number) => Math.max(0.01, Math.min(maxZoom, width / Math.max(1, box.width), height / Math.max(1, box.height)))
 

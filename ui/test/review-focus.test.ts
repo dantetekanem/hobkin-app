@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import type { Review } from '#shared/review/types.ts'
-import { focusLevels, hoverLevels } from '../src/features/review/graph/levels.ts'
+import { focusLevels, hoverLevels, hoverShown } from '../src/features/review/graph/levels.ts'
 import { nodeAlongWire, nodeToward } from '../src/features/review/graph/navigate.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
@@ -17,7 +17,8 @@ const sorted = (ids: Iterable<string>) => [...ids].sort()
 const withLevel = (levels: Record<string, string>, level: string) => sorted(Object.keys(levels).filter((id) => levels[id] === level))
 
 test('assigns focus, neighbor and background levels for a step', () => {
-  const story = goToStep(sample, startStory(sample), stepOf('doingAfter: from an event to a word')).state
+  const at = stepOf('doingAfter: from an event to a word')
+  const story = goToStep(sample, startStory(sample), at).state
   const focus = focusOf(sample, story)
   const doingAfter = idOf('doingAfter')
   assert.deepEqual(focus, [doingAfter])
@@ -33,9 +34,18 @@ test('assigns focus, neighbor and background levels for a step', () => {
   assert.equal(withLevel(levels.nodes, 'background').length, sample.nodes.length - 1 - neighbors.length)
   assert.equal(withLevel(levels.nodes, 'rest').length, 0)
 
-  // Wires that touch the focus stay bright, and the others fade.
-  assert.deepEqual(withLevel(levels.wires, 'bright'), sorted(wired.map((edge) => edge.id)))
+  // Only the step's own path stands out: the wire the story rides in on, and the one the next step leaves by.
+  const path = [sample.story[at]!.travel!, sample.story[at + 1]!.travel!]
+  assert.deepEqual(path, [`exercises:${idOf('what the model streams says whether it is thinking or writing its reply')}>${doingAfter}`, `calls:${doingAfter}>${idOf('toolDoing')}`])
+  assert.deepEqual(withLevel(levels.wires, 'bright'), sorted(path))
+  // The rest of what touches the focus is drawn, quietly, and every other wire fades.
+  assert.deepEqual(withLevel(levels.wires, 'near'), sorted(wired.map((edge) => edge.id).filter((id) => !path.includes(id))))
   assert.equal(withLevel(levels.wires, 'faded').length, sample.edges.length - wired.length)
+  assert.deepEqual(levels.folded?.[doingAfter], { in: [], out: [] }, 'seven neighbors in the change are few enough to draw')
+
+  // Focus nodes wired to each other: the wire between them is the step's.
+  const promise = focusLevels(sample, sample.story[stepOf('The promise that the word gets out')]!.focus)
+  assert.ok(withLevel(promise.wires, 'bright').includes(`proves:A4>${idOf('what a turn is doing reaches the screen in a word, and goes when the turn ends')}`))
 
   // A step with several focus nodes: each is focus, and none is demoted to a neighbor of another.
   const promises = focusLevels(sample, ['A1', 'A2', 'A3'])
@@ -47,6 +57,72 @@ test('assigns focus, neighbor and background levels for a step', () => {
   const whole = focusLevels(sample, focusOf(sample, startStory(sample)))
   assert.equal(withLevel(whole.nodes, 'rest').length, sample.nodes.length)
   assert.equal(withLevel(whole.wires, 'rest').length, sample.edges.length)
+})
+
+/** The sample with doingAfter calling twelve unchanged callees and called by eight unchanged callers, the fan the user saw. */
+function crowded(): Review {
+  const doingAfter = idOf('doingAfter')
+  const others = Array.from({ length: 22 }, (_, index) => ({
+    id: `v${index + 1}`,
+    kind: 'context' as const,
+    title: `around${index + 1}`,
+    subtitle: 'src/around.ts',
+    change: 'unchanged' as const,
+    summary: 'Unchanged.',
+    anchors: [],
+    position: index < 20 ? { x: 2520, y: index * 148 } : { x: 2940, y: (index - 20) * 148 },
+  }))
+  const wire = (kind: 'calls' | 'called-by', from: string, to: string) => ({ id: `${kind}:${from}>${to}`, kind, from, to, certainty: 'host' as const })
+  return {
+    ...sample,
+    nodes: [...sample.nodes, ...others],
+    edges: [
+      ...sample.edges,
+      // v1 to v8 call doingAfter, and doingAfter calls v9 to v20.
+      ...others.slice(0, 20).map((node, index) => wire(index < 8 ? 'called-by' : 'calls', doingAfter, node.id)),
+      // The last caller has a caller of its own, and that one another: the way up to where the request comes in.
+      wire('called-by', 'v8', 'v21'),
+      wire('called-by', 'v21', 'v22'),
+    ],
+  }
+}
+
+test('a node with many unchanged callers and callees shows the few that matter and folds the rest', () => {
+  const review = crowded()
+  const doingAfter = idOf('doingAfter')
+  const at = stepOf('doingAfter: from an event to a word')
+  const levels = focusLevels(review, review.story[at]!.focus)
+  const around = new RegExp(`^(calls|called-by):${doingAfter}>v\\d+$`)
+  const unchangedNear = withLevel(levels.wires, 'near').filter((id) => around.test(id))
+
+  // The step's path and the code of the change around it are drawn as before.
+  assert.deepEqual(withLevel(levels.wires, 'bright'), sorted([review.story[at]!.travel!, review.story[at + 1]!.travel!]))
+  assert.equal(withLevel(levels.wires, 'near').filter((id) => !/v\d+$/.test(id)).length, 5)
+
+  // Of the twenty around it that the change did not touch, two callers and two callees are drawn: first one that leads
+  // further, then as the review lists them, most telling first.
+  assert.deepEqual(unchangedNear, sorted([`called-by:${doingAfter}>v8`, `called-by:${doingAfter}>v1`, `calls:${doingAfter}>v9`, `calls:${doingAfter}>v10`]))
+  // And the way on from that caller, out to where the request comes in, is drawn with it.
+  assert.deepEqual(sorted(['called-by:v8>v21', 'called-by:v21>v22'].filter((id) => levels.wires[id] === 'near')), ['called-by:v21>v22', 'called-by:v8>v21'])
+  assert.deepEqual([levels.nodes.v21, levels.nodes.v22], ['neighbor', 'neighbor'])
+
+  // The others fold into one count on the side their wires leave by, and their nodes stay in the background.
+  const folded = withLevel(levels.wires, 'folded')
+  assert.equal(folded.length, 16)
+  assert.deepEqual(levels.folded?.[doingAfter]?.in, [])
+  assert.equal(levels.folded?.[doingAfter]?.out.length, 16)
+  for (const id of levels.folded![doingAfter]!.out) assert.equal(levels.nodes[id], 'background')
+
+  // Hovering the focus, where the pointer rests, unfolds nothing. Hovering one of the folded nodes shows how it connects.
+  assert.equal(hoverShown('lit', doingAfter, [doingAfter]), 'none')
+  assert.equal(hoverShown('lit', levels.folded![doingAfter]!.out[0]!, [doingAfter]), 'lit')
+  assert.equal(hoverShown('dim', 'v3', []), 'dim', 'with nothing in focus, hover is as it always was')
+
+  // A folded node never draws in, since it is never on screen with the step.
+  const moved = goToStep(review, startStory(review), at)
+  for (const id of levels.folded![doingAfter]!.out) assert.equal(moved.fresh.nodes.includes(id), false)
+  for (const id of folded) assert.equal(moved.fresh.wires.some((wire) => wire.id === id), false)
+  assert.ok(moved.fresh.nodes.includes('v8') && moved.fresh.nodes.includes('v22'))
 })
 
 test('hovering a node lights its wires and neighbors and dims the rest', () => {

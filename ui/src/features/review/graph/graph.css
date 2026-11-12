@@ -1,0 +1,426 @@
+/*
+ * The canvas as the user reviews on it (2026-11-12): only the step's path stands out, code the change did not touch
+ * steps back, the step is told in its node, and the steps are paged at the bottom center.
+ *
+ * This file loads before review.css, so a rule here that changes one of its rules starts with `.rv` to outweigh it.
+ * Motion rules are review.css's: only opacity, filter and transform change over time.
+ */
+
+/* ───────────────────────────── Wires ───────────────────────────── */
+
+/*
+ * The rest of the focus's life cycle is drawn quietly, every other wire is faint, and a folded wire is not drawn. A wire
+ * lit by the pointer or opened is review.css's active wire, so none of this reaches it.
+ */
+.rv .rv-wire[data-level='near']:not([data-active='true']) .rv-wire-base {
+  opacity: 0.62;
+}
+.rv .rv-wire[data-level='faded']:not([data-active='true']) .rv-wire-base {
+  opacity: 0.16;
+}
+.rv .rv-wire[data-level='faded'][data-seen='false']:not([data-active='true']) .rv-wire-base {
+  opacity: 0.1;
+}
+.rv .rv-wire[data-level='folded']:not([data-active='true']) .rv-wire-base {
+  opacity: 0;
+}
+.rv .rv-wire[data-level='folded']:not([data-active='true']) .rv-wire-hit {
+  pointer-events: none;
+}
+
+/* A wire to code the change did not touch is drawn in the quiet ink, see-through, so it reads apart from the change. */
+.rv .rv-wire[data-unchanged='true'] {
+  --tint: var(--hb-muted);
+}
+.rv .rv-wire[data-unchanged='true'][data-level='near']:not([data-active='true']) .rv-wire-base,
+.rv .rv-wire[data-unchanged='true'][data-level='rest'][data-hover='none'] .rv-wire-base {
+  opacity: 0.4;
+}
+.rv .rv-wire[data-unchanged='true'] .rv-wire-live {
+  stroke-opacity: 0.7;
+}
+
+/* ───────────────────────────── Nodes ───────────────────────────── */
+
+/*
+ * Code the change did not touch is not necessarily part of what this change does (the user, 2026-11-12): it is drawn
+ * see-through and settled into the canvas, and marked Unchanged. In focus or under the pointer it is read, so it is whole.
+ */
+.rv .rv-node[data-unchanged='true'] {
+  opacity: 0.66;
+}
+.rv .rv-node[data-unchanged='true'][data-level='background'] {
+  opacity: 0.46;
+}
+.rv .rv-node[data-unchanged='true'][data-level='focus'],
+.rv .rv-node[data-unchanged='true'][data-hover='lit'] {
+  opacity: 1;
+}
+.rv .rv-node[data-unchanged='true']:not([data-level='focus']) .rv-card::before {
+  opacity: 0.4;
+}
+
+/* The marks on a card's top edge, when there is more than the level: the level first, then Unchanged. */
+.rv-tags {
+  position: absolute;
+  z-index: 2;
+  top: -10px;
+  left: 12px;
+  display: flex;
+  gap: 6px;
+}
+.rv-tags .rv-level {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--level) 55%, transparent),
+    0 0 0 1.5px var(--hb-surface);
+}
+.rv-unchanged {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hb-surface);
+  color: var(--hb-muted);
+  box-shadow:
+    inset 0 0 0 1px var(--hb-border-strong),
+    0 0 0 1.5px var(--hb-surface);
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.rv[data-far='true'] .rv-tags {
+  top: -15px;
+}
+.rv[data-far='true'] .rv-tags > * {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 16px;
+}
+
+/* What a focus node folded away: a count beside the pin its wires would leave by, joined to it by a short dashed lead. */
+.rv-more {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  margin-top: -11px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--rv-float);
+  color: var(--hb-muted);
+  box-shadow:
+    0 0 0 1px var(--hb-border-strong),
+    var(--hb-shadow);
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+}
+.rv-more::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  border-top: 1.5px dashed var(--hb-border-strong);
+}
+.rv-more[data-side='right'] {
+  left: calc(100% + 16px);
+}
+.rv-more[data-side='right']::before {
+  right: 100%;
+}
+.rv-more[data-side='left'] {
+  right: calc(100% + 16px);
+}
+.rv-more[data-side='left']::before {
+  left: 100%;
+}
+.rv[data-far='true'] .rv-more {
+  height: 30px;
+  margin-top: -15px;
+  padding: 0 12px;
+  font-size: 16px;
+}
+
+/* ───────────────────────────── The step, told in its node ───────────────────────────── */
+
+/*
+ * The step's text hangs right under its node, as wide as it, in the graph's own points: it moves and scales with the
+ * node, and the camera frames the two at a reading size. The accent ring and the stem make the pair one focus.
+ */
+.rv-hung {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+}
+.rv[data-far='true'] .rv-hung {
+  visibility: hidden;
+}
+.rv-explain {
+  position: relative;
+  border-radius: 14px;
+  background: var(--rv-float);
+  color: var(--hb-text);
+  box-shadow:
+    0 0 0 2px var(--hb-accent),
+    0 0 0 3px var(--rv-ring-edge),
+    var(--hb-float);
+}
+.rv-explain::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 24px;
+  width: 2.5px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--hb-accent);
+}
+.rv-explain-scroll {
+  overflow-y: auto;
+  border-radius: inherit;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--hb-border-strong) 55%, transparent) transparent;
+}
+/* Measured unseen outside the graph and drawn inside it, so everything its size depends on is set here. */
+.rv-explain-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 14px 13px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rv-explain-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-family: var(--font-heading);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 20px;
+  text-transform: uppercase;
+  color: var(--hb-muted);
+}
+.rv-explain-eyebrow [data-tone='bad'] {
+  color: var(--hb-bad-fg);
+}
+.rv-explain-eyebrow [data-tone='ok'] {
+  color: var(--hb-ok-fg);
+}
+.rv-explain-title {
+  font-family: var(--font-heading);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.rv-explain-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.rv-explain-quiet {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  color: var(--hb-muted);
+}
+.rv-explain-warning {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--hb-bad-fg);
+}
+.rv-explain-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 6px;
+  font-size: 11.5px;
+  color: var(--hb-muted);
+}
+.rv-explain-chip {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--hb-sun) 22%, var(--rv-float));
+  color: var(--hb-sun-fg);
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.rv-explain-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hb-tone-2);
+  color: var(--hb-text);
+  box-shadow: inset 0 0 0 1px var(--hb-border);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.rv-explain-action kbd {
+  height: 18px;
+  min-width: 18px;
+}
+.rv-explain-chip:active,
+.rv-explain-action:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-explain-action:hover {
+    background: var(--hb-tone-3);
+  }
+}
+
+/* ───────────────────────────── The step pager ───────────────────────────── */
+
+/* ‹ and › at its ends, and between them "Step 3 of 6" over a position for every step: seen ones filled, the current one wide. */
+.rv-pager {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 4px;
+  border-radius: 999px;
+}
+.rv-pager-arrow {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hb-text);
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
+}
+.rv-pager-arrow svg {
+  width: 17px;
+  height: 17px;
+}
+.rv-pager-arrow:active {
+  transform: scale(0.94);
+}
+.rv-pager-arrow:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-pager-arrow:hover {
+    background: var(--hb-tone-2);
+  }
+}
+.rv-pager-middle {
+  display: flex;
+  min-width: 108px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+.rv-pager-label {
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--hb-muted);
+}
+.rv-pager-label b {
+  font-weight: 650;
+  color: var(--hb-text);
+}
+.rv-pager-typed {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+}
+.rv-dots {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.rv-dot {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 10px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.rv-dot i {
+  position: absolute;
+  inset: 3px 0;
+  background: color-mix(in oklab, var(--hb-border-strong) 60%, transparent);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.rv-dot[data-seen='true'] i {
+  background: var(--hb-text);
+  opacity: 0.55;
+}
+.rv-dot[data-current='true'] {
+  flex: 0 0 22px;
+  max-width: 22px;
+}
+.rv-dot[data-current='true'] i {
+  background: var(--hb-accent);
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--rv-ring-edge);
+}
+/* Off the path, the step to come back to keeps its place, quieter. */
+.rv-pager[data-away='true'] .rv-dot[data-current='true'] i {
+  opacity: 0.45;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-dot:hover i {
+    opacity: 1;
+  }
+}
+
+.rv[data-reduced='true'] .rv-dot i,
+.rv[data-reduced='true'] .rv-pager-arrow {
+  transition: none;
+}
