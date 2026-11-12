@@ -111,12 +111,39 @@ declare module 'hobkin/src/cli/application.mjs' {
     [key: string]: unknown
   }
 
+  export interface OwnedLifecycle {
+    register(options: {
+      id: string
+      binding: {
+        cwd: string
+        prompt: string
+        model: string
+        effort: string
+        role: 'theme'
+        parentRole: 'theme'
+      }
+      allowHelpers: true
+      beforeSpawn: () => boolean
+      customStyle: (request: unknown, signal: AbortSignal) => Promise<unknown>
+    }): {
+      request(request: {
+        action: 'spawn'
+        name: string
+        allowHelpers: false
+      }): unknown
+      join(): Promise<unknown>
+      cancel(): Promise<{ confirmed: boolean }>
+    }
+    snapshot(id: string): { status: string }[] | null
+  }
+
   export class HobkinApplication {
     static open(root: string, options?: OpenOptions): Promise<HobkinApplication>
     snapshot: HobkinSnapshot
     /** The configuration hobkin opened with. Its runtime holds the same object, and reconnects with it. */
     config: HobkinConfig
     runtime: {
+      ownedLifecycle: OwnedLifecycle
       /** The folder the home's data is in. */
       directory: string
       /** The main Pi session: in this process, or a child process behind a launcher. */

@@ -3,13 +3,18 @@ import { persist } from 'zustand/middleware'
 import type { AppearanceRequest, BorderColors } from '#shared/protocol/appearance.ts'
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
-import { AGENTS, BUDGET, OPACITY, migrateSettings, readablePalette, receiveAppearance, themeAsk, stepAgents, stepBudget, stepOpacity, type Palette, type ThemeAsk } from './rules.ts'
+import { AGENTS, BUDGET, OPACITY, migrateSettings, readablePalette, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type Palette } from './rules.ts'
 
 /** Lively plays movement even when the Mac asks for less. Still never moves. */
 export type Movement = 'lively' | 'system' | 'still'
 
 /** The face for reading text. Headings, labels and the wordmark stay in Space Grotesk. */
 export type TypeFace = 'space-grotesk' | 'inter' | 'geist' | 'dm-sans' | 'figtree'
+
+/** Main hobkin's chat (chat-store.ts). Custom's request goes through it as a message the user sent. */
+interface MainChat {
+  getState: () => { send: (text: string) => Promise<boolean>; problem: string | null }
+}
 
 interface SettingsState extends BorderColors {
   movement: Movement
@@ -29,10 +34,14 @@ interface SettingsState extends BorderColors {
   palette: Palette | null
   /** The custom theme is the one showing. `hobkin-theme` keeps the light or dark under it for the first paint. */
   customTheme: boolean
-  request: ThemeAsk | null
   appearanceId: number
   appearanceHome: string | null
-  ask: (text: string) => void
+  /** A Custom request is on its way to main hobkin. */
+  themeSending: boolean
+  /** What happened to the last Custom request: sent, or why not. Not kept across reloads. */
+  themeNote: string | null
+  /** Asks main hobkin to build a theme, as a chat message the user sent, leaving the composer's draft alone. True once hobkin took it. */
+  ask: (text: string, chat: MainChat, host: { getState: () => Pick<HostState, 'link'> }) => Promise<boolean>
   receive: (appearance: AppearanceRequest) => void
 
   setMovement: (movement: Movement) => void
@@ -98,7 +107,93 @@ export const useSettings = create<SettingsState>()(
       request: null,
       appearanceId: 0,
       appearanceHome: null,
-      ask: (text) => set({ request: themeAsk(text, Date.now()) }),
+      themeBusy: false,
+      themeProblem: null,
+      ask: async (text, host) => {
+        if (get().themeBusy) return false
+        const ask = themeAsk(text, Date.now())
+        if (!ask) {
+          set({ themeProblem: 'Describe a theme in 1–4000 characters.' })
+          return false
+        }
+        const source = host.getState()
+        if (source.link !== 'open') {
+          set({ themeProblem: 'Not sent. Connect to hobkin first.' })
+          return false
+        }
+        const previous = get().request
+        const pending: ThemeAsk = { ...ask, home: source.home }
+        const current = () => host.getState().home === source.home && host.getState().epoch === source.epoch
+        set({ request: pending, themeBusy: true, themeProblem: null })
+
+        try {
+          const operation = await host.customize(pending.text)
+          if (get().request !== pending) return false
+          if (!current()) {
+            set({
+              request: { ...pending, phase: 'unknown' },
+              themeProblem: 'The host changed before acknowledgement. The outcome is unknown.',
+            })
+            return false
+          }
+          set({ request: { ...pending, phase: 'known', operation } })
+          return true
+        } catch (error) {
+          if (get().request === pending) {
+            set({
+              request: refused(error) ? previous : { ...pending, phase: 'unknown' },
+              themeProblem: reason(error),
+            })
+          }
+          return false
+        } finally {
+          set({ themeBusy: false })
+        }
+      },
+      refreshTheme: async (host) => {
+        const ask = get().request
+        if (get().themeBusy || !ask?.operation) return
+        const source = host.getState()
+        if (source.link !== 'open' || source.home !== ask.home) {
+          set({
+            request: { ...ask, phase: 'unknown' },
+            themeProblem: 'Connect to the same hobkin home to check this operation.',
+          })
+          return
+        }
+        set({ themeBusy: true, themeProblem: null })
+
+        try {
+          const operation = await host.status(ask.operation.id)
+          if (get().request !== ask) return
+          const current = host.getState()
+          if (
+            current.home !== source.home
+            || current.epoch !== source.epoch
+            || !operation
+            || operation.id !== ask.operation.id
+          ) {
+            set({
+              request: { ...ask, phase: 'unknown' },
+              themeProblem: 'This operation receipt is unavailable. Its outcome is unknown.',
+            })
+            return
+          }
+          set({
+            request: {
+              ...ask,
+              phase: 'known',
+              operation: { ...operation, appearanceId: operation.appearanceId ?? ask.operation.appearanceId },
+            },
+          })
+        } catch (error) {
+          if (get().request === ask) {
+            set({ request: { ...ask, phase: 'unknown' }, themeProblem: reason(error) })
+          }
+        } finally {
+          set({ themeBusy: false })
+        }
+      },
       receive: (appearance) => {
         const next = receiveAppearance(get(), appearance, Date.now())
         if (next) set(next)
@@ -119,8 +214,8 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: 'hobkin-client-settings',
-      // Older saves keep their colors and opacity; version 3 adds request tracking.
-      version: 3,
+      // Version 4 replaces chat attribution with acknowledged operation receipts.
+      version: 4,
       migrate: (saved) => migrateSettings(saved),
       partialize: ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, palette, border, borderStrong, customTheme, request, appearanceId, appearanceHome }) => ({
         movement,
@@ -135,7 +230,7 @@ export const useSettings = create<SettingsState>()(
         border,
         borderStrong,
         customTheme,
-        request,
+        request: request?.phase === 'pending' ? { ...request, phase: 'unknown' as const } : request,
         appearanceId,
         appearanceHome,
       }),

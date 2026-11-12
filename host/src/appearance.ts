@@ -25,9 +25,14 @@ export class Appearance {
     return true
   }
 
-  replaceStyle(args: unknown): { ok: true } {
+  readStyle(): string | null {
     if (!this.file) throw new Error('Canonical appearance file is not configured.')
-    return this.publish(decodeAppearanceStyle(this.file.replace(args)))
+    return this.file.read({})
+  }
+
+  replaceStyle(args: unknown): { ok: true; appearanceId: number } {
+    if (!this.file) throw new Error('Canonical appearance file is not configured.')
+    return { ok: true, appearanceId: this.publish(decodeAppearanceStyle(this.file.replace(args))) }
   }
 
   /** Throws in plain words when the text would not read, so hobkin can choose other colors. */
@@ -36,13 +41,19 @@ export class Appearance {
     if (problems.length) throw Error(`${problems.join(' ')} Choose colors that read and run it again.`)
     const content = encodeAppearanceStyle({ palette })
     const style = decodeAppearanceStyle(this.file ? this.file.replace({ content }) : content)
-    return this.publish(style, name)
+    this.publish(style, name)
+    return { ok: true }
   }
 
-  private publish(style: AppearanceStyle, name?: string): { ok: true } {
+  private publish(style: AppearanceStyle, name?: string): number {
     this.style = style
-    this.state = { id: Math.max(Date.now(), (this.state?.id ?? 0) + 1), name: name?.trim() || null, palette: style.palette }
+    this.state = {
+      id: Math.max(Date.now(), (this.state?.id ?? 0) + 1),
+      name: name?.trim() || null,
+      palette: style.palette,
+    }
+    const id = this.state.id
     this.onChange()
-    return { ok: true }
+    return id
   }
 }

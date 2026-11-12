@@ -32,6 +32,7 @@ import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
 import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
+import { appearanceSession } from './appearance-session.ts'
 import { Canvas } from './canvas.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
@@ -186,6 +187,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     tools: [client],
     modelRuntime: live ? async () => ((await access()) as Partial<LiveModelAccess>).runtime : undefined,
   })
+  const customTheme = appearanceSession(
+    { captureExecution: () => live ? owner.captureExecution() : null },
+    appearance,
+  )
   const signIn = new SignIn({
     access,
     // Nothing opens the user's browser unless the caller hands an opener in: only a live host does (main.ts).
@@ -363,6 +368,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'canvas.show': ({ url, title }) => canvas.show(url, title),
     'canvas.close': () => canvas.close(),
     'appearance.set': ({ palette, name }) => appearance.set(palette, name),
+    'appearance.customize': ({ request }) => customTheme.start(request),
+    'appearance.status': ({ id }) => customTheme.status(id),
     'file.read': ({ path }) => readTextFile(path),
     'file.open': async ({ path }) => {
       const real = await openablePath(path)
@@ -454,6 +461,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         integrations.close()
         reviews.close()
         for (const socket of server.sockets()) socket.close(CLOSE.hostClosing, 'The host is closing')
+        await customTheme.close()
         await owner.close()
         await server.close()
         removeHostFile(root)

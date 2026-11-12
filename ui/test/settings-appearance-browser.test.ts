@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { test } from 'node:test'
 import type { Writable } from 'node:stream'
 
-test('custom requests preserve drafts and only track accepted sends; host palettes apply once', { skip: !process.env.HOBKIN_APPEARANCE_BROWSER }, async () => {
+test('confined theme requests preserve drafts and track exact operation receipts; host palettes apply once', { skip: !process.env.HOBKIN_APPEARANCE_BROWSER }, async () => {
   const out = '/tmp/hobkin-pi-appearance-wiring'
   mkdirSync(out, { recursive: true })
   const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
@@ -61,31 +61,26 @@ test('custom requests preserve drafts and only track accepted sends; host palett
       const { useSettings } = await import(loaded('/src/features/settings/store.ts'));
       const { hostStore } = await import(loaded('/src/lib/host/client.ts'));
       const { setThemeChoice } = await import(loaded('/src/app/theme.ts'));
-      const { DARK_PALETTE, themeRequestText } = await import('/src/features/settings/rules.ts');
+      const { DARK_PALETTE } = await import('/src/features/settings/rules.ts');
       document.documentElement.dataset.motion = 'still'; useSettings.getState().setMovement('still');
       const checks = []; const check = (ok, name) => { if (!ok) throw Error(name); checks.push(name) };
       const calls = []; globalThis.__hobkinHost.connection.command = (name, args) => new Promise((resolve, reject) => calls.push({ name, args, resolve, reject }));
       useChat.getState().change({ type: 'typed', text: 'My unfinished draft' });
       const original = useChat.getState().draft;
-      const sent = useChat.getState().send(themeRequestText('Quiet forest'));
-      check(useChat.getState().draft === original && calls[0].args.text === themeRequestText('Quiet forest'), 'plain request preserves draft and uses conversation send');
+      hostStore.setState({ link: 'open', home: '/fake/browser-theme' });
+      const themeHost = { getState: hostStore.getState, customize: request => globalThis.__hobkinHost.connection.command('appearance.customize', { request }), status: id => globalThis.__hobkinHost.connection.command('appearance.status', { id }) };
+      const receipt = { id: 'theme-browser', request: 'Quiet forest', status: 'running', appearanceId: null, error: null, cleanup: 'pending', child: 'theme-child' };
+      const sent = useSettings.getState().ask('Quiet forest', themeHost);
+      check(useChat.getState().draft === original && calls[0].name === 'appearance.customize' && calls[0].args.request === 'Quiet forest', 'confined request preserves draft');
       useChat.getState().change({ type: 'typed', text: 'Edited during acceptance' });
-      calls.shift().resolve({ id: 'accepted', queued: false });
+      calls.shift().resolve(receipt);
       check(await sent === true && useChat.getState().draft.text === 'Edited during acceptance', 'acceptance returns true without replacing later edits');
-      for (const reason of ['Refused', 'Disconnected', 'Outbox removed']) {
-        const waiting = useChat.getState().send(themeRequestText(reason));
-        useChat.setState({ outbox: { ...useChat.getState().outbox, entries: [] } });
-        useChat.getState().change({ type: 'typed', text: reason + ' draft' });
-        calls.shift().reject(Error(reason));
-        check(await waiting === false && useChat.getState().draft.text === reason + ' draft', reason + ' is not acceptance and preserves current draft');
-      }
-      const legacy = useChat.getState().send({ type: 'click' });
-      check(calls[0].args.text === 'Outbox removed draft' && useChat.getState().draft.text === '', 'legacy click still consumes its draft');
-      calls.shift().reject(Error('Rejected draft'));
-      check(await legacy === false && useChat.getState().draft.text === 'Outbox removed draft', 'legacy failed send restores its draft');
+      const waiting = useSettings.getState().ask('Refused', themeHost);
+      calls.shift().reject(Object.assign(Error('Not available'), { code: 'unavailable' }));
+      check(await waiting === false && useSettings.getState().request.text === 'Quiet forest', 'definite refusal preserves prior ask');
       const appearance = { id: Date.now(), name: 'Forest', palette: DARK_PALETTE };
-      useSettings.getState().ask('Quiet forest'); hostStore.setState({ appearance });
-      check(useSettings.getState().request.name === 'Forest' && document.documentElement.dataset.palette === 'custom', 'host request is applied and tracked');
+      hostStore.setState({ appearance });
+      check(document.documentElement.dataset.palette === 'custom', 'host publication applies canonical colors');
       check(document.documentElement.style.getPropertyValue('--hb-custom-bg') === DARK_PALETTE.background, 'validated palette reaches CSS');
       setThemeChoice('light'); await until(() => document.documentElement.classList.contains('light'));
       hostStore.setState({ appearance: { ...appearance } });
@@ -99,10 +94,10 @@ test('custom requests preserve drafts and only track accepted sends; host palett
       document.getElementById('custom-theme-request').scrollIntoView({ behavior: 'instant', block: 'center' });
       await until(() => !document.documentElement.dataset.themeReveal);
       await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
-      window.appearanceFixture = { calls, useChat, useSettings, hostStore, appearance, checks };
+      window.appearanceFixture = { calls, useChat, useSettings, hostStore, appearance, checks, receipt };
       return checks;
     })()`)
-    assert.equal(checks.length, 11)
+    assert.equal(checks.length, 7)
     writeFileSync(out + '/custom-request.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
     const formChecks = await evaluate(`(async () => {
       const { calls, useChat, useSettings, checks } = appearanceFixture;
@@ -111,12 +106,12 @@ test('custom requests preserve drafts and only track accepted sends; host palett
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await until(() => !input.form.querySelector('button[type=submit]').disabled);
       input.form.requestSubmit(); await until(() => calls.length === 1);
-      calls.shift().reject(Error('Not connected'));
-      await until(() => input.form.textContent.includes('Not sent: Not connected'));
+      calls.shift().reject(Object.assign(Error('Not available'), { code: 'unavailable' }));
+      await until(() => input.form.textContent.includes('Not available'));
       if (useSettings.getState().request.text !== 'Quiet forest') throw Error('failed request was tracked');
       input.form.requestSubmit(); await until(() => calls.length === 1);
       useChat.getState().change({ type: 'typed', text: 'Still my own draft' });
-      calls.shift().resolve({ id: 'request', queued: false });
+      calls.shift().resolve({ ...appearanceFixture.receipt, id: 'theme-form', request: 'A lighter forest' });
       await until(() => useSettings.getState().request.text === 'A lighter forest');
       if (useChat.getState().draft.text !== 'Still my own draft') throw Error('form send consumed draft');
       checks.push('form failure retains request; retry tracks actual acceptance and preserves draft');
@@ -124,9 +119,15 @@ test('custom requests preserve drafts and only track accepted sends; host palett
     })()`)
     writeFileSync(out + '/accepted-request.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
     await evaluate(`(async () => {
-      const { hostStore, appearance } = appearanceFixture;
+      const { hostStore, appearance, calls, receipt } = appearanceFixture;
       hostStore.setState({ appearance: { ...appearance, id: appearance.id + 2, name: 'Quiet forest' } });
-      await until(() => document.getElementById('custom-theme-request').form.textContent.includes('Applied: Quiet forest'));
+      const form = document.getElementById('custom-theme-request').form;
+      Array.from(form.querySelectorAll('button')).find(button => button.textContent === 'Refresh status').click();
+      await until(() => calls.length === 1);
+      const call = calls.shift();
+      if (call.name !== 'appearance.status' || call.args.id !== 'theme-form') throw Error('refresh lost acknowledged identity');
+      call.resolve({ ...receipt, id: 'theme-form', appearanceId: appearance.id + 2, status: 'completed', cleanup: 'confirmed' });
+      await until(() => form.textContent.includes('Saved theme #' + (appearance.id + 2)) && form.textContent.includes('completed; cleanup confirmed'));
     })()`)
     writeFileSync(out + '/applied-theme.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
     writeFileSync(out + '/result.json', JSON.stringify({ checks: formChecks, blocked }, null, 2))

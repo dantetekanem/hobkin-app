@@ -1,6 +1,6 @@
 import { Minus, Plus, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
 import { KEY_LIST } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
@@ -19,8 +19,8 @@ import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { NerdStats } from './NerdStats.tsx'
 import { SetupAgainTile } from './SetupAgainTile.tsx'
-import { useChat } from '@/features/chat/chat-store.ts'
-import { AGENTS, BUDGET, OPACITY, askLine, formatTokens, themeRequestText } from './rules.ts'
+import { hostStore, runCommand } from '@/lib/host/client.ts'
+import { AGENTS, BUDGET, OPACITY, askLine, formatTokens } from './rules.ts'
 import { useSettings, type Movement, type TypeFace } from './store.ts'
 
 /**
@@ -181,31 +181,53 @@ function DayAndNight() {
   )
 }
 
-/** A plain request goes through main chat without borrowing its draft. */
+/** Only the host's confined theme child receives this request; main chat and its draft stay untouched. */
 function CustomColors() {
   const request = useSettings((state) => state.request)
+  const sending = useSettings((state) => state.themeBusy)
+  const problem = useSettings((state) => state.themeProblem)
+  const source = useSyncExternalStore(hostStore.subscribe, hostStore.getState)
+  const link = source.link
   const [text, setText] = useState(request?.text ?? '')
-  const [sending, setSending] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-
-  const send = async () => {
-    if (sending || !text.trim()) return
-    setSending(true)
-    setProblem(null)
-    const accepted = await useChat.getState().send(themeRequestText(text))
-    if (accepted) useSettings.getState().ask(text)
-    else setProblem(useChat.getState().problem ?? 'Not sent. Try again when hobkin is connected.')
-    setSending(false)
+  const host = {
+    getState: hostStore.getState,
+    customize: (request: string) => runCommand('appearance.customize', { request }),
+    status: (id: string) => runCommand('appearance.status', { id }),
   }
+  const send = () => useSettings.getState().ask(text, host)
 
   return (
-    <form className="flex flex-col gap-2" onSubmit={(event) => { event.preventDefault(); void send() }}>
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void send()
+      }}
+    >
       <label htmlFor="custom-theme-request" className="text-[12px] font-medium">Ask hobkin for colors</label>
       <div className="flex gap-2">
-        <input id="custom-theme-request" data-stop="" value={text} onChange={(event) => setText(event.currentTarget.value)} placeholder="A quiet forest at night" className="min-w-0 flex-1 rounded-xl border border-border-strong bg-tone-1 px-3 py-2 text-[13px]" />
-        <Button type="submit" disabled={sending || !text.trim()}>{sending ? 'Sending…' : 'Send'}</Button>
+        <input
+          id="custom-theme-request"
+          aria-describedby="custom-theme-status"
+          data-stop=""
+          value={text}
+          onChange={(event) => setText(event.currentTarget.value)}
+          placeholder="A quiet forest at night"
+          className="min-w-0 flex-1 rounded-xl border border-border-strong bg-tone-1 px-3 py-2 text-[13px]"
+        />
+        <Button type="submit" disabled={sending || !text.trim() || text.trim().length > 4000 || link !== 'open'}>{sending ? 'Checking…' : 'Send'}</Button>
       </div>
-      <p role="status" className="text-[12px] text-muted-foreground">{problem ?? (request ? askLine(request) : 'Describe the theme. hobkin will choose readable colors.')}</p>
+      <p id="custom-theme-status" role="status" className="text-[12px] text-muted-foreground">
+        {request && request.home !== source.home ? 'Request from another hobkin home. ' : ''}
+        {link !== 'open' ? 'Disconnected. The current operation status is unknown. ' : ''}
+        {request ? askLine(request) : 'Describe the theme. A separate theme child will choose readable colors.'}
+        {problem ? ` ${problem}` : ''}
+      </p>
+      {request?.operation ? (
+        <Button type="button" disabled={sending || link !== 'open'} onClick={() => void useSettings.getState().refreshTheme(host)}>
+          Refresh status
+        </Button>
+      ) : null}
     </form>
   )
 }

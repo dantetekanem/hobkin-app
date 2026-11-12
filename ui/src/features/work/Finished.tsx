@@ -1,6 +1,6 @@
 import { ExternalLink, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
@@ -10,18 +10,21 @@ import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
 import { useGitHub, type FinishedChange, type FinishedGroup, type GitHubPull, type WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
+import { endAtWord, needsFirst } from './finished-cards.ts'
 import { GradeChip, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
 import { saysHigh } from './review-badge.ts'
 import { underWay } from './review-follow.ts'
+import { sampleAssessmentOf } from './sample-reviews.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
 import { useChangeReview } from './use-change-review.ts'
 
 /**
- * Finished changes in hobkin's three groups: ready to merge, refresh then merge, and needs you. Each card says what
- * the change is, its proof, its grade, the level its change review found (spec 032), why it is in its group and what
- * a yes does, and offers hobkin's choices in hobkin's order. "Review" opens it in Change Review, "Review again" runs
- * the change review once more instead of hobkin's agent review, and a change on GitHub links to its pull request.
- * A group's one yes first lists every title it acts on, in the order they go, and then says how each went.
+ * Finished changes in hobkin's three groups, the one that needs the user first, then ready to merge and refresh then
+ * merge. Each card leads with the level its change review found (spec 032) beside its title, then says what the change
+ * is, its proof, its grade, why it is in its group and what a yes does, and offers hobkin's choices in hobkin's order.
+ * A long proof shows two lines, ended at a word, and all of it on "Show all". "Review" opens it in Change Review,
+ * "Review again" runs the change review once more instead of hobkin's agent review, and a change on GitHub links to its
+ * pull request. A group's one yes first lists every title it acts on, in the order they go, and then says how each went.
  */
 
 interface Shared {
@@ -43,7 +46,7 @@ export function FinishedSection({ work, ...shared }: { work: WorkState } & Share
     <section aria-label="Finished changes" className="flex flex-col gap-4">
       <SectionHeading label="Finished changes" count={total} />
       <AnimatePresence>{said ? <Told key={said.text} said={said} /> : null}</AnimatePresence>
-      {work.finished.map((group) => (
+      {needsFirst(work.finished).map((group) => (
         <Group key={group.name} group={group} leaving={leaving} onLeaving={setLeaving} {...shared} />
       ))}
       {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">Nothing finished waits for you.</p> : null}
@@ -250,8 +253,10 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
   const [noting, setNoting] = useState(false)
   const pull = change.pr ? [...github.pulls, ...github.reviews].find(({ url }) => url === change.pr) : undefined
   const reviewId = finishedReviewId(change, live)
-  // A sample card has no change review, so nothing is asked for it.
-  const { assessment, again } = useChangeReview(live ? reviewId : null, change.head)
+  // A sample card's change review is the sample's, so nothing is asked for it.
+  const followed = useChangeReview(live ? reviewId : null, change.head)
+  const assessment = live ? followed.assessment : sampleAssessmentOf(change)
+  const { again } = followed
   const risky = saysHigh(assessment)
 
   const review = () => {
@@ -312,11 +317,20 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
             <GradeChip grade={change.grade} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="eyebrow">{change.project}</p>
-            <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
-            {change.about ? <p className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">{change.about}</p> : null}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
-              <ReviewBadge status={assessment} />
+            {/* The level its AI review found leads the card, beside the title. */}
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="eyebrow">{change.project}</p>
+                <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
+              </div>
+              <ReviewBadge status={assessment} size="md" />
+            </div>
+            {change.about ? (
+              <p title={change.about} className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">
+                {endAtWord(change.about)}
+              </p>
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground empty:hidden">
               {change.size ? (
                 <span className="tabular-nums">
                   {change.size.lines} {change.size.lines === 1 ? 'line' : 'lines'} · {change.size.files} {change.size.files === 1 ? 'file' : 'files'}
@@ -325,10 +339,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
               {change.behind > 0 ? <span className="tabular-nums">· {change.behind} behind</span> : null}
               <PullStatus pull={pull} />
             </div>
-            <p className="mt-2 text-[12.5px] leading-snug">
-              <span className="text-muted-foreground">Proof: </span>
-              {change.proof ?? 'No proof: nothing recorded shows it works.'}
-            </p>
+            <ClampedLine className="mt-2" label={<span className="text-muted-foreground">Proof: </span>} text={change.proof ? endAtWord(change.proof) : 'No proof: nothing recorded shows it works.'} />
             <p className={cn('mt-1 text-[12.5px] leading-snug', group.name === 'needs' ? 'text-warn-fg' : 'text-muted-foreground')}>{change.reason}</p>
             <p className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">{change.yes}</p>
           </div>
@@ -387,6 +398,47 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
         ) : null}
       </div>
     </motion.li>
+  )
+}
+
+/**
+ * A card's line that shows two lines at most, ended at a word, and all of it on "Show all". Its whole text is also its
+ * title. A line that arrived cut inside a word ends at its last whole word (`endAtWord`).
+ */
+function ClampedLine({ text, label, className }: { text: string; label?: ReactNode; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const [clamped, setClamped] = useState(false)
+  const line = useRef<HTMLSpanElement | null>(null)
+
+  useLayoutEffect(() => {
+    const element = line.current
+    if (!element || open) return
+    const measure = () => setClamped(element.scrollHeight > element.clientHeight + 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [text, open])
+
+  return (
+    <div className={cn('flex flex-col items-start gap-0.5', className)}>
+      <span ref={line} title={text} className={cn('text-[12.5px] leading-snug', !open && 'line-clamp-2')}>
+        {label}
+        {text}
+      </span>
+      {clamped || open ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          data-row-control=""
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="rounded-full text-[12px] font-medium text-muted-foreground underline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:text-foreground hover:underline"
+        >
+          {open ? 'Show less' : 'Show all'}
+        </button>
+      ) : null}
+    </div>
   )
 }
 

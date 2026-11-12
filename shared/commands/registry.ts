@@ -29,6 +29,16 @@ export interface CommandDefinition {
   outside?: true
 }
 
+export interface ThemeOperation {
+  id: string
+  request: string
+  status: 'running' | 'completed' | 'failed' | 'unknown'
+  appearanceId: number | null
+  error: string | null
+  cleanup: 'pending' | 'confirmed' | 'unknown'
+  child: string | null
+}
+
 export interface StartupTarget { home: string; epoch: string; token: string; sessionId: string | null }
 export interface StartupForceArgs { target: StartupTarget; attemptId: string }
 export interface StartupForceReceipt extends StartupForceArgs {
@@ -341,6 +351,22 @@ export const COMMANDS = {
     args: nothing,
     hobkin: true,
   },
+  'appearance.customize': {
+    description: 'Start one Settings-only custom theme operation.',
+    runs: 'host',
+    args: Type.Object(
+      { request: words(4000) },
+      { additionalProperties: false },
+    ),
+  },
+  'appearance.status': {
+    description: 'Read the latest retained theme operation, or an exact operation ID.',
+    runs: 'host',
+    args: Type.Object(
+      { id: Type.Optional(words(64)) },
+      { additionalProperties: false },
+    ),
+  },
   'appearance.set': {
     description:
       "Set the app's color theme from five colors, each #rrggbb: `background`, `surface` (cards), `text`, `muted` (secondary text), `accent`. Text and muted text must read on the background and on cards (4.5 to 1), or it is refused with the ratio so you can retry. `name` names the theme. Use it when the user asked for a theme, such as a Matrix one.",
@@ -643,6 +669,8 @@ export interface CommandResults {
   'canvas.show': CanvasState
   'canvas.close': CanvasState
   'appearance.set': { ok: true }
+  'appearance.customize': ThemeOperation
+  'appearance.status': ThemeOperation | null
   'file.read': FileContent
   'file.open': { ok: true }
   'review.prepare': ReviewStatus

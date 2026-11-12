@@ -1,4 +1,5 @@
 import { type AppearanceRequest, type Palette, borderColors, contrast, luminance, readablePalette } from '#shared/protocol/appearance.ts'
+import type { ThemeOperation } from '#shared/commands/registry.ts'
 
 export { PALETTE_KEYS, contrast, paletteProblems, readablePalette, type Palette } from '#shared/protocol/appearance.ts'
 
@@ -51,51 +52,80 @@ export function onAccent(accent: string): string {
   return contrast(accent, '#000000') >= contrast(accent, '#ffffff') ? '#000000' : '#ffffff'
 }
 
+/** What main hobkin gets in its chat when Custom asks for a theme: the user's words, prefixed so it knows what they are for. */
+export const themeRequestText = (text: string) => `Build a theme: ${text.trim()}`
+
 /** The user's request for a custom theme, kept in Settings so the ask can be followed (#50). */
 export interface ThemeAsk {
   text: string
   askedAt: number
-  /** When a theme arrived for it, or null while hobkin has not answered. */
-  appliedAt: number | null
-  /** What hobkin called the theme it applied. */
-  name: string | null
+  home: string | null
+  phase: 'pending' | 'known' | 'unknown'
+  /** Only an acknowledged operation can identify this ask's canonical save. */
+  operation: ThemeOperation | null
 }
-
-/** The message the chat gets, prefixed so hobkin knows what it is. */
-export const themeRequestText = (text: string) => `Set a custom theme for me: ${text.trim()}`
 
 export function themeAsk(text: string, at: number): ThemeAsk | null {
-  return text.trim() ? { text: text.trim(), askedAt: at, appliedAt: null, name: null } : null
+  const request = text.trim()
+  if (!request || request.length > 4000) return null
+  return {
+    text: request,
+    askedAt: at,
+    home: null,
+    phase: 'pending',
+    operation: null,
+  }
 }
 
-/** "Asked hobkin at 8:01 PM", then "Applied" once a theme arrived. */
 export function askLine(ask: ThemeAsk): string {
-  if (ask.appliedAt !== null) return ask.name ? `Applied: ${ask.name}` : 'Applied'
-  return `Asked hobkin at ${new Date(ask.askedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+  const operation = ask.operation
+  const saved = operation?.appearanceId != null ? `Saved theme #${operation.appearanceId}. ` : 'No saved theme confirmed. '
+  if (ask.phase === 'pending') return 'Requesting a theme…'
+  if (ask.phase === 'unknown' || !operation) {
+    const next = operation ? 'Refresh to check this operation.' : 'No acknowledgement received; do not resend automatically.'
+    return `${saved}Operation status unknown. ${next}`
+  }
+  const completed = operation.status === 'completed'
+    && operation.appearanceId !== null
+    && operation.cleanup === 'confirmed'
+  const status = operation.status === 'completed' && !completed ? 'unknown' : operation.status
+  return `${saved}Last receipt: theme child ${status}; cleanup ${operation.cleanup}.${operation.error ? ` ${operation.error}` : ''}`
 }
 
-/**
- * What changes when hobkin's theme arrives: the palette to show, the ask marked applied, and the request remembered so it is not
- * applied twice. Null when it was applied already or its text would not read.
- */
+/** Canonical publications apply colors, but never establish which helper ask saved them. */
 export function receiveAppearance(
   state: { request: ThemeAsk | null; appearanceId: number },
-  { id, name, palette, border, borderStrong }: AppearanceRequest,
-  now: number,
+  { id, palette, border, borderStrong }: AppearanceRequest,
+  _now?: number,
 ) {
   const readable = readablePalette(palette)
   const borders = borderColors({ border, borderStrong })
   if (id <= state.appearanceId || !readable || !borders) return null
   const { request } = state
-  return { palette: readable, border: borders.border, borderStrong: borders.borderStrong, customTheme: true, appearanceId: id, request: request && request.appliedAt === null ? { ...request, appliedAt: now, name } : request }
+  return { palette: readable, border: borders.border, borderStrong: borders.borderStrong, customTheme: true, appearanceId: id, request }
 }
 
-/** Settings saved before version 2 gain background opacity and the custom theme (what cannot be used is dropped), and before version 3 no ask. */
+/** Legacy chat asks have no operation identity. Interrupted submissions must not be replayed. */
+function migrateThemeAsk(value: unknown): ThemeAsk | null {
+  if (!value || typeof value !== 'object' || !('text' in value) || typeof value.text !== 'string') return null
+  const ask = themeAsk(value.text, 'askedAt' in value && typeof value.askedAt === 'number' ? value.askedAt : 0)
+  return ask ? { ...ask, phase: 'unknown' } : null
+}
+
+/** Older settings retain their usable colors and opacity, without inventing operation authority. */
 export function migrateSettings(saved: unknown): Record<string, unknown> {
   const state = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>) : {}
   const palette = readablePalette(state.palette)
   const opacity = typeof state.backgroundOpacity === 'number' && state.backgroundOpacity <= OPACITY.max ? state.backgroundOpacity : OPACITY.initial
   const borders = palette ? { ...borderColors({ border: state.border as string }), ...borderColors({ borderStrong: state.borderStrong as string }) } : {}
   const { border: _border, borderStrong: _strong, ...rest } = state
-  return { ...rest, ...borders, backgroundOpacity: stepOpacity(opacity, 0), palette, customTheme: state.customTheme === true && palette !== null, request: state.request ?? null, appearanceId: typeof state.appearanceId === 'number' ? state.appearanceId : 0 }
+  return {
+    ...rest,
+    ...borders,
+    backgroundOpacity: stepOpacity(opacity, 0),
+    palette,
+    customTheme: state.customTheme === true && palette !== null,
+    request: migrateThemeAsk(state.request),
+    appearanceId: typeof state.appearanceId === 'number' ? state.appearanceId : 0,
+  }
 }

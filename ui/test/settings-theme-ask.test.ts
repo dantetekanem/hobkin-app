@@ -1,35 +1,78 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { DARK_PALETTE, askLine, migrateSettings, receiveAppearance, themeAsk, themeRequestText } from '../src/features/settings/rules.ts'
+import { registerHooks } from 'node:module'
+import { resolve } from 'node:path'
+import { after, test, type TestContext } from 'node:test'
+import { pathToFileURL } from 'node:url'
+import type { CommandName } from '#shared/commands/registry.ts'
+import { DARK_PALETTE, migrateSettings } from '../src/features/settings/rules.ts'
+import { HostConnection } from '../src/lib/host/connection.ts'
+import { hostStore } from '../src/lib/host/client.ts'
+import { initialHostState, type HostState } from '../src/lib/host/state.ts'
 
-const MATRIX = { background: '#000000', surface: '#07140a', text: '#9dffb0', muted: '#4fbf6a', accent: '#00ff41' }
-const at = new Date(2026, 10, 10, 20, 1).getTime()
+const aliasHooks = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (!specifier.startsWith('@/')) return nextResolve(specifier, context)
+    return nextResolve(pathToFileURL(resolve(import.meta.dirname, '../src', specifier.slice(2))).href, context)
+  },
+})
+Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } } })
+after(() => {
+  Reflect.deleteProperty(globalThis, 'window')
+  aliasHooks.deregister()
+})
+const { useChat } = await import('../src/features/chat/chat-store.ts')
+const { emptyDraft } = await import('../src/features/chat/draft.ts')
+const { useSettings } = await import('../src/features/settings/store.ts')
 
-test('the request goes to hobkin as a plain sentence, and an empty one goes nowhere', () => {
-  assert.equal(themeRequestText('  a Matrix theme  '), 'Set a custom theme for me: a Matrix theme')
-  assert.equal(themeAsk('   ', at), null)
-  assert.deepEqual(themeAsk(' a Matrix theme ', at), { text: 'a Matrix theme', askedAt: at, appliedAt: null, name: null })
+type PendingCommand = { name: CommandName; args: unknown; resolve(value: unknown): void; reject(error: Error): void }
+
+/** A fake host that holds every command, and a composer with an unfinished draft. */
+function prepare(t: TestContext, link: HostState['link'] = 'open') {
+  const calls: PendingCommand[] = []
+  t.mock.method(HostConnection.prototype, 'command', (name: CommandName, args: unknown) =>
+    new Promise((resolve, reject) => calls.push({ name, args, resolve, reject })))
+  hostStore.setState({ ...initialHostState, link, home: '/isolated' }, true)
+  useChat.setState({ draft: emptyDraft, problem: null })
+  useChat.getState().change({ type: 'typed', text: 'My unfinished draft' })
+  useSettings.setState({ themeSending: false, themeNote: null })
+  return { calls, draft: useChat.getState().draft }
+}
+
+test('Custom asks main hobkin to build the theme as a chat message, leaving the draft alone', async (t) => {
+  const { calls, draft } = prepare(t)
+  const asked = useSettings.getState().ask('  a quiet forest  ', useChat, hostStore)
+  assert.deepEqual(calls.map(({ name, args }) => [name, args]), [['conversation.send', { text: 'Build a theme: a quiet forest' }]])
+  assert.equal(useChat.getState().outbox.entries.at(-1)?.text, 'Build a theme: a quiet forest', 'it shows in the conversation as the user’s message')
+  assert.equal(await useSettings.getState().ask('again', useChat, hostStore), false, 'one request at a time')
+  assert.equal(calls.length, 1)
+  calls[0]!.resolve({ id: 'sent', queued: false })
+  assert.equal(await asked, true)
+  assert.equal(useChat.getState().draft, draft)
+  assert.equal(useSettings.getState().themeSending, false)
 })
 
-test('the ask reads as asked, then applied', () => {
-  const ask = themeAsk('a Matrix theme', at)!
-  assert.match(askLine(ask), /^Asked hobkin at 8:01\s?PM$/)
-  assert.equal(askLine({ ...ask, appliedAt: at + 5000, name: 'Matrix' }), 'Applied: Matrix')
-  assert.equal(askLine({ ...ask, appliedAt: at + 5000 }), 'Applied')
+test('nothing is sent without a connected host or without words', async (t) => {
+  const { calls, draft } = prepare(t, 'lost')
+  assert.equal(await useSettings.getState().ask('forest', useChat, hostStore), false)
+  assert.match(useSettings.getState().themeNote ?? '', /Connect to hobkin first/)
+  hostStore.setState({ link: 'open' })
+  assert.equal(await useSettings.getState().ask('   ', useChat, hostStore), false)
+  assert.deepEqual(calls, [])
+  assert.equal(useChat.getState().draft, draft)
 })
 
-test('an arriving theme is applied once, marks the ask applied, and an unreadable one is refused', () => {
-  const ask = themeAsk('a Matrix theme', at)!
-  const state = { request: ask, appearanceId: 0 }
-  const applied = receiveAppearance(state, { id: 7, name: 'Matrix', palette: MATRIX }, at + 9000)!
-  assert.deepEqual([applied.palette, applied.customTheme, applied.appearanceId], [MATRIX, true, 7])
-  assert.deepEqual(applied.request, { ...ask, appliedAt: at + 9000, name: 'Matrix' })
-  assert.equal(receiveAppearance({ request: applied.request, appearanceId: 7 }, { id: 7, name: 'Matrix', palette: MATRIX }, at), null, 'the same request is not applied twice')
-  assert.equal(receiveAppearance(state, { id: 8, name: null, palette: { ...MATRIX, text: '#0a1a0d' } }, at), null)
-  assert.equal(receiveAppearance({ request: null, appearanceId: 0 }, { id: 1, name: null, palette: MATRIX }, at)!.request, null, 'a theme hobkin chose alone has no ask to close')
+test('a request hobkin refuses says why and keeps the draft', async (t) => {
+  const { calls, draft } = prepare(t)
+  const asked = useSettings.getState().ask('forest', useChat, hostStore)
+  calls[0]!.reject(new Error('hobkin is starting.'))
+  assert.equal(await asked, false)
+  assert.match(useSettings.getState().themeNote ?? '', /hobkin is starting/)
+  assert.equal(useChat.getState().draft, draft)
+  assert.equal(useSettings.getState().themeSending, false)
 })
 
-test('settings saved before the ask keep their values and gain no ask', () => {
+test('a theme ask saved by an older version is dropped, and its colors stay', () => {
   const saved = { movement: 'still', palette: DARK_PALETTE, customTheme: true, backgroundOpacity: 0.5 }
-  assert.deepEqual(migrateSettings(saved), { ...saved, request: null, appearanceId: 0 })
+  const ask = { text: 'forest', askedAt: 1, appliedAt: 2, name: 'Forest' }
+  assert.deepEqual(migrateSettings({ ...saved, request: ask }), { ...saved, appearanceId: 0 })
 })

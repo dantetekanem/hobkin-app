@@ -1,5 +1,6 @@
+import { Play } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import type { KeyboardEvent, Ref } from 'react'
+import { useState, type KeyboardEvent, type Ref } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
@@ -8,22 +9,14 @@ import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host
 import { cn } from '@/lib/utils.ts'
 import { discoverableProjects, trackedProjects } from './projects.ts'
 import { GradeChip, SaidLine, SectionHeading, Segmented } from './parts.tsx'
-import { runWork, useWorkUi } from './store.ts'
+import { queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
+import { runWork, useWorkUi, type Said } from './store.ts'
 
 /**
- * hobkin's queue, in hobkin's order, and the projects work mode works on. A queue row runs next, is skipped or is
- * put back, as the terminal's keys do, or starts now. A project's priority and where its finished work goes can be changed.
+ * hobkin's queue, in hobkin's order, and the projects work mode works on. A queue row starts now, runs next, is
+ * skipped or is put back, as the terminal's keys do. A long queue shows its first five rows until the user asks for
+ * all of it (`queue-rows.ts`). A project's priority and where its finished work goes can be changed.
  */
-
-/** As many rows as the terminal shows: every P0 stays in sight, and the rest fill what room is left (`rowsInSight` in hobkin's `src/cli/ui.mjs`). */
-const MOST_ROWS = 8
-
-function rowsInSight(queue: readonly QueueRow[]): QueueRow[] {
-  const waiting = queue.filter(({ skipped }) => !skipped)
-  const urgent = waiting.filter(({ grade }) => grade === 'P0')
-  const others = waiting.filter(({ grade }) => grade !== 'P0').slice(0, Math.max(0, MOST_ROWS - urgent.length))
-  return [...waiting.filter((row) => urgent.includes(row) || others.includes(row)), ...queue.filter(({ skipped }) => skipped)]
-}
 
 const tokens = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
@@ -37,15 +30,40 @@ interface Shared {
   turn: () => number
 }
 
+/** What hobkin said of the last Start now, kept by the queue: the row may have left it as it started. */
+function StartNowTold({ said }: { said: Said }) {
+  const still = useStill()
+  const forget = useWorkUi((state) => state.forget)
+  return (
+    <motion.div
+      role={said.tone === 'refused' ? 'alert' : 'status'}
+      className="flex items-start gap-3 rounded-2xl bg-tone-1 px-4 py-3"
+      initial={still ? { opacity: 0 } : { opacity: 0, transform: 'translateY(-8px) scale(0.98)' }}
+      animate={still ? { opacity: 1 } : { opacity: 1, transform: 'translateY(0px) scale(1)' }}
+      exit={{ opacity: 0, transition: { duration: 0.14 } }}
+      transition={{ type: 'spring', duration: 0.42, bounce: 0.14 }}
+    >
+      <p className={cn('min-w-0 flex-1 text-[13.5px] leading-snug', said.tone === 'refused' && 'text-bad-fg')}>{said.text}</p>
+      <Button variant="ghost" size="xs" onClick={() => forget('queue')} className="text-muted-foreground">
+        Done
+      </Button>
+    </motion.div>
+  )
+}
+
 export function QueueSection({ work, live, variants, turn }: { work: WorkState } & Shared) {
-  const rows = rowsInSight(work.queue)
-  const shown = rows.filter(({ skipped }) => !skipped).length
+  const [open, setOpen] = useState(false)
+  const told = useWorkUi((state) => state.said['queue'])
+  const { rows, hidden } = queueInSight(work.queue, open)
   const urgent = work.queue.filter(({ grade, skipped }) => grade === 'P0' && !skipped).length
-  const more = work.queued - shown
+  // hobkin can count more in its queue than the rows it lists.
+  const unlisted = work.queued - work.queue.filter(({ skipped }) => !skipped).length
+  const toggles = hidden > 0 || (open && work.queue.length > SHOWN_SHUT)
 
   return (
     <section aria-label="Queue" className="flex flex-col gap-2">
       <SectionHeading label="Queue" count={`${urgent ? `${urgent} P0 · ` : ''}${work.queued} queued`} />
+      <AnimatePresence>{told ? <StartNowTold key={told.text} said={told} /> : null}</AnimatePresence>
       {rows.length ? (
         <ul className="relative flex flex-col">
           <AnimatePresence mode="popLayout">
@@ -57,7 +75,16 @@ export function QueueSection({ work, live, variants, turn }: { work: WorkState }
       ) : (
         <p className="px-1 text-[13.5px] text-muted-foreground">{work.enabled ? 'Nothing is queued. The next look comes round by itself.' : 'Nothing is queued.'}</p>
       )}
-      {more > 0 ? <p className="px-3 text-[12.5px] text-muted-foreground">and {more} more</p> : null}
+      {toggles || unlisted > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
+          {toggles ? (
+            <Button variant="ghost" size="sm" data-stop="" aria-expanded={open} onClick={() => setOpen(!open)} className="text-muted-foreground">
+              {open ? 'Show fewer' : `Show all ${work.queue.length}`}
+            </Button>
+          ) : null}
+          {unlisted > 0 && !hidden ? <span className="px-2 text-[12.5px] text-muted-foreground">and {unlisted} more queued</span> : null}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -66,8 +93,19 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[row.key]))
   const said = useWorkUi((state) => state.said[row.key])
-  const act = (action: 'run' | 'now' | 'skip' | 'back') => void runWork({ do: 'queue', key: row.key, action }, { live, place: row.key })
+  const act = (action: 'run' | 'skip' | 'back') => void runWork({ do: 'queue', key: row.key, action }, { live, place: row.key })
   const primary = row.skipped ? () => act('back') : () => act('run')
+  const [starting, setStarting] = useState(false)
+
+  const startNow = async () => {
+    setStarting(true)
+    const answer = await runWork({ do: 'queue', key: row.key, action: 'now' }, { live, place: row.key })
+    setStarting(false)
+    // The row may leave the queue as it starts, so what hobkin said is the queue's to keep.
+    const { forget, note } = useWorkUi.getState()
+    forget(row.key)
+    note('queue', startNowLine(row.title, answer))
+  }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Enter on the row runs it next, as Enter does in the terminal, or puts a skipped row back.
@@ -116,11 +154,12 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
             </Button>
           ) : (
             <>
+              <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled title={START_NOW_TITLE} onClick={() => void startNow()}>
+                <Play aria-hidden="true" />
+                {busy && starting ? 'Starting…' : 'Start now'}
+              </Button>
               <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('run')}>
                 Run next
-              </Button>
-              <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled title={START_NOW_TITLE} onClick={() => act('now')}>
-                Start now
               </Button>
               <Button variant="ghost" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('skip')} className="text-muted-foreground">
                 Skip
@@ -129,7 +168,7 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
           )}
         </span>
       </div>
-      {/* A refusal, or what hobkin said of Start now: that it started, or what still holds it. */}
+      {/* What hobkin said of Run next, Skip or Put back, or why it could not. Start now's line is the queue's. */}
       {said ? (
         <SaidLine tone={said.tone} className="px-13 pb-2">
           {said.text}

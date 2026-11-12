@@ -14,11 +14,11 @@ import {
   stepOpacity,
 } from '../src/features/settings/rules.ts'
 
-test('canonical receipts validate optional borders before marking an ask applied', () => {
-  const state = { request: { text: 'night', askedAt: 1, appliedAt: null, name: null }, appearanceId: 0 }
+test('canonical receipts validate optional borders', () => {
+  const state = { request: null, appearanceId: 0 }
   const receipt = { id: 2, name: null, palette: DARK_PALETTE, border: '#ABCDEF', borderStrong: '#123456' }
   const applied = receiveAppearance(state, receipt, 3)!
-  assert.deepEqual([applied.border, applied.borderStrong, applied.request?.appliedAt], ['#abcdef', '#123456', 3])
+  assert.deepEqual([applied.border, applied.borderStrong], ['#abcdef', '#123456'])
   assert.equal(receiveAppearance(state, { ...receipt, border: 'url(https://invalid.test)' }, 3), null)
   assert.equal(receiveAppearance(state, { ...receipt, borderStrong: 'red' }, 3), null)
   const migrated = migrateSettings({ palette: DARK_PALETTE, border: '#ABCDEF', borderStrong: 'red' })
@@ -109,12 +109,10 @@ test('the store loads settings saved at version 1 without losing them', async ()
     const state = useSettings.getState()
     assert.deepEqual([state.movement, state.typeFace, state.agents, state.showGitHubInMenu], ['still', 'geist', 6, false])
     assert.deepEqual([state.backgroundOpacity, state.palette, state.customTheme], [1, null, false])
-    assert.equal(JSON.parse(values.get('hobkin-client-settings')!).version, 3, 'saved again at the new version')
+    assert.equal(JSON.parse(values.get('hobkin-client-settings')!).version, 4, 'saved again at the new version')
 
     assert.deepEqual([state.request, state.appearanceId], [null, 0])
-    state.ask('  A quiet night  ')
     state.receive({ id: 10, name: 'Night', palette: DARK_PALETTE })
-    assert.equal(useSettings.getState().request?.name, 'Night')
     assert.equal(useSettings.getState().appearanceId, 10)
     state.setCustomTheme(false)
     state.receive({ id: 10, name: 'Night', palette: DARK_PALETTE })
@@ -128,11 +126,38 @@ test('the store loads settings saved at version 1 without losing them', async ()
     state.changeBackgroundOpacity(-1)
     const saved = JSON.parse(values.get('hobkin-client-settings')!).state
     assert.deepEqual([saved.palette, saved.customTheme, saved.backgroundOpacity], [DARK_PALETTE, true, 0.95])
-    assert.deepEqual([saved.appearanceId, saved.request.name], [10, 'Night'])
+    assert.equal(saved.appearanceId, 10)
     values.set('hobkin-client-settings', JSON.stringify({ version: 2, state: { ...saved, request: undefined, appearanceId: undefined } }))
     await useSettings.persist.rehydrate()
     assert.deepEqual([useSettings.getState().palette, useSettings.getState().backgroundOpacity], [DARK_PALETTE, 0.95])
     assert.deepEqual([useSettings.getState().request, useSettings.getState().appearanceId], [null, 0], 'version 2 colors survive and tracking gets defaults')
+    const operation = {
+      id: 'saved-operation',
+      request: 'forest',
+      status: 'completed' as const,
+      appearanceId: 12,
+      error: null,
+      cleanup: 'confirmed' as const,
+      child: 'theme-child',
+    }
+    const themeHost = {
+      getState: () => ({ home: '/fake/theme', epoch: 1, link: 'open' as const }),
+      customize: async () => operation,
+      status: async () => operation,
+    }
+    await useSettings.getState().ask('forest', themeHost)
+    await useSettings.persist.rehydrate()
+    assert.deepEqual(useSettings.getState().request?.operation, operation, 'the acknowledged exact save survives reload')
+    assert.equal(useSettings.getState().themeBusy, false)
+    let reject!: (error: Error) => void
+    const pendingAsk = useSettings.getState().ask('another forest', {
+      ...themeHost,
+      customize: () => new Promise((_, failed) => { reject = failed }),
+    })
+    assert.equal(JSON.parse(values.get('hobkin-client-settings')!).state.request.phase, 'unknown', 'reload cannot replay a submission awaiting acknowledgement')
+    reject(Object.assign(Error('Refused'), { code: 'unavailable' }))
+    await pendingAsk
+    assert.deepEqual(useSettings.getState().request?.operation, operation, 'definite refusal restores the durable previous receipt')
     const { createStore } = await import('zustand/vanilla')
     const { initialHostState } = await import('../src/lib/host/state.ts')
     useSettings.setState({ appearanceId: 999999, border: '#111111', customTheme: false })
@@ -165,6 +190,8 @@ test('the store loads settings saved at version 1 without losing them', async ()
       matchMedia: () => ({ matches: true, addEventListener() {} }),
       localStorage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) },
     })
+    const themeSubscriptions: (() => void)[] = []
+    const subscribe = useSettings.subscribe
     try {
       const appliedAppearance = () => [
         properties.get('--hb-custom-bg'),
@@ -174,7 +201,14 @@ test('the store loads settings saved at version 1 without losing them', async ()
       const appearanceA = { id: 5, name: null, palette: DARK_PALETTE, border: '#abcdef', borderStrong: '#123456' }
       const appearanceB = { id: 1, name: null, palette: LIGHT_PALETTE, border: '#fedcba', borderStrong: '#654321' }
       useSettings.setState({ appearanceHome: null, border: '#abcdef', borderStrong: '#123456' })
-      const { setThemeChoice } = await import('../src/app/theme.ts')
+      useSettings.subscribe = (listener) => {
+        const stop = subscribe(listener)
+        themeSubscriptions.push(stop)
+        return stop
+      }
+      const { setThemeChoice } = await import('../src/app/theme.ts').finally(() => {
+        useSettings.subscribe = subscribe
+      })
       assert.deepEqual(appliedAppearance(), [LIGHT_PALETTE.background, '#abcdef', '#123456'], 'unowned cache stays first paint while home is unknown')
       host.setState({ home: '/fake/other', epoch: 5, appearance: null })
       const stopThemeAppearance = watchAppearance(host)
@@ -198,6 +232,8 @@ test('the store loads settings saved at version 1 without losing them', async ()
         stopThemeAppearance()
       }
     } finally {
+      useSettings.subscribe = subscribe
+      for (const stop of themeSubscriptions) stop()
       hooks.deregister()
       for (const [key, descriptor] of globals) {
         if (descriptor) Object.defineProperty(globalThis, key, descriptor)
