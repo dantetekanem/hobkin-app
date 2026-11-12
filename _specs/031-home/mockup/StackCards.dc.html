@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Smart stack cards</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+.c{background:#1b1e25;border:1px solid #2C303A;border-radius:20px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.k{display:flex;align-items:center;gap:8px;margin:0;font:600 11.5px/16px 'Space Grotesk',sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#C9C3B0}
+.dot{width:8px;height:8px;border-radius:999px;flex:none}
+.ti{margin:0;font:600 18px/24px 'Space Grotesk',sans-serif;letter-spacing:-.012em;color:#F0EAD6}
+.de{margin:0;font:400 13.5px/20px 'Space Grotesk',sans-serif;color:#C9C3B0}
+.acts{display:flex;gap:8px}
+.b1{height:30px;padding:0 12px;border-radius:9px;border:0;background:#FFC940;color:#16181F;font:600 13px/1 'Space Grotesk',sans-serif}
+.b2{height:30px;padding:0 12px;border-radius:9px;border:1px solid #6B6F7A;background:transparent;color:#F0EAD6;font:500 13px/1 'Space Grotesk',sans-serif}
+.rule{margin:4px 0 0;padding-top:10px;border-top:1px solid #2C303A;font:400 12.5px/18px 'Space Grotesk',sans-serif;color:#A8A291}
+.rule b{color:#F0EAD6;font-weight:500}
+.tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font:500 11px/16px 'Space Grotesk',sans-serif}
+.have{background:#13281E;color:#4CC38A}
+.new{background:#2a1f12;color:#FF8A3D}
+</style>
+</helmet>
+<div style="width: 1240px; height: 980px; background: #090a0d; color: #F0EAD6; font-family: 'Space Grotesk', system-ui, sans-serif; padding: 44px 48px; display: flex; flex-direction: column; gap: 26px;">
+<header style="display: flex; flex-direction: column; gap: 8px;">
+<h1 style="margin: 0; font-size: 30px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em;">The smart stack: one card on top, chosen by what matters now</h1>
+<p style="margin: 0; font-size: 15px; line-height: 23px; color: #A8A291; max-width: 980px;">Top wins in this order: something only you can decide, then something that broke, then catching you up after time away, then something about to happen, then how the day went. Within a kind, the oldest wait or the newest problem goes first. Every card shows why it is on top.</p>
+</header>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #FFC940;"></span>Decision</p>
+<p class="ti">Merge “Run JS tests on PRs” into rpsleague?</p>
+<p class="de">Tests pass, 84 lines, no conflicts. hobkin suggests merging.</p>
+<div class="acts"><button type="button" class="b1">Merge</button><button type="button" class="b2">Open review</button></div>
+<p class="rule"><b>Rises when</b> an action item waits on you; the longer it waits, the higher it goes. <span class="tag have">data exists</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #FF7A6E;"></span>Problem</p>
+<p class="ti">rpsleague: error pages return 500 for JSON</p>
+<p class="de">Next: render errors by request format and add specs.</p>
+<div class="acts"><button type="button" class="b1">Ask hobkin to fix it</button><button type="button" class="b2">Read</button></div>
+<p class="rule"><b>Rises when</b> a critical or blocked report arrives after you last looked. Repeats of the same report fold into one card. <span class="tag have">data exists</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #7AAEFF;"></span>While you were away</p>
+<p class="ti">18 reports came in. 2 need a look.</p>
+<p class="de">rpsleague 6 · finboard 5 · pi-extended-teams 4.</p>
+<div class="acts"><button type="button" class="b1">Brief me</button><button type="button" class="b2">Open Reports</button></div>
+<p class="rule"><b>Rises when</b> you come back after 2 hours or more and at least 3 reports came in. <span class="tag new">brief not sent to the app yet</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #FFC940;"></span>Reminder</p>
+<p class="ti">Send the Q4 estimate to the accountant</p>
+<p class="de">You asked hobkin to remind you today.</p>
+<div class="acts"><button type="button" class="b1">Done</button><button type="button" class="b2">Tomorrow</button></div>
+<p class="rule"><b>Rises when</b> its day comes, first thing in the morning. <span class="tag have">due ones exist</span><span class="tag new">upcoming ones are new</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #4CC38A;"></span>Agent</p>
+<p class="ti">rpsleague: Run JS tests on PRs</p>
+<p class="de">Editing ci.yml for 6 minutes.</p>
+<div class="acts"><button type="button" class="b1">Watch</button><button type="button" class="b2">Stop</button></div>
+<p class="rule"><b>Rises when</b> an agent finishes, stalls or asks you something. Quiet running agents stay in Running now. <span class="tag have">data exists</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #8b8f99;"></span>Up next</p>
+<p class="ti">Email follow-ups runs at 6:30 PM</p>
+<p class="de">Last 3 runs timed out. On hold until 8:00 PM.</p>
+<div class="acts"><button type="button" class="b1">Run now</button><button type="button" class="b2">Open routine</button></div>
+<p class="rule"><b>Rises when</b> a routine starts within 15 minutes, or one was put on hold. <span class="tag have">data exists</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #FFC940;"></span>Review ready</p>
+<p class="ti">2 finished changes in pi-extended-teams</p>
+<p class="de">140 lines, tests pass, one behind main.</p>
+<div class="acts"><button type="button" class="b1">Review</button><button type="button" class="b2">Later</button></div>
+<p class="rule"><b>Rises when</b> work mode finishes a change that needs your eyes before it lands. <span class="tag have">data exists</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #FF7A6E;"></span>GitHub</p>
+<p class="ti">rpsleague #212: checks failing</p>
+<p class="de">Your PR. 2 of 14 checks failed on the last push.</p>
+<div class="acts"><button type="button" class="b1">Open PR</button><button type="button" class="b2">Ask hobkin</button></div>
+<p class="rule"><b>Rises when</b> someone asks for your review, or checks fail on your PR. <span class="tag have">data exists</span></p>
+</article>
+
+<article class="c">
+<p class="k"><span class="dot" style="background: #4CC38A;"></span>Today</p>
+<p class="ti">3 merged and 5 decided. 4 days in a row.</p>
+<p class="de">Biggest win: hobkin #66 landed.</p>
+<div class="acts"><button type="button" class="b1">See the week</button><button type="button" class="b2">Dismiss</button></div>
+<p class="rule"><b>Rises when</b> it is evening and something got done. <span class="tag have">today and streak exist</span><span class="tag new">week view is new</span></p>
+</article>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1240,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
