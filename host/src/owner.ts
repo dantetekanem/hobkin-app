@@ -2,13 +2,14 @@ import { existsSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { HobkinApplication, HobkinSnapshot, MainSession, MainSessionOptions, OpenOptions, PiSessionEvent } from 'hobkin/src/cli/application.mjs'
+import type { HobkinApplication, HobkinSnapshot, MainSession, MainSessionOptions, MainStartup, OpenOptions, PiSessionEvent } from 'hobkin/src/cli/application.mjs'
 import type { Decision } from 'hobkin/src/cli/decisions.mjs'
+import type { StartupForceArgs, StartupForceReceipt, StartupTarget } from '#shared/commands/registry.ts'
+import { checkArguments } from '#shared/commands/registry.ts'
 import type { OwnerState } from '#shared/protocol/messages.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
-import { loadPiCodingAgent, loadPiModelPick, type PiModelSettings } from './pi.ts'
 import { CLIENT_TOOL } from './client-tool.ts'
-import { createScriptedModel, SCRIPTED_MODEL, type ScriptedOptions, type SessionTool } from './scripted.ts'
+import { createScriptedModel, type ScriptedOptions, type SessionTool } from './scripted.ts'
 
 /** What hobkin says when another process holds the home's lock (`src/cli/runtime.mjs`). */
 const LOCKED = 'Hobkin is already running for this home.'
@@ -34,7 +35,7 @@ export interface OwnerOptions {
   frontEnd?: Pick<OpenOptions, 'askQuestion' | 'presence' | 'showDone' | 'showRow' | 'clipboard'>
   /** Tools the app adds to hobkin's main session, such as `client`. */
   tools?: readonly SessionTool[]
-  /** Live only: Pi's model runtime the app already holds, for the main session to share. */
+  /** UI model access when no live main session can provide its own catalog. */
   modelRuntime?: () => Promise<unknown>
 }
 
@@ -58,25 +59,14 @@ export function keepToSurroundings({ root, live, real }: { root: string; live: b
   if (!(live && real)) env.HOBKIN_HOME = root
 }
 
-/** The part of Pi's in-process session that a model choice changes, as hobkin's own `model_settings` tool changes it. */
+/** Native RPC binding APIs, with the SDK setters retained for in-process sessions. */
 interface PiMainSession extends MainSession {
+  modelCatalog?(): Promise<unknown>
+  apply?(choice: { model?: unknown; effort?: string }): Promise<import('hobkin/src/cli/settings.mjs').Binding>
   model?: { provider: string; id: string }
   thinkingLevel: string
   setModel?(model: unknown, options: { persist: boolean }): Promise<void>
   setThinkingLevel(level: string, options: { persist: boolean }): void
-}
-
-interface PiBranchEntry {
-  type: string
-  provider?: string
-  message?: { role?: string; provider?: string }
-}
-
-/** The conversation's latest model, as Pi looks for it when it restores one: its last switch or its last answer. */
-function answeredByScript(sessionManager: unknown): boolean {
-  const branch = ((sessionManager as { getBranch?: () => PiBranchEntry[] } | undefined)?.getBranch?.() ?? []).toReversed()
-  const latest = branch.find((entry) => entry.type === 'model_change' || (entry.type === 'message' && entry.message?.role === 'assistant'))
-  return (latest?.type === 'model_change' ? latest.provider : latest?.message?.provider) === SCRIPTED_MODEL.provider
 }
 
 /**
@@ -84,6 +74,16 @@ function answeredByScript(sessionManager: unknown): boolean {
  * holds the lock that is a fault, and this looks again until the lock is free and opens by itself. It never takes
  * a held lock: only hobkin takes one over, once its owner stopped refreshing it.
  */
+interface StartupSlot {
+  target: StartupTarget
+  runtime?: MainStartup
+  child?: MainStartup['child']
+  fenced: boolean
+  cleanupSettled: boolean
+  receipt: StartupForceReceipt | null
+  attempts: Map<string, { identity: string; result: Promise<StartupForceReceipt> }>
+}
+
 export class HomeOwner {
   state: OwnerState = { state: 'opening' }
   snapshot: HobkinSnapshot | null = null
@@ -96,15 +96,109 @@ export class HomeOwner {
   private timer: NodeJS.Timeout | undefined
   private opening: Promise<void> | null = null
   private closed = false
+  private stopped = false
+  private lifecycle = {}
+  private startup: StartupSlot
   private decisions: typeof import('hobkin/src/cli/decisions.mjs') | null = null
-  /** The main conversation's newest Pi session, and the model runtime it shares with the window. */
+  /** The main conversation's adopted Pi session. */
   private main: PiMainSession | null = null
-  private modelRuntime: unknown = null
   /** What hobkin sends as the words of a message that is only pictures. */
   imageOnlyText = ''
 
   constructor(options: OwnerOptions) {
     this.options = options
+    this.startup = this.newStartup()
+  }
+
+  private newStartup(): StartupSlot {
+    return { target: { home: this.options.root, epoch: randomUUID(), token: randomUUID(), sessionId: null },
+      fenced: false, cleanupSettled: false, receipt: null, attempts: new Map() }
+  }
+
+  private startupReceipt(slot: StartupSlot, args: StartupForceArgs): StartupForceReceipt {
+    return { ...args, fence: { status: 'confirmed' }, closure: { status: !slot.child ? 'not-created' : slot.runtime?.closed ? 'confirmed' : 'unknown' },
+      opening: { status: slot.runtime?.done || (!slot.runtime && slot.cleanupSettled) ? 'settled' : 'unknown' },
+      cleanup: { status: slot.cleanupSettled ? 'settled' : 'unknown' }, persistence: { ...(slot.runtime?.persistence ?? { status: 'unchanged' }) },
+      detachedCleanup: 'unknown', queueRecovery: 'not-applicable' }
+  }
+
+  private startupInstalled(slot: StartupSlot): boolean {
+    return Boolean(slot.cleanupSettled && slot.runtime?.installed && !slot.fenced && this.app && this.main === this.app.runtime.main
+      && this.main?.sessionId === (slot.target.sessionId ?? slot.runtime.persistence.sessionId)
+      && this.wireSnapshot()?.stopControls?.targets.some(target => target.kind === 'main' && target.canForce))
+  }
+
+  wireState(): OwnerState {
+    const slot = this.startup, runtime = slot.runtime, installed = this.startupInstalled(slot)
+    const removed = installed || runtime?.closed || (slot.fenced && slot.cleanupSettled && !slot.child)
+    const target = { ...slot.target, sessionId: runtime?.persistence.sessionId ?? slot.target.sessionId }
+    return { ...this.state, startup: { target: removed || this.closed ? null : target,
+      receipt: slot.receipt ? this.startupReceipt(slot, slot.receipt) : null } }
+  }
+
+  reconnectStartup(): void {
+    this.startup.target.epoch = randomUUID()
+    this.startup.receipt = null
+    this.options.onChange()
+  }
+
+  private retainStartup(runtime: MainStartup, lifecycle: object): void {
+    const slot = this.startup
+    if (this.closed || this.lifecycle !== lifecycle || (slot.runtime && slot.runtime !== runtime) || runtime.done || runtime.installed) throw Error('Stale main startup callback.')
+    if (!slot.runtime) {
+      slot.runtime = runtime
+      void runtime.settled.then(() => { if (this.startup === slot && !this.closed) this.options.onChange() })
+    }
+    if (runtime.child && slot.child !== runtime.child) {
+      if (slot.child) throw Error('Main startup child changed.')
+      slot.child = runtime.child
+      void runtime.child.closed.then(() => { if (this.startup === slot && !this.closed) this.options.onChange() })
+    }
+    if (slot.fenced) { runtime.cancel(); throw Error('Main startup was stopped.') }
+    this.options.onChange()
+  }
+
+  async forceStartup(args: StartupForceArgs): Promise<StartupForceReceipt> {
+    const checked = checkArguments('startup.force', args)
+    if (!checked.ok) throw Error('Invalid startup Force arguments.')
+    const slot = this.startup, runtime = slot.runtime, target = { ...slot.target, sessionId: runtime?.persistence.sessionId ?? slot.target.sessionId }
+    if (this.closed || this.startupInstalled(slot) || Object.keys(target).some(key => target[key as keyof StartupTarget] !== args.target[key as keyof StartupTarget])) throw Error('Stale main startup authority.')
+    const identity = JSON.stringify(target), prior = slot.attempts.get(args.attemptId)
+    if (prior) {
+      if (prior.identity !== identity) throw Error('Startup attempt identity changed.')
+      return prior.result
+    }
+    slot.fenced = this.stopped = true
+    clearTimeout(this.timer)
+    runtime?.cancel()
+    // Never wait for cancellation, Application.open/close or durable acknowledgment before signaling.
+    slot.child?.force()
+    const result = (async () => {
+      if (slot.child && !runtime?.closed) {
+        let timer: NodeJS.Timeout | undefined
+        try { await Promise.race([slot.child.closed, new Promise(resolve => { timer = setTimeout(resolve, 2000) })]) }
+        finally { clearTimeout(timer) }
+      }
+      if (this.closed || this.startup !== slot || slot.target.epoch !== args.target.epoch) throw Error('Stale main startup receipt.')
+      slot.receipt = this.startupReceipt(slot, args)
+      this.options.onChange()
+      return slot.receipt
+    })()
+    slot.attempts.set(args.attemptId, { identity, result })
+    return result
+  }
+
+  async resetMain<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.startup
+    if (!previous.cleanupSettled || (previous.runtime && !previous.runtime.done) || (previous.child && !previous.runtime?.closed && !previous.runtime?.installed)) throw Error('Previous main startup cleanup is unconfirmed.')
+    if (this.closed || !this.app) throw Error('Main startup application is unavailable.')
+    const slot = this.startup = this.newStartup()
+    this.options.onChange()
+    try {
+      const result = await operation()
+      if (!this.closed && !slot.fenced && this.startup === slot && this.app) this.main = this.app.runtime.main as PiMainSession
+      return result
+    } finally { slot.cleanupSettled = true; this.options.onChange() }
   }
 
   /** Execution authority belongs only to the currently installed application, not an on-disk owner ID. */
@@ -141,7 +235,8 @@ export class HomeOwner {
    * It is safe to ask again whenever something changed that could let hobkin open. The owner state says how it went.
    */
   start(): void {
-    if (this.closed || this.app || this.opening || this.held) return
+    if (this.closed || this.stopped || this.app || this.opening || this.held || (this.startup.child && !this.startup.runtime?.closed)) return
+    if (this.startup.cleanupSettled) this.startup = this.newStartup()
     void this.attempt()
   }
 
@@ -153,20 +248,28 @@ export class HomeOwner {
   }
 
   private async open(): Promise<void> {
-    const { root } = this.options
+    const { root } = this.options, slot = this.startup, lifecycle = this.lifecycle = {}
+    const check = () => { if (this.closed || slot.fenced || this.startup !== slot) throw Error('Main startup was stopped.') }
     try {
+      check()
       const { HobkinApplication } = await import('hobkin/src/cli/application.mjs')
       const images = await import('hobkin/src/cli/paste-image.mjs')
       this.decisions = await import('hobkin/src/cli/decisions.mjs')
+      check()
       await this.prepareHome()
+      check()
+      const model = await this.model()
+      check()
       const app = await HobkinApplication.open(root, {
-        ...(await this.model()),
+        ...model,
+        onMainStartup: (startup) => this.retainStartup(startup, lifecycle),
         ...this.options.frontEnd,
         onChange: (snapshot) => this.publish(snapshot),
       })
-      if (this.closed) return void (await app.close())
+      if (this.closed || slot.fenced) return void (await app.close())
 
       this.app = app
+      this.main = app.runtime.main as PiMainSession
       this.snapshot = app.snapshot
       this.imageOnlyText = images.IMAGE_ONLY_TEXT
       this.state = { state: 'live', limits: { images: images.MAX_IMAGES, imageBytes: images.MAX_PASTE_BYTES } }
@@ -174,9 +277,11 @@ export class HomeOwner {
       if (this.closed) return
       const message = error instanceof Error ? error.message : String(error)
       this.state = { state: 'failed', message: message === LOCKED ? HELD : message }
-      if (message === LOCKED) this.retryLater()
+      if (message === LOCKED && !this.stopped) this.retryLater()
+    } finally {
+      slot.cleanupSettled = true
+      if (!this.closed) this.options.onChange()
     }
-    this.options.onChange()
   }
 
   /** Where hobkin keeps this home's data. A home upgraded in place keeps it in a folder of its own. */
@@ -204,23 +309,11 @@ export class HomeOwner {
     const offline = real ? {} : { fetch: refuseNetwork }
 
     if (live) {
-      const [{ openPiSession }, pi, pickModel] = await Promise.all([import('hobkin/src/cli/pi-session.mjs'), loadPiCodingAgent(), loadPiModelPick()])
-      // hobkin builds the session as always. The app only adds its tools, through the same seam hobkin's tests use,
-      // and passes the model runtime it holds, so a sign-in in the window reaches the session at once.
-      // Configured main uses the same captured client callback through the fixed RPC proxy.
+      const { openPiSession } = await import('hobkin/src/cli/pi-session.mjs')
+      // Runtime owns history recovery and launcher precedence; no parent SDK work precedes child capture.
       const client = tools.find(tool => tool.name === CLIENT_TOOL)
       const clientBridge = client ? { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) } : undefined
-      const modelRuntime = (await this.options.modelRuntime?.()) ?? (await pi.ModelRuntime.create({ allowModelNetwork: false }))
-      this.modelRuntime = modelRuntime
-      const createSession = async (options: Record<string, unknown>) => {
-        // A conversation the scripted model answered last names a model no real Pi has, and Pi would not go on with
-        // it. It goes on with the model Pi picks for a new conversation. Any other model Pi cannot restore stays
-        // hobkin's to refuse, as in the terminal, because the conversation would go to a provider it never went to.
-        const picked = options.model === undefined && pickModel && answeredByScript(options.sessionManager)
-        const model = picked ? await pickModel(options.modelRuntime, options.settingsManager as PiModelSettings) : options.model
-        return pi.createAgentSession({ ...options, model, customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools] })
-      }
-      return { createMain: this.tapped((options) => openPiSession(options, { modelRuntime, createSession, ...(options.config.launcher && clientBridge ? { clientBridge } : {}) })), memoryIndex: {}, ...offline }
+      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline }
     }
     const model = await createScriptedModel(root, { ...scripted, tools: [...(scripted?.tools ?? []), ...tools] })
     return {
@@ -235,9 +328,14 @@ export class HomeOwner {
   /** hobkin reduces the main session's events to one word. The host listens to the session itself for the rest. */
   private tapped(createMain: (options: MainSessionOptions) => Promise<MainSession>) {
     return async (options: MainSessionOptions) => {
+      const slot = this.startup
       const session = await createMain(options)
-      this.main = session as PiMainSession
+      if (this.startup === slot && !slot.fenced) {
+        slot.target.sessionId = session.sessionId
+        this.options.onChange()
+      }
       session.subscribe((event) => {
+        if (this.main !== session || this.closed) return
         try {
           this.options.onSessionEvent(event)
         } catch {
@@ -260,13 +358,15 @@ export class HomeOwner {
   }
 
   private retryLater() {
+    if (this.closed || this.stopped) return
     this.held = true
     clearTimeout(this.timer)
     this.timer = setTimeout(() => {
-      if (this.closed) return
+      if (this.closed || this.stopped) return
       // Looking at the lock is cheap. Opening is tried only once the lock looks free, and hobkin has the last word.
       const look = async () => {
         if (await this.lockIsHeld()) return this.retryLater()
+        if (this.closed || this.stopped) return
         this.held = false
         await this.attempt()
       }
@@ -283,15 +383,16 @@ export class HomeOwner {
   async selectModel(model: string, effort?: string): Promise<{ model: string; effort: string; applied: boolean }> {
     const { updateSettings } = await import('hobkin/src/cli/settings.mjs')
     const { app, main: session } = this
-    const applyCurrent =
+    if (app && app.runtime.main !== session) throw Error('Main session replacement is still settling.')
+    const applyCurrent = app && session?.apply ? session.apply.bind(session) :
       app && session?.setModel
         ? async (choice: { model?: unknown; effort?: string }) => {
             if (choice.model) await session.setModel!(choice.model, { persist: false })
-            if (choice.effort !== undefined) session.setThinkingLevel(choice.effort, { persist: false })
+            if (choice.effort !== undefined) await session.setThinkingLevel(choice.effort, { persist: false })
             return { model: session.model ? `${session.model.provider}/${session.model.id}` : null, effort: session.thinkingLevel }
           }
         : undefined
-    const modelRuntime = this.modelRuntime ?? (await this.options.modelRuntime?.())
+    const modelRuntime = app && session?.modelCatalog ? await session.modelCatalog() : await this.options.modelRuntime?.()
     const result = await updateSettings(this.options.root, { scope: 'main', model, effort }, { modelRuntime, applyCurrent })
     const saved = result.persisted.settings?.main
     if (result.persisted.status !== 'complete' || !saved?.model) {
@@ -306,7 +407,7 @@ export class HomeOwner {
       // A home that could not open on the model it had may open on this one.
       this.start()
     }
-    return { model: saved.model, effort: saved.effort, applied: result.activeRuntime.effective?.model === saved.model }
+    return { model: saved.model, effort: saved.effort, applied: result.activeRuntime.status === 'verified' }
   }
 
   /** Stops hobkin and releases the home. A turn that is running ends as interrupted. */

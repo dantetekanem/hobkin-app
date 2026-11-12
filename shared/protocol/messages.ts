@@ -1,3 +1,4 @@
+import type { StartupForceReceipt, StartupTarget } from '../commands/registry.ts'
 import type { AppearanceRequest } from './appearance.ts'
 import type { ActivitySteps } from './activity.ts'
 import type { IntegrationsState } from '../integrations/wire.ts'
@@ -23,13 +24,14 @@ export interface ImageLimits {
 }
 
 /** Who holds the home. One process owns a home at a time. */
-export type OwnerState =
+export type OwnerState = { startup?: { target: StartupTarget | null; receipt: StartupForceReceipt | null } } & (
   /** hobkin is still opening. */
   | { state: 'opening' }
   /** This host owns the home and hobkin is running in it. `limits` are hobkin's own, so the UI can refuse a file before sending it. */
   | { state: 'live'; limits: ImageLimits }
   /** hobkin could not open, or another process holds the home's lock and the host looks again until it lets go. */
   | { state: 'failed'; message: string }
+)
 
 export interface HelloMessage {
   type: 'hello'

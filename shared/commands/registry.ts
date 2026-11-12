@@ -29,6 +29,18 @@ export interface CommandDefinition {
   outside?: true
 }
 
+export interface StartupTarget { home: string; epoch: string; token: string; sessionId: string | null }
+export interface StartupForceArgs { target: StartupTarget; attemptId: string }
+export interface StartupForceReceipt extends StartupForceArgs {
+  fence: { status: 'confirmed' }
+  closure: { status: 'confirmed' | 'unknown' | 'not-created' }
+  opening: { status: 'settled' | 'unknown' }
+  cleanup: { status: 'settled' | 'unknown' }
+  persistence: { status: 'unchanged' | 'unknown' | 'committed'; sessionId?: string; sessionFile?: string }
+  detachedCleanup: 'unknown'
+  queueRecovery: 'not-applicable'
+}
+
 export interface ExecutionTarget {
   home: string
   epoch: string
@@ -155,6 +167,14 @@ export const COMMANDS = {
     description: 'Stop the turn that is running. Returns the messages hobkin had not read yet.',
     runs: 'host',
     args: nothing,
+  },
+  'startup.force': {
+    description: 'Fence this startup and force only its captured child. Closure, durable persistence and outer cleanup are separate facts.',
+    runs: 'host',
+    args: Type.Object({
+      target: Type.Object({ home: words(4096), epoch: words(128), token: words(128), sessionId: Type.Union([words(512), Type.Null()]) }, { additionalProperties: false }),
+      attemptId: Type.String({ pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$' }),
+    }, { additionalProperties: false }),
   },
   'execution.stop': {
     description: 'Stop or force the captured execution. Cancellation, transport closure and queue recovery are independent receipts.',
@@ -595,6 +615,7 @@ export interface CommandResults {
   'conversation.detach': { ok: true }
   'conversation.stop': { stopped: boolean; unsent: string[] }
   'execution.stop': StopExecutionReceipt
+  'startup.force': StartupForceReceipt
   'slash.list': { commands: SlashCommand[] }
   'slash.run': SlashOutcome
   'avatar.wake': { ok: true }

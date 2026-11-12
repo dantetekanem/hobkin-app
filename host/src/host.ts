@@ -222,7 +222,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     log,
   })
   const facts = () => ({
-    owner: owner.state,
+    owner: owner.wireState(),
     signIn: signIn.state,
     models: signIn.models,
     github: github.state,
@@ -291,12 +291,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return done
     },
     'execution.stop': (args) => stopExecution(owner, args),
+    'startup.force': (args) => owner.forceStartup(args),
     'conversation.stop': async () => {
       const unsent = await hobkin().interrupt()
       return { stopped: unsent !== null, unsent: unsent ?? [] }
     },
     'slash.list': async () => ({ commands: await slash.list(owner.app) }),
-    'slash.run': ({ name, args = '' }) => slash.run(hobkin(), name, args.trim()),
+    'slash.run': ({ name, args = '' }) => name === '/reset' ? owner.resetMain(() => slash.run(hobkin(), name, args.trim())) : slash.run(hobkin(), name, args.trim()),
     'avatar.wake': () => {
       hobkin().moods.react({ event: 'woken' })
       return done
@@ -389,7 +390,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     protocol: PROTOCOL_VERSION,
     home: root,
     model: live ? 'live' : 'scripted',
-    owner: owner.state,
+    owner: owner.wireState(),
     signIn: signIn.state,
     models: signIn.models,
     viewState: null,
@@ -422,6 +423,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     origins: options.origins ?? [APP_ORIGIN, ...(dev ? [DEV_UI_ORIGIN] : [])],
     dev,
     onConnection: (socket) => {
+      owner.reconnectStartup()
       send(socket, hello())
       send(socket, sync.full())
       for (const turn of turns.catchUp()) send(socket, turn)

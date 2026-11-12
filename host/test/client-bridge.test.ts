@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { registerHooks, syncBuiltinESMExports } from 'node:module'
 import childProcess from 'node:child_process'
 import net from 'node:net'
+import http from 'node:http'
+import https from 'node:https'
 import { after, test } from 'node:test'
 
 const folder = mkdtempSync(join(tmpdir(), 'client-bridge-'))
@@ -15,6 +17,7 @@ const refuse = () => { throw Error('Unexpected real process/network/SDK/resource
 Object.assign(childProcess, Object.fromEntries(['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'].map(key => [key, refuse])))
 net.connect = net.createConnection = refuse
 net.Server.prototype.listen = refuse
+http.request = http.get = https.request = https.get = refuse
 process.kill = refuse
 globalThis.fetch = refuse
 syncBuiltinESMExports()
@@ -24,12 +27,11 @@ Object.assign(globalThis, { bridgeCaptures: captures, bridgeSdk: sdkOptions })
 const fake = (source: string) => ({ format: 'module' as const, shortCircuit: true, source })
 registerHooks({ load(url, context, next) {
   if (url.endsWith('/host/src/pi.ts')) return fake(`
-    export const loadPiCodingAgent = async () => ({ ModelRuntime: { create() { throw Error('real runtime') } },
-      createAgentSession: async options => { globalThis.bridgeSdk.push(options); return { session: {} } } });
+    export const loadPiCodingAgent = () => { globalThis.bridgeSdk.push({ operation: 'SDK loader' }); throw Error('parent SDK startup'); };
     export const loadPiAi = () => { throw Error('real model') };
-    export const loadPiModelPick = async () => null;`)
+    export const loadPiModelPick = loadPiCodingAgent;`)
   if (url.endsWith('/hobkin/src/cli/pi-session.mjs')) return fake(`export async function openPiSession(options, deps) {
-    globalThis.bridgeCaptures.push(deps); if (!options.config.launcher) await deps.createSession({ customTools: ['base'] });
+    globalThis.bridgeCaptures.push(deps);
     return { subscribe() {} }; }`)
   if (/pi-coding-agent|resource-loader|model-runtime/.test(url)) throw Error(`Real SDK import: ${url}`)
   return next(url, context)
@@ -37,17 +39,17 @@ registerHooks({ load(url, context, next) {
 const { createClientTool } = await import('../src/client-tool.ts')
 const { HomeOwner } = await import('../src/owner.ts')
 
-test('main owner captures the actual client for configured Pi and preserves SDK tools', { timeout: 2000 }, async () => {
+test('main owner captures the actual client for configured and isolated Pi without parent SDK startup', { timeout: 2000 }, async () => {
   const tool = createClientTool({ run: async () => ({ ok: true, value: 'host' }) })
-  const owner = new HomeOwner({ root: folder, live: true, real: false, tools: [tool], modelRuntime: async () => ({}), onChange() {}, onSessionEvent() {} })
+  const owner = new HomeOwner({ root: folder, live: true, real: false, tools: [tool], modelRuntime: async () => refuse(), onChange() {}, onSessionEvent() {} })
   const options = await (owner as unknown as { model(): Promise<{ createMain(options: unknown): Promise<unknown> }> }).model()
   await options.createMain({ config: { launcher: { command: 'never-executed' } } })
   const bridge = captures[0]?.clientBridge as { tool: unknown; extensionPath: string } | undefined
   assert.equal(bridge?.tool, tool, 'configured main must receive the captured host callback')
   assert.equal(bridge?.extensionPath, new URL('../src/client-bridge-extension.ts', import.meta.url).pathname)
   await options.createMain({ config: {} })
-  assert.equal(captures[1]?.clientBridge, undefined)
-  assert.deepEqual(sdkOptions[0]?.customTools, ['base', tool])
+  assert.deepEqual(captures.map(deps => [deps.isolatedMain, deps.recoverScriptedHistory, deps.clientBridge]), [[true, true, bridge], [true, true, bridge]])
+  assert.deepEqual(sdkOptions, [])
 })
 
 test('fixed client proxy forwards IDs, results, errors and cancellation through the existing bridge', { timeout: 2000 }, async () => {

@@ -70,7 +70,22 @@ declare module 'hobkin/src/cli/application.mjs' {
     getFilePaths?(): Promise<string[]>
   }
 
+  export interface MainStartup {
+    token: string
+    fresh: boolean
+    child: { closed: Promise<unknown>; force(): unknown } | null
+    closed: boolean
+    done: boolean
+    installed: boolean
+    error: unknown
+    signal: AbortSignal
+    cancel(): void
+    settled: Promise<void>
+    persistence: import('#shared/commands/registry.ts').StartupForceReceipt['persistence']
+  }
+
   export interface OpenOptions {
+    onMainStartup?: (startup: MainStartup) => void
     clipboard?: ClipboardSource
     createMain?: (options: MainSessionOptions) => Promise<MainSession>
     runHarness?: (request: HarnessRequest, options?: unknown) => Promise<unknown>
@@ -142,11 +157,12 @@ declare module 'hobkin/src/cli/pi-session.mjs' {
 
   /**
    * `dependencies` is the seam hobkin's own tests use: a session factory, an agent folder and a model runtime of their own.
+   * `isolatedMain` captures a child before SDK work; configured launchers retain precedence. Recovery stays child-only.
    * With `createSession` and no `modelRuntime`, hobkin opens no runtime and does not apply the configured model.
    */
   export function openPiSession(
     options: MainSessionOptions,
-    dependencies?: { agentDir?: string; modelRuntime?: unknown; createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }>; clientBridge?: { tool: unknown; extensionPath: string } },
+    dependencies?: { isolatedMain?: boolean; recoverScriptedHistory?: boolean; agentDir?: string; modelRuntime?: unknown; createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }>; clientBridge?: { tool: unknown; extensionPath: string } },
   ): Promise<MainSession>
 }
 
