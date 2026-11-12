@@ -49,10 +49,10 @@ export function SettingsScreen() {
         <WhatLeaves />
         <Keys />
         <SetupAgainTile />
-        <Tile name="Nerd stats" value="Numbers for the curious" className="col-span-6 @max-[820px]:col-span-2">
-          <NerdStats />
-        </Tile>
       </div>
+      <section aria-label="Nerd stats" className="absolute top-5 right-16 z-10">
+        <NerdStats />
+      </section>
       {/* Last in the walk, and in the corner for the mouse. Escape does the same from anywhere in Settings. */}
       <Button variant="ghost" size="icon" aria-label="Close settings" data-stop="" onClick={closeSettings} className="absolute top-5 right-5 z-10">
         <X />
