@@ -16,8 +16,8 @@ import { assertState, attentionView, closingItems, itemCounts, itemsView, landin
 import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
-  agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject, readDiscovery, readItems,
-  readMode, readProject, readProjects, readState, setAgents, setDailyTokens, tokenLabel, updateItem, writeMode,
+  agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, issueMode, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject,
+  readDiscovery, readItems, readMode, readProject, readProjects, readState, setAgents, setDailyTokens, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
@@ -158,6 +158,7 @@ export function workStatus(root, outlook = {}) {
       ...project,
       priority: priorityOf(project),
       prMode: landing(project),
+      issues: issueMode(project),
       ...itemCounts(items),
       unmerged: unmerged.perProject[project.slug] ?? 0,
       nextLookAt: project.state === 'chosen' ? nextLookAt(root, project) : null,
@@ -327,13 +328,13 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'allow': return answerAllow(root, args[0]);
     case 'progress': return noteDiscovery(root, await readJson(input));
     case 'propose': {
-      // A level is only a suggestion the user answers, but `priority` and `prMode` would pass unseen, and they are only ever the user's word.
-      const { priority, prMode, ...proposal } = await readJson(input);
+      // A level is only a suggestion the user answers, but `priority`, `prMode` and `issues` would pass unseen, and they are only ever the user's word.
+      const { priority, prMode, issues, ...proposal } = await readJson(input);
       return proposeProject(root, proposal);
     }
     case 'item': {
-      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `workNote` and what a merge or an offer records are only ever hobkin's or the user's word, so none can arrive here.
-      const { max, grade, reviewAsked, reviewAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, ...item } = await readJson(input);
+      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `workNote`, the issue an item came from and what a merge or an offer records are only ever hobkin's or the user's word, so none can arrive here.
+      const { max, grade, reviewAsked, reviewAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);

@@ -15,6 +15,8 @@ export const grades = ['P0', 'P1', 'P2', 'P3'];
 // Each look takes one of seven lenses in turn, so these bring every lens round in 7 hours at P0, a week at P1, three weeks at P2 and seven weeks at P3.
 const hoursBetweenLooks = { P0: 1, P1: 24, P2: 72, P3: 168 };
 export const prModes = ['off', 'draft', 'published'];
+// Which of a project's open GitHub issues it files as work by itself: none, only those labeled for hobkin, or every one.
+export const issueModes = ['off', 'labeled', 'all'];
 export const lenses = ['security', 'bugs', 'updates', 'chores', 'improvements', 'features', 'trends'];
 // `branch` is finished on a branch with no PR. `stuck` is only ever on older records, and they run again like anything open.
 export const itemStates = ['open', 'doing', 'waiting', 'branch', 'pr', 'merged', 'done', 'declined', 'dropped', 'stuck', 'noted'];
@@ -422,6 +424,17 @@ export function setProjectPrMode(root, slug, prMode) {
   return readProject(root, slug);
 }
 
+/** The user's word on which issues a project picks up by itself. Turned on, it reads them on the next tick instead of after the last wait. */
+export function setProjectIssues(root, slug, issues) {
+  if (!issueModes.includes(issues)) throw Error(`Issue pickup must be one of: ${issueModes.join(', ')}`);
+  if (!readProject(root, slug)) throw Error(`Unknown project: ${slug}`);
+  appendEvent(projectsPath(root), { slug, issues });
+  if (issues !== 'off') writeState(root, slug, { lastIssuesAt: null });
+  return readProject(root, slug);
+}
+
+export const issueMode = ({ issues }) => (issueModes.includes(issues) ? issues : 'off');
+
 export const priorityOf = ({ priority, level }) => priority ?? levels[level]?.priority;
 
 /** A project's priority sets how often it runs, so P0 comes round far more than P3. Its level sets the model and how hard it thinks. */
@@ -497,8 +510,9 @@ export const dropProject = (root, slug, now = Date.now()) => answerProject(root,
 
 export const readItems = (root, slug) => readWorkRecords(paths(root, slug).items, 'id');
 
+/** `issue` is the GitHub issue the item came from, which only hobkin's own issue actions name. */
 export function fileItem(root, slug, item, now = Date.now()) {
-  const { key, kind, title, brief, urgent = false, impact, effort, reopen, causedBy } = item;
+  const { key, kind, title, brief, urgent = false, impact, effort, reopen, causedBy, issue } = item;
   assertItem(item);
 
   const known = readItems(root, slug).find(existing => existing.key === key);
@@ -506,7 +520,7 @@ export function fileItem(root, slug, item, now = Date.now()) {
 
   const id = known?.id ?? createHash('sha256').update(key).digest('hex').slice(0, 6);
   const filed = { id, key, kind, title, brief, urgent, state: 'open', attempts: 0, at: new Date(now).toISOString() };
-  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}), ...(causedBy ? { causedBy } : {}) };
+  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}), ...(causedBy ? { causedBy } : {}), ...(issue ? { issue } : {}) };
   appendEvent(paths(root, slug).items, reopen ? { ...sized, reopen } : sized);
   return readItems(root, slug).find(existing => existing.id === id);
 }

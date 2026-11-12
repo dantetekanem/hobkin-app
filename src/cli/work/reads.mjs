@@ -7,7 +7,8 @@ import { findItem, findProject, nameOf } from './names.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
 import { canStart, itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import {
-  byPriority, byRank, chosenProjects, currentRequest, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates, tokenLabel,
+  byPriority, byRank, chosenProjects, currentRequest, issueMode, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates,
+  tokenLabel,
 } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { finishedOnBranch, readUnmerged, SHIP_KIND } from './unmerged.mjs';
@@ -100,6 +101,7 @@ const projectRow = (root, project) => {
     level,
     priority: priorityOf(project),
     prMode: landing(project),
+    issues: issueMode(project),
     state,
     path,
     paused,

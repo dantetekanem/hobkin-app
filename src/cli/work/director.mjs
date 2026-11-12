@@ -14,6 +14,7 @@ import { budgetFor, fitsDay, fitsHour, hourShareOf, withStart } from './budget.m
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { declineStopped, toldStop } from './controls.mjs';
+import { fileOpenIssues } from './issues.mjs';
 import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
@@ -186,6 +187,8 @@ export class WorkDirector {
     const { pause, budget, next, shipFirst, subscription } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
     watchPile(this.root, shipFirst, this.now());
     if (['day', 'hour'].includes(pause?.kind)) this.holdDiscovery();
+    // New issues come in only while nothing holds work: no pause, no stop and budget left.
+    if (!pause) this.pickUpIssues();
     this.tellPause(pause, current);
     // Ahead of the subscription's pace, hobkin tells and asks, and work carries on unless the user pauses it.
     retireSubscriptionPause(this.root, subscription.ahead, this.now());
@@ -360,6 +363,17 @@ export class WorkDirector {
       this.watching = null;
       this.onChange();
     });
+  }
+
+  // Code only: gh reads the issues of the projects that pick them up, and the new ones are filed. It runs by itself, because gh must not hold a tick.
+  pickUpIssues() {
+    if (this.pickingUp) return;
+    this.pickingUp = fileOpenIssues(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
+      .then(filed => {
+        if (filed.length) this.onChange();
+      })
+      .catch(() => {})
+      .finally(() => { this.pickingUp = null; });
   }
 
   // After the survey, so what it found merged lets go of its tree on the same pass. A tree that cannot go yet is asked about again next time.

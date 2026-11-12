@@ -34,6 +34,7 @@ import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './wo
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
 import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview, triggerRow } from './work/controls.mjs';
+import { addIssue } from './work/issues.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
@@ -49,7 +50,8 @@ import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, bri
 import { readReportIds } from './telemetry.mjs';
 import { carryOutAnswer } from './answer.mjs';
 import {
-  answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem, writeMode,
+  answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectIssues, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem,
+  writeMode,
 } from './work/store.mjs';
 import { readingUsage } from './work/usage.mjs';
 import { atomicJson, learningEnabled, loadConfig, readPersona, setLearning } from './config.mjs';
@@ -1021,6 +1023,10 @@ export class HobkinApplication {
       level: () => chooseProject(root, slug, value),
       priority: () => setProjectPriority(root, slug, value),
       prs: () => setProjectPrMode(root, slug, value),
+      // Which of the project's open GitHub issues it files as work by itself: `off`, `labeled` or `all`.
+      issues: () => setProjectIssues(root, slug, value),
+      // A GitHub issue the user added from the client's GitHub page, as `{ repo, number, title, body, url, labels }`. It goes first in the queue.
+      issue: () => addIssue(root, slug, value, this.now()),
       grade: () => updateItem(root, slug, value, { grade: extra }),
       skip: () => skipProject(root, slug),
       drop: () => dropProject(root, slug),

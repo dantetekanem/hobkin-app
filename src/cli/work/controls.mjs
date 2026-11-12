@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { shortPath } from './chat.mjs';
@@ -543,6 +543,18 @@ export async function openPullRequest(root, reference, id, { open = url => run(b
 
 const OPENED_PR = 'opened its PR';
 
+/**
+ * A PR's body: its branch's description, or else its brief. Work that came from a GitHub issue says it fixes that issue, so GitHub closes the
+ * issue when the PR merges, and its description says so too.
+ */
+function bodyOf(description, { brief, title, issue }) {
+  const fixes = issue ? `Fixes ${issue.repo}#${issue.number}` : null;
+  if (!existsSync(description)) return ['--body', [brief ?? title, fixes].filter(Boolean).join('\n\n')];
+  const text = readFileSync(description, 'utf8');
+  if (fixes && !text.toLowerCase().includes(fixes.toLowerCase())) writeFileSync(description, `${text.trimEnd()}\n\n${fixes}\n`);
+  return ['--body-file', description];
+}
+
 /** The open PR its host has for a branch, if any, so approving a branch twice never opens a second one. */
 async function openPullFor(repo, origin, branch, gh) {
   const list = JSON.parse(await gh(['pr', 'list', '--repo', origin, '--head', branch, '--state', 'open', '--json', 'url,headRefOid'], repo));
@@ -575,8 +587,7 @@ export async function publishItem(root, reference, id, { head = null, gh = ghWit
   const open = await openPullFor(repo, origin, branch, gh);
   let url = open?.url;
   if (!url) {
-    const description = prFile(root, project.slug, item.id);
-    const body = existsSync(description) ? ['--body-file', description] : ['--body', item.brief ?? title];
+    const body = bodyOf(prFile(root, project.slug, item.id), item);
     const draft = project.prMode === 'draft' ? ['--draft'] : [];
     const base = await defaultBranch(repo);
     const created = await gh(['pr', 'create', '--repo', origin, '--head', branch, '--base', base, '--title', title, ...body, ...draft], repo).catch(error => {
