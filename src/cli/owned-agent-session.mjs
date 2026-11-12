@@ -15,7 +15,7 @@ async function bounded(promise, ms, fallback) {
 }
 
 /** Host-only bindings carry permissions and task content; model-visible tree identities carry neither. */
-export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcProcess, onEvent = () => {}, onStats = () => {}, ownedAgent, join, onUnconfirmed = () => {}, startupMs = 10000, stopMs = 2000, now = Date.now } = {}) {
+export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcProcess, onEvent = () => {}, onStats = () => {}, ownedAgent, join, onUnconfirmed = () => {}, startupMs = 10000, stopMs = 2000, now = Date.now, metricNow = () => performance.now() } = {}) {
   for (const ms of [startupMs, stopMs]) if (!Number.isSafeInteger(ms) || ms < 1 || ms > 60000) throw Error('Invalid owned deadline');
   return { start(identity) {
     const binding = bindingFor?.(identity);
@@ -29,24 +29,35 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
     // Consumers may attach after a synchronous startup failure; never leak an unhandled rejection.
     result.promise.catch(() => {});
     let transport, closed, stopping, forcing, exit, sessionId, joining = false, cancelled = false, finished = false, report = '', finalError;
-    let metrics, owner, terminalStats, sealed = false, uncertain = false, lastActivityAt = null;
+    let metrics, owner, terminalStats, currentResponse, outputObserved = false, sealed = false, uncertain = false, lastActivityAt = null;
     const seal = () => { sealed = true; metrics?.finish(owner); };
     function snapshot() {
       const facts = metrics?.snapshot(owner);
-      if (!facts) return { usage: null, lastActivityAt };
+      if (!facts) return { usage: null, lastActivityAt, performance: null };
+      const performance = structuredClone(facts);
+      performance.incomplete ||= uncertain;
       const usage = { incomplete: facts.incomplete || uncertain, sealed };
-      for (const field of TOKEN_FIELDS) {
-        const response = facts[field], total = terminalStats?.[field];
+      for (const field of [...TOKEN_FIELDS, 'estimatedUsd']) {
+        const response = facts[field];
+        const total = terminalStats?.[field];
         const measured = typeof total === 'number' && Number.isFinite(total) && total >= 0;
-        const regression = measured && response.value !== null && total < response.value;
+        const regression = (measured && response.value !== null && total < response.value)
+          || (total !== undefined && !measured);
         const value = measured ? Math.max(response.value ?? 0, total) : response.value;
         const state = value === null ? 'unavailable'
           : facts.incomplete || uncertain || regression ? 'partial'
           : measured ? 'complete' : response.state;
-        usage[field] = { value, state };
-        usage.incomplete ||= state !== 'complete';
+        performance[field] = { value, state };
+        performance.incomplete ||= regression;
+        if (TOKEN_FIELDS.includes(field)) {
+          usage[field] = { value, state };
+          usage.incomplete ||= state !== 'complete';
+        }
       }
-      return { usage, lastActivityAt };
+      if (uncertain && performance.responseDurationMs.value !== null) {
+        performance.responseDurationMs.state = 'partial';
+      }
+      return { usage, lastActivityAt, performance };
     }
     const controller = new AbortController();
     const tools = { owned_agent: createOwnedAgentSessionTool((request, signal) => ownedAgent?.(identity, request, signal)) };
@@ -76,8 +87,12 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       try {
         const stats = await bounded(transport.request('get_session_stats'), stopMs, null);
         if (!sealed) {
-          if (stats?.sessionId === sessionId) terminalStats = Object.fromEntries(TOKEN_FIELDS.map(field => [field, stats.tokens?.[field]]));
-          else if (stats) uncertain = true;
+          if (stats?.sessionId === sessionId) {
+            terminalStats = {
+              ...Object.fromEntries(TOKEN_FIELDS.map(field => [field, stats.tokens?.[field]])),
+              estimatedUsd: stats.cost,
+            };
+          } else if (stats) uncertain = true;
         }
         if (stats && stats.sessionId !== sessionId) finalError = Error('Owned session identity changed');
         else onStats(identity, stats);
@@ -104,11 +119,36 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       if (finished || cancelled) return;
       if (metrics && !sealed) {
         const message = record.message;
-        const own = message?.role === 'assistant' && (message.sessionId === undefined || message.sessionId === sessionId)
+        const captured = (record.sessionId === undefined || record.sessionId === sessionId)
+          && (record.runId === undefined || record.runId === identity.id)
+          && (record.responseId === undefined || record.responseId === (message ?? currentResponse)?.responseId);
+        const own = captured && message?.role === 'assistant' && (message.sessionId === undefined || message.sessionId === sessionId)
           && `${message.provider}/${message.model}` === binding.model;
-        if (own) metrics.observe({ type: record.type, message: { role: 'assistant', provider: message.provider, model: message.model, responseId: message.responseId, timestamp: message.timestamp, usage: message.usage } }, owner);
-        else if (message?.role === 'assistant') uncertain = true;
-        if ((own && ['message_start', 'message_update', 'message_end'].includes(record.type)) || ['tool_execution_start', 'tool_execution_end'].includes(record.type)) lastActivityAt = now();
+        const response = own ? { role: 'assistant', provider: message.provider, model: message.model,
+          responseId: message.responseId, timestamp: message.timestamp } : undefined;
+        const identified = value => (typeof value?.responseId === 'string' && value.responseId.length > 0 && value.responseId.length <= 512)
+          || (typeof value?.timestamp === 'number' && Number.isFinite(value.timestamp) && value.timestamp >= 0);
+        if (own && ['message_start', 'message_update'].includes(record.type)) currentResponse = identified(response) ? response : undefined;
+        const associated = captured && !message && record.type === 'message_update' ? currentResponse : response;
+        if (associated) {
+          const update = record.assistantMessageEvent;
+          const generated = record.type === 'message_update' && identified(associated) && ['text_delta', 'thinking_delta', 'toolcall_delta'].includes(update?.type)
+            && typeof update.delta === 'string' && update.delta.length > 0;
+          metrics.observe({
+            type: record.type,
+            message: { ...associated, usage: message?.usage, durationMs: message?.durationMs },
+            assistantMessageEvent: generated ? { type: update.type, delta: '1' } : undefined,
+          }, owner);
+          if (generated && !outputObserved) {
+            outputObserved = true;
+            emit({ type: 'performance', display: false });
+          }
+        } else if (message?.role === 'assistant' || !captured) {
+          uncertain = true;
+          if (captured && message?.role === 'assistant') currentResponse = undefined;
+        }
+        if (own && record.type === 'message_end') currentResponse = undefined;
+        if ((associated && ['message_start', 'message_update', 'message_end'].includes(record.type)) || ['tool_execution_start', 'tool_execution_end'].includes(record.type)) lastActivityAt = now();
       }
       if (record.type === 'message_end' && record.message?.role === 'assistant') {
         const message = record.message;
@@ -152,7 +192,7 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
             sessionId = state.sessionId;
             if (`${state.model?.provider}/${state.model?.id}` !== binding.model || state.thinkingLevel !== binding.effort) throw Error('Owned model or effort mismatch');
             owner = { runId: identity.id, sessionId };
-            metrics = createTurnMetrics(owner);
+            metrics = createTurnMetrics({ ...owner, now: metricNow });
             await transport.request('prompt', { message: binding.prompt });
           } catch (error) { await fail(error); }
         })();

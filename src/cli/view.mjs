@@ -16,7 +16,7 @@ const metricId = value => typeof value === 'string' && /^[a-zA-Z0-9._:-]{1,200}$
 const metricNumber = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const metricTime = value => typeof value === 'string' && value.length <= 64 && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
 const metricFields = ['input', 'output', 'cacheRead', 'cacheWrite', 'estimatedUsd', 'responseDurationMs'];
-const safePerformance = (facts, runId, sessionId) => {
+export const safePerformance = (facts, runId, sessionId) => {
   if (facts?.schemaVersion !== 1 || facts.runId !== runId || facts.sessionId !== sessionId || !metricId(sessionId)) return null;
   const result = { schemaVersion: 1, runId, sessionId, responses: metricNumber(facts.responses) ? facts.responses : null,
     incomplete: facts.incomplete !== false,
@@ -30,26 +30,75 @@ const safePerformance = (facts, runId, sessionId) => {
   return result;
 };
 
-/** Parent-owned measurements only. Observer delay is not provider-wire TTFT; USD remains an estimate. */
-export function projectPerformance(root, runs, { connection = 'connected', asOf = null } = {}) {
+const helperStatuses = ['queued', 'running', 'cancelling', 'unknown', 'completed', 'failed', 'cancelled'];
+const terminalHelper = status => ['completed', 'failed', 'cancelled'].includes(status);
+function projectHelpers(rootId, live, events, saved) {
+  const candidates = new Map();
+  for (const [source, rows] of [['live', live], ['event', events], ['saved', saved]]) {
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (!row || !metricId(row.id) || row.id === rootId || row.rootId !== rootId || !metricId(row.parentId)
+        || !Number.isInteger(row.depth) || row.depth < 1 || row.depth > 3 || !helperStatuses.includes(row.status)) continue;
+      const sessionId = row.sessionId === undefined ? row.performance?.sessionId ?? null : row.sessionId;
+      if (sessionId !== null && !metricId(sessionId)) continue;
+      const performance = safePerformance(row.performance, row.id, sessionId);
+      if (row.performance != null && !performance) continue;
+      if (!candidates.has(row.id)) {
+        candidates.set(row.id, {
+          id: row.id,
+          parentId: row.parentId,
+          rootId,
+          depth: row.depth,
+          sessionId,
+          status: source === 'saved' && !terminalHelper(row.status) ? 'unknown' : row.status,
+          source,
+          performance,
+        });
+      }
+    }
+  }
+  const hasAncestry = row => row.depth === 1 ? row.parentId === rootId
+    : candidates.get(row.parentId)?.depth === row.depth - 1 && hasAncestry(candidates.get(row.parentId));
+  const retained = [];
+  for (const row of [...candidates.values()].sort((a, b) => a.depth - b.depth)) {
+    if (hasAncestry(row) && (row.depth === 1 || retained.some(parent => parent.id === row.parentId))) retained.push(row);
+    if (retained.length === 32) break;
+  }
+  return retained;
+}
+
+/** Own-session measurements only. Observer delay is not provider-wire TTFT; USD remains an estimate. */
+export function projectPerformance(root, runs, { connection = 'connected', asOf = null, liveHelpers = [], savedTelemetry = null } = {}) {
   const tail = recentPerformanceEvents(root);
   const events = new Map(tail.events.map(event => [JSON.stringify([event.runId, event.sessionId]), event]));
   const parents = runs.filter(run => metricId(run.id) && !run.parentRunId);
   const selected = [...parents.filter(run => run.status === 'running'), ...parents.filter(run => run.status !== 'running')].slice(0, 100);
   return { schemaVersion: 1, connection, stale: connection !== 'connected', asOf: metricTime(asOf),
-    scope: 'own-parent', helpers: 'unavailable',
-    retention: { maxRuns: 100, eventMonthFiles: 2, eventTailBytesPerFile: PERFORMANCE_TAIL_BYTES,
+    scope: 'own-parent-and-helpers', helpers: 'owned',
+    retention: { maxRuns: 100, maxHelpersPerRun: 32, maxEventKeys: 100, eventMonthFiles: 2, eventTailBytesPerFile: PERFORMANCE_TAIL_BYTES,
       eventReadState: tail.state, eventTailTruncated: tail.truncated, history: 'bounded' },
     runs: selected.map(run => {
-      const sessionId = run.result?.sessionId ?? run.sessionId ?? run.performance?.sessionId ?? run.result?.performance?.sessionId;
-      const receipt = safePerformance(run.performance, run.id, sessionId) ?? safePerformance(run.result?.performance, run.id, sessionId);
-      const event = safePerformance(events.get(JSON.stringify([run.id, sessionId])), run.id, sessionId);
+      const sessionId = run.result?.sessionId ?? run.sessionId ?? run.performance?.sessionId ?? run.result?.performance?.sessionId ?? null;
+      const metricRunId = run.harnessId ?? run.id;
+      const validIdentity = metricId(metricRunId) && (run.result?.id === undefined || run.result.id === metricRunId);
+      const receipt = validIdentity
+        ? safePerformance(run.performance, metricRunId, sessionId) ?? safePerformance(run.result?.performance, metricRunId, sessionId)
+        : null;
+      const matchingEvent = events.get(JSON.stringify([metricRunId, sessionId]));
+      const event = validIdentity && !matchingEvent?.ownedHelper ? safePerformance(matchingEvent, metricRunId, sessionId) : null;
+      const previous = Array.isArray(savedTelemetry?.runs)
+        ? savedTelemetry.runs.slice(0, 100).find(row => row?.runId === run.id && row.sessionId === sessionId)
+        : null;
+      const helperEvents = tail.events.filter(item => item.ownedHelper?.id === item.runId && terminalHelper(item.ownedHelper.status))
+        .map(item => ({ ...item.ownedHelper, sessionId: item.sessionId, performance: item.schemaVersion === 1 ? item : null }));
       return { runId: run.id, sessionId: metricId(sessionId) ? sessionId : null,
         kind: ['main', 'background'].includes(run.kind) ? run.kind : 'unknown',
         status: ['running', 'completed', 'failed', 'interrupted', 'no_change', 'incomplete'].includes(run.status) ? run.status : 'unknown',
         startedAt: metricTime(run.startedAt), finishedAt: metricTime(run.finishedAt),
-        source: receipt ? (connection === 'offline' ? 'saved' : 'receipt') : event ? 'event' : 'unavailable', performance: receipt ?? event };
-    }) };
+        source: receipt ? (connection === 'offline' ? 'saved' : 'receipt') : event ? 'event' : 'unavailable', performance: receipt ?? event,
+        helpers: projectHelpers(run.id, connection === 'offline' ? [] : liveHelpers, helperEvents, previous?.helpers),
+      };
+    }),
+  };
 }
 
 const presentationPath = requestedRoot => join(resolveDataRoot(requestedRoot), 'runtime', 'presentation.json');
@@ -125,8 +174,9 @@ export function readLocalView(requestedRoot) {
     runs: saved.runs ?? [],
     connection: 'offline',
     telemetry: projectPerformance(root, performanceRuns.slice(0, 100).filter(run => run && typeof run === 'object')
-      .map(run => ({ ...run, id: run.runId ?? run.id, status: run.status ?? run.state })),
-    { connection: 'offline', asOf: saved.savedAt }),
+      .map(run => ({ ...(saved.runs ?? []).find(metadata => metadata.id === (run.runId ?? run.id)),
+        ...run, id: run.runId ?? run.id, status: run.status ?? run.state })),
+    { connection: 'offline', asOf: saved.savedAt, savedTelemetry: saved.telemetry }),
     usage: UsageLedger.open(root, config.initializedAt).snapshot(),
     memoryBytes: memoryBytes(root),
     work: workStatus(root),

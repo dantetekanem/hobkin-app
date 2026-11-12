@@ -2,16 +2,20 @@ import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { DefaultResourceLoader } from '@earendil-works/pi-coding-agent';
-import { createOwnedAgentAdapter } from '../src/cli/owned-agent-session.mjs';
-import extension, { ownedRoleTools } from '../src/cli/owned-agent-extension.mjs';
-import { createOwnedAgents } from '../src/cli/owned-agents.mjs';
+import { registerHooks } from 'node:module';
+// Replace the SDK before any production import; only the pure tool declaration is needed.
+registerHooks({ resolve(specifier, context, next) {
+  if (specifier === '@earendil-works/pi-coding-agent') return { url: 'data:text/javascript,export const defineTool = value => value;', shortCircuit: true };
+  return next(specifier, context);
+} });
 
 for (const name of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
 syncBuiltinESMExports();
 mock.method(process, 'kill', () => { throw Error('Real signal forbidden'); });
-mock.method(DefaultResourceLoader.prototype, 'reload', () => { throw Error('Real resource loader forbidden'); });
 mock.method(globalThis, 'fetch', () => { throw Error('Network forbidden'); });
+const { createOwnedAgentAdapter } = await import('../src/cli/owned-agent-session.mjs');
+const { default: extension, ownedRoleTools } = await import('../src/cli/owned-agent-extension.mjs');
+const { createOwnedAgents } = await import('../src/cli/owned-agents.mjs');
 
 const identity = Object.freeze({ id: 'child', parentId: 'parent', rootId: 'root' });
 const binding = { cwd: '/isolated/project', model: 'test/model', effort: 'medium', prompt: 'Inspect.', role: 'read', parentRole: 'read' };
@@ -34,7 +38,7 @@ function fixture(options = {}) {
   const adapter = createOwnedAgentAdapter({
     bindingFor: () => ({ ...binding, ...options.binding }), startupMs: 30, stopMs: 15,
     startProcess: args => { calls.push(args); callbacks = args; return options.malformed ? { ...transport, request: null } : transport; },
-    onEvent: options.onEvent, onStats: options.onStats, now: options.now,
+    onEvent: options.onEvent, onStats: options.onStats, now: options.now, metricNow: options.metricNow,
   });
   return { adapter, calls, requests, state, closed, emit: event => callbacks.onRecord(event),
     get shutdowns() { return shutdowns; }, get terminations() { return terminations; }, get forces() { return forces; } };
@@ -66,13 +70,14 @@ test('owned measurement reconciles cumulative facts without replay charges or pr
     let now = 10;
     const f = fixture({ now: () => now, stats: { sessionId: foreign ? 'foreign' : 'session', tokens: { input: 12, output: 1, cacheRead: 0, cacheWrite: 0 } } });
     const handle = f.adapter.start(identity);
-    assert.deepEqual(handle.snapshot(), { usage: null, lastActivityAt: null });
+    assert.deepEqual(handle.snapshot(), { usage: null, lastActivityAt: null, performance: null });
     await tick();
     const event = end('private report'); Object.assign(event.message, { provider: 'test', model: 'model', responseId: 'response', timestamp: 999999, usage: { input: 5, output: 2, cacheRead: 0, cacheWrite: 0 } });
     f.emit(event); f.emit(event);
     assert.equal(handle.snapshot().usage.input.value, 5);
     const before = handle.snapshot(); now = 20;
-    assert.deepEqual(handle.snapshot(), before, 'reads do not refresh activity');
+    assert.deepEqual(handle.snapshot().usage, before.usage);
+    assert.equal(handle.snapshot().lastActivityAt, before.lastActivityAt, 'reads do not refresh activity');
     f.emit({ ...event, message: { ...event.message, usage: { ...event.message.usage, input: 9 } } });
     assert.equal(handle.snapshot().usage.input.state, 'partial');
     f.emit({ type: 'agent_settled' });
@@ -82,7 +87,7 @@ test('owned measurement reconciles cumulative facts without replay charges or pr
     assert.equal(final.usage.input.value, foreign ? 5 : 12);
     assert.deepEqual(final.usage.output, { value: 2, state: 'partial' });
     assert.equal(final.usage.incomplete, true); assert.equal(final.usage.sealed, true);
-    assert.equal(JSON.stringify(final).includes('session'), false); assert.equal(JSON.stringify(final).includes('private'), false);
+    assert.equal(final.performance.sessionId, 'session'); assert.equal(JSON.stringify(final).includes('private'), false);
     now = 30; f.emit(event); assert.deepEqual(handle.snapshot(), final);
   }
 });
@@ -98,6 +103,93 @@ test('cancellation seals own lower bounds before an outstanding terminal statist
   assert.deepEqual(handle.snapshot(), sealed);
   assert.equal(sealed.usage.input.value, 4); assert.equal(sealed.usage.output.state, 'unavailable');
   assert.equal(sealed.usage.sealed, true); assert.equal(sealed.usage.incomplete, true);
+});
+
+test('performance captures only current own output and reconciles cumulative zero, missing and regressing facts', { timeout: 1000 }, async () => {
+  for (const cost of [0, 0.01, -1, undefined]) {
+    let clock = 100;
+    const events = [], f = fixture({ metricNow: () => clock, now: () => 999,
+      stats: { sessionId: 'session', tokens: { input: 12, output: 0, cacheRead: 0, cacheWrite: 0 }, cost },
+      onEvent: (_id, event) => events.push(event) });
+    const handle = f.adapter.start(identity); await tick();
+    const message = { role: 'assistant', provider: 'test', model: 'model', responseId: 'own', timestamp: 10 };
+    const delta = { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'private delta' } };
+    f.emit(delta); assert.equal(handle.snapshot().performance.firstObservedOutputMs, null);
+    f.emit({ type: 'message_start', message }); clock = 107;
+    f.emit({ ...delta, sessionId: 'foreign' });
+    assert.equal(handle.snapshot().performance.firstObservedOutputMs, null);
+    f.emit(delta); f.emit(delta);
+    const response = { ...message, stopReason: 'stop', content: [{ type: 'text', text: 'report' }], durationMs: 3,
+      usage: { input: 5, output: 2, cacheRead: 0, cacheWrite: 0, cost: { total: 0.02 } } };
+    f.emit({ type: 'message_end', message: response }); f.emit({ type: 'message_end', message: response });
+    clock = 120; f.emit({ type: 'agent_settled' }); await handle.result;
+    const final = handle.snapshot().performance;
+    assert.equal(final.runId, identity.id); assert.equal(final.sessionId, 'session'); assert.equal(final.responses, 1);
+    assert.equal(final.firstObservedOutputMs, 7); assert.equal(final.dispatchElapsedMs, 20);
+    assert.deepEqual(final.input, { value: 12, state: 'partial' });
+    assert.deepEqual(final.output, { value: 2, state: 'partial' });
+    assert.deepEqual(final.estimatedUsd, { value: 0.02, state: 'partial' });
+    assert.deepEqual(final.cacheRead, { value: 0, state: 'partial' });
+    assert.equal(final.responseDurationMs.value, 3);
+    assert.deepEqual(events.filter(e => e.type === 'performance'), [{ type: 'performance', display: false }]);
+    assert.equal(JSON.stringify(final).includes('private'), false);
+    final.input.value = 999; clock = 150; f.emit(delta);
+    assert.equal(handle.snapshot().performance.input.value, 12); assert.equal(handle.snapshot().performance.dispatchElapsedMs, 20);
+  }
+});
+
+test('performance preserves complete zero and absent scalars without borrowing foreign responses', { timeout: 1000 }, async () => {
+  const f = fixture({ stats: { sessionId: 'session', tokens: { input: 0 }, cost: 0 } }), handle = f.adapter.start(identity);
+  await tick();
+  const response = { ...end('report').message, provider: 'test', model: 'model', responseId: 'own', usage: { input: 0, cost: { total: 0 } } };
+  f.emit({ type: 'message_end', message: response }); f.emit({ type: 'agent_settled' }); await handle.result;
+  const facts = handle.snapshot().performance;
+  assert.deepEqual(facts.input, { value: 0, state: 'complete' }); assert.deepEqual(facts.estimatedUsd, { value: 0, state: 'complete' });
+  assert.deepEqual(facts.output, { value: null, state: 'unavailable' });
+});
+
+test('message-less deltas require an identified current response and reject explicit foreign owners', { timeout: 1000 }, async () => {
+  const f = fixture(), handle = f.adapter.start(identity); await tick();
+  const delta = { type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'secret' } };
+  const message = { role: 'assistant', provider: 'test', model: 'model' };
+  f.emit({ type: 'message_start', message }); f.emit(delta);
+  assert.equal(handle.snapshot().performance.firstObservedOutputMs, null);
+  f.emit({ type: 'message_start', message: { ...message, responseId: 'own' } });
+  for (const extra of [{ runId: 'foreign-child' }, { responseId: 'foreign-response' }]) {
+    f.emit({ ...delta, ...extra }); assert.equal(handle.snapshot().performance.firstObservedOutputMs, null);
+  }
+  f.emit({ type: 'message_end', message: { ...message, responseId: 'own' } }); f.emit(delta);
+  assert.equal(handle.snapshot().performance.firstObservedOutputMs, null);
+  await handle.cancel(); await assert.rejects(handle.result);
+});
+
+test('terminal performance reconciles each scalar without adding or clearing response uncertainty', { timeout: 1000 }, async () => {
+  for (const conflict of [false, true]) {
+    const f = fixture({ stats: { sessionId: 'session', tokens: { input: 12, output: 1, cacheRead: 0 }, cost: 0.01 } });
+    const handle = f.adapter.start(identity); await tick();
+    const event = end('report'); Object.assign(event.message, { provider: 'test', model: 'model', responseId: 'own',
+      usage: { input: 5, output: 2, cacheRead: 0, cost: { total: 0.02 } } });
+    f.emit(event);
+    if (conflict) f.emit({ ...event, message: { ...event.message, usage: { ...event.message.usage, input: 9 } } });
+    f.emit({ type: 'agent_settled' }); await handle.result;
+    const facts = handle.snapshot().performance;
+    assert.deepEqual(facts.input, { value: 12, state: conflict ? 'partial' : 'complete' });
+    assert.deepEqual(facts.estimatedUsd, { value: 0.02, state: 'partial' });
+    assert.deepEqual(facts.output, { value: 2, state: 'partial' });
+    assert.deepEqual(facts.cacheRead, { value: 0, state: conflict ? 'partial' : 'complete' });
+    assert.deepEqual(facts.cacheWrite, { value: null, state: 'unavailable' });
+  }
+});
+
+test('elapsed time seals before delayed captured closure and late output', { timeout: 1000 }, async () => {
+  let clock = 5;
+  const f = fixture({ hang: true, metricNow: () => clock }), handle = f.adapter.start(identity); await tick();
+  clock = 15; assert.equal(await handle.cancel(), false);
+  clock = 100; f.closed.resolve({ code: 0 }); await tick();
+  f.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'late' } });
+  assert.equal(await handle.force(), true); await assert.rejects(handle.result);
+  assert.equal(handle.snapshot().performance.dispatchElapsedMs, 10);
+  assert.equal(handle.snapshot().performance.firstObservedOutputMs, null);
 });
 
 test('host binding refuses permission escalation, missing authority and managed extension wrappers before launch', () => {

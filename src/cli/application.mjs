@@ -57,7 +57,7 @@ import { Learner, proposalMessage } from './learning/learner.mjs';
 import { learningState } from './learning/store.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
-import { projectPerformance, readLocalView } from './view.mjs';
+import { projectPerformance, readLocalView, safePerformance } from './view.mjs';
 import { PastedImages } from './paste-image.mjs';
 import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
@@ -167,6 +167,26 @@ export class HobkinApplication {
     }
   }
 
+  observeOwnedEvent(identity, event) {
+    this.runtime?.observeOwnedActivity(identity, event);
+    if (['performance', 'message_end'].includes(event.type)) this.requestRefresh(false);
+  }
+
+  recordOwnedPerformance({ id, parentId, rootId, depth, status, performance }) {
+    if (![id, parentId, rootId].every(value => typeof value === 'string' && /^[a-zA-Z0-9._:-]{1,200}$/.test(value))
+      || !Number.isInteger(depth) || depth < 1 || depth > 3
+      || !['completed', 'failed', 'cancelled'].includes(status)) {
+      return;
+    }
+    const facts = safePerformance(performance, id, performance?.sessionId);
+    recordEvent(this.runtime.directory, 'run_performance', {
+      ...facts,
+      runId: id,
+      sessionId: facts?.sessionId ?? null,
+      ownedHelper: { id, parentId, rootId, depth, status },
+    });
+  }
+
   static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
@@ -188,7 +208,8 @@ export class HobkinApplication {
     app.runtime = await HobkinRuntime.open(root, app.config, {
       ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle({
         onChange: () => app.requestRefresh(),
-        onEvent: (identity, event) => app.runtime?.observeOwnedActivity(identity, event),
+        onEvent: (identity, event) => app.observeOwnedEvent(identity, event),
+        onPerformance: row => app.recordOwnedPerformance(row),
       }),
       createMain,
       onMainStartup,
@@ -526,7 +547,9 @@ export class HobkinApplication {
       savedAt: new Date().toISOString(),
       // Saved selection for subsequent runs, not the active turn's applied voice.
       persona: readPersona(this.runtime.directory),
-      telemetry: projectPerformance(this.runtime.directory, currentAndRecentRuns),
+      telemetry: projectPerformance(this.runtime.directory, currentAndRecentRuns, {
+        liveHelpers: this.runtime.ownedLifecycle?.snapshot?.() ?? [], savedTelemetry: this.snapshot.telemetry,
+      }),
       // Every report is listed. The tab shows them a page at a time, so nothing needs cutting here.
       reports: [...reports, ...this.snapshot.history.reports.filter(report => {
         if (deleted.has(report.id) || reportIds.has(report.id)) return false;

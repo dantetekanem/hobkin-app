@@ -2,16 +2,20 @@ import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { DefaultResourceLoader } from '@earendil-works/pi-coding-agent';
-import { createOwnedAgentAdapter } from '../src/cli/owned-agent-session.mjs';
-import { createOwnedLifecycle } from '../src/cli/owned-agent-lifecycle.mjs';
-import ownedExtension from '../src/cli/owned-agent-extension.mjs';
+import { registerHooks } from 'node:module';
+// Replace the SDK before any production import; only the pure tool declaration is needed.
+registerHooks({ resolve(specifier, context, next) {
+  if (specifier === '@earendil-works/pi-coding-agent') return { url: 'data:text/javascript,export const defineTool = value => value;', shortCircuit: true };
+  return next(specifier, context);
+} });
 
 for (const name of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, name, () => { throw Error('Real process forbidden'); });
 syncBuiltinESMExports();
 mock.method(process, 'kill', () => { throw Error('Real signal forbidden'); });
-mock.method(DefaultResourceLoader.prototype, 'reload', () => { throw Error('Real resource loader forbidden'); });
 mock.method(globalThis, 'fetch', () => { throw Error('Network forbidden'); });
+const { createOwnedAgentAdapter } = await import('../src/cli/owned-agent-session.mjs');
+const { createOwnedLifecycle } = await import('../src/cli/owned-agent-lifecycle.mjs');
+const { default: ownedExtension } = await import('../src/cli/owned-agent-extension.mjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const binding = { cwd: '/isolated/project', prompt: 'Host task', model: 'test/model', effort: 'medium', role: 'read', parentRole: 'read', allowHelpers: true };
 const end = text => ({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text }] } });
@@ -118,7 +122,7 @@ test('lifecycle snapshots isolate roots without changing control authority', { t
   assert.deepEqual(life.snapshot('empty'), []);
   assert.equal(life.snapshot('missing'), null);
   assert.deepEqual(life.snapshot().map(({ id, status }) => [id, status]), [[child.id, 'cancelled'], [outside.id, 'cancelled']]);
-  assert.deepEqual(Object.keys(rows[0]).sort(), ['depth', 'id', 'lastActivityAt', 'name', 'parentId', 'rootId', 'status', 'usage']);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['depth', 'id', 'lastActivityAt', 'name', 'parentId', 'performance', 'rootId', 'status', 'usage']);
   rows[0].status = 'failed';
   rows.pop();
   assert.equal(life.snapshot('root')[0].status, 'cancelled');
@@ -148,7 +152,8 @@ test('root policy refuses synchronous and nested admission before allocation wit
 });
 
 test('queued children cancel without starting and nested children never queue behind waiting parents', { timeout: 1000 }, async () => {
-  const f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess, maxRunning: 1 });
+  const rows = [], f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess, maxRunning: 1,
+    onPerformance: row => { rows.push(row); if (row.status === 'cancelled') throw Error('Observer failed'); return Promise.reject(Error('Async observer failed')); } });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
   root.request({ action: 'spawn', name: 'first' });
   const queued = root.request({ action: 'spawn', name: 'queued' });
@@ -162,6 +167,9 @@ test('queued children cancel without starting and nested children never queue be
   assert.deepEqual(facts.ownedChildren.map(c => c.status), ['completed', 'cancelled']);
   assert.deepEqual(life.snapshot('root').map(({ status }) => status), ['completed', 'cancelled']);
   assert.equal(f.children.length, 1); await life.close();
+  assert.deepEqual(rows.map(row => [row.id, row.status]), [[queued.id, 'cancelled'], [facts.ownedChildren[0].id, 'completed']]);
+  assert.equal(rows[0].performance, null);
+  assert.deepEqual(Object.keys(rows[1]).sort(), ['depth', 'id', 'parentId', 'performance', 'rootId', 'status']);
 });
 
 test('unknown teardown stays occupied; joining never hangs behind it and retains partial facts', { timeout: 1000 }, async () => {
@@ -186,7 +194,7 @@ test('unknown teardown stays occupied; joining never hangs behind it and retains
 
 test('host Force remains available after invalidation and reports only captured helper closure', { timeout: 1000 }, async () => {
   const f = transportFactory(true);
-  const life = createOwnedLifecycle({ startProcess: f.startProcess, stopMs: 5 });
+  const rows = [], life = createOwnedLifecycle({ startProcess: f.startProcess, stopMs: 5, onPerformance: row => rows.push(row) });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
   const other = life.register({ id: 'other', allowHelpers: true, binding });
   const child = root.request({ action: 'spawn', name: 'target' });
@@ -201,6 +209,7 @@ test('host Force remains available after invalidation and reports only captured 
   assert.equal(f.children[0].forces, 1);
   assert.equal(f.children[1].forces, 0);
   assert.equal((await pending).confirmed, false);
+  assert.deepEqual(rows, [], 'unknown teardown is not terminal');
   f.children[0].closed.resolve({ code: 0 }); await tick();
   f.children[0].emit(end('late success'));
   const reconciled = await life.force('root', child.id);
@@ -211,6 +220,9 @@ test('host Force remains available after invalidation and reports only captured 
   assert.equal(f.children[0].forces, 1);
   assert.equal(old.confirmed, false);
   assert.equal(old.agents[0].status, 'unknown');
+  assert.deepEqual(rows.map(row => [row.id, row.status]), [[child.id, 'cancelled']]);
+  assert.equal(rows[0].performance.sessionId, '0');
+  await life.force('root', child.id); assert.equal(rows.length, 1);
   assert.throws(() => root.request({ action: 'spawn', name: 'restart' }), /active/);
   assert.equal(other.request({ action: 'status', id: outside.id }).status, 'running');
   f.children[1].closed.resolve({ code: 0 });
@@ -218,7 +230,7 @@ test('host Force remains available after invalidation and reports only captured 
 });
 
 test('nested completion forwards bounded terminal facts, then only the later parent text', { timeout: 1000 }, async () => {
-  const f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess });
+  const rows = [], f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess, onPerformance: row => rows.push(row) });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
   root.request({ action: 'spawn', name: 'parent' }); await tick();
   const parent = f.children[0];
@@ -235,11 +247,16 @@ test('nested completion forwards bounded terminal facts, then only the later par
   parent.emit(end('later parent')); parent.emit({ type: 'agent_settled' });
   assert.equal(JSON.parse(await joining).ownedChildren[0].report, 'later parent');
   assert.equal(parent.shutdowns, 1); assert.equal(child.shutdowns, 1); await life.close();
+  assert.deepEqual(rows.map(row => [row.depth, row.performance.sessionId]), [[2, '1'], [1, '0']]);
+  for (const row of rows) {
+    assert.equal(row.performance.runId, row.id); assert.equal(row.rootId, 'root');
+    assert.equal(row.status, 'completed'); assert.equal(JSON.stringify(row).includes('later parent'), false);
+  }
 });
 
 test('failed helpers retain failure facts and cancel descendants', { timeout: 1000 }, async t => {
-  const f = transportFactory();
-  const life = createOwnedLifecycle({ startProcess: f.startProcess });
+  const rows = [], f = transportFactory();
+  const life = createOwnedLifecycle({ startProcess: f.startProcess, onPerformance: row => rows.push(row) });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
   t.after(() => life.close());
 
@@ -272,6 +289,8 @@ test('failed helpers retain failure facts and cancel descendants', { timeout: 10
   assert.equal(childFacts.ownedChildren[0].id, parent.id);
   assert.equal(childFacts.ownedChildren[0].report, 'partial failure');
   assert.equal(f.children[1].shutdowns, 1);
+  assert.deepEqual(rows.map(row => row.status).sort(), ['cancelled', 'failed']);
+  assert.equal(rows.find(row => row.id === parent.id).performance.sessionId, '0');
 });
 
 test('only host-enabled helpers activate the owned tool, never write tools for a read role', () => {

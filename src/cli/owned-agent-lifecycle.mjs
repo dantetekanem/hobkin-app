@@ -4,10 +4,26 @@ import { createOwnedAgentAdapter } from './owned-agent-session.mjs';
 import { createOwnedAgentTool } from './owned-agent-tool.mjs';
 
 /** Host bindings and joins around the tree; no process ownership or persisted replay. */
-export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProcess, stopMs, onEvent = () => {}, onStats, onChange = () => {} } = {}) {
+export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProcess, stopMs, onEvent = () => {}, onStats, onChange = () => {}, onPerformance = () => {} } = {}) {
   const scopes = new Map(), roots = new Set(), partial = new Map();
   let closing = false, changed = Promise.withResolvers();
-  const notify = () => { changed.resolve(); changed = Promise.withResolvers(); onChange(); };
+  const notify = () => {
+    for (const root of roots) for (const { id, parentId, rootId, depth, status } of tree.list(root)) {
+      const child = scopes.get(id);
+      if (!child || child.performancePublished || !['completed', 'failed', 'cancelled'].includes(status)) continue;
+      child.performancePublished = true;
+      try {
+        const attempt = onPerformance({
+          id, parentId, rootId, depth, status,
+          performance: child.handle?.snapshot().performance ?? null,
+        });
+        Promise.resolve(attempt).catch(() => {});
+      } catch { /* A best-effort observer cannot change execution or retry publication. */ }
+    }
+    changed.resolve();
+    changed = Promise.withResolvers();
+    onChange();
+  };
   const fact = ({ id, parentId, status, report }) => ({ id, parentId, status, report: (report ?? partial.get(id) ?? '').slice(0, 512) });
   const adapter = createOwnedAgentAdapter({ startProcess, stopMs, onStats,
     bindingFor: identity => scopes.get(identity.id)?.binding,
@@ -102,7 +118,7 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
       if (rootId !== undefined && !roots.has(rootId)) return null;
       return (rootId === undefined ? [...roots].flatMap(id => tree.list(id)) : tree.list(rootId))
         .map(({ id, parentId, rootId, depth, name, status }) => ({ id, parentId, rootId, depth, name, status,
-          ...(scopes.get(id)?.handle?.snapshot() ?? { usage: null, lastActivityAt: null }) }));
+          ...(scopes.get(id)?.handle?.snapshot() ?? { usage: null, lastActivityAt: null, performance: null }) }));
     },
     targets() {
       return [...roots].flatMap(runId => tree.list(runId)).filter(node => ['running', 'queued', 'cancelling', 'unknown'].includes(node.status))

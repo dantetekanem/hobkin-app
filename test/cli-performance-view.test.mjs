@@ -1,14 +1,30 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
+import childProcess from 'node:child_process';
+import { registerHooks, syncBuiltinESMExports } from 'node:module';
+const forbidden = () => { throw Error('Performance fixture forbids SDK/process/network/signals'); };
+for (const key of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, key, forbidden);
+mock.method(process, 'kill', forbidden);
+mock.method(globalThis, 'fetch', forbidden);
+syncBuiltinESMExports();
+const sdk = 'data:text/javascript,' + encodeURIComponent(`
+  export const defineTool = tool => tool;
+  const no = () => { throw Error('SDK/resources forbidden'); };
+  export { no as createAgentSession, no as DefaultResourceLoader, no as SessionManager,
+    no as ModelRuntime, no as SettingsManager, no as getAgentDir,
+    no as getMarkdownTheme, no as getSelectListTheme, no as initTheme };
+`);
+registerHooks({ resolve(specifier, context, next) {
+  return specifier === '@earendil-works/pi-coding-agent' ? { url: sdk, shortCircuit: true } : next(specifier, context);
+} });
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initialize, atomicJson } from '../src/cli/config.mjs';
-import * as views from '../src/cli/view.mjs';
-import { recentPerformanceEvents, recordEvent } from '../src/cli/events.mjs';
-import { createTurnMetrics } from '../src/cli/turn-metrics.mjs';
-import { HobkinApplication } from '../src/cli/application.mjs';
-import { fakePi } from './helpers/pi-session.mjs';
+const { initialize, atomicJson } = await import('../src/cli/config.mjs');
+const views = await import('../src/cli/view.mjs');
+const { recentPerformanceEvents, recordEvent } = await import('../src/cli/events.mjs');
+const { createTurnMetrics } = await import('../src/cli/turn-metrics.mjs');
+const { HobkinApplication } = await import('../src/cli/application.mjs');
 
 const fixture = t => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-performance-')));
@@ -24,6 +40,94 @@ const facts = (runId = 'turn', sessionId = 'session') => {
   return metrics.finish(identity);
 };
 const run = (id = 'turn') => ({ id, sessionId: 'session', kind: 'main', status: 'completed', startedAt: '2026-01-01T00:00:00Z' });
+const helper = (id = 'child', extra = {}) => ({ id, rootId: 'turn', parentId: 'turn', depth: 1,
+  status: 'completed', performance: facts(id, 'native'), ...extra });
+
+test('helper projection prefers live then events then saved without summing parent or child totals', t => {
+  const { root } = fixture(t);
+  recordEvent(root, 'run_performance', { ...facts('child', 'native'), ownedHelper: helper('child') });
+  const saved = { runs: [{ runId: 'turn', sessionId: 'session', helpers: [helper('saved', { sessionId: 'native', status: 'running' })] }] };
+  const projected = views.projectPerformance(root, [{ ...run(), performance: facts() }], {
+    liveHelpers: [helper('child', { performance: { ...facts('child', 'native'), output: { value: 9, state: 'complete' } }, name: 'PRIVATE' }),
+      helper('grand', { parentId: 'child', depth: 2 }), helper('queued', { status: 'queued', performance: null })], savedTelemetry: saved,
+  });
+  const rows = projected.runs[0].helpers;
+  assert.equal(projected.runs[0].performance.output.value, 2);
+  const byId = Object.fromEntries(rows.map(row => [row.id, row]));
+  assert.deepEqual(rows.map(row => [row.id, row.source]).sort(), [['child', 'live'], ['grand', 'live'], ['queued', 'live'], ['saved', 'saved']]);
+  assert.equal(byId.child.performance.output.value, 9);
+  assert.equal(byId.grand.performance.output.value, 2);
+  assert.equal(byId.queued.performance, null);
+  assert.equal(byId.queued.sessionId, null);
+  assert.equal(byId.saved.status, 'unknown');
+  assert.equal(JSON.stringify(projected).includes('PRIVATE'), false);
+  const restart = views.projectPerformance(root, [run()], { liveHelpers: [], savedTelemetry: projected });
+  assert.equal(restart.runs[0].helpers.find(row => row.id === 'child').source, 'event');
+  assert.equal(restart.runs[0].helpers.find(row => row.id === 'queued').status, 'unknown');
+  atomicJson(join(root, 'runtime/view.json'), { version: 1, runs: [run()], telemetry: projected });
+  const offline = views.readLocalView(root).telemetry.runs[0].helpers;
+  assert.equal(offline.find(row => row.id === 'grand').status, 'completed');
+  assert.equal(offline.find(row => row.id === 'queued').status, 'unknown');
+});
+
+test('helper projection rejects foreign stale malformed ancestry and bounds retained rows', t => {
+  const { root } = fixture(t);
+  const liveHelpers = [helper('foreign', { rootId: 'other' }), helper('orphan', { parentId: 'absent', depth: 2 }),
+    helper('cycle', { parentId: 'cycle', depth: 2 }), helper('bad-depth', { depth: 2 }),
+    helper('wrong-session', { sessionId: 'wrong' }), helper('null-session', { sessionId: null }),
+    helper('wrong-run', { performance: facts('other', 'native') }),
+    ...Array.from({ length: 40 }, (_, i) => helper(`ok${i}`))];
+  const result = views.projectPerformance(root, [run()], { liveHelpers });
+  assert.equal(result.runs[0].helpers.length, 32);
+  assert.ok(result.runs[0].helpers.every(row => row.id.startsWith('ok')));
+  assert.equal(result.retention.maxHelpersPerRun, 32);
+  assert.equal(result.retention.maxEventKeys, 100);
+  const stale = { runs: [{ runId: 'turn', sessionId: 'old', helpers: [helper()] }] };
+  assert.deepEqual(views.projectPerformance(root, [run()], { savedTelemetry: stale }).runs[0].helpers, []);
+  const parent = { ...run(), sessionId: undefined };
+  const unmeasured = views.projectPerformance(root, [parent], { liveHelpers: [helper('queued', { status: 'queued', performance: null })] });
+  const restarted = views.projectPerformance(root, [parent], { savedTelemetry: unmeasured });
+  assert.equal(restarted.runs[0].helpers[0].status, 'unknown');
+  assert.equal(restarted.runs[0].helpers[0].performance, null);
+});
+
+test('Work performance uses captured harness and native session IDs across offline reload', t => {
+  const { root } = fixture(t);
+  const work = { ...run('public-work'), kind: 'background', harnessId: 'captured', result: { id: 'captured', sessionId: 'native', performance: facts('captured', 'native') } };
+  let telemetry = views.projectPerformance(root, [work]);
+  assert.equal(telemetry.runs[0].runId, 'public-work');
+  assert.equal(telemetry.runs[0].performance.runId, 'captured');
+  atomicJson(join(root, 'runtime/view.json'), { version: 1, runs: [{ ...work, result: undefined }], telemetry });
+  assert.equal(views.readLocalView(root).telemetry.runs[0].performance.runId, 'captured');
+  assert.equal(views.projectPerformance(root, [{ ...work, result: { ...work.result, id: 'foreign' } }]).runs[0].performance, null);
+  assert.equal(views.projectPerformance(root, [{ ...work, harnessId: 'wrong' }]).runs[0].performance, null);
+  recordEvent(root, 'run_performance', facts('captured', 'native'));
+  assert.equal(views.projectPerformance(root, [{ ...work, result: { id: 'captured', sessionId: 'native' } }]).runs[0].source, 'event');
+  assert.equal(views.projectPerformance(root, [{ ...work, result: { id: 'captured', sessionId: 'stale' } }]).runs[0].performance, null);
+});
+
+test('application helper observers append allowlisted facts and refresh only meaningful measurements', t => {
+  const { root } = fixture(t), app = Object.create(HobkinApplication.prototype), refreshes = [], observed = [];
+  app.runtime = { directory: root, observeOwnedActivity: (...args) => observed.push(args) };
+  app.requestRefresh = value => refreshes.push(value);
+  app.observeOwnedEvent(helper(), { type: 'performance', display: false });
+  app.observeOwnedEvent(helper(), { type: 'message_end', text: 'PRIVATE' });
+  app.observeOwnedEvent(helper(), { type: 'message_update' });
+  assert.deepEqual(refreshes, [false, false]);
+  assert.equal(observed.length, 3);
+  app.recordOwnedPerformance(helper('child', { name: 'PRIVATE', performance: { ...facts('child', 'native'), prompt: 'PRIVATE' } }));
+  app.recordOwnedPerformance(helper('queued', { status: 'cancelled', performance: null }));
+  app.recordOwnedPerformance({ ...helper(), id: 'PRIVATE/path' });
+  app.recordOwnedPerformance(helper('invalid', { status: 'running' }));
+  const events = recentPerformanceEvents(root).events;
+  assert.equal(events.length, 2);
+  assert.equal(events[0].runId, 'child');
+  assert.equal(events[1].sessionId, null);
+  assert.equal(JSON.stringify(events).includes('PRIVATE'), false);
+  rmSync(join(root, 'runtime/events'), { recursive: true });
+  writeFileSync(join(root, 'runtime/events'), 'not a directory');
+  assert.doesNotThrow(() => app.recordOwnedPerformance(helper()));
+});
 
 test('performance projection preserves measured zero, partial fields, identity and own-parent privacy', t => {
   const { root } = fixture(t);
@@ -31,8 +135,8 @@ test('performance projection preserves measured zero, partial fields, identity a
   recordEvent(root, 'run_performance', { ...facts(), output: { value: 99, state: 'complete' } });
   const result = views.projectPerformance(root, [{ ...run(), result: { performance } },
     { ...run('missing') }, { ...run('steer'), parentRunId: 'turn', performance: facts('steer') }]);
-  assert.equal(result.scope, 'own-parent');
-  assert.equal(result.helpers, 'unavailable');
+  assert.equal(result.scope, 'own-parent-and-helpers');
+  assert.equal(result.helpers, 'owned');
   assert.equal(result.stale, false);
   assert.equal(result.runs.length, 2);
   assert.deepEqual(result.runs[0].performance.input, { value: 0, state: 'partial' });
@@ -128,18 +232,30 @@ test('older hosts and malformed optional telemetry remain explicitly unavailable
   assert.equal(old.telemetry.asOf, null);
 });
 
-test('application saves the same bounded telemetry and offline reload never claims current measurements', async t => {
-  const { root } = fixture(t);
-  const fake = fakePi(root);
-  const app = await HobkinApplication.open(root, { createMain: fake.createMain, intervalMs: 60000 });
-  t.after(() => app.close());
-  await app.runtime.change(state => { state.runs.turn = { ...run(), performance: facts() }; });
-  const snapshot = await app.refresh();
-  assert.equal(snapshot.telemetry.connection, 'connected');
-  assert.equal(snapshot.telemetry.runs[0].performance.output.value, 2);
+test('synthetic application persists helper facts and retains them through an empty restart lifecycle', async t => {
+  const { root, config } = fixture(t), app = new HobkinApplication();
+  const work = { ...run('public-work'), kind: 'background', harnessId: 'captured',
+    result: { id: 'captured', sessionId: 'native', performance: facts('captured', 'native') } };
+  app.runtime = { directory: root, state: async () => ({ runs: { work } }), messages: () => [],
+    main: { model: { provider: 'fixture', id: 'local' } }, contextInfo: () => ({}),
+    jobChildren: () => ({}), mainChildren: () => [], stopControls: () => ({}), mainActivity: () => [],
+    ownedLifecycle: { snapshot: () => [helper('child', { rootId: work.id, parentId: work.id, status: 'running' })] } };
+  app.config = config; app.snapshot = { history: { reports: [] } }; app.noticeRunIds = new Set();
+  app.delivery = { syncEvidence: async () => {} };
+  app.runner = { snapshot: async () => ({ schedules: [], errors: [] }), steeringReceipts: () => ({}) };
+  app.learner = { takePost: () => null }; app.ledger = { sync: () => ({}) };
+  app.telemetry = { attention: () => [] }; app.now = () => 0;
+  app.workView = () => ({ harnessLines: [], folderLines: [], discovery: {} });
+  app.moods = { observe() {}, reaction: {} }; app.templatesLooked = true; app.uploadLooked = true;
+  app.yesterdayWins = () => null; app.waitingNow = () => ({}); app.winsToday = () => null; app.notePause = () => {};
+  const snapshot = await app.project();
   const saved = JSON.parse(readFileSync(join(root, 'runtime/view.json'), 'utf8'));
   assert.deepEqual(saved.telemetry, snapshot.telemetry);
-  const offline = views.readLocalView(root);
-  assert.equal(offline.telemetry.stale, true);
-  assert.equal(offline.telemetry.runs[0].performance.output.value, 2);
+  assert.equal(snapshot.telemetry.runs[0].helpers[0].source, 'live');
+  app.snapshot = views.readLocalView(root);
+  assert.equal(app.snapshot.telemetry.runs[0].performance.runId, 'captured');
+  app.runtime.ownedLifecycle.snapshot = () => [];
+  const restarted = await app.project();
+  assert.equal(restarted.telemetry.runs[0].helpers[0].status, 'unknown');
+  assert.equal(restarted.telemetry.runs[0].helpers[0].source, 'saved');
 });
