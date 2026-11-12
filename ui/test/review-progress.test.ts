@@ -7,7 +7,7 @@ import { goToStep, progressOf, startStory } from '../src/features/review/story/s
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 
-test('restores the step and the seen marks', () => {
+test('opens at the first step again, and keeps the seen marks', () => {
   const storage = memoryStorage()
   const memory = createReviewMemory(storage)
 
@@ -23,9 +23,10 @@ test('restores the step and the seen marks', () => {
   const seen = [0, 1, 2, 3, sample.story.length - 1].map((index) => sample.story[index]!.id)
   assert.deepEqual(story.seen, seen)
 
-  // Closing and reopening the review, or the app, is a new store over the same storage.
+  // Closing and reopening the review, or the app, is a new store over the same storage. A review always opens at its
+  // first step (the user, 2026-11-12): only hobkin's cursor or a link takes it elsewhere (state/cursor.ts).
   const reopened = startStory(sample, createReviewMemory(storage).getState().of(sample).progress)
-  assert.equal(reopened.step, 3, 'the same step')
+  assert.equal(reopened.step, 0, 'the first step, not the one it was left on')
   assert.deepEqual(reopened.seen, seen, 'the same seen marks')
   assert.deepEqual(reopened.revealed, story.revealed, 'and what had drawn in is still there')
   assert.equal(reopened.detour, null)

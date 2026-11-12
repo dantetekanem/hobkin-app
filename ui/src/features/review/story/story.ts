@@ -75,11 +75,15 @@ function growsFrom(edge: Pick<ReviewEdge, 'from' | 'to'>, before: ReadonlySet<st
   return focused.has(edge.from) ? 'source' : 'target'
 }
 
-/** Opens the story where the reviewer left it, or at its first step. Saved ids the review no longer has are dropped. */
+/**
+ * Opens the story at its first step, every time (the user, 2026-11-12): a review closed and opened again starts from
+ * step 1. What the reviewer saw and what drew in are kept. Only hobkin's cursor or a link names another place
+ * (`followCursor`). Saved ids the review no longer has are dropped.
+ */
 export function startStory(review: Story, saved?: StoredProgress | null): StoryState {
   const stepIds = new Set(review.story.map((step) => step.id))
   const known = new Set([...review.nodes.map((node) => node.id), ...review.edges.map((edge) => edge.id)])
-  const step = Math.max(0, review.story.findIndex((entry) => entry.id === saved?.step))
+  const step = 0
   const seen = unique((saved?.seen ?? []).filter((id) => stepIds.has(id)))
   const current = review.story[step]?.id
   if (current && !seen.includes(current)) seen.push(current)

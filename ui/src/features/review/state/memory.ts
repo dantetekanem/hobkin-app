@@ -20,7 +20,7 @@ export type WireDecision = 'confirmed' | 'removed'
 
 /** Where the reviewer was in the story. Ids, so it survives nothing but the same review. */
 export interface StoredProgress {
-  /** The id of the step they were on. */
+  /** The id of the step they were on. A review opens at its first step all the same (`startStory`). */
   step: string
   /** Ids of the steps they have seen, in the order they first saw them. */
   seen: string[]

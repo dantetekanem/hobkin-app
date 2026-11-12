@@ -329,11 +329,11 @@ test('a review opens where hobkin pointed, at a step or a node, once', () => {
   assert.deepEqual(session.getState().focus, sample.story[helpers]!.focus)
   assert.ok(session.getState().move.key > opened)
 
-  // The reviewer walks on and closes the review. Opening it again keeps their place: that pointer was shown.
+  // The reviewer walks on and closes the review. Opening it again starts at step 1: that pointer was shown already.
   session.getState().step(1)
   session = createSession(sample, memory)
   assert.equal(followCursor(session, places, sample.id, { step: helpers + 1, at: 10 }), false)
-  assert.equal(session.getState().story.step, helpers + 1)
+  assert.equal(session.getState().story.step, 0)
 
   // A node hobkin pointed at afterwards is focused off the path, with the way back to the step.
   const send = idOf('send')
