@@ -4,9 +4,9 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEven
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { hostStore, useHost } from '@/lib/host/index.ts'
-import { confirmExecution, executionKey, executionTargets, latestMainExecutionResult, confirmStartup, startupKey, startupTarget } from '../work/actions.ts'
-import { runStartupForce, useStartup, useExecution } from '../work/store.ts'
+import { useHost } from '@/lib/host/index.ts'
+import { executionKey, executionTargets, latestMainExecutionResult } from '../work/actions.ts'
+import { useExecution } from '../work/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
@@ -67,36 +67,6 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const main = executionTargets(host).find(target => target.kind === 'main')
   const execution = useExecution()
   const mainResult = latestMainExecutionResult(main, execution.results)
-  const startup = startupTarget(host)
-  const startupResult = useStartup()
-  const requestStartupForce = () => {
-    if (!startup) return
-    const epoch = host.epoch
-    const answer = confirmStartup(
-      startup,
-      () => hostStore.getState().epoch === epoch
-        ? startupTarget(hostStore.getState())
-        : null,
-      () => {
-        void runStartupForce(startup)
-      },
-    )
-    setForceAnswer({ answer, key: startupKey(startup)! })
-  }
-  const [forceAnswer, setForceAnswer] = useState<{ answer: (yes: boolean) => void; key: string } | null>(null)
-  const requestForce = () => {
-    if (!main) return
-    const epoch = host.epoch
-    const answer = confirmExecution(
-      main,
-      () => hostStore.getState().epoch === epoch
-        ? executionTargets(hostStore.getState())
-        : [],
-      () => stop('force', main),
-    )
-    setForceAnswer({ answer, key: executionKey(main) })
-  }
-  useEffect(() => { setForceAnswer(null) }, [host.home, host.epoch, host.link])
   const canSend = ready && canSendDraft({ text, attachments })
   const list = ready ? slashList(text, commands, slash) : null
   // The report the next message is about, chosen with r on a report.
@@ -203,47 +173,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     <div className="shrink-0 px-3 pt-1 pb-2">
       <div className="mx-auto max-w-[640px]">
         <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} />
-        {startupResult.text ? <p role="status" className="text-xs text-muted-foreground">{startupResult.text}</p> : null}
-        {startup ? <button type="button" disabled={startupResult.pending === startupKey(startup)} onClick={requestStartupForce} className="text-xs underline">Force captured hobkin</button> : null}
         {mainResult ? <p role="status" className="text-xs text-muted-foreground">{mainResult.text}</p> : null}
-        {main?.canForce ? <button type="button" disabled={execution.pending[executionKey(main, 'force')]} onClick={requestForce} className="text-xs underline">Force stop hobkin</button> : null}
-        {forceAnswer ? (
-          <div
-            role="group"
-            aria-label="Confirm Force stop hobkin"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.stopPropagation()
-                forceAnswer.answer(false)
-                setForceAnswer(null)
-              }
-            }}
-          >
-            <span>Force the captured conversation or opening? Fencing, captured closure and detached cleanup are separate.</span>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => {
-                forceAnswer.answer(false)
-                setForceAnswer(null)
-                input.current?.focus()
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={forceAnswer.key !== startupKey(startup) && (!main || forceAnswer.key !== executionKey(main))}
-              onClick={() => {
-                forceAnswer.answer(true)
-                setForceAnswer(null)
-                input.current?.focus()
-              }}
-            >
-              Confirm Force stop
-            </button>
-          </div>
-        ) : null}
         <div className="flex items-end gap-2">
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">
