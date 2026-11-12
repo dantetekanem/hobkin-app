@@ -3,8 +3,8 @@ import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
-import { agentControls, answerAgent, questionOf, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
-import { holdStill, useStill } from '@/app/still.ts'
+import { agentControls, answerAgent, questionOf, useAgent, useAgentControl, useRunningAgents, type RunningAgent } from '@/app/running-agents.ts'
+import { holdStill, stillVariants, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
@@ -59,6 +59,7 @@ export function AgentScreen() {
   const kept = useRef(openAgent)
   if (present) kept.current = openAgent
   const agentId = kept.current
+  const side = useSide(agentId)
   const talking = useView((view) => view.agentTalk)
   const mode = useMode((state) => state.mode)
   const running = useAgent(agentId)
@@ -73,76 +74,84 @@ export function AgentScreen() {
   const reading = agentReading(Boolean(agent && agentId), (activity?.entries.length ?? 0) > 0 || Boolean(notes?.length) || Boolean(question), talking)
   const compact = talking || reading
   // The canvas supplies the entry movement; snapshot content never waits for a second entrance.
-  const Lead = Plain
   const Lift = Plain
   const Rise = Plain
 
   return (
     // A click inside a canvas previewed from the agents list keeps it open: the list losing the keyboard ends a preview.
     <div className="relative h-full overflow-hidden" onPointerDownCapture={() => present && agentId && keepPreview(agentId)}>
-      <motion.div
-        className="absolute inset-x-[10%] flex origin-top flex-col items-center gap-4 text-center"
-        style={{ top: HEADER_TOP }}
-        initial={false}
-        animate={{ transform: compact ? COMPACT : FULL }}
-        transition={agentEntry(still)}
-      >
-        {agent ? (
-          <Lead>
-            <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} />
-          </Lead>
-        ) : null}
-        <Lift>
-          <p className="font-heading text-[22px] font-semibold tracking-[-0.022em]">{agent ? agent.title : 'This agent has finished'}</p>
-        </Lift>
-        {/* The rest of the small screen gives way to the exchange while it is read. */}
-        <motion.div
-          className={cn('flex w-full flex-col items-center gap-4', compact && 'pointer-events-none')}
-          initial={false}
-          animate={{ opacity: compact ? 0 : 1 }}
-          transition={agentEntry(still)}
-        >
-          {agent ? (
-            <Rise>
-              <p className="text-[15px] text-muted-foreground">
-                {agent.project} · {finished ? 'finished' : waiting ? 'waiting for you' : agent.doing} · {agent.tier}
-              </p>
-            </Rise>
-          ) : null}
-          {agentId && (agent || activity) ? (
-            <Rise className="w-full">
-              <Glance agentId={agentId} hue={agent?.hue ?? 0} question={question} waiting={waiting} activity={activity} />
-            </Rise>
-          ) : null}
-          {agentId && agent ? (
-            <Rise className="w-full">
-              <HelpersGlance runId={agentId} hue={agent.hue} />
-            </Rise>
-          ) : null}
-        </motion.div>
-      </motion.div>
-      <AgentStopControl key={agentId} agentId={agentId} />
-      {/* Drawn with the screen, the switch and the exchange are simply there. Arriving later, they rise in. */}
-      <AnimatePresence initial={false}>
-        {reading && agent && agentId ? (
+      {/* Moving to another agent changes the agent's own pieces in place. The controls stay where they are. */}
+      <AnimatePresence initial={false} custom={side}>
+        <AgentPart key={agentId} className="absolute inset-x-0 top-0">
           <motion.div
-            key="switch"
-            className="absolute inset-x-0 flex justify-center"
-            style={{ top: SWITCH_TOP }}
-            initial={holdStill({ opacity: 0 }, still)}
-            animate={holdStill({ opacity: 1, transition: agentEntry(still) }, still)}
-            exit={holdStill({ opacity: 0, transition: tween.exit }, still)}
+            className="absolute inset-x-[10%] flex origin-top flex-col items-center gap-4 text-center"
+            style={{ top: HEADER_TOP }}
+            initial={false}
+            animate={{ transform: compact ? COMPACT : FULL }}
+            transition={agentEntry(still)}
           >
-            <ModeSwitch />
-            {/* Beside the switch, so helpers arriving never move the exchange below. */}
-            <div className="absolute inset-y-0 right-[10%] left-[calc(50%+80px)] flex items-center">
-              <HelpersStrip runId={agentId} hue={agent.hue} />
-            </div>
+            {agent ? (
+              <Passing side={side}>
+                <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} />
+              </Passing>
+            ) : null}
+            <Lift>
+              <p className="font-heading text-[22px] font-semibold tracking-[-0.022em]">{agent ? agent.title : 'This agent has finished'}</p>
+            </Lift>
+            {/* The rest of the small screen gives way to the exchange while it is read. */}
+            <motion.div
+              className={cn('flex w-full flex-col items-center gap-4', compact && 'pointer-events-none')}
+              initial={false}
+              animate={{ opacity: compact ? 0 : 1 }}
+              transition={agentEntry(still)}
+            >
+              {agent ? (
+                <Rise>
+                  <p className="text-[15px] text-muted-foreground">
+                    {agent.project} · {finished ? 'finished' : waiting ? 'waiting for you' : agent.doing} · {agent.tier}
+                  </p>
+                </Rise>
+              ) : null}
+              {agentId && (agent || activity) ? (
+                <Rise className="w-full">
+                  <Glance agentId={agentId} hue={agent?.hue ?? 0} question={question} waiting={waiting} activity={activity} />
+                </Rise>
+              ) : null}
+              {agentId && agent ? (
+                <Rise className="w-full">
+                  <HelpersGlance runId={agentId} hue={agent.hue} />
+                </Rise>
+              ) : null}
+            </motion.div>
           </motion.div>
-        ) : null}
+          {/* Drawn with the screen, the switch and the exchange are simply there. Arriving later, they rise in. */}
+          <AnimatePresence initial={false}>
+            {reading && agent && agentId ? (
+              <motion.div
+                key="switch"
+                className="absolute inset-x-0 flex justify-center"
+                style={{ top: SWITCH_TOP }}
+                initial={holdStill({ opacity: 0 }, still)}
+                animate={holdStill({ opacity: 1, transition: agentEntry(still) }, still)}
+                exit={holdStill({ opacity: 0, transition: tween.exit }, still)}
+              >
+                <ModeSwitch />
+                {/* Beside the switch, so helpers arriving never move the exchange below. */}
+                <div className="absolute inset-y-0 right-[10%] left-[calc(50%+80px)] flex items-center">
+                  <HelpersStrip runId={agentId} hue={agent.hue} />
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </AgentPart>
       </AnimatePresence>
+      <AgentStopControl key={agentId} agentId={agentId} />
       <AnimatePresence initial={false}>
-        {reading && agent && agentId ? <Exchange key={`${agentId}:${mode}`} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} activity={activity} mode={mode} /> : null}
+        <AgentPart key={agentId} className="pointer-events-none absolute inset-0">
+          <AnimatePresence initial={false}>
+            {reading && agent && agentId ? <Exchange key={`${agentId}:${mode}`} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} activity={activity} mode={mode} /> : null}
+          </AnimatePresence>
+        </AgentPart>
       </AnimatePresence>
       <AnimatePresence>
         {talking && agent && agentId ? (
@@ -159,6 +168,69 @@ const Plain = ({ children, className }: { children: ReactNode; className?: strin
 function keepPreview(agentId: string) {
   const view = useView.getState()
   if (view.screen === 'agent' && view.openAgent === agentId && view.previewReturn !== null && !view.agentTalk) view.openAgentCanvas(agentId)
+}
+
+/** Which way the user moved: 1 to an agent later in the list, -1 to one before it. */
+type Side = 1 | -1
+
+/**
+ * Which side the agent now shown comes in from. The agents keep the list's order, left to right in the menu, so one
+ * later in the list comes in from the right and one before it from the left. With the last one gone from the list,
+ * it goes the way the canvas was asked to move.
+ */
+function useSide(agentId: string | null): Side {
+  const agents = useRunningAgents()
+  const asked = useView((view) => view.screenMotion.direction)
+  const last = useRef<{ agentId: string | null; side: Side }>({ agentId, side: asked })
+  if (last.current.agentId !== agentId) {
+    const from = agents.findIndex((agent) => agent.id === last.current.agentId)
+    const to = agents.findIndex((agent) => agent.id === agentId)
+    last.current = { agentId, side: from === -1 || to === -1 ? asked : to > from ? 1 : -1 }
+  }
+  return last.current.side
+}
+
+/**
+ * One agent's own pieces: its face, its name and its work. Moving to another agent, the next agent's pieces fade in
+ * over these as these fade out, and the pieces leaving take no keyboard and no pointer. The controls around them stay
+ * where they are and act on the agent now shown.
+ */
+function AgentPart({ className, children }: { className: string; children: ReactNode }) {
+  const present = useIsPresent()
+  return (
+    <motion.div
+      className={className}
+      inert={!present}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1, transition: tween.enter }}
+      exit={{ opacity: 0, transition: tween.exit }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+/** How far a hobkin passes sideways, in percent of its own width: a little more than its width, so the two never overlap. */
+const PASS = 120
+
+/**
+ * Moving to another agent, its hobkin comes in from the side and the last one leaves the other way, on the spring the
+ * menu's marker rides to the same agent: from the right for an agent later in the list, from the left for one before
+ * it. Under Still nothing travels, and only the fade around it plays.
+ */
+const passing = {
+  enter: (side: Side) => ({ transform: `translateX(${side * PASS}%)` }),
+  center: { transform: 'translateX(0%)' },
+  exit: (side: Side) => ({ transform: `translateX(${-side * PASS}%)` }),
+}
+
+function Passing({ side, children }: { side: Side; children: ReactNode }) {
+  const still = useStill()
+  return (
+    <motion.div custom={side} variants={stillVariants(passing, still)} initial="enter" animate="center" exit="exit" transition={agentEntry(still)}>
+      {children}
+    </motion.div>
+  )
 }
 
 function AgentStopControl({ agentId }: { agentId: string | null }) {
@@ -199,7 +271,7 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
         onClick={() => agentId && agentControls.request(agentId)}
         className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
       >
-        Stop agent
+        Stop Agent
       </button>
       <button
         type="button"
@@ -207,7 +279,7 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
         onClick={() => agentId && agentControls.request(agentId, 'force')}
         className="ml-2 rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
       >
-        Force stop
+        Force Stop
       </button>
       {!control ? <p className="text-muted-foreground">Live cancellation capability unknown.</p> : null}
       {executionResult || result?.id === agentId ? (
@@ -227,7 +299,7 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
         className="m-auto max-w-md rounded-2xl border border-border bg-background p-6 text-foreground backdrop:bg-black/40"
       >
         <h2 id="agent-stop-title" className="text-lg font-semibold">
-          {target?.mode === 'force' ? 'Force stop' : 'Stop'} this run?
+          {target?.mode === 'force' ? 'Force Stop' : 'Stop'} this run?
         </h2>
         <p id="agent-stop-description" className="my-4">
           {target?.title} · {target?.project}. Cancellation and captured closure are reported separately. Detached cleanup remains unknown.
@@ -241,7 +313,7 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
             disabled={busy || !(target?.mode === 'force' ? control?.canForce : control?.canStop) || target?.id !== agentId}
             onClick={() => void agentControls.confirm()}
           >
-            {target?.mode === 'force' ? 'Confirm Force stop' : 'Stop run'}
+            {target?.mode === 'force' ? 'Confirm Force Stop' : 'Stop run'}
           </button>
         </div>
       </dialog>
@@ -470,7 +542,7 @@ function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId
       ref={scroll.scroller}
       onScroll={scroll.onScroll}
       // Steps scrolled up under the switch fade out rather than being cut.
-      className="scroll-quiet absolute inset-x-0 bottom-0 overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      className="scroll-quiet pointer-events-auto absolute inset-x-0 bottom-0 overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
       style={{ top: EXCHANGE_TOP, paddingBottom: INPUT_ROOM }}
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: agentEntry(still) }, still)}

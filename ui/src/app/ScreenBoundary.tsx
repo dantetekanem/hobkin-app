@@ -5,12 +5,17 @@ import { useView } from './view-store.ts'
 /**
  * A net under each canvas screen. A screen that fails to load or to draw shows this in its place,
  * and the rest of the app (the chat, the menu, the other screens) goes on working.
+ * `of` names the screen it is under. The agents share one screen, so moving to another agent draws it afresh.
  */
-export class ScreenBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
+export class ScreenBoundary extends Component<{ children: ReactNode; of?: string }, { message: string | null }> {
   state: { message: string | null } = { message: null }
 
   static getDerivedStateFromError(error: unknown): { message: string } {
     return { message: error instanceof Error ? error.message : 'Unknown error' }
+  }
+
+  componentDidUpdate(previous: Readonly<{ of?: string }>) {
+    if (this.state.message !== null && previous.of !== this.props.of) this.setState({ message: null })
   }
 
   render() {

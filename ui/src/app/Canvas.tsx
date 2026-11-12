@@ -114,7 +114,8 @@ export function Canvas() {
   const View = needsModel ? SignInScreen : SCREEN_VIEWS[screen]
   // A review that has the user's attention takes almost the whole window. Talking to an agent takes a little.
   const grow = screen === 'review' && engaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : talking ? TALK_GROW : 0
-  // Each agent is its own screen, so moving from one agent to the next travels too.
+  // Each agent has a key of its own, which focus and the keys go by. The agents share one section, though: moving from
+  // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
   const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen
 
   return (
@@ -135,7 +136,7 @@ export function Canvas() {
       <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float">
         <AnimatePresence initial={false} custom={travelOf}>
           <motion.section
-            key={key}
+            key={enteringAgent ? 'agent' : key}
             custom={travelOf}
             variants={travel}
             initial="enter"
@@ -145,7 +146,7 @@ export function Canvas() {
             data-canvas-screen={key}
             className="col-start-1 row-start-1 min-h-0 min-w-0 rounded-l-[26px] outline-none will-change-transform"
           >
-            <ScreenBoundary>
+            <ScreenBoundary of={key}>
               <Suspense fallback={null}>
                 <motion.div className="h-full" variants={enteringAgent ? { enter: {}, center: { transition: agentEntry(still) } } : arrive} initial="enter" animate="center">
                   {hasHost && !needsModel && NOT_WIRED.has(screen) ? <NotWiredYet screen={screen} /> : <View />}
