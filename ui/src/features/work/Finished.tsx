@@ -10,14 +10,18 @@ import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
 import { useGitHub, type FinishedChange, type FinishedGroup, type GitHubPull, type WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
-import { GradeChip, SafetyChip, SaidLine, SectionHeading } from './parts.tsx'
+import { GradeChip, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
+import { saysHigh } from './review-badge.ts'
+import { underWay } from './review-follow.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
+import { useChangeReview } from './use-change-review.ts'
 
 /**
  * Finished changes in hobkin's three groups: ready to merge, refresh then merge, and needs you. Each card says what
- * the change is, its proof, its grade, why it is in its group and what a yes does, and offers hobkin's choices in
- * hobkin's order. "Review" opens it in Change Review, and a change on GitHub links to its pull request. A group's
- * one yes first lists every title it acts on, in the order they go, and then says how each went.
+ * the change is, its proof, its grade, the level its change review found (spec 032), why it is in its group and what
+ * a yes does, and offers hobkin's choices in hobkin's order. "Review" opens it in Change Review, "Review again" runs
+ * the change review once more instead of hobkin's agent review, and a change on GitHub links to its pull request.
+ * A group's one yes first lists every title it acts on, in the order they go, and then says how each went.
  */
 
 interface Shared {
@@ -226,7 +230,11 @@ const prNumber = (url: string) => /\/pull\/(\d+)/.exec(url)?.[1]
 /** What a choice says while hobkin carries it out. */
 const UNDER_WAY: Partial<Record<HobkinChoice, string>> = { merge: 'Merging…', mergePr: 'Merging…', refreshMerge: 'Asking for its refresh…' }
 
-/** The yes that lands a change stands out, unless a review rated this commit risky. Every other choice stays quiet. */
+/** The card's own "Review again", in place of hobkin's "Get it reviewed": the change review once more, never an agent run. */
+const REVIEW_AGAIN_TITLE = 'Runs the change review again at this commit: its tests and one model pass.'
+const SAMPLE_REVIEW_AGAIN = 'This is sample data, so no change review runs here.'
+
+/** The yes that lands a change stands out, unless its change review says it needs the user. Every other choice stays quiet. */
 function variantOf(choice: HobkinChoice, risky: boolean): 'default' | 'outline' | 'ghost' {
   const lands = choice === 'merge' || choice === 'mergePr' || choice === 'refreshMerge' || choice === 'rebase'
   if (!lands) return 'ghost'
@@ -241,14 +249,30 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
   const [chosen, setChosen] = useState<HobkinChoice | null>(null)
   const [noting, setNoting] = useState(false)
   const pull = change.pr ? [...github.pulls, ...github.reviews].find(({ url }) => url === change.pr) : undefined
-  const risky = change.safety?.grade === 'risky' && !change.safety.stale
+  const reviewId = finishedReviewId(change, live)
+  // A sample card has no change review, so nothing is asked for it.
+  const { assessment, again } = useChangeReview(live ? reviewId : null, change.head)
+  const risky = saysHigh(assessment)
 
   const review = () => {
-    const id = finishedReviewId(change, live)
-    if (id) useView.getState().openReviewFor(id)
+    if (reviewId) useView.getState().openReviewFor(reviewId)
   }
 
-  const choose = async (choice: HobkinChoice, note?: string) => {
+  // "Review again" runs the change review once more in the host. hobkin's own review, an agent run, is never asked for.
+  const reviewAgain = async () => {
+    if (!live) {
+      useWorkUi.getState().note(change.key, { tone: 'refused', text: SAMPLE_REVIEW_AGAIN })
+      return
+    }
+    try {
+      await again()
+      useWorkUi.getState().forget(change.key)
+    } catch (error) {
+      useWorkUi.getState().note(change.key, { tone: 'refused', text: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  const choose = async (choice: Exclude<HobkinChoice, 'review'>, note?: string) => {
     setChosen(choice)
     onLeaving(choice === 'decline' ? 'deleted' : 'answered')
     const result = await runWork({ do: 'change', change, choice, ...(note === undefined ? {} : { note }) }, { live, place: change.key })
@@ -292,9 +316,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
             <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
             {change.about ? <p className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">{change.about}</p> : null}
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
-              <span title={change.review}>
-                <SafetyChip safety={change.safety} />
-              </span>
+              <ReviewBadge status={assessment} />
               {change.size ? (
                 <span className="tabular-nums">
                   {change.size.lines} {change.size.lines === 1 ? 'line' : 'lines'} · {change.size.files} {change.size.files === 1 ? 'file' : 'files'}
@@ -339,15 +361,15 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
                 </a>
               ) : null
             }
+            if (value === 'review') {
+              return (
+                <Button key={value} {...control} disabled={busy || underWay(assessment)} variant="ghost" title={REVIEW_AGAIN_TITLE} onClick={() => void reviewAgain()}>
+                  Review again
+                </Button>
+              )
+            }
             return (
-              <Button
-                key={value}
-                {...control}
-                variant={variantOf(value, risky)}
-                className={cn(value === 'decline' && 'text-bad-fg')}
-                title={value === 'review' ? 'An agent reviews it at this commit: about $2 and 14 minutes of a worker.' : undefined}
-                onClick={() => void choose(value)}
-              >
+              <Button key={value} {...control} variant={variantOf(value, risky)} className={cn(value === 'decline' && 'text-bad-fg')} onClick={() => void choose(value)}>
                 {busy && chosen === value ? (UNDER_WAY[value] ?? `${label}…`) : label}
               </Button>
             )

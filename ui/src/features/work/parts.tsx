@@ -1,9 +1,12 @@
+import { OctagonAlert } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
-import type { FinishedChange, Grade } from '@/lib/host/index.ts'
+import type { Grade } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import type { AssessmentStatus } from '#shared/review/assessment.ts'
+import { reviewBadge, type BadgeTone } from './review-badge.ts'
 
 /** The small pieces the Work screen's sections share. */
 
@@ -20,16 +23,20 @@ export function GradeChip({ grade }: { grade: Grade | null }) {
   return <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-1.5 font-heading text-[11px] font-semibold tabular-nums', GRADE_TONE[grade])}>{grade}</span>
 }
 
-const SAFETY_TONE: Record<string, string> = { safe: 'bg-ok/15 text-ok-fg', medium: 'bg-warn/15 text-warn-fg', risky: 'bg-bad/15 text-bad-fg' }
+const BADGE_TONE: Record<BadgeTone, string> = { bad: 'bg-bad/15 text-bad-fg', warn: 'bg-warn/15 text-warn-fg', ok: 'bg-ok/15 text-ok-fg', quiet: 'bg-surface-2 text-muted-foreground' }
 
-/** What a review found at a commit. One for an older commit says so, and reads as quieter. */
-export function SafetyChip({ safety }: { safety: FinishedChange['safety'] }) {
-  if (!safety) return <span className="inline-flex h-5 items-center rounded-full bg-surface-2 px-2 font-heading text-[11px] font-medium text-muted-foreground">Not graded</span>
-  const tone = safety.stale ? 'bg-surface-2 text-muted-foreground' : (SAFETY_TONE[safety.grade] ?? 'bg-surface-2 text-muted-foreground')
+/** What the change review found at the change's commit, how far along it is, or why it stopped. A critical finding is marked. */
+export function ReviewBadge({ status }: { status: AssessmentStatus | undefined }) {
+  const { label, tone, title, critical } = reviewBadge(status)
   return (
-    <span className={cn('inline-flex h-5 items-center rounded-full px-2 font-heading text-[11px] font-medium whitespace-nowrap', tone)}>
-      {safety.grade} {safety.rating}
-      {safety.stale ? ', older commit' : ''}
+    <span title={title} className={cn('inline-flex h-5 items-center gap-1 rounded-full px-2 font-heading text-[11px] font-medium whitespace-nowrap tabular-nums', BADGE_TONE[tone])}>
+      {critical ? (
+        <>
+          <OctagonAlert aria-hidden="true" className="size-3 shrink-0" />
+          <span className="sr-only">Critical:</span>
+        </>
+      ) : null}
+      {label}
     </span>
   )
 }
