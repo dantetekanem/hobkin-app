@@ -4,8 +4,8 @@ import { useView } from '@/app/view-store.ts'
 import { hasHost } from '@/lib/host/frame.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore, runCommand, useHasHost, useWork } from '@/lib/host/index.ts'
-import { commandFor, executionKey, executionTargets, observeExecutionBoundary, receiptText, type ExecutionControl, type ExecutionResult, type WorkAction } from './actions.ts'
-import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+import { commandFor, executionKey, executionTargets, observeExecutionBoundary, receiptText, startupKey, startupTarget, startupReceiptText, type ExecutionControl, type ExecutionResult, type WorkAction } from './actions.ts'
+import type { StartupTarget, StartupForceReceipt, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import { applySample } from './sample-actions.ts'
 import { sampleWork } from './sample.ts'
 
@@ -92,7 +92,24 @@ const unsubscribeWorld = useView.subscribe((state) => {
 import.meta.hot?.dispose(unsubscribeWorld)
 
 const unsubscribeHost = hostStore.subscribe((state, previous) => {
-  if (state.home === previous.home && state.epoch === previous.epoch && state.link === previous.link) return
+  if (state.home === previous.home && state.epoch === previous.epoch && state.link === previous.link) {
+    const target = state.owner?.startup?.target
+    if (!state.owner?.startup || (target && startupKey(target) !== startupKey(previous.owner?.startup?.target ?? null))) {
+      startupAttempt = null
+      useStartup.setState({ pending: null, receipt: null, text: null })
+    }
+    const published = state.owner?.startup?.receipt
+    if (published && published !== previous.owner?.startup?.receipt && state.link === 'open' && published.target.home === state.home && (!target || startupKey(target) === startupKey(published.target)) && (!startupAttempt || published.attemptId === startupAttempt)) useStartup.setState({ receipt: published, text: startupReceiptText(published) })
+    return
+  }
+  const published = state.owner?.startup?.receipt
+  const previousTarget = previous.owner?.startup?.target
+  const target = state.owner?.startup?.target
+  const fresh = published && state.owner !== previous.owner && ((published.attemptId === startupAttempt && useStartup.getState().pending !== null) || JSON.stringify(published) !== JSON.stringify(previous.owner?.startup?.receipt))
+  const matches = published && (target ? startupKey(target) === startupKey(published.target) : previousTarget ? startupKey(previousTarget) === startupKey(published.target) : false)
+  startupAttempt = null
+  const receipt = published && state.link === 'open' && published.target.home === state.home && fresh && matches ? published : null
+  useStartup.setState({ pending: null, receipt, text: receipt ? startupReceiptText(receipt) : null })
 
   observeExecutionBoundary(state, previous)
   executions.clear()
@@ -104,6 +121,34 @@ const unsubscribeHost = hostStore.subscribe((state, previous) => {
   if (Object.keys(busy).length || Object.keys(said).length) useWorkUi.setState({ busy: {}, said: {} })
 })
 import.meta.hot?.dispose(unsubscribeHost)
+
+export const useStartup = create<{ pending: string | null; receipt: StartupForceReceipt | null; text: string | null }>()(() => ({ pending: null, receipt: null, text: null }))
+let startupAttempt: string | null = null
+export async function runStartupForce(target: StartupTarget) {
+  const host = hostStore.getState()
+  const key = startupKey(target)
+  if (startupKey(startupTarget(host)) !== key) throw Error('Startup changed or disconnected. Nothing was forced.')
+  if (useStartup.getState().pending === key) return
+  const attemptId = startupAttempt = crypto.randomUUID()
+  const current = () => {
+    const now = hostStore.getState()
+    return startupAttempt === attemptId && now.link === 'open' && now.home === host.home && now.epoch === host.epoch && now.owner?.startup && (!now.owner.startup.target || startupKey(startupTarget(now)) === key)
+  }
+  useStartup.setState({ pending: key, receipt: null, text: null })
+  try {
+    const receipt = await runCommand('startup.force', { target, attemptId })
+    if (startupKey(receipt.target) !== key || receipt.attemptId !== attemptId) throw Error('Startup receipt does not match this attempt.')
+    if (current()) {
+      const published = hostStore.getState().owner?.startup?.receipt
+      const latest = published?.attemptId === attemptId ? published : receipt
+      useStartup.setState({ receipt: latest, text: startupReceiptText(latest) })
+    }
+  } catch (error) {
+    if (current()) useStartup.setState({ text: error instanceof Error ? error.message : String(error) })
+  } finally {
+    if (startupAttempt === attemptId) useStartup.setState({ pending: null })
+  }
+}
 
 export const useExecution = create<{ pending: Record<string, true>; results: Record<string, ExecutionResult> }>()(() => ({ pending: {}, results: {} }))
 let executionOrder = 0

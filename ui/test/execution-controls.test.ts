@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { executionFeedbackRows, executionKey, executionTargets, confirmExecution, latestMainExecutionResult, receiptText } from '../src/features/work/actions.ts'
-import { initialHostState, type HostState } from '../src/lib/host/state.ts'
-import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+import { applyHostMessage, initialHostState, type HostState } from '../src/lib/host/state.ts'
+import type { StartupForceArgs, StartupForceReceipt, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 
 const row = { kind: 'main' as const, runId: 'turn:1', parentId: null, rootId: 'turn:1', label: 'hobkin', canStop: true, canForce: true }
 const state = (): HostState => ({ ...initialHostState, home: '/isolated', link: 'open' as const, owner: { state: 'live' as const, limits: { images: 4, imageBytes: 1 } }, snapshot: { busy: false, stopControls: { home: '/isolated', epoch: 'host:1', targets: [row] } } })
@@ -182,6 +182,107 @@ test('receipt publication cannot restore a draft after a same-counter home repla
       assert.deepEqual(useExecution.getState().results, {})
     } finally { unsubscribe(); hostStore.setState(initialHostState, true) }
   } finally { aliases.deregister() }
+})
+
+test('startup Force uses published custody without a model, and rejects stale confirmations', async () => {
+  const actions = await import('../src/features/work/actions.ts')
+  assert.equal(typeof actions.startupTarget, 'function')
+  const host: HostState = { ...state(), snapshot: {}, owner: { state: 'opening', startup: { target: { home: '/isolated', epoch: 'owner:1', token: 'opening', sessionId: null }, receipt: null } } }
+  const target = actions.startupTarget(host)!
+  let sent = 0
+  const answer = actions.confirmStartup(target, () => actions.startupTarget(host), () => { sent++ })
+  answer(true); answer(true)
+  assert.equal(sent, 1)
+  const stale = actions.confirmStartup(target, () => actions.startupTarget(host), () => { sent++ })
+  host.owner!.startup!.target = { ...target, sessionId: 'candidate' }
+  stale(true)
+  assert.equal(sent, 1)
+  assert.equal(actions.startupTarget({ ...host, link: 'lost' }), null)
+})
+
+test('startup retry, independent Stop, owner settlement and stale replies keep separate custody', { timeout: 2000 }, async t => {
+  const controls = await import('../src/features/work/store.ts')
+  assert.equal(typeof controls.runStartupForce, 'function')
+  const { hostStore } = await import('../src/lib/host/client.ts')
+  const { HostConnection } = await import('../src/lib/host/connection.ts')
+  const target = { home: '/isolated', epoch: 'owner:1', token: 'reset', sessionId: null }
+  const startup = { target, receipt: null }
+  hostStore.setState({ ...state(), owner: { ...state().owner!, startup } }, true)
+  const calls: StartupForceArgs[] = []
+  const finishes: ((r: StartupForceReceipt) => void)[] = []
+  const result = (args: StartupForceArgs): StartupForceReceipt => ({ ...args, fence: { status: 'confirmed' }, closure: { status: 'unknown' }, opening: { status: 'unknown' }, cleanup: { status: 'unknown' }, persistence: { status: 'committed', sessionId: 'saved' }, detachedCleanup: 'unknown', queueRecovery: 'not-applicable' })
+  t.mock.method(HostConnection.prototype, 'command', (name: string, args: StartupForceArgs & StopExecutionArgs) => name === 'startup.force' ? new Promise(resolve => { calls.push(args); finishes.push(resolve) }) : Promise.resolve(receipt(args)))
+  try {
+    const first = controls.runStartupForce(target)
+    await controls.runStartupForce(target)
+    await controls.runExecution(executionTargets(hostStore.getState())[0]!, 'stop')
+    assert.equal(calls.length, 1)
+    finishes[0]!(result(calls[0]!)); await first
+    assert.match(controls.useStartup.getState().text!, /fence confirmed.*closure unknown.*opening unknown.*cleanup unknown.*persistence committed.*detached cleanup unknown.*queue recovery not-applicable/i)
+    const published = { ...result(calls[0]!), opening: { status: 'settled' as const } }
+    hostStore.setState({ owner: { ...state().owner!, startup: { target, receipt: published } } })
+    assert.match(controls.useStartup.getState().text!, /opening settled/)
+    assert.equal(calls.length, 1, 'later owner settlement never replays Force')
+    const retry = controls.runStartupForce(target)
+    assert.notEqual(calls[0]!.attemptId, calls[1]!.attemptId)
+    const settled = { ...result(calls[1]!), closure: { status: 'confirmed' as const }, cleanup: { status: 'settled' as const } }
+    hostStore.setState({ owner: { ...state().owner!, startup: { target: null, receipt: settled } } })
+    finishes[1]!(result(calls[1]!)); await retry
+    assert.match(controls.useStartup.getState().text!, /closure confirmed.*cleanup settled/)
+    hostStore.setState({ owner: { ...state().owner!, startup } })
+    const old = controls.runStartupForce(target)
+    hostStore.setState({ owner: { ...state().owner!, startup: { target: { ...target, sessionId: 'new' }, receipt: result(calls[2]!) } } })
+    assert.equal(controls.useStartup.getState().text, null, 'a replacement drops the old attempt feedback immediately')
+    const newer = controls.runStartupForce({ ...target, sessionId: 'new' })
+    finishes[3]!(result(calls[3]!)); await newer
+    finishes[2]!(result(calls[2]!)); await old
+    assert.equal(controls.useStartup.getState().receipt?.target.sessionId, 'new')
+    const disconnected = controls.runStartupForce({ ...target, sessionId: 'new' })
+    hostStore.setState({ link: 'lost' }); hostStore.setState({ link: 'open' })
+    finishes[4]!(result(calls[4]!)); await disconnected
+    assert.equal(controls.useStartup.getState().text, null)
+    await assert.rejects(controls.runStartupForce({ ...target, sessionId: 'new' }), /changed|disconnected/i)
+    for (const boundary of [{ home: '/replacement' }, { epoch: 99 }]) {
+      hostStore.setState({ ...state(), epoch: hostStore.getState().epoch + 1, owner: { state: 'opening', startup }, snapshot: {} }, true)
+      const opening = controls.runStartupForce(target)
+      assert.deepEqual(calls.at(-1)!.target, target, 'initial opening sends nullable identity without model or snapshot')
+      const pending = calls.length - 1
+      hostStore.setState(boundary)
+      finishes[pending]!(result(calls[pending]!)); await opening
+      assert.equal(controls.useStartup.getState().text, null)
+      if ('home' in boundary) await assert.rejects(controls.runStartupForce(target), /changed|disconnected/i)
+    }
+  } finally { hostStore.setState(initialHostState, true) }
+})
+
+test('startup Force keeps a fresh failed-reset receipt and rejects inherited receipts', { timeout: 2000 }, async t => {
+  const controls = await import('../src/features/work/store.ts')
+  const { hostStore } = await import('../src/lib/host/client.ts')
+  const { HostConnection } = await import('../src/lib/host/connection.ts')
+  const target = { home: '/isolated', epoch: 'owner:1', token: 'reset', sessionId: null }
+  const startup = { target, receipt: null }
+  hostStore.setState({ ...state(), owner: { state: 'opening', startup } }, true)
+  let issued!: StartupForceArgs
+  let finish!: (value: StartupForceReceipt) => void
+  const result = (args: StartupForceArgs): StartupForceReceipt => ({ ...args, fence: { status: 'confirmed' }, closure: { status: 'unknown' }, opening: { status: 'unknown' }, cleanup: { status: 'unknown' }, persistence: { status: 'committed', sessionId: 'saved' }, detachedCleanup: 'unknown', queueRecovery: 'not-applicable' })
+  t.mock.method(HostConnection.prototype, 'command', (_name: string, args: StartupForceArgs & StopExecutionArgs) => new Promise(resolve => { issued = args; finish = resolve }))
+  try {
+    const forcing = controls.runStartupForce(target)
+    const observed = result(issued)
+    hostStore.setState(applyHostMessage(hostStore.getState(), { type: 'state', rev: 1, owner: { state: 'opening', startup: { target, receipt: observed } } }), true)
+    hostStore.setState(applyHostMessage(hostStore.getState(), { type: 'state', rev: 2, reset: true }), true)
+    assert.equal(controls.useStartup.getState().receipt, null, 'a reset without an owner must not inherit an in-flight receipt')
+    const final = { ...result(issued), closure: { status: 'confirmed' as const }, cleanup: { status: 'settled' as const } }
+    const failed = applyHostMessage(hostStore.getState(), { type: 'state', rev: 3, reset: true, owner: { state: 'failed', message: 'opening fenced', startup: { target: null, receipt: final } } })
+    hostStore.setState(failed, true)
+    assert.equal(controls.useStartup.getState().receipt, final)
+    assert.match(controls.useStartup.getState().text!, /closure confirmed.*cleanup settled/)
+    finish(result(issued)); await forcing
+    assert.equal(controls.useStartup.getState().receipt, final, 'the older Force reply cannot overwrite the final owner receipt')
+    const inherited = applyHostMessage(hostStore.getState(), { type: 'state', rev: 4, reset: true, owner: { state: 'failed', message: 'still failed', startup: { target: null, receipt: final } } })
+    hostStore.setState(inherited, true)
+    assert.equal(controls.useStartup.getState().receipt, null, 'an epoch-only reset does not re-adopt the inherited receipt')
+  } finally { hostStore.setState(initialHostState, true) }
 })
 
 test('receipt feedback keeps cancellation, closure and detached cleanup separate', () => {

@@ -1,4 +1,4 @@
-import type { CommandArgs, ExecutionTarget, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+import type { CommandArgs, ExecutionTarget, StartupTarget, StartupForceReceipt, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import type { StopControlTarget } from '#shared/protocol/snapshot.ts'
 import type { ChangeChoice, FinishedChange, FinishedGroup, Grade, PrMode } from '#shared/protocol/work.ts'
@@ -47,6 +47,22 @@ export function confirmExecution(target: ExecutionControl, current: () => Execut
     consumed = true
     if (yes && current().some(now => executionKey(now) === executionKey(target) && now.label === target.label && now.rootId === target.rootId && now.parentId === target.parentId)) send()
   }
+}
+export const startupKey = (target: StartupTarget | null) => target ? JSON.stringify([target.home, target.epoch, target.token, target.sessionId]) : null
+export function startupTarget(state: HostState): StartupTarget | null {
+  const target = state.owner?.startup?.target
+  return state.link === 'open' && disconnected !== sourceOf(state) && target?.home === state.home ? target : null
+}
+export function confirmStartup(target: StartupTarget, current: () => StartupTarget | null, send: () => void) {
+  let consumed = false
+  return (yes: boolean) => {
+    if (consumed) return
+    consumed = true
+    if (yes && startupKey(current()) === startupKey(target)) send()
+  }
+}
+export function startupReceiptText(receipt: StartupForceReceipt): string {
+  return `Force: fence ${receipt.fence.status}; captured closure ${receipt.closure.status}; opening ${receipt.opening.status}; outer cleanup ${receipt.cleanup.status}; persistence ${receipt.persistence.status}; detached cleanup ${receipt.detachedCleanup}; queue recovery ${receipt.queueRecovery}.`
 }
 export function receiptText(receipt: StopExecutionReceipt): string {
   return `${receipt.mode === 'force' ? 'Force' : 'Stop'}: cancellation ${receipt.stop.status}; captured closure ${receipt.closure.status}; descendants ${receipt.descendants.status} (${receipt.descendants.cleanupScope}); detached cleanup ${receipt.descendants.detachedCleanup}.${receipt.message ? ` ${receipt.message}` : ''}`
