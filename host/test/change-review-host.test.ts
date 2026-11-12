@@ -42,7 +42,7 @@ function fakeEngine(levels: ('safe' | 'mid' | 'high')[] = ['high', 'mid', 'safe'
   const runs: AssessRequest[] = []
   const engine: AssessRun = async (request) => {
     runs.push(request)
-    request.onProgress({ percent: 40, now: 'map-proof: running the tests of total', eta_seconds: 30, steps: [] })
+    request.onProgress({ percent: 40, now: 'map-proof: running the tests of total', eta_seconds: 30, steps: [{ id: 'triage', status: 'done', done: 1, total: 1, seconds: 2 }, { id: 'map-proof', status: 'running', done: 1, total: 3, seconds: null }] })
     writeFileSync(join(request.out, 'story.md'), '# Round the total\n')
     writeFileSync(join(request.out, 'units.json'), JSON.stringify({ schema: 'review-units/1', map: 'node-level', attention: { units: levels.length, reading_minutes: 3 }, units: [] }))
     return { units: { units: levels.map((level) => ({ level, critical: false })) }, storyBy: 'host' }
@@ -54,20 +54,25 @@ function assessmentsFor(t: TestContext, engine: AssessRun) {
   const { repo, git, write, base, head } = project(t)
   const root = temporaryDirectory(t)
   const states: AssessmentStatus['state'][] = []
+  const seen: AssessmentStatus[] = []
   const assessments: Assessments = new Assessments({
     root,
     run: engine,
     repoOf: (slug) => (slug === 'shop' ? repo : null),
-    onChange: () => states.push(assessments.status(target, head).state),
+    onChange: () => {
+      const status = assessments.status(target, head)
+      states.push(status.state)
+      seen.push(status)
+    },
   })
   t.after(() => assessments.close())
   const job = { target, head, base, description: { source: 'commits' as const, title: 'Round the total' } }
-  return { repo, git, write, base, head, root, assessments, states, job }
+  return { repo, git, write, base, head, root, assessments, states, seen, job }
 }
 
 test('a finished change is reviewed once per commit, in the background', async (t) => {
   const { engine, runs } = fakeEngine()
-  const { repo, git, write, head, root, assessments, states, job } = assessmentsFor(t, engine)
+  const { repo, git, write, head, root, assessments, states, seen, job } = assessmentsFor(t, engine)
 
   const first = assessments.start(job)
   assert.equal(first.state, 'queued', 'it starts in the background and answers at once')
@@ -78,6 +83,8 @@ test('a finished change is reviewed once per commit, in the background', async (
 
   assert.equal(runs.length, 1, 'the same commit is reviewed once')
   assert.deepEqual([...new Set(states)], ['queued', 'running', 'ready'])
+  const running = seen.find((status) => status.state === 'running' && status.steps)
+  assert.deepEqual(running?.steps?.map((step) => `${step.id}:${step.status}`), ['triage:done', 'map-proof:running'], 'a running review says how each step stands')
   const done = assessments.status(target, head)
   assert.equal(done.state, 'ready')
   assert.deepEqual({ level: done.summary?.level, needsYou: done.summary?.needsYou, worthALook: done.summary?.worthALook, safe: done.summary?.safe }, { level: 'high', needsYou: 1, worthALook: 1, safe: 1 })

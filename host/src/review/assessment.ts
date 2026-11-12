@@ -284,7 +284,15 @@ export class Assessments {
       out,
       description,
       signal: this.controller.signal,
-      onProgress: (progress) => this.set(target, head, { state: 'running', head, percent: progress.percent, now: progress.now, eta: progress.eta_seconds }),
+      onProgress: (progress) =>
+        this.set(target, head, {
+          state: 'running',
+          head,
+          percent: progress.percent,
+          now: progress.now,
+          eta: progress.eta_seconds,
+          steps: progress.steps.map(({ id, status, done, total, seconds, note }) => ({ id, status, done, total, seconds, ...(note ? { note } : {}) })),
+        }),
     })
     const summary = summarize(result, new Date((this.options.now ?? Date.now)()).toISOString())
     writeWhole(join(out, 'summary.json'), JSON.stringify(summary))
