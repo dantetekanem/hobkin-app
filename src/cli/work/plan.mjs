@@ -549,9 +549,9 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const waitingOn = checks && free <= 0 ? 'Scheduled checks are running, so nothing new starts until they finish.' : null;
   const canGo = entry => !entry.waiting && mayStart(mode, entry);
   // With no worker free, a row the user said to start now still goes, as one extra worker.
-  const ready = free > 0 ? entries.find(canGo) : entries.find(entry => entry.pickedNow && canGo(entry));
+  const first = free > 0 ? entries.find(canGo) : entries.find(entry => entry.pickedNow && canGo(entry));
   // A pick goes first, and it waits out the gap like any start, because two at once is the race the gap is there to stop.
-  const next = stop || spaced ? null : ready ?? null;
+  const next = stop || spaced ? null : first ?? null;
   return {
     mode, entries, next, pause, budget, subscription, agents, free, waitingOn, shipFirst: shipping,
     nextStartAt: spaced ? new Date(startsAt).toISOString() : null,

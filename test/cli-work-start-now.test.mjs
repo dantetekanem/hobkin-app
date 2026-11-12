@@ -45,17 +45,20 @@ const rowOf = ({ entries }, key) => entries.find(entry => entry.key === key);
 
 test('with no worker free a row started now is next, as one extra worker, while an ordinary pick still waits for a free worker', t => {
   const { root, keys, plan } = bothWorkersBusy(t);
+
   pickNext(root, keys.api);
-  const picked = plan();
-  assert.equal(picked.free, 0);
-  assert.equal(picked.next, null);
-  assert.equal(rowWait(rowOf(picked, keys.api), picked.free), 'a free worker');
+  const afterPick = plan();
+
+  assert.equal(afterPick.free, 0);
+  assert.equal(afterPick.next, null);
+  assert.equal(rowWait(rowOf(afterPick, keys.api), afterPick.free), 'a free worker');
 
   pickNow(root, keys.site);
-  const started = plan();
-  assert.equal(started.next?.key, keys.site, 'it goes ahead of the earlier pick, past the worker ceiling');
-  assert.equal(rowWait(started.next, started.free), null, 'it waits for no worker');
-  assert.equal(rowWait(rowOf(started, keys.api), started.free), 'a free worker', 'the earlier pick still does');
+  const afterStartNow = plan();
+
+  assert.equal(afterStartNow.next?.key, keys.site, 'it goes ahead of the earlier pick, past the worker ceiling');
+  assert.equal(rowWait(afterStartNow.next, afterStartNow.free), null, 'it waits for no worker');
+  assert.equal(rowWait(rowOf(afterStartNow, keys.api), afterStartNow.free), 'a free worker', 'the earlier pick still does');
   assert.deepEqual(readMode(root).queueNext, [keys.site, keys.api]);
 });
 
@@ -65,20 +68,25 @@ test('a pause, the budget, every stop and the gap between starts still hold a ro
   assert.equal(plan().next?.key, keys.site);
 
   setProjectPaused(root, 'site', true);
-  assert.equal(plan().next, null, 'its project paused');
-  assert.equal(rowOf(plan(), keys.site).waiting, 'paused');
+  const projectPaused = plan();
+  assert.equal(projectPaused.next, null, 'its project paused');
+  assert.equal(rowOf(projectPaused, keys.site).waiting, 'paused');
   setProjectPaused(root, 'site', false);
 
   writeMode(root, { pausedAt: new Date(now).toISOString() });
   assert.equal(plan().next, null, 'a pause by hand');
-  writeMode(root, { pausedAt: null, usagePause: { at: new Date(now).toISOString(), until: new Date(now + HOUR).toISOString(), reason: 'A usage limit.' } });
+  writeMode(root, { pausedAt: null });
+
+  const usageLimit = { at: new Date(now).toISOString(), until: new Date(now + HOUR).toISOString(), reason: 'A usage limit.' };
+  writeMode(root, { usagePause: usageLimit });
   assert.equal(plan().next, null, 'a usage limit');
   writeMode(root, { usagePause: null });
 
   writeMode(root, { dailyTokens: 1000000 });
   recordTokens(root, { slug: 'api', lane: 'do', tokens: 1000000 }, now - 2 * HOUR);
-  assert.equal(plan().next, null, 'the day\'s budget');
-  assert.equal(rowOf(plan(), keys.site).waiting, 'over today\'s budget');
+  const daySpent = plan();
+  assert.equal(daySpent.next, null, 'the day\'s budget');
+  assert.equal(rowOf(daySpent, keys.site).waiting, 'over today\'s budget');
   writeMode(root, { dailyTokens: 100000000 });
 
   assert.equal(plan({ lastStartAt: now - 60000 }).next, null, 'the gap between starts');
@@ -134,23 +142,29 @@ test('starting a row now says it starts as one extra worker, or what still holds
   const site = fileItem(h.root, 'site', item('Fix site'), h.clock);
   await h.startedRun();
 
-  const started = triggerRow(h.root, 'site', site.id, { now: true });
-  assert.deepEqual(started, {
+  const startSiteNow = () => triggerRow(h.root, 'site', site.id, { now: true });
+
+  assert.deepEqual(startSiteNow(), {
     ok: true,
     message: 'Queued "Fix site" on site to start at once. It starts now as one extra worker.',
     key: `item:site:${site.id}`,
   });
 
   writeMode(h.root, { pausedAt: new Date(h.clock).toISOString() });
-  assert.match(triggerRow(h.root, 'site', site.id, { now: true }).message, /^Queued "Fix site" on site to start at once\. Paused by hand\./);
-  writeMode(h.root, { pausedAt: null, dailyTokens: 1000000 });
+  assert.match(startSiteNow().message, /^Queued "Fix site" on site to start at once\. Paused by hand\./);
+  writeMode(h.root, { pausedAt: null });
+
+  writeMode(h.root, { dailyTokens: 1000000 });
   recordTokens(h.root, { slug: 'api', lane: 'do', tokens: 1000000 }, h.clock);
-  assert.match(triggerRow(h.root, 'site', site.id, { now: true }).message, /to start at once\. Paused for today/);
-  writeMode(h.root, { dailyTokens: 100000000, startGapMs: 300000 });
-  assert.match(triggerRow(h.root, 'site', site.id, { now: true }).message, /to start at once\. It starts at \d\d:\d\d \w+ as one extra worker, after the gap between starts\.$/);
+  assert.match(startSiteNow().message, /to start at once\. Paused for today/);
+  writeMode(h.root, { dailyTokens: 100000000 });
+
+  writeMode(h.root, { startGapMs: 300000 });
+  assert.match(startSiteNow().message, /to start at once\. It starts at \d\d:\d\d \w+ as one extra worker, after the gap between starts\.$/);
 
   setProjectPaused(h.root, 'site', true);
-  assert.match(triggerRow(h.root, 'site', site.id, { now: true }).message, /to start at once\. For now it is waiting: paused\.$/);
+  assert.match(startSiteNow().message, /to start at once\. For now it is waiting: paused\.$/);
+
   assert.match(triggerRow(h.root, 'api', 'look').message, /^Queued the look on api to run next\./, 'run next is as it was');
 
   release.resolve();

@@ -214,17 +214,22 @@ export function pickNext(root, key) {
  */
 export function pickNow(root, key) {
   const { queueNext, queueNow, queueSkipped } = readMode(root);
+  const without = keys => keys.filter(entry => entry !== key);
   return writeMode(root, {
-    queueNext: [key, ...queueNext.filter(entry => entry !== key)],
+    queueNext: [key, ...without(queueNext)],
     queueNow: [...new Set([...queueNow, key])],
-    queueSkipped: queueSkipped.filter(entry => entry !== key),
+    queueSkipped: without(queueSkipped),
   });
 }
 
 export function skipInQueue(root, key) {
   const { queueNext, queueNow, queueSkipped } = readMode(root);
   const without = keys => keys.filter(entry => entry !== key);
-  return writeMode(root, { queueNext: without(queueNext), queueNow: without(queueNow), queueSkipped: [...new Set([...queueSkipped, key])] });
+  return writeMode(root, {
+    queueNext: without(queueNext),
+    queueNow: without(queueNow),
+    queueSkipped: [...new Set([...queueSkipped, key])],
+  });
 }
 
 export const putBackInQueue = (root, key) => writeMode(root, { queueSkipped: readMode(root).queueSkipped.filter(entry => entry !== key) });

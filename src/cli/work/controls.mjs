@@ -272,12 +272,14 @@ function whenItStarts({ mode, pause, waitingOn, entries, free }, key, owner) {
 function whenItStartsNow({ mode, pause, entries, next, free, nextStartAt }, key, owner) {
   if (!mode.enabled) return 'Work mode is off, so it waits for hobkin work start.';
   if (!owner) return NEEDS_AN_OWNER;
-  const extra = free > 0 ? '' : ' as one extra worker';
-  if (next?.key === key) return `It starts now${extra}.`;
+
+  const asExtraWorker = free > 0 ? '' : ' as one extra worker';
+  if (next?.key === key) return `It starts now${asExtraWorker}.`;
   if (pause) return pause.line;
   const wait = entries.find(row => row.key === key)?.waiting;
   if (wait) return `For now it is waiting: ${wait}.`;
-  return nextStartAt ? `It starts at ${lookTime(nextStartAt, Date.now())}${extra}, after the gap between starts.` : 'It starts once it is due.';
+  if (nextStartAt) return `It starts at ${lookTime(nextStartAt, Date.now())}${asExtraWorker}, after the gap between starts.`;
+  return 'It starts once it is due.';
 }
 
 /**
@@ -295,11 +297,16 @@ export function triggerRow(root, reference, target, { now = false } = {}) {
   const row = queueRow(root, reference, target, nextOnProject);
   assertCanRun(root, row);
   if (row.item?.state === 'branch') updateItem(root, row.project.slug, row.item.id, { state: 'open' });
-  (now ? pickNow : pickNext)(root, row.key);
 
-  const plan = planWork(root, view);
-  if (now) return reply(`Queued ${row.label} to start at once. ${whenItStartsNow(plan, row.key, view.owner)}`, { key: row.key });
-  return reply(`Queued ${row.label} to run next. ${whenItStarts(plan, row.key, view.owner)}`, { key: row.key });
+  if (now) {
+    pickNow(root, row.key);
+    const when = whenItStartsNow(planWork(root, view), row.key, view.owner);
+    return reply(`Queued ${row.label} to start at once. ${when}`, { key: row.key });
+  }
+
+  pickNext(root, row.key);
+  const next = whenItStarts(planWork(root, view), row.key, view.owner);
+  return reply(`Queued ${row.label} to run next. ${next}`, { key: row.key });
 }
 
 // A run names its project by slug and its item by id, and the user knows them by name and title.
