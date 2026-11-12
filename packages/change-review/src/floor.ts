@@ -19,7 +19,17 @@ export function floor(input: FloorInput): Floor {
   if (input.bucketChecksPassed) return row(2, 'safe', 'The checks for this kind of change all passed.')
   if (input.typeOnly) return row(2, 'safe', 'Only a type: the compiler checks it, and it is gone before the code runs.')
   if (MISSING_PROOF.has(proof) && input.runsInRequest !== false) return row(3, 'high', 'No test that runs reaches these lines.')
-  if (proof === 'isolated') return row(4, 'high', 'Only tests that call it directly run it. No test goes through a request to it.')
+  // Row 4: tests that call the definition directly fail without the change, and no test goes through a request to it.
+  // What such tests leave unshown is how callers use it. 4c: code outside a request is entered by calling it, so the
+  // rows below decide. 4b: changed in place, with nothing about how it is called, kept or held back changed, so the
+  // callers' way is the one that already ran. 4a: everything else.
+  if (proof === 'isolated' && input.runsInRequest !== false) {
+    const callersUnchanged = input.changedInPlace === true && effect === 'behaviour' && exposure === 'everyone' && undo === 'rollback'
+    if (!callersUnchanged) return row(4, 'high', 'Only tests that call it directly run it. No test goes through a request to it.')
+    return row(4, 'mid', 'Tests that call it directly fail without the change. No test goes through a request to it.', {
+      finding: { rule: 'direct-tests-only', text: 'direct tests fail without the change; no request test goes through it', by: 'floor' },
+    })
+  }
   if (undo === 'none' && exposure !== 'nobody-yet') return row(5, 'high', 'Nothing undoes it, and no condition holds it back.')
   if ((effect === 'data' || effect === 'interface') && (exposure === 'everyone' || exposure === 'at-load') && !input.additiveSchema) {
     return row(6, 'high', `It changes ${effect === 'data' ? 'data' : 'an interface'}, and ${exposure === 'everyone' ? 'everyone runs it' : 'it takes effect at load'}.`)
@@ -32,7 +42,8 @@ export function floor(input: FloorInput): Floor {
   if (undo === 'flag-with-residue') return row(8, 'mid', 'Turning the condition off leaves behind what it wrote.')
   if (effect === 'load' || input.additiveSchema) return row(9, 'mid', 'It takes effect at load, or adds to the schema.')
   if (exposure === 'subset') return row(10, 'mid', 'Only some people run it.')
-  if (exposure === 'nobody-yet' && undo === 'flag' && input.conditionOnProven && input.offPathProven) {
+  // Safe is earned through the life cycle: direct tests alone never reach it, in a request or outside one.
+  if (exposure === 'nobody-yet' && undo === 'flag' && input.conditionOnProven && input.offPathProven && proof !== 'isolated') {
     return row(11, 'safe', 'It is behind a condition that is off, and tests run it both on and off.')
   }
   return row(12, 'mid', 'Nothing settles it either way, so it gets a look.')

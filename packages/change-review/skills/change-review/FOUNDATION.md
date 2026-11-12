@@ -22,7 +22,7 @@ Not goals: approving changes, replacing the reviewer, proving correctness, or ru
 4. **Four questions, in order.** What does the change do, is it proven, who runs it, what undoes it. A feature flag answers part of the third and fourth. It is one input, never the frame.
 5. **Safe is earned.** `safe` requires positive evidence on all four questions. It is never the absence of findings.
 6. **The level labels; it does not hide.** Every unit is shown in the same shape whatever its level. `safe` tells the reviewer where they can move faster. It never removes code or reasons from view.
-7. **Validation is a test that ran.** A test that mocks the changed code or what it talks to is coverage, not validation. A change with no test that moves through its request life cycle is `high`, whatever else is true of it.
+7. **Validation is a test that ran.** A test that mocks the changed code or what it talks to is coverage, not validation. A change no test proves is `high`, whatever else is true of it. A change proven only by tests that call it directly is `high` when the way its callers use it is new or changed, and `mid` when the definition was only changed in place (rule 4).
 8. **Unknown is said.** When a fact cannot be established it is recorded as unknown, treated as the worse case, and turned into a question for the reviewer.
 9. **A model raises freely and lowers only on named evidence.** Arguments do not lower a level.
 10. **Questions are aids.** The system decides with what is known, then asks. A question never holds or sets a level.
@@ -129,7 +129,9 @@ Deterministic, first match wins. The floor is computed from the four facts; no m
 | 1 | Something is broken or missing: what remains refers to something removed (definition, file, constant), or an expected translation key or locale is absent | `high`, critical |
 | 2 | Effect is `text`; or a removal that nothing remaining refers to; or a bucket from section 6 whose checks all passed | `safe` |
 | 3 | Proof is `none`, `mocked` or `unknown`, for code that runs in a request, job or consumer | `high` |
-| 4 | Proof is `isolated` only: no life cycle test reaches the change | `high` |
+| 4a | Proof is `isolated`, and the way callers use the change is new or changed: the definition is new; or effect is `data` or `interface`; or it sits behind a condition (`nobody-yet`, `subset`); or undo is not `rollback` | `high` |
+| 4b | Proof is `isolated`, the definition was changed in place, effect is `behaviour`, exposure is `everyone` and undo is `rollback`. Add the finding "direct tests fail without the change; no request test goes through it" | `mid` |
+| 4c | Proof is `isolated`, for code that does not run in a request, job or consumer (a script, a build tool): calling it is its life cycle | the rows below decide, and never `safe` |
 | 5 | Undo is `none` and exposure is not `nobody-yet` | `high` |
 | 6 | Effect is `data` or `interface`, exposure is `everyone` or `at-load`, and it is not an additive schema change | `high` |
 | 7 | Exposure is `everyone`, effect is `behaviour`, proof is `lifecycle` or `lifecycle-observed`. With `lifecycle` only, add the finding "behaviour changed, no test changed with it" | `mid` |
@@ -138,6 +140,8 @@ Deterministic, first match wins. The floor is computed from the four facts; no m
 | 10 | Exposure is `subset` | `mid` |
 | 11 | Exposure is `nobody-yet`, undo is `flag`, proof reaches the change with the condition on, and the off path is still proven by an unchanged test | `safe` |
 | 12 | Anything else | `mid` |
+
+**Why rule 4 has three parts.** `isolated` means a test that calls the definition directly fails once the change is undone (section 4.2). That shows the change does what it says. What it leaves unshown is the wiring: that callers pass and expect the right things. The first version of this table gave direct tests the level of no test at all, and a real review rated a small, read-only helper change with five direct tests `high`. A level that is wrong in that direction costs the reader's trust in every other level. So the row now asks whether the wiring is new. A definition changed in place, with the same signature, no write, no condition and a rollback to undo it, is called the way it was already called: `mid`, a look and a fast follow. Anything else proven only directly is `high` as before. Rule 3 is untouched: a change no test proves is `high`.
 
 Three things follow from the table:
 
@@ -160,7 +164,7 @@ After the floor, a model reads the units that are `mid` or `high`, and any unit 
 | `additive-schema` | The schema change adds without constraining, rewriting or locking, and old code does not read it |
 | `dominance-proven` | Every caller was found and each is behind the condition |
 
-- **Never**: lower below `high` when proof is missing (rules 3 and 4). Only a test that runs changes that.
+- **Never**: lower a node below a floor that rule 3 or 4 set. `high` for missing proof stays `high`, and the `mid` of rule 4b never becomes `safe`. Only a test that runs changes that.
 - **Mark critical**: a definite break, an effect nothing undoes, or a changed behaviour on a money, auth or tenant path that no changed test observes.
 - **Ask**: anything that would change the level and cannot be known from code or tests becomes a question, with what an answer would change.
 
@@ -284,7 +288,8 @@ Defaults to start from. None is a finding.
 **Invariants to test.**
 
 - The floor is a pure function of the four facts.
-- No event lowers a level without evidence from 5.2. No event lowers below `high` when proof is missing.
+- No event lowers a level without evidence from 5.2. No event lowers a node below a floor set by rule 3 or 4.
+- No node is `safe` with proof `none`, `mocked`, `isolated` or `unknown`, unless rule 2 made it safe.
 - `critical` implies `high`.
 - Every node belongs to exactly one unit. Every file in the diff belongs to exactly one bucket.
 - A unit's level is the worst level of its nodes.
@@ -297,7 +302,7 @@ Defaults to start from. None is a finding.
 | # | Change | Effect | Proof | Exposure | Undo | Floor |
 |---|---|---|---|---|---|---|
 | 1 | New branch behind a flag, old code is the off path, request test added with flag on, existing request test unchanged | behaviour | lifecycle-observed | nobody-yet | flag | safe (rule 11) |
-| 2 | Same, but only a unit test of the new method | behaviour | isolated | nobody-yet | flag | high (rule 4) |
+| 2 | Same, but only a unit test of the new method | behaviour | isolated | nobody-yet | flag | high (rule 4a) |
 | 3 | Same as 1, but the new path writes a column | data | lifecycle-observed | nobody-yet | flag-with-residue | mid (rule 8) |
 | 4 | Shared helper changed, called from the off path too | behaviour | lifecycle | everyone | rollback | mid (rule 7) |
 | 5 | Same helper, also called from a job that has no test | behaviour | none on the job path | everyone | rollback | high (rule 3) |
@@ -312,5 +317,8 @@ Defaults to start from. None is a finding.
 | 14 | Flag guard added in front of existing code: `return legacy unless flag` | behaviour | lifecycle | everyone (the off path changed) | rollback | mid (rule 7); a model raises if `legacy` differs from the old behaviour |
 | 15 | Request test exists but stubs the changed service | behaviour | mocked | any | any | high (rule 3) |
 | 16 | Comment-only change in a hot method | text | not applicable | everyone | rollback | safe (rule 2) |
+| 17 | Helper changed in place, same signature, no write; its direct tests fail without the change and no request test reaches it | behaviour | isolated | everyone | rollback | mid (rule 4b) |
+| 18 | Same helper, but the change also writes a column | data | isolated | everyone | rollback | high (rule 4a) |
+| 19 | New script under `bin/`, with tests that call its entry | behaviour | isolated | everyone (not in a request) | rollback | mid (rule 12, through 4c) |
 
 **Then measure, on past changes with known outcomes:** how often `safe` was wrong; what share of units were `high` only because proof was missing; whether a reviewer reading only the story would have caught the known problems. These three numbers decide whether the model pass, the watch notes and the parked skills are worth building.

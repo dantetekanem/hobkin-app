@@ -361,6 +361,11 @@ export interface FloorExtras {
   additiveSchema?: boolean
   /** Rule 3 applies to code that runs in a request, job or consumer. False for test helpers, scripts and build tooling. Default true. */
   runsInRequest?: boolean
+  /**
+   * Rule 4b: the definition was there at base and is still there, changed inside, so the way its callers use it is the
+   * way that already ran. False or absent for a new definition.
+   */
+  changedInPlace?: boolean
   /** Rule 11: a test reaches the change with the condition on. */
   conditionOnProven?: boolean
   /** Rule 11: the off path is still proven by an unchanged test. */
@@ -377,12 +382,12 @@ export interface FloorInput extends FloorExtras {
 /** The floor table's answer (FOUNDATION 5.1): first matching row. A pure function of its input. */
 export interface Floor {
   level: Level
-  /** Row 1 to 12. */
+  /** Row 1 to 12. Row 4 is `high` (4a) or `mid` (4b); 4c sends the node on to the rows below. */
   rule: number
   critical: boolean
   /** Why, in a plain sentence with no rule name: "No test that runs reaches these lines." The row is `rule`. */
   why: string
-  /** Rule 7 with `lifecycle` only: "behaviour changed, no test changed with it". */
+  /** Rule 7 with `lifecycle` only: "behaviour changed, no test changed with it". Rule 4b: what direct tests leave unshown. */
   finding?: Finding
 }
 

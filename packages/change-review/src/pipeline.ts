@@ -387,13 +387,16 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       callersComplete: anchor.callers?.complete ?? false,
     })
     const bucket = bucketOf(anchor.path)
+    const change = changeOf(anchor, atHead)
+    // A definition that was there at base and is still there keeps the callers it had (floor rule 4b).
+    if (change === 'modified') derived.extras.changedInPlace = true
     nodes.push({
       id: anchor.id,
       kind: kindOf(anchor, testFiles.has(anchor.path)),
       symbol: anchor.symbol,
       path: anchor.path,
       lines: [anchor.startLine, anchor.endLine],
-      change: changeOf(anchor, atHead),
+      change,
       changed_lines: anchor.changedLines,
       ...(anchor.language ? { language: anchor.language } : {}),
       entries: entriesOf(scan, anchor, config),

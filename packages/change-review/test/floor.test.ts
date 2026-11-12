@@ -22,8 +22,29 @@ describe('floor table rows', () => {
     assert.equal(run({ proof: 'none' }).why, 'No test that runs reaches these lines.')
     assert.notEqual(run({ proof: 'none', runsInRequest: false }).rule, 3)
   })
-  it('row 4: isolated proof is high', () => {
-    assert.deepEqual([run({ proof: 'isolated' }).level, run({ proof: 'isolated' }).rule], ['high', 4])
+  it('row 4a: direct tests alone are high where the way callers use it is new or changed', () => {
+    const high = (patch: Partial<FloorInput>) => assert.deepEqual([run({ proof: 'isolated', ...patch }).level, run({ proof: 'isolated', ...patch }).rule], ['high', 4])
+    high({})
+    high({ changedInPlace: false })
+    high({ changedInPlace: true, effect: 'interface' })
+    high({ changedInPlace: true, effect: 'data' })
+    high({ changedInPlace: true, exposure: 'nobody-yet', undo: 'flag' })
+    high({ changedInPlace: true, exposure: 'subset' })
+    high({ changedInPlace: true, undo: 'none' })
+  })
+  it('row 4b: a definition changed in place, whose direct tests fail without the change, is mid, and says what is missing', () => {
+    const f = run({ proof: 'isolated', changedInPlace: true })
+    assert.deepEqual([f.level, f.rule, f.critical], ['mid', 4, false])
+    assert.equal(f.why, 'Tests that call it directly fail without the change. No test goes through a request to it.')
+    assert.deepEqual(f.finding, { rule: 'direct-tests-only', text: 'direct tests fail without the change; no request test goes through it', by: 'floor' })
+  })
+  it('row 4c: code that runs outside a request is entered by calling it, so its direct tests go on to the rows below', () => {
+    const script = run({ proof: 'isolated', runsInRequest: false })
+    assert.deepEqual([script.level, script.rule], ['mid', 12])
+    assert.equal(run({ proof: 'isolated', runsInRequest: false, effect: 'data' }).rule, 6)
+    assert.equal(run({ proof: 'isolated', runsInRequest: false, undo: 'none' }).rule, 5)
+    const flagged = run({ proof: 'isolated', runsInRequest: false, exposure: 'nobody-yet', undo: 'flag', conditionOnProven: true, offPathProven: true })
+    assert.notEqual(flagged.level, 'safe', 'safe needs a test that goes through the life cycle')
   })
   it('row 5: undo none outside nobody-yet is high', () => {
     assert.equal(run({ undo: 'none' }).rule, 5)
@@ -63,7 +84,7 @@ describe('floor table rows', () => {
 })
 
 describe('floor cases', () => {
-  it('the sixteen cases of FOUNDATION section 14', () => {
+  it('the nineteen cases of FOUNDATION section 14', () => {
     const flagged = { conditionOnProven: true, offPathProven: true }
     const cases: [string, Partial<FloorInput>, Level, number, boolean?][] = [
       ['1', { exposure: 'nobody-yet', undo: 'flag', proof: 'lifecycle-observed', ...flagged }, 'safe', 11],
@@ -82,8 +103,11 @@ describe('floor cases', () => {
       ['14', { proof: 'lifecycle' }, 'mid', 7],
       ['15', { proof: 'mocked' }, 'high', 3],
       ['16', { effect: 'text', proof: 'not-applicable' }, 'safe', 2],
+      ['17', { proof: 'isolated', changedInPlace: true }, 'mid', 4],
+      ['18', { proof: 'isolated', changedInPlace: true, effect: 'data' }, 'high', 4],
+      ['19', { proof: 'isolated', runsInRequest: false }, 'mid', 12],
     ]
-    assert.equal(cases.length, 16)
+    assert.equal(cases.length, 19)
     for (const [name, patch, level, rule, critical = false] of cases) {
       const f = run(patch)
       assert.deepEqual([name, f.level, f.rule, f.critical], [name, level, rule, critical])

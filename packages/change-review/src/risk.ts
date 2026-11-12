@@ -76,7 +76,8 @@ function mergeWatch(into: Watch | null, from: Watch | undefined): Watch | null {
 /**
  * Applies the risk events to the nodes. Every node starts again from its floor, so applying the same events twice, or
  * to a graph that already has them, gives the same graph (FOUNDATION 14). A raise is always valid. A lowering needs an
- * evidence kind, nothing lowers a node below high while its floor is rule 3 or 4 (missing proof), nothing lowers a
+ * evidence kind, nothing lowers a node below its floor while that floor is rule 3 or 4 (no proof, or direct tests
+ * alone: high stays high, and the mid of rule 4b never becomes safe), nothing lowers a
  * break that search found (rule 1), and nothing lowers a level that a test failing or hanging at head set: an argument
  * is not a search result or a test run. Events that break a rule are returned in `rejected` with the reason and change
  * nothing.
@@ -121,8 +122,11 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
         rejected.push({ event, reason: 'floor rule 1 is a break that search found: only a new search result lowers it' })
         continue
       }
-      if ((f.rule === 3 || f.rule === 4) && event.level !== 'high') {
-        rejected.push({ event, reason: `floor rule ${f.rule} is missing proof: only a test that runs lowers it` })
+      // Rule 3 is no proof and rule 4 is direct tests alone: neither goes below its floor on an argument. A rule 4b
+      // node is mid at the floor, so it can come back to mid after a raise, and never reaches safe.
+      if ((f.rule === 3 || f.rule === 4) && RANK[event.level] < RANK[f.level]) {
+        const missing = f.rule === 3 ? 'missing proof' : 'proof by direct tests alone'
+        rejected.push({ event, reason: `floor rule ${f.rule} is ${missing}: only a test that runs lowers it` })
         continue
       }
       const hold = held.get(event.node)

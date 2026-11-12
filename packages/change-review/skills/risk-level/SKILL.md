@@ -16,6 +16,8 @@ Apply the table in section 5.1 to each node's four facts, first match wins. This
 
 Remember what the order of the table means: a broken reference comes first, then missing proof. A flag is consulted only after both. A flagged change with no life cycle test that reaches it with the flag on is `high`.
 
+Rule 4 has three parts. Tests that call a definition directly, and fail without the change, show the change does what it says; they do not show how callers use it. Where that is new or changed (a new definition, a write, a changed signature, a condition in front of it, an undo that is not a rollback) the node is `high` (4a). Where the definition was only changed in place it is `mid` (4b). Code that runs outside a request is entered by calling it, so the rows below decide (4c).
+
 The floor alone is a usable result. Everything below improves it.
 
 ## 2. Model pass
@@ -26,7 +28,7 @@ Ask the questions in `../change-review/reference/checklist.md` for the node's ex
 
 - **Raise** whenever the code supports it. State what the code does, with symbols and lines. No "may", "might", "consider".
 - **Lower** only with `evidence_kind`: `equivalent`, `off-path-identical`, `unreferenced`, `additive-schema`, `dominance-proven`. Each must point at something checkable.
-- **Never lower a node that is `high` for missing proof.** Only a test that runs changes that; say which test would.
+- **Never lower a node below a floor that rule 3 or 4 set.** `high` for missing proof stays `high`, and the `mid` of rule 4b never becomes `safe`. Only a test that runs changes that; say which test would.
 - **Critical** means "needs a fix, not only a look", only on `high`: a definite break, an effect nothing undoes, or a changed behaviour on a money, auth or tenant path that no changed test observes.
 - **Suggest** what would move the level, with the level it would produce: a life cycle test, a flag, a restructure. Never a flag for something that takes effect at load.
 

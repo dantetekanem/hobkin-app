@@ -133,22 +133,22 @@ function steadyClock() {
   return () => new Date((at += 1000))
 }
 
-/** A careful pass that tries to lower the proven-only-in-isolation node, and a checker that would lower one unit and raise another. */
+/** A careful pass that tries to make safe the node only direct tests prove, and a checker that would lower one unit and raise another. */
 function fakeModel() {
   const calls = { review: 0, checker: 0 }
   const model: ModelRunner = async ({ pass }) => {
     calls[pass] += 1
     if (pass === 'review') {
       return JSON.stringify({
-        events: [{ node: 'n1', level: 'mid', direction: 'down', aspect: 'behaviour', evidence: 'The existing tests run total and pass with the change in place.', evidence_kind: 'equivalent' }],
-        words: { title: 'Round the total', units: { u1: { title: '`total` now rounds every sum to a whole number' } } },
+        events: [{ node: 'n1', level: 'safe', direction: 'down', aspect: 'behaviour', evidence: 'The existing tests run total and pass with the change in place.', evidence_kind: 'equivalent' }],
+        words: { title: 'Round the total', units: { u2: { title: '`total` now rounds every sum to a whole number' } } },
         claims: [],
       })
     }
     return JSON.stringify({
       units: [
-        { id: 'u1', agree: 'no', level_i_would_give: 'safe', because: 'it looks small', understood: 'yes', context: 'about right' },
-        { id: 'u2', agree: 'no', level_i_would_give: 'high', because: 'nothing shows who reads PRECISION', understood: 'yes', context: 'about right' },
+        { id: 'u2', agree: 'no', level_i_would_give: 'safe', because: 'it looks small', understood: 'yes', context: 'about right' },
+        { id: 'u1', agree: 'no', level_i_would_give: 'high', because: 'nothing shows who reads PRECISION', understood: 'yes', context: 'about right' },
       ],
       needs: [],
     })
@@ -164,9 +164,10 @@ test('the blind check runs once and never lowers', async (t) => {
   const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: async (): Promise<ScanOutcome> => ({ ok: true, scan: scanOf() }) })
 
   assert.deepEqual(calls, { review: 1, checker: 1 }, 'one careful pass and one blind check')
-  // The test that sees the rounding is not a life-cycle test, so total stays high: no argument lowers missing proof.
+  // total was changed in place and its direct test fails without the rounding: mid by rule 4b. No test goes through a
+  // request to it, so no argument makes it safe.
   assert.ok(result.rejected.some((entry) => entry.event.node === 'n1' && /rule 4/.test(entry.reason)))
-  assert.deepEqual(levelsOf(result.units), { n1: 'high', n2: 'high', n4: 'safe' }, 'the checker lowered nothing and raised the constant one step')
+  assert.deepEqual(levelsOf(result.units), { n1: 'mid', n2: 'high', n4: 'safe' }, 'the checker lowered nothing and raised the constant one step')
   assert.equal(result.graph.nodes.find((node) => node.id === 'n5')?.kind, 'test', 'a helper in a test file is a test, never a unit')
   assert.match(result.units.units.find((unit) => unit.nodes.includes('n4'))?.title ?? '', /changes a type, erased before the code runs/)
   assert.equal(result.blind.ran, true)
@@ -182,6 +183,7 @@ test('the blind check runs once and never lowers', async (t) => {
   // again alone at head.
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.equal(total.facts.proof.value, 'isolated')
+  assert.deepEqual([total.level?.floor, total.level?.rule, total.extras.changedInPlace], ['mid', 4, true])
   assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert', 'baseline'])
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 
@@ -251,7 +253,7 @@ test('a model that fails leaves every level at its floor, and the review finishe
   const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
   const step = (id: string) => result.progress.steps.find((item) => item.id === id)!
 
-  assert.deepEqual(levelsOf(result.units), { n1: 'high', n2: 'mid', n4: 'safe' })
+  assert.deepEqual(levelsOf(result.units), { n1: 'mid', n2: 'mid', n4: 'safe' })
   assert.ok(result.problems.some((problem) => /careful pass failed: the review model is down/.test(problem)), result.problems.join('\n'))
   assert.deepEqual([step('risk-model').status, step('blind-check').status], ['skipped', 'skipped'])
   assert.match(step('risk-model').note ?? '', /the review model is down/)

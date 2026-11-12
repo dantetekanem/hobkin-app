@@ -82,6 +82,17 @@ describe('applyRiskEvents', () => {
     assert.deepEqual(checkInvariants(first.nodes), [])
   })
 
+  it('a node that direct tests alone prove holds its floor: mid stays mid, and high stays high', () => {
+    const lower = (id: string, level: 'safe' | 'mid') => event({ node: id, level, direction: 'down', evidence_kind: 'equivalent', evidence: 'The existing request tests run the changed lines and pass.' })
+    const nodes = [node('inPlace', { proof: 'isolated', changedInPlace: true }), node('added', { proof: 'isolated' })]
+    const { nodes: after, rejected } = apply(nodes, [lower('inPlace', 'safe'), lower('added', 'mid'), event({ node: 'inPlace', level: 'high' }), lower('inPlace', 'mid')])
+    assert.deepEqual([after[0]?.level?.floor, after[0]?.level?.current, after[1]?.level?.current], ['mid', 'mid', 'high'])
+    assert.equal(rejected.length, 2)
+    assert.match(rejected[0]?.reason ?? '', /only a test that runs lowers it/)
+    assert.deepEqual(after[0]?.findings[0], { rule: 'direct-tests-only', text: 'direct tests fail without the change; no request test goes through it', by: 'floor' })
+    assert.deepEqual(checkInvariants(after), [])
+  })
+
   it('does not change its input', () => {
     const nodes = [node('a')]
     const copy = structuredClone(nodes)

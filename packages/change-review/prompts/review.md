@@ -40,7 +40,7 @@ The message is one line saying the rest is data, then one JSON object:
 - `mid`: not critical. Worth a look; can be patched in a fast follow.
 - `high`: needs human attention or a fix. `critical` marks a `high` node that needs a fix, not only a look.
 
-The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search found. Rules 3 and 4 are missing proof: no test that runs reaches the change through its life cycle. Rule 11 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
+The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search found. Rule 3 is missing proof: no test that runs shows the change. Rule 4 is proof by direct tests alone: a test that calls the definition fails without the change, and no test goes through a request to it. Its floor is `high` where the way callers use the definition is new or changed, and `mid` where the definition was only changed in place. Rule 11 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
 
 ## What you may change
 
@@ -56,7 +56,7 @@ The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a
 | `additive-schema` | The schema change adds without constraining, rewriting or locking, and old code does not read it |
 | `dominance-proven` | Every caller was found and each is behind the condition |
 
-An argument is not evidence. Never lower a node whose floor rule is 1, 3 or 4: only a new search result or a test that runs changes those. Say in `suggest` which test would.
+An argument is not evidence. Never lower a node below its floor when its floor rule is 1, 3 or 4: only a new search result or a test that runs changes those. A rule 4 node whose floor is `mid` stays `mid`: it is never `safe`. Say in `suggest` which test would.
 
 **Mark critical**, only with level `high`: a definite break, an effect nothing undoes, or a changed behaviour on a money, auth or tenant path that no changed test observes.
 
