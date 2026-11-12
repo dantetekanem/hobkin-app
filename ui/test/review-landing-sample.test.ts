@@ -38,7 +38,7 @@ test('approve and merge on the sample finished change: an agent brings it up to 
     command,
     saveNotes: async () => {},
     current: () => true,
-    landed: (verdict, message) => afterVerdict(verdict, message, { here: () => true, close: () => void seen.push('close'), celebrate: (kind) => void seen.push(kind), landing: loader.look, follow: loader.follow }),
+    landed: (verdict, message) => afterVerdict(verdict, message, { kind: 'change', here: () => true, close: () => void seen.push('close'), celebrate: (kind) => void seen.push(kind), landing: loader.look, follow: loader.follow }),
   })
   await choices.press('approve-merge')
   assert.ok(choices.getState().preview, 'the first click shows what it does')

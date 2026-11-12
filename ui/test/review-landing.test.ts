@@ -168,7 +168,7 @@ test('a merged change with no review to open is never prepared, and does not wai
 })
 
 /** The review screen, as a verdict that has landed sees it, and everything that happens to it. */
-function screenOf(now: ReviewLanding | null) {
+function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change') {
   const seen: string[] = []
   let landing = now
   let here = true
@@ -176,6 +176,7 @@ function screenOf(now: ReviewLanding | null) {
   return {
     seen,
     screen: {
+      kind,
       here: () => here,
       close: () => void seen.push('close'),
       celebrate: (kind: 'tada' | 'done', message: string) => void seen.push(`${kind}: ${message}`),
@@ -196,12 +197,24 @@ function screenOf(now: ReviewLanding | null) {
 }
 
 test('approve and merge closes the review with Merged! once the change has merged: at once, or after an agent brings it up to date', async () => {
-  // Merged at once, or by a host that says nothing of how it landed: Merged!, and the review closes.
-  for (const now of [merged, null]) {
-    const { screen, seen } = screenOf(now)
-    await afterVerdict('approve-merge', 'Merged it into main.', screen)
-    assert.deepEqual(seen, ['tada: Merged it into main.', 'close'])
+  // Merged at once: Merged!, and the review closes. So does a pull request, which GitHub merged, without asking more.
+  const atOnce = screenOf(merged)
+  await afterVerdict('approve-merge', 'Merged it into main.', atOnce.screen)
+  assert.deepEqual(atOnce.seen, ['tada: Merged it into main.', 'close'])
+  const pull = screenOf(null, 'pull')
+  let asked = false
+  pull.screen.landing = async () => {
+    asked = true
+    return null
   }
+  await afterVerdict('approve-merge', 'Merged acme/shop#9 into main.', pull.screen)
+  assert.deepEqual([pull.seen, asked], [['tada: Merged acme/shop#9 into main.', 'close'], false])
+
+  // A host that says nothing of how the change lands, as when hobkin hands the merge to a session while work mode
+  // waits, or an older host: never Merged! on its word alone. The review closes with what the host said it did.
+  const unsaid = screenOf(null)
+  await afterVerdict('approve-merge', 'A session brings it up to date and merges it.', unsaid.screen)
+  assert.deepEqual(unsaid.seen, ['done: A session brings it up to date and merges it.', 'close'])
 
   // Brought up to date first: the review stays open while it is, and closes with Merged! once it has merged.
   const later = screenOf(refreshing)
@@ -256,6 +269,7 @@ test("the reviewer's own approve and merge, through the open review: it stays op
     let here = true
     const landed = (verdict: Verdict, message: string) =>
       afterVerdict(verdict, message, {
+        kind: 'change',
         here: () => here,
         close: () => void seen.push('close'),
         celebrate: (kind) => void seen.push(kind),
@@ -292,7 +306,7 @@ test("the reviewer's own approve and merge, through the open review: it stays op
       command: again.command,
       saveNotes: async () => {},
       current: () => true,
-      landed: (verdict, message) => afterVerdict(verdict, message, { here: () => here, close: () => void quiet.push('close'), celebrate: (kind) => void quiet.push(kind), landing: again.loader.look, follow: again.loader.follow }),
+      landed: (verdict, message) => afterVerdict(verdict, message, { kind: 'change', here: () => here, close: () => void quiet.push('close'), celebrate: (kind) => void quiet.push(kind), landing: again.loader.look, follow: again.loader.follow }),
     })
     await away.press('approve-merge')
     await away.press('approve-merge')

@@ -192,21 +192,26 @@ export function createVerdictChoices({ comments = () => [], markSent = () => {},
 
 /** The review screen, as a verdict that has landed sees it. */
 export interface VerdictScreen {
+  /** What the review on it is of: a finished hobkin change, or a pull request from GitHub. */
+  kind: 'change' | 'pull'
   /** Whether the reviewer is still on this review. */
   here: () => boolean
   close: () => void
   celebrate: (kind: 'tada' | 'done', message: string) => void
-  /** How the change lands now, as the host says: null when it says nothing, as for a pull request or an older host. */
+  /** How the finished change lands now, as the host says: null when it says nothing. */
   landing: () => Promise<ReviewLanding | null>
   /** Hears how it lands now, and again each time that changes, until the function it answers is called. */
   follow: (heard: (landing: ReviewLanding | null) => void) => () => void
 }
 
 /**
- * What the review does once a verdict has landed. Approve and merge that merged closes it with "Merged!". One that an
- * agent brings up to date first keeps it open while that runs, and closes it with "Merged!" once hobkin has merged it,
- * if the reviewer is still on it. Should the refresh end without a merge, the review is theirs again. Every other
- * verdict closes it with a short confirmation of what the host did. A review the reviewer has left is never closed.
+ * What the review does once a verdict has landed. Approve and merge closes it with "Merged!" once it is known to have
+ * merged: a pull request, which GitHub merged, or a finished change the host says merged. A finished change an agent
+ * brings up to date first keeps it open while that runs, and closes it with "Merged!" once hobkin has merged it, if
+ * the reviewer is still on it. Should the refresh end without a merge, the review is theirs again. A host that says
+ * nothing of how the change lands, as when hobkin hands the merge to a session, or an older host, is never taken for a
+ * merge: like every other verdict, it closes the review with a short confirmation of what the host did. A review the
+ * reviewer has left is never closed.
  */
 export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<void> {
   const leave = (kind: 'tada' | 'done') => {
@@ -214,8 +219,10 @@ export async function afterVerdict(verdict: Verdict, message: string, screen: Ve
     if (screen.here()) screen.close()
   }
   if (verdict !== 'approve-merge') return leave('done')
+  if (screen.kind === 'pull') return leave('tada')
   const landing = await screen.landing().catch(() => null)
-  if (landing?.state !== 'refreshing') return leave('tada')
+  if (landing?.state === 'merged') return leave('tada')
+  if (landing?.state !== 'refreshing') return leave('done')
   if (!screen.here()) return
   let over = false
   let stop: (() => void) | null = null

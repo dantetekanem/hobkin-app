@@ -42,7 +42,7 @@ import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { StoryLayer } from './story/StoryLayer.tsx'
 import { useCamera } from './story/useCamera.ts'
-import { afterVerdict, type VerdictCommands } from './verdict.ts'
+import { afterVerdict, verdictKind, type VerdictCommands } from './verdict.ts'
 
 /**
  * What floats over the canvas, which the focus is never framed under: the frame's two menus at the top
@@ -180,13 +180,14 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
   const landed = useMemo(
     () => (done: Verdict, message: string) =>
       afterVerdict(done, message, {
+        kind: verdictKind(review.id),
         here: () => here.current,
         close: () => here.current && close(),
         celebrate: (kind, words) => celebrate({ kind, message: words }),
         landing: loader.look,
         follow: loader.follow,
       }),
-    [close, loader],
+    [close, loader, review.id],
   )
   const chrome = useMemo<PanelChrome>(
     () => ({ live, preparation, assessment, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes, ask, landed }),
