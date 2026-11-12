@@ -1,6 +1,7 @@
 import { ChevronsRight } from 'lucide-react'
 import { animate, motion, useTransform } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { Unit } from '#shared/review/assessment.ts'
 import type { ReviewStatus } from '#shared/review/status.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -15,7 +16,8 @@ import { Actions } from './Actions.tsx'
 import { MENU, PanelHeader } from './Header.tsx'
 import { HobkinBox } from './HobkinBox.tsx'
 import { LevelBadge } from '../graph/kinds.tsx'
-import { Matters, type StepUnit } from './Matters.tsx'
+import { toStepUnit, unitInFocus } from '../reading/model.ts'
+import { Matters } from './Matters.tsx'
 import { NoteButton, NoteEditor, NoteRow } from './notes.tsx'
 import { reviewThread, reviewTrack, type TrackEntry } from './thread.ts'
 
@@ -56,7 +58,7 @@ const HEADING = 'font-heading text-[12px] font-semibold tracking-[0.06em] text-m
  * Purpose of the motion: spatial consistency. The panel slides on the same spring as the canvas itself grows on, so a
  * pointer that leaves and comes straight back turns it round from where it is.
  */
-export function StepsPanel({ canvas, chrome, unit }: { canvas: Size; chrome: PanelChrome; unit?: StepUnit }) {
+export function StepsPanel({ canvas, chrome, units }: { canvas: Size; chrome: PanelChrome; units?: readonly Unit[] }) {
   const store = useSessionStore()
   const rig = useRig()
   const reduced = useReduced()
@@ -75,6 +77,8 @@ export function StepsPanel({ canvas, chrome, unit }: { canvas: Size; chrome: Pan
   const nodeOf = useSession((session) => session.nodeOf)
   const pointed = useSession((session) => session.pointed)
   const removed = useSession((session) => session.view.removed)
+  const mode = useSession((session) => session.mode)
+  const storyAvailable = useSession((session) => session.storyAvailable)
   const pinned = useReviewMemory((memory) => memory.panelPinned)
   const messages = useHost((state) => state.messages)
   const [hover, setHover] = useState(false)
@@ -82,8 +86,9 @@ export function StepsPanel({ canvas, chrome, unit }: { canvas: Size; chrome: Pan
   const [more, setMore] = useState(false)
 
   const width = stepsPanelWidth(canvas.width)
-  // Whole when the reviewer is at it or asked to keep it, and before their first move, when it introduces the review.
-  const open = pinned || hover || within || editor != null || !moved
+  // Whole when the reviewer is at it or asked to keep it, before their first move, when it introduces the review, and
+  // beside the story, which leaves the graph nothing to make room for.
+  const open = pinned || hover || within || editor != null || !moved || mode === 'story'
   useEffect(() => store.getState().setPanelOpen(open), [open, store])
 
   // How much of the panel is on screen. The camera reads this as covered, and the panel reads its own place from it.
@@ -108,6 +113,11 @@ export function StepsPanel({ canvas, chrome, unit }: { canvas: Size; chrome: Pan
   const path = step?.path ? review.paths?.find((entry) => entry.id === step.path) : undefined
   const pathTest = path ? review.nodes.find((node) => node.id === path.test)?.title : undefined
   const focused = useMemo(() => focus.map((id) => nodeOf.get(id)).filter((node): node is ReviewNode => node != null), [focus, nodeOf])
+  // What the change review says about the unit of what is in focus.
+  const unit = useMemo(() => {
+    const found = unitInFocus(units, focused, pointed)
+    return found ? toStepUnit(found) : undefined
+  }, [focused, pointed, units])
   // The frame's menu floats over the top middle of the canvas. Where it covers the panel's top, the header flows around
   // it. On a canvas so narrow that too little would be left beside it, the header starts under it.
   const overlap = Math.max(0, Math.round(width - (canvas.width - MENU.width) / 2 + MENU.gap))
@@ -162,6 +172,7 @@ export function StepsPanel({ canvas, chrome, unit }: { canvas: Size; chrome: Pan
           live={chrome.live}
           preparation={chrome.preparation}
           rebuild={chrome.rebuild}
+          {...(storyAvailable ? { mode, onMode: (next: typeof mode) => void store.getState().setMode(next) } : {})}
         />
 
         <div ref={scroller} className="rv-scroll min-h-0 flex-1 overflow-y-auto border-t border-border">

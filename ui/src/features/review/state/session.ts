@@ -9,7 +9,8 @@ import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel,
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
 import { goBack, goForward, NO_HISTORY, recordFocus, type FocusEntry, type FocusHistory } from '../story/history.ts'
-import { backToStep, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
+import type { ReviewMode } from '../reading/model.ts'
+import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
 
@@ -61,6 +62,10 @@ export interface Session {
   pendingDigits: string
   /** The places the reviewer jumped to, to go back and forward through. */
   history: FocusHistory
+  /** What the screen shows: the change review's story, read top to bottom, or the graph. */
+  mode: ReviewMode
+  /** There is a story to read: one is ready, one is on its way, or one failed and can be run again. */
+  storyAvailable: boolean
 
   step(delta: number): void
   goTo(index: number): void
@@ -96,6 +101,13 @@ export interface Session {
   closeEditor(): void
   selectLines(selection: Session['selection']): void
   setPanelOpen(open: boolean): void
+  /** Shows the story or the graph. False when the story is asked for and there is none. */
+  setMode(mode: ReviewMode): boolean
+  /** The story from the graph, or the graph from the story. False when there is no story to go to. */
+  toggleMode(): boolean
+  setStoryAvailable(available: boolean): void
+  /** Shows a unit of the story in the graph: every node it tells, in focus. False when none of them is in the graph. */
+  showUnit(unitId: string): boolean
   moveNode(nodeId: string, position: Point): void
   decideWire(edgeId: string, decision: WireDecision | null): void
   resetLayout(): void
@@ -124,7 +136,7 @@ function shapeOf(view: ReviewView): Pick<Session, 'nodeOf' | 'edgeOf' | 'pins'> 
   return { nodeOf: new Map(view.nodes.map((node) => [node.id, node])), edgeOf: new Map(view.edges.map((edge) => [edge.id, edge])), pins }
 }
 
-export function createSession(review: Review, memory: StoreApi<MemoryState>): SessionStore {
+export function createSession(review: Review, memory: StoreApi<MemoryState>, { mode = 'graph', storyAvailable = mode === 'story' }: { mode?: ReviewMode; storyAvailable?: boolean } = {}): SessionStore {
   const viewNow = () => applyMemory(review, memory.getState().of(review))
   const firstView = viewNow()
   const firstStory = startStory({ ...review, ...firstView }, memory.getState().of(review).progress)
@@ -139,7 +151,7 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       return { view, ...shapeOf(view), story, focus, levels: focusLevels(view, focus), revealed: new Set(story.revealed) }
     }
 
-    const entryOf = (story: StoryState): FocusEntry => ({ step: story.step, detour: story.detour, whole: story.whole })
+    const entryOf = (story: StoryState): FocusEntry => ({ step: story.step, detour: story.detour, group: story.group, whole: story.whole })
     /**
      * Moves the focus. Every move but a single step along the story is kept in the history: a walk with
      * Left and Right already goes back and forward on its own.
@@ -166,8 +178,8 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
     /** The move that puts the reviewer back on a place they were. */
     const movedTo = (entry: FocusEntry): Moved => {
       let moved = goToStep(graph(), get().story, entry.step)
-      if (entry.detour) {
-        const detour = focusNode(graph(), moved.state, entry.detour)
+      if (entry.detour || entry.group?.length) {
+        const detour = entry.detour ? focusNode(graph(), moved.state, entry.detour) : focusGroup(graph(), moved.state, entry.group!)
         moved = { state: detour.state, fresh: { nodes: [...moved.fresh.nodes, ...detour.fresh.nodes], wires: [...moved.fresh.wires, ...detour.fresh.wires] } }
       }
       if (entry.whole) moved = { state: leaveFocus(graph(), moved.state), fresh: moved.fresh }
@@ -192,6 +204,8 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       finder: false,
       pendingDigits: '',
       history: NO_HISTORY,
+      mode: mode === 'story' && !storyAvailable ? 'graph' : mode,
+      storyAvailable,
 
       step: (delta) => {
         const { story } = get()
@@ -325,6 +339,28 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       selectLines: (selection) => set({ selection }),
       setPanelOpen: (panelOpen) => {
         if (panelOpen !== get().panelOpen) set({ panelOpen })
+      },
+      setMode: (next) => {
+        if (next === 'story' && !get().storyAvailable) return false
+        // The story is a page of its own: what floats over the graph closes as it opens.
+        if (next !== get().mode) set(next === 'story' ? { mode: next, code: null, wire: null, finder: false, selection: null } : { mode: next })
+        return true
+      },
+      toggleMode: () => get().setMode(get().mode === 'story' ? 'graph' : 'story'),
+      setStoryAvailable: (available) => {
+        if (available !== get().storyAvailable) set({ storyAvailable: available })
+      },
+      showUnit: (unitId) => {
+        const told = get().view.nodes.filter((node) => node.unit === unitId).map((node) => node.id)
+        if (told.length === 0) return false
+        set({ mode: 'graph' })
+        const { story, focus } = get()
+        const moved = focusGroup(graph(), story, told)
+        const already = focus.length === told.length && told.every((id) => focus.includes(id))
+        // Already on them: framed again, for a camera the reviewer may have moved.
+        if (already) get().refit()
+        else apply(moved, 'jump')
+        return true
       },
       showCode: (nodeId) => {
         if (get().code != null && get().nodeOf.has(nodeId)) set({ code: nodeId })

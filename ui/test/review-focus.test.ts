@@ -245,10 +245,12 @@ test('a review opens where hobkin pointed, at a step or a node, once', () => {
   const places = shownPlaces(storage)
   const helpers = stepOf('Two helpers, one for each kind of event')
 
-  // hobkin pointed at a step while the review was closed. Opening it goes there, and the camera moves to frame it.
-  let session = createSession(sample, memory)
+  // hobkin pointed at a step while the review was closed. Opening it goes there, in the graph even when the review
+  // opened on its story, and the camera moves to frame it.
+  let session = createSession(sample, memory, { mode: 'story', storyAvailable: true })
   const opened = session.getState().move.key
   assert.equal(followCursor(session, places, sample.id, { step: helpers + 1, at: 10 }), true)
+  assert.equal(session.getState().mode, 'graph')
   assert.equal(session.getState().story.step, helpers)
   assert.deepEqual(session.getState().focus, sample.story[helpers]!.focus)
   assert.ok(session.getState().move.key > opened)

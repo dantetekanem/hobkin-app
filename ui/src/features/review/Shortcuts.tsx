@@ -6,6 +6,13 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'The story',
     keys: [
+      [['T'], "The change review's story, read top to bottom, or the graph"],
+      [['↑', '↓', 'space'], 'In the story: scroll it'],
+    ],
+  },
+  {
+    title: 'The steps through the graph',
+    keys: [
       [['→', 'space'], 'Next step'],
       [['←'], 'Previous step'],
       [['1 … 9', '0'], 'Step 1 to 10. Two digits make one number'],

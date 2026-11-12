@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
+import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import type { ReviewNotes, ReviewStatus } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import { ReviewRefused } from '#shared/review/validate.ts'
@@ -13,6 +14,8 @@ interface LoadState {
   status: 'loading' | 'preparing' | 'ready' | 'refused' | 'error'
   review: Review | null
   preparation: ReviewStatus | null
+  /** A finished change's change review, once one is ready for the review's commit (spec 032). */
+  assessment: ChangeAssessment | null
   error: string | null
   notesError: string | null
   saving: boolean
@@ -28,7 +31,7 @@ const reason = (error: unknown) => error instanceof Error ? error.message : Stri
 
 /** One open target. Host cache, file reads and draft saves all use this same target and source identity. */
 export function createReviewLoader({ id, scope, memory, command, sample }: Options) {
-  const store = createStore<LoadState>(() => ({ status: 'loading', review: null, preparation: null, error: null, notesError: null, saving: false }))
+  const store = createStore<LoadState>(() => ({ status: 'loading', review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false }))
   let generation = 0
   let disposed = false
   let unsubscribe = () => {}
@@ -38,6 +41,8 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
   let notesRevision = 0
   let loading: Promise<void> | null = null
   let checking = false
+  /** The commit whose change review was last fetched, so a finished one is fetched once. */
+  let assessed: string | null = null
   const notesKey = JSON.stringify([scope, id])
   const notesOf = (review: Review): ReviewNotes => {
     const saved = memory.getState().of(review)
@@ -93,6 +98,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       let review: Review
       let notes: ReviewNotes | null = null
       let preparation: ReviewStatus | null = null
+      let assessment: ChangeAssessment | null = null
       if (command) {
         preparation = refresh ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
         if (disposed || turn !== generation) return
@@ -107,6 +113,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
         review = opened.review
         notes = opened.notes
         preparation = opened.status
+        assessment = opened.assessment ?? null
       } else {
         if (!sample) throw new Error('No review source is available.')
         review = await sample.getReview(id)
@@ -125,7 +132,8 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
         if (unsaved) { pending = unsaved; void flushNotes() }
       }
       watch(review)
-      store.setState({ status: 'ready', review, preparation, error: null })
+      assessed = assessment?.head ?? (preparation?.assessment?.state === 'ready' ? preparation.assessment.head : null)
+      store.setState({ status: 'ready', review, preparation, assessment, error: null })
     } catch (error) {
       if (!disposed && turn === generation) store.setState({ status: store.getState().review ? 'ready' : error instanceof ReviewRefused ? 'refused' : 'error', error: reason(error) })
     }
@@ -150,7 +158,9 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
   }
   /**
    * While a review is open, asks the host how it stands: whether its change moved on, where hobkin moved the view,
-   * and whether hobkin left notes, which then join the window's own. A check that fails is tried again on the next one.
+   * whether hobkin left notes, which then join the window's own, and how its change review is getting on. The status
+   * carries that progress, so nothing more is asked while it runs. Once it is ready, the review is fetched once more,
+   * for its story and the levels on its graph. A check that fails is tried again on the next one.
    */
   const check = async (): Promise<void> => {
     const review = store.getState().review
@@ -162,9 +172,12 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       if (disposed || store.getState().review !== review) return
       // Kept only when something changed, so an open review does not draw again every second.
       if (JSON.stringify(status) !== JSON.stringify(before)) store.setState({ preparation: status })
-      if ((status.notesAt ?? 0) <= (before?.notesAt ?? 0)) return
+      const finished = status.assessment?.state === 'ready' && status.assessment.head !== assessed ? status.assessment.head : null
+      if ((status.notesAt ?? 0) <= (before?.notesAt ?? 0) && !finished) return
+      if (finished) assessed = finished
       const opened = await command('review.get', { id })
       if (disposed || store.getState().review !== review) return
+      if (finished && opened.assessment) store.setState({ review: { ...opened.review, memoryScope: scope } as Review, assessment: opened.assessment })
       const key = memoryKey(review)
       memory.setState((state) => {
         const mine = state.of(review)

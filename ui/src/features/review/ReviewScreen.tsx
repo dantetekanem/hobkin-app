@@ -1,6 +1,6 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import { MotionConfig, useMotionValueEvent } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
@@ -24,6 +24,8 @@ import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
 import { pressKey } from './keys.ts'
 import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './panel/StepsPanel.tsx'
+import { hasStory, openingMode, type ReviewMode } from './reading/model.ts'
+import { StoryView } from './reading/StoryView.tsx'
 import { Shortcuts } from './Shortcuts.tsx'
 import './review.css'
 import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
@@ -92,9 +94,14 @@ export function ReviewScreen() {
     }
   }, [home, live])
 
+  // The view the review shows, kept while it stays open: the stage starts again when a story arrives, with its levels.
+  const [shownMode, setShownMode] = useState<{ id: string; mode: ReviewMode } | null>(null)
+  const kept = shownMode && shownMode.id === reviewId ? shownMode.mode : null
+  const keepMode = useCallback((mode: ReviewMode) => setShownMode({ id: reviewId ?? 'sample', mode }), [reviewId])
+
   return <ReviewLoad loader={loader} renderReview={(review) => (
-    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}`}>
-      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} />
+    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}`}>
+      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} keptMode={kept} keepMode={keepMode} />
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => (
     <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />
@@ -129,10 +136,24 @@ function ReviewWaiting({ status, reason, closeReview }: { status: string; reason
   )
 }
 
-function Stage({ review, source, loader, live, close, verdict }: { review: Review; source: ReviewSource; loader: ReviewLoader; live: boolean; close: () => void; verdict: VerdictCommands | null }) {
+function Stage({ review, source, loader, live, close, verdict, keptMode, keepMode }: {
+  review: Review
+  source: ReviewSource
+  loader: ReviewLoader
+  live: boolean
+  close: () => void
+  verdict: VerdictCommands | null
+  /** The view this review showed before the stage started again, if it did. */
+  keptMode: ReviewMode | null
+  keepMode: (mode: ReviewMode) => void
+}) {
   const root = useRef<HTMLDivElement>(null)
   const [shortcuts, setShortcuts] = useState(false)
   const preparation = useStore(loader, (state) => state.preparation)
+  const assessment = useStore(loader, (state) => state.assessment)
+  // A finished change opens on its change review's story, or on its progress while it is under way. The graph is one
+  // key away, and a review with no story coming opens on the graph.
+  const storyAvailable = hasStory(assessment, preparation?.assessment)
 
   const chrome = useMemo<PanelChrome>(
     () => ({ live, preparation, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes }),
@@ -142,8 +163,11 @@ function Stage({ review, source, loader, live, close, verdict }: { review: Revie
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
-  const [session] = useState(() => createSession(review, reviewMemory))
+  const [session] = useState(() => createSession(review, reviewMemory, { mode: keptMode ?? openingMode(assessment, preparation?.assessment), storyAvailable }))
   useEffect(() => session.connect(), [session])
+  useEffect(() => session.getState().setStoryAvailable(storyAvailable), [session, storyAvailable])
+  const mode = useStore(session, (state) => state.mode)
+  useEffect(() => keepMode(mode), [keepMode, mode])
   // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was
   // opened is shown too: a review opened from Work, Home, a report or the chat lands where hobkin said. Each place once.
   const cursor = preparation?.cursor
@@ -276,15 +300,17 @@ function Stage({ review, source, loader, live, close, verdict }: { review: Revie
     <StageProvider value={stage}>
       <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
         <EntranceContext.Provider value={entrance}>
-          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-rv-root>
-            <div ref={graph} className="absolute inset-0">
+          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-mode={mode} data-rv-root>
+            {/* Under the story the graph stays as it was, out of reach, so the switch back is at once. */}
+            <div ref={graph} className="absolute inset-0" inert={mode === 'story'}>
               <Graph />
             </div>
             <StoryLayer canvas={canvas} panelHeight={panelHeight} />
             <WireCard />
             <Finder />
             <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} />
-            <StepsPanel canvas={canvas} chrome={chrome} />
+            {mode === 'story' ? <StoryView assessment={assessment} status={preparation?.assessment ?? null} live={live} again={() => void loader.refresh()} /> : null}
+            <StepsPanel canvas={canvas} chrome={chrome} units={assessment?.units?.units} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} />
             {shortcuts ? (
               <Shortcuts

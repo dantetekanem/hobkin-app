@@ -1,11 +1,13 @@
-import { ChevronDown, FolderGit2, GitPullRequest, Pin, RefreshCw, X } from 'lucide-react'
+import { BookOpenText, ChevronDown, FolderGit2, GitPullRequest, Network, Pin, RefreshCw, X } from 'lucide-react'
 import { useState } from 'react'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
+import type { ReviewMode } from '../reading/model.ts'
 
 /**
  * The frame's menu floats over the top middle of the canvas: about this wide, reaching this far down. Where it lies over
@@ -17,7 +19,7 @@ export const MENU = { width: 560, bottom: 108, gap: 12 } as const
  * The top of the review panel: which project the change is in, its title and how big it is, and for a pull request
  * from GitHub the description its author wrote, behind a button.
  */
-export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, preparation, rebuild }: {
+export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, preparation, rebuild, mode, onMode }: {
   review: Review
   /** How much of the panel's width the frame's menu covers at its top. */
   overlap: number
@@ -27,6 +29,9 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
   live: boolean
   preparation: ReviewStatus | null
   rebuild: () => void
+  /** The story or the graph, when the review has a story to read. Without it there is no switch. */
+  mode?: ReviewMode
+  onMode?: (mode: ReviewMode) => void
 }) {
   const [described, setDescribed] = useState(false)
   const target = targetOfReviewId(review.id)
@@ -74,6 +79,7 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
           </button>
         ) : null}
       </div>
+      {mode && onMode ? <ModeSwitch mode={mode} onMode={onMode} /> : null}
       {pull && described ? (
         <div className="rv-scroll mt-2.5 max-h-[42vh] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.5] [overflow-wrap:anywhere]" aria-label="The pull request's description">
           {description ? (
@@ -87,6 +93,34 @@ export function PanelHeader({ review, overlap, pinned, onPin, onClose, live, pre
       ) : null}
       <Outdated review={review} preparation={preparation} live={live} rebuild={rebuild} />
     </header>
+  )
+}
+
+/** Story or Graph: two halves of one control, the one shown pressed. T switches. */
+function ModeSwitch({ mode, onMode }: { mode: ReviewMode; onMode: (mode: ReviewMode) => void }) {
+  const half = (value: ReviewMode, label: string, Icon: typeof BookOpenText) => (
+    <button
+      type="button"
+      data-stop
+      aria-pressed={mode === value}
+      onClick={() => onMode(value)}
+      className={cn(
+        'flex h-7 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-semibold transition-[background-color,color] duration-[160ms] ease-[var(--ease-out)] [&_svg]:size-3.5',
+        mode === value ? 'bg-background text-foreground shadow-[0_0_0_1px_var(--hb-border)]' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <Icon aria-hidden="true" />
+      {label}
+    </button>
+  )
+  return (
+    <div className="mt-2.5 flex items-center gap-2">
+      <div role="group" aria-label="Show the story or the graph" className="flex items-center gap-0.5 rounded-full bg-secondary p-0.5">
+        {half('story', 'Story', BookOpenText)}
+        {half('graph', 'Graph', Network)}
+      </div>
+      <Kbd>T</Kbd>
+    </div>
   )
 }
 

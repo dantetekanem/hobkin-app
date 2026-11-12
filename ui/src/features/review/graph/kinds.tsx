@@ -1,4 +1,5 @@
 import { Braces, Check, CircleCheck, CircleDashed, FileText, FlaskConical, Minus, Plus, Target, Trash2, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { LEVEL_WORDS } from '#shared/review/assessment.ts'
 import type { NodeKind, ReviewLevel, ReviewNode } from '#shared/review/types.ts'
 
 /** Kinds are told apart by icon and word first, and by color second. */
@@ -37,13 +38,11 @@ export function needsALook(node: Pick<ReviewNode, 'status'>): boolean {
   return node.status === 'unproven' || node.status === 'failed'
 }
 
-const LEVEL_WORD: Record<ReviewLevel, string> = { safe: 'Safe', mid: 'Mid', high: 'High' }
-
-/** The change review's level, as a word on its color (`.rv-level`). On a card it sits on the top edge. */
-export function LevelBadge({ level, critical = false }: { level: ReviewLevel; critical?: boolean }) {
+/** The change review's level, as a word on its color (`.rv-level`): Needs you, Worth a look or Safe. On a card it sits on the top edge. */
+export function LevelBadge({ level, critical = false, size }: { level: ReviewLevel; critical?: boolean; size?: 'large' }) {
   return (
-    <span className="rv-level shrink-0" data-level={level} title={`The change review rates this ${LEVEL_WORD[level].toLowerCase()}${critical ? ', and critical' : ''}`}>
-      {LEVEL_WORD[level]}
+    <span className="rv-level shrink-0" data-level={level} data-size={size} title={`The change review: ${LEVEL_WORDS[level].toLowerCase()}${critical ? ', and critical' : ''}`}>
+      {LEVEL_WORDS[level]}
       {critical ? ' · critical' : ''}
     </span>
   )

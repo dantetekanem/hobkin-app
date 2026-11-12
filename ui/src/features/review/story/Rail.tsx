@@ -17,7 +17,7 @@ export function Rail() {
   const steps = useSession((session) => session.view.story)
   const current = useSession((session) => session.story.step)
   const seen = useSession((session) => session.story.seen)
-  const away = useSession((session) => session.story.detour != null || session.story.whole)
+  const away = useSession((session) => session.story.detour != null || session.story.group != null || session.story.whole)
   const pending = useSession((session) => session.pendingDigits)
   const reduced = useReduced()
   const last = steps.length - 1

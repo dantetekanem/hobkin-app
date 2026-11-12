@@ -38,10 +38,60 @@ function nextWire(session: Session): string | null {
   return wires[at + 1] ?? null
 }
 
+/** The keys that mean the same in the story and in the graph: the panel, notes, hobkin and the verdict. Null for any other. */
+function sharedKey(session: Session, key: string, effects: KeyEffects): boolean | null {
+  switch (key) {
+    // S for the steps panel: 1 now goes to step 1.
+    case 's':
+    case 'S':
+      return effects.toggleSteps(), true
+    // A comment, kept for the verdict. N is the key 009 promises, and C is the one pi-coder uses.
+    case 'n':
+    case 'N':
+    case 'c':
+    case 'C':
+      return session.startNote('comment'), true
+    // A question, to discuss with hobkin.
+    case 'd':
+    case 'D':
+      return session.startNote('question'), true
+    // H talks to hobkin about what the reviewer is on.
+    case 'h':
+    case 'H':
+      return effects.talk(), true
+    // The verdicts, each shown first and sent only on a second yes: A approves, M approves and merges, X sends the fixes.
+    case 'a':
+    case 'A':
+      return effects.verdict('approve'), true
+    case 'm':
+    case 'M':
+      return effects.verdict('approve-merge'), true
+    case 'x':
+    case 'X':
+      return effects.verdict('request-changes'), true
+    default:
+      return null
+  }
+}
+
+/**
+ * The story is a page to read: the arrows, Space and the page keys scroll it, and Enter presses what it is on. T goes
+ * to the graph, and G to the whole graph, as it does there.
+ */
+function storyKey(session: Session, key: string, effects: KeyEffects): boolean {
+  if (key === 't' || key === 'T') return session.toggleMode()
+  if (key === 'g' || key === 'G') {
+    session.setMode('graph')
+    return session.leave() || session.refit()
+  }
+  return sharedKey(session, key, effects) ?? false
+}
+
 /** Does what a key means in the review. True when the key was the review's, and should go no further. */
 export function pressKey(session: Session, press: KeyPress, effects: KeyEffects): boolean {
   const { key, shift, alt } = press
   if (alt) return false
+  if (session.mode === 'story') return shift ? false : storyKey(session, key, effects)
 
   // An open wire takes its two letters first: Y to say yes to a proposed wire, R to remove it.
   const open = session.wire ? session.edgeOf.get(session.wire) : undefined
@@ -97,35 +147,11 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
     case 'w':
     case 'W':
       return session.openWire(nextWire(session)), true
-    // S for the steps panel: 1 now goes to step 1.
-    case 's':
-    case 'S':
-      return effects.toggleSteps(), true
-    // A comment, kept for the verdict. N is the key 009 promises, and C is the one pi-coder uses.
-    case 'n':
-    case 'N':
-    case 'c':
-    case 'C':
-      return session.startNote('comment'), true
-    // A question, to discuss with hobkin.
-    case 'd':
-    case 'D':
-      return session.startNote('question'), true
-    // H talks to hobkin about what the reviewer is on.
-    case 'h':
-    case 'H':
-      return effects.talk(), true
-    // The verdicts, each shown first and sent only on a second yes: A approves, M approves and merges, X sends the fixes.
-    case 'a':
-    case 'A':
-      return effects.verdict('approve'), true
-    case 'm':
-    case 'M':
-      return effects.verdict('approve-merge'), true
-    case 'x':
-    case 'X':
-      return effects.verdict('request-changes'), true
+    // T for the story of the change review, when it has one.
+    case 't':
+    case 'T':
+      return session.toggleMode()
     default:
-      return session.code ? effects.panelKey(key, false) : false
+      return sharedKey(session, key, effects) ?? (session.code ? effects.panelKey(key, false) : false)
   }
 }

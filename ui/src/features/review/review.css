@@ -776,3 +776,138 @@
 .rv-chip:active {
   transform: translate(-50%, -50%) scale(0.97);
 }
+
+/* ───────────────────────────── The story ───────────────────────────── */
+
+/* The change review's story (spec 032): a calm page beside the panel, read top to bottom, apart from the canvas. */
+.rv-reading {
+  background: var(--hb-surface);
+  color: var(--hb-text);
+  outline: none;
+}
+.rv-reading:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--hb-focus);
+}
+
+/* A part of the story. The parts that hold units carry their level's color. */
+.rv-section {
+  --level: var(--hb-border-strong);
+  margin-top: 44px;
+  padding-top: 26px;
+  border-top: 1px solid var(--hb-border);
+}
+.rv-section[data-level='high'] {
+  --level: var(--hb-bad);
+}
+.rv-section[data-level='mid'] {
+  --level: var(--hb-warn);
+}
+.rv-section[data-level='safe'] {
+  --level: var(--hb-ok);
+}
+.rv-section[data-level]::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 10px;
+  border-radius: 999px;
+  background: var(--level);
+  vertical-align: 0.06em;
+}
+
+/* A unit's heading: its level first, as a word on its color, and a band of that color down its edge. */
+.rv-unit {
+  --level: var(--hb-border-strong);
+  margin-top: 34px;
+  padding: 14px 16px 14px 20px;
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--level) 10%, var(--hb-surface));
+  box-shadow: inset 4px 0 0 var(--level);
+}
+.rv-unit[data-level='high'] {
+  --level: var(--hb-bad);
+}
+.rv-unit[data-level='mid'] {
+  --level: var(--hb-warn);
+}
+.rv-unit[data-level='safe'] {
+  --level: var(--hb-ok);
+}
+.rv-level[data-size='large'] {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 12.5px;
+}
+/* Critical: filled, so it is never missed. Ink on the coral in both themes. */
+.rv-critical {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--hb-bad);
+  color: var(--hb-text);
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.dark .rv-critical {
+  color: var(--hb-bg);
+}
+
+/* Changed lines, as the story shows them: each line tinted by what happened to it, with its marker. */
+.rv-story-diff {
+  margin: 10px 0 20px;
+  padding: 8px 0;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: var(--hb-code-bg);
+  color: var(--hb-code-text);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--hb-code-text) 12%, transparent);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  font-variant-ligatures: none;
+}
+.rv-story-line {
+  display: grid;
+  grid-template-columns: 2.2em minmax(0, 1fr);
+  padding-right: 14px;
+}
+.rv-story-line[data-kind='added'] {
+  background: var(--hb-diff-add);
+}
+.rv-story-line[data-kind='removed'] {
+  background: var(--hb-diff-del);
+}
+.rv-story-mark {
+  text-align: center;
+  user-select: none;
+  color: color-mix(in oklab, var(--hb-code-text) 60%, var(--hb-code-bg));
+}
+.rv-story-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+
+/* How far along a change review is. It grows by transform, and jumps under reduced motion. */
+.rv-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--hb-tone-3);
+}
+.rv-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--hb-accent);
+  transform-origin: left center;
+  transition: transform 600ms var(--ease-out);
+}
+.rv[data-reduced='true'] .rv-progress > span {
+  transition: none;
+}

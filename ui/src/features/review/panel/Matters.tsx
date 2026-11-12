@@ -7,6 +7,8 @@ import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
  * panel's words. The panel shows it only when it is given.
  */
 export interface StepUnit {
+  /** The unit's claim, such as "round_money changes its rounding mode for every caller". */
+  title?: string
   level: ReviewLevel
   critical?: boolean
   /** The four facts, a few words each: what it does, what proves it, who runs it, what undoes it. */
@@ -20,6 +22,8 @@ export interface StepUnit {
 
 
 const HEADING = 'font-heading text-[12px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
+/** The most nodes told here one by one. A unit shown from the story can focus more. */
+const SHOWN = 4
 
 /**
  * The second part of the panel, under the step: what matters for the reviewer here. The change review's unit for the
@@ -32,9 +36,10 @@ export function Matters({ nodes, unit }: { nodes: readonly ReviewNode[]; unit?: 
     <section aria-label="What matters here" className="flex flex-col gap-3 border-t border-border px-4 py-3.5">
       <h3 className={HEADING}>What matters here</h3>
       {unit ? <UnitFacts unit={unit} /> : null}
-      {nodes.map((node) => (
+      {nodes.slice(0, SHOWN).map((node) => (
         <NodeFacts key={node.id} node={node} />
       ))}
+      {nodes.length > SHOWN ? <p className="text-[13px] text-muted-foreground">And {nodes.length - SHOWN} more in focus.</p> : null}
     </section>
   )
 }
@@ -46,6 +51,7 @@ function UnitFacts({ unit }: { unit: StepUnit }) {
         <LevelBadge level={unit.level} critical={unit.critical} />
         <span className="text-[13px] text-muted-foreground">as the change review rates it</span>
       </div>
+      {unit.title ? <p className="font-heading text-[14.5px] leading-snug font-semibold text-pretty">{unit.title}</p> : null}
       {unit.facts.length > 0 ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13.5px] leading-snug">
           {unit.facts.map((fact) => (

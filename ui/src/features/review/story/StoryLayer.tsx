@@ -59,10 +59,11 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
       const node = nodeOf.get(story.detour)
       return node ? { kind: 'node', key: `node:${node.id}`, node, backTo: story.step } : null
     }
-    if (story.whole) return null
+    // The whole graph, or a unit's nodes shown from the story: no step is told beside them. "Back to step N" waits below.
+    if (story.whole || story.group) return null
     const step = view.story[story.step]
     return step ? { kind: 'step', key: `step:${step.id}`, step, index: story.step, total: view.story.length } : null
-  }, [nodeOf, story.detour, story.step, story.whole, view.story])
+  }, [nodeOf, story.detour, story.group, story.step, story.whole, view.story])
 
   const width = cardWidth(canvas.width)
   const measure = useRef<HTMLDivElement>(null)
