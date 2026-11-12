@@ -26,9 +26,10 @@ export function notesAbout(notes: readonly Note[], node: Anchored, members: read
     .sort((a, b) => a.at - b.at)
 }
 
-/** The notes taken on a step, whatever they point at. Oldest first. */
-export function notesOnStep(notes: readonly Note[], step: string): Note[] {
-  return notes.filter((note) => note.step === step).sort((a, b) => a.at - b.at)
+/** The notes taken on a step, whatever they point at, or on any of the review's steps it stands for (`ViewStep.steps`). Oldest first. */
+export function notesOnStep(notes: readonly Note[], steps: string | readonly string[]): Note[] {
+  const ids = new Set(typeof steps === 'string' ? [steps] : steps)
+  return notes.filter((note) => ids.has(note.step)).sort((a, b) => a.at - b.at)
 }
 
 /** Who wrote a note and what it is, in the panel's words: "You · Comment", "Hobkin · Question". */

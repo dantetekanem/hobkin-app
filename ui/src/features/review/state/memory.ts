@@ -7,9 +7,9 @@
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
-import type { Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
+import type { Review, ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 import type { ReviewNotes } from '#shared/review/status.ts'
-import { arrange, isTestGroup, type Arranged } from '../graph/arrange.ts'
+import { arrange, isTestGroup, type Arranged, type ViewStep } from '../graph/arrange.ts'
 import { foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 
 export interface Point {
@@ -335,12 +335,13 @@ export interface ViewEdge extends ReviewEdge {
  * The review as the canvas draws it (`graph/arrange.ts`): tests folded into cards, the flow laid out, the unwired apart.
  * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node.
  */
-export interface ReviewView extends Pick<Arranged, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'apart'> {
+export interface ReviewView extends Pick<Arranged, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'apart' | 'stepOf'> {
   nodes: ReviewNode[]
   edges: ViewEdge[]
   /** Proposed wires the reviewer removed. They are not drawn, and they can be brought back. */
   removed: ReviewEdge[]
-  story: StoryStep[]
+  /** The story on screen: steps that land on the same card of tests are one (`ViewStep.steps`). */
+  story: ViewStep[]
 }
 
 const arranged = new WeakMap<Review, Arranged>()

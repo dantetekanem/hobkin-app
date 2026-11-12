@@ -316,7 +316,7 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       showNote: (noteId) => {
         const note = get().notes.find((entry) => entry.id === noteId)
         if (!note) return
-        const stepIndex = get().view.story.findIndex((step) => step.id === note.step)
+        const stepIndex = get().view.stepOf[note.step] ?? -1
         const { target } = note
         if (target.kind === 'step') {
           if (stepIndex >= 0) get().goTo(stepIndex)

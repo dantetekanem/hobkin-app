@@ -45,11 +45,16 @@ export function shownPlaces(storage: PlaceStorage | null): ShownPlaces {
   }
 }
 
-/** Takes the reviewer to a step or a node, and frames it even when they are on it already. False when the review has none such. */
+/**
+ * Takes the reviewer to a step or a node, and frames it even when they are on it already. False when the review has none
+ * such. hobkin counts the review's own steps, and the screen tells steps that land on one card of tests as one, so its
+ * step is found where the screen tells it.
+ */
 export function showPlace(session: SessionStore, place: { step?: number; node?: string }): boolean {
   const before = session.getState()
-  const total = before.view.story.length
-  const step = place.step != null && Number.isInteger(place.step) && place.step >= 1 && total > 0 ? Math.min(place.step, total) - 1 : null
+  const total = before.review.story.length
+  const named = place.step != null && Number.isInteger(place.step) && place.step >= 1 && total > 0 ? before.review.story[Math.min(place.step, total) - 1] : undefined
+  const step = named ? (before.view.stepOf[named.id] ?? null) : null
   const node = place.step == null && place.node != null && before.nodeOf.has(place.node) ? place.node : null
   if (step == null && node == null) return false
   if (step != null) before.goTo(step)

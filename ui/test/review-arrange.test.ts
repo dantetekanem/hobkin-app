@@ -7,6 +7,7 @@ import { arrange, isLineCount } from '../src/features/review/graph/arrange.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
+import { showPlace } from '../src/features/review/state/cursor.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const pull = pullReview('pr:hobkin-sample/storefront/482')
@@ -80,7 +81,7 @@ test("a step that focused tests focuses their card, and rides their card's wire"
   assert.deepEqual(shape.edges.filter((edge) => edge.to === group && edge.kind === 'proves').map((edge) => edge.from), ['A1', 'A2', 'A3'])
   // A step that rode a folded test's wire rides the card's.
   for (const step of shape.story) if (step.travel) assert.ok(shape.edges.some((edge) => edge.id === step.travel), `${step.id} rides a wire that is drawn`)
-  // The story keeps every step: folding changes what a step points at, never how many steps there are.
+  // No two of its steps land on the same card, so it keeps every step.
   assert.deepEqual(shape.story.map((step) => step.id), sample.story.map((step) => step.id))
 })
 
@@ -132,4 +133,44 @@ test('a folded test is found, focused, shown and noted on its card', () => {
   memory.getState().moveNode(pull, card, { x: 10, y: 20 })
   assert.deepEqual(session.getState().view.nodes.find((node) => node.id === card)!.position, { x: 10, y: 20 })
   stop()
+})
+
+test('steps that land on the same card are one step, named for the card and listing its tests', () => {
+  const node = (id: string, kind: ReviewNode['kind'], change: Partial<ReviewNode> = {}): ReviewNode => ({ id, kind, title: id, subtitle: kind === 'test' ? 'test/show_test.rb' : 'app/show.rb', change: 'added', summary: 'New in this change. 4 lines added.', anchors: [], position: { x: 0, y: 0 }, ...change })
+  const code = ['show', 'index', 'edit'].map((id) => node(id, 'code'))
+  const results = ['passed', 'passed', 'failed', 'proves-change', 'not-run'] as const
+  const tests = results.map((status, index) => node(`t${index + 1}`, 'test', { title: `renders case ${index + 1}`, status }))
+  const edges = tests.map((test) => ({ id: `exercises:${test.id}>show`, from: test.id, to: 'show', kind: 'exercises' as const, certainty: 'host' as const }))
+  const walk = (id: string, focus: string[]) => ({ id, kind: 'walk' as const, title: focus.join(', '), text: 'New in this change. 4 lines added.', focus, criteria: [] })
+  const story = [walk('s1', ['show']), walk('s2', ['index']), walk('s3', ['edit']), ...tests.map((test, index) => walk(`s${index + 4}`, [test.id]))]
+  const review = { nodes: [...code, ...tests], edges, story }
+
+  // Three code steps and five steps of tests on one subject fold to four steps.
+  const shape = arrange(review)
+  assert.deepEqual(shape.story.map((step) => step.id), ['s1', 's2', 's3', 's4'])
+  const merged = shape.story[3]!
+  assert.deepEqual(merged.focus, ['tests:show'])
+  assert.deepEqual(merged.steps, ['s4', 's5', 's6', 's7', 's8'])
+  assert.equal(merged.title, '5 tests for show')
+  assert.equal(merged.text, 'Passed: renders case 1 and renders case 2. Failed: renders case 3. Proves the change: renders case 4. Not run: renders case 5.')
+  assert.deepEqual(['s1', 's4', 's6', 's8'].map((id) => shape.stepOf[id]), [0, 3, 3, 3])
+
+  // hobkin names steps as the review tells them: its step 6 is a test step, now the merged one.
+  const session = createSession({ ...pull, ...review, story: [...story] } as Review, createReviewMemory(memoryStorage()))
+  assert.equal(showPlace(session, { step: 6 }), true)
+  assert.equal(session.getState().story.step, 3)
+  // Told the other way round, tests first, hobkin's step 6 is the code step that now comes second.
+  const testsFirst = [...tests.map((test, index) => walk(`s${index + 1}`, [test.id])), walk('s6', ['show']), walk('s7', ['index']), walk('s8', ['edit'])]
+  const other = createSession({ ...pull, ...review, story: testsFirst } as Review, createReviewMemory(memoryStorage()))
+  assert.equal(showPlace(other, { step: 6 }), true)
+  assert.deepEqual([other.getState().story.step, other.getState().focus], [1, ['show']])
+  assert.equal(showPlace(other, { step: 3 }), true)
+  assert.deepEqual(other.getState().focus, ['tests:show'], 'a test step goes to the step that took it in')
+
+  // A step that comes back to a card shown already joins the step that showed it. A step with more than the card does not.
+  const back = arrange({ ...review, story: [walk('a', ['t1']), walk('b', ['show']), walk('c', ['t2']), walk('d', ['t3', 'index'])] })
+  assert.deepEqual(back.story.map((step) => [step.id, step.steps]), [['a', ['a', 'c']], ['b', ['b']], ['d', ['d']]])
+  // Steps the model wrote about the same code are kept apart: only cards of tests fold steps together.
+  const twice = arrange({ ...review, story: [walk('x', ['show']), walk('y', ['show'])] })
+  assert.equal(twice.story.length, 2)
 })

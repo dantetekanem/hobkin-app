@@ -38,12 +38,20 @@ export interface TestGroup {
 /** A wire as the canvas draws it, with the review's wires it stands for: one, or one for each test of a card. */
 export type ArrangedEdge = ReviewEdge & { members: string[] }
 
+/** A step as the canvas tells it: the review's steps it stands for, more than one when they land on the same card. */
+export type ViewStep = StoryStep & { steps: string[] }
+
 export interface Arranged {
   /** The nodes drawn: cards in place of the tests they hold, each in its place on the canvas. */
   nodes: ReviewNode[]
   edges: ArrangedEdge[]
-  /** The story, with each focus and each ride on the cards that hold what it pointed at. */
-  story: StoryStep[]
+  /**
+   * The story, with each focus and each ride on the cards that hold what it pointed at. Steps that land on the same card
+   * of tests are one step (the user, 2026-11-12: "4 steps here are the same node, this is dumb").
+   */
+  story: ViewStep[]
+  /** Each step of the review, by its id, to its place in that story: hobkin and the notes name the review's steps. */
+  stepOf: Record<string, number>
   /** The nodes folded into cards, kept for their code and their notes. */
   hidden: ReviewNode[]
   groups: Record<string, TestGroup>
@@ -152,6 +160,62 @@ function cardOf(group: TestGroup, nodeOf: ReadonlyMap<string, ReviewNode>): Revi
   }
 }
 
+const RESULT_WORDS: readonly [string, (status: NodeStatus | undefined) => boolean][] = [
+  ['Passed', (status) => status === 'passed'],
+  ['Failed', (status) => status === 'failed'],
+  ['Proves the change', (status) => status === 'proves-change'],
+  ['Not run', (status) => status !== 'passed' && status !== 'failed' && status !== 'proves-change'],
+]
+const listed = (names: readonly string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`)
+
+/** A card's tests by name, by their result: "Passed: a and b. Failed: c." */
+export function testsInWords(tests: readonly Pick<ReviewNode, 'title' | 'status'>[]): string {
+  return RESULT_WORDS.flatMap(([words, has]) => {
+    const names = tests.filter((test) => has(test.status)).map((test) => test.title)
+    return names.length > 0 ? [`${words}: ${listed(names)}.`] : []
+  }).join(' ')
+}
+
+/**
+ * The story on the cards: each step points at the cards that hold its tests, and a step that lands on the same cards
+ * as a step before it joins that step, next to it or not, since that card was shown already. A step that names a card
+ * is told as the card: its tests by name and result, never a count of lines. Steps the model wrote about the same code
+ * stay apart. Only cards of tests fold steps together.
+ */
+function foldStory(story: readonly StoryStep[], end: (id: string) => string, wireOf: ReadonlyMap<string, string>, titleOf: (id: string) => string, testsOf: (id: string) => ReviewNode[]) {
+  const steps: ViewStep[] = []
+  const stepOf: Record<string, number> = {}
+  const shown = new Map<string, number>()
+  const RANK = { safe: 0, mid: 1, high: 2 } as const
+  for (const step of story) {
+    const focus = unique(step.focus.map(end))
+    const cards = focus.filter(isTestGroup)
+    const key = cards.length > 0 ? [...focus].sort().join(' ') : null
+    const earlier = key ? shown.get(key) : undefined
+    if (earlier != null) {
+      const joined = steps[earlier]!
+      joined.steps.push(step.id)
+      joined.criteria = unique([...joined.criteria, ...step.criteria])
+      if (step.level && (!joined.level || RANK[step.level] > RANK[joined.level])) joined.level = step.level
+      stepOf[step.id] = earlier
+      continue
+    }
+    const travel = step.travel ? wireOf.get(step.travel) : undefined
+    const { travel: _travel, ...rest } = step
+    stepOf[step.id] = steps.length
+    if (key) shown.set(key, steps.length)
+    steps.push({ ...rest, focus, ...(travel ? { travel } : {}), steps: [step.id] })
+  }
+  // A step told as its card: by the card's name, and by its tests and their results.
+  for (const step of steps) {
+    const cards = step.focus.filter(isTestGroup)
+    if (cards.length === 0 || (step.steps.length === 1 && !isLineCount(step.text))) continue
+    step.title = listed(step.focus.map(titleOf))
+    step.text = testsInWords(cards.flatMap(testsOf))
+  }
+  return { steps, stepOf }
+}
+
 /** The wires drawn: each test's wires leave from its card, and the wires that then join the same two nodes become one. */
 function joinWires(edges: readonly ReviewEdge[], end: (id: string) => string): { edges: ArrangedEdge[]; wireOf: Map<string, string> } {
   const joined = new Map<string, ArrangedEdge>()
@@ -195,16 +259,14 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arra
   }
   const { edges, wireOf } = joinWires(review.edges, end)
   const { positions, apart } = layoutGraph(drawn, edges)
+  const drawnOf = new Map(drawn.map((node) => [node.id, node]))
+  const { steps: story, stepOf } = foldStory(review.story, end, wireOf, (id) => drawnOf.get(id)?.title ?? id, (id) => (groups[id]?.tests ?? []).map((test) => nodeOf.get(test)!))
 
   return {
     nodes: drawn.map((node) => ({ ...node, position: positions[node.id] ?? node.position })),
     edges,
-    story: review.story.map((step) => {
-      const focus = unique(step.focus.map(end))
-      const travel = step.travel ? wireOf.get(step.travel) : undefined
-      const { travel: _travel, ...rest } = step
-      return { ...rest, focus, ...(travel ? { travel } : {}) }
-    }),
+    story,
+    stepOf,
     hidden: review.nodes.filter((node) => groupOf[node.id]),
     groups,
     groupOf,

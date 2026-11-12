@@ -28,6 +28,8 @@ test('the panel lists what was written about a node, its lines and the nodes it 
   // A card that stands for other nodes, as a group of folded tests does, lists theirs too.
   assert.deepEqual(notesAbout(notes, send, [{ id: 'm1', anchors: [] }]).map((entry) => entry.id), ['lines', 'later', 'member'])
   assert.deepEqual(notesOnStep(notes, 'outcome').map((entry) => entry.id), ['step', 'other node', 'elsewhere', 'lines', 'later', 'member'])
+  // A step the screen tells for several of the review's steps has the notes of each of them.
+  assert.deepEqual(notesOnStep([...notes, note('folded in', 50, { step: 's9' })], ['s9', 'outcome']).map((entry) => entry.id).at(-1), 'folded in')
 
   assert.equal(noteByline({ author: 'hobkin', intent: 'question' }), 'Hobkin · Question')
   assert.equal(noteByline({ author: 'user', intent: 'comment' }), 'You · Comment')
