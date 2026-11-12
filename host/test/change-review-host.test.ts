@@ -203,6 +203,12 @@ test('a finished change’s review starts its change review, and opens with the 
   assert.equal(total?.level, 'high', 'the level shows on the graph node whose lines it rated')
   assert.ok(opened.review.story.some((step) => step.level === 'high'), 'and on the step that shows it')
 
+  // Asked for again (the card's Review again), the same commit is reviewed once more.
+  reviews.prepare(id, { refresh: true })
+  await reviews.settled(id)
+  await assessments.settled()
+  assert.equal(runs.length, 2)
+
   // A graph prepared before change reviews existed gets one the first time the background looks at it, and only once.
   rmSync(join(root, 'client', 'reviews', 'change+shop+4c9e21', 'change-review'), { recursive: true, force: true })
   const later = new Assessments({ root, run: engine, repoOf: () => repo })
@@ -211,6 +217,6 @@ test('a finished change’s review starts its change review, and opens with the 
   again.watch([{ id, head }])
   again.watch([{ id, head }])
   await later.settled()
-  assert.equal(runs.length, 2)
+  assert.equal(runs.length, 3)
   assert.equal(again.status(id).assessment?.state, 'ready')
 })

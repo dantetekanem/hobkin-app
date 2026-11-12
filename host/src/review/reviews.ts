@@ -247,14 +247,15 @@ export class Reviews {
     store.write(target, review, files, meta)
     this.opened.set(id, { review, files, meta })
     this.set(id, { state: 'ready', phase: null, stale: false, ...meta })
-    this.assess(target, review)
+    // Prepared again on the user's word: the change review runs again too.
+    this.assess(target, review, { again: refresh })
   }
 
   /** Starts the change review of a finished change at the commit its graph was built for. Never stops the graph. */
-  private assess(target: ReviewTarget, review: Review) {
+  private assess(target: ReviewTarget, review: Review, { again = false }: { again?: boolean } = {}) {
     if (target.kind !== 'change' || !this.options.assessments) return
     try {
-      this.options.assessments.start({ target, head: review.change.head, base: review.change.base, description: { source: 'commits', title: review.change.title } })
+      this.options.assessments.start({ target, head: review.change.head, base: review.change.base, description: { source: 'commits', title: review.change.title } }, { again })
     } catch (error) {
       this.options.log?.(`Review ${reviewIdOf(target)}: the change review could not start: ${error instanceof Error ? error.message : String(error)}`)
     }
