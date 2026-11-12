@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { CommandArgs, CommandName, CommandResults } from '#shared/commands/registry.ts'
 import type { PresenceMessage } from '#shared/protocol/messages.ts'
 import type { QuestionReply } from '#shared/protocol/question.ts'
+import type { HostTiers, TiersChange } from '#shared/tiers/tiers.ts'
 import { HostConnection } from './connection.ts'
 import { discoverHost } from './discover.ts'
 import { explainRefusal } from './refusal.ts'
@@ -88,4 +89,17 @@ export type MainEffort = NonNullable<CommandArgs<'models.select'>['effort']>
  */
 export function selectMainModel(model: string, effort?: MainEffort): Promise<CommandResults['models.select']> {
   return runCommand('models.select', { model, ...(effort ? { effort } : {}) })
+}
+
+/** Reads hobkin's tiers from its config.json: the chat's model, each tier as it runs now, and the tier of each review role. */
+export function readTiers(): Promise<HostTiers> {
+  return runCommand('tiers.read')
+}
+
+/**
+ * Saves tiers and review roles in hobkin's config.json, all in one write or none, and answers the tiers as saved. A tier
+ * given null follows again. Rejects with the host's reason, such as a model Pi cannot use now.
+ */
+export function applyTiers(change: TiersChange): Promise<HostTiers> {
+  return runCommand('tiers.apply', change)
 }

@@ -5,13 +5,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { focusInput } from '@/app/keys.ts'
 import {
   EFFORTS,
+  REVIEW_ROLES,
+  REVIEW_ROLE_INFO,
   TIER_IDS,
   TIER_INFO,
   filterModels,
-  resolveTier,
   setTierModel,
   type Effort,
   type ModelChoice,
+  type ReviewRole,
+  type ReviewTiers,
+  type TierId,
   type TiersConfig,
 } from '#shared/tiers/tiers.ts'
 import { Rise } from '@/app/Reveal.tsx'
@@ -20,16 +24,18 @@ import { Hob } from '@/avatar/Hob.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, stagger } from '@/lib/motion.ts'
-import { selectMainModel, useHasHost } from '@/lib/host/index.ts'
+import { applyTiers as applyHostTiers, readTiers } from '@/lib/host/client.ts'
+import { isLive, selectMainModel, useHasHost, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
+import { followsWords, modelName, ownSetting, shownTier, tiersChange, type Follows, type ShownTier } from './host-tiers.ts'
 import { useModelChoices } from './models.ts'
 import { useTiers, type TierTarget } from './store.ts'
 
 const TARGETS: TierTarget[] = ['lead', ...TIER_IDS]
 
 /**
- * The lightbox where the user picks a model and a thinking level for hobkin and for each of the four tiers.
- * Changes are a draft until Apply. Spec: 017-model-tiers.
+ * The lightbox where the user picks a model and a thinking level for hobkin and for each of the four tiers, and the
+ * tier each of a change review's two roles uses. Changes are a draft until Apply. Spec: 017-model-tiers.
  */
 export function TiersLightbox() {
   const open = useTiers((state) => state.open)
@@ -45,6 +51,8 @@ export function TiersLightbox() {
     }
     wasOpen.current = open
   }, [open])
+
+  useHostTiers()
 
   return (
     <Dialog.Root
@@ -74,37 +82,82 @@ export function TiersLightbox() {
   )
 }
 
+/**
+ * Reads hobkin's tiers each time the connection opens, and again once hobkin is running in it, so the window and the
+ * Models tile show hobkin's and not the ones this window kept. The lightbox lives as long as the window, so this does too.
+ */
+function useHostTiers() {
+  const hasHost = useHasHost()
+  const link = useHost((state) => state.link)
+  const live = useHost(isLive)
+  const source = useHost((state) => `${state.home}\n${state.epoch}`)
+
+  useEffect(() => {
+    if (!hasHost || link !== 'open') return
+    let current = true
+    readTiers().then(
+      (host) => {
+        if (current) useTiers.getState().receiveHostTiers(host)
+      },
+      // A host from before tiers.read leaves the window as it was. Apply then says what fixes it.
+      () => {},
+    )
+    return () => {
+      current = false
+    }
+  }, [hasHost, link, live, source])
+}
+
 function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPicking: (target: TierTarget | null) => void }) {
   const saved = useTiers((state) => state.config)
+  const savedReview = useTiers((state) => state.review)
+  const follows = useTiers((state) => state.follows)
+  const checks = useTiers((state) => state.checks)
   // The models Pi can use now, once the host has answered.
   const models = useModelChoices()
   const focus = useTiers((state) => state.focus)
   const applyTiers = useTiers((state) => state.applyTiers)
   const [draft, setDraft] = useState<TiersConfig>(saved)
+  const [review, setReview] = useState<ReviewTiers>(savedReview)
+  const [touched, setTouched] = useState(false)
   const [moved, setMoved] = useState<Partial<Record<TierTarget, Effort>>>({})
-  const changed = JSON.stringify(draft) !== JSON.stringify(saved)
+  const changed = JSON.stringify(draft) !== JSON.stringify(saved) || REVIEW_ROLES.some((role) => review[role] !== savedReview[role])
   const hasHost = useHasHost()
   const [applying, setApplying] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 
-  // The lead is hobkin's own main model: the host saves it in hobkin's config and the open conversation goes on
-  // with it at once. When the host refuses, its reason shows here and nothing is applied.
+  // hobkin's tiers can arrive while the window is open, as when it opens just as the connection does. Until the user
+  // changes something it shows them, so Apply never sends back values hobkin no longer holds.
+  useEffect(() => {
+    if (touched) return
+    setDraft(saved)
+    setReview(savedReview)
+  }, [saved, savedReview, touched])
+
+  // The lead is hobkin's own main model: the host saves it in hobkin's config and the open conversation goes on with
+  // it at once. The tiers and review roles that changed go to hobkin in one write. When the host refuses either, its
+  // reason shows here and the window stays open on the draft.
   const apply = async () => {
     if (applying) return
     setProblem(null)
+    if (!hasHost) return applyTiers(draft, review)
     const leadChanged = draft.lead.model !== saved.lead.model || draft.lead.effort !== saved.lead.effort
-    if (leadChanged && hasHost) {
-      setApplying(true)
-      try {
+    const change = tiersChange({ config: saved, review: savedReview }, { config: draft, review })
+    const store = useTiers.getState()
+    setApplying(true)
+    try {
+      if (leadChanged) {
         await selectMainModel(draft.lead.model, draft.lead.effort)
-      } catch (error) {
-        setProblem(error instanceof Error ? error.message : String(error))
-        return
-      } finally {
-        setApplying(false)
+        // The lead is hobkin's now, even if the tiers are refused next, so a second Apply does not send it again.
+        store.receiveTiers({ config: { ...saved, lead: draft.lead }, review: savedReview, follows, checks })
       }
+      if (change) store.receiveHostTiers(await applyHostTiers(change))
+      store.closeTiers()
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setApplying(false)
     }
-    applyTiers(draft)
   }
 
   // Command+Enter applies from anywhere in the window: after a model is picked the list closes and the keyboard
@@ -122,26 +175,40 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
     return () => removeEventListener('keydown', onKey)
   }, [changed, picking])
 
-  const settingOf = (target: TierTarget) => (target === 'lead' ? { ...draft.lead, followsLead: false } : resolveTier(draft, target))
+  const view = { config: draft, follows, checks }
+  const settingOf = (target: TierTarget): ShownTier => (target === 'lead' ? { ...draft.lead, follows: null } : shownTier(view, target))
   const modelOf = (target: TierTarget) => models.find((model) => model.id === settingOf(target).model)
 
+  const edit = (next: TiersConfig, target: TierTarget, movedFrom: Effort | null = null) => {
+    setDraft(next)
+    setTouched(true)
+    setMoved((notes) => ({ ...notes, [target]: movedFrom ?? undefined }))
+  }
+
   const chooseModel = (target: TierTarget, model: ModelChoice) => {
-    const result = setTierModel(draft, target, model)
-    setDraft(result.config)
-    setMoved((notes) => ({ ...notes, [target]: result.effortMovedFrom ?? undefined }))
+    // A tier that follows starts from what it runs with now, so its thinking level carries over to the new model.
+    const from = target === 'lead' ? draft : { ...draft, tiers: { ...draft.tiers, [target]: ownSetting(settingOf(target), draft.lead) } }
+    const result = setTierModel(from, target, model)
+    edit(result.config, target, result.effortMovedFrom)
     setPicking(null)
   }
 
   const chooseEffort = (target: TierTarget, effort: Effort) => {
-    const setting = { model: settingOf(target).model, effort }
-    setDraft(target === 'lead' ? { ...draft, lead: setting } : { ...draft, tiers: { ...draft.tiers, [target]: setting } })
-    setMoved((notes) => ({ ...notes, [target]: undefined }))
+    // Levels are offered only for a model Pi names, so there is always one here.
+    const model = settingOf(target).model
+    if (!model) return
+    const setting = { model, effort }
+    edit(target === 'lead' ? { ...draft, lead: setting } : { ...draft, tiers: { ...draft.tiers, [target]: setting } }, target)
   }
 
-  const followLead = (target: TierTarget, follow: boolean) => {
+  const follow = (target: TierTarget, again: boolean) => {
     if (target === 'lead') return
-    setDraft({ ...draft, tiers: { ...draft.tiers, [target]: follow ? null : { model: draft.lead.model, effort: draft.lead.effort } } })
-    setMoved((notes) => ({ ...notes, [target]: undefined }))
+    edit({ ...draft, tiers: { ...draft.tiers, [target]: again ? null : ownSetting(settingOf(target), draft.lead) } }, target)
+  }
+
+  const chooseRole = (role: ReviewRole, tier: TierId) => {
+    setReview({ ...review, [role]: tier })
+    setTouched(true)
   }
 
   return (
@@ -168,15 +235,26 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
                 target={target}
                 depth={index}
                 setting={settingOf(target)}
+                whom={target === 'lead' ? null : follows[target]}
                 model={modelOf(target)}
+                name={modelName(settingOf(target), models)}
                 movedFrom={moved[target]}
                 autoFocus={target === (focus ?? 'lead')}
                 onPickModel={() => setPicking(target)}
                 onEffort={(effort) => chooseEffort(target, effort)}
-                onFollowLead={(follow) => followLead(target, follow)}
+                onFollow={(again) => follow(target, again)}
               />
             </Rise>
           ))}
+
+          {REVIEW_ROLES.map((role) => {
+            const runs = shownTier(view, review[role])
+            return (
+              <Rise key={role} className="col-span-2 lg:col-span-5">
+                <ReviewRow role={role} tier={review[role]} name={modelName(runs, models)} effort={runs.effort} onChoose={(tier) => chooseRole(role, tier)} />
+              </Rise>
+            )
+          })}
         </motion.div>
 
         <AnimatePresence>
@@ -199,7 +277,9 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
             {problem}
           </p>
         ) : (
-          <p className="mr-auto text-[12px] text-muted-foreground">hobkin's own model changes at once. Agents started after this use the tiers; running ones keep theirs.</p>
+          <p className="mr-auto text-[12px] text-muted-foreground">
+            hobkin's own model changes at once. Agents and reviews started after this use the tiers; running ones keep theirs.
+          </p>
         )}
         <Dialog.Close render={<Button variant="ghost" />}>Cancel</Dialog.Close>
         <Button disabled={!changed || applying} onClick={() => void apply()}>
@@ -211,22 +291,36 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
   )
 }
 
+/** A small round choice, as the thinking levels and the review roles' tiers are. `quiet` marks a tier that follows. */
+function pillClass(selected: boolean, quiet = false) {
+  return cn(
+    'h-6 rounded-full px-2 text-[11px] font-medium outline-offset-0',
+    'transition-[background-color,color,transform] duration-[160ms] ease-[ease] active:scale-[0.96]',
+    selected ? (quiet ? 'bg-surface-2 text-foreground' : 'bg-primary text-primary-foreground') : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
+  )
+}
+
 interface TierCardProps {
   target: TierTarget
   /** 0 for hobkin, then 1 to 4 for the tiers. Drawn as the bars that fill up. */
   depth: number
-  setting: { model: string; effort: Effort; followsLead: boolean }
+  setting: ShownTier
+  /** Whose model the tier follows while it has none of its own. None for the lead. */
+  whom: Follows | null
   model: ModelChoice | undefined
+  name: string
   movedFrom: Effort | undefined
   autoFocus: boolean
   onPickModel: () => void
   onEffort: (effort: Effort) => void
-  onFollowLead: (follow: boolean) => void
+  onFollow: (again: boolean) => void
 }
 
-function TierCard({ target, depth, setting, model, movedFrom, autoFocus, onPickModel, onEffort, onFollowLead }: TierCardProps) {
+function TierCard({ target, depth, setting, whom, model, name, movedFrom, autoFocus, onPickModel, onEffort, onFollow }: TierCardProps) {
   const lead = target === 'lead'
   const info = lead ? { label: 'hobkin', meantFor: 'The lead. It talks with you and delegates the rest.' } : TIER_INFO[target]
+  const following = setting.follows !== null
+  const words = whom ? followsWords(whom) : null
   const running = useRunningAgents()
   const inUse = lead ? 0 : running.filter((agent) => agent.tier === target).length
   const efforts = EFFORTS.filter((effort) => model?.efforts.includes(effort))
@@ -237,10 +331,7 @@ function TierCard({ target, depth, setting, model, movedFrom, autoFocus, onPickM
   }, [autoFocus])
 
   return (
-    <section
-      aria-label={info.label}
-      className={cn('flex h-full flex-col gap-3 rounded-3xl bg-surface p-4', setting.followsLead && 'bg-tone-1')}
-    >
+    <section aria-label={info.label} className={cn('flex h-full flex-col gap-3 rounded-3xl bg-surface p-4', following && 'bg-tone-1')}>
       <div className="flex h-9 items-end justify-between">
         <h3 className="text-[19px] leading-none font-semibold tracking-tight">{info.label}</h3>
         {lead ? <Hob mood="idle" size={36} stage="var(--hb-surface)" still /> : <DepthBars filled={depth} />}
@@ -257,10 +348,8 @@ function TierCard({ target, depth, setting, model, movedFrom, autoFocus, onPickM
         )}
       >
         <span className="min-w-0 flex-1">
-          <span className="eyebrow block">{setting.followsLead ? 'Follows hobkin' : (model?.provider ?? 'Model')}</span>
-          <span className={cn('block truncate text-[14px] font-medium', setting.followsLead && 'text-muted-foreground')}>
-            {model?.name ?? setting.model}
-          </span>
+          <span className="eyebrow block">{following && words ? words.follows : (model?.provider ?? 'Model')}</span>
+          <span className={cn('block truncate text-[14px] font-medium', following && 'text-muted-foreground')}>{name}</span>
         </span>
         <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </button>
@@ -269,22 +358,7 @@ function TierCard({ target, depth, setting, model, movedFrom, autoFocus, onPickM
         {efforts.map((effort) => {
           const selected = effort === setting.effort
           return (
-            <button
-              key={effort}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => onEffort(effort)}
-              className={cn(
-                'h-6 rounded-full px-2 text-[11px] font-medium outline-offset-0',
-                'transition-[background-color,color,transform] duration-[160ms] ease-[ease] active:scale-[0.96]',
-                selected
-                  ? setting.followsLead
-                    ? 'bg-surface-2 text-foreground'
-                    : 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
-              )}
-            >
+            <button key={effort} type="button" role="radio" aria-checked={selected} onClick={() => onEffort(effort)} className={pillClass(selected, following)}>
               {effort}
             </button>
           )
@@ -299,17 +373,82 @@ function TierCard({ target, depth, setting, model, movedFrom, autoFocus, onPickM
 
       <div className="mt-auto flex items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground">
         <span className="whitespace-nowrap">{lead ? 'Unset tiers follow it' : inUse === 0 ? 'Not in use' : `${inUse} running`}</span>
-        {lead ? null : (
+        {words ? (
           <button
             type="button"
-            onClick={() => onFollowLead(!setting.followsLead)}
+            onClick={() => onFollow(!following)}
             className="rounded-full px-2 py-0.5 font-medium whitespace-nowrap text-foreground outline-offset-0 transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
           >
-            {setting.followsLead ? 'Set its own' : 'Follow hobkin'}
+            {following ? 'Set its own' : words.follow}
           </button>
-        )}
+        ) : null}
       </div>
     </section>
+  )
+}
+
+interface ReviewRowProps {
+  role: ReviewRole
+  tier: TierId
+  /** The model the chosen tier runs with, and its thinking level when known. */
+  name: string
+  effort: Effort | null
+  onChoose: (tier: TierId) => void
+}
+
+/** One of a change review's two roles, and the tier it uses. */
+function ReviewRow({ role, tier, name, effort, onChoose }: ReviewRowProps) {
+  const info = REVIEW_ROLE_INFO[role]
+  return (
+    <section aria-label={info.label} className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-3xl bg-surface px-4 py-3">
+      <div className="min-w-[16rem] flex-1">
+        <h3 className="text-[15px] leading-tight font-semibold tracking-tight">{info.label}</h3>
+        <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{info.meantFor}</p>
+      </div>
+      <TierChoice label={`Tier for ${info.label}`} value={tier} onChoose={onChoose} />
+      <p className="w-52 truncate text-[12px]" title={effort ? `${name}, ${effort}` : name}>
+        <span className="font-medium">{name}</span>
+        {effort ? <span className="text-muted-foreground"> {effort}</span> : null}
+      </p>
+    </section>
+  )
+}
+
+/** One of the four tiers. Left and Right move along them and stop at the ends; the chosen one is the group's stop for Tab. */
+function TierChoice({ label, value, onChoose }: { label: string; value: TierId; onChoose: (tier: TierId) => void }) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex gap-1"
+      onKeyDown={(event) => {
+        const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+        if (!delta || event.metaKey || event.ctrlKey || event.altKey) return
+        event.preventDefault()
+        const next = TIER_IDS[Math.min(TIER_IDS.length - 1, Math.max(0, TIER_IDS.indexOf(value) + delta))]!
+        if (next === value) return
+        event.currentTarget.querySelector<HTMLElement>(`[data-value="${next}"]`)?.focus()
+        onChoose(next)
+      }}
+    >
+      {TIER_IDS.map((tier) => {
+        const selected = tier === value
+        return (
+          <button
+            key={tier}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            data-value={tier}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChoose(tier)}
+            className={pillClass(selected)}
+          >
+            {TIER_INFO[tier].label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -331,7 +470,8 @@ function DepthBars({ filled }: { filled: number }) {
 interface ModelListProps {
   target: TierTarget
   models: ModelChoice[]
-  current: string
+  /** The model chosen now, when it is one Pi names. */
+  current: string | null
   onChoose: (model: ModelChoice) => void
   onBack: () => void
 }
