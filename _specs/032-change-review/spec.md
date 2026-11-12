@@ -76,7 +76,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - [x] S5 (A8, A9). The pipeline: the model pass and its prompt, the blind check, progress.
 - [x] S6 (A10). The host: the review worktree, the model runner, the background run, the artifacts.
 - [ ] S7 (A11, A12, A13). The Review screen on the story, the page rework, the card's level, and the verdict buttons.
-- [ ] S8 (A14). pi-agentic-search: the scan fix and the search facts, on a branch there.
+- [x] S8 (A14). pi-agentic-search: the scan fix and the search facts, on a branch there.
 
 ## Open questions
 
