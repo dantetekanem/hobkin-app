@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import type { AssessmentStatus } from '#shared/review/assessment.ts'
-import { Assessments, readyReviewTree, type AssessRequest, type AssessRun } from '../src/review/assessment.ts'
+import { assessmentFolder, Assessments, readyReviewTree, type AssessRequest, type AssessRun } from '../src/review/assessment.ts'
 import { Reviews } from '../src/review/reviews.ts'
 import { changeSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
@@ -150,20 +150,105 @@ test('a run that stops halfway says so, and the next one starts from a clean tre
 test('the review tree links the project’s installed dependencies when git ignores them, and never takes the project’s own folder', async (t) => {
   const { repo, head } = project(t)
   mkdirSync(join(repo, 'node_modules', 'left-pad'), { recursive: true })
+  // Caches tools keep in an install. A tool run in the tree makes its own there, never writing into the project's.
+  for (const cache of ['.cache', '.vite', '.vitest']) mkdirSync(join(repo, 'node_modules', cache))
   const tree = join(temporaryDirectory(t), 'trees', 'shop')
+  const installs = join(tree, 'node_modules')
   await readyReviewTree({ repo, tree, head })
-  assert.ok(lstatSync(join(tree, 'node_modules')).isDirectory(), 'a real folder, so an ignore rule written for a folder matches it')
-  assert.ok(lstatSync(join(tree, 'node_modules', 'left-pad')).isSymbolicLink())
-  assert.ok(existsSync(join(tree, 'node_modules', 'left-pad')))
+  assert.ok(lstatSync(installs).isDirectory(), 'a real folder, so an ignore rule written for a folder matches it')
+  assert.ok(lstatSync(join(installs, 'left-pad')).isSymbolicLink())
+  assert.ok(existsSync(join(installs, 'left-pad')))
+  assert.deepEqual(readdirSync(installs), ['left-pad'], 'no cache is linked')
   assert.equal(execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8' }), '', 'the tree is clean, so proof can run in it')
   // A second review keeps what is linked.
   await readyReviewTree({ repo, tree, head })
-  assert.ok(existsSync(join(tree, 'node_modules', 'left-pad')))
+  assert.ok(existsSync(join(installs, 'left-pad')))
+
+  // The links follow the project: an install it gained is linked, and one it lost goes. A tool's own cache in the
+  // tree stays, and a cache an older tree linked into the project is taken away.
+  mkdirSync(join(installs, '.vite'))
+  symlinkSync(join(repo, 'node_modules', '.cache'), join(installs, '.cache'))
+  rmSync(join(repo, 'node_modules', 'left-pad'), { recursive: true })
+  mkdirSync(join(repo, 'node_modules', 'right-pad'))
+  await readyReviewTree({ repo, tree, head })
+  assert.deepEqual(readdirSync(installs).sort(), ['.vite', 'right-pad'])
+  assert.ok(lstatSync(join(installs, 'right-pad')).isSymbolicLink())
+  assert.ok(!lstatSync(join(installs, '.vite')).isSymbolicLink(), 'the tree’s own cache')
+  assert.equal(execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8' }), '')
 
   await assert.rejects(readyReviewTree({ repo, tree: repo, head }), /never the project’s own folder/)
   const plain = join(temporaryDirectory(t), 'plain')
   mkdirSync(plain)
   await assert.rejects(readyReviewTree({ repo, tree: plain, head }), /not a review worktree/)
+})
+
+test('a broken review tree moves aside, whole, for a new one, so it never breaks the reviews after it', async (t) => {
+  const { repo, head } = project(t)
+  const trees = join(temporaryDirectory(t), 'trees')
+  const tree = join(trees, 'shop')
+  const aside = () => readdirSync(trees).filter((name) => name.startsWith('shop-broken-'))
+  await readyReviewTree({ repo, tree, head })
+  writeFileSync(join(tree, 'left-behind.txt'), 'scratch')
+
+  // Its link to the project's repository is broken, as when the repository lost the worktree's entry.
+  rmSync(join(repo, '.git', 'worktrees', 'shop'), { recursive: true })
+  await readyReviewTree({ repo, tree, head })
+  assert.equal(execFileSync('git', ['-C', tree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), head)
+  assert.equal(aside().length, 1)
+  assert.equal(readFileSync(join(trees, aside()[0]!, 'left-behind.txt'), 'utf8'), 'scratch', 'nothing in it is deleted')
+
+  // A checkout that fails, as with the lock a git that crashed leaves behind, moves it aside the same way.
+  writeFileSync(join(repo, '.git', 'worktrees', 'shop', 'index.lock'), '')
+  await readyReviewTree({ repo, tree, head })
+  assert.equal(execFileSync('git', ['-C', tree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), head)
+  assert.equal(aside().length, 2)
+})
+
+test('reviewing a commit again takes its old summary away, so a rerun that fails never shows it beside a new story', async (t) => {
+  let fail = false
+  const engine: AssessRun = async (request) => {
+    // As the engine does, the progress first and then the story, before what failed.
+    writeFileSync(join(request.out, 'progress.json'), '{}')
+    writeFileSync(join(request.out, 'story.md'), fail ? '# Half of a new story\n' : '# Round the total\n')
+    if (fail) throw new Error('the test command was not found')
+    return { units: { units: [{ level: 'safe', critical: false }] }, storyBy: 'host' }
+  }
+  const { assessments, job, head, root, repo } = assessmentsFor(t, engine)
+  assessments.start(job)
+  await assessments.settled()
+  assert.equal(assessments.read(target, head)?.story, '# Round the total\n')
+
+  fail = true
+  assessments.start(job, { again: true })
+  await assessments.settled()
+  assert.equal(assessments.status(target, head).state, 'failed')
+  assert.equal(assessments.read(target, head), null, 'no old summary beside the new story')
+  assert.equal(new Assessments({ root, run: engine, repoOf: () => repo }).status(target, head).state, 'failed', 'nor after a restart')
+})
+
+test('a run that close() stops writes no summary, and says it was stopped', async (t) => {
+  let started = () => {}
+  const running = new Promise<void>((resolve) => (started = resolve))
+  let finish = () => {}
+  const signals: AbortSignal[] = []
+  const engine: AssessRun = async (request) => {
+    signals.push(request.signal)
+    started()
+    // An engine that misses the signal and finishes as if nothing happened.
+    await new Promise<void>((resolve) => (finish = resolve))
+    writeFileSync(join(request.out, 'story.md'), '# Round the total\n')
+    return { units: { units: [{ level: 'safe', critical: false }] }, storyBy: 'host' }
+  }
+  const { assessments, job, head, root } = assessmentsFor(t, engine)
+  assessments.start(job)
+  await running
+  assessments.close()
+  assert.equal(signals[0]!.aborted, true, 'the run is told to stop')
+  finish()
+  await assessments.settled()
+  const stopped = assessments.status(target, head)
+  assert.deepEqual([stopped.state, stopped.error], ['failed', 'The review was stopped before it finished.'])
+  assert.equal(existsSync(join(assessmentFolder(root, target, head), 'summary.json')), false)
 })
 
 test('a finished change’s review starts its change review, and opens with the story and the levels laid over its graph', async (t) => {
@@ -173,9 +258,14 @@ test('a finished change’s review starts its change review, and opens with the 
   const engine: AssessRun = async (request) => {
     runs.push(request)
     writeFileSync(join(request.out, 'story.md'), '# Round the total\n\n## Opening\n')
-    writeFileSync(join(request.out, 'units.json'), JSON.stringify({ schema: 'review-units/1', map: 'node-level', attention: { units: 1, reading_minutes: 2 }, units: [{ id: 'u1', nodes: ['n1'], level: 'high', critical: false }] }))
-    writeFileSync(join(request.out, 'graph.json'), JSON.stringify({ nodes: [{ id: 'n1', kind: 'function', symbol: 'total', path: 'src/total.js', lines: [1, 1], level: { current: 'high' }, critical: false }] }))
-    return { units: { units: [{ level: 'high', critical: false }] }, storyBy: 'model' }
+    // In the graph, total is at its floor, safe, while its unit is mid, as curate rates it (an unverified node is
+    // high there). The total it replaced was removed: its lines are the base's, which no line at head is.
+    const units = [{ id: 'u1', nodes: ['n1'], level: 'mid', critical: false }, { id: 'u2', nodes: ['n2'], level: 'high', critical: false }]
+    writeFileSync(join(request.out, 'units.json'), JSON.stringify({ schema: 'review-units/1', map: 'node-level', attention: { units: 2, reading_minutes: 2 }, units }))
+    const total = { kind: 'function', path: 'src/total.js', lines: [1, 1], critical: false }
+    const nodes = [{ ...total, id: 'n1', symbol: 'total', change: 'modified', level: { current: 'safe' } }, { ...total, id: 'n2', symbol: 'oldTotal', change: 'removed', level: { current: 'high' } }]
+    writeFileSync(join(request.out, 'graph.json'), JSON.stringify({ nodes }))
+    return { units: { units: [{ level: 'mid', critical: false }, { level: 'high', critical: false }] }, storyBy: 'model' }
   }
   const reviewsAt = (assessments: Assessments) =>
     new Reviews({
@@ -206,10 +296,11 @@ test('a finished change’s review starts its change review, and opens with the 
 
   const opened = reviews.get(id)
   assert.match(opened.assessment?.story ?? '', /^# Round the total/)
+  assert.deepEqual(opened.assessment?.nodes.map((node) => [node.id, node.level, node.unit]), [['n1', 'mid', 'u1']], 'each rated node at its unit’s level, and none removed')
   const total = opened.review.nodes.find((node) => node.kind === 'code' && node.subtitle === 'src/total.js')
-  assert.equal(total?.level, 'high', 'the level shows on the graph node whose lines it rated')
+  assert.equal(total?.level, 'mid', 'the level shows on the graph node whose lines it rated')
   assert.equal(total?.unit, 'u1', 'and the node knows the unit of the story that tells it')
-  assert.ok(opened.review.story.some((step) => step.level === 'high'), 'and on the step that shows it')
+  assert.ok(opened.review.story.some((step) => step.level === 'mid'), 'and on the step that shows it')
 
   // Asked for again (the card's Review again), the same commit is reviewed once more.
   reviews.prepare(id, { refresh: true })

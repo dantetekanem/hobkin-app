@@ -167,20 +167,48 @@ async function askPi({ root, models, choice, system, prompt, signal }: { root: s
     session.dispose()
     throw new Error(modelFallbackMessage)
   }
-  const stop = () => void session.abort().catch(() => {})
-  signal.addEventListener('abort', stop, { once: true })
+  return askSession(session, prompt, signal)
+}
+
+/** How long one model call may run. One still going by then is stopped, and fails saying so. */
+export const MODEL_DEADLINE_MS = 10 * 60_000
+
+/**
+ * Asks a session one question and answers with what the model wrote, then disposes of the session. A call whose run
+ * was stopped before it started is never asked. One stopped on the way, by its run or by its deadline, stops the
+ * session and fails: what it wrote by then is no answer.
+ */
+export async function askSession(session: PiSession, prompt: string, signal: AbortSignal): Promise<string> {
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), MODEL_DEADLINE_MS)
+  const stop = AbortSignal.any([signal, deadline.signal])
+  let halt = () => {}
+  const halted = new Promise<void>((resolve) => {
+    halt = () => {
+      void session.abort().catch(() => {})
+      resolve()
+    }
+  })
+  const stopped = () =>
+    new Error(deadline.signal.aborted ? `The model gave no answer within ${MODEL_DEADLINE_MS / 60_000} minutes, so it was stopped.` : 'The review was stopped before its model answered.')
+  stop.addEventListener('abort', halt, { once: true })
   try {
-    await session.prompt(prompt)
+    // A listener added to a signal that is already aborted is never called, so that call is refused here.
+    if (stop.aborted) throw stopped()
+    // Waited for only until it is stopped, so a session slow to stop never holds the run.
+    await Promise.race([session.prompt(prompt), halted])
+    if (stop.aborted) throw stopped()
     const reply = [...session.messages].reverse().find((message) => message.role === 'assistant')
     const parts = Array.isArray(reply?.content) ? reply.content : []
     return parts.filter((part) => part.type === 'text').map((part) => String(part.text ?? '')).join('\n')
   } finally {
-    signal.removeEventListener('abort', stop)
+    clearTimeout(timer)
+    stop.removeEventListener('abort', halt)
     session.dispose()
   }
 }
 
-interface PiSession {
+export interface PiSession {
   prompt(text: string): Promise<void>
   abort(): Promise<void>
   dispose(): void

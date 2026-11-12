@@ -432,15 +432,15 @@ export const COMMANDS = {
   },
   'review.preview': {
     description:
-      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments. For a finished change, `approve` opens its pull request, `approve-merge` lands it as its card does, and `request-changes` sends the notes to hobkin's agent. `summary` is the user's words to go with it. Answers with the `confirm` that review.verdict needs.",
+      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments. For a finished change, `approve` opens its pull request, `approve-merge` lands it as its card does, and `request-changes` sends the notes to hobkin's agent. `summary` is the user's words to go with it. `head` is the commit of the review on the user's screen: when the review the host holds is for another commit, the preview is refused. Answers with the `confirm` that review.verdict needs.",
     runs: 'host',
-    args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }) }, { additionalProperties: false }),
+    args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), head: Type.Optional(commit) }, { additionalProperties: false }),
   },
   'review.verdict': {
     description:
-      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user. A finished change gets its pull request opened, or is merged or sent back through hobkin's own work actions. `confirm` is what the preview answered. A verdict that would now do anything else is refused.",
+      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user. A finished change gets its pull request opened, or is merged or sent back through hobkin's own work actions. `confirm` is what the preview answered, and `head` the commit of the review on the user's screen. A verdict that would now do anything else, or act on another commit, is refused.",
     runs: 'host',
-    args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), confirm: Type.String({ pattern: '^[0-9a-f]{64}$' }) }, { additionalProperties: false }),
+    args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), confirm: Type.String({ pattern: '^[0-9a-f]{64}$' }), head: Type.Optional(commit) }, { additionalProperties: false }),
     outside: true,
   },
   'work.mode': {

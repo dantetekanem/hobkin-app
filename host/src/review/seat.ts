@@ -131,7 +131,8 @@ export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewComma
     'review.code': ({ id, node }) => reviewCode(reviews, id, node),
     'review.show': ({ id, step, node }) => reviews.show(id, { step, node }),
     'review.note': ({ id, ...note }) => ({ id: reviews.note(id, note).id }),
-    'review.preview': ({ id, verdict, summary }) => reviews.preview(id, verdict, summary),
-    'review.verdict': ({ id, verdict, summary, confirm }) => reviews.verdict(id, verdict, summary, confirm),
+    // `head` is the commit of the review on the user's screen: a verdict never acts on another one.
+    'review.preview': ({ id, verdict, summary, head }) => reviews.preview(id, verdict, summary, head),
+    'review.verdict': ({ id, verdict, summary, confirm, head }) => reviews.verdict(id, verdict, summary, confirm, head),
   }
 }

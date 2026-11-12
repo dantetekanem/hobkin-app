@@ -88,6 +88,22 @@ interface Job {
   refresh: boolean
 }
 
+/** A finished change's pull request: where it goes, and what it says. */
+interface Publication {
+  plan: PublishPlan
+  pull: { head: string; title: string; body: string }
+}
+
+/** A verdict's preview, with the review, card and pull request it was built from. */
+interface Planned {
+  preview: VerdictPreview
+  review: Review
+  /** Null for a pull request from GitHub. */
+  card: ChangeCard | null
+  /** For `approve` on a finished change. */
+  publication?: Publication
+}
+
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 
 /** How often an opened review asks where its change is now, when the app does not already know. */
@@ -361,11 +377,21 @@ export class Reviews {
 
   /**
    * What a verdict will do, built from the review and the notes in the home, with the token that lets it go.
-   * Nothing is sent here.
+   * Nothing is sent here. `head` is the commit of the review on the user's screen: when the host holds a review of
+   * another commit, prepared again since, it is refused, so nobody answers one review with what another would do.
    */
-  async preview(id: string, verdict: Verdict, summary: string): Promise<VerdictPreview> {
+  async preview(id: string, verdict: Verdict, summary: string, head?: string): Promise<VerdictPreview> {
+    return (await this.planned(id, verdict, summary, head)).preview
+  }
+
+  /** The preview, and the review, card and pull request it was built from, so a verdict does exactly what was shown. */
+  private async planned(id: string, verdict: Verdict, summary: string, head?: string): Promise<Planned> {
     const target = this.target(id)
     const { review, files } = this.loaded(id)
+    const at = review.change.head
+    if (head != null && !at.startsWith(head)) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
+    // Every token holds the commit it was shown for, so no verdict ever acts on another one.
+    const token = (...shown: unknown[]) => sha256(JSON.stringify([target.kind, id, verdict, at, ...shown]))
     const notes = foldNotes(this.options.store.notes(target).entries as NoteEntry[])
     const byId = new Map(files.map((file) => [file.fileId, file]))
     const loose = new Set(detachedNotes(notes, (fileId, side) => (side === 'added' ? byId.get(fileId)?.head : byId.get(fileId)?.base) ?? null))
@@ -376,38 +402,42 @@ export class Reviews {
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
       const lines = [
         `${words} ${target.owner}/${target.repo}#${target.number} on GitHub, as you, through gh.`,
-        `At commit ${review.change.head.slice(0, 7)}, the one this review was built from.`,
+        `At commit ${at.slice(0, 7)}, the one this review was built from.`,
         post.comments.length ? `With ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines.` : 'With no comments on lines.',
       ]
-      return { verdict, lines, post, confirm: sha256(JSON.stringify(['pull', id, post])) }
+      return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
     }
 
     const card = this.options.card(target.slug, target.item)
     if (!card) throw new Unavailable('hobkin no longer lists this change as finished.')
     if (verdict === 'comment') throw new Unavailable('A finished change has nobody to comment to. Approve it, approve and merge it, or ask for changes.')
     if (verdict === 'approve') {
-      const { plan, pull } = await this.publication(target.slug, card, review)
+      const publication = await this.publication(target.slug, card, review)
+      const { plan, pull } = publication
       const lines = [
         `Push ${plan.branch} at ${pull.head.slice(0, 7)} to ${plan.repo} on GitHub, as you.`,
-        `Open a pull request from it into ${plan.base}, titled as this change.`,
+        `Open a pull request from it into ${plan.base}, titled "${pull.title}".`,
+        `Its description: ${pull.body}`,
         'Nothing is merged.',
       ]
-      return { verdict, lines, confirm: sha256(JSON.stringify(['change', id, verdict, plan, pull])) }
+      return { review, card, publication, preview: { verdict, lines, confirm: token(plan, pull) } }
     }
     if (verdict === 'approve-merge') {
-      return { verdict, lines: [card.yes, `At commit ${review.change.head.slice(0, 7)}, the one this review was built from. A branch that moved since is refused.`], confirm: sha256(JSON.stringify(['change', id, verdict, card.landing, review.change.head])) }
+      return { review, card, preview: { verdict, lines: [card.yes, `At commit ${at.slice(0, 7)}, the one this review was built from. A branch that moved since is refused.`], confirm: token(card.landing) } }
     }
     const note = askForChanges(review, notes, summary)
     if (!note) throw new Unavailable('There is nothing to ask for yet. Write a comment, or say what to change.')
-    return { verdict, lines: ["hobkin's agent goes back to this change with your notes:"], note, confirm: sha256(JSON.stringify(['change', id, verdict, note])) }
+    return { review, card, preview: { verdict, lines: ["hobkin's agent goes back to this change with your notes:"], note, confirm: token(note) } }
   }
 
   /**
-   * Does a verdict the user confirmed: only when `confirm` is the token of exactly what they were shown. A pull request
-   * gets one GitHub review through gh, and a finished change one of hobkin's own work actions.
+   * Does a verdict the user confirmed: only when `confirm` is the token of exactly what they were shown, and `head`,
+   * when given, the commit of the review they were shown. A pull request gets one GitHub review through gh, and a
+   * finished change one of hobkin's own work actions.
    */
-  async verdict(id: string, verdict: Verdict, summary: string, confirm: string): Promise<{ message: string }> {
-    const preview = await this.preview(id, verdict, summary)
+  async verdict(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
+    // Done with what the token was checked against: a review prepared again meanwhile is never the one acted on.
+    const { preview, review, card, publication } = await this.planned(id, verdict, summary, head)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')
     const target = this.target(id)
 
@@ -419,23 +449,20 @@ export class Reviews {
       return { message: `Posted to GitHub${posted.html_url ? `: ${posted.html_url}` : '.'}` }
     }
 
-    const { review } = this.loaded(id)
-    const card = this.options.card(target.slug, target.item)!
-    if (verdict === 'approve') {
-      const { plan, pull } = await this.publication(target.slug, card, review)
-      const { url } = await this.options.publish!.open(plan, pull)
+    if (publication) {
+      const { url } = await this.options.publish!.open(publication.plan, publication.pull)
       return { message: `Opened ${url}` }
     }
     const said =
       verdict === 'approve-merge'
-        ? await this.options.work().workAction(card.landing, target.slug, target.item, { head: review.change.head })
+        ? await this.options.work().workAction(card!.landing, target.slug, target.item, { head: review.change.head })
         : await this.options.work().workAction('ask', target.slug, target.item, preview.note ?? '')
     this.markSent(target, verdict)
     return { message: String((said as { message?: unknown } | null)?.message ?? 'Done.') }
   }
 
   /** Where a finished change's pull request would go, and what it would say. Refused, with the reason, when it cannot have one. */
-  private async publication(slug: string, card: ChangeCard, review: Review): Promise<{ plan: PublishPlan; pull: { head: string; title: string; body: string } }> {
+  private async publication(slug: string, card: ChangeCard, review: Review): Promise<Publication> {
     if (card.pr) throw new Unavailable(`The pull request for this change is already open: ${card.pr}. Approve and merge it, or ask for changes.`)
     if (!this.options.publish) throw new Unavailable('This host cannot open pull requests.')
     if (!card.branch) throw new Unavailable('This change has no branch to push.')
