@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review-progress/1",
+  "title": "Live status of a review. Rewritten at every step boundary and after every unit.",
+  "type": "object",
+  "required": ["schema", "review", "started_at", "updated_at", "now", "percent", "steps", "remaining"],
+  "properties": {
+    "schema": { "const": "review-progress/1" },
+    "review": { "type": "string" },
+    "mode": { "type": "string" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "now": { "type": "string", "description": "One sentence: the step, the unit, the action in progress." },
+    "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Sum of estimate x done/total over the sum of estimates. Estimates come from triage.plan." },
+    "eta_seconds": { "type": ["integer", "null"] },
+    "remaining": { "type": "object", "required": ["steps", "units"], "properties": { "steps": { "type": "integer" }, "units": { "type": "integer" } } },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "done", "total"],
+        "properties": {
+          "id": { "enum": ["triage", "map-search", "map-proof", "risk-floor", "risk-model", "shape", "story", "blind-check"] },
+          "status": { "enum": ["pending", "running", "done", "skipped", "failed"] },
+          "started_at": { "type": ["string", "null"] },
+          "ended_at": { "type": ["string", "null"] },
+          "seconds": { "type": ["integer", "null"], "description": "Measured, from the two timestamps." },
+          "estimate_seconds": { "type": "integer" },
+          "done": { "type": "integer" },
+          "total": { "type": "integer" },
+          "note": { "type": "string", "description": "Why it was skipped or failed, or what round a loop is on." }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,97 @@
+{
+ "schema": "review-progress/1",
+ "review": "a8042955db4b",
+ "mode": "flagged-change",
+ "started_at": "2026-11-12T03:14:02Z",
+ "updated_at": "2026-11-12T03:17:41Z",
+ "now": "risk-model: node 2 of 5, totals_cache_key, listing callers with collect",
+ "percent": 45,
+ "eta_seconds": 310,
+ "remaining": {
+  "steps": 4,
+  "units": 4
+ },
+ "steps": [
+  {
+   "id": "triage",
+   "status": "done",
+   "started_at": "2026-11-12T03:14:02Z",
+   "ended_at": "2026-11-12T03:14:11Z",
+   "seconds": 9,
+   "estimate_seconds": 10,
+   "done": 1,
+   "total": 1
+  },
+  {
+   "id": "map-search",
+   "status": "done",
+   "started_at": "2026-11-12T03:14:11Z",
+   "ended_at": "2026-11-12T03:14:13Z",
+   "seconds": 2,
+   "estimate_seconds": 15,
+   "done": 1,
+   "total": 1
+  },
+  {
+   "id": "map-proof",
+   "status": "done",
+   "started_at": "2026-11-12T03:14:11Z",
+   "ended_at": "2026-11-12T03:16:40Z",
+   "seconds": 149,
+   "estimate_seconds": 180,
+   "done": 2,
+   "total": 2,
+   "note": "two entry points; ReceiptJob has no life cycle test, recorded"
+  },
+  {
+   "id": "risk-floor",
+   "status": "done",
+   "started_at": "2026-11-12T03:16:40Z",
+   "ended_at": "2026-11-12T03:16:41Z",
+   "seconds": 1,
+   "estimate_seconds": 1,
+   "done": 8,
+   "total": 8
+  },
+  {
+   "id": "risk-model",
+   "status": "running",
+   "started_at": "2026-11-12T03:16:41Z",
+   "ended_at": null,
+   "seconds": null,
+   "estimate_seconds": 225,
+   "done": 1,
+   "total": 5
+  },
+  {
+   "id": "shape",
+   "status": "pending",
+   "started_at": null,
+   "ended_at": null,
+   "seconds": null,
+   "estimate_seconds": 20,
+   "done": 0,
+   "total": 1
+  },
+  {
+   "id": "story",
+   "status": "pending",
+   "started_at": null,
+   "ended_at": null,
+   "seconds": null,
+   "estimate_seconds": 90,
+   "done": 0,
+   "total": 1
+  },
+  {
+   "id": "blind-check",
+   "status": "pending",
+   "started_at": null,
+   "ended_at": null,
+   "seconds": null,
+   "estimate_seconds": 20,
+   "done": 0,
+   "total": 1
+  }
+ ]
+}

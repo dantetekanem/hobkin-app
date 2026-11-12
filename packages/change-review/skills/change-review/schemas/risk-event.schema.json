@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review-risk-event/1",
+  "title": "One line of risk-events.jsonl",
+  "type": "object",
+  "required": ["node", "level", "direction", "aspect", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "node": { "type": "string", "description": "Node id from graph.json." },
+    "level": { "enum": ["safe", "mid", "high"], "description": "The node's level after this finding. Equal to the floor when nothing changes." },
+    "direction": { "enum": ["up", "down", "sideways", "time"] },
+    "aspect": { "enum": ["behaviour", "performance", "failure"] },
+    "evidence": { "type": "string", "minLength": 20, "description": "What the code does, with names and lines. No hedging words, no advice." },
+    "evidence_kind": { "enum": ["equivalent", "off-path-identical", "unreferenced", "additive-schema", "dominance-proven"], "description": "Required to set a level below the floor. The event is rejected without it. No evidence lowers a node that is high for missing proof." },
+    "lines": { "type": "array", "items": { "type": "integer" } },
+    "critical": { "type": "boolean", "description": "Needs a fix, not only a look: definite break, irreversible effect, or an unobserved behaviour change on a sensitive path. Only valid with level high." },
+    "confidence": { "enum": ["low", "medium", "high"] },
+    "rule": { "type": "string", "description": "Stable slug for the class of problem. Same slug twice across reviews is a candidate for rule-promote." },
+    "questions": {
+      "type": "array",
+      "description": "Aids for the reviewer, not decisions. A question never sets a level; `changes` says what an answer would change.",
+      "items": { "type": "object", "required": ["text", "why"], "additionalProperties": false, "properties": { "text": { "type": "string" }, "why": { "type": "string" }, "changes": { "type": "string" } } }
+    },
+    "suggest": {
+      "type": "object",
+      "required": ["text", "to"],
+      "additionalProperties": false,
+      "properties": { "kind": { "enum": ["add-flag", "resolve-callers", "restructure", "add-test"] }, "text": { "type": "string" }, "to": { "enum": ["safe", "mid", "high"] } }
+    },
+    "by": { "type": "string" }
+  }
+}

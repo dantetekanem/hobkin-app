@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review-contract/1",
+  "title": "Cached contract of one definition, stored at .review-cache/contracts/<key>.json",
+  "type": "object",
+  "required": ["key", "symbol", "fingerprint", "partial", "summary", "inputs", "returns", "effects", "flags_read", "raises", "assumes"],
+  "additionalProperties": false,
+  "properties": {
+    "key": { "type": "string", "description": "node.contract.key: hash of this definition's fingerprint and its callees' fingerprints." },
+    "symbol": { "type": "string" },
+    "fingerprint": { "type": "string" },
+    "partial": { "type": "boolean", "description": "True when a callee is reached by dynamic dispatch. A partial contract never supports lowering a level." },
+    "summary": { "type": "string", "maxLength": 200 },
+    "inputs": { "type": "array", "items": { "type": "string" }, "description": "Parameters and the instance or global state read." },
+    "returns": { "type": "string" },
+    "effects": {
+      "type": "array",
+      "items": { "type": "object", "required": ["kind", "what"], "additionalProperties": false, "properties": { "kind": { "enum": ["write", "enqueue", "cache", "io", "mutate"] }, "what": { "type": "string" } } }
+    },
+    "flags_read": { "type": "array", "items": { "type": "string" } },
+    "raises": { "type": "array", "items": { "type": "string" } },
+    "assumes": { "type": "array", "items": { "type": "string" }, "description": "What callers must guarantee. This is what the `up` direction checks." }
+  }
+}

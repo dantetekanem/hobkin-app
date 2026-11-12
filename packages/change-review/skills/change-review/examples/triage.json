@@ -1,0 +1,156 @@
+{
+ "schema": "review-triage/1",
+ "range": "main...feature/per-line-tax",
+ "mode": "mixed",
+ "description_source": "pull-request",
+ "totals": {
+  "files": 219,
+  "added": 3180,
+  "deleted": 502640
+ },
+ "buckets": [
+  {
+   "id": "b1",
+   "folder": "app/services/checkout",
+   "kind": "code",
+   "change": "modified",
+   "files": 6,
+   "added": 640,
+   "deleted": 210,
+   "treatment": "scan",
+   "why": "production code on the checkout path"
+  },
+  {
+   "id": "b2",
+   "folder": "test/services/checkout",
+   "kind": "test",
+   "change": "modified",
+   "files": 4,
+   "added": 380,
+   "deleted": 40,
+   "treatment": "tests",
+   "why": "tests for b1"
+  },
+  {
+   "id": "b3",
+   "folder": "db/migrate",
+   "kind": "migration",
+   "change": "added",
+   "files": 1,
+   "added": 5,
+   "deleted": 0,
+   "treatment": "scan",
+   "why": "schema change: always its own unit"
+  },
+  {
+   "id": "b4",
+   "folder": "config/locales",
+   "kind": "translation",
+   "change": "modified",
+   "files": 90,
+   "added": 1980,
+   "deleted": 0,
+   "treatment": "sample",
+   "why": "90 locale files with the same 22 added keys",
+   "sample": {
+    "read": [
+     "config/locales/en.yml"
+    ],
+    "trusted": 89,
+    "parity_check": "key set and interpolation variables against en.yml"
+   }
+  },
+  {
+   "id": "b5",
+   "folder": "app/legacy/tax_engine",
+   "kind": "code",
+   "change": "deleted",
+   "files": 112,
+   "added": 0,
+   "deleted": 498300,
+   "treatment": "removal",
+   "why": "whole folder deleted: references, history and leftover data, no lines read"
+  },
+  {
+   "id": "b6",
+   "folder": ".",
+   "kind": "dependency",
+   "change": "modified",
+   "files": 2,
+   "added": 14,
+   "deleted": 4090,
+   "treatment": "skip",
+   "why": "lockfile"
+  },
+  {
+   "id": "b7",
+   "folder": "docs",
+   "kind": "docs",
+   "change": "modified",
+   "files": 4,
+   "added": 161,
+   "deleted": 0,
+   "treatment": "skip",
+   "why": "documentation"
+  }
+ ],
+ "claims": [
+  {
+   "text": "All new behaviour is behind :per_line_tax_rounding",
+   "source": "PR description",
+   "status": "unchecked"
+  },
+  {
+   "text": "No behaviour change with the flag off",
+   "source": "PR description",
+   "status": "unchecked"
+  },
+  {
+   "text": "The legacy tax engine has had no callers since the 2024 migration",
+   "source": "commit 3f2a91c",
+   "status": "unchecked"
+  }
+ ],
+ "plan": {
+  "steps": [
+   {
+    "id": "triage",
+    "estimate_seconds": 15
+   },
+   {
+    "id": "map-search",
+    "estimate_seconds": 45,
+    "note": "b1, b2, b3 only"
+   },
+   {
+    "id": "map-proof",
+    "estimate_seconds": 600,
+    "note": "life cycle tests of the entry points above b1, flag off and on"
+   },
+   {
+    "id": "risk-floor",
+    "estimate_seconds": 1
+   },
+   {
+    "id": "risk-model",
+    "estimate_seconds": 360,
+    "units": 8
+   },
+   {
+    "id": "shape",
+    "estimate_seconds": 20
+   },
+   {
+    "id": "story",
+    "estimate_seconds": 100
+   },
+   {
+    "id": "blind-check",
+    "estimate_seconds": 20
+   }
+  ],
+  "estimate_seconds": 1161,
+  "machine_seconds": 600,
+  "reading_minutes": 11
+ }
+}

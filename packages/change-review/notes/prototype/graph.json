@@ -1,0 +1,1225 @@
+{
+ "schema": "review-graph/1",
+ "revision": 1,
+ "source": {
+  "label": "HEAD~1..HEAD (62fe63196d00 → a8042955db4b)",
+  "base": "62fe63196d00364643d20925abefea67ecf6f6ae",
+  "head": "a8042955db4bc23ddbdb14dd5d10c412718b26c4",
+  "pack": "pack/pack.json"
+ },
+ "flags": [
+  {
+   "name": "per_line_tax_rounding",
+   "sites": [
+    "g1"
+   ]
+  }
+ ],
+ "gates": [
+  {
+   "id": "g1",
+   "flag": "per_line_tax_rounding",
+   "line": 10,
+   "form": "branch",
+   "node": "n2",
+   "origin": "added",
+   "text": "if Features.enabled?(:per_line_tax_rounding, @cart.shop)"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "n1",
+   "kind": "general",
+   "detail": "constant",
+   "symbol": "Checkout::TotalsCalculator::TAX_PRECISION",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    3,
+    3
+   ],
+   "fingerprint": "9c8618c27d69a086",
+   "change": "modified",
+   "changed_lines": [
+    3
+   ],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "ungateable",
+    "class": "load-time",
+    "reason": "constant is evaluated when the file loads, before any flag check"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "existed_before": true,
+   "level": {
+    "floor": "mid",
+    "current": "mid",
+    "why": [
+     "constant is evaluated when the file loads, before any flag check"
+    ],
+    "if": [
+     {
+      "suggestion": "s1",
+      "level": "safe"
+     }
+    ]
+   },
+   "llm": "cheap"
+  },
+  {
+   "id": "n2",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#compute_totals",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    9,
+    17
+   ],
+   "fingerprint": "67f643b1f703b148",
+   "change": "modified",
+   "changed_lines": [
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ],
+   "tags": [
+    "money"
+   ],
+   "entry": false,
+   "gate": {
+    "state": "gated",
+    "flag": "per_line_tax_rounding",
+    "via": "in-method",
+    "gates": [
+     "g1"
+    ],
+    "origin": "added",
+    "off_path": "identical",
+    "reason": "new lines sit on the flag-on branch; the flag-off branch is the removed code, re-indented"
+   },
+   "signals": {},
+   "guards": [
+    {
+     "test": "n9",
+     "symbol": "\"per_line_totals rounds each line when the flag is on\"",
+     "origin": "added",
+     "flag_state": "on",
+     "link": "direct",
+     "through": []
+    },
+    {
+     "test": "n20",
+     "symbol": "\"compute_totals adds tax to the subtotal\"",
+     "origin": "existing",
+     "flag_state": "default",
+     "link": "direct",
+     "through": []
+    }
+   ],
+   "findings": [
+    {
+     "rule": "new-flag-check",
+     "severity": "info",
+     "lines": [
+      10
+     ],
+     "text": "The check itself runs on every call, flag on or off: `if Features.enabled?(:per_line_tax_rounding, @cart.shop)`. Its arguments are evaluated and the flag service is consulted on this path.",
+     "by": "review-graph"
+    }
+   ],
+   "critical": false,
+   "existed_before": true,
+   "in_method": {
+    "on": 1,
+    "off_identical": 3,
+    "off_changed": [],
+    "outside": [],
+    "expr": 0
+   },
+   "contract": {
+    "key": "bec5fd35a64674cf",
+    "partial": false
+   },
+   "level": {
+    "floor": "safe",
+    "current": "safe",
+    "why": [
+     "new lines sit on the flag-on branch; the flag-off branch is the removed code, re-indented"
+    ],
+    "if": []
+   },
+   "llm": "cheap"
+  },
+  {
+   "id": "n3",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#per_line_totals",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    19,
+    24
+   ],
+   "fingerprint": "8101eb951bf6559b",
+   "change": "added",
+   "changed_lines": [
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+   ],
+   "tags": [
+    "money"
+   ],
+   "entry": false,
+   "gate": {
+    "state": "gated",
+    "flag": "per_line_tax_rounding",
+    "via": "callers",
+    "gates": [
+     "g1"
+    ],
+    "origin": "added",
+    "off_path": "untouched",
+    "reason": "every production call site is behind the flag: Checkout::TotalsCalculator#compute_totals:11"
+   },
+   "signals": {
+    "write": [
+     {
+      "line": 21,
+      "text": "@cart.update!(line_tax_cents: (tax * 100).to_i)"
+     }
+    ],
+    "enqueue": [
+     {
+      "line": 22,
+      "text": "ReceiptJob.perform_later(@cart.id)"
+     }
+    ]
+   },
+   "guards": [
+    {
+     "test": "n9",
+     "symbol": "\"per_line_totals rounds each line when the flag is on\"",
+     "origin": "added",
+     "flag_state": "on",
+     "link": "via",
+     "through": [
+      "n2"
+     ]
+    }
+   ],
+   "findings": [],
+   "critical": false,
+   "existed_before": false,
+   "in_method": {
+    "on": 0,
+    "off_identical": 0,
+    "off_changed": [],
+    "outside": [
+     20,
+     21,
+     22,
+     23
+    ],
+    "expr": 0
+   },
+   "contract": {
+    "key": "3ca835d8777e5d62",
+    "partial": false
+   },
+   "level": {
+    "floor": "mid",
+    "current": "mid",
+    "why": [
+     "flag-on leaves write, enqueue behind: off after on is not never on"
+    ],
+    "if": []
+   },
+   "llm": "cheap"
+  },
+  {
+   "id": "n4",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#round_line_tax",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    26,
+    28
+   ],
+   "fingerprint": "d88848c307a8034b",
+   "change": "added",
+   "changed_lines": [
+    26,
+    27
+   ],
+   "tags": [
+    "money"
+   ],
+   "entry": false,
+   "gate": {
+    "state": "gated",
+    "flag": "per_line_tax_rounding",
+    "via": "callers",
+    "gates": [
+     "g1"
+    ],
+    "origin": "added",
+    "off_path": "untouched",
+    "reason": "every production call site is behind the flag: Checkout::TotalsCalculator#per_line_totals:20"
+   },
+   "signals": {},
+   "guards": [
+    {
+     "test": "n9",
+     "symbol": "\"per_line_totals rounds each line when the flag is on\"",
+     "origin": "added",
+     "flag_state": "on",
+     "link": "via",
+     "through": [
+      "n2",
+      "n3"
+     ]
+    },
+    {
+     "test": "n10",
+     "symbol": "\"round_line_tax uses banker's rounding\"",
+     "origin": "added",
+     "flag_state": "default",
+     "link": "direct",
+     "through": []
+    }
+   ],
+   "findings": [],
+   "critical": false,
+   "existed_before": false,
+   "in_method": {
+    "on": 0,
+    "off_identical": 0,
+    "off_changed": [],
+    "outside": [
+     27
+    ],
+    "expr": 0
+   },
+   "contract": {
+    "key": "5a22299da589fa82",
+    "partial": false
+   },
+   "level": {
+    "floor": "safe",
+    "current": "safe",
+    "why": [
+     "every production call site is behind the flag: Checkout::TotalsCalculator#per_line_totals:20"
+    ],
+    "if": []
+   },
+   "llm": "none"
+  },
+  {
+   "id": "n5",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#round_money",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    34,
+    36
+   ],
+   "fingerprint": "6cd2a3810f07ae73",
+   "change": "modified",
+   "changed_lines": [
+    35
+   ],
+   "tags": [
+    "money"
+   ],
+   "entry": false,
+   "gate": {
+    "state": "ungated",
+    "reason": "called with no flag check from Checkout::TotalsCalculator#compute_totals:15 (the flag-off branch)"
+   },
+   "signals": {},
+   "guards": [
+    {
+     "test": "n9",
+     "symbol": "\"per_line_totals rounds each line when the flag is on\"",
+     "origin": "added",
+     "flag_state": "on",
+     "link": "via",
+     "through": [
+      "n2",
+      "n3"
+     ]
+    },
+    {
+     "test": "n20",
+     "symbol": "\"compute_totals adds tax to the subtotal\"",
+     "origin": "existing",
+     "flag_state": "default",
+     "link": "via",
+     "through": [
+      "n2"
+     ]
+    },
+    {
+     "test": "n22",
+     "symbol": "\"round_money rounds to cents\"",
+     "origin": "existing",
+     "flag_state": "default",
+     "link": "direct",
+     "through": []
+    }
+   ],
+   "findings": [
+    {
+     "rule": "behaviour-changed-tests-unchanged",
+     "severity": "medium",
+     "text": "Changed for everyone, yet only unchanged tests touch it: either behaviour is identical or the tests do not observe the change.",
+     "tests": [
+      "n22"
+     ],
+     "by": "review-graph"
+    }
+   ],
+   "critical": false,
+   "existed_before": true,
+   "in_method": {
+    "on": 0,
+    "off_identical": 0,
+    "off_changed": [],
+    "outside": [
+     35
+    ],
+    "expr": 0
+   },
+   "contract": {
+    "key": "6c4c08852b03b5c4",
+    "partial": false
+   },
+   "level": {
+    "floor": "high",
+    "current": "high",
+    "why": [
+     "runs for everyone at deploy",
+     "sensitive: money"
+    ],
+    "if": [
+     {
+      "suggestion": "s2",
+      "level": "safe"
+     }
+    ]
+   },
+   "llm": "full"
+  },
+  {
+   "id": "n6",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#totals_cache_key",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    38,
+    40
+   ],
+   "fingerprint": "a1bc15899171d410",
+   "change": "modified",
+   "changed_lines": [
+    39
+   ],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "open",
+    "reason": "no production caller found: dynamic dispatch, a framework convention, or dead code"
+   },
+   "signals": {
+    "cache_key": [
+     {
+      "line": 39,
+      "text": "\"totals/v2/#{@cart.id}\""
+     }
+    ]
+   },
+   "guards": [],
+   "findings": [
+    {
+     "rule": "no-test",
+     "severity": "medium",
+     "text": "No test references this definition.",
+     "by": "review-graph"
+    }
+   ],
+   "critical": false,
+   "existed_before": true,
+   "in_method": {
+    "on": 0,
+    "off_identical": 0,
+    "off_changed": [],
+    "outside": [
+     39
+    ],
+    "expr": 0
+   },
+   "contract": {
+    "key": "ba55546045dd28ae",
+    "partial": false
+   },
+   "level": {
+    "floor": "high",
+    "current": "high",
+    "why": [
+     "cache key or cached value changes for everyone at deploy: cold cache on a live path",
+     "gating unproven: no production caller found: dynamic dispatch, a framework convention, or dead code"
+    ],
+    "if": [
+     {
+      "suggestion": "s3",
+      "level": "mid"
+     }
+    ]
+   },
+   "llm": "full"
+  },
+  {
+   "id": "n8",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "AddLineTaxCentsToCarts#change",
+   "path": "db/migrate/20261111000000_add_line_tax_cents_to_carts.rb",
+   "lines": [
+    2,
+    4
+   ],
+   "fingerprint": "dbaf783c47332287",
+   "change": "added",
+   "changed_lines": [
+    2,
+    3,
+    4
+   ],
+   "tags": [
+    "migration",
+    "data"
+   ],
+   "entry": false,
+   "gate": {
+    "state": "ungateable",
+    "class": "migration",
+    "reason": "migration takes effect at deploy for every request"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "existed_before": false,
+   "text": "  def change\n    add_column :carts, :line_tax_cents, :integer\n  end",
+   "contract": {
+    "key": "367df8ce669e751a",
+    "partial": false
+   },
+   "level": {
+    "floor": "mid",
+    "current": "mid",
+    "why": [
+     "additive schema change: applies to everyone at deploy; locking on a live table is not checked here"
+    ],
+    "if": []
+   },
+   "llm": "cheap"
+  },
+  {
+   "id": "n9",
+   "kind": "test",
+   "detail": "test",
+   "symbol": "Checkout::TotalsCalculatorTest test \"per_line_totals rounds each line when the flag is on\"",
+   "path": "test/services/checkout/totals_calculator_test.rb",
+   "lines": [
+    13,
+    18
+   ],
+   "fingerprint": "ac1bee8a5bea0934",
+   "change": "added",
+   "changed_lines": [
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
+   ],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "n/a"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "flag_states": {
+    "per_line_tax_rounding": "on"
+   },
+   "origin": "added",
+   "level": null
+  },
+  {
+   "id": "n10",
+   "kind": "test",
+   "detail": "test",
+   "symbol": "Checkout::TotalsCalculatorTest test \"round_line_tax uses banker's rounding\"",
+   "path": "test/services/checkout/totals_calculator_test.rb",
+   "lines": [
+    20,
+    22
+   ],
+   "fingerprint": "c4944d1da05ed5e6",
+   "change": "added",
+   "changed_lines": [
+    20,
+    21,
+    22
+   ],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "n/a"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "flag_states": {},
+   "origin": "added",
+   "level": null
+  },
+  {
+   "id": "n11",
+   "kind": "function",
+   "detail": "singleton_method",
+   "symbol": "Features.enabled?",
+   "path": "lib/features.rb",
+   "lines": [
+    2,
+    4
+   ],
+   "fingerprint": "8a261952100e05ba",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "220b29cf6ba55d71",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "n12",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#tax_for",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    30,
+    32
+   ],
+   "fingerprint": "0eef35d67abb6399",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "3292fc15b529503c",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "n14",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Cart#subtotal",
+   "path": "app/models/cart.rb",
+   "lines": [
+    4,
+    6
+   ],
+   "fingerprint": "8a3570acb1c32b78",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "bb4905f7bfe1b44b",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "n16",
+   "kind": "general",
+   "detail": "has_many",
+   "symbol": "Cart has_many :lines",
+   "path": "app/models/cart.rb",
+   "lines": [
+    2,
+    2
+   ],
+   "fingerprint": "9a6f2cfe035fe7f1",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "level": null
+  },
+  {
+   "id": "n17",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Checkout::TotalsCalculator#initialize",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    5,
+    7
+   ],
+   "fingerprint": "93aa1b1f09a2fe23",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "0200a95d54e8fc18",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "n20",
+   "kind": "test",
+   "detail": "test",
+   "symbol": "Checkout::TotalsCalculatorTest test \"compute_totals adds tax to the subtotal\"",
+   "path": "test/services/checkout/totals_calculator_test.rb",
+   "lines": [
+    4,
+    7
+   ],
+   "fingerprint": "b10bcb2a94c8afaf",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "n/a"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "flag_states": {},
+   "origin": "existing",
+   "level": null
+  },
+  {
+   "id": "n21",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "ReceiptJob#perform",
+   "path": "app/jobs/receipt_job.rb",
+   "lines": [
+    2,
+    6
+   ],
+   "fingerprint": "582e31a48ecefe0f",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [
+    "job"
+   ],
+   "entry": true,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "d3052e752141e33d",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "n22",
+   "kind": "test",
+   "detail": "test",
+   "symbol": "Checkout::TotalsCalculatorTest test \"round_money rounds to cents\"",
+   "path": "test/services/checkout/totals_calculator_test.rb",
+   "lines": [
+    9,
+    11
+   ],
+   "fingerprint": "c32387080d5822ff",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "n/a"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "flag_states": {},
+   "origin": "existing",
+   "level": null
+  },
+  {
+   "id": "n23",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "CheckoutController#create",
+   "path": "app/controllers/checkout_controller.rb",
+   "lines": [
+    2,
+    6
+   ],
+   "fingerprint": "100c0989eac42675",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [
+    "controller"
+   ],
+   "entry": true,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "c40390a71585d86f",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "n24",
+   "kind": "function",
+   "detail": "method",
+   "symbol": "Cart#discounted_subtotal",
+   "path": "app/models/cart.rb",
+   "lines": [
+    8,
+    10
+   ],
+   "fingerprint": "278765a854d2d843",
+   "change": "none",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "context"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [],
+   "critical": false,
+   "contract": {
+    "key": "9cc80a5d4f2d4e97",
+    "partial": false
+   },
+   "level": null
+  },
+  {
+   "id": "x1",
+   "kind": "general",
+   "detail": "removed-definition",
+   "symbol": "legacy_discount (removed)",
+   "path": "app/services/checkout/totals_calculator.rb",
+   "lines": [
+    23,
+    23
+   ],
+   "change": "removed",
+   "changed_lines": [],
+   "tags": [],
+   "entry": false,
+   "gate": {
+    "state": "ungateable",
+    "class": "removed-definition",
+    "reason": "definition deleted; a flag cannot bring it back"
+   },
+   "signals": {},
+   "guards": [],
+   "findings": [
+    {
+     "rule": "dangling-callers",
+     "severity": "critical",
+     "text": "1 caller(s) still reference legacy_discount, which this diff removes",
+     "by": "review-graph"
+    }
+   ],
+   "critical": true,
+   "level": {
+    "floor": "high",
+    "current": "high",
+    "why": [
+     "definite break: every caller of the removed definition fails"
+    ],
+    "if": [
+     {
+      "suggestion": "s4",
+      "level": "safe"
+     }
+    ]
+   },
+   "llm": "none"
+  }
+ ],
+ "edges": [
+  {
+   "from": "n2",
+   "to": "n11",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 10
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 11,
+   "gate": {
+    "id": "g1",
+    "branch": "on"
+   }
+  },
+  {
+   "from": "n2",
+   "to": "n14",
+   "type": "calls",
+   "resolution": "static_candidate",
+   "line": 13,
+   "gate": {
+    "id": "g1",
+    "branch": "off"
+   }
+  },
+  {
+   "from": "n2",
+   "to": "n12",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 14,
+   "gate": {
+    "id": "g1",
+    "branch": "off"
+   }
+  },
+  {
+   "from": "n2",
+   "to": "n5",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 15,
+   "gate": {
+    "id": "g1",
+    "branch": "off"
+   }
+  },
+  {
+   "from": "n3",
+   "to": "n16",
+   "type": "calls",
+   "resolution": "static_candidate",
+   "line": 20
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 20
+  },
+  {
+   "from": "n3",
+   "to": "n5",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 23
+  },
+  {
+   "from": "n3",
+   "to": "n14",
+   "type": "calls",
+   "resolution": "static_candidate",
+   "line": 23
+  },
+  {
+   "from": "n9",
+   "to": "n17",
+   "type": "tests",
+   "resolution": "exact",
+   "line": 15
+  },
+  {
+   "from": "n9",
+   "to": "n2",
+   "type": "tests",
+   "resolution": "exact",
+   "line": 15
+  },
+  {
+   "from": "n10",
+   "to": "n17",
+   "type": "tests",
+   "resolution": "exact",
+   "line": 21
+  },
+  {
+   "from": "n10",
+   "to": "n4",
+   "type": "tests",
+   "resolution": "exact",
+   "line": 21
+  },
+  {
+   "from": "n14",
+   "to": "n16",
+   "type": "calls",
+   "resolution": "exact",
+   "line": 5
+  },
+  {
+   "from": "n21",
+   "to": "n5",
+   "type": "calls",
+   "resolution": "static_candidate",
+   "line": 5
+  },
+  {
+   "from": "n22",
+   "to": "n5",
+   "type": "tests",
+   "resolution": "static_candidate",
+   "line": 10
+  },
+  {
+   "from": "n23",
+   "to": "n2",
+   "type": "calls",
+   "resolution": "static_candidate",
+   "line": 4
+  },
+  {
+   "from": "n20",
+   "to": "n2",
+   "type": "tests",
+   "resolution": "static_candidate",
+   "line": 5
+  },
+  {
+   "from": "n3",
+   "to": "n21",
+   "type": "enqueues",
+   "resolution": "exact",
+   "line": 22
+  },
+  {
+   "from": "n24",
+   "to": "x1",
+   "type": "dangling",
+   "resolution": "static_candidate",
+   "line": 9
+  }
+ ],
+ "suggestions": [
+  {
+   "id": "s1",
+   "kind": "restructure",
+   "at": {
+    "node": "n1"
+   },
+   "text": "Leave Checkout::TotalsCalculator::TAX_PRECISION as it was and introduce the new value beside it, read only on the flag-on path.",
+   "moves": [
+    {
+     "node": "n1",
+     "from": "mid",
+     "to": "safe"
+    }
+   ]
+  },
+  {
+   "id": "s2",
+   "kind": "add-flag",
+   "at": {
+    "node": "n5",
+    "line": 35
+   },
+   "flag": "per_line_tax_rounding",
+   "text": "Branch on :per_line_tax_rounding at Checkout::TotalsCalculator#round_money:35 and keep the removed lines as the flag-off path.",
+   "moves": [
+    {
+     "node": "n5",
+     "from": "high",
+     "to": "safe"
+    }
+   ]
+  },
+  {
+   "id": "s3",
+   "kind": "resolve-callers",
+   "at": {
+    "node": "n6"
+   },
+   "text": "Prove every caller of Checkout::TotalsCalculator#totals_cache_key is behind the flag (no production caller found: dynamic dispatch, a framework convention, or dead code), or gate it inside the method.",
+   "moves": [
+    {
+     "node": "n6",
+     "from": "high",
+     "to": "mid"
+    }
+   ]
+  },
+  {
+   "id": "s4",
+   "kind": "restructure",
+   "at": {
+    "node": "x1"
+   },
+   "text": "Keep legacy_discount until its callers are migrated, or migrate them in a prep PR.",
+   "moves": [
+    {
+     "node": "x1",
+     "from": "high",
+     "to": "safe"
+    }
+   ]
+  }
+ ],
+ "coverage": {
+  "maxDepth": 2,
+  "depthReached": 1,
+  "vicinity": 20,
+  "unresolved": 11,
+  "truncatedBy": "none",
+  "frontier": [],
+  "cycles": [],
+  "notes": [
+   "Ruby index for .: 8 files, 27 definitions, 8 namespaces, built cold, 61 ms."
+  ],
+  "rgCalls": 21,
+  "elapsedMs": 339,
+  "skipped_anchors": 0,
+  "unresolved_by_reason": {
+   "unknown-receiver": 5,
+   "operator": 6
+  }
+ },
+ "summary": {
+  "level": "high",
+  "level_if_suggestions_applied": "mid",
+  "critical": [
+   "x1"
+  ],
+  "by_level": {
+   "safe": 2,
+   "mid": 3,
+   "high": 3
+  },
+  "gate_numbers": {
+   "flag_sites": 1,
+   "flags": 1,
+   "gated": 3,
+   "ungated": 1,
+   "open": 1,
+   "ungateable": 3
+  },
+  "review_queue": [
+   {
+    "node": "n5",
+    "level": "high",
+    "model": "full"
+   },
+   {
+    "node": "n6",
+    "level": "high",
+    "model": "full"
+   },
+   {
+    "node": "n1",
+    "level": "mid",
+    "model": "cheap"
+   },
+   {
+    "node": "n3",
+    "level": "mid",
+    "model": "cheap"
+   },
+   {
+    "node": "n8",
+    "level": "mid",
+    "model": "cheap"
+   },
+   {
+    "node": "n2",
+    "level": "safe",
+    "model": "cheap"
+   }
+  ],
+  "reviewed": 0
+ }
+}

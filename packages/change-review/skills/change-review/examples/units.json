@@ -1,0 +1,489 @@
+{
+ "schema": "review-units/1",
+ "map": "node-level",
+ "attention": {
+  "units": 8,
+  "reading_minutes": 9.5,
+  "parts": 1
+ },
+ "units": [
+  {
+   "id": "u1",
+   "title": "round_money changes its rounding mode for every caller, flag on or off",
+   "level": "high",
+   "critical": true,
+   "nodes": [
+    "n5"
+   ],
+   "grouping": "single",
+   "story_order": 4,
+   "where": "Stop 4 (the flag-off branch) and stop 6 (the receipt job).",
+   "what": "`Checkout::TotalsCalculator#round_money` went from `amount.round(TAX_PRECISION)` to `amount.round(2, half: :even)`.",
+   "code": [
+    {
+     "path": "app/services/checkout/totals_calculator.rb",
+     "lines": [
+      34,
+      36
+     ],
+     "why": "the changed line",
+     "diff": " def round_money(amount)\n-  amount.round(TAX_PRECISION)\n+  amount.round(2, half: :even)\n end"
+    },
+    {
+     "path": "app/jobs/receipt_job.rb",
+     "lines": [
+      2,
+      6
+     ],
+     "why": "the caller outside the request",
+     "diff": " def perform(cart_id)\n   cart = Cart.find(cart_id)\n   calculator = Checkout::TotalsCalculator.new(cart)\n   ReceiptMailer.receipt(cart, calculator.round_money(cart.subtotal)).deliver_later\n end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "behaviour",
+     "evidence": "one executable line changed, line 35"
+    },
+    "proof": {
+     "value": "none on the job path",
+     "evidence": "Request path: `CheckoutControllerTest` (unchanged) executes it with the flag off. Job path: `ReceiptJob` has no life cycle test. One isolated test asserts 1.235 rounds to 1.24, which is true under both modes."
+    },
+    "exposure": {
+     "value": "everyone",
+     "evidence": "called on the flag-off branch of `compute_totals` (line 15) and from `ReceiptJob#perform` (line 5); neither checks the flag"
+    },
+    "undo": {
+     "value": "rollback",
+     "evidence": "reverting the deploy restores the old rounding"
+    }
+   },
+   "why_level": [
+    "Floor rule 3: an entry point above it, `ReceiptJob#perform`, has no life cycle test.",
+    "Critical: it is on a money path, and no test changed in this diff observes the new rounding."
+   ],
+   "would_change": [
+    {
+     "text": "Add a job test for `ReceiptJob`, and one request assertion that tells the two rounding modes apart.",
+     "level": "mid"
+    },
+    {
+     "text": "Also branch on `:per_line_tax_rounding` at `round_money:35`, keeping the old line as the flag-off path.",
+     "level": "safe"
+    }
+   ],
+   "watch": {
+    "signals": [],
+    "gaps": [
+     "no metric or log on the totals path"
+    ],
+    "undo": "revert the deploy"
+   },
+   "questions": [
+    {
+     "text": "Is half-even rounding meant to apply to existing totals, or only to per-line tax?",
+     "why": "No description came with the change, and this line is outside the flag.",
+     "changes": "If only per-line tax, the second suggestion applies."
+    }
+   ],
+   "reading_minutes": 2
+  },
+  {
+   "id": "u2",
+   "title": "The totals cache key prefix changes, and nothing shows who reads it",
+   "level": "high",
+   "critical": false,
+   "nodes": [
+    "n6"
+   ],
+   "grouping": "single",
+   "story_order": 5,
+   "where": "Stop 5.",
+   "what": "`totals_cache_key` returns `totals/v2/<cart id>`. It returned `totals/<cart id>`.",
+   "code": [
+    {
+     "path": "app/services/checkout/totals_calculator.rb",
+     "lines": [
+      38,
+      40
+     ],
+     "why": "the changed key",
+     "diff": " def totals_cache_key\n-  \"totals/#{@cart.id}\"\n+  \"totals/v2/#{@cart.id}\"\n end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "data",
+     "evidence": "the method builds a cache key; line 39 changed"
+    },
+    "proof": {
+     "value": "none",
+     "evidence": "no test executes line 39, and no entry point was found above it"
+    },
+    "exposure": {
+     "value": "everyone",
+     "evidence": "no caller was found, so no condition is proven in front of it"
+    },
+    "undo": {
+     "value": "rollback",
+     "evidence": "entries under the old prefix are still there"
+    }
+   },
+   "why_level": [
+    "Floor rule 3: no test executes the changed line."
+   ],
+   "would_change": [
+    {
+     "text": "Show its callers, and a life cycle test that executes it.",
+     "level": "mid"
+    }
+   ],
+   "watch": {
+    "signals": [],
+    "gaps": [
+     "no cache hit or miss metric found"
+    ],
+    "undo": "revert the deploy"
+   },
+   "questions": [
+    {
+     "text": "Who reads the `totals/` cache key?",
+     "why": "The search found no caller of `totals_cache_key`.",
+     "changes": "If nothing reads it, this is dead code. If a live read path does, every cached entry misses at deploy."
+    }
+   ],
+   "reading_minutes": 2
+  },
+  {
+   "id": "u3",
+   "title": "legacy_discount is deleted while Cart#discounted_subtotal still calls it",
+   "level": "high",
+   "critical": true,
+   "nodes": [
+    "x1"
+   ],
+   "grouping": "single",
+   "story_order": 6,
+   "where": "Stop 6.",
+   "what": "The diff removes `Checkout::TotalsCalculator#legacy_discount`. `app/models/cart.rb:9` still calls it.",
+   "code": [
+    {
+     "path": "app/models/cart.rb",
+     "lines": [
+      8,
+      10
+     ],
+     "why": "the remaining caller, and what was removed",
+     "diff": " def discounted_subtotal\n   Checkout::TotalsCalculator.new(self).legacy_discount(subtotal)\n end\n\n # removed from app/services/checkout/totals_calculator.rb:\n-def legacy_discount(amount)\n-  amount * 0.95\n-end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "interface",
+     "evidence": "a definition was removed"
+    },
+    "proof": {
+     "value": "not-applicable",
+     "evidence": "a broken reference is decided by search, not by a test"
+    },
+    "exposure": {
+     "value": "everyone",
+     "evidence": "every call to `Cart#discounted_subtotal`"
+    },
+    "undo": {
+     "value": "rollback",
+     "evidence": "reverting the deploy restores the method"
+    }
+   },
+   "why_level": [
+    "Floor rule 1: what remains refers to something removed. Every call raises `NoMethodError`."
+   ],
+   "would_change": [
+    {
+     "text": "Keep `legacy_discount` until its caller is migrated, or migrate the caller in a separate change first.",
+     "level": "safe"
+    }
+   ],
+   "watch": {
+    "signals": [],
+    "gaps": [
+     "no error report call found on this path"
+    ],
+    "undo": "revert the deploy"
+   },
+   "questions": [],
+   "reading_minutes": 2
+  },
+  {
+   "id": "u4",
+   "title": "The new flag check runs on every checkout and loads the shop",
+   "level": "mid",
+   "critical": false,
+   "nodes": [
+    "n2"
+   ],
+   "grouping": "single",
+   "story_order": 2,
+   "where": "Stop 2.",
+   "what": "`compute_totals` now starts with `Features.enabled?(:per_line_tax_rounding, @cart.shop)`. The old body is the flag-off branch, unchanged apart from indentation.",
+   "code": [
+    {
+     "path": "app/services/checkout/totals_calculator.rb",
+     "lines": [
+      9,
+      17
+     ],
+     "why": "the check and both branches",
+     "diff": " def compute_totals\n+  if Features.enabled?(:per_line_tax_rounding, @cart.shop)\n+    per_line_totals\n+  else\n     subtotal = @cart.subtotal\n     tax = tax_for(subtotal)\n     { subtotal: round_money(subtotal), tax: round_money(tax), total: round_money(subtotal + tax) }\n+  end\n end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "behaviour",
+     "evidence": "a branch was added"
+    },
+    "proof": {
+     "value": "lifecycle-observed",
+     "evidence": "`CheckoutControllerTest`: the existing test (unchanged) executes the flag-off branch; the added test executes the flag-on branch with the flag on"
+    },
+    "exposure": {
+     "value": "the check: everyone; the new branch: nobody yet",
+     "evidence": "the flag-off branch is the removed code, re-indented"
+    },
+    "undo": {
+     "value": "flag",
+     "evidence": "turning the flag off takes the old branch"
+    }
+   },
+   "why_level": [
+    "Floor rule 11: safe.",
+    "Raised to mid: the check itself runs for everyone. It passes `@cart.shop`, so every checkout loads the shop before branching, and `Features.enabled?` calls `Store.fetch` with no rescue."
+   ],
+   "would_change": [
+    {
+     "text": "Pass an already-loaded value to the check, and confirm the flag store fails closed.",
+     "level": "safe"
+    }
+   ],
+   "watch": {
+    "signals": [],
+    "gaps": [
+     "nothing on either branch is tagged with the flag state, so the two groups cannot be compared during ramp"
+    ],
+    "undo": "flag off"
+   },
+   "questions": [
+    {
+     "text": "What does `Features.enabled?` do when the flag store is unreachable?",
+     "why": "`Store` is outside the searched root.",
+     "changes": "If it raises, every checkout fails during a flag-store outage and this unit is high."
+    }
+   ],
+   "reading_minutes": 1
+  },
+  {
+   "id": "u5",
+   "title": "The flag-on path writes a column and enqueues a job that outlive the flag",
+   "level": "mid",
+   "critical": false,
+   "nodes": [
+    "n3"
+   ],
+   "grouping": "single",
+   "story_order": 3,
+   "where": "Stop 3.",
+   "what": "`per_line_totals` is new and called only from the flag-on branch. It writes `carts.line_tax_cents` and enqueues `ReceiptJob`.",
+   "code": [
+    {
+     "path": "app/services/checkout/totals_calculator.rb",
+     "lines": [
+      19,
+      24
+     ],
+     "why": "the write and the enqueue",
+     "diff": "+def per_line_totals\n+  tax = @cart.lines.sum { |line| round_line_tax(line) }\n+  @cart.update!(line_tax_cents: (tax * 100).to_i)\n+  ReceiptJob.perform_later(@cart.id)\n+  { subtotal: round_money(@cart.subtotal), tax: tax, total: round_money(@cart.subtotal + tax) }\n+end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "data",
+     "evidence": "`update!` on line 21, `perform_later` on line 22"
+    },
+    "proof": {
+     "value": "lifecycle-observed",
+     "evidence": "the added request test executes it with the flag on"
+    },
+    "exposure": {
+     "value": "nobody yet",
+     "evidence": "its one call site is on the flag-on branch of `compute_totals`"
+    },
+    "undo": {
+     "value": "flag-with-residue",
+     "evidence": "turning the flag off leaves the written values and the queued jobs"
+    }
+   },
+   "why_level": [
+    "Floor rule 8: what it writes outlives the flag.",
+    "The queued job calls `round_money`, which is unit 1."
+   ],
+   "would_change": [],
+   "watch": {
+    "signals": [],
+    "gaps": [
+     "nothing counts the rows written or jobs enqueued under the flag"
+    ],
+    "undo": "flag off; rows and jobs stay"
+   },
+   "questions": [],
+   "reading_minutes": 1
+  },
+  {
+   "id": "u6",
+   "title": "round_line_tax is new and only runs behind the flag",
+   "level": "safe",
+   "critical": false,
+   "nodes": [
+    "n4"
+   ],
+   "grouping": "single",
+   "story_order": 3,
+   "where": "Stop 3, called from `per_line_totals`.",
+   "what": "A new helper that rounds one line's tax half to even.",
+   "code": [
+    {
+     "path": "app/services/checkout/totals_calculator.rb",
+     "lines": [
+      26,
+      28
+     ],
+     "why": "the new helper",
+     "diff": "+def round_line_tax(line)\n+  (line.amount * TaxRate.for(@cart.region)).round(2, half: :even)\n+end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "behaviour",
+     "evidence": "new executable lines"
+    },
+    "proof": {
+     "value": "lifecycle-observed",
+     "evidence": "the added request test executes it with the flag on; an added isolated test calls it directly"
+    },
+    "exposure": {
+     "value": "nobody yet",
+     "evidence": "its one call site is `per_line_totals:20`, behind the flag"
+    },
+    "undo": {
+     "value": "flag",
+     "evidence": "nothing is written"
+    }
+   },
+   "why_level": [
+    "Floor rule 11."
+   ],
+   "would_change": [],
+   "watch": "not assessed",
+   "questions": [],
+   "reading_minutes": 0.5
+  },
+  {
+   "id": "u7",
+   "title": "TAX_PRECISION changes from 2 to 4, and nothing reads it",
+   "level": "safe",
+   "critical": false,
+   "nodes": [
+    "n1"
+   ],
+   "grouping": "single",
+   "story_order": 7,
+   "where": "Outside the request path: takes effect when the file loads.",
+   "what": "The constant's value changed. `round_money` was its only reader and no longer uses it.",
+   "code": [
+    {
+     "path": "app/services/checkout/totals_calculator.rb",
+     "lines": [
+      3,
+      3
+     ],
+     "why": "the constant",
+     "diff": "-TAX_PRECISION = 2\n+TAX_PRECISION = 4"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "load",
+     "evidence": "a constant assignment"
+    },
+    "proof": {
+     "value": "not-applicable",
+     "evidence": "no executable path reads it"
+    },
+    "exposure": {
+     "value": "at-load",
+     "evidence": "evaluated when the file loads"
+    },
+    "undo": {
+     "value": "rollback",
+     "evidence": "reverting restores the value"
+    }
+   },
+   "why_level": [
+    "Floor rule 9: mid.",
+    "Lowered to safe with evidence `unreferenced`: no reference to `TAX_PRECISION` remains under the root."
+   ],
+   "would_change": [],
+   "watch": "not assessed",
+   "questions": [],
+   "reading_minutes": 0.5
+  },
+  {
+   "id": "u8",
+   "title": "The migration adds one nullable column that old code never reads",
+   "level": "safe",
+   "critical": false,
+   "nodes": [
+    "n8"
+   ],
+   "grouping": "single",
+   "story_order": 8,
+   "where": "Outside the request path: takes effect at deploy.",
+   "what": "`AddLineTaxCentsToCarts` adds `carts.line_tax_cents`, an integer with no default and no NOT NULL.",
+   "code": [
+    {
+     "path": "db/migrate/20261111000000_add_line_tax_cents_to_carts.rb",
+     "lines": [
+      2,
+      4
+     ],
+     "why": "the migration",
+     "diff": "+def change\n+  add_column :carts, :line_tax_cents, :integer\n+end"
+    }
+   ],
+   "facts": {
+    "effect": {
+     "value": "data",
+     "evidence": "additive schema change"
+    },
+    "proof": {
+     "value": "not-applicable",
+     "evidence": "schema changes are decided by their operation, not by a test"
+    },
+    "exposure": {
+     "value": "at-load",
+     "evidence": "applies to everyone at deploy"
+    },
+    "undo": {
+     "value": "rollback",
+     "evidence": "the column can be dropped"
+    }
+   },
+   "why_level": [
+    "Floor rule 9: mid.",
+    "Lowered to safe with evidence `additive-schema`: no constraint, no rewrite, and old code never reads the column. It has to deploy before the flag is turned on."
+   ],
+   "would_change": [],
+   "watch": "not assessed",
+   "questions": [],
+   "reading_minutes": 0.5
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+{
+  "key": "6c4c08852b03b5c4",
+  "symbol": "Checkout::TotalsCalculator#round_money",
+  "fingerprint": "6cd2a3810f07ae73",
+  "partial": false,
+  "summary": "Rounds an amount to 2 decimal places, half to even.",
+  "inputs": ["amount: Numeric"],
+  "returns": "Numeric rounded to 2 places",
+  "effects": [],
+  "flags_read": [],
+  "raises": ["NoMethodError when amount is nil"],
+  "assumes": ["amount responds to round(digits, half:)"]
+}

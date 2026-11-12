@@ -1,0 +1,338 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review-units/1",
+  "title": "Reviewable units: what the human decides on",
+  "type": "object",
+  "required": [
+    "schema",
+    "attention",
+    "units"
+  ],
+  "properties": {
+    "schema": {
+      "const": "review-units/1"
+    },
+    "map": {
+      "enum": [
+        "node-level",
+        "file-level",
+        "mixed"
+      ],
+      "description": "file-level: the scan produced no nodes for these files; units come from triage buckets."
+    },
+    "attention": {
+      "type": "object",
+      "required": [
+        "units",
+        "reading_minutes"
+      ],
+      "properties": {
+        "units": {
+          "type": "integer"
+        },
+        "reading_minutes": {
+          "type": "number"
+        },
+        "nodes_collapsed": {
+          "type": "integer"
+        },
+        "files_sampled": {
+          "type": "integer"
+        },
+        "files_skipped": {
+          "type": "integer"
+        },
+        "parts": {
+          "type": "integer",
+          "description": "More than 1 when the review was split to stay under 9 units per part."
+        }
+      }
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "level",
+          "critical",
+          "story_order",
+          "where",
+          "what",
+          "code",
+          "facts",
+          "why_level",
+          "would_change",
+          "watch",
+          "questions"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^u\\d+$"
+          },
+          "title": {
+            "type": "string",
+            "description": "A claim the reviewer can agree or disagree with, not a file name."
+          },
+          "level": {
+            "enum": [
+              "safe",
+              "mid",
+              "high"
+            ],
+            "description": "The single level of its nodes. A group that mixes levels is split."
+          },
+          "critical": {
+            "type": "boolean"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "represents": {
+            "type": "object",
+            "properties": {
+              "nodes": {
+                "type": "integer"
+              },
+              "files": {
+                "type": "integer"
+              },
+              "lines": {
+                "type": "integer"
+              }
+            }
+          },
+          "story_order": {
+            "type": "integer",
+            "description": "Position along the path the story walks: entry first."
+          },
+          "what": {
+            "type": "string"
+          },
+          "why_level": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "members": {
+            "type": "array",
+            "description": "For a collapsed or sampled unit: every member, one line each. Collapsing groups; it does not hide.",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "what"
+              ],
+              "properties": {
+                "node": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "what": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "watch": {
+            "type": [
+              "object",
+              "string"
+            ],
+            "description": "For mid and high: signals found on the path and the gaps. For safe: the string \"not assessed\".",
+            "properties": {
+              "signals": {
+                "type": "array"
+              },
+              "gaps": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "undo": {
+                "type": "string"
+              }
+            }
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "text",
+                "why"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                },
+                "changes": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "unverified": {
+            "type": "string",
+            "description": "Set when the map was inconsistent for this unit and could not be repaired."
+          },
+          "reading_minutes": {
+            "type": "number"
+          },
+          "grouping": {
+            "enum": [
+              "single",
+              "definition-with-helpers",
+              "mechanical",
+              "bucket"
+            ],
+            "description": "Units are grouped by structure, never by level."
+          },
+          "where": {
+            "type": "string",
+            "description": "Its place on the path, in words."
+          },
+          "code": {
+            "type": "array",
+            "description": "Changed lines as a diff, plus the one caller or callee the level rests on. Present for every unit, whatever its level.",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "diff"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "why": {
+                  "type": "string"
+                },
+                "diff": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "facts": {
+            "type": "object",
+            "required": [
+              "effect",
+              "proof",
+              "exposure",
+              "undo"
+            ],
+            "properties": {
+              "effect": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "evidence"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "string"
+                  }
+                }
+              },
+              "proof": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "evidence"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "string"
+                  }
+                }
+              },
+              "exposure": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "evidence"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "string"
+                  }
+                }
+              },
+              "undo": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "evidence"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "would_change": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "text",
+                "level"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "level": {
+                  "enum": [
+                    "safe",
+                    "mid",
+                    "high"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

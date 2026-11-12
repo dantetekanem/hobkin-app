@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review-node/1",
+  "title": "One node of graph.json: a changed definition or non-callable change, with its four facts and its level",
+  "type": "object",
+  "required": ["id", "kind", "symbol", "path", "lines", "change", "facts", "level", "critical", "findings", "questions"],
+  "properties": {
+    "id": { "type": "string" },
+    "kind": { "enum": ["function", "general", "test"], "description": "general: constant, class-body statement, migration, config, dependency, removed definition." },
+    "symbol": { "type": "string" },
+    "path": { "type": "string" },
+    "lines": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+    "change": { "enum": ["added", "modified", "removed", "none"] },
+    "changed_lines": { "type": "array", "items": { "type": "integer" } },
+    "entries": { "type": "array", "items": { "type": "string" }, "description": "Entry points above this node: controller actions, jobs, consumers." },
+    "facts": {
+      "type": "object",
+      "required": ["effect", "proof", "exposure", "undo"],
+      "properties": {
+        "effect": { "$ref": "#/$defs/fact", "description": "value: text | behaviour | interface | data | load" },
+        "proof": { "$ref": "#/$defs/fact", "description": "value: lifecycle-observed | lifecycle | isolated | mocked | none | unknown | not-applicable" },
+        "exposure": { "$ref": "#/$defs/fact", "description": "value: nobody-yet | subset | everyone | at-load" },
+        "undo": { "$ref": "#/$defs/fact", "description": "value: flag | flag-with-residue | rollback | none" }
+      }
+    },
+    "runs": {
+      "type": "array",
+      "description": "Test runs that executed this node's changed lines, or tried to.",
+      "items": { "type": "object", "required": ["command", "exit_code", "seconds", "executed_changed_lines"], "properties": { "command": { "type": "string" }, "test": { "type": "string" }, "entry": { "type": "string" }, "condition_state": { "enum": ["default", "on", "off"] }, "exit_code": { "type": "integer" }, "seconds": { "type": "number" }, "executed_changed_lines": { "type": "boolean" }, "doubles": { "type": "array", "items": { "type": "string" }, "description": "What the test stubbed or mocked on the path." }, "test_changed_in_diff": { "type": "boolean" } } }
+    },
+    "level": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["floor", "rule", "current", "why"], "properties": { "floor": { "enum": ["safe", "mid", "high"] }, "rule": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Row of the floor table in FOUNDATION.md 5.1." }, "current": { "enum": ["safe", "mid", "high"] }, "why": { "type": "array", "items": { "type": "string" } }, "if": { "type": "array", "items": { "type": "object", "required": ["text", "level"], "properties": { "text": { "type": "string" }, "level": { "enum": ["safe", "mid", "high"] } } } } } }
+      ]
+    },
+    "critical": { "type": "boolean" },
+    "findings": { "type": "array", "items": { "type": "object", "required": ["rule", "text", "by"], "properties": { "rule": { "type": "string" }, "text": { "type": "string" }, "lines": { "type": "array", "items": { "type": "integer" } }, "by": { "type": "string" } } } },
+    "watch": { "type": ["object", "null"], "properties": { "signals": { "type": "array" }, "gaps": { "type": "array", "items": { "type": "string" } } } },
+    "questions": { "type": "array", "items": { "type": "object", "required": ["text", "why"], "properties": { "text": { "type": "string" }, "why": { "type": "string" }, "changes": { "type": "string" } } } }
+  },
+  "$defs": {
+    "fact": { "type": "object", "required": ["value", "evidence"], "properties": { "value": { "type": "string" }, "evidence": { "type": "string", "description": "A few words: the pattern and line that matched, the test that ran, the caller that was found." } } }
+  }
+}

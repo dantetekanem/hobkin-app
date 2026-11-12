@@ -1,0 +1,105 @@
+diff --git a/app/services/checkout/totals_calculator.rb b/app/services/checkout/totals_calculator.rb
+index 27af520..6ec82c3 100644
+--- a/app/services/checkout/totals_calculator.rb
++++ b/app/services/checkout/totals_calculator.rb
+@@ -1,15 +1,30 @@
+ module Checkout
+   class TotalsCalculator
+-    TAX_PRECISION = 2
++    TAX_PRECISION = 4
+ 
+     def initialize(cart)
+       @cart = cart
+     end
+ 
+     def compute_totals
+-      subtotal = @cart.subtotal
+-      tax = tax_for(subtotal)
+-      { subtotal: round_money(subtotal), tax: round_money(tax), total: round_money(subtotal + tax) }
++      if Features.enabled?(:per_line_tax_rounding, @cart.shop)
++        per_line_totals
++      else
++        subtotal = @cart.subtotal
++        tax = tax_for(subtotal)
++        { subtotal: round_money(subtotal), tax: round_money(tax), total: round_money(subtotal + tax) }
++      end
++    end
++
++    def per_line_totals
++      tax = @cart.lines.sum { |line| round_line_tax(line) }
++      @cart.update!(line_tax_cents: (tax * 100).to_i)
++      ReceiptJob.perform_later(@cart.id)
++      { subtotal: round_money(@cart.subtotal), tax: tax, total: round_money(@cart.subtotal + tax) }
++    end
++
++    def round_line_tax(line)
++      (line.amount * TaxRate.for(@cart.region)).round(2, half: :even)
+     end
+ 
+     def tax_for(amount)
+@@ -17,15 +32,11 @@ module Checkout
+     end
+ 
+     def round_money(amount)
+-      amount.round(TAX_PRECISION)
+-    end
+-
+-    def legacy_discount(amount)
+-      amount * 0.95
++      amount.round(2, half: :even)
+     end
+ 
+     def totals_cache_key
+-      "totals/#{@cart.id}"
++      "totals/v2/#{@cart.id}"
+     end
+   end
+ end
+diff --git a/db/migrate/20261111000000_add_line_tax_cents_to_carts.rb b/db/migrate/20261111000000_add_line_tax_cents_to_carts.rb
+new file mode 100644
+index 0000000..f98b815
+--- /dev/null
++++ b/db/migrate/20261111000000_add_line_tax_cents_to_carts.rb
+@@ -0,0 +1,5 @@
++class AddLineTaxCentsToCarts < ActiveRecord::Migration[8.0]
++  def change
++    add_column :carts, :line_tax_cents, :integer
++  end
++end
+diff --git a/test/controllers/checkout_controller_test.rb b/test/controllers/checkout_controller_test.rb
+index dec904a..b4a9d39 100644
+--- a/test/controllers/checkout_controller_test.rb
++++ b/test/controllers/checkout_controller_test.rb
+@@ -6,4 +6,12 @@ class CheckoutControllerTest < ActionDispatch::IntegrationTest
+     assert_response :success
+     assert_equal 21.0, response.parsed_body["total"]
+   end
++
++  test "create returns per-line totals when the flag is on" do
++    with_flag(:per_line_tax_rounding) do
++      post checkout_url, params: { cart_id: carts(:two_lines).id }
++      assert_response :success
++      assert_equal 1.02, response.parsed_body["tax"]
++    end
++  end
+ end
+diff --git a/test/services/checkout/totals_calculator_test.rb b/test/services/checkout/totals_calculator_test.rb
+index 7ed18f3..4887434 100644
+--- a/test/services/checkout/totals_calculator_test.rb
++++ b/test/services/checkout/totals_calculator_test.rb
+@@ -9,4 +9,15 @@ class Checkout::TotalsCalculatorTest < ActiveSupport::TestCase
+   test "round_money rounds to cents" do
+     assert_equal 1.24, Checkout::TotalsCalculator.new(carts(:empty)).round_money(1.235)
+   end
++
++  test "per_line_totals rounds each line when the flag is on" do
++    with_flag(:per_line_tax_rounding) do
++      totals = Checkout::TotalsCalculator.new(carts(:two_lines)).compute_totals
++      assert_equal 1.02, totals[:tax]
++    end
++  end
++
++  test "round_line_tax uses banker's rounding" do
++    assert_equal 0.12, Checkout::TotalsCalculator.new(carts(:empty)).round_line_tax(lines(:odd))
++  end
+ end
