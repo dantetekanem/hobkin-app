@@ -164,7 +164,7 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
   const preparation = useStore(loader, (state) => state.preparation)
   const assessment = useStore(loader, (state) => state.assessment)
 
-  // Once a verdict has landed the review closes: a merged change with a "Tada!", any other with a short confirmation.
+  // Once a verdict has landed the review closes: a merged change with "Merged!", any other with a short confirmation.
   // A verdict that lands after the reviewer has left this review closes nothing that is open now.
   const here = useRef(true)
   useEffect(() => {
@@ -177,9 +177,9 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
     () => (done: Verdict, message: string) =>
       afterVerdict(done, message, {
         close: () => here.current && close(),
-        celebrate: (kind, words) => celebrate({ kind, title: review.change.title, message: words }),
+        celebrate: (kind, words) => celebrate({ kind, message: words }),
       }),
-    [close, review.change.title],
+    [close],
   )
   const chrome = useMemo<PanelChrome>(
     () => ({ live, preparation, assessment, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes, ask, landed }),
@@ -292,13 +292,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
       if (inSteps && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey) return
       const used = pressKey(session.getState(), { key: event.key, shift: event.shiftKey, alt: event.altKey }, {
         panelKey,
-        toggleSteps: () => {
-          // S keeps the panel open, with the keyboard in the box to hobkin, or lets it tuck away again.
-          const keep = !reviewMemory.getState().panelPinned
-          reviewMemory.getState().setPanelPinned(keep)
-          if (keep) requestAnimationFrame(() => steps?.dispatchEvent(new Event('rv-talk')))
-          else element.focus({ preventScroll: true })
-        },
+        // S hides the panel, or brings it back. The panel does it, and keeps the keyboard where it belongs.
+        toggleSteps: () => steps?.dispatchEvent(new Event('rv-toggle')),
         talk: () => steps?.dispatchEvent(new Event('rv-talk')),
         verdict: (kind: Verdict) => {
           // A key held down only repeats: it never gives the second click that confirms.
