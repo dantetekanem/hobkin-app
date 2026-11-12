@@ -102,4 +102,4 @@ export interface RatedNode {
 }
 
 /** The words for a level, as the review page and the card say them. */
-export const LEVEL_WORDS: Record<Level, string> = { high: 'Needs you', mid: 'Worth a look', safe: 'Safe' }
+export const LEVEL_WORDS: Record<Level, string> = { high: 'High risk', mid: 'Mid risk', safe: 'Safe' }

@@ -13,20 +13,20 @@ const ready = (summary: Partial<AssessmentSummary>): AssessmentStatus => ({
 
 test('a ready change review shows its level in words, with how many units are at it when there are more than one', () => {
   assert.deepEqual(reviewBadge(ready({ level: 'high', needsYou: 2, worthALook: 1, safe: 4 })), {
-    label: 'Needs you · 2',
+    label: 'High risk · 2',
     tone: 'bad',
     critical: false,
     title: 'Change review: 2 units need you, 1 is worth a look and 4 are safe.',
   })
-  assert.equal(reviewBadge(ready({ level: 'high', needsYou: 1, safe: 3 })).label, 'Needs you')
+  assert.equal(reviewBadge(ready({ level: 'high', needsYou: 1, safe: 3 })).label, 'High risk')
 
   assert.deepEqual(reviewBadge(ready({ level: 'mid', worthALook: 3, safe: 1 })), {
-    label: 'Worth a look · 3',
+    label: 'Mid risk · 3',
     tone: 'warn',
     critical: false,
     title: 'Change review: 3 units are worth a look and 1 is safe.',
   })
-  assert.equal(reviewBadge(ready({ level: 'mid', worthALook: 1 })).label, 'Worth a look')
+  assert.equal(reviewBadge(ready({ level: 'mid', worthALook: 1 })).label, 'Mid risk')
 
   assert.deepEqual(reviewBadge(ready({ level: 'safe', safe: 5 })), { label: 'Safe', tone: 'ok', critical: false, title: 'Change review: 5 units are safe.' })
 })

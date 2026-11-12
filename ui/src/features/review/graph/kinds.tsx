@@ -38,7 +38,7 @@ export function needsALook(node: Pick<ReviewNode, 'status'>): boolean {
   return node.status === 'unproven' || node.status === 'failed'
 }
 
-/** The change review's level, as a word on its color (`.rv-level`): Needs you, Worth a look or Safe. On a card it sits on the top edge. */
+/** The change review's level, as a word on its color (`.rv-level`): High risk, Mid risk or Safe. On a card it sits on the top edge. */
 export function LevelBadge({ level, critical = false, size }: { level: ReviewLevel; critical?: boolean; size?: 'large' }) {
   return (
     <span className="rv-level shrink-0" data-level={level} data-size={size} title={`The change review: ${LEVEL_WORDS[level].toLowerCase()}${critical ? ', and critical' : ''}`}>
