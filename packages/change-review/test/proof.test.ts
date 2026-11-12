@@ -92,9 +92,10 @@ test('a test the scan links only by name must import the definition’s file, un
     'test/canvas.test.ts': "import { open } from '../src/canvas.ts'\nopen()",
     'test/home.test.ts': "import { open } from '../src/home/model.ts'\nopen()",
     'test/flow/app.test.ts': 'await app.open()',
+    'test/main.test.ts': "import { open } from '../src/main-model.ts'\nopen()",
     'src/home/model.ts': '',
   }
-  const linked = ['test/canvas.test.ts', 'test/home.test.ts', 'test/flow/app.test.ts'].map((path, index) => ({ id: `t${index}`, symbol: 'open', path, line: 1 }))
+  const linked = ['test/canvas.test.ts', 'test/home.test.ts', 'test/flow/app.test.ts', 'test/main.test.ts'].map((path, index) => ({ id: `t${index}`, symbol: 'open', path, line: 1 }))
   const scan = { anchors: [{ id: 'n1', tests: linked }] } as unknown as Scan
   const found = await candidateTests({
     node: { id: 'n1', symbol: 'open', path: 'src/home/model.ts' },

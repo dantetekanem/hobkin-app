@@ -160,8 +160,9 @@ function opening(input: StoryInput, items: Numbered[], title: (unit: Unit) => st
 
 const stripPlace = (where: string) => where.replace(/^Stop \d+\. /, '').replace(/^Outside the request path: /, '')
 
+/** The tests run against this node's own change: the ones its proof rests on, not every test of a shared first run. */
 function testsRun(node: ReviewNode | undefined): string {
-  const tests = [...new Set((node?.runs ?? []).filter((run) => run.kind === 'baseline').flatMap((run) => run.tests))]
+  const tests = [...new Set((node?.runs ?? []).filter((run) => run.node === node?.id && run.kind !== 'baseline').flatMap((run) => run.tests))]
   return tests.length ? ` Tests run: ${tests.map((test) => `\`${test}\``).join(', ')}.` : ''
 }
 

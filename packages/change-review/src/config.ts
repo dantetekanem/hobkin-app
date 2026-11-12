@@ -67,7 +67,7 @@ export const DEFAULT_CONFIG: ReviewConfig = {
       '\\.(update|update!|update_all|update_columns?|save|save!|create|create!|insert_all|upsert_all|delete_all|destroy|destroy!|destroy_all|increment!|decrement!|touch)\\b|\\b(INSERT\\s+INTO|UPDATE\\s+\\w+\\s+SET|DELETE\\s+FROM)\\b|\\.(insert|upsert|writeFile|writeFileSync|appendFile|appendFileSync|setItem|remove|unlink)\\(',
     enqueue: '\\.(perform_later|perform_async|perform_in|deliver_later|enqueue|publish)\\b|\\b(enqueue|publish|emit)\\(',
     cache_key: '(cache_key|Rails\\.cache\\.|\\.cache\\.(fetch|write|read)|memoize|cacheKey|cache\\.(set|get|delete))',
-    serialization: '\\b(as_json|to_json|serialize|Marshal\\.|to_msgpack|GlobalID|JSON\\.(dump|generate|stringify)|toJSON|structuredClone)\\b',
+    serialization: '\\b(as_json|to_json|serialize|Marshal\\.|to_msgpack|GlobalID|JSON\\.(dump|generate)|toJSON)\\b',
   },
   ungateable: {
     migration: '(^|/)db/(migrate|data)/',

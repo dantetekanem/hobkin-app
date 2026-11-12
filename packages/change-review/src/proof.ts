@@ -166,7 +166,8 @@ function importsFile(text: string | null, path: string): boolean {
   const parts = path.slice(0, path.length - ending.length).split('/')
   // An index file is imported by its folder's name.
   const name = parts.at(-1) === 'index' && parts.length > 1 ? parts.at(-2)! : parts.at(-1)!
-  return new RegExp(`['"][^'"\\n]*\\b${escape(name)}(?:/index)?(?:\\.[cm]?[jt]sx?)?['"]`).test(text)
+  // The name must be the whole last part of the module path: `./model`, `@/home/model.ts`, never `./main-model`.
+  return new RegExp(`['"](?:[^'"\\n]*/)?${escape(name)}(?:/index)?(?:\\.[cm]?[jt]sx?)?['"]`).test(text)
 }
 
 /**

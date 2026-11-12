@@ -188,7 +188,7 @@ function depths(graph: Graph): Map<string, number> {
 
 const short = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).pop() ?? symbol
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
-const BEHAVES: Record<Effect, string> = { text: 'changes only text', behaviour: 'changes behaviour', interface: 'changes its interface', data: 'changes stored data', load: 'changes what runs at load' }
+const BEHAVES: Record<Effect, string> = { text: 'changes only text', behaviour: 'changes behaviour', interface: 'changes its interface', data: 'changes data it writes, sends or keeps', load: 'changes what runs at load' }
 const AUDIENCE: Record<Exposure, string> = { 'nobody-yet': ' for nobody yet', subset: ' for a subset', everyone: ' for everyone', 'at-load': ' at load' }
 const PROVEN: Record<Proof, string> = {
   'lifecycle-observed': 'a test observes it',
