@@ -323,7 +323,7 @@
 
 /* ───────────────────────────── Nodes nothing wires ───────────────────────────── */
 
-/* Why a card stands apart, under its title: "Documentation: no code reads it." */
+/* A changed node nothing wires stays in its place, and says so in a quiet line under its title. */
 .rv-unwired {
   display: flex;
   align-items: center;
@@ -339,27 +339,6 @@
   width: 12px;
   height: 12px;
   flex: none;
-}
-/* The block they stand in, under the flow: a dashed line around it and what it is. */
-.rv-apart {
-  position: absolute;
-  border: 1.5px dashed color-mix(in oklab, var(--hb-border-strong) 70%, transparent);
-  border-radius: 24px;
-  pointer-events: none;
-}
-.rv-apart-label {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 18px;
-  font-family: var(--font-heading);
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  color: var(--hb-muted);
-}
-.rv[data-far='true'] .rv-apart-label {
-  font-size: 26px;
 }
 
 /* A card's notes: a press reads them, in the panel beside the node. */

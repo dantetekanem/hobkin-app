@@ -30,8 +30,8 @@ function notesOn(session: Session, id: string): number {
  * One node of the graph: a rounded card with a header tinted by kind, where it lives, what it is, and small facts.
  * Everything it shows comes from the review file. A test says what it covers and how it ran, and a card of folded tests
  * counts them and lists them in place. A count of lines is never the main text: it stays small in the footer. Code the
- * change did not touch is marked Unchanged and steps back, a node nothing wires says why, and a focus node counts the
- * wires it folded away beside the pin they would leave by.
+ * change did not touch is marked Unchanged and steps back, a changed node nothing wires says so quietly, and a focus
+ * node counts the wires it folded away beside the pin they would leave by.
  */
 function NodeCardComponent({ id }: NodeProps) {
   const store = useSessionStore()
@@ -73,8 +73,10 @@ function NodeCardComponent({ id }: NodeProps) {
   const longTitle = node.title.length > TWO_LINE_TITLE
   const io = !criterion && !test && node.io && (node.io.in || node.io.out) ? node.io : null
   const said = isLineCount(node.summary) ? null : node.summary
-  // What goes in and out, what a test covers, and why a node stands apart each take a line, so the summary gives one up.
-  const taken = [longTitle, Boolean(io), test && Boolean(covers || node.supports?.length), Boolean(node.unwired)].filter(Boolean).length
+  // A changed node nothing wires stays in its place among the rest, and says so quietly (the user, 2026-11-12).
+  const alone = !criterion && !pins?.in && !pins?.out && !node.supports?.length ? (node.unwired ?? (test ? 'No covered code found yet' : 'No caller found yet')) : null
+  // What goes in and out, what a test covers, and that nothing wires it each take a line, so the summary gives one up.
+  const taken = [longTitle, Boolean(io), test && Boolean(covers || node.supports?.length), Boolean(alone)].filter(Boolean).length
   const lines = criterion ? 3 : Math.max(0, 2 - taken)
 
   return (
@@ -99,7 +101,6 @@ function NodeCardComponent({ id }: NodeProps) {
           data-unchanged={unchanged}
           data-alert={needsALook(node)}
           data-group={group != null}
-          data-apart={Boolean(node.unwired)}
           data-node={id}
         >
           <div className="rv-card">
@@ -116,10 +117,10 @@ function NodeCardComponent({ id }: NodeProps) {
                   <bdi>{node.subtitle}</bdi>
                 </span>
               )}
-              {node.unwired ? (
-                <p className="rv-unwired" title={node.unwired}>
+              {alone ? (
+                <p className="rv-unwired" title={alone}>
                   <Unlink aria-hidden="true" />
-                  {node.unwired}
+                  {alone}
                 </p>
               ) : null}
               {group ? (

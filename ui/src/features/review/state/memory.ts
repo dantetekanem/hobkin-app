@@ -332,10 +332,10 @@ export interface ViewEdge extends ReviewEdge {
 }
 
 /**
- * The review as the canvas draws it (`graph/arrange.ts`): tests folded into cards, the flow laid out, the unwired apart.
+ * The review as the canvas draws it (`graph/arrange.ts`): tests folded into cards, and the graph laid out from them.
  * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node.
  */
-export interface ReviewView extends Pick<Arranged, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'apart' | 'stepOf'> {
+export interface ReviewView extends Pick<Arranged, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf'> {
   nodes: ReviewNode[]
   edges: ViewEdge[]
   /** Proposed wires the reviewer removed. They are not drawn, and they can be brought back. */

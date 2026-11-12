@@ -1,13 +1,13 @@
 /**
- * The graph as the canvas draws it (the user, 2026-11-12): tests never stand in a column, nothing unwired sits in the
- * flow, and the request's life cycle reads left to right.
+ * The graph as the canvas draws it (the user, 2026-11-12): tests never stand in a column, and the request's life cycle
+ * reads left to right.
  *
  * Tests fold into one card for each subject, the node they cover, with the test helpers they use. More single tests
- * than a few fold by their file. The flow is laid out from what is left (`layoutGraph`): the cards on the left, then the
- * code, then its callers out to where a request enters, and the nodes nothing wires apart under it, in a block of their
- * own. A story step that focused a folded test focuses its card. Pure, and the same review always comes out the same.
+ * than a few fold by their file. The graph is laid out from what is drawn. A changed node nothing wires stays in its
+ * place among the rest, and its card says so. A story step that focused a folded test focuses its card. Pure, and the
+ * same review always comes out the same.
  */
-import { layoutGraph, type Rect } from '#shared/review/layout.ts'
+import { layoutReview } from '#shared/review/layout.ts'
 import { fileName } from '#shared/review/paths.ts'
 import type { NodeStatus, Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { isUnchanged } from './levels.ts'
@@ -59,8 +59,6 @@ export interface Arranged {
   groupOf: Record<string, string>
   /** Each test, by its id, to the node it covers: the changed code its wire leads to first. */
   covers: Record<string, string>
-  /** The nodes nothing wires, set apart under the flow, and the box around them for their label. */
-  apart: { ids: string[]; box: Rect } | null
 }
 
 const PREFIX = 'tests:'
@@ -258,7 +256,7 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arra
     else if (groups[card]!.tests[0] === node.id || (groups[card]!.tests.length === 0 && groups[card]!.helpers[0] === node.id)) drawn.push(cardOf(groups[card]!, nodeOf))
   }
   const { edges, wireOf } = joinWires(review.edges, end)
-  const { positions, apart } = layoutGraph(drawn, edges)
+  const positions = layoutReview(drawn, edges)
   const drawnOf = new Map(drawn.map((node) => [node.id, node]))
   const { steps: story, stepOf } = foldStory(review.story, end, wireOf, (id) => drawnOf.get(id)?.title ?? id, (id) => (groups[id]?.tests ?? []).map((test) => nodeOf.get(test)!))
 
@@ -271,6 +269,5 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arra
     groups,
     groupOf,
     covers,
-    apart,
   }
 }

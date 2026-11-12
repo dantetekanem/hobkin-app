@@ -7,7 +7,6 @@ import { NODE_SIZE } from '#shared/review/layout.ts'
 import { useTheme } from '@/app/theme.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { pulsePoint } from '../story/travel.ts'
-import { Apart } from './Apart.tsx'
 import { NodeCard } from './NodeCard.tsx'
 import { TestList } from './TestList.tsx'
 import { Wire } from './Wire.tsx'
@@ -109,7 +108,6 @@ export function Graph() {
     >
       <Dots />
       <Rider />
-      <Apart />
       <TestList />
     </ReactFlow>
   )

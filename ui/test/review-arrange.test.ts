@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { nodeRect } from '#shared/review/layout.ts'
+import { layoutReview, nodeRect } from '#shared/review/layout.ts'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { arrange, isLineCount } from '../src/features/review/graph/arrange.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
@@ -51,18 +51,17 @@ test('tests fold into one card for each subject, with their helper, and never st
   assert.equal(shape.covers[titled(pull, 'links a handle with dots and dashes').id], titled(pull, 'link_user_tags').id)
 })
 
-test('the graph is a flow, with the nodes nothing wires set apart under it', () => {
+test('the graph is a flow, and a changed node nothing wires stays in it', () => {
   const shape = arrange(pull)
-  const apart = shape.apart!
-  assert.deepEqual(apart.ids.map((id) => shape.nodes.find((node) => node.id === id)!.title).sort(), ['README.md', 'ci.yml'])
-  const flow = shape.nodes.filter((node) => !apart.ids.includes(node.id))
-  const bottom = Math.max(...flow.map((node) => nodeRect(node.kind, node.position).y + nodeRect(node.kind, node.position).height))
-  for (const id of apart.ids) assert.ok(shape.nodes.find((node) => node.id === id)!.position.y > bottom)
+  // No block apart: the README and the CI file stand among the rest, where the layout puts any changed node.
+  const flow = layoutReview(shape.nodes, shape.edges)
+  for (const node of shape.nodes) assert.deepEqual(node.position, flow[node.id], node.title)
+  assert.ok(!('apart' in shape))
 
-  // Tests on the left, then the code, then what calls it, out to where a request enters.
+  // Tests on the left, then the code, then what calls it.
   const x = (title: string) => shape.nodes.find((node) => node.title === title)!.position.x
   const group = shape.nodes.find((node) => node.title === '5 tests for link_user_tags')!.position.x
-  assert.ok(group < x('link_user_tags') && x('link_user_tags') < x('render_body') && x('render_body') < x('PostsController#show'))
+  assert.ok(group < x('link_user_tags') && x('link_user_tags') < x('render_body'))
   // Nothing overlaps, and the tests take three cards' height, not eighteen.
   for (const [index, one] of shape.nodes.entries()) for (const two of shape.nodes.slice(index + 1)) assert.equal(overlaps(one, two), false, `${one.title} and ${two.title}`)
   const tests = shape.nodes.filter((node) => node.kind === 'test')
