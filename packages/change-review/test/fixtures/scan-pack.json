@@ -1,0 +1,676 @@
+{
+  "label": "1a45fa3~1..1a45fa3 (68c0bf237b7c → 1a45fa3460ab)",
+  "head": "1a45fa3460ab34194b3a57f42e79b7fdb7c07489",
+  "base": "68c0bf237b7c8cb73ddfdf017f90c184fea790a0",
+  "checkoutHead": "1a45fa3460ab34194b3a57f42e79b7fdb7c07489",
+  "dirty": false,
+  "roots": [
+    "."
+  ],
+  "files": [
+    {
+      "path": "ui/src/features/home/input.ts",
+      "status": "added",
+      "kind": "code",
+      "additions": 37,
+      "deletions": 0,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "ui/src/features/home/model.ts",
+      "status": "modified",
+      "kind": "code",
+      "additions": 251,
+      "deletions": 5,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "ui/src/features/home/navigate.ts",
+      "status": "modified",
+      "kind": "code",
+      "additions": 6,
+      "deletions": 2,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "ui/src/features/home/use-home.ts",
+      "status": "modified",
+      "kind": "code",
+      "additions": 9,
+      "deletions": 17,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "ui/test/home-input.test.ts",
+      "status": "added",
+      "kind": "test",
+      "additions": 126,
+      "deletions": 0,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "ui/test/home-model.test.ts",
+      "status": "added",
+      "kind": "test",
+      "additions": 208,
+      "deletions": 0,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "ui/test/home-targets.test.ts",
+      "status": "added",
+      "kind": "test",
+      "additions": 74,
+      "deletions": 0,
+      "binary": false,
+      "language": "javascript"
+    },
+    {
+      "path": "work-in-progress.md",
+      "status": "modified",
+      "kind": "other",
+      "additions": 10,
+      "deletions": 3,
+      "binary": false
+    }
+  ],
+  "anchors": [
+    {
+      "id": "n12",
+      "symbol": "gatherHomeInput",
+      "kind": "function",
+      "path": "ui/src/features/home/input.ts",
+      "startLine": 15,
+      "endLine": 37,
+      "fingerprint": "65862e8f8f029821",
+      "changedLines": [
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+      ],
+      "removed": [],
+      "boundary": {
+        "score": 0,
+        "tags": []
+      },
+      "callers": [
+        {
+          "id": "n39",
+          "symbol": "useHomeModel",
+          "path": "ui/src/features/home/use-home.ts",
+          "line": 30,
+          "test": false,
+          "changed": true
+        }
+      ],
+      "tests": []
+    },
+    {
+      "id": "n29",
+      "symbol": "projectsOf",
+      "kind": "function",
+      "path": "ui/src/features/home/model.ts",
+      "startLine": 86,
+      "endLine": 101,
+      "fingerprint": "ca7b92670759d1d9",
+      "changedLines": [
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101
+      ],
+      "removed": [
+        {
+          "oldStart": 1,
+          "lines": [
+            "import type { HomeInput, HomeModel } from './types.ts'"
+          ]
+        }
+      ],
+      "boundary": {
+        "score": 15,
+        "tags": [
+          "retry"
+        ]
+      },
+      "callers": [
+        {
+          "id": "n33",
+          "symbol": "homeModel",
+          "path": "ui/src/features/home/model.ts",
+          "line": 255,
+          "test": false,
+          "changed": true
+        }
+      ],
+      "tests": []
+    },
+    {
+      "id": "n18",
+      "symbol": "screen",
+      "kind": "function",
+      "path": "ui/src/features/home/model.ts",
+      "startLine": 7,
+      "endLine": 7,
+      "fingerprint": "b76a1656d4db8814",
+      "changedLines": [
+        7
+      ],
+      "removed": [
+        {
+          "oldStart": 1,
+          "lines": [
+            "import type { HomeInput, HomeModel } from './types.ts'"
+          ]
+        }
+      ],
+      "boundary": {
+        "score": 0,
+        "tags": []
+      },
+      "callers": [
+        {
+          "id": "n192",
+          "symbol": "startAgentCompletion",
+          "path": "ui/src/app/agent-completion.ts",
+          "line": 24,
+          "test": false,
+          "changed": false
+        },
+        {
+          "id": "n193",
+          "symbol": "KeyContext",
+          "path": "ui/src/app/key-map.ts",
+          "line": 28,
+          "test": false,
+          "changed": false
+        }
+      ],
+      "tests": [
+        {
+          "id": "n163",
+          "symbol": "with work mode off, an item that opens in Work is read here instead, and anything else keeps its place",
+          "path": "ui/test/action-item-read.test.ts",
+          "line": 33
+        },
+        {
+          "id": "n163",
+          "symbol": "with work mode off, an item that opens in Work is read here instead, and anything else keeps its place",
+          "path": "ui/test/action-item-read.test.ts",
+          "line": 34
+        },
+        {
+          "id": "n163",
+          "symbol": "with work mode off, an item that opens in Work is read here instead, and anything else keeps its place",
+          "path": "ui/test/action-item-read.test.ts",
+          "line": 35
+        },
+        {
+          "id": "n164",
+          "symbol": "what waits elsewhere opens where it is handled: a report in Reports, work in the Work screen",
+          "path": "ui/test/actions-host-answers.test.ts",
+          "line": 73
+        }
+      ]
+    },
+    {
+      "id": "n33",
+      "symbol": "homeModel",
+      "kind": "function",
+      "path": "ui/src/features/home/model.ts",
+      "startLine": 213,
+      "endLine": 264,
+      "fingerprint": "14f8757a2e22ca4c",
+      "changedLines": [
+        216,
+        217,
+        218,
+        222,
+        228,
+        229,
+        230,
+        231,
+        232,
+        233,
+        234,
+        235,
+        236,
+        237,
+        238,
+        239,
+        240,
+        241,
+        242,
+        243,
+        244,
+        245,
+        246,
+        247,
+        248,
+        249,
+        250,
+        251,
+        252,
+        253,
+        254,
+        255,
+        256,
+        257,
+        258,
+        259,
+        260,
+        261,
+        262,
+        263
+      ],
+      "removed": [
+        {
+          "oldStart": 7,
+          "lines": [
+            "  return {"
+          ]
+        }
+      ],
+      "boundary": {
+        "score": 0,
+        "tags": []
+      },
+      "callers": [
+        {
+          "id": "n39",
+          "symbol": "useHomeModel",
+          "path": "ui/src/features/home/use-home.ts",
+          "line": 30,
+          "test": false,
+          "changed": true
+        }
+      ],
+      "tests": [
+        {
+          "id": "n90",
+          "symbol": "Needs deduplicates only the exact finished branch and counts known hidden entries",
+          "path": "ui/test/home-model.test.ts",
+          "line": 63
+        }
+      ]
+    },
+    {
+      "id": "n23",
+      "symbol": "HOUR",
+      "kind": "constant",
+      "path": "ui/src/features/home/model.ts",
+      "startLine": 43,
+      "endLine": 43,
+      "fingerprint": "1295eb0ee17d5c28",
+      "changedLines": [
+        43
+      ],
+      "removed": [
+        {
+          "oldStart": 1,
+          "lines": [
+            "import type { HomeInput, HomeModel } from './types.ts'"
+          ]
+        }
+      ],
+      "boundary": {
+        "score": 0,
+        "tags": []
+      },
+      "callers": [],
+      "tests": []
+    },
+    {
+      "id": "n9",
+      "symbol": "Reports",
+      "kind": "type",
+      "path": "ui/src/features/home/input.ts",
+      "startLine": 10,
+      "endLine": 10,
+      "fingerprint": "2c7a616cd0cd63e0",
+      "changedLines": [
+        10
+      ],
+      "removed": [],
+      "boundary": {
+        "score": 0,
+        "tags": []
+      },
+      "callers": [],
+      "tests": []
+    },
+    {
+      "id": "n121",
+      "symbol": "every local target selects only its existing destination",
+      "kind": "test",
+      "path": "ui/test/home-targets.test.ts",
+      "startLine": 32,
+      "endLine": 53,
+      "fingerprint": "6ab741e50cb6d591",
+      "changedLines": [
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53
+      ],
+      "removed": [],
+      "boundary": {
+        "score": 0,
+        "tags": []
+      },
+      "callers": [],
+      "tests": []
+    }
+  ],
+  "testGroups": [
+    {
+      "id": "t3",
+      "path": "ui/test/home-targets.test.ts",
+      "entries": [
+        {
+          "symbol": "question target leaves the current sheet untouched, or navigates to Actions when absent",
+          "startLine": 55,
+          "endLine": 66,
+          "fingerprint": "bd6ea465d567afc2"
+        },
+        {
+          "symbol": "URL targets open only supported GitHub HTTPS pages through the existing opener",
+          "startLine": 68,
+          "endLine": 74,
+          "fingerprint": "1a9c76b4e5037346"
+        }
+      ]
+    }
+  ],
+  "skippedAnchors": [],
+  "nodes": [
+    {
+      "id": "n9",
+      "path": "ui/src/features/home/input.ts",
+      "symbol": "Reports",
+      "kind": "type",
+      "language": "javascript",
+      "startLine": 10,
+      "endLine": 10,
+      "fingerprint": "2c7a616cd0cd63e0",
+      "depth": 0
+    },
+    {
+      "id": "n12",
+      "path": "ui/src/features/home/input.ts",
+      "symbol": "gatherHomeInput",
+      "kind": "function",
+      "language": "javascript",
+      "startLine": 15,
+      "endLine": 37,
+      "fingerprint": "65862e8f8f029821",
+      "depth": 0
+    },
+    {
+      "id": "n18",
+      "path": "ui/src/features/home/model.ts",
+      "symbol": "screen",
+      "kind": "function",
+      "language": "javascript",
+      "startLine": 7,
+      "endLine": 7,
+      "fingerprint": "b76a1656d4db8814",
+      "depth": 0
+    },
+    {
+      "id": "n23",
+      "path": "ui/src/features/home/model.ts",
+      "symbol": "HOUR",
+      "kind": "constant",
+      "language": "javascript",
+      "startLine": 43,
+      "endLine": 43,
+      "fingerprint": "1295eb0ee17d5c28",
+      "depth": 0
+    },
+    {
+      "id": "n25",
+      "path": "ui/src/features/home/model.ts",
+      "symbol": "problemReports",
+      "kind": "function",
+      "language": "javascript",
+      "startLine": 45,
+      "endLine": 48,
+      "fingerprint": "3dcc7c83386a9a21",
+      "depth": 0
+    },
+    {
+      "id": "n29",
+      "path": "ui/src/features/home/model.ts",
+      "symbol": "projectsOf",
+      "kind": "function",
+      "language": "javascript",
+      "startLine": 86,
+      "endLine": 101,
+      "fingerprint": "ca7b92670759d1d9",
+      "depth": 0
+    },
+    {
+      "id": "n33",
+      "path": "ui/src/features/home/model.ts",
+      "symbol": "homeModel",
+      "kind": "function",
+      "language": "javascript",
+      "startLine": 213,
+      "endLine": 264,
+      "fingerprint": "14f8757a2e22ca4c",
+      "depth": 0
+    },
+    {
+      "id": "n39",
+      "path": "ui/src/features/home/use-home.ts",
+      "symbol": "useHomeModel",
+      "kind": "function",
+      "language": "javascript",
+      "startLine": 23,
+      "endLine": 33,
+      "fingerprint": "66c94961403c7cc7",
+      "depth": 0
+    },
+    {
+      "id": "n90",
+      "path": "ui/test/home-model.test.ts",
+      "symbol": "Needs deduplicates only the exact finished branch and counts known hidden entries",
+      "kind": "test",
+      "language": "javascript",
+      "startLine": 54,
+      "endLine": 69,
+      "fingerprint": "c8ca1e330658d6f4",
+      "depth": 0
+    },
+    {
+      "id": "n112",
+      "path": "ui/test/home-targets.test.ts",
+      "symbol": "{ openTarget }",
+      "kind": "constant",
+      "language": "javascript",
+      "startLine": 15,
+      "endLine": 15,
+      "fingerprint": "c64b0261855cb389",
+      "depth": 0
+    },
+    {
+      "id": "n121",
+      "path": "ui/test/home-targets.test.ts",
+      "symbol": "every local target selects only its existing destination",
+      "kind": "test",
+      "language": "javascript",
+      "startLine": 32,
+      "endLine": 53,
+      "fingerprint": "6ab741e50cb6d591",
+      "depth": 0
+    },
+    {
+      "id": "n163",
+      "path": "ui/test/action-item-read.test.ts",
+      "symbol": "with work mode off, an item that opens in Work is read here instead, and anything else keeps its place",
+      "kind": "test",
+      "language": "javascript",
+      "startLine": 32,
+      "endLine": 37,
+      "fingerprint": "273b97dbfc34a1f8",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "from": "n29",
+      "to": "n25",
+      "name": "problemReports",
+      "relationship": "calls",
+      "resolution": "exact",
+      "via": "checker",
+      "line": 87
+    },
+    {
+      "from": "n29",
+      "to": "n18",
+      "name": "screen",
+      "relationship": "calls",
+      "resolution": "exact",
+      "via": "checker",
+      "line": 99
+    },
+    {
+      "from": "n39",
+      "to": "n33",
+      "name": "homeModel",
+      "relationship": "calls",
+      "resolution": "exact",
+      "via": "checker",
+      "line": 30
+    },
+    {
+      "from": "n121",
+      "to": "n112",
+      "name": "openTarget",
+      "relationship": "calls",
+      "resolution": "exact",
+      "via": "checker",
+      "line": 34
+    },
+    {
+      "from": "n33",
+      "to": "n29",
+      "name": "projectsOf",
+      "relationship": "called_by",
+      "resolution": "static_candidate",
+      "line": 255
+    },
+    {
+      "from": "n39",
+      "to": "n12",
+      "name": "gatherHomeInput",
+      "relationship": "called_by",
+      "resolution": "static_candidate",
+      "line": 30
+    },
+    {
+      "from": "n121",
+      "name": "test",
+      "relationship": "calls",
+      "resolution": "external",
+      "via": "import",
+      "line": 32,
+      "note": "from package node:test"
+    },
+    {
+      "from": "n121",
+      "name": "useView.getState",
+      "relationship": "calls",
+      "resolution": "unresolved",
+      "line": 35,
+      "note": "receiver useView is a local value; its type is not traced statically."
+    },
+    {
+      "from": "n32",
+      "name": "record",
+      "relationship": "calls",
+      "resolution": "local",
+      "via": "checker",
+      "line": 194,
+      "note": "record is declared inside an enclosing function at ui/src/features/home/model.ts:186; a local, not a separate definition."
+    }
+  ],
+  "dangling": [],
+  "coverage": {
+    "maxDepth": 2,
+    "depthReached": 2,
+    "vicinity": 20,
+    "unresolved": 23,
+    "truncatedBy": "none",
+    "frontier": [
+      "n155 → connection.command (depth 2)",
+      "n155 → explainRefusal (depth 2)"
+    ],
+    "cycles": [],
+    "notes": [
+      "TypeScript program for tsconfig.json: 7 root files, 148 source files, 199 ms.",
+      "callers of row skipped: name too common to search usefully; search a qualified receiver instead.",
+      "callers of age skipped: name too common to search usefully; search a qualified receiver instead."
+    ],
+    "rgCalls": 67,
+    "elapsedMs": 895
+  }
+}
