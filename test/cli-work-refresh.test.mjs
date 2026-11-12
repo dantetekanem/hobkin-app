@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { mergeRefreshed, refreshThenMerge } from '../src/cli/work/refresh.mjs';
-import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, updateItem, writeMode, writeOwnerView } from '../src/cli/work/store.mjs';
 import { closingItems, readyItems } from '../src/cli/work/reads.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
@@ -182,4 +182,28 @@ test('a refresh handed to the main agent takes its card out of Decisions while a
 
   updateItem(h.root, 'api', item.id, { withMainAgent: { until: new Date(Date.now() - 1000).toISOString() } });
   assert.equal(readyItems(h.root)[0].gap, 'land', 'a hand-off that ran out brings the card back');
+});
+
+test('a refresh whose run is still going waits to merge, keeps the user\'s word, and merges once the run has ended', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'job.txt');
+  commit(h.checkout, 'other.txt', 'main moved on\n');
+  const item = finished(h, 'hobkin/abc');
+  refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
+
+  // The run records the branch finished before it ends: for that moment it is both finished and still running.
+  refreshEnds(h, item);
+  writeOwnerView(h.root, { running: [{ id: 'work:api:do:1', slug: 'api', item: item.id, lane: 'do', title: 'api: Fix the job spec' }] });
+  writeFileSync(join(h.root, 'runtime.lock'), '');
+
+  assert.deepEqual(await mergeRefreshed(h.root, { now: NOW + 3000 }), [], 'nothing is tried while its run is going');
+  assert.ok(read(h, item).mergeWhenFresh, 'the word to merge is kept');
+  assert.equal(read(h, item).state, 'branch');
+
+  writeOwnerView(h.root, { running: [] });
+  const merged = await mergeRefreshed(h.root, { now: NOW + 4000 });
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].ok, true);
+  assert.equal(read(h, item).state, 'merged');
 });

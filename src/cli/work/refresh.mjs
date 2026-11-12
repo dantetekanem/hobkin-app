@@ -61,11 +61,17 @@ async function mergeNow(root, slug, item, { now, gh }) {
   }
 }
 
-/** Merges each branch the user said to refresh and merge, once its refresh has ended well. A refresh still to run, or running, waits. */
+/**
+ * Merges each branch the user said to refresh and merge, once its refresh has ended well. A refresh still to run, or running, waits.
+ * The run records the branch finished a moment before it ends, and a merge tried then is refused as already running. That refusal used up the
+ * user's word, so a branch whose run is still going waits for a tick after the run has gone.
+ */
 export async function mergeRefreshed(root, { now = Date.now(), gh = null } = {}) {
   const results = [];
+  const { running } = ownerView(root, now);
+  const runGoing = (slug, item) => running.some(run => run.slug === slug && run.item === item.id);
   for (const { slug } of readProjects(root)) {
-    const due = readItems(root, slug).filter(item => item.mergeWhenFresh && refreshedWell(item));
+    const due = readItems(root, slug).filter(item => item.mergeWhenFresh && refreshedWell(item) && !runGoing(slug, item));
     for (const item of due) results.push(await mergeNow(root, slug, item, { now, gh }));
   }
   return results;
