@@ -12,8 +12,8 @@ import { fakePi } from './helpers/pi-session.mjs';
 import { director, studied } from './helpers/work-director.mjs';
 import { repository, writeJson } from './helpers/work-fixture.mjs';
 
-// Start now: the user's word to start a queued row at once. With no worker free it goes as one extra worker, and a pause, the budget, every stop
-// and the gap between starts still hold it.
+// Start now: the user's word to start a queued row at once. With no worker free it goes as one extra worker, it does not wait out the gap between
+// starts, and a pause, the budget and every stop still hold it.
 
 const HOUR = 3600000;
 const now = new Date(2026, 5, 1, 12).getTime();
@@ -62,7 +62,7 @@ test('with no worker free a row started now is next, as one extra worker, while 
   assert.deepEqual(readMode(root).queueNext, [keys.site, keys.api]);
 });
 
-test('a pause, the budget, every stop and the gap between starts still hold a row started now', t => {
+test('a pause, the budget and every stop still hold a row started now, and the gap between starts does not', t => {
   const { root, keys, plan } = bothWorkersBusy(t);
   pickNow(root, keys.site);
   assert.equal(plan().next?.key, keys.site);
@@ -89,8 +89,19 @@ test('a pause, the budget, every stop and the gap between starts still hold a ro
   assert.equal(rowOf(daySpent, keys.site).waiting, 'over today\'s budget');
   writeMode(root, { dailyTokens: 100000000 });
 
-  assert.equal(plan({ lastStartAt: now - 60000 }).next, null, 'the gap between starts');
-  assert.equal(plan({ lastStartAt: now - 5 * 60000 }).next?.key, keys.site, 'and once nothing holds it, it goes');
+  assert.equal(plan({ lastStartAt: now - 60000 }).next?.key, keys.site, 'the gap between starts does not hold it');
+});
+
+test('the gap between starts still holds every other start, a pick among them, and lets only a row started now through', t => {
+  const { root, keys, plan } = bothWorkersBusy(t);
+  // One worker is free, so only the gap stands in the way.
+  const withAFreeWorker = { running: [{ slug: 'one', lane: 'do' }], lastStartAt: now - 60000 };
+
+  pickNext(root, keys.api);
+  assert.equal(plan(withAFreeWorker).next, null, 'a pick waits out the gap');
+
+  pickNow(root, keys.site);
+  assert.equal(plan(withAFreeWorker).next?.key, keys.site);
 });
 
 test('a row started now and then skipped loses its mark with its pick', t => {
@@ -159,8 +170,9 @@ test('starting a row now says it starts as one extra worker, or what still holds
   assert.match(startSiteNow().message, /to start at once\. Paused for today/);
   writeMode(h.root, { dailyTokens: 100000000 });
 
+  // "Fix login" has only just started, so any other start waits out the gap.
   writeMode(h.root, { startGapMs: 300000 });
-  assert.match(startSiteNow().message, /to start at once\. It starts at \d\d:\d\d \w+ as one extra worker, after the gap between starts\.$/);
+  assert.equal(startSiteNow().message, 'Queued "Fix site" on site to start at once. It starts now as one extra worker.');
 
   setProjectPaused(h.root, 'site', true);
   assert.match(startSiteNow().message, /to start at once\. For now it is waiting: paused\.$/);

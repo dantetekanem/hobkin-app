@@ -209,8 +209,8 @@ export function pickNext(root, key) {
 }
 
 /**
- * The user's word to start a row now: it goes ahead of every other pick, and with no worker free it starts as one extra worker. A pause, the budget,
- * every stop and the gap between starts still hold it. Its mark goes with its pick.
+ * The user's word to start a row now: it goes ahead of every other pick, with no worker free it starts as one extra worker, and it waits out no gap
+ * between starts. A pause, the budget and every stop still hold it. Its mark goes with its pick.
  */
 export function pickNow(root, key) {
   const { queueNext, queueNow, queueSkipped } = readMode(root);

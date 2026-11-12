@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
-import { lookTime, shortPath } from './chat.mjs';
+import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
 import { forecastWork } from './forecast.mjs';
 import { offeredIn } from './land-offer.mjs';
@@ -268,8 +268,8 @@ function whenItStarts({ mode, pause, waitingOn, entries, free }, key, owner) {
   return wait ? `For now it is waiting: ${wait}.` : 'It starts on the next tick.';
 }
 
-/** A row started now goes at once, as one extra worker when none is free. What still holds it is a stop, the budget, the gap between starts or its own wait. */
-function whenItStartsNow({ mode, pause, entries, next, free, nextStartAt }, key, owner) {
+/** A row started now goes at once, as one extra worker when none is free, and waits out no gap between starts. What still holds it is a stop, the budget or its own wait. */
+function whenItStartsNow({ mode, pause, entries, next, free }, key, owner) {
   if (!mode.enabled) return 'Work mode is off, so it waits for hobkin work start.';
   if (!owner) return NEEDS_AN_OWNER;
 
@@ -278,13 +278,12 @@ function whenItStartsNow({ mode, pause, entries, next, free, nextStartAt }, key,
   if (pause) return pause.line;
   const wait = entries.find(row => row.key === key)?.waiting;
   if (wait) return `For now it is waiting: ${wait}.`;
-  if (nextStartAt) return `It starts at ${lookTime(nextStartAt, Date.now())}${asExtraWorker}, after the gap between starts.`;
   return 'It starts once it is due.';
 }
 
 /**
- * This is the plan's run-now path. It only goes first: the worker ceiling, the budget and every stop still decide when it starts. `now` is the user's
- * word to start it at once, and then only the worker ceiling stops counting.
+ * This is the plan's run-now path. It only goes first: the worker ceiling, the gap between starts, the budget and every stop still decide when it
+ * starts. `now` is the user's word to start it at once, and then neither the worker ceiling nor the gap between starts counts.
  */
 export function triggerRow(root, reference, target, { now = false } = {}) {
   const view = ownerView(root);
