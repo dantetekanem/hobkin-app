@@ -117,12 +117,13 @@ export interface ReviewLifecycle {
 }
 
 /**
- * Where a request enters, as the scan knows it: a route that sends requests on (`route`, with its verbs and path),
- * what the framework calls (`controller`, a public action; `job`, a job's perform), or a statement that runs as its file
- * loads (`load`). `exact` when a route or a declaration says so.
+ * Where a request enters, as the scan knows it: a route that sends requests on (`route`, with its verbs and path), the
+ * app's answer to a request that failed (`exceptions-app`), what the framework calls (`controller`, a public action;
+ * `job`, a job's perform; `command`, a command's run), or a statement that runs as its file loads (`load`). `exact` when
+ * a route or a declaration says so.
  */
 export interface ReviewEntry {
-  /** `route`, `controller`, `job`, `load`, or another kind the scan names. */
+  /** `route`, `exceptions-app`, `controller`, `job`, `command`, `load`, or another kind the scan names. */
   kind: string
   exact: boolean
   /** For a `route`: the verbs it answers and its path, as the routes file says them, such as GET and `/users/:id`. */

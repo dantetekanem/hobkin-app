@@ -324,10 +324,10 @@
 /* ───────────────────────────── Where a request enters ───────────────────────────── */
 
 /*
- * A route reads as an entry pill at the start of its way: the verb on its chip and the path, large, so the way a
- * request takes reads from it, left to right.
+ * Where a request enters reads as a pill at the start of its way: a route's verb on its chip and its path, any other
+ * entry's kind on its chip and its name, large, so the way a request takes reads from it, left to right.
  */
-.rv .rv-node[data-route='true'] .rv-card {
+.rv .rv-node[data-entry='true'] .rv-card {
   border-radius: 999px 28px 28px 999px;
 }
 .rv-route {
@@ -361,8 +361,16 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.rv .rv-node[data-route='true'] .rv-body {
+.rv .rv-node[data-entry='true'] .rv-body {
   padding-left: 18px;
+}
+/* Any other entry shows its kind on the chip, in the accent, so it reads apart from a route's verb. */
+.rv-verb[data-kind='entry'] {
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+  font-family: var(--font-heading);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .rv[data-far='true'] .rv-route-path {
   font-size: 22px;

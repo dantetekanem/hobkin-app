@@ -244,6 +244,19 @@ const CONTEXT: Draft[] = [
     ranges: [line('config/routes.rb', "get '/feed'")],
     summary: 'A request for the RSS feed: the route to FeedsController#index.',
   },
+  {
+    id: 'c7', kind: 'context', path: 'app/controllers/errors_controller.rb', title: 'ErrorsController#show', change: 'unchanged',
+    lifecycle: { role: 'caller', hops: 2 }, entry: { kind: 'controller', exact: true },
+    ranges: [block('app/controllers/errors_controller.rb', 'added', 'def show')],
+    summary: 'Every error page: a post the editors write, rendered with render_body.',
+  },
+  {
+    id: 'c8', kind: 'context', path: 'config/application.rb', title: 'config.exceptions_app', change: 'unchanged',
+    lifecycle: { role: 'caller', hops: 3, path: 'A failing request → config.exceptions_app → ErrorsController#show' },
+    entry: { kind: 'exceptions-app', exact: true },
+    ranges: [line('config/application.rb', 'config.exceptions_app')],
+    summary: 'A request that fails anywhere is answered by ErrorsController#show.',
+  },
 ]
 
 const DRAFTS = [...CODE, ...helperTests, ...fetchTests, ...reportTests, SUPPORT, ...FILES_ALONE, ...CONTEXT]
@@ -260,6 +273,8 @@ const EDGES: ReviewEdge[] = [
   wire('calls', 'u1', 'c4', 'User.find_by_handles(handles)'),
   wire('called-by', 'c2', 'c5', "to: 'posts#show'"),
   wire('called-by', 'c3', 'c6', "to: 'feeds#index'"),
+  wire('called-by', 'c1', 'c7', 'helpers.render_body(@post)'),
+  wire('called-by', 'c7', 'c8', 'ErrorsController.action(:show)'),
 ]
 
 const TITLE = 'Link user tags with dots and dashes, and add a production errors script'

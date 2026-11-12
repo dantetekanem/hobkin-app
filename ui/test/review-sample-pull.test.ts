@@ -47,16 +47,17 @@ test('the sample is shaped like the pull request the user reviewed: one helper, 
   assert.equal(alone.length, 2)
   for (const node of alone) assert.equal(wired.has(node.id), false, node.title)
 
-  // Three to five callers and callees the change did not touch, for the life cycle, and the routes a request enters by.
+  // Three to five callers and callees the change did not touch, for the life cycle, and where requests enter: two
+  // routes, and the app's answer to a failing request.
   const around = review.nodes.filter((node) => node.change === 'unchanged')
-  const routes = around.filter((node) => node.entry?.kind === 'route')
-  assert.deepEqual(routes.map((node) => node.title), ['GET /posts/:id', 'GET /feed'])
-  const code = around.filter((node) => !routes.includes(node))
+  const entries = around.filter((node) => node.entry && node.entry.kind !== 'controller')
+  assert.deepEqual(entries.map((node) => [node.entry!.kind, node.title]), [['route', 'GET /posts/:id'], ['route', 'GET /feed'], ['exceptions-app', 'config.exceptions_app']])
+  const code = around.filter((node) => !entries.includes(node))
   assert.ok(code.length >= 3 && code.length <= 5)
   assert.ok(around.every((node) => node.kind === 'context' && node.lifecycle))
   assert.ok(code.some((node) => node.lifecycle!.role === 'caller') && code.some((node) => node.lifecycle!.role === 'callee'))
-  // A route leads to the controller it sends requests to.
-  for (const route of routes) assert.ok(review.edges.some((edge) => edge.kind === 'called-by' && edge.to === route.id && review.nodes.find((node) => node.id === edge.from)?.entry?.kind === 'controller'))
+  // Each leads to the controller it hands requests to.
+  for (const entry of entries) assert.ok(review.edges.some((edge) => edge.kind === 'called-by' && edge.to === entry.id && review.nodes.find((node) => node.id === edge.from)?.entry?.kind === 'controller'), entry.title)
 })
 
 test('its change review has four units: a high one with a question and a watch, a mid one and two safe ones', () => {

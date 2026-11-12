@@ -17,6 +17,11 @@ const TWO_LINE_TITLE = 34
 /** How many of the folded nodes a count names when the pointer is over it. */
 const NAMED = 6
 
+/** The chip an entry pill shows for each kind of entry; a route shows its verbs instead. */
+const ENTRY_CHIP: Record<string, string> = { 'exceptions-app': 'Errors', controller: 'Action', job: 'Job', command: 'Command', load: 'Load' }
+/** What an entry pill's header says it is. */
+const ENTRY_WORDS: Record<string, string> = { job: 'Where a job starts', command: 'Where a command starts', load: 'Runs as the app loads', 'exceptions-app': 'Where a failing request goes' }
+
 /** How many notes a card has: those about its node, its lines, and the tests it holds. */
 function notesOn(session: Session, id: string): number {
   const node = session.nodeOf.get(id)
@@ -64,8 +69,11 @@ function NodeCardComponent({ id }: NodeProps) {
   }, [arrival, reduced])
 
   if (!node) return null
-  const route = node.entry?.kind === 'route' ? node.entry.route : undefined
-  const { icon: Icon, label } = route ? { icon: Signpost, label: 'Route' } : KIND[node.kind]
+  // Unchanged code where a request enters, at the start of its way, reads as an entry pill (the user, 2026-11-12): a route
+  // by its verbs and path, any other entry by its kind and its name.
+  const entry = node.kind === 'context' && node.entry && !pins?.in ? node.entry : undefined
+  const route = entry?.kind === 'route' ? entry.route : undefined
+  const { icon: Icon, label } = entry ? { icon: Signpost, label: route ? 'Route' : 'Entry' } : KIND[node.kind]
   const status = statusOf(node)
   const unchanged = isUnchanged(node)
   // The mark on the top edge says Unchanged, so the status says it again only for a test, whose status is its result.
@@ -81,7 +89,7 @@ function NodeCardComponent({ id }: NodeProps) {
   // The way a request takes to changed code, in a line under its title: "GET /users/:id → UsersController#show → full_name".
   const way = node.lifecycle?.role === 'changed' && node.lifecycle.path ? node.lifecycle.path : null
   const taken = [longTitle, Boolean(io), test && Boolean(covers || node.supports?.length), Boolean(alone), Boolean(way)].filter(Boolean).length
-  const lines = criterion ? 3 : Math.max(0, route ? 1 - taken : 2 - taken)
+  const lines = criterion ? 3 : Math.max(0, entry ? 1 - taken : 2 - taken)
 
   return (
     <>
@@ -105,14 +113,14 @@ function NodeCardComponent({ id }: NodeProps) {
           data-unchanged={unchanged}
           data-alert={needsALook(node)}
           data-group={group != null}
-          data-route={route != null}
+          data-entry={entry != null}
           data-node={id}
         >
           <div className="rv-card">
             <header className="rv-head">
               <Icon className="rv-icon" aria-hidden="true" />
               <span className="rv-title" title={node.title}>
-                {route ? 'Where a request enters' : node.title}
+                {entry ? (ENTRY_WORDS[entry.kind] ?? 'Where a request enters') : node.title}
               </span>
               <span className="rv-kind">{group ? 'Tests' : label}</span>
             </header>
@@ -124,6 +132,13 @@ function NodeCardComponent({ id }: NodeProps) {
                   </span>
                 ))}
                 <span className="rv-route-path">{route.path}</span>
+              </div>
+            ) : entry ? (
+              <div className="rv-route" title={node.title}>
+                <span className="rv-verb" data-kind="entry">
+                  {ENTRY_CHIP[entry.kind] ?? entry.kind}
+                </span>
+                <span className="rv-route-path">{node.title}</span>
               </div>
             ) : null}
             <div className="rv-body">

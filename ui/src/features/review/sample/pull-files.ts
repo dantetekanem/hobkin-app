@@ -91,6 +91,31 @@ const FEEDS_CONTROLLER = lines(
   'end',
 )
 
+const ERRORS_CONTROLLER = lines(
+  'class ErrorsController < ApplicationController',
+  '  # Every error page is a post the editors can change, rendered like any other.',
+  '  def show',
+  "    code = request.path_info.delete('/')",
+  '    @post = Post.find_by!(slug: "error-#{code}")',
+  '    @body = helpers.render_body(@post)',
+  '    render status: code.to_i',
+  '  end',
+  'end',
+)
+
+const APPLICATION = lines(
+  "require_relative 'boot'",
+  "require 'rails/all'",
+  '',
+  'module Storefront',
+  '  class Application < Rails::Application',
+  '    config.load_defaults 8.0',
+  '    # A failing request is answered by ErrorsController#show.',
+  '    config.exceptions_app = ->(env) { ErrorsController.action(:show).call(env) }',
+  '  end',
+  'end',
+)
+
 const ROUTES = lines(
   'Rails.application.routes.draw do',
   "  root 'posts#index'",
@@ -427,4 +452,6 @@ export const PULL_FILES: readonly SampleFile[] = [
   unchanged('app/controllers/feeds_controller.rb', FEEDS_CONTROLLER),
   unchanged('app/models/user.rb', USER),
   unchanged('config/routes.rb', ROUTES),
+  unchanged('app/controllers/errors_controller.rb', ERRORS_CONTROLLER),
+  unchanged('config/application.rb', APPLICATION),
 ]
