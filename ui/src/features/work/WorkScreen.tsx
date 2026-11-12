@@ -25,6 +25,7 @@ import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
 import { useReviewList } from './use-review-list.ts'
+import { bindWorkTarget } from './work-target.ts'
 
 /**
  * Work: hobkin and the agents it started, live, with the queue, the finished changes and the projects, and every AI
@@ -45,6 +46,8 @@ export function WorkScreen() {
   const { work, live } = useWorkView()
   const worldAvailable = new Set(work?.projects.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)).size >= 3
   useLayoutEffect(() => bindWorldProject(main.current), [])
+  // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
+  useLayoutEffect(() => bindWorkTarget(main.current), [])
   // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
   const agents = useRunningAgents()
   const still = useStill()

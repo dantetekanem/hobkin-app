@@ -124,6 +124,7 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
         data-work-item=""
         data-work-main=""
         data-stop=""
+        data-queue-row={row.key}
         tabIndex={-1}
         role="group"
         aria-label={`${row.grade ?? ''} ${row.project}: ${row.title}. ${words ?? ''}. Enter ${row.skipped ? 'puts it back' : 'runs it next'}.`}

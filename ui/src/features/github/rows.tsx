@@ -1,4 +1,22 @@
-import { Check, CircleDashed, CircleDot, Clock, GitPullRequest, GitPullRequestDraft, ListPlus, Minus, PenLine, Sparkles, UserRound, X, type LucideIcon } from 'lucide-react'
+import {
+  Ban,
+  Check,
+  CircleCheck,
+  CircleDashed,
+  CircleDot,
+  Clock,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestDraft,
+  ListPlus,
+  LoaderCircle,
+  Minus,
+  PenLine,
+  Sparkles,
+  UserRound,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { motion, type Variants } from 'motion/react'
 import { createContext, useContext, useState, type MouseEvent, type ReactNode } from 'react'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
@@ -9,10 +27,12 @@ import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
-import { LevelCounts, ReviewBadge, ReviewProgress, SaidLine } from '@/features/work/parts.tsx'
+import { LevelCounts, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
 import { runWork, useWorkUi } from '@/features/work/store.ts'
+import { openOnWork } from '@/features/work/work-target.ts'
 import { runCommand, type ChecksState, type GitHubIssue, type ReviewState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
+import { issueChip, JUST_ADDED, type ChipTone } from './issue-work.ts'
 import { openOnGitHub, openPullRequestReview } from './open.ts'
 import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
 
@@ -263,8 +283,9 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
 }
 
 /**
- * An issue, with why it is on the list: assigned to the user, opened by them, or both. It opens on github.com, and
- * Add to queue on its right files it as work on the project whose repository it is in.
+ * An issue, with why it is on the list: assigned to the user, opened by them, or both. It opens on github.com. On its
+ * right, Add to queue files it as work on the project whose repository it is in, and once hobkin has work filed for it
+ * a chip says where that work stands.
  */
 export function IssueRow({ issue, live, now, ...placed }: Placed & { issue: GitHubIssue; live: boolean; now: number }) {
   const updated = Date.parse(issue.updatedAt)
@@ -289,20 +310,87 @@ export function IssueRow({ issue, live, now, ...placed }: Placed & { issue: GitH
             <Labels labels={issue.labels} />
           </p>
         </div>
-        <AddToQueue issue={issue} live={live} />
+        <IssueStanding issue={issue} live={live} />
       </div>
     </Piece>
   )
 }
 
+const CHIP_TONE: Record<ChipTone, string> = {
+  ok: 'bg-ok/15 text-ok-fg',
+  live: 'bg-sun/20 text-sun-fg',
+  warn: 'bg-warn/15 text-warn-fg',
+  quiet: 'bg-surface-2 text-muted-foreground',
+}
+
+const CHIP_ICON: Record<string, LucideIcon> = {
+  'Added to queue': Check,
+  'In queue': Clock,
+  Working: LoaderCircle,
+  'Waiting for you': UserRound,
+  'PR open': GitPullRequest,
+  Merged: GitMerge,
+  Done: CircleCheck,
+  Declined: Ban,
+  Dropped: Minus,
+}
+
+const CHIP = 'inline-flex h-7 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-medium whitespace-nowrap'
+
 /**
- * Add to queue: hobkin files the issue on the project whose repository it is in, first in the queue, and its answer
- * stays on the row: added, already filed, or why not. The button waits while hobkin reads the issue.
+ * Where an issue's work stands, on its card: Add to queue while hobkin has nothing filed for it, and then a chip.
+ * Right after Add to queue the chip says so, with hobkin's whole answer in its tooltip. A chip whose item the Work
+ * screen shows opens it there, and a PR's chip comes with the PR's link. A refusal says why, in a line or two.
  */
-function AddToQueue({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
   const place = `issue:${issue.url}`
   const busy = useWorkUi((state) => Boolean(state.busy[place]))
   const said = useWorkUi((state) => state.said[place])
+  const added = said?.tone === 'done'
+  const { work } = issue
+
+  if (work || added) {
+    const chip = work ? issueChip(work, added) : JUST_ADDED
+    const why = added ? (said?.text ?? '') : `Filed on ${work!.project} as ${work!.item}.`
+    const Icon = CHIP_ICON[chip.label] ?? CircleDot
+    const face = (
+      <>
+        <Icon className="size-3.5" aria-hidden="true" />
+        {chip.label}
+      </>
+    )
+    return (
+      <div className="relative z-10 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
+        {chip.target ? (
+          <button
+            type="button"
+            data-stop=""
+            title={`${why} Opens it on the Work screen.`}
+            onClick={() => openOnWork(chip.target!)}
+            className={cn(CHIP, CHIP_TONE[chip.tone], 'outline-offset-2 transition-opacity duration-[160ms] ease-[ease] hover:opacity-80')}
+          >
+            {face}
+          </button>
+        ) : (
+          <span title={why} className={cn(CHIP, CHIP_TONE[chip.tone])}>
+            {face}
+          </span>
+        )}
+        {work?.state === 'pr' && work.pr ? (
+          <a
+            href={work.pr}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-stop=""
+            onClick={(event) => openOnGitHub(event, work.pr!)}
+            className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Open the PR
+          </a>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
@@ -310,7 +398,11 @@ function AddToQueue({ issue, live }: { issue: GitHubIssue; live: boolean }) {
         <ListPlus aria-hidden="true" />
         {busy ? 'Adding…' : 'Add to queue'}
       </Button>
-      {said ? <SaidLine tone={said.tone}>{said.text}</SaidLine> : null}
+      {said ? (
+        <p role="alert" title={said.text} className="line-clamp-2 text-[13px] leading-snug text-bad-fg">
+          {said.text}
+        </p>
+      ) : null}
     </div>
   )
 }

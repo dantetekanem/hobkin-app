@@ -9,12 +9,13 @@ test("Add to queue is hobkin's own issue action, by repository and number, and P
   assert.deepEqual(commandFor({ do: 'issues', slug: 'storefront', issues: 'labeled' }), { name: 'work.project', args: { slug: 'storefront', issues: 'labeled' } })
 })
 
-test('with no host, Add to queue says it is sample data and adds nothing, and Pick up issues changes only its own sample project', () => {
+test('with no host, Add to queue answers as added, saying in its words that nothing reached hobkin, and Pick up issues changes only its own sample project', () => {
   const work = sampleWork()
 
-  const added = applySample(work, { do: 'issue', repo: 'hobkin-sample/storefront', number: 468 })
-  assert.ok('refused' in added)
-  assert.match(added.refused, /^This is sample data, so nothing was added\./)
+  const added = applySample(work, { do: 'issue', repo: 'hobkin-sample/storefront', number: 455 })
+  assert.ok('state' in added)
+  assert.equal(added.state, work, 'the sample queue stays as it was')
+  assert.match(added.message, /^This is sample data, so nothing reached hobkin\./)
 
   const set = applySample(work, { do: 'issues', slug: 'docs-site', issues: 'all' })
   assert.ok('state' in set)
