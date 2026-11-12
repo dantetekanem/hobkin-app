@@ -34,13 +34,13 @@ const NO_CHILDREN: readonly RunChild[] = []
 /** The agents a run spawned: the host's for a live window, the sample's before a host has answered. */
 export function useRunChildren(runId: string): readonly RunChild[] {
   const live = useHasHost()
-  const children = useHost((state) => childrenFrom(state.snapshot, runId))
+  const children = useHost((state) => childrenFrom(state.snapshot, runId, state))
   return live ? children : (sampleChildren[runId] ?? NO_CHILDREN)
 }
 
 /** The agents hobkin's own chat spawned: the host's for a live window, the sample's before a host has answered. */
 export function useMainChildren(): readonly RunChild[] {
   const live = useHasHost()
-  const children = useHost((state) => mainChildrenFrom(state.snapshot))
+  const children = useHost((state) => mainChildrenFrom(state.snapshot, state))
   return live ? children : sampleMainChildren
 }

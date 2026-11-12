@@ -22,6 +22,8 @@ export type Link = 'none' | 'connecting' | 'open' | 'lost'
 /** Everything the UI knows from the host. It is a function of the messages received, and of nothing else. */
 export interface HostState {
   link: Link
+  /** A full state from this host has replaced retained pre-hello facts. */
+  snapshotReady: boolean
   /** The folder hobkin's data lives in. */
   home: string | null
   model: 'scripted' | 'live' | null
@@ -52,6 +54,7 @@ export interface HostState {
 
 export const initialHostState: HostState = {
   link: 'connecting',
+  snapshotReady: false,
   home: null,
   model: null,
   owner: null,
@@ -87,6 +90,7 @@ function applyState(state: HostState, message: StateMessage): HostState {
   return {
     ...state,
     snapshot,
+    snapshotReady: message.reset ? true : state.snapshotReady,
     messages,
     owner: message.owner ?? state.owner,
     signIn: message.signIn ?? state.signIn,
@@ -112,6 +116,7 @@ export function applyHostMessage(state: HostState, message: HostMessage): HostSt
       return {
         ...state,
         link: 'open',
+        snapshotReady: false,
         home: message.home,
         model: message.model,
         owner: message.owner,

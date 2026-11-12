@@ -66,13 +66,14 @@ export interface RunSummary {
   stalled?: boolean
 }
 
-/**
- * An agent a run spawned through pi-extended-teams, as hobkin reads it from the teams tools' own results and report
- * messages (`children` in its `src/cli/job-activity.mjs`): never a child's transcript, prompt or session file. Its
- * parent is the run it is listed under. An agent's own read agents run inside it and never reach the run, so they
- * are not listed.
- */
+/** Bounded public owned descendants, or legacy teams rows without ancestry. Never a private transcript. */
 export interface RunChild {
+  /** Exact runtime ancestry; absent on legacy teams rows. */
+  id?: string
+  parentId?: string
+  rootId?: string
+  depth?: number
+  activity?: readonly ActivityEntry[]
   name: string
   role?: string
   modelSlot?: string
@@ -80,7 +81,7 @@ export interface RunChild {
    * `reported`: its report reached the run, which says nothing of whether the work is right. `failed`: it could not
    * start or reported a failure. `stopped`: the run ended before it reported, so how it ended is unknown.
    */
-  state: 'queued' | 'running' | 'reported' | 'failed' | 'stopped'
+  state: 'queued' | 'running' | 'cancelling' | 'unknown' | 'completed' | 'failed' | 'cancelled' | 'reported' | 'stopped'
   queuePosition?: number
   /** The completion group of the swarm it came in. A group reports once for all its agents. */
   group?: string
@@ -197,7 +198,7 @@ export interface WireSnapshot {
   steeringReceipts?: Record<string, readonly { noteId: string; at: number }[]>
   /** Each run's spawned agents, by run id, only for runs that spawned any. It travels whole, and the host keeps ended runs. */
   jobChildren?: Record<string, readonly RunChild[]>
-  /** The agents hobkin's main chat spawned in this session. A reset starts the list over, and ends what was out as `stopped`. */
+  /** Main chat's bounded descendants. Owned lifecycle states are independent of legacy teams reports. */
   mainChildren?: readonly RunChild[]
   /** The main chat's latest words and tool calls, as a job's are kept (`mainActivity` in hobkin's runtime). A reset starts it over. */
   mainActivity?: readonly ActivityEntry[]

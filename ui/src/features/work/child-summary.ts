@@ -1,17 +1,23 @@
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 
-/**
- * How a run's own agents (the ones it spawned through pi-extended-teams) are put into words. Pure, so the counting
- * is tested without a window. It says only what the run's stream showed: a child's live steps never reach hobkin,
- * a report says nothing of whether the work is right, and a child the run outlived ended in a way nobody saw.
- */
+/** Owned lifecycle and legacy teams reports stay distinct; neither proves the work is right. */
 
 type ChildState = RunChild['state']
 
 /** What is still out first, then failures, then how the rest ended. */
-const ORDER: readonly ChildState[] = ['running', 'queued', 'failed', 'reported', 'stopped']
+const ORDER: readonly ChildState[] = ['running', 'queued', 'cancelling', 'unknown', 'failed', 'completed', 'cancelled', 'reported', 'stopped']
 
-const WORD: Record<ChildState, string> = { running: 'running', queued: 'queued', reported: 'reported', failed: 'failed', stopped: 'never reported' }
+const WORD: Record<ChildState, string> = {
+  running: 'running',
+  queued: 'queued',
+  cancelling: 'cancelling',
+  unknown: 'unknown',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  reported: 'reported',
+  failed: 'failed',
+  stopped: 'never reported',
+}
 
 /** "3 helpers · 1 running, 1 queued, 1 reported", or nothing for a run that spawned none. */
 export function childrenSummary(children: readonly RunChild[]): string {
@@ -37,6 +43,10 @@ const MEANING: Record<ChildState, string> = {
   reported: 'sent its report, which does not say whether the work is right',
   failed: 'failed: it could not start, or reported a failure',
   stopped: 'never reported: the run ended first, so how it ended is unknown',
+  cancelling: 'cancelling: cancellation requested, termination not yet confirmed',
+  unknown: 'unknown: last-known facts do not establish current execution or termination',
+  completed: 'completed: execution ended, which does not say whether the work is right',
+  cancelled: 'cancelled: execution ended after cancellation',
 }
 
 /** One child in full, for a tooltip or a screen reader. */
@@ -45,7 +55,8 @@ export function describeChild(child: RunChild): string {
   const position = child.state === 'queued' && child.queuePosition ? `, number ${child.queuePosition} in line` : ''
   const last = [child.phase, child.activeTool].filter(Boolean).join(', ')
   const status = child.state === 'running' && last ? `; at the run's last status check: ${last}` : ''
-  return `${who}: ${MEANING[child.state]}${position}${status}`
+  const meaning = child.id && child.state === 'failed' ? 'failed: owned execution failed' : MEANING[child.state]
+  return `${who}: ${meaning}${position}${status}`
 }
 
 /**
@@ -62,17 +73,18 @@ export function satellitesOf(children: readonly RunChild[], room: number): { sho
 export const HOBKIN_HUE = 70
 
 const NONE: readonly RunChild[] = []
-const isOut = (child: RunChild) => child.state === 'running' || child.state === 'queued'
+const isOut = (child: RunChild) => ['running', 'queued', 'cancelling', 'unknown'].includes(child.state)
 
 /**
- * hobkin's own helpers worth showing now: none once all have ended, else the ones still out and those that ended
- * since the first of them started, so a long chat's earlier helpers do not pile up.
+ * Show unresolved helpers with their bounded owned companions. Legacy teams rows retain their reported time window.
  */
 export function helpersNow(children: readonly RunChild[]): readonly RunChild[] {
   const out = children.filter(isOut)
   if (out.length === 0) return NONE
-  const since = Math.min(...out.map((child) => child.startedAt ?? 0))
-  return children.filter((child) => isOut(child) || (child.endedAt ?? 0) >= since)
+  // Owned rows have no timestamps: trust their bounded producer order, never infer an age.
+  const legacyOut = out.filter((child) => !child.id)
+  const since = Math.min(...legacyOut.map((child) => child.startedAt ?? 0))
+  return children.filter((child) => Boolean(child.id) || isOut(child) || (child.endedAt ?? 0) >= since)
 }
 
 /** A child wears its parent's hue, turned a little each, so siblings tell apart and never move in step. */

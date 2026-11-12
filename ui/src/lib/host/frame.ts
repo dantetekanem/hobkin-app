@@ -64,11 +64,29 @@ export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { i
 
 const NO_CHILDREN: readonly RunChild[] = []
 
-/** The agents a run spawned through pi-extended-teams, ended runs included while the host keeps them. Its parent is the run. */
-export const childrenFrom = (snapshot: WireSnapshot, runId: string): readonly RunChild[] => snapshot.jobChildren?.[runId] ?? NO_CHILDREN
+type ChildFreshness = Pick<HostState, 'link' | 'snapshotReady'>
+const staleChildren = new WeakMap<readonly RunChild[], readonly RunChild[]>()
 
-/** The agents hobkin's own chat spawned through pi-extended-teams. Its parent is hobkin. */
-export const mainChildrenFrom = (snapshot: WireSnapshot): readonly RunChild[] => snapshot.mainChildren ?? NO_CHILDREN
+/** Cache by source list so Zustand selectors keep stable references between messages. */
+function projectChildren(children: readonly RunChild[], snapshot: WireSnapshot, freshness?: ChildFreshness): readonly RunChild[] {
+  const snapshotLive = snapshot.connection !== 'offline' && snapshot.connection !== 'connecting'
+  const hostReady = !freshness || (freshness.link === 'open' && freshness.snapshotReady)
+  if (snapshotLive && hostReady) return children
+  let held = staleChildren.get(children)
+  if (!held) {
+    held = children.map((child) => {
+      if (['queued', 'running', 'cancelling'].includes(child.state)) return { ...child, state: 'unknown' as const }
+      return child
+    })
+    staleChildren.set(children, held)
+  }
+  return held
+}
+
+/** Exact owned ancestry and legacy rows, including retained last-known facts. */
+export const childrenFrom = (snapshot: WireSnapshot, runId: string, freshness?: ChildFreshness): readonly RunChild[] => projectChildren(snapshot.jobChildren?.[runId] ?? NO_CHILDREN, snapshot, freshness)
+
+export const mainChildrenFrom = (snapshot: WireSnapshot, freshness?: ChildFreshness): readonly RunChild[] => projectChildren(snapshot.mainChildren ?? NO_CHILDREN, snapshot, freshness)
 
 /** What waits on the user: open questions, plus every row hobkin counts as waiting (`decisionCount` in its `src/cli/ui.mjs`). */
 export function actionItemCountFrom(snapshot: WireSnapshot): number {

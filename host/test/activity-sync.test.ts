@@ -4,6 +4,7 @@ import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import { applyHostMessage, initialHostState } from '../../ui/src/lib/host/state.ts'
 import { ActivityKeeper } from '../src/activity.ts'
 import { StateSync } from '../src/state-sync.ts'
+import type { RunChild } from '#shared/protocol/snapshot.ts'
 
 const owner = { state: 'live', limits: { images: 4, imageBytes: 1024 } } as const
 const signIn = { status: 'signed-in' } as const
@@ -72,6 +73,50 @@ test('a run that ended keeps its spawned agents as hobkin last sent them, and a 
   assert.equal(sync.update(facts({ jobActivity: {}, jobChildren: {} })), null, 'the ended run stands as it was sent')
   assert.deepEqual(sync.full().set?.jobChildren, { r1: [{ ...scout, state: 'stopped' }] })
   assert.deepEqual(keeper.keep({ busy: false }).jobChildren, { r1: [{ ...scout, state: 'stopped' }] }, 'a saved view changes nothing kept')
+})
+
+test('owned ancestry and late child-only updates survive deltas and reconnects without a synthetic feed', () => {
+  const keeper = new ActivityKeeper()
+  const sync = new StateSync({ owner, signIn, models: null })
+  const facts = (snapshot: object) => ({ owner, signIn, models: null, snapshot: keeper.keep(snapshot) })
+  const parent = { id: 'p', parentId: 'root', rootId: 'root', depth: 1, name: 'same', state: 'completed', activity: [] } as const
+  const grandchild = { ...parent, id: 'g', parentId: 'p', depth: 2, state: 'running', activity: [said('g', 'Reading')] } as const
+  sync.update(facts({ jobActivity: { root: [said('p', 'Done')] }, jobChildren: { root: [parent, grandchild] } }))
+  let client = applyHostMessage(initialHostState, sync.full())
+  assert.deepEqual(client.snapshot.jobChildren?.root, [parent, grandchild])
+
+  const final = { ...grandchild, state: 'cancelled', activity: [said('g', 'Ended')] } as const
+  const other = { ...parent, id: 'o', rootId: 'other', parentId: 'other' }
+  const delta = sync.update(facts({ jobActivity: {}, jobChildren: { root: [parent, final], other: [other] } }))
+  assert.ok(delta, 'a late descendant update must travel even without the parent feed')
+  client = applyHostMessage(client, delta)
+  assert.deepEqual(client.snapshot.jobChildren?.other, [other])
+  assert.deepEqual(client.snapshot.jobChildren?.root, [parent, final])
+  assert.deepEqual(client.snapshot.jobActivity, { root: [said('p', 'Done')] })
+  assert.deepEqual(applyHostMessage(initialHostState, sync.full()).snapshot, client.snapshot)
+})
+
+test('child-only roots retain twenty copied last-known groups without source mutation or resurrection', () => {
+  const keeper = new ActivityKeeper()
+  const source: RunChild[] = [
+    { id: 'c', parentId: 'r', rootId: 'r', depth: 1, name: 'c', state: 'running', activity: [] },
+    { name: 'legacy', state: 'running' },
+  ]
+  assert.deepEqual(keeper.keep({ jobChildren: { r: source } }).jobActivity, {})
+  const removed = keeper.keep({ jobChildren: {} })
+  assert.deepEqual((removed.jobChildren.r as RunChild[]).map(({ state }) => state), ['unknown', 'unknown'])
+  assert.deepEqual(source.map(({ state }) => state), ['running', 'running'])
+
+  for (let i = 0; i < 21; i++) {
+    keeper.keep({ jobActivity: {}, jobChildren: { [`r${i}`]: [{ ...source[0], state: 'completed' }] } })
+    keeper.keep({ jobActivity: {}, jobChildren: {} })
+  }
+  const retained = keeper.keep({ busy: false })
+  assert.equal(Object.keys(retained.jobChildren).length, 20)
+  assert.equal(retained.jobChildren.r, undefined)
+  assert.equal(retained.jobChildren.r0, undefined)
+  assert.deepEqual(new ActivityKeeper().keep({ busy: false }).jobChildren, {})
+  assert.deepEqual(keeper.keep({ jobChildren: { r: source } }).jobActivity, {})
 })
 
 test("the main chat's activity travels as steps beside the jobs', and reaches the UI as its own key", () => {
