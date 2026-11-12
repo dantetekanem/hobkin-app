@@ -2,12 +2,16 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { MotionConfig, useMotionValueEvent } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
+import type { ReviewNotes } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
 import { createReviewLoader, type ReviewLoader } from './loader.ts'
 import { Preparing } from './Preparing.tsx'
+import { RunCard } from './preparing/RunCard.tsx'
+import { sampleHost } from './preparing/sample-run.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
+import { isSamplePull } from './sample/pull-id.ts'
 import { escapeReview, reviewTakesEscape } from './entry.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
@@ -82,10 +86,18 @@ export function ReviewScreen() {
   const closeReview = useView((view) => view.closeReview)
   const home = useHost((state) => state.home)
   const live = Boolean(home) && !SAMPLE_REVIEWS.includes(reviewId ?? 'sample')
-  const loader = useMemo(() => createReviewLoader({
-    id: reviewId ?? 'sample', scope: live ? `host:${home}` : 'sample', memory: reviewMemory,
-    ...(live ? { command: commandsOnHost(home) } : { sample: sampleSource }),
-  }), [reviewId, home, live])
+  const loader = useMemo(() => {
+    const id = reviewId ?? 'sample'
+    const scope = live ? `host:${home}` : 'sample'
+    // With no host, a sample pull request is prepared by a made-up host, so its preparation and rebuilds can be seen.
+    // Its notes stay the window's own.
+    const windowNotes = (review: Review): ReviewNotes => {
+      const saved = reviewMemory.getState().of({ ...review, memoryScope: scope } as Review)
+      return { entries: saved.notes, draft: saved.draft }
+    }
+    const source = live ? { command: commandsOnHost(home) } : isSamplePull(id) ? { command: sampleHost(id, sampleSource, windowNotes) } : { sample: sampleSource }
+    return createReviewLoader({ id, scope, memory: reviewMemory, ...source })
+  }, [reviewId, home, live])
 
   useEffect(() => {
     void loader.load()
@@ -107,7 +119,7 @@ export function ReviewScreen() {
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => status === 'preparing' || status === 'awaiting'
     ? <Preparing loader={loader} closeReview={closeReview} />
-    : <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />} />
+    : <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />} renderRun={() => <RunCard loader={loader} />} />
 }
 
 function ReviewWaiting({ status, reason, closeReview }: { status: string; reason: string | null; closeReview: () => void }) {
