@@ -237,6 +237,45 @@ export function layoutReview(nodes: readonly LayoutNode[], edges: readonly Layou
   return positions
 }
 
+/** Room between the bottom of the flow and the nodes set apart under it, where the block's label reads. */
+export const APART_GAP = 120
+/** Room between two nodes side by side in the block apart, and the most it holds in one row. */
+const APART = { gap: 40, perRow: 4 } as const
+
+/** Where every node sits, and the block of nodes nothing wires, with the box around it for its label. */
+export interface GraphLayout {
+  positions: Positions
+  apart: { ids: string[]; box: Rect } | null
+}
+
+/**
+ * The graph as it is drawn (the user, 2026-11-12: "many nodes also doesn't connect"): every wired node in the flow of
+ * its columns, as `layoutReview` places them, and the nodes nothing wires in a compact block under it, out of its way,
+ * in rows as wide as the flow. An acceptance line stays in the spec's column even when nothing proves it: an unproven
+ * promise belongs with the others.
+ */
+export function layoutGraph(nodes: readonly LayoutNode[], edges: readonly LayoutEdge[]): GraphLayout {
+  const wired = new Set(edges.filter((edge) => edge.from !== edge.to).flatMap((edge) => [edge.from, edge.to]))
+  const alone = nodes.filter((node) => node.kind !== 'criterion' && !wired.has(node.id))
+  if (alone.length === 0) return { positions: layoutReview(nodes, edges), apart: null }
+
+  const flow = nodes.filter((node) => !alone.includes(node))
+  const positions = layoutReview(flow, edges)
+  const width = Math.max(...Object.values(NODE_SIZE).map((size) => size.width))
+  const flowBox = boundsOf(flow.map((node) => nodeRect(node.kind, positions[node.id]!)))
+  const across = flow.length > 0 ? Math.floor((flowBox.width + APART.gap) / (width + APART.gap)) : APART.perRow
+  const perRow = Math.max(1, Math.min(APART.perRow, alone.length, across))
+  const top = flow.length > 0 ? flowBox.y + flowBox.height + APART_GAP : 0
+  let y = top
+  for (let start = 0; start < alone.length; start += perRow) {
+    const row = alone.slice(start, start + perRow)
+    row.forEach((node, index) => (positions[node.id] = { x: index * (width + APART.gap), y }))
+    y += Math.max(...row.map((node) => NODE_SIZE[node.kind].height)) + ROW_GAP
+  }
+  const box = boundsOf(alone.map((node) => nodeRect(node.kind, positions[node.id]!)))
+  return { positions, apart: { ids: alone.map((node) => node.id), box } }
+}
+
 /** The box around a set of nodes. */
 export function boundsOf(rects: readonly Rect[]): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 0, height: 0 }

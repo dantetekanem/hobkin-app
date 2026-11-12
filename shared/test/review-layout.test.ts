@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { columnsOf, layoutReview, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, type LayoutEdge, type LayoutNode } from '../review/layout.ts'
+import { APART_GAP, columnsOf, layoutGraph, layoutReview, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, type LayoutEdge, type LayoutNode } from '../review/layout.ts'
 import { stressReview } from '../review/stress.ts'
 import type { NodeKind } from '../review/types.ts'
 
@@ -166,4 +166,34 @@ test('the 80 node stress review lays out without overlap, with every node in its
   assert.ok(reach(['criterion']) < start(['test']))
   assert.ok(reach(['test']) < start(['code', 'file']))
   assert.ok(reach(['code', 'file']) < start(['context']))
+})
+
+test('nodes nothing wires are set apart under the flow, in a compact block, and acceptance lines stay in the spec', () => {
+  const all = [...nodes, node('readme', 'file'), node('helper', 'test'), node('A4', 'criterion')]
+  const { positions, apart } = layoutGraph(all, edges)
+  const wired = new Set(edges.flatMap((edge) => [edge.from, edge.to]))
+  const alone = all.filter((entry) => !wired.has(entry.id) && entry.kind !== 'criterion').map((entry) => entry.id)
+  assert.deepEqual(apart?.ids.slice().sort(), alone.slice().sort(), 'the unwired ones, and no acceptance line')
+  assertNoOverlap(all, positions)
+
+  // The flow is laid out as if the unwired nodes were not there, and they all sit under it, out of its way.
+  const flow = all.filter((entry) => !alone.includes(entry.id))
+  assert.deepEqual(Object.fromEntries(flow.map((entry) => [entry.id, positions[entry.id]])), layoutReview(flow, edges))
+  const bottom = Math.max(...flow.map((entry) => positions[entry.id]!.y + NODE_SIZE[entry.kind].height))
+  for (const id of alone) assert.ok(positions[id]!.y >= bottom + APART_GAP - 1, `${id} sits under the flow`)
+  // In rows, not one tall column, and inside the box its label reads above.
+  const rows = new Set(alone.map((id) => positions[id]!.y))
+  assert.ok(rows.size < alone.length)
+  for (const id of alone) {
+    const rect = nodeRect(all.find((entry) => entry.id === id)!.kind, positions[id]!)
+    assert.ok(rect.x >= apart!.box.x && rect.y >= apart!.box.y && rect.x + rect.width <= apart!.box.x + apart!.box.width && rect.y + rect.height <= apart!.box.y + apart!.box.height)
+  }
+  assert.equal(positions.A4!.x, positions.A1!.x, 'an acceptance line nothing proves stays with the others')
+
+  // A graph where everything is wired has nothing apart, and the same layout as before.
+  assert.deepEqual(layoutGraph(nodes.filter((entry) => wired.has(entry.id)), edges), { positions: layoutReview(nodes.filter((entry) => wired.has(entry.id)), edges), apart: null })
+  // A graph where nothing is wired is only the block.
+  const lonely = layoutGraph([node('x', 'file'), node('y', 'file')], [])
+  assert.deepEqual([lonely.positions.x, lonely.apart?.ids], [{ x: 0, y: 0 }, ['x', 'y']])
+  assert.equal(lonely.positions.y!.y, 0, 'side by side')
 })
