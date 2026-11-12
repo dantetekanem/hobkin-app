@@ -13,7 +13,7 @@ import { extensionOf, fileName, fileRole } from './paths.ts'
 import { cleanProse, count, listed } from './prose.ts'
 import { declaredSignature } from './signature.ts'
 import { HOST_TEXT_LIMIT, NO_SPEC_NOTICE, PROSE_LIMIT, SIZE_LIMIT, TITLE_LIMIT, type EdgeKind, type NodeIO, type NodeStatus, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewNode, type ReviewPath } from './types.ts'
-import { codeIdentifiers, findDeclaration, functionOwners, importCandidates, importPath, importSpecifiers, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
+import { codeIdentifiers, findDeclaration, importCandidates, importPath, importSpecifiers, isTopStatement, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
 import { addVicinity, type Vicinity } from './vicinity.ts'
 
 export interface PrepareInput {
@@ -424,17 +424,14 @@ const RUNS_PROGRAM = /\bOpen3\.(?:capture\w*|popen\w*|pipeline\w*)\b|(?:^|[^\w.]
 
 /**
  * A test that runs a changed script by its path, as `Open3.capture3(File.expand_path("../../bin/report", __dir__))`
- * does, reaches what the script runs: the definitions its top-level code names, `exit Report.run(ARGV)`.
+ * does, reaches what runs first: the script's top-level code, `exit Report.run(ARGV)`.
  */
 function wireScriptRuns({ capture, nodes, units, wire }: { capture: Capture; nodes: readonly ReviewNode[]; units: readonly Unit[]; wire: Wire }) {
   const scripts = new Map<string, ReviewNode[]>()
   for (const file of capture.files) {
     if (file.head == null || fileName(file.path).includes('.') || fileRole(file.path, file.head.split('\n', 1)[0]) !== 'code') continue
-    const source = splitLines(file.head)
-    const { owners } = functionOwners(source)
-    const runs = source.filter((line, index) => owners[index] == null && /^\S/.test(line) && !/^(?:#|require\b|end\b|class\b|module\b)/.test(line)).join('\n')
-    const names = codeIdentifiers(runs)
-    scripts.set(file.path, nodes.filter((node) => node.kind === 'code' && node.subtitle === file.path && names.has(node.title)))
+    const runs = splitLines(file.head).flatMap((line, index) => (isTopStatement(line) ? [index + 1] : []))
+    scripts.set(file.path, nodes.filter((node) => node.kind === 'code' && node.subtitle === file.path && node.anchors.some((anchor) => anchor.side === 'added' && runs.some((line) => anchor.startLine <= line && line <= anchor.endLine))))
   }
   if (scripts.size === 0) return
   for (const unit of units.filter((entry) => entry.role === 'test' && RUNS_PROGRAM.test(entry.code))) {

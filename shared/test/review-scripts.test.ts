@@ -90,20 +90,24 @@ async function prepared(vicinity: Vicinity): Promise<Review> {
   })
 }
 
-test('a Ruby script with no extension is cut into its definitions, and its tests reach them, through their helpers and by running it', async () => {
-  // As the scan reads it: run_report calls Report.run, which makes a Report and calls total; nothing outside calls run.
+test('a Ruby script with no extension is cut into its definitions and its top-level code, and its tests reach them, through their helpers and by running it', async () => {
+  // As the scan reads it: the script's last line calls Report.run, which makes a Report and calls total; run_report
+  // calls Report.run too. That last line runs from the command line.
   const run = { path: 'bin/report', symbol: 'Report.run', startLine: 5, endLine: 8 }
+  const command = { path: 'bin/report', symbol: 'exit Report.run(ARGV) if $PROGRAM_NAME == __FILE__', startLine: 19, endLine: 19 }
   const review = await prepared({
     links: [
+      { near: { changed: { path: 'bin/report', line: 6 } }, other: command, direction: 'caller', hops: 1, call: { line: 19, name: 'run' }, proven: true, entry: { kind: 'command', exact: true } },
       { near: { changed: { path: 'bin/report', line: 15 } }, other: run, direction: 'caller', hops: 1, call: { line: 6, name: 'total' }, proven: false },
       { near: { changed: { path: 'bin/report', line: 11 } }, other: run, direction: 'caller', hops: 1, call: { line: 6, name: 'new' }, proven: true },
     ],
     tests: [{ changed: { path: 'bin/report', line: 6 }, test: { path: 'test/bin/report_test.rb', symbol: 'ReportTest#run_report', line: 26 } }],
-    reach: [{ changed: { path: 'bin/report', line: 6 }, symbol: 'Report.run', hops: 0 }, { changed: { path: 'bin/report', line: 15 }, symbol: 'Report#total', hops: 1 }],
+    entries: [{ changed: { path: 'bin/report', line: 19 }, entry: { kind: 'command', exact: true } }],
+    reach: [{ changed: { path: 'bin/report', line: 6 }, symbol: 'Report.run', hops: 1 }, { changed: { path: 'bin/report', line: 15 }, symbol: 'Report#total', hops: 1 }, { changed: { path: 'bin/report', line: 19 }, symbol: command.symbol, hops: 0 }],
   })
   assert.deepEqual(validateReview(review), [])
   const inScript = review.nodes.filter((node) => node.subtitle === 'bin/report')
-  assert.deepEqual(inScript.map((node) => [node.kind, node.title]), [['code', 'run'], ['code', 'initialize'], ['code', 'total']])
+  assert.deepEqual(inScript.map((node) => [node.kind, node.title]), [['code', 'run'], ['code', 'initialize'], ['code', 'total'], ['code', command.symbol]])
   assert.ok(inScript.every((node) => node.unwired === undefined), inScript.map((node) => `${node.title}: ${node.unwired}`).join(', '))
   assert.deepEqual(review.nodes.filter((node) => node.subtitle === 'bin/setup').map((node) => node.kind), ['file'], 'a shell script stays a file')
 
@@ -116,6 +120,13 @@ test('a Ruby script with no extension is cut into its definitions, and its tests
   assert.deepEqual(reaches('counts its arguments').map(([title]) => title), ['run'])
   assert.deepEqual(reaches('counts nothing').map(([title]) => title), ['run'])
   assert.deepEqual(reaches('counts nil').map(([title]) => title), ['run'])
-  assert.deepEqual(reaches('runs as a command'), [['run', 'runs bin/report']])
+  assert.deepEqual(reaches('runs as a command'), [[command.symbol, 'runs bin/report']], 'running the script runs its top-level code')
+
+  // The way in starts on the command line.
+  assert.deepEqual(node(command.symbol).entry, { kind: 'command', exact: true })
+  assert.deepEqual(node('run').lifecycle, { role: 'changed', hops: 1, path: 'bin/report (command) → Report.run' })
+  assert.deepEqual(node('total').lifecycle, { role: 'changed', hops: 2, path: 'bin/report (command) → Report.run → Report#total' })
+  assert.deepEqual(node(command.symbol).lifecycle, { role: 'changed', hops: 0, path: 'bin/report (command)' })
+  assert.equal(review.edges.find((edge) => edge.from === node(command.symbol).id && edge.to === node('run').id)?.kind, 'calls', 'the last line of the script calls Report.run')
   assert.match(node('sample').unwired ?? '', /reaches none of the code this change touched/, 'a data helper calls none of it')
 })

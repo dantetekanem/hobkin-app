@@ -80,6 +80,15 @@ test('a job is where a request enters, and the way goes on through what enqueues
   ])
 })
 
+test('a script statement that runs from the command line is where a request enters, with no door before it', async () => {
+  const total = node('m1', 'app/models/pricing.rb', 'Pricing.round', 2, 4)
+  const statement = node('s1', 'bin/report', 'exit Report.run(ARGV) if $PROGRAM_NAME == __FILE__', 19, 19, { kind: 'statement', entry: { kind: 'command', exact: true } })
+  const { run, calls } = fakeScans([pack([total, statement], [anchor(total, [caller('s1', statement.path, 19)], { changedLines: [3] })])])
+  const found = await scan(run)
+  assert.deepEqual(found.links.map(shape), [['exit Report.run(ARGV) if $PROGRAM_NAME == __FILE__', 1, null, null, 'command']])
+  assert.equal(calls.length, 1, 'nothing further out than the command line is looked for')
+})
+
 test('a template rendered by name is called by the line that renders it, as that line names it', async () => {
   const partial = node('p1', 'app/views/posts/_post.html.erb', 'posts/_post.html.erb', 1, 9, { kind: 'template' })
   const page = node('t1', 'app/views/topics/show.html.erb', 'topics/show.html.erb', 1, 30, { kind: 'template' })

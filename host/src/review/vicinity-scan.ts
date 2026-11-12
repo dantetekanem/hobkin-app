@@ -204,7 +204,8 @@ function definitionOf(value: unknown): Definition | undefined {
   const doors = doorsOf(entry)
   return {
     id, path, symbol, startLine, endLine, kind: text(raw.kind) ?? '', language: text(raw.language) ?? '',
-    ...(entry && text(entry.kind) && !PACKAGE_DOORS.has(text(entry.kind)!) ? { entry: { kind: text(entry.kind)!, exact: entry.exact === true } } : {}),
+    // What a package.json exposes comes in by its doors; a script's statement is where work starts by itself.
+    ...(entry && text(entry.kind) && !(PACKAGE_DOORS.has(text(entry.kind)!) && list(entry.doors).length > 0) ? { entry: { kind: text(entry.kind)!, exact: entry.exact === true } } : {}),
     ...(doors.length ? { doors } : {}),
   }
 }

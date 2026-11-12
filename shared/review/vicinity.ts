@@ -121,11 +121,6 @@ export const VICINITY_LIMIT = 24
  */
 export const LIFE_CYCLE = { hops: 6, callers: 3, callees: 3, ways: 3, routes: 3 } as const
 
-/**
- * Entries that are the door a request comes in by, one step before the code they send it to: a route, Rails's
- * exceptions app, and what a package.json exposes: a command, a module Pi loads, a name the package exports.
- */
-const DOORS = new Set(['route', 'exceptions-app', 'command', 'extension', 'export'])
 
 export interface VicinityGraph {
   capture: Capture
@@ -230,6 +225,8 @@ export async function addVicinity(vicinity: Vicinity, graph: VicinityGraph): Pro
   const left = new Map<string, 'missing' | 'limit'>()
   /** The called-by wires drawn, from the node nearer the change to the one further out. */
   const outward = new Map<string, string[]>()
+  /** The nodes that are a door a request comes in by: a route, a config line, a line of package.json. */
+  const doors = new Set<string>()
   let made = 0
 
   for (const link of vicinity.links) {
@@ -291,6 +288,7 @@ export async function addVicinity(vicinity: Vicinity, graph: VicinityGraph): Pro
           continue
         }
         far = contextNode(`v${(made += 1)}`, link, spot)
+        if (link.call.routes != null) doors.add(far.id)
         placed.set(`${spot.fileId}:${spot.startLine}`, far)
         nodes.push(far)
         if (!fileByPath.has(spot.path) && !graph.headFiles.has(spot.path)) {
@@ -311,7 +309,7 @@ export async function addVicinity(vicinity: Vicinity, graph: VicinityGraph): Pro
     const node = holder(changed.path, changed.line)
     if (node && ENTRY_KIND.test(entry.kind)) node.entry = { kind: entry.kind, exact: entry.exact === true }
   }
-  sayTheWayIn(vicinity, nodes, outward, (path, line) => holder(path, line))
+  sayTheWayIn(vicinity, nodes, outward, doors, (path, line) => holder(path, line))
 
   const why = [...left.values()]
   return noticesOf(vicinity, made, why.filter((reason) => reason === 'missing').length, why.filter((reason) => reason === 'limit').length)
@@ -347,13 +345,16 @@ const routeWords = (route: NonNullable<ReviewEntry['route']>) => `${route.verbs.
 function contextNode(id: string, link: VicinityLink, spot: Spot): ReviewNode {
   const route = routeOf(link.entry)
   const entry = link.entry && ENTRY_KIND.test(link.entry.kind) ? { kind: link.entry.kind, exact: link.entry.exact === true, ...(route ? { route } : {}) } : undefined
+  const door = link.call.routes != null
+  // A script's statement that runs from the command line goes by the script: bin/production-errors.
+  const script = !door && entry?.kind === 'command'
   return {
     id,
     kind: 'context',
-    title: cleanProse(route ? routeWords(route) : link.other.symbol, TITLE_LIMIT) || spot.path,
+    title: cleanProse(route ? routeWords(route) : script ? spot.path : link.other.symbol, TITLE_LIMIT) || spot.path,
     subtitle: spot.path,
     change: 'unchanged',
-    summary: cleanProse(entry && DOORS.has(entry.kind) ? doorWords(entry, spot, link.other.symbol, link.call.name) : `${roleWords(link)}${entry ? ` ${entryWords(entry)}` : ''}`, PROSE_LIMIT.summary),
+    summary: cleanProse(entry && door ? doorWords(entry, spot, link.other.symbol, link.call.name) : `${roleWords(link)}${entry ? ` ${entryWords(entry)}` : ''}`, PROSE_LIMIT.summary),
     lifecycle: { role: link.direction, hops: link.hops },
     ...(entry ? { entry } : {}),
     anchors: [{ fileId: spot.fileId, side: 'added', startLine: spot.startLine, endLine: spot.endLine, hash: hashLines(spot.text, spot.startLine, spot.endLine) }],
@@ -373,6 +374,7 @@ function entryWords({ kind, exact }: ReviewEntry): string {
   if (kind === 'controller') return `A request enters here: a controller action${exact ? ' a route names' : ''}.`
   if (kind === 'job') return 'A request enters here: a job the queue runs.'
   if (kind === 'load') return 'It runs as its file loads, so the life cycle starts here.'
+  if (kind === 'command') return 'A request enters here: it runs when the script is run from the command line.'
   return `A request enters here (${kind}).`
 }
 
@@ -392,7 +394,8 @@ function startWords(node: ReviewNode, title: string): string[] {
   if (route) return [routeWords(route)]
   if (node.entry?.kind === 'exceptions-app') return ['A failing request', title]
   if (node.entry?.kind === 'job') return ['The job queue', title]
-  if (node.entry?.kind === 'command') return [`The ${title} command`]
+  // A command goes by its name, a script by its path: agentic-search (command), bin/production-errors (command).
+  if (node.entry?.kind === 'command') return [`${node.kind === 'context' ? node.title : (node.subtitle ?? title)} (command)`]
   if (node.entry?.kind === 'extension') return [`Pi extension ${title}`]
   if (node.entry?.kind === 'export') return [`Export ${title}`]
   return [title]
@@ -415,14 +418,14 @@ function wayWords(parts: readonly string[]): string {
  * nearest entry, with the door one step before it when there is one, and how many calls out the entry is. Where no way
  * reaches an entry, it says how far the scan looked, and where the way out stops.
  */
-function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyMap<string, readonly string[]>, holder: (path: string, line: number) => ReviewNode | undefined) {
+function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyMap<string, readonly string[]>, doors: ReadonlySet<string>, holder: (path: string, line: number) => ReviewNode | undefined) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const reachOf = new Map<string, VicinityReach>()
   for (const reach of vicinity.reach ?? []) {
     const node = holder(reach.changed.path, reach.changed.line)
     if (node && !reachOf.has(node.id)) reachOf.set(node.id, reach)
   }
-  const doorOf = (id: string) => (outward.get(id) ?? []).map((next) => byId.get(next)).find((node) => node?.entry && DOORS.has(node.entry.kind))
+  const doorOf = (id: string) => (outward.get(id) ?? []).map((next) => byId.get(next)).find((node) => node != null && doors.has(node.id))
   for (const node of nodes) {
     if (node.kind !== 'code' || node.change === 'unchanged' || node.change === 'deleted' || node.anchors.every((anchor) => anchor.side !== 'added')) continue
     const reach = reachOf.get(node.id)
@@ -452,11 +455,11 @@ function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyM
     if (found != null) {
       // From where the request comes in to the change: a door, the code it reaches, and on to the change.
       const entry = byId.get(found)!
-      const door = DOORS.has(entry.entry!.kind) ? undefined : doorOf(found)
+      const door = doors.has(entry.id) ? undefined : doorOf(found)
       const way = [...(door ? [door] : []), ...chainTo(found).reverse()]
-      const hops = depth.get(found)! - (DOORS.has(entry.entry!.kind) ? 1 : 0)
-      // The change by the name the scan reads it by, such as ErrorsController#show, when it has one.
-      const name = (step: ReviewNode) => (step === node ? (reach?.symbol ?? node.title) : step.title)
+      const hops = depth.get(found)! - (doors.has(entry.id) ? 1 : 0)
+      // Changed code by the name the scan reads it by, such as ErrorsController#show, when it has one.
+      const name = (step: ReviewNode) => (step.kind === 'code' ? reachOf.get(step.id)?.symbol : undefined) ?? step.title
       const words = [...startWords(way[0]!, name(way[0]!)), ...way.slice(1).map(name)]
       node.lifecycle = { role: 'changed', hops: Math.max(0, Math.min(9, hops)), path: wayWords(words) }
       continue

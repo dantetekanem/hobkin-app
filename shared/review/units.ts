@@ -8,7 +8,7 @@
 import { sideText, type Capture, type CapturedFile } from './capture.ts'
 import { alignRows, type AlignedRow, type ChangeRange } from './diff.ts'
 import { splitLines } from './lines.ts'
-import { fileRole, fileStem, type FileRole } from './paths.ts'
+import { fileRole, fileStem, namesCodeShebang, type FileRole } from './paths.ts'
 import type { AnchorSide, EdgeKind } from './types.ts'
 
 /** A run of lines of one unit, before it is hashed. */
@@ -45,6 +45,14 @@ export interface Unit {
 const INTRODUCES = /^\s*(?:\/\/|\/\*|\*\/|\*(?:\s|$)|#(?:\s|$)|@[\w.]+)/
 const TEST_CASE = /^\s*(?:(?:test|it|specify)(?:\.(?:only|skip))?\s*(?:\(\s*)?["'`]|def\s+test_)/
 const CONTROL_WORD = /^(?:if|for|while|switch|catch|with|function|return)$/
+/**
+ * A line at a script's top level that runs: `exit Report.run(ARGV) if __FILE__ == $0`, `Worker.new.call`, `main`,
+ * `await main()`. Not a comment, a `require` or an import, a declaration, a constant, or the end of a block.
+ */
+const TOP_STATEMENT = /^(?!#|\/\/|\/\*|\*|(?:require|require_relative|load|import|export|module|class|def|end|function|async\s+function|const|let|var|private|protected|public|type|interface|enum)\b|[A-Z][A-Z0-9_]*\s*=[^=]|['"]use strict|[})\]])\S/
+
+/** Whether a line of a script runs at its top level, as the script's own code: `exit Report.run(ARGV)`. */
+export const isTopStatement = (line: string): boolean => TOP_STATEMENT.test(line)
 const KEY_SEPARATOR = '\u001f'
 
 /** A value a module declares at its top level, such as a constant or a schema: `const SearchParams = Type.Object({`. */
@@ -110,14 +118,15 @@ function declarationEnd(source: readonly string[], start: number): number {
  * are test cases, and `spans` the 0-based first and last line of each declaration, with what is nested in it.
  * In `owners`, a declaration nested in another takes its own lines.
  */
-export function functionOwners(source: readonly string[]): { owners: Array<string | undefined>; cases: Set<string>; spans: Map<string, [number, number]> } {
+export function functionOwners(source: readonly string[], script = false): { owners: Array<string | undefined>; cases: Set<string>; spans: Map<string, [number, number]> } {
   const owners: Array<string | undefined> = new Array(source.length)
   const cases = new Set<string>()
   const spans = new Map<string, [number, number]>()
   const occurrences = new Map<string, number>()
   for (let start = 0; start < source.length; start += 1) {
     const line = source[start]!
-    const name = declaration(line)
+    // A script's top-level statement runs when the script does, so it is a declaration of its own, named by its words.
+    const name = script && TOP_STATEMENT.test(line) ? line.trim().slice(0, 80) : declaration(line)
     if (!name || CONTROL_WORD.test(name)) continue
     const occurrence = (occurrences.get(name) ?? 0) + 1
     occurrences.set(name, occurrence)
@@ -219,7 +228,8 @@ function unitsOfFile(file: CapturedFile): Unit[] {
   // Prose and data have no declarations: the whole file's changes are one unit.
   const none = { owners: [] as Array<string | undefined>, cases: new Set<string>() }
   const declares = fileRole(file.path, firstLineOf(file)) !== 'file'
-  const ownership = { added: declares ? functionOwners(source.added) : none, deleted: declares ? functionOwners(source.deleted) : none }
+  const script = namesCodeShebang(firstLineOf(file))
+  const ownership = { added: declares ? functionOwners(source.added, script) : none, deleted: declares ? functionOwners(source.deleted, script) : none }
 
   // A renamed declaration keeps both of its sides in one unit, under its new name.
   const addedOwners = new Set(ownership.added.owners)
