@@ -162,3 +162,22 @@ test('the background prepares what has no review yet, a few at a time, and again
   await reviews.settled()
   assert.ok(pullTries.length > tries)
 })
+
+test('a review asked for whose graph older rules drew is drawn again; one drawn by these rules is used as it is', async (t) => {
+  const { reviews, store, reads } = reviewsFor(t)
+  reviews.prepare(ID)
+  await reviews.settled(ID)
+  assert.equal(reads.length, 1)
+  const { review, files } = store.latest({ kind: 'change', slug: 'hobkin', item: '7d02c9' })!
+  // As a host before these rules left it: no word of how its graph was drawn.
+  store.write({ kind: 'change', slug: 'hobkin', item: '7d02c9' }, review, files, { preparedAt: '2026-11-12T09:00:00.000Z', storyBy: 'agent' })
+
+  const later = reviewsFor(t)
+  later.store.write({ kind: 'change', slug: 'hobkin', item: '7d02c9' }, review, files, { preparedAt: '2026-11-12T09:00:00.000Z', storyBy: 'agent' })
+  later.reviews.prepare(ID, { asked: true })
+  await later.reviews.settled(ID)
+  assert.equal(later.reads.length, 1, 'drawn again')
+  later.reviews.prepare(ID, { asked: true })
+  await later.reviews.settled(ID)
+  assert.equal(later.reads.length, 1, 'and then used as it is')
+})

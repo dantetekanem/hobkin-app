@@ -5,7 +5,7 @@ import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { GhOutcome } from '../src/github-gh.ts'
-import { Reviews, type ChangeCard, type Publisher } from '../src/review/reviews.ts'
+import { GRAPH_RULES, Reviews, type ChangeCard, type Publisher } from '../src/review/reviews.ts'
 import { pullSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
@@ -48,7 +48,7 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
   const notes = (entries: Note[]) => reviews.saveNotes(id, { entries: entries.map((note) => ({ op: 'put', note })), draft: null })
   /** The change moves on to a newer commit, and its review is prepared again for it, as the background does. */
   const moveOn = async () => {
-    store.write(target, { ...sample, change: { ...sample.change, head: NEWER } }, files)
+    store.write(target, { ...sample, change: { ...sample.change, head: NEWER } }, files, { preparedAt: '2026-11-12T16:00:00.000Z', storyBy: 'host', graph: GRAPH_RULES })
     at = NEWER
     reviews.prepare(id)
     await reviews.settled(id)

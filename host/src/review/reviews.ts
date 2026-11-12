@@ -168,6 +168,12 @@ const MERGE_WORDS: Record<MergeMethod, string> = {
 /** How often an opened review asks where its change is now, when the app does not already know. */
 export const LOOK_AGAIN_MS = 60_000
 
+/**
+ * The rules the host draws a graph by. A review asked for whose graph was drawn by older rules is drawn again: 2 is the
+ * graph whose nodes say what they are and whose tests, dependencies and pull request life cycles are wired.
+ */
+export const GRAPH_RULES = 2
+
 /** Every review the host has prepared or is preparing, and what to do with them. */
 export class Reviews {
   private readonly statuses = new Map<string, ReviewStatus>()
@@ -392,8 +398,9 @@ export class Reviews {
     // Ready, but for an older commit: it opens while the newer one is prepared.
     this.set(id, { head, stale: this.status(id).state === 'ready' && !store.has(target, head) })
 
-    // One preparation for each commit: a review already made for it is used as it is.
-    const cached = refresh ? null : store.read(target, head)
+    // One preparation for each commit: a review already made for it is used as it is, unless older rules drew its graph.
+    const kept = refresh ? null : store.read(target, head)
+    const cached = kept?.meta?.graph === GRAPH_RULES ? kept : null
     if (cached) {
       say(`The graph of ${head.slice(0, 7)} is drawn already.`)
       // Ready already, so there is no news to tell.
@@ -419,7 +426,7 @@ export class Reviews {
     const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
-    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const }
+    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES }
     store.write(target, review, files, meta)
     say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
     this.opened.set(id, { review, files, meta })

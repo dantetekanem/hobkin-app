@@ -21,6 +21,8 @@ export interface ReviewMeta {
   preparedAt: string
   /** The agent with the change-review skill arranged its story, or the host did alone because no model was asked. */
   storyBy: 'agent' | 'host'
+  /** How the host drew its graph, so a graph drawn by older rules is drawn again when someone asks for its review. */
+  graph?: number
 }
 
 export interface Prepared {
