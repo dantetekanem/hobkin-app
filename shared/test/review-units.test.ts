@@ -275,16 +275,18 @@ test('pairs tests through the helper they call, ignoring test names and key labe
   assert.deepEqual([...pairTests(units)], [['u4', 'u3'], ['u5', 'u3']])
 })
 
-test('a helper joins the first test that calls it, so every line of a test file belongs to a test', async () => {
-  const units = await unitsOf(storefront)
-  const merged = mergeTestSupport(units)
+test('a helper one changed test calls joins it; one several tests call stays and names them, and one none calls stays', async () => {
+  const one = mergeTestSupport(await unitsOf({ 'test/one_test.rb': [null, 'test "a" do\n  assert fixture\nend\n\ndef fixture\n  1\nend\n'] }))
+  assert.deepEqual(one.map((unit) => [unit.symbol, ranges(unit)]), [['a', [['added', 1, 7]]]], 'its lines are its test’s')
 
-  assert.deepEqual(merged.map((unit) => unit.id), ['u1', 'u2', 'u3', 'u4', 'u5'])
-  assert.deepEqual(ranges(merged[3]!), [['added', 1, 4], ['added', 9, 13]])
-  assert.deepEqual(ranges(merged[4]!), [['added', 5, 8]])
+  // Both tests call card_price_text, so it is no more one's than the other's.
+  const merged = mergeTestSupport(await unitsOf(storefront))
+  assert.deepEqual(merged.map((unit) => unit.id), ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'])
+  assert.deepEqual([merged[5]!.symbol, merged[5]!.supports, ranges(merged[5]!)], ['card_price_text', ['u4', 'u5'], [['added', 9, 13]]])
+  assert.deepEqual(ranges(merged[3]!), [['added', 1, 4]])
 
   const alone = mergeTestSupport(await unitsOf({ 'test/support_test.rb': [null, 'def fixture\n  1\nend\n'] }))
-  assert.deepEqual(alone.map((unit) => [unit.symbol, unit.role, unit.helper]), [['fixture', 'test', true]], 'with no test to join, the helper stays')
+  assert.deepEqual(alone.map((unit) => [unit.symbol, unit.role, unit.helper, unit.supports]), [['fixture', 'test', true, []]], 'with no test that calls it, the helper stays')
 })
 
 test('pairs a test by file and symbol and leaves ambiguous tests unpaired', async () => {

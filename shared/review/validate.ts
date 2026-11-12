@@ -85,13 +85,15 @@ export function validateReview(value: unknown): string[] {
     if (!isCleanProse(node.summary, node.kind === 'criterion' ? HOST_TEXT_LIMIT : PROSE_LIMIT.summary)) problems.push(`${name}: the summary has control characters or is too long.`)
     if (node.subtitle !== undefined && !isSafePath(node.subtitle)) problems.push(`${name}: the path is not inside the repository.`)
     if (!['added', 'modified', 'deleted', 'unchanged'].includes(node.change)) problems.push(`${name} has an unknown change.`)
-    const statuses = node.kind === 'criterion' ? ['proven', 'unproven'] : node.kind === 'test' ? ['passed', 'failed', 'not-run', undefined] : [undefined]
+    const statuses = node.kind === 'criterion' ? ['proven', 'unproven'] : node.kind === 'test' ? ['passed', 'failed', 'not-run', 'proves-change', undefined] : [undefined]
     if (!statuses.includes(node.status)) problems.push(`${name}: ${String(node.status)} is not a status of ${KIND_NAME[node.kind]}.`)
     if (node.kind === 'criterion' && review.spec === null) problems.push(`${name} is an acceptance line, and this review has no spec.`)
     if (node.kind === 'criterion' && node.status === 'unproven' && !node.warning) problems.push(`${name} is unproven and does not say why.`)
     for (const field of ['proof', 'warning'] as const) {
       if (node[field] !== undefined && !isCleanProse(node[field], HOST_TEXT_LIMIT)) problems.push(`${name}: ${field} must be plain text.`)
     }
+    if (node.unwired !== undefined && (!isCleanProse(node.unwired, PROSE_LIMIT.summary) || !node.unwired)) problems.push(`${name}: why nothing wires it must be a few plain words.`)
+    if (node.supports !== undefined && (node.kind !== 'test' || !Array.isArray(node.supports) || node.supports.some((id) => typeof id !== 'string'))) problems.push(`${name}: only a test helper names the tests it supports.`)
     if (node.io !== undefined && (!isRecord(node.io) || !isCleanProse(node.io.in, PROSE_LIMIT.io) || !isCleanProse(node.io.out, PROSE_LIMIT.io))) problems.push(`${name}: what goes in and out must be plain text.`)
     if (node.stats !== undefined && (!isRecord(node.stats) || !isCount(node.stats.additions) || !isCount(node.stats.deletions))) problems.push(`${name} must count its added and removed lines.`)
     if (node.lifecycle !== undefined && (node.kind !== 'context' || !isRecord(node.lifecycle) || !['caller', 'callee'].includes(node.lifecycle.role) || !isLine(node.lifecycle.hops) || node.lifecycle.hops > 9)) {
@@ -111,6 +113,10 @@ export function validateReview(value: unknown): string[] {
       } else if (!fileIds.has(anchor.fileId)) problems.push(`${name} points into ${anchor.fileId}, which is not a file of this review.`)
       else if (typeof anchor.hash !== 'string' || !HASH.test(anchor.hash)) problems.push(`${name} has an anchor without a hash of its lines.`)
     }
+  }
+
+  for (const node of nodes.values()) {
+    for (const id of Array.isArray(node.supports) ? node.supports : []) if (nodes.get(id)?.kind !== 'test') problems.push(`Node ${node.id} supports ${String(id)}, which is not a test of this review.`)
   }
 
   const placed = [...nodes.values()].filter((node) => NODE_KINDS.includes(node.kind) && isRecord(node.position))

@@ -9,16 +9,20 @@
  * every definition again at head and checks every call there (`shared/review/vicinity.ts`). A scan that cannot run
  * leaves a notice and nothing else, so a review is never held up by it.
  */
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { promisify } from 'node:util'
 import { splitLines } from '#shared/review/lines.ts'
 import { isTestPath } from '#shared/review/paths.ts'
 import { isSafePath } from '#shared/review/prose.ts'
 import type { ReviewEntry } from '#shared/review/types.ts'
-import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityGuard, type VicinityLeft, type VicinityLink } from '#shared/review/vicinity.ts'
+import { blockAt, functionOwners } from '#shared/review/units.ts'
+import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityGuard, type VicinityLeft, type VicinityLink, type VicinityTest } from '#shared/review/vicinity.ts'
 import { gitReader } from './git.ts'
+
+const exec = promisify(execFile)
 
 /** Runs agentic-search with these arguments, for at most `timeoutMs`: what it wrote, or why it could not. */
 export type ScanRun = (args: readonly string[], options?: { timeoutMs?: number }) => Promise<{ ok: true; stdout: string } | { ok: false; reason: string }>
@@ -114,6 +118,8 @@ interface Anchor extends Definition {
   callers: Caller[]
   /** How many production call sites the scan found, and whether it listed them all. */
   count: { total: number; complete: boolean }
+  /** The tests that use it, changed or not. */
+  tests: { path: string; symbol: string; line: number }[]
 }
 
 interface Edge {
@@ -182,6 +188,11 @@ function readPack(details: unknown): Pack | undefined {
       changedLines: list(anchor.changedLines).flatMap((at) => (line(at) ? [at as number] : [])),
       callers,
       count: { total: Number.isInteger(counted?.total) ? (counted!.total as number) : callers.length, complete: counted?.complete === true },
+      tests: list(anchor.tests).flatMap((entry) => {
+        const test = record(entry)
+        const [path, symbol, at] = [text(test?.path), text(test?.symbol), line(test?.line)]
+        return path && symbol && at && isSafePath(path) ? [{ path, symbol, line: at }] : []
+      }),
     }]
   })
   const edges = list(raw.edges).flatMap((item): Edge[] => {
@@ -318,6 +329,68 @@ function firstCalls(pack: Pack): Cycle & { entries: NonNullable<Vicinity['entrie
   return { ...cycle, entries }
 }
 
+/** What is used by name rather than called: a constant, a schema, a type. The scan lists calls only, so it finds no caller for these. */
+const USED_BY_NAME = new Set(['constant', 'variable', 'type', 'interface', 'enum', 'class', 'declaration'])
+/** The most places one changed constant or type is looked for. */
+const MOST_REFERENCES = 12
+
+/** Where a name is used at head, as git finds the whole word in the commit, never in the working tree. */
+export type ReferenceSearch = (name: string) => Promise<{ path: string; line: number }[]>
+
+/** The definition at head that holds a line: the innermost declaration around it, else the statement that starts there. */
+function enclosingAt(text: string, at: number, path: string): VicinityDefinition | null {
+  const source = splitLines(text)
+  const { owners, spans } = functionOwners(source)
+  const owner = owners[at - 1]
+  const span = owner ? spans.get(owner) : undefined
+  if (owner && span) return { path, symbol: owner.split('\u001f')[0]!, startLine: span[0] + 1, endLine: span[1] + 1 }
+  const block = blockAt(text, at)
+  const first = source[at - 1]?.trim()
+  return block && first ? { path, symbol: first.slice(0, 80), startLine: block.startLine, endLine: block.endLine } : null
+}
+
+/**
+ * The places that use a changed constant, schema or type, as callers one call away: its own file, where its name can
+ * only mean it, and the files that import it by that name. A place in a test, or in the definition itself, is not one.
+ */
+async function referencesOf(anchor: Anchor, search: ReferenceSearch, readHead: (path: string) => Promise<string | null>): Promise<{ definition: VicinityDefinition; line: number; proven: boolean }[]> {
+  const name = declaredName(anchor.symbol)
+  if (!/^[\w$]+$/.test(name)) return []
+  const found: { definition: VicinityDefinition; line: number; proven: boolean }[] = []
+  const seen = new Set<string>()
+  for (const hit of await search(name)) {
+    if (found.length >= MOST_REFERENCES) break
+    if (isTestPath(hit.path) || (hit.path === anchor.path && hit.line >= anchor.startLine && hit.line <= anchor.endLine)) continue
+    const text = await readHead(hit.path)
+    if (text == null) continue
+    const definition = enclosingAt(text, hit.line, hit.path)
+    if (!definition || seen.has(placeOf(definition))) continue
+    // In another file the name means this one only when that file imports it.
+    const imported = hit.path === anchor.path || new RegExp(`^\\s*import\\b[^;]*\\b${name}\\b`, 'm').test(text)
+    if (!imported) continue
+    seen.add(placeOf(definition))
+    found.push({ definition, line: hit.line, proven: hit.path === anchor.path })
+  }
+  return found
+}
+
+/** Where git finds the whole word at a commit: the commit's own files, read without the working tree. */
+export function gitReferences(repo: string, head: string): ReferenceSearch {
+  return async (name) => {
+    let stdout: string
+    try {
+      ;({ stdout } = await exec('git', ['-C', repo, 'grep', '-n', '-w', '-F', '-I', '-e', name, head, '--'], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }))
+    } catch {
+      // No place at all, or none git could read.
+      return []
+    }
+    return stdout.split('\n').flatMap((entry) => {
+      const [, path, at] = /^[^:]+:([^:]+):(\d+):/.exec(entry) ?? []
+      return path && at && isSafePath(path) ? [{ path, line: Number(at) }] : []
+    })
+  }
+}
+
 /**
  * Where the project's folder has a definition the first scan read at head: its first line, found in the folder's copy
  * of the file. Null when the folder does not have that line exactly once.
@@ -330,14 +403,19 @@ async function lineInFolder(definition: Definition, readHead: (path: string) => 
   return found.length === 1 ? found[0]! : null
 }
 
-/** The life cycle's links in the order the review shows them, and what was left out. */
-function finish(cycle: Cycle, entries: NonNullable<Vicinity['entries']>, notes: string[]): Vicinity {
+/** The life cycle's links in the order the review shows them, the tests that use the change, and what was left out. */
+function finish(cycle: Cycle, entries: NonNullable<Vicinity['entries']>, notes: string[], tests: VicinityTest[]): Vicinity {
   const links = cycle.ranked
     .map((ranked, order) => ({ ...ranked, order }))
     .sort((a, b) => a.tier - b.tier || (a.tier === 2 ? a.link.hops - b.link.hops || a.root - b.root : a.root - b.root || a.link.hops - b.link.hops) || a.order - b.order)
     .map(({ link }) => link)
   const notice = notes.join(' ')
-  return { links, ...(entries.length ? { entries } : {}), ...(notice ? { notice } : {}), left: cycle.left }
+  return { links, ...(tests.length ? { tests } : {}), ...(entries.length ? { entries } : {}), ...(notice ? { notice } : {}), left: cycle.left }
+}
+
+/** The tests the scan says use each changed definition, at the definition's first changed line. */
+function testsOf(pack: Pack): VicinityTest[] {
+  return pack.anchors.flatMap((anchor) => (anchor.changedLines.length ? anchor.tests.map((test) => ({ changed: { path: anchor.path, line: anchor.changedLines[0]! }, test })) : []))
 }
 
 /**
@@ -358,6 +436,7 @@ export async function scanVicinity({
       return null
     }
   },
+  references = gitReferences(repo, head),
   now = Date.now,
   budgetMs = VICINITY_BUDGET_MS,
 }: {
@@ -369,6 +448,8 @@ export async function scanVicinity({
   readHead?: (path: string) => Promise<string | null>
   /** A file as the project's folder has it now. */
   readFolder?: (path: string) => string | null
+  /** Where a changed constant or type is used at head. */
+  references?: ReferenceSearch
   now?: () => number
   budgetMs?: number
 }): Promise<Vicinity> {
@@ -391,10 +472,26 @@ export async function scanVicinity({
 
   try {
     // What the change calls and what calls it: the changed lines and their definitions, read at head.
-    const first = await scan(['--diff', `${base}..${head}`], ['--max-depth', '1', '--max-anchors', '60', '--max-nodes', '120', '--budget-ms', '30000'], SCAN_TIMEOUT_MS)
+    const first = await scan(['--diff', `${base}..${head}`], ['--max-depth', '1', '--max-anchors', '60', '--max-nodes', '120', '--budget-ms', '30000', '--tests', 'all'], SCAN_TIMEOUT_MS)
     if (!('pack' in first)) return notShown(first.reason)
     const cycle = firstCalls(first.pack)
     const notes = stoppedEarly(first.pack)
+    // A changed constant, schema or type has no calls to list: what uses it by name is its caller.
+    const used = first.pack.anchors.filter((anchor) => !isTestPath(anchor.path) && anchor.changedLines.length > 0 && USED_BY_NAME.has(anchor.kind) && anchor.callers.length === 0)
+    for (const anchor of used) {
+      const root = first.pack.anchors.filter((entry) => !isTestPath(entry.path) && entry.changedLines.length > 0).indexOf(anchor)
+      const places = await referencesOf(anchor, references, readHead)
+      // Found by name and checked again at head: the scan's own word that it could not list every caller goes.
+      if (places.length > 0 && !anchor.count.complete) cycle.left.partial = Math.max(0, cycle.left.partial - 1)
+      places.forEach(({ definition, line: at, proven }, index) => {
+        const spine = index === 0
+        const link: VicinityLink = { near: { changed: { path: anchor.path, line: anchor.changedLines[0]! } }, other: definition, direction: 'caller', hops: 1, call: { line: at, name: declaredName(anchor.symbol), reference: true }, proven }
+        cycle.ranked.push({ link, tier: spine ? 0 : 2, root })
+        if (cycle.seen.has(placeOf(definition))) return
+        cycle.seen.add(placeOf(definition))
+        cycle.frontier.push({ definition: { ...definition, id: `ref:${placeOf(definition)}`, kind: 'function', language: anchor.language }, root, spine, atHead: true })
+      })
+    }
 
     for (let hop = 2; hop <= LIFE_CYCLE.hops && cycle.frontier.length > 0; hop += 1) {
       const wanted = cycle.frontier.sort((a, b) => Number(b.spine) - Number(a.spine) || a.root - b.root)
@@ -426,7 +523,7 @@ export async function scanVicinity({
       }
     }
     cycle.left.further += cycle.frontier.length
-    return finish(cycle, cycle.entries, notes)
+    return finish(cycle, cycle.entries, notes, testsOf(first.pack))
   } finally {
     rmSync(folder, { recursive: true, force: true })
   }

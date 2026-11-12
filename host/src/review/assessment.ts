@@ -18,7 +18,7 @@ import { LEVEL_WORDS, type AssessmentLogLine, type AssessmentRequest, type Asses
 import { count } from '#shared/review/prose.ts'
 import type { Review } from '#shared/review/types.ts'
 import { STEP_IDS } from '../../../packages/change-review/src/types.ts'
-import { unitStory, type UnitPlace } from './unit-story.ts'
+import { unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
 
 const run = promisify(execFile)
 const GIT_TIMEOUT_MS = 120_000
@@ -66,6 +66,10 @@ interface GraphNode {
   critical: boolean
   /** A removed definition something still refers to says so here. */
   extras?: { broken?: string }
+  /** The test runs that concern it. */
+  runs?: { kind: string; node?: string; tests?: string[]; failed?: string[] }[]
+  /** Its proof, with what it rests on: `tests were not run: …` when no test could run. */
+  facts?: { proof?: { evidence?: string } }
 }
 
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
@@ -332,6 +336,9 @@ interface RunRecord {
   startedAt: string
 }
 
+/** How the change review's proof says no test could run, before why. */
+const NOT_RUN = 'tests were not run: '
+
 /** Why a run that close() stopped failed. */
 const STOPPED = 'The review was stopped before it finished.'
 
@@ -550,16 +557,20 @@ export class Assessments {
     if (!assessment?.units) return null
     const folder = assessmentFolder(this.options.root, target, review.change.head)
     const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
-    const places: UnitPlace[] = (graph?.nodes ?? []).map(({ id, kind, path, lines, change, extras }) => ({ id, kind, path, lines, change, ...(extras?.broken ? { broken: true } : {}) }))
+    const places: UnitPlace[] = (graph?.nodes ?? []).map(({ id, kind, symbol, path, lines, change, extras }) => ({ id, kind, symbol, path, lines, change, ...(extras?.broken ? { broken: true } : {}) }))
+    // Every run once: a run that concerns several definitions is listed under each of them.
+    const runs = new Map<string, UnitRun>()
+    for (const node of graph?.nodes ?? []) {
+      for (const run of node.runs ?? []) runs.set(JSON.stringify([run.kind, run.node ?? null, run.tests ?? []]), { kind: run.kind, ...(run.node ? { node: run.node } : {}), tests: run.tests ?? [], failed: run.failed ?? [] })
+    }
+    const words = readJson<StoryWords>(join(folder, 'story-words.json'))
     const levelled = withLevels(review, assessment)
-    const story = unitStory(levelled, {
-      units: assessment.units.units,
-      places,
-      words: readJson<StoryWords>(join(folder, 'story-words.json')),
-      story: assessment.story,
-      buckets: assessment.triage?.buckets ?? [],
-    })
-    return { ...levelled, story }
+    // When no test could run, every definition's proof says why.
+    const notRun = (graph?.nodes ?? []).map((node) => node.facts?.proof?.evidence ?? '').find((evidence) => evidence.startsWith(NOT_RUN))?.slice(NOT_RUN.length)
+    const nodes = unitWords(levelled, { units: assessment.units.units, places, words, runs: [...runs.values()], ...(runs.size === 0 && notRun ? { notRun } : {}) })
+    const told = { ...levelled, nodes }
+    const story = unitStory(told, { units: assessment.units.units, places, words, story: assessment.story, buckets: assessment.triage?.buckets ?? [] })
+    return { ...told, story }
   }
 
   /** Waits for whatever is queued or under way. For tests and for closing. */

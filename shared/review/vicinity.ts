@@ -38,6 +38,8 @@ export interface VicinityCall {
   guards?: VicinityGuard[]
   /** It only enqueues the callee, which runs later on its own (a job's perform). */
   enqueues?: boolean
+  /** Not a call: the caller uses the changed constant, schema or type by name. */
+  reference?: boolean
 }
 
 export interface VicinityLink {
@@ -68,8 +70,16 @@ export interface VicinityLeft {
   partial?: number
 }
 
+/** A test that uses a changed definition, as the scan found it: the changed line it reaches, and where the test is. */
+export interface VicinityTest {
+  changed: { path: string; line: number }
+  test: { path: string; symbol: string; line: number }
+}
+
 export interface Vicinity {
   links: VicinityLink[]
+  /** Tests that use the changed definitions, changed or not. */
+  tests?: VicinityTest[]
   /** Changed definitions where a request enters, as the scan says. */
   entries?: { changed: { path: string; line: number }; entry: ReviewEntry }[]
   /** What the review should say about the scan itself: that it could not run, or stopped early. */
@@ -270,6 +280,7 @@ function contextNode(id: string, link: VicinityLink, spot: Spot): ReviewNode {
 function roleWords({ direction, hops, call }: VicinityLink): string {
   if (direction === 'callee') return call.enqueues ? 'Unchanged. The change enqueues it to run later.' : 'Unchanged. The change calls it.'
   if (hops > 1) return `Unchanged. It leads to the change, ${hops} calls away.`
+  if (call.reference) return `Unchanged. It uses ${call.name}, which the change touched.`
   return call.enqueues ? 'Unchanged. It enqueues the change to run later.' : 'Unchanged. It calls the change.'
 }
 
@@ -292,7 +303,15 @@ function guardWords({ text, branch }: VicinityGuard): string {
 /** Where the call is, what it sits under, and whether only its name ties it to the other end. */
 function wireLabel(link: VicinityLink, line: number, guard: VicinityGuard | undefined): string {
   const where =
-    link.direction === 'callee' ? (link.call.enqueues ? `enqueued on line ${line}` : `line ${line}`) : link.call.enqueues ? `enqueues it from line ${line}` : `from line ${line}`
+    link.direction === 'callee'
+      ? link.call.enqueues
+        ? `enqueued on line ${line}`
+        : `line ${line}`
+      : link.call.reference
+        ? `uses it on line ${line}`
+        : link.call.enqueues
+          ? `enqueues it from line ${line}`
+          : `from line ${line}`
   const condition = guard && guardWords(guard)
   return cleanProse([where, ...(condition ? [condition] : []), ...(link.proven ? [] : ['found by name'])].join(', '), PROSE_LIMIT.label)
 }

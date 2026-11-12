@@ -172,3 +172,69 @@ test('when the time for scans is up, what is left is counted instead of followed
   assert.equal(found.left?.further, 3)
   assert.ok(found.links.every((link) => link.hops === 1))
 })
+
+test('a changed constant, which no one calls, has what uses it by name as its callers, found at head; the tests that use the change come along', async () => {
+  const extension = [
+    'import { Type } from "typebox";',
+    '',
+    'const SearchParams = Type.Object({',
+    '  intent: Type.Enum(["a"]),',
+    '});',
+    '',
+    'export default function extension(pi) {',
+    '  pi.registerTool({',
+    '    parameters: SearchParams,',
+    '  });',
+    '}',
+    '',
+  ].join('\n')
+  const head: Record<string, string> = {
+    'src/extension.ts': extension,
+    'src/other.ts': 'import { SearchParams } from "./extension.ts"\nexport function other() {\n  return SearchParams\n}\n',
+    // The same name, never imported: another one.
+    'src/unrelated.ts': 'export function unrelated() {\n  return SearchParams\n}\n',
+  }
+  const pack = {
+    files: [{ path: 'src/extension.ts' }],
+    nodes: [node('n2', 'src/extension.ts', 'SearchParams', 3, 5, { kind: 'constant', depth: 0 })],
+    anchors: [
+      {
+        id: 'n2', symbol: 'SearchParams', kind: 'constant', path: 'src/extension.ts', startLine: 3, endLine: 5, changedLines: [4], callers: [], callerCount: { total: 0, shown: 0, complete: false },
+        tests: [{ id: 't9', symbol: 'cli matches pi', path: 'test/cli.test.ts', line: 9 }],
+      },
+    ],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+  const asked: string[][] = []
+  const run: ScanRun = async (args) => {
+    asked.push([...args])
+    return { ok: true, stdout: JSON.stringify({ details: pack }) }
+  }
+  const searched: string[] = []
+  const vicinity = await scanVicinity({
+    repo: '/repo.invalid',
+    base: 'b'.repeat(40),
+    head: 'c'.repeat(40),
+    run,
+    readHead: async (path) => head[path] ?? null,
+    readFolder: () => null,
+    references: async (name) => {
+      searched.push(name)
+      return [{ path: 'src/extension.ts', line: 4 }, { path: 'src/extension.ts', line: 9 }, { path: 'src/other.ts', line: 3 }, { path: 'src/unrelated.ts', line: 2 }, { path: 'test/cli.test.ts', line: 9 }]
+    },
+  })
+
+  assert.ok(asked[0]!.includes('--tests') && asked[0]![asked[0]!.indexOf('--tests') + 1] === 'all', 'the first scan lists every test that uses the change')
+  assert.deepEqual(searched, ['SearchParams'])
+  assert.deepEqual(
+    vicinity.links.map(({ other, call, proven }) => [other.path, other.symbol, other.startLine, other.endLine, call.line, call.reference, proven]),
+    [
+      ['src/extension.ts', 'extension', 7, 11, 9, true, true],
+      ['src/other.ts', 'other', 2, 4, 3, true, false],
+    ],
+    'its own file, and a file that imports it; not a file that only shares the name, a test, or the constant itself',
+  )
+  assert.equal(vicinity.left?.partial, 0, 'found, so the scan no longer says it could not list every caller')
+  assert.deepEqual(vicinity.tests, [{ changed: { path: 'src/extension.ts', line: 4 }, test: { path: 'test/cli.test.ts', symbol: 'cli matches pi', line: 9 } }])
+})

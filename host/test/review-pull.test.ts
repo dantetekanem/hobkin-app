@@ -121,9 +121,14 @@ function fakeEngine({ fail = false } = {}) {
       ],
     })
     const node = { critical: false, level: { current: 'high' } }
+    // The test passed at head and failed with the total put back: it proves the change.
+    const ran = [
+      { kind: 'baseline', tests: ['test/models/cart_test.rb'], failed: [] },
+      { kind: 'revert', node: 'n1', tests: ['test/models/cart_test.rb'], failed: ['test/models/cart_test.rb'] },
+    ]
     write('graph.json', {
       nodes: [
-        { ...node, id: 'n1', kind: 'function', symbol: 'Cart#total', path: 'app/models/cart.rb', lines: [2, 2], change: 'modified' },
+        { ...node, id: 'n1', kind: 'function', symbol: 'Cart#total', path: 'app/models/cart.rb', lines: [2, 2], change: 'modified', runs: ran },
         { ...node, id: 'n2', kind: 'function', symbol: 'Cart#count', path: 'app/models/cart.rb', lines: [4, 4], change: 'added', level: { current: 'safe' } },
         { ...node, id: 'n3', kind: 'test', symbol: 'total is rounded', path: 'test/models/cart_test.rb', lines: [2, 4], change: 'modified', level: null },
       ],
@@ -220,6 +225,10 @@ test('a pull request’s review is told as its units, in the order the story wal
   )
   assert.equal(nodeOf('total').level, 'high', 'the graph carries the levels too')
   assert.equal(nodeOf('total is rounded').kind, 'test', 'the test is in the graph, and in no step')
+
+  // The nodes speak the change review's words: code what its unit says of it, a test how the runs went.
+  assert.equal(nodeOf('total').summary, 'The total is rounded before anyone sees it.')
+  assert.deepEqual([nodeOf('total is rounded').status, nodeOf('total is rounded').summary], ['proves-change', 'Covers total. It proves the change: it fails when Cart#total is put back.'])
 })
 
 test('a pull request’s change review says what it reviews and logs what it did, from the moment it is asked for', async (t) => {

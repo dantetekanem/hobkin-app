@@ -6,20 +6,31 @@
  * Tests are never steps, and never in a step's focus.
  */
 import type { StoryWords, Unit } from '#shared/review/assessment.ts'
-import { cleanProse } from '#shared/review/prose.ts'
+import { testCovers } from '#shared/review/draft.ts'
+import { cleanProse, listed } from '#shared/review/prose.ts'
 import { connectingEdge } from '#shared/review/story.ts'
-import { HOST_TEXT_LIMIT, MAX_FOCUS, PROSE_LIMIT, type Review, type ReviewNode, type StoryStep } from '#shared/review/types.ts'
+import { HOST_TEXT_LIMIT, MAX_FOCUS, PROSE_LIMIT, type NodeStatus, type Review, type ReviewNode, type StoryStep } from '#shared/review/types.ts'
 
 /** Where one node of the change review's graph sits: at head, or at base for one the change removed. */
 export interface UnitPlace {
   id: string
   /** `function`, `general` or `test`. */
   kind: string
+  symbol?: string
   path: string
   lines: [number, number]
   change: 'added' | 'modified' | 'removed' | 'none'
   /** A removed definition something still refers to: its lines say nothing, so only its file places it. */
   broken?: boolean
+}
+
+/** One run of test files the change review made: at head (`baseline`), or with a definition put back or made to fail. */
+export interface UnitRun {
+  kind: string
+  /** The definition a mutation run changed, by its id in the change review's graph. */
+  node?: string
+  tests: readonly string[]
+  failed: readonly string[]
 }
 
 export interface UnitStoryParts {
@@ -31,6 +42,66 @@ export interface UnitStoryParts {
   story: string
   /** The change review's buckets, for a unit that holds files rather than definitions. */
   buckets: readonly { id: string; paths: readonly string[] }[]
+}
+
+export interface UnitWordsParts {
+  units: readonly Unit[]
+  places: readonly UnitPlace[]
+  words: StoryWords | null
+  /** Every test run the change review made. */
+  runs: readonly UnitRun[]
+  /** Why no test ran, when the change review says so. */
+  notRun?: string
+}
+
+/** The graph's nodes of a definition of the change review's graph: the same file and overlapping lines, at head or at base. */
+function holdsPlace(review: Review): (node: ReviewNode, place: UnitPlace) => boolean {
+  const files = new Map(review.files.map((file) => [file.id, file]))
+  return (node, place) => {
+    const side = place.change === 'removed' ? 'deleted' : 'added'
+    return node.anchors.some((anchor) => {
+      const file = files.get(anchor.fileId)
+      const path = side === 'deleted' ? (file?.oldPath ?? file?.path) : file?.path
+      return anchor.side === side && path === place.path && anchor.startLine <= place.lines[1] && place.lines[0] <= anchor.endLine
+    })
+  }
+}
+
+/**
+ * The graph's nodes in the change review's words. Code that belongs to a unit says what the unit says of it: its own
+ * member line when the unit groups several, else the unit's "what changed". A test says what it covers and how the
+ * change review's runs went: it proves the change (it fails when the change is put back), it fails at the change's
+ * commit, it passes, or it was not run, and why.
+ */
+export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
+  const holds = holdsPlace(review)
+  const unitOf = new Map(parts.units.flatMap((unit) => unit.nodes.map((id) => [id, unit] as const)))
+  const symbolOf = new Map(parts.places.map((place) => [place.id, place.symbol ?? place.id]))
+  const code = parts.places.filter((place) => place.kind !== 'test' && !place.broken)
+  return review.nodes.map((node) => {
+    if (node.kind === 'code' || node.kind === 'file') {
+      const place = code.find((entry) => unitOf.has(entry.id) && holds(node, entry))
+      const unit = place && unitOf.get(place.id)
+      if (!unit) return node
+      const member = unit.members?.find((entry) => entry.node === place!.id)?.what
+      const said = member ?? parts.words?.units?.[unit.id]?.what ?? unit.what
+      return said ? { ...node, summary: cleanProse(said, PROSE_LIMIT.summary) } : node
+    }
+    if (node.kind !== 'test' || node.status == null || !node.subtitle) return node
+    const path = node.subtitle
+    const ran = parts.runs.filter((run) => run.tests.includes(path))
+    const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && run.failed.includes(path))
+    const proves = [...new Set(ran.filter((run) => (run.kind === 'revert' || run.kind === 'probe') && run.node && run.failed.includes(path)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
+    const passes = ran.some((run) => run.kind === 'baseline' && !run.failed.includes(path))
+    const status: NodeStatus = failsAtHead ? 'failed' : proves.length ? 'proves-change' : passes ? 'passed' : 'not-run'
+    const result = {
+      failed: "It fails at the change's commit.",
+      'proves-change': `It proves the change: it fails when ${listed(proves.slice(0, 2))}${proves.length > 2 ? ' and more' : ''} ${proves.length === 1 ? 'is' : 'are'} put back.`,
+      passed: "It passes at the change's commit, and no change put back made it fail.",
+      'not-run': `Not run${parts.notRun ? `: ${parts.notRun.replace(/\.$/, '')}` : ' by the change review'}.`,
+    }[status as 'failed' | 'proves-change' | 'passed' | 'not-run']
+    return { ...node, status, summary: cleanProse(`${testCovers(review.nodes, review.edges, node).said} ${result}`, PROSE_LIMIT.summary) }
+  })
 }
 
 /** The opening's words from the story itself: its heading and its "Does" line. */

@@ -35,6 +35,8 @@ export interface Unit {
   ranges: UnitRange[]
   /** The text of the ranges, for finding identifiers. */
   code: string
+  /** For a test helper that stands as its own unit: the changed test cases that call it, by unit id. */
+  supports?: string[]
   /** Kept under the name pi-coder used, so callers read `unit.anchors` for the ranges. */
   readonly anchors: UnitRange[]
 }
@@ -45,25 +47,43 @@ const TEST_CASE = /^\s*(?:(?:test|it|specify)(?:\.(?:only|skip))?\s*(?:\(\s*)?["
 const CONTROL_WORD = /^(?:if|for|while|switch|catch|with|function|return)$/
 const KEY_SEPARATOR = '\u001f'
 
-/** The name a line declares, if it declares one: a test case, a method, a function, or a function held in a constant. */
+/** A value a module declares at its top level, such as a constant or a schema: `const SearchParams = Type.Object({`. */
+const TOP_VALUE = /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:const|let|var)\s+([\w$]+)\s*(?::[^=]+)?=/
+/** A type a module declares at its top level, with the brace or `=` of JavaScript and TypeScript (a Ruby class has neither). */
+const TOP_TYPE = /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class\s+([\w$]+)[^{]*\{|interface\s+([\w$]+)[^{]*\{|enum\s+([\w$]+)\s*\{|type\s+([\w$]+)\s*(?:<[^=]*>)?\s*=)/
+
+/**
+ * The name a line declares, if it declares one: a test case, a method, a function, or a function held in a constant;
+ * and at a module's top level, a constant, a schema or a type, which changes as much as a function does.
+ */
 function declaration(line: string): string | undefined {
+  const type = TOP_TYPE.exec(line)
   return (
     // The name ends at the quote that opened it, so "it's fine" is read whole.
     /^\s*(?:test|it|specify)(?:\.(?:only|skip))?\s*(?:\(\s*)?(["'`])((?:\\.|(?!\1).)+)\1/.exec(line)?.[2] ??
     /^\s*(?:private\s+|protected\s+)?def\s+(?:self\.)?([\w!?=]+)/.exec(line)?.[1] ??
     /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)/.exec(line)?.[1] ??
     /^\s*(?:export\s+)?(?:const|let)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function\b|[^;]*=>|\(\s*$)/.exec(line)?.[1] ??
-    /^\s*(?:(?:private|public|protected|static|async|override|get|set)\s+)*([\w$]+)\s*\([^;]*\)\s*(?::[^=;]+)?\s*\{/.exec(line)?.[1]
+    /^\s*(?:(?:private|public|protected|static|async|override|get|set)\s+)*([\w$]+)\s*\([^;]*\)\s*(?::[^=;]+)?\s*\{/.exec(line)?.[1] ??
+    TOP_VALUE.exec(line)?.[1] ??
+    (type ? (type[1] ?? type[2] ?? type[3] ?? type[4]) : undefined)
   )
+}
+
+/** Whether a line's brackets close, strings set aside. */
+function balanced(line: string): boolean {
+  const code = line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '')
+  const count = (pattern: RegExp) => code.match(pattern)?.length ?? 0
+  return count(/[([{]/g) === count(/[)\]}]/g)
 }
 
 /** A statement that opens and closes on one line, so the declaration is that line alone. */
 function completeOnOneLine(line: string): boolean {
   if (/\{.*\}\s*[);,]*$/.test(line) || /^\s*def\s+\S+\s*=\s+/.test(line)) return true
+  // A top-level value or type with nothing left open and nothing to continue it: `const PRECISION = 2`.
+  if ((TOP_VALUE.test(line) || /^(?:export\s+)?type\s/.test(line)) && balanced(line) && !/[[({,=+\-*/&|?:.]\s*$/.test(line)) return true
   if (!/;\s*$/.test(line)) return false
-  const code = line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '')
-  const count = (pattern: RegExp) => code.match(pattern)?.length ?? 0
-  return count(/[([{]/g) === count(/[)\]}]/g)
+  return balanced(line)
 }
 
 /** The last line of the declaration that starts at `start`, both 0-based. Indentation decides, as in pi-coder. */
@@ -75,7 +95,8 @@ function declarationEnd(source: readonly string[], start: number): number {
   while (end + 1 < source.length) {
     const next = source[end + 1]!
     if (next.trim() && next.search(/\S/) <= indent) {
-      if (/^\s*(?:end\b|\})/.test(next)) return end + 1
+      // A brace that opens again or goes on (`}, async () => {`) is the middle of the statement, not its end.
+      if (/^\s*(?:end\b|\})/.test(next) && !/[{([,]\s*$/.test(next)) return end + 1
       if (declaration(next) != null || /^\s*(?:class|module|export)\b/.test(next)) return end
     }
     end += 1
@@ -376,29 +397,26 @@ export function pairTests(units: readonly Unit[]): Map<string, string> {
   return pairs
 }
 
-function rangeGap(left: UnitRange, right: UnitRange): number {
-  if (left.side !== right.side) return Infinity
-  return Math.max(0, left.startLine - right.endLine, right.startLine - left.endLine)
-}
-
 /**
- * Gives a test file's helpers to its tests, so a graph has one node per test and none for plumbing.
- * A helper joins the first test that calls it, or else the nearest test in the file. With no test to join, it stays.
+ * Gives a test file's helpers to its tests, so a graph has one node per test and none for plumbing: a helper that one
+ * changed test calls joins it. A helper several changed tests call stays a unit of its own and names them (`supports`),
+ * and so does one no changed test calls, which only unchanged tests use.
  */
 export function mergeTestSupport(units: readonly Unit[]): Unit[] {
   const merged = units.map((unit) => ({ ...unit, ranges: [...unit.ranges] }))
   for (const unit of merged) Object.defineProperty(unit, 'anchors', { value: unit.ranges, enumerable: true })
   const gone = new Set<Unit>()
   for (const helper of merged.filter((unit) => unit.helper)) {
-    const tests = merged.filter((unit) => isTestCase(unit) && unit.path === helper.path)
-    if (tests.length === 0) continue
-    const caller = tests.find((test) => unitIdentifiers(test, units).has(helper.symbol))
-    const distance = (test: Unit) => Math.min(...helper.ranges.flatMap((own) => test.ranges.map((other) => rangeGap(own, other))))
-    const target = caller ?? tests.reduce((best, test) => (distance(test) < distance(best) ? test : best))
-    target.ranges.push(...helper.ranges)
-    target.code += helper.code
-    target.ranges.sort((a, b) => Number(a.side === 'deleted') - Number(b.side === 'deleted') || a.startLine - b.startLine)
-    joinTouching(target.ranges)
+    const callers = merged.filter((unit) => isTestCase(unit) && unit.path === helper.path && unitIdentifiers(unit, units).has(helper.symbol))
+    if (callers.length !== 1) {
+      helper.supports = callers.map((caller) => caller.id)
+      continue
+    }
+    const [target] = callers
+    target!.ranges.push(...helper.ranges)
+    target!.code += helper.code
+    target!.ranges.sort((a, b) => Number(a.side === 'deleted') - Number(b.side === 'deleted') || a.startLine - b.startLine)
+    joinTouching(target!.ranges)
     gone.add(helper)
   }
   return merged.filter((unit) => !gone.has(unit))
@@ -409,6 +427,30 @@ export interface UnitReference {
   kind: Extract<EdgeKind, 'calls' | 'uses' | 'renders'>
   /** True when the name can only mean that unit: it is declared in the same file, or imported from that file by name. */
   certain: boolean
+}
+
+/** The local names a JavaScript or TypeScript file imports, each with the module it comes from, as written: `./parser.ts`, `typebox`. */
+export function importSpecifiers(text: string): Map<string, string> {
+  const names = new Map<string, string>()
+  const addList = (list: string, specifier: string) => {
+    for (const part of list.split(',')) {
+      const local = /(?:\bas\s+|:\s*)([\w$]+)\s*$/.exec(part.trim())?.[1] ?? /^(?:type\s+)?([\w$]+)$/.exec(part.trim())?.[1]
+      if (local) names.set(local, specifier)
+    }
+  }
+  for (const match of text.matchAll(/^\s*import\s+(?:type\s+)?([^'"]*?)\s*from\s*['"]([^'"]+)['"]/gm)) {
+    const [, clause = '', specifier = ''] = match
+    const braces = /\{([^}]*)\}/.exec(clause)
+    if (braces) addList(braces[1]!, specifier)
+    const bare = clause.replace(/\{[^}]*\}/, '').replace(/\*\s*as\s+/, '')
+    for (const name of bare.split(',').map((part) => part.trim()).filter(Boolean)) names.set(name, specifier)
+  }
+  for (const match of text.matchAll(/^\s*(?:const|let|var)\s+(\{[^}]*\}|[\w$]+)\s*=\s*(?:await\s+)?(?:require|import)\(\s*['"]([^'"]+)['"]\s*\)/gm)) {
+    const [, target = '', specifier = ''] = match
+    if (target.startsWith('{')) addList(target.slice(1, -1), specifier)
+    else names.set(target, specifier)
+  }
+  return names
 }
 
 /** The local names a file imports, each with the stem of the module it comes from. */
@@ -435,6 +477,58 @@ function importedNames(text: string): Map<string, string> {
   }
   for (const match of text.matchAll(/^\s*from\s+([\w.]+)\s+import\s+([^\n#]+)/gm)) addList(match[2]!.replace(/[()]/g, ''), match[1]!.split('.').at(-1)!)
   return names
+}
+
+/** Every module a file loads by a path of its own: imports, re-exports, `require` and `require_relative`, as written. */
+export function relativeImports(text: string): string[] {
+  const found = [
+    ...text.matchAll(/^\s*(?:import|export)\b[^'"\n]*?\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]/gm),
+    ...text.matchAll(/^\s*import\s*['"](\.{1,2}\/[^'"]+)['"]/gm),
+    ...text.matchAll(/\b(?:require|import)\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g),
+    ...text.matchAll(/^\s*require_relative\s*\(?\s*['"]([^'"]+)['"]/gm),
+  ].map((match) => match[1]!)
+  return [...new Set(found)]
+}
+
+const IMPORT_EXTENSIONS = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.rb', '.py']
+
+/** The repository path a module path leads to from the file that loads it, as written. Null when it leaves the repository. */
+export function importPath(from: string, specifier: string): string | null {
+  const parts = from.split('/').slice(0, -1)
+  const relative = specifier.startsWith('.') ? specifier : `./${specifier}`
+  for (const part of relative.split('/')) {
+    if (part === '..') {
+      if (parts.length === 0) return null
+      parts.pop()
+    } else if (part !== '.' && part !== '') parts.push(part)
+  }
+  return parts.length ? parts.join('/') : null
+}
+
+/**
+ * The files a module path may name, most likely first: as written, with an extension it may leave out, as the
+ * TypeScript file a `.js` path stands for, or as its folder's index.
+ */
+export function importCandidates(from: string, specifier: string): string[] {
+  const path = importPath(from, specifier)
+  if (!path) return []
+  const stripped = path.replace(/\.(?:js|jsx|mjs|cjs)$/, '')
+  return [...new Set([...IMPORT_EXTENSIONS.map((extension) => `${path}${extension}`), ...IMPORT_EXTENSIONS.slice(1).map((extension) => `${stripped}${extension}`), ...IMPORT_EXTENSIONS.slice(1).map((extension) => `${path}/index${extension}`)])]
+}
+
+/** The repository path a module path names, among the files `known` says are there. Null when it names none of them. */
+export function resolveImport(from: string, specifier: string, known: (path: string) => boolean): string | null {
+  return importCandidates(from, specifier).find((candidate) => known(candidate)) ?? null
+}
+
+/** The test cases of a file at head that call a name, as their names say them. */
+export function testsThatUse(text: string, name: string): string[] {
+  const source = splitLines(text)
+  const { cases, spans } = functionOwners(source)
+  const uses = new RegExp(`(?<![\\w$])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`)
+  return [...spans]
+    .filter(([key, [start, end]]) => cases.has(key) && source.slice(start, end + 1).some((line) => uses.test(line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, ' '))))
+    .map(([key]) => nameOf(key))
 }
 
 /**

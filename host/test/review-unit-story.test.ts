@@ -4,7 +4,7 @@ import type { Unit } from '#shared/review/assessment.ts'
 import { captureChange, type ChangeReader } from '#shared/review/capture.ts'
 import { prepareReview } from '#shared/review/prepare.ts'
 import { NO_SPEC_NOTICE } from '#shared/review/types.ts'
-import { unitStory, type UnitPlace } from '../src/review/unit-story.ts'
+import { unitStory, unitWords, type UnitPlace } from '../src/review/unit-story.ts'
 
 /** A change in memory: the cart's total rounds, an old total goes, a locale changes, and its test changes. */
 const BASE: Record<string, string> = {
@@ -100,4 +100,26 @@ test('the story’s words name the change and its units, and a long title is kep
   assert.deepEqual([story[0]!.title, story[0]!.text], ['Round the cart total', 'Rounds every total once.'])
   assert.equal(story[1]!.text, 'Rounded where it is read.')
   assert.ok(story[1]!.title.length <= 80 && story[1]!.title.endsWith('…'))
+})
+
+test('a test says how the change review ran it: failing at the change’s commit, proving the change, passing, or not run and why', async () => {
+  const graph = await review()
+  const test = graph.nodes.find((node) => node.kind === 'test')!
+  const words = (runs: Parameters<typeof unitWords>[1]['runs'], notRun?: string) =>
+    unitWords(graph, { units: [], places, words: null, runs, ...(notRun ? { notRun } : {}) }).find((node) => node.id === test.id)!
+  const file = 'test/models/cart_test.rb'
+  assert.deepEqual([words([{ kind: 'baseline', tests: [file], failed: [file] }]).status, words([{ kind: 'baseline', tests: [file], failed: [file] }]).summary], ['failed', `${words([]).summary.split('. ')[0]}. It fails at the change's commit.`])
+  assert.equal(words([{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'probe', node: 'n1', tests: [file], failed: [file] }]).status, 'proves-change')
+  assert.equal(words([{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'revert', node: 'n1', tests: [file], failed: [] }]).status, 'passed')
+  assert.match(words([], 'no way to run this repository’s tests was found.').summary, /Not run: no way to run this repository’s tests was found\.$/)
+})
+
+test('code of a unit says what the unit says of it: its member line, else what changed', async () => {
+  const graph = await review()
+  const units = [unit('u1', 1, { nodes: ['n1', 'n2'], members: [{ node: 'n1', name: 'total', what: 'Rounds the total.' }], what: 'The totals change.' })]
+  const told = unitWords(graph, { units, places, words: null, runs: [] })
+  const titled = (title: string) => told.find((node) => node.title === title)!.summary
+  assert.equal(titled('total'), 'Rounds the total.')
+  assert.equal(titled('old_total'), 'The totals change.')
+  assert.equal(titled('en.yml'), graph.nodes.find((node) => node.title === 'en.yml')!.summary, 'a node of no unit keeps its own words')
 })
