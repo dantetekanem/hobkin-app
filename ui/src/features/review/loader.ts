@@ -11,7 +11,9 @@ import type { StoreApi } from 'zustand/vanilla'
 type ReviewCommand = 'review.status' | 'review.prepare' | 'review.get' | 'review.file' | 'review.notes'
 export type ReviewCommands = <Name extends ReviewCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
 interface LoadState {
-  status: 'loading' | 'preparing' | 'ready' | 'refused' | 'error'
+  status: 'loading' | 'awaiting' | 'preparing' | 'ready' | 'refused' | 'error'
+  /** When this window first saw the review being prepared (ms), for the time it has taken. Null when nothing is under way. */
+  startedAt: number | null
   review: Review | null
   preparation: ReviewStatus | null
   /** A finished change's change review, once one is ready for the review's commit (spec 032). */
@@ -25,6 +27,8 @@ interface Options {
   scope: string
   memory: StoreApi<MemoryState>
   command?: ReviewCommands
+  /** The clock, in milliseconds; tests pass their own. */
+  now?: () => number
   sample?: ReviewSource
 }
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -32,8 +36,11 @@ const reason = (error: unknown) => error instanceof Error ? error.message : Stri
 const finishedOf = (head: string | null, summary: { at: string } | undefined): string | null => (head ? `${head}@${summary?.at ?? ''}` : null)
 
 /** One open target. Host cache, file reads and draft saves all use this same target and source identity. */
-export function createReviewLoader({ id, scope, memory, command, sample }: Options) {
-  const store = createStore<LoadState>(() => ({ status: 'loading', review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false }))
+/** A pull request from GitHub is reviewed only once the user asks; a finished hobkin change is prepared by itself. */
+export const startsByItself = (id: string): boolean => !id.startsWith('pr:')
+
+export function createReviewLoader({ id, scope, memory, command, sample, now = Date.now }: Options) {
+  const store = createStore<LoadState>(() => ({ status: 'loading', startedAt: null, review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false }))
   let generation = 0
   let disposed = false
   let unsubscribe = () => {}
@@ -90,12 +97,19 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       void flushNotes()
     })
   }
+  /** Starts the clock when a review is first seen under way, and stops it once nothing is. */
+  const clock = (status: ReviewStatus): { startedAt: number | null } => {
+    const underWay = status.state === 'preparing' || status.assessment?.state === 'queued' || status.assessment?.state === 'running'
+    return { startedAt: underWay ? store.getState().startedAt ?? now() : null }
+  }
   const executeLoad = async (refresh: boolean) => {
     disposed = false
     const turn = ++generation
     const revision = notesRevision
     const unsavedAtStart = memory.getState().unsyncedNotes[notesKey]
-    store.setState({ error: null, ...(store.getState().review ? {} : { status: 'loading' as const }) })
+    const current = store.getState()
+    // Polling a review being prepared keeps its view; only a first look shows "loading".
+    store.setState({ error: null, ...(current.review || current.status === 'preparing' || current.status === 'awaiting' ? {} : { status: 'loading' as const }) })
     try {
       let review: Review
       let notes: ReviewNotes | null = null
@@ -104,9 +118,14 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       if (command) {
         preparation = refresh ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
         if (disposed || turn !== generation) return
+        if (preparation.state === 'idle' && !startsByItself(id) && !refresh) {
+          // Opening a pull request asks nothing of the host; "Start AI review" does.
+          store.setState({ preparation, status: store.getState().review ? 'ready' : 'awaiting', startedAt: null })
+          return
+        }
         if (preparation.state === 'idle') preparation = await command('review.prepare', { id })
         if (disposed || turn !== generation) return
-        store.setState({ preparation })
+        store.setState({ preparation, ...clock(preparation) })
         if (preparation.state !== 'ready') {
           store.setState({ status: store.getState().review ? 'ready' : preparation.state === 'failed' ? 'error' : 'preparing', error: preparation.error })
           return
@@ -135,7 +154,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       }
       watch(review)
       assessed = assessment ? finishedOf(assessment.head, assessment.summary) : preparation?.assessment?.state === 'ready' ? finishedOf(preparation.assessment.head, preparation.assessment.summary) : null
-      store.setState({ status: 'ready', review, preparation, assessment, error: null })
+      store.setState({ status: 'ready', review, preparation, assessment, error: null, ...(preparation ? clock(preparation) : {}) })
     } catch (error) {
       if (!disposed && turn === generation) store.setState({ status: store.getState().review ? 'ready' : error instanceof ReviewRefused ? 'refused' : 'error', error: reason(error) })
     }
@@ -145,6 +164,26 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
     const request = executeLoad(refresh).finally(() => { if (loading === request) loading = null })
     loading = request
     return request
+  }
+  /** "Start AI review": asks the host to prepare this review, then follows it like any other. */
+  const start = async (): Promise<void> => {
+    if (!command || disposed) return
+    const turn = ++generation
+    try {
+      const preparation = await command('review.prepare', { id })
+      if (disposed || turn !== generation) return
+      store.setState({ preparation, status: preparation.state === 'failed' ? 'error' : preparation.state === 'ready' ? 'loading' : 'preparing', error: preparation.error, ...clock(preparation) })
+      if (preparation.state === 'ready') await load()
+    } catch (error) {
+      if (!disposed && turn === generation) store.setState({ status: 'error', error: reason(error) })
+    }
+  }
+  /** One poll: a review still being prepared is asked about again until it opens; an open one is checked. */
+  const tick = (): Promise<void> => {
+    const { status, preparation } = store.getState()
+    if (status === 'preparing' || (status !== 'awaiting' && preparation?.phase)) return load()
+    if (status === 'ready') return check()
+    return Promise.resolve()
   }
   const source: ReviewSource = {
     async getReview() {
@@ -174,7 +213,7 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       const status = await command('review.status', { id })
       if (disposed || store.getState().review !== review) return
       // Kept only when something changed, so an open review does not draw again every second.
-      if (JSON.stringify(status) !== JSON.stringify(before)) store.setState({ preparation: status })
+      if (JSON.stringify(status) !== JSON.stringify(before)) store.setState({ preparation: status, ...clock(status) })
       const ready = status.assessment?.state === 'ready' ? finishedOf(status.assessment.head, status.assessment.summary) : null
       const finished = ready !== assessed ? ready : null
       if ((status.notesAt ?? 0) <= (before?.notesAt ?? 0) && !finished) return
@@ -194,6 +233,6 @@ export function createReviewLoader({ id, scope, memory, command, sample }: Optio
       checking = false
     }
   }
-  return Object.assign(store, { source, load, check, refresh: () => load(true), flushNotes, saveNotes, dispose: () => { disposed = true; generation++; loading = null; unsubscribe() } })
+  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, dispose: () => { disposed = true; generation++; loading = null; unsubscribe() } })
 }
 export type ReviewLoader = ReturnType<typeof createReviewLoader>

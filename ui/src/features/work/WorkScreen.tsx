@@ -15,6 +15,7 @@ import type { WorkState } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { Discovery } from './Discovery.tsx'
+import { AiReviews } from './AiReviews.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
 import { SaidLine, Segmented } from './parts.tsx'
@@ -43,6 +44,7 @@ export function WorkScreen() {
   const now = useNow(true, 30_000)
   const arriving = useArriving()
   const variants = useMemo(() => rowVariants(still), [still])
+  const [tab, setTab] = useState<'work' | 'reviews'>('work')
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
   const keyboard = useRef({ held: false, at: 0 })
@@ -120,6 +122,16 @@ export function WorkScreen() {
         <Hero>
           <Header work={work} live={live} working={agents.length} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
+        <Segmented
+          label="Work page"
+          name="work-tab"
+          value={tab}
+          options={[{ value: 'work', label: 'Work' }, { value: 'reviews', label: 'AI Reviews' }]}
+          onChoose={setTab}
+        />
+        {tab === 'reviews' ? <AiReviews live={live} /> : null}
+        {tab === 'work' ? (
+        <>
         <Rise>
           <section aria-label="At work" className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
@@ -143,6 +155,8 @@ export function WorkScreen() {
               <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
             </Rise>
           </>
+        ) : null}
+        </>
         ) : null}
       </div>
       </div>
