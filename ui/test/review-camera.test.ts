@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { nodeRect, type Rect } from '#shared/review/layout.ts'
 import { stressReview } from '#shared/review/stress.ts'
 import type { Review } from '#shared/review/types.ts'
-import { BESIDE_GAP, cameraFor, composeShot, FRAME, frameStep, framingOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
+import { BESIDE_GAP, cameraFor, composeShot, FRAME, frameOpening, frameStep, framingOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 
@@ -247,4 +247,31 @@ test('only a step frames the camera: a node looked at is told where it is', () =
   assert.equal(framingOf({ first: false, kind: 'detour', focus: 1 }), 'reveal')
   // The first look frames, whatever brought it.
   assert.equal(framingOf({ first: true, kind: 'detour', focus: 1 }), 'step')
+})
+
+test('the opening is told on a card as tall as its words, top right, with the whole graph framed beside it', async () => {
+  const stress = await stressReview()
+  /** The steps panel open, as wide as `stepsPanelWidth` makes it. */
+  const stepsPanelWidth = (canvas: number) => Math.round(Math.max(248, Math.min(372, canvas * 0.3, canvas - 300)))
+  // A window 1432 by 840 with the chat beside the canvas or not, the steps panel open, and a short window too.
+  for (const canvas of [{ width: 980, height: 820 }, { width: 1420, height: 820 }, { width: 980, height: 560 }]) {
+    const area = uncoveredArea(canvas, { top: 112, bottom: 68, left: stepsPanelWidth(canvas.width) })
+    for (const review of [arranged, sample, stress]) {
+      const graph = review.nodes.map((node) => nodeRect(node.kind, node.position))
+      for (const height of [180, 320, 900]) {
+        const shot = frameOpening({ graph, area, card: { width: 340, height } })
+        const where = `${review.id} in ${canvas.width}x${canvas.height}, card ${height}`
+        // Never clipped: as tall as its words while they fit, and inside what is uncovered, in its top right corner.
+        assert.equal(shot.card.height, Math.min(height, area.height - 2 * FRAME.margin), where)
+        assert.ok(inside(shot.card, area), `${where}: the card is in the uncovered area`)
+        assert.ok(Math.abs(shot.card.x + shot.card.width - (area.x + area.width - FRAME.margin)) < 1 && Math.abs(shot.card.y - (area.y + FRAME.margin)) < 1, `${where}: top right`)
+        // The whole graph is framed in the room beside it, under nothing.
+        for (const rect of graph) {
+          const onScreen = toScreen(rect, shot.camera, area)
+          assert.ok(inside(onScreen, area), `${where}: every node is in the frame`)
+          assert.equal(overlap(onScreen, shot.card), false, `${where}: the card covers no node`)
+        }
+      }
+    }
+  }
 })

@@ -366,6 +366,34 @@ export function revealNode({ node, camera, area, card = null, others = [], maxZo
   return cameraFor({ x: viewport.x + dx, y: viewport.y + dy, zoom }, area)
 }
 
+/** The least width of graph worth framing beside the opening's card. Less, and the card sits over the graph's corner. */
+const OPENING_GRAPH = 160
+
+export interface OpeningShot {
+  camera: Camera
+  /** The card, in canvas pixels: as tall as its words while they fit, then it scrolls. */
+  card: PlacedCard
+}
+
+/**
+ * Frames the whole graph for the story's opening or closing (the user, 2026-11-12), with its card in the top right corner
+ * of the uncovered area, under the menus, as tall as its words up to the room: never clipped. The whole graph is framed
+ * in the room left of the card. A room too narrow for both gives the graph all of it, and the card stands over its corner.
+ */
+export function frameOpening({ graph, area, card, maxZoom = FRAME.maxZoom }: { graph: readonly Rect[]; area: Rect; card: Size; maxZoom?: number }): OpeningShot {
+  const margin = marginOf(area)
+  const room = { x: area.x + margin, y: area.y + margin, width: area.width - margin * 2, height: area.height - margin * 2 }
+  const width = Math.min(card.width, room.width)
+  const height = Math.min(card.height, room.height)
+  const beside = room.width - width - FRAME.gap
+  const space = beside >= OPENING_GRAPH ? { ...room, width: beside } : room
+  const box = boundsOf(graph)
+  const zoom = Math.max(0.01, Math.min(maxZoom, space.width / Math.max(1, box.width), space.height / Math.max(1, box.height)))
+  // The graph's middle at the middle of its room.
+  const viewport = { x: space.x + space.width / 2 - (box.x + box.width / 2) * zoom, y: space.y + space.height / 2 - (box.y + box.height / 2) * zoom, zoom }
+  return { camera: cameraFor(viewport, area), card: { side: 'right', x: room.x + room.width - width, y: room.y, width, height } }
+}
+
 export interface ShotInput {
   /** The nodes to frame, in graph coordinates. */
   focus: readonly Rect[]
