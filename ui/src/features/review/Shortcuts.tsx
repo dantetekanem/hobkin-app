@@ -32,7 +32,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['N', 'C'], 'A comment on what you are on'],
       [['D'], 'A question on what you are on'],
       [['H'], 'Talk to Hobkin about this step'],
-      [['S'], 'Keep the panel open, or let it tuck away'],
+      [['S'], 'Hide the panel, or bring it back'],
     ],
   },
   {
