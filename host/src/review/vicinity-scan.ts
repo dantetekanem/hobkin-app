@@ -3,11 +3,14 @@
  * scans. The first scans the change at its commits. It reads the changed files at head; callers and the files the
  * change left alone it reads in the project's folder. Each scan after it starts from the callers found so far, given
  * as places in that folder, so the life cycle goes out a call at a time until it reaches where a request enters or
- * goes past the hops it may take. Only calls the type checker or an index proved are kept as they are; a caller
- * matched by name alone is kept only where the scan has nothing better, and says so. What the changed lines call is
- * kept too, a few for each definition, the most telling first. Nothing here is shown as it is: the review finds
- * every definition again at head and checks every call there (`shared/review/vicinity.ts`). A scan that cannot run
- * leaves a notice and nothing else, so a review is never held up by it.
+ * goes past the hops it may take. A view template that calls a helper is a caller, and what renders a template is its
+ * caller; a controller action's routes, and Rails's exceptions app when it names the action, are where requests come
+ * in, one step before it. Only calls the type checker or an index proved are kept as they are; a caller matched by
+ * name alone is kept only where the scan has nothing better, and says so. Of the ways out from each changed
+ * definition, the few nearest where a request enters are kept, and the review says how far the scans looked. What
+ * the changed lines call is kept too, a few for each definition, the most telling first. Nothing here is shown as it
+ * is: the review finds every definition again at head and checks every call there (`shared/review/vicinity.ts`). A
+ * scan that cannot run leaves a notice and nothing else, so a review is never held up by it.
  */
 import { execFile, spawn } from 'node:child_process'
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
@@ -19,7 +22,7 @@ import { isTestPath } from '#shared/review/paths.ts'
 import { isSafePath } from '#shared/review/prose.ts'
 import type { ReviewEntry } from '#shared/review/types.ts'
 import { blockAt, functionOwners } from '#shared/review/units.ts'
-import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityGuard, type VicinityLeft, type VicinityLink, type VicinityTest } from '#shared/review/vicinity.ts'
+import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityGuard, type VicinityLeft, type VicinityLink, type VicinityReach, type VicinityTest } from '#shared/review/vicinity.ts'
 import { gitReader } from './git.ts'
 
 const exec = promisify(execFile)
@@ -94,13 +97,33 @@ export function spawnScan({ file, timeoutMs = SCAN_TIMEOUT_MS }: { file?: string
     })
 }
 
+
 // ───────────────────────── Reading a pack, without trust ─────────────────────────
+
+/**
+ * Where requests come in, one step before the code they reach, as the scan read it: a route or `config.exceptions_app`
+ * naming a controller action; a command, a module Pi loads, or a name the package exports, as its package.json says.
+ * `text` is the first line as written, for finding it again at head.
+ */
+interface Door {
+  kind: string
+  title: string
+  file: string
+  line: number
+  endLine: number
+  text?: string
+  route?: { verbs: string[]; path: string }
+}
+
+/** What a package exposes is a door of its own; the definition behind it is no entry by itself. */
+const PACKAGE_DOORS = new Set(['command', 'extension', 'export'])
 
 interface Definition extends VicinityDefinition {
   id: string
   kind: string
   language: string
   entry?: ReviewEntry
+  doors?: Door[]
 }
 
 interface Caller {
@@ -111,6 +134,10 @@ interface Caller {
   enqueues: boolean
   changed: boolean
   boundary: boolean
+  /** What the line writes when it is not the definition's own name: the path a render call names a template by. */
+  name?: string
+  /** Rails renders the action's own template by convention, so there is no call at the line to find. */
+  convention: boolean
 }
 
 interface Anchor extends Definition {
@@ -125,9 +152,12 @@ interface Anchor extends Definition {
 interface Edge {
   from: string
   to: string
+  name: string
   relationship: string
   proven: boolean
   byName: boolean
+  /** How the scan resolved it: `name_only` is a match of the name anywhere under the root. */
+  via?: string
   line: number
   guards: VicinityGuard[]
 }
@@ -145,13 +175,38 @@ const record = (value: unknown): Raw | undefined => (value !== null && typeof va
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined)
 const line = (value: unknown): number | undefined => (Number.isInteger(value) && (value as number) > 0 ? (value as number) : undefined)
+const VERB = /^[A-Z]{3,7}$/
+
+/** The routes that reach an action, and the config line that names it Rails's exceptions app, as the scan's entry says. */
+function doorsOf(entry: Raw | undefined): Door[] {
+  const routes = list(entry?.routes).flatMap((item): Door[] => {
+    const route = record(item)
+    const [path, file, at, said] = [text(route?.path), text(route?.file), line(route?.line), text(route?.text)]
+    const verbs = list(route?.verbs).filter((verb): verb is string => typeof verb === 'string' && VERB.test(verb))
+    return path?.startsWith('/') && file && isSafePath(file) && at && verbs.length ? [{ kind: 'route', title: `${verbs.join('/')} ${path}`, file, line: at, endLine: at, ...(said ? { text: said } : {}), route: { verbs, path } }] : []
+  })
+  const app = record(entry?.exceptionsApp)
+  const [file, at, end, said] = [text(app?.file), line(app?.line), line(app?.endLine), text(app?.text)]
+  const exceptions: Door[] = file && isSafePath(file) && at && end && end >= at ? [{ kind: 'exceptions-app', title: 'config.exceptions_app', file, line: at, endLine: end, ...(said ? { text: said } : {}) }] : []
+  const exposed = list(entry?.doors).flatMap((item): Door[] => {
+    const door = record(item)
+    const [kind, title, where, at, said] = [text(door?.kind), text(door?.title), text(door?.file), line(door?.line), text(door?.text)]
+    return kind && PACKAGE_DOORS.has(kind) && title && where && isSafePath(where) && at ? [{ kind, title, file: where, line: at, endLine: at, ...(said ? { text: said } : {}) }] : []
+  })
+  return [...routes, ...exceptions, ...exposed]
+}
 
 function definitionOf(value: unknown): Definition | undefined {
   const raw = record(value)
   const [id, path, symbol, startLine, endLine] = [text(raw?.id), text(raw?.path), text(raw?.symbol), line(raw?.startLine), line(raw?.endLine)]
   if (!raw || !id || !path || !symbol || !startLine || !endLine || endLine < startLine) return undefined
   const entry = record(raw.entry)
-  return { id, path, symbol, startLine, endLine, kind: text(raw.kind) ?? '', language: text(raw.language) ?? '', ...(entry && text(entry.kind) ? { entry: { kind: text(entry.kind)!, exact: entry.exact === true } } : {}) }
+  const doors = doorsOf(entry)
+  return {
+    id, path, symbol, startLine, endLine, kind: text(raw.kind) ?? '', language: text(raw.language) ?? '',
+    ...(entry && text(entry.kind) && !PACKAGE_DOORS.has(text(entry.kind)!) ? { entry: { kind: text(entry.kind)!, exact: entry.exact === true } } : {}),
+    ...(doors.length ? { doors } : {}),
+  }
 }
 
 const BRANCHES = new Set(['then', 'else', 'after-return'])
@@ -176,15 +231,19 @@ function readPack(details: unknown): Pack | undefined {
     const counted = record(anchor.callerCount)
     const callers = list(anchor.callers).flatMap((entry): Caller[] => {
       const site = record(entry)
-      const [id, at] = [text(site?.id), line(site?.line)]
+      const [id, at, name] = [text(site?.id), line(site?.line), text(site?.name)]
       if (!site || !id || !at || site.test === true) return []
-      return [{ id, line: at, proven: site.resolution === 'exact', guards: guardsOf(site.guards), enqueues: site.enqueue === true, changed: site.changed === true, boundary: list(site.boundary).length > 0 }]
+      return [{
+        id, line: at, proven: site.resolution === 'exact', guards: guardsOf(site.guards), enqueues: site.enqueue === true, changed: site.changed === true, boundary: list(site.boundary).length > 0,
+        ...(name ? { name } : {}), convention: site.convention === true,
+      }]
     })
     const known = nodes.get(definition.id)
     return [{
       ...definition,
       language: definition.language || known?.language || '',
       ...(definition.entry ?? known?.entry ? { entry: definition.entry ?? known?.entry } : {}),
+      ...(definition.doors ?? known?.doors ? { doors: definition.doors ?? known?.doors } : {}),
       changedLines: list(anchor.changedLines).flatMap((at) => (line(at) ? [at as number] : [])),
       callers,
       count: { total: Number.isInteger(counted?.total) ? (counted!.total as number) : callers.length, complete: counted?.complete === true },
@@ -199,7 +258,7 @@ function readPack(details: unknown): Pack | undefined {
     const edge = record(item)
     const [from, to, at, relationship] = [text(edge?.from), text(edge?.to), line(edge?.line), text(edge?.relationship)]
     if (!edge || !from || !to || !at || !relationship) return []
-    return [{ from, to, relationship, proven: edge.resolution === 'exact', byName: edge.resolution === 'static_candidate', line: at, guards: guardsOf(edge.guards) }]
+    return [{ from, to, name: text(edge.name) ?? '', relationship, proven: edge.resolution === 'exact', byName: edge.resolution === 'static_candidate', ...(text(edge.via) ? { via: text(edge.via) } : {}), line: at, guards: guardsOf(edge.guards) }]
   })
   const files = new Set(list(raw.files).flatMap((item) => (text(record(item)?.path) ? [text(record(item)?.path)!] : [])))
   const truncated = record(raw.coverage)?.truncatedBy
@@ -214,42 +273,66 @@ const RARE_NAME = 3
 const LOADS = new Set(['statement'])
 /** A type is no code that runs. */
 const TYPES = new Set(['type', 'interface'])
+/** What holds definitions rather than runs. */
+const CONTAINERS = new Set(['class', 'module'])
+/** A Ruby call on a local, an instance variable or another call's result: matched by name alone, it is a guess (`text.scan`). */
+const LOCAL_RECEIVER = /^[a-z_@][\w@]*[.&]/
 
 const declaredName = (symbol: string) => symbol.split(/::|[.#]/).at(-1) ?? symbol
 const placeOf = (definition: VicinityDefinition) => `${definition.path}:${definition.startLine}`
 const entryOf = (definition: Definition): ReviewEntry | undefined => definition.entry ?? (LOADS.has(definition.kind) ? { kind: 'load', exact: true } : undefined)
+/** Where a request enters, so nothing further out is looked for; past a job, what enqueues it still is. */
+const stopsAt = (entry: ReviewEntry | undefined) => entry != null && entry.kind !== 'job'
+/** Nothing further out is looked for past where a request enters, or past what its package exposes. */
+const stopsBefore = (definition: Definition) => stopsAt(entryOf(definition)) || (definition.doors?.length ?? 0) > 0
+const bare = (definition: VicinityDefinition): VicinityDefinition => ({ path: definition.path, symbol: definition.symbol, startLine: definition.startLine, endLine: definition.endLine })
 
-/** A link with what decides its place in the list: the way out first, then what the change calls, then the rest. */
+/** A link with where it sits in the life cycle: the changed definition it hangs off, and the places of its two ends. */
 interface Ranked {
   link: VicinityLink
-  tier: number
   /** The changed definition it hangs off, in the scan's order. */
   root: number
+  /** The place it starts from, nearer the change, and the one it reaches: `path:line`, or a door's. */
+  from: string
+  to: string
 }
 
 /** A caller found, whose own callers a scan further out may look for. */
 interface Frontier {
   definition: Definition
   root: number
-  /** On the way out by the best caller at each call. */
-  spine: boolean
+  /** On the way out by the best caller at each call, so it is looked into first. */
+  best: boolean
   /** The first scan read it at head, in a changed file, so the project's folder may have it on another line. */
   atHead: boolean
 }
 
+/** A changed definition the life cycle starts from. */
+interface Root {
+  place: string
+  changed: { path: string; line: number }
+  symbol: string
+}
+
 interface Cycle {
-  ranked: Ranked[]
+  roots: Root[]
+  callers: Ranked[]
+  callees: Ranked[]
   frontier: Frontier[]
   /** Every caller already found, by place, so the life cycle never looks for one twice. */
   seen: Set<string>
+  /** The actions whose doors are already linked, by place. */
+  doors: Set<string>
+  /** The changed definitions whose ways out the scans left unfollowed, and why. */
+  stopped: Map<number, 'limit' | 'time'>
   left: Required<VicinityLeft>
 }
 
-/** The callers of one definition worth showing, best first: where a request enters, then proven, then a boundary, then another file. */
+/** The callers of one definition worth showing, best first: where a request enters, the change itself, proven, rendered by convention, a boundary, another file. */
 function callersOf(anchor: Anchor, nodes: Map<string, Definition>, left: Required<VicinityLeft>): { caller: Caller; definition: Definition }[] {
   const usable = anchor.callers.flatMap((caller) => {
     const definition = nodes.get(caller.id)
-    if (!definition || caller.changed || caller.id === anchor.id || isTestPath(definition.path)) return []
+    if (!definition || caller.id === anchor.id || isTestPath(definition.path)) return []
     // The type checker sees every call in JavaScript and TypeScript, so a caller it did not prove is another function of that name.
     const trusted = caller.proven || (anchor.language === 'ruby' && anchor.count.total <= RARE_NAME)
     if (!trusted) {
@@ -259,73 +342,112 @@ function callersOf(anchor: Anchor, nodes: Map<string, Definition>, left: Require
     return [{ caller, definition }]
   })
   if (!anchor.count.complete) left.partial += 1
-  const score = ({ caller, definition }: (typeof usable)[number]) => [entryOf(definition) ? 0 : 1, caller.proven ? 0 : 1, caller.boundary ? 0 : 1, definition.path === anchor.path ? 1 : 0] as const
+  const score = ({ caller, definition }: (typeof usable)[number]) => [entryOf(definition) ? 0 : 1, caller.changed ? 0 : 1, caller.proven ? 0 : 1, caller.convention ? 0 : 1, caller.boundary ? 0 : 1, definition.path === anchor.path ? 1 : 0]
   const sorted = usable.sort((a, b) => {
     const [x, y] = [score(a), score(b)]
-    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || x[3] - y[3] || a.definition.path.localeCompare(b.definition.path) || a.caller.line - b.caller.line
+    return x.reduce((order, value, index) => order || value - y[index]!, 0) || a.definition.path.localeCompare(b.definition.path) || a.caller.line - b.caller.line
   })
   left.perDefinition += Math.max(0, sorted.length - LIFE_CYCLE.callers)
   return sorted.slice(0, LIFE_CYCLE.callers)
 }
 
+/** Links where requests come in to an action, one step before it: its routes, a few, and Rails's exceptions app. */
+function addDoors(cycle: Cycle, action: Definition, from: { near: VicinityLink['near']; place: string; hops: number; root: number }) {
+  if (!action.doors?.length || cycle.doors.has(from.place)) return
+  cycle.doors.add(from.place)
+  // A few of each kind: an action may have many routes, an export several names.
+  const kept = action.doors.filter((door, index) => action.doors!.slice(0, index).filter((other) => other.kind === door.kind).length < LIFE_CYCLE.routes)
+  cycle.left.perDefinition += action.doors.length - kept.length
+  for (const door of kept) {
+    const link: VicinityLink = {
+      near: from.near,
+      other: { path: door.file, symbol: door.title, startLine: door.line, endLine: door.endLine },
+      direction: 'caller',
+      hops: from.hops,
+      call: { line: door.line, name: action.symbol, routes: door.text ?? '' },
+      proven: true,
+      entry: { kind: door.kind, exact: true, ...(door.route ? { route: door.route } : {}) },
+    }
+    cycle.callers.push({ link, root: from.root, from: from.place, to: `door:${door.file}:${door.line}` })
+  }
+}
+
 /** Adds the callers of a definition, as links one call further out, and puts them on the frontier. */
-function addCallers(cycle: Cycle, anchor: Anchor, nodes: Map<string, Definition>, from: { near: VicinityLink['near']; hops: number; root: number; spine: boolean; changedFiles: Set<string> }) {
+function addCallers(cycle: Cycle, anchor: Anchor, nodes: Map<string, Definition>, from: { near: VicinityLink['near']; place: string; hops: number; root: number; best: boolean; changedFiles: Set<string> }) {
   callersOf(anchor, nodes, cycle.left).forEach(({ caller, definition }, index) => {
-    const spine = from.spine && index === 0
+    const best = from.best && index === 0
     const entry = entryOf(definition)
     const link: VicinityLink = {
       near: from.near,
-      other: { path: definition.path, symbol: definition.symbol, startLine: definition.startLine, endLine: definition.endLine },
+      other: bare(definition),
       direction: 'caller',
       hops: from.hops,
-      call: { line: caller.line, name: declaredName(anchor.symbol), ...(caller.guards.length ? { guards: caller.guards } : {}), ...(caller.enqueues ? { enqueues: true } : {}) },
+      call: {
+        line: caller.line,
+        name: caller.name ?? declaredName(anchor.symbol),
+        ...(caller.guards.length ? { guards: caller.guards } : {}),
+        ...(caller.enqueues ? { enqueues: true } : {}),
+        // What calls a view template renders it.
+        ...(anchor.kind === 'template' ? { renders: caller.convention ? ('convention' as const) : true } : {}),
+      },
       proven: caller.proven,
       ...(entry ? { entry } : {}),
     }
-    cycle.ranked.push({ link, tier: spine ? 0 : 2, root: from.root })
-    // Where a request enters, nothing further out is looked for. A caller already found is looked into once.
-    if (entry || cycle.seen.has(placeOf(definition))) return
+    cycle.callers.push({ link, root: from.root, from: from.place, to: placeOf(definition) })
+    addDoors(cycle, definition, { near: { definition: bare(definition) }, place: placeOf(definition), hops: from.hops + 1, root: from.root })
+    // Where a request enters, nothing further out is looked for, and a changed caller's callers are the change's own.
+    // A caller already found is looked into once.
+    if (stopsBefore(definition) || caller.changed || cycle.seen.has(placeOf(definition))) return
     cycle.seen.add(placeOf(definition))
-    cycle.frontier.push({ definition, root: from.root, spine, atHead: from.hops === 1 && from.changedFiles.has(definition.path) })
+    cycle.frontier.push({ definition, root: from.root, best, atHead: from.hops === 1 && from.changedFiles.has(definition.path) })
   })
 }
 
-/** The first call out from each changed definition: its callers, and what its changed lines call. */
+/** The first call out from each changed definition: its callers, its doors, and what its changed lines call. */
 function firstCalls(pack: Pack): Cycle & { entries: NonNullable<Vicinity['entries']> } {
-  const cycle: Cycle = { ranked: [], frontier: [], seen: new Set(), left: { byName: 0, perDefinition: 0, further: 0, partial: 0 } }
+  const cycle: Cycle = { roots: [], callers: [], callees: [], frontier: [], seen: new Set(), doors: new Set(), stopped: new Map(), left: { byName: 0, perDefinition: 0, further: 0, partial: 0, aside: 0 } }
   const entries: NonNullable<Vicinity['entries']> = []
   const changedIds = new Set(pack.anchors.map((anchor) => anchor.id))
-  pack.anchors
-    .filter((anchor) => !isTestPath(anchor.path) && anchor.changedLines.length > 0)
-    .forEach((anchor, root) => {
-      const changed = { path: anchor.path, line: anchor.changedLines[0]! }
-      if (anchor.entry) entries.push({ changed, entry: anchor.entry })
-      addCallers(cycle, anchor, pack.nodes, { near: { changed }, hops: 1, root, spine: true, changedFiles: pack.files })
+  const roots = pack.anchors.filter((anchor) => !isTestPath(anchor.path) && anchor.changedLines.length > 0)
+  // A changed action's doors are its own, so they are linked before another changed definition reaches it as a caller.
+  roots.forEach((anchor, root) => {
+    const changed = { path: anchor.path, line: anchor.changedLines[0]! }
+    cycle.roots.push({ place: placeOf(anchor), changed, symbol: anchor.symbol })
+    if (anchor.entry) entries.push({ changed, entry: anchor.entry })
+    addDoors(cycle, anchor, { near: { changed }, place: placeOf(anchor), hops: 1, root })
+  })
+  roots.forEach((anchor, root) => {
+    const changed = { path: anchor.path, line: anchor.changedLines[0]! }
+    addCallers(cycle, anchor, pack.nodes, { near: { changed }, place: placeOf(anchor), hops: 1, root, best: true, changedFiles: pack.files })
 
-      const callees = new Map<string, { edge: Edge; definition: Definition }>()
-      for (const edge of pack.edges) {
-        if (edge.from !== anchor.id || !anchor.changedLines.includes(edge.line) || (edge.relationship !== 'calls' && edge.relationship !== 'enqueues')) continue
-        const definition = pack.nodes.get(edge.to)
-        if (!definition || changedIds.has(definition.id) || callees.has(definition.id) || TYPES.has(definition.kind) || isTestPath(definition.path)) continue
-        if (!edge.proven && !(edge.byName && anchor.language === 'ruby')) continue
-        callees.set(definition.id, { edge, definition })
+    const callees = new Map<string, { edge: Edge; definition: Definition }>()
+    for (const edge of pack.edges) {
+      if (edge.from !== anchor.id || !anchor.changedLines.includes(edge.line) || (edge.relationship !== 'calls' && edge.relationship !== 'enqueues')) continue
+      const definition = pack.nodes.get(edge.to)
+      if (!definition || changedIds.has(definition.id) || callees.has(definition.id) || TYPES.has(definition.kind) || isTestPath(definition.path)) continue
+      if (!edge.proven && !(edge.byName && anchor.language === 'ruby')) continue
+      // `format.html` is not SignatureValidator#html: a call on a local, matched by its name alone, goes nowhere known.
+      if (!edge.proven && edge.via === 'name_only' && LOCAL_RECEIVER.test(edge.name)) continue
+      // A Ruby call the scan could only tie to a class or a module names no method of it.
+      if (!edge.proven && anchor.language === 'ruby' && CONTAINERS.has(definition.kind)) continue
+      callees.set(definition.id, { edge, definition })
+    }
+    const sorted = [...callees.values()].sort(
+      (a, b) => Number(b.edge.relationship === 'enqueues') - Number(a.edge.relationship === 'enqueues') || Number(a.definition.path === anchor.path) - Number(b.definition.path === anchor.path) || a.edge.line - b.edge.line,
+    )
+    cycle.left.perDefinition += Math.max(0, sorted.length - LIFE_CYCLE.callees)
+    for (const { edge, definition } of sorted.slice(0, LIFE_CYCLE.callees)) {
+      const link: VicinityLink = {
+        near: { changed: { path: anchor.path, line: edge.line } },
+        other: bare(definition),
+        direction: 'callee',
+        hops: 1,
+        call: { line: edge.line, name: declaredName(definition.symbol), ...(edge.guards.length ? { guards: edge.guards } : {}), ...(edge.relationship === 'enqueues' ? { enqueues: true } : {}) },
+        proven: edge.proven,
       }
-      const sorted = [...callees.values()].sort(
-        (a, b) => Number(b.edge.relationship === 'enqueues') - Number(a.edge.relationship === 'enqueues') || Number(a.definition.path === anchor.path) - Number(b.definition.path === anchor.path) || a.edge.line - b.edge.line,
-      )
-      cycle.left.perDefinition += Math.max(0, sorted.length - LIFE_CYCLE.callees)
-      for (const { edge, definition } of sorted.slice(0, LIFE_CYCLE.callees)) {
-        const link: VicinityLink = {
-          near: { changed: { path: anchor.path, line: edge.line } },
-          other: { path: definition.path, symbol: definition.symbol, startLine: definition.startLine, endLine: definition.endLine },
-          direction: 'callee',
-          hops: 1,
-          call: { line: edge.line, name: declaredName(definition.symbol), ...(edge.guards.length ? { guards: edge.guards } : {}), ...(edge.relationship === 'enqueues' ? { enqueues: true } : {}) },
-          proven: edge.proven,
-        }
-        cycle.ranked.push({ link, tier: 1, root })
-      }
-    })
+      cycle.callees.push({ link, root, from: placeOf(anchor), to: placeOf(definition) })
+    }
+  })
   return { ...cycle, entries }
 }
 
@@ -403,14 +525,96 @@ async function lineInFolder(definition: Definition, readHead: (path: string) => 
   return found.length === 1 ? found[0]! : null
 }
 
-/** The life cycle's links in the order the review shows them, the tests that use the change, and what was left out. */
+/** The most ways out one changed definition's search keeps open at once, so a wide fan of callers stays quick. */
+const MOST_OPEN_WAYS = 400
+
+const isDoor = (entry: ReviewEntry | undefined) => entry?.kind === 'route' || entry?.kind === 'exceptions-app'
+
+/**
+ * Every way out from a place, along the callers, each to where it ends: a door, an entry with no door, or a caller
+ * nothing further calls. An action goes on to its doors only. A job is an end, and so is the way on through what
+ * enqueues it. Breadth first, so a nearer end comes first.
+ */
+function waysFrom(start: string, out: ReadonlyMap<string, Ranked[]>): Ranked[][] {
+  const done: Ranked[][] = []
+  let open: Ranked[][] = (out.get(start) ?? []).map((ranked) => [ranked])
+  while (open.length > 0) {
+    const next: Ranked[][] = []
+    const go = (way: Ranked[], ranked: Ranked) => next.length < MOST_OPEN_WAYS && next.push([...way, ranked])
+    for (const way of open) {
+      const last = way.at(-1)!
+      const entry = last.link.entry
+      if (isDoor(entry)) {
+        done.push(way)
+        continue
+      }
+      const onward = (out.get(last.to) ?? []).filter((ranked) => ranked.to !== start && !way.some((step) => step.from === ranked.to))
+      if (stopsAt(entry)) {
+        const doors = onward.filter((ranked) => isDoor(ranked.link.entry))
+        if (doors.length === 0) done.push(way)
+        for (const door of doors) go(way, door)
+        continue
+      }
+      if (entry || onward.length === 0) done.push(way)
+      for (const ranked of onward) go(way, ranked)
+    }
+    open = next
+  }
+  return done
+}
+
+/** How good a way in is: one that reaches where a request enters, the nearest first, a door or a declared entry before a guess; else the longest. */
+function wayScore(way: Ranked[]): number[] {
+  // A door is one step before the action it reaches, and that step is not a call.
+  if (isDoor(way.at(-1)!.link.entry)) return [0, way.length - 1, 0]
+  const at = way.findIndex((step) => step.link.entry)
+  if (at < 0) return [1, -way.length, 0]
+  return [0, at + 1, way[at]!.link.entry!.exact ? 1 : 2]
+}
+
+/**
+ * The links the review shows, in the order it reads them: for each changed definition the best way in, then what the
+ * changed lines call, then the next best ways, at most a few for each. Ways that share callers join where they meet.
+ */
+function chooseWays(cycle: Cycle): { links: VicinityLink[]; aside: number } {
+  const out = new Map<string, Ranked[]>()
+  for (const ranked of cycle.callers) out.set(ranked.from, [...(out.get(ranked.from) ?? []), ranked])
+  const order = new Map(cycle.callers.map((ranked, index) => [ranked, index]))
+  const chosen = cycle.roots.map((root) =>
+    waysFrom(root.place, out)
+      .map((way) => ({ way, score: wayScore(way) }))
+      .sort((a, b) => a.score.reduce((by, value, index) => by || value - b.score[index]!, 0) || a.way.reduce((by, step, index) => by || order.get(step)! - (b.way[index] ? order.get(b.way[index]!)! : Infinity), 0))
+      .slice(0, LIFE_CYCLE.ways)
+      .map(({ way }) => way),
+  )
+  const kept = new Set<Ranked>()
+  const links: VicinityLink[] = []
+  const take = (way: Ranked[] | undefined) => {
+    for (const step of way ?? []) {
+      if (kept.has(step)) continue
+      kept.add(step)
+      links.push(step.link)
+    }
+  }
+  chosen.forEach((ways) => take(ways[0]))
+  for (const ranked of cycle.callees) links.push(ranked.link)
+  for (let rank = 1; rank < LIFE_CYCLE.ways; rank += 1) chosen.forEach((ways) => take(ways[rank]))
+  const shown = new Set([...kept].map((ranked) => ranked.to))
+  const aside = new Set(cycle.callers.filter((ranked) => !shown.has(ranked.to) && !ranked.to.startsWith('door:')).map((ranked) => ranked.to)).size
+  return { links, aside }
+}
+
+/** The life cycle's links in the order the review shows them, how far each changed definition's ways went, the tests that use the change, and what was left out. */
 function finish(cycle: Cycle, entries: NonNullable<Vicinity['entries']>, notes: string[], tests: VicinityTest[]): Vicinity {
-  const links = cycle.ranked
-    .map((ranked, order) => ({ ...ranked, order }))
-    .sort((a, b) => a.tier - b.tier || (a.tier === 2 ? a.link.hops - b.link.hops || a.root - b.root : a.root - b.root || a.link.hops - b.link.hops) || a.order - b.order)
-    .map(({ link }) => link)
+  const { links, aside } = chooseWays(cycle)
+  cycle.left.aside = aside
+  const reach: VicinityReach[] = cycle.roots.map((root, index) => {
+    const hops = Math.max(0, ...cycle.callers.filter((ranked) => ranked.root === index && !ranked.to.startsWith('door:')).map((ranked) => ranked.link.hops))
+    const stopped = cycle.stopped.get(index)
+    return { changed: root.changed, symbol: root.symbol, hops, ...(stopped ? { stopped } : {}) }
+  })
   const notice = notes.join(' ')
-  return { links, ...(tests.length ? { tests } : {}), ...(entries.length ? { entries } : {}), ...(notice ? { notice } : {}), left: cycle.left }
+  return { links, ...(tests.length ? { tests } : {}), ...(entries.length ? { entries } : {}), ...(reach.length ? { reach } : {}), ...(notice ? { notice } : {}), left: cycle.left }
 }
 
 /** The tests the scan says use each changed definition, at the definition's first changed line. */
@@ -476,29 +680,37 @@ export async function scanVicinity({
     if (!('pack' in first)) return notShown(first.reason)
     const cycle = firstCalls(first.pack)
     const notes = stoppedEarly(first.pack)
+    /** Callers whose own callers are not looked for, counted, and why their changed definitions' ways stop there. */
+    const unfollowed = (frontier: readonly Frontier[], why: 'limit' | 'time') => {
+      cycle.left.further += frontier.length
+      for (const item of frontier) if (!cycle.stopped.has(item.root)) cycle.stopped.set(item.root, why)
+    }
     // A changed constant, schema or type has no calls to list: what uses it by name is its caller.
-    const used = first.pack.anchors.filter((anchor) => !isTestPath(anchor.path) && anchor.changedLines.length > 0 && USED_BY_NAME.has(anchor.kind) && anchor.callers.length === 0)
-    for (const anchor of used) {
-      const root = first.pack.anchors.filter((entry) => !isTestPath(entry.path) && entry.changedLines.length > 0).indexOf(anchor)
+    const roots = first.pack.anchors.filter((entry) => !isTestPath(entry.path) && entry.changedLines.length > 0)
+    for (const anchor of roots.filter((entry) => USED_BY_NAME.has(entry.kind) && entry.callers.length === 0)) {
+      const root = roots.indexOf(anchor)
       const places = await referencesOf(anchor, references, readHead)
       // Found by name and checked again at head: the scan's own word that it could not list every caller goes.
       if (places.length > 0 && !anchor.count.complete) cycle.left.partial = Math.max(0, cycle.left.partial - 1)
       places.forEach(({ definition, line: at, proven }, index) => {
-        const spine = index === 0
         const link: VicinityLink = { near: { changed: { path: anchor.path, line: anchor.changedLines[0]! } }, other: definition, direction: 'caller', hops: 1, call: { line: at, name: declaredName(anchor.symbol), reference: true }, proven }
-        cycle.ranked.push({ link, tier: spine ? 0 : 2, root })
+        cycle.callers.push({ link, root, from: placeOf(anchor), to: placeOf(definition) })
         if (cycle.seen.has(placeOf(definition))) return
         cycle.seen.add(placeOf(definition))
-        cycle.frontier.push({ definition: { ...definition, id: `ref:${placeOf(definition)}`, kind: 'function', language: anchor.language }, root, spine, atHead: true })
+        cycle.frontier.push({ definition: { ...definition, id: `ref:${placeOf(definition)}`, kind: 'function', language: anchor.language }, root, best: index === 0, atHead: true })
       })
     }
 
-    for (let hop = 2; hop <= LIFE_CYCLE.hops && cycle.frontier.length > 0; hop += 1) {
-      const wanted = cycle.frontier.sort((a, b) => Number(b.spine) - Number(a.spine) || a.root - b.root)
+    for (let hop = 2; cycle.frontier.length > 0; hop += 1) {
+      const wanted = cycle.frontier.sort((a, b) => Number(b.best) - Number(a.best) || a.root - b.root)
       cycle.frontier = []
+      if (hop > LIFE_CYCLE.hops) {
+        unfollowed(wanted, 'limit')
+        break
+      }
       const time = Math.min(SCAN_TIMEOUT_MS, remaining())
       if (time < LEAST_SCAN_MS) {
-        cycle.left.further += wanted.length
+        unfollowed(wanted, 'time')
         notes.push(`The callers further out than ${hop - 1} call${hop - 1 === 1 ? '' : 's'} are not shown: the scans used the time they had.`)
         break
       }
@@ -506,12 +718,12 @@ export async function scanVicinity({
       for (const from of wanted) {
         const at = from.atHead ? await lineInFolder(from.definition, readHead, readFolder) : from.definition.startLine
         if (at != null && starts.length < MOST_PER_SCAN) starts.push({ from, line: at })
-        else cycle.left.further += 1
+        else unfollowed([from], 'limit')
       }
       if (starts.length === 0) break
       const next = await scan(starts.flatMap(({ from, line: at }) => ['--anchor', `${from.definition.path}:${at}`]), ['--max-depth', '1', '--max-anchors', String(starts.length), '--max-nodes', '60', '--budget-ms', '20000'], time)
       if (!('pack' in next)) {
-        cycle.left.further += starts.length
+        unfollowed(starts.map(({ from }) => from), 'time')
         notes.push(`The callers further out than ${hop - 1} call${hop - 1 === 1 ? '' : 's'} are not shown: ${next.reason}`)
         break
       }
@@ -519,10 +731,15 @@ export async function scanVicinity({
       for (const { from, line: at } of starts) {
         const anchor = next.pack.anchors.find((entry) => entry.path === from.definition.path && entry.startLine <= at && at <= entry.endLine)
         if (!anchor) continue
-        addCallers(cycle, anchor, next.pack.nodes, { near: { definition: { path: from.definition.path, symbol: from.definition.symbol, startLine: from.definition.startLine, endLine: from.definition.endLine } }, hops: hop, root: from.root, spine: from.spine, changedFiles: first.pack.files })
+        const place = placeOf(from.definition)
+        const near = { definition: bare(from.definition) }
+        // Found by name where the scan had not looked yet, it turns out to be where a request enters: it says so now.
+        if (!from.definition.entry && anchor.entry) for (const ranked of cycle.callers) if (ranked.to === place && !ranked.link.entry) ranked.link.entry = anchor.entry
+        addDoors(cycle, anchor, { near, place, hops: hop, root: from.root })
+        if (stopsBefore(anchor) && !stopsBefore(from.definition)) continue
+        addCallers(cycle, anchor, next.pack.nodes, { near, place, hops: hop, root: from.root, best: from.best, changedFiles: first.pack.files })
       }
     }
-    cycle.left.further += cycle.frontier.length
     return finish(cycle, cycle.entries, notes, testsOf(first.pack))
   } finally {
     rmSync(folder, { recursive: true, force: true })

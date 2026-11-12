@@ -129,7 +129,7 @@ test('the life cycle follows proven callers out to where a request enters, and k
   ])
   assert.deepEqual(found.entries, [{ changed: { path: 'app/controllers/checkouts_controller.rb', line: 5 }, entry: { kind: 'controller', exact: true } }])
   // guess matched only by name; local is a fourth callee of doingAfter; Cart#total has more callers than the scan could list.
-  assert.deepEqual(found.left, { byName: 1, perDefinition: 1, further: 0, partial: 1 })
+  assert.deepEqual(found.left, { byName: 1, perDefinition: 1, further: 0, partial: 1, aside: 0 })
 
   assert.deepEqual(calls[0]!.slice(0, 6), ['scan', '--diff', 'aaa1111..bbb2222', '--cwd', '/repo.invalid', '--json'])
   // The next scans read the project's folder, so helper, which the first one read at head, is given where the folder has it.

@@ -526,6 +526,10 @@ function unwiredWhy(node: ReviewNode): string {
   if (node.kind === 'test') return node.supports?.length ? 'A helper of the tests beside it: it reaches none of the code this change touched.' : 'It reaches none of the code this change touched.'
   if (node.kind === 'file' && ['md', 'markdown', 'txt', 'rst', 'adoc'].includes(extensionOf(node.subtitle ?? ''))) return 'Documentation: no code in this change reads it.'
   if (node.kind === 'file') return 'Nothing in this change reads it.'
+  // The life cycle says how far the scan looked for a way in, and found none.
+  if (node.entry) return 'A request enters here, and no test in this change reaches it.'
+  const looked = node.lifecycle?.role === 'changed' ? node.lifecycle.path : undefined
+  if (looked) return cleanProse(`${looked.replace(/\.$/, '')}, and no test in this change reaches it.`, PROSE_LIMIT.summary)
   return 'No test or code in this change reaches it.'
 }
 
