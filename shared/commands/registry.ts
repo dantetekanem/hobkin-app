@@ -318,6 +318,19 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ url: Type.String({ pattern: '^https://github\\.com/', maxLength: 2048 }) }, { additionalProperties: false }),
   },
+  'github.issue.close': {
+    description:
+      "Close a GitHub issue through gh, as the user and only on their word from the GitHub page, by its repository `owner/name` and its number: `reason` is `completed` or `not-planned`. When hobkin has work filed for the issue that is not finished, hobkin's own work actions decline that item too, and a run going on it stops as not approved. GitHub's lists are read again after, so the issue leaves them.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        repo: Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$', maxLength: 200 }),
+        number: Type.Integer({ minimum: 1, maximum: 1000000000 }),
+        reason: oneOf(['completed', 'not-planned']),
+      },
+      { additionalProperties: false },
+    ),
+  },
   'integrations.refresh': {
     description:
       "Read Pi's MCP configuration again and connect to each server that is on, the way `pi mcp list` does, to report its state, its tools and Pi's message when it fails. It only reads, and closes every connection it opened. A look already under way answers this one too.",
@@ -705,6 +718,8 @@ export interface CommandResults {
   'signin.out': { ok: true; stillConnected: boolean; message: string }
   'github.refresh': GitHubState
   'github.open': { ok: true }
+  /** What was done, in plain words: the issue closed on GitHub, and what hobkin said of its item, when it had one to decline. */
+  'github.issue.close': { message: string }
   'system.open': { ok: true }
   'canvas.show': CanvasState
   'canvas.close': CanvasState

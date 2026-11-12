@@ -28,4 +28,10 @@ declare module 'hobkin/src/cli/work/issues.mjs' {
 declare module 'hobkin/src/cli/work/store.mjs' {
   /** The `issues` work action: which of a project's open GitHub issues it files as work by itself. Throws for another word or an unknown project. */
   export function setProjectIssues(root: string, slug: string, issues: string): unknown
+  /** The runs work mode has going, as its owner last wrote them, and whether an owner holds the home now. With no owner nothing runs. */
+  export function ownerView(root: string, now?: number): { owner: boolean; running: { id: string; slug?: string | null; item?: string | null; [key: string]: unknown }[] }
+  /** What the owner has going, written where commands in other processes read it. Tests stand in for an owner with it. */
+  export function writeOwnerView(root: string, view: { running: { id: string; slug?: string; item?: string; [key: string]: unknown }[] }): void
+  /** Changes an item, keeping what it had: the last change to each field wins. Throws for an item hobkin does not know. */
+  export function updateItem(root: string, slug: string, id: string, change: Record<string, unknown>, now?: number): { id: string; state: string; [key: string]: unknown }
 }

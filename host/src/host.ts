@@ -405,7 +405,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // The Work screen's actions, each one of hobkin's own work actions.
     ...workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
     // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
-    ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh }),
+    // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
+    ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
     // Action Items answered from the window, each through hobkin's own decision or learning action (012).
