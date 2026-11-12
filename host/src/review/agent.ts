@@ -66,71 +66,117 @@ export function reviewTier(root: string): TierChoice | null {
   return null
 }
 
+/** The cheapest first: a blind check reads one story once and needs no more. */
+const CHEAPEST = ['fast', 'mid', 'high', 'max'] as const
+
+/**
+ * The tier the change review's blind check runs on (spec 032): the cheapest one that is set, at its own thinking or
+ * low, then the main chat's model at low. It sees only the story and its units, with no tools, so a small model is
+ * the point: it reads what the reviewer would read. Null when none names a model.
+ */
+export function checkerTier(root: string): TierChoice | null {
+  try {
+    const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as { tiers?: Record<string, { model?: string; effort?: string }>; main?: { model?: string } }
+    for (const tier of CHEAPEST) {
+      const set = config.tiers?.[tier]
+      if (set?.model) return { tier, model: set.model, effort: set.effort ?? 'low' }
+    }
+    if (config.main?.model) return { tier: 'main', model: config.main.model, effort: 'low' }
+  } catch {
+    // No config, or one that cannot be read: no tier.
+  }
+  return null
+}
+
+/**
+ * The model runner the change-review engine asks (spec 032): its one careful pass on the review tier, with high
+ * thinking, and its blind check on the checker tier. Both run in a Pi session with no tools and an empty context.
+ */
+export function piModelRunner({ root, data, runtime }: PiAgentPlace): (call: { pass: 'review' | 'checker'; system: string; prompt: string; signal: AbortSignal }) => Promise<string | null> {
+  return async ({ pass, system, prompt, signal }) => {
+    const models = await runtime()
+    const choice = pass === 'checker' ? checkerTier(data()) : reviewTier(data())
+    if (!models || !choice) return null
+    return askPi({ root, models, choice, system, prompt, signal })
+  }
+}
+
+/** Where a live agent runs: the home, hobkin's data folder (its config.json names the tiers), and Pi's models. */
+interface PiAgentPlace {
+  root: string
+  data: () => string
+  runtime: () => Promise<PiModelRuntime | undefined>
+}
+
 /**
  * The live agent: an in-process Pi session on the tier's model, with no tools, no extensions, no skills and no
  * context files, in a folder of its own inside the home so nothing of the user's Pi setup but its credentials is read.
  * `data` is hobkin's data folder, where its config.json names the tiers.
  */
-export function piReviewAgent({ root, data, runtime }: { root: string; data: () => string; runtime: () => Promise<PiModelRuntime | undefined> }): ReviewAgent {
+export function piReviewAgent({ root, data, runtime }: PiAgentPlace): ReviewAgent {
   return async ({ system, prompt, signal }) => {
     const models = await runtime()
     const choice = reviewTier(data())
     if (!models || !choice) return null
+    return askPi({ root, models, choice, system, prompt, signal })
+  }
+}
 
-    const pi = (await loadPiCodingAgent()) as unknown as {
-      createAgentSession(options: Record<string, unknown>): Promise<{ session: PiSession; modelFallbackMessage?: string }>
-      resolveCliModel(options: { cliModel: string; modelRuntime: unknown }): { model?: unknown; error?: string; warning?: string }
-      SettingsManager: { inMemory(settings: Record<string, unknown>): unknown }
-      SessionManager: { inMemory(cwd?: string): unknown }
-      DefaultResourceLoader: new (options: Record<string, unknown>) => { reload?(): Promise<void> }
-    }
-    // Resolved the way hobkin resolves its own models, so a tier names a model the same way everywhere.
-    const resolved = pi.resolveCliModel({ cliModel: choice.model, modelRuntime: models })
-    if (resolved.error || resolved.warning || !resolved.model) throw new Error(`The ${choice.tier} tier's model, ${choice.model}, cannot be used: ${resolved.error ?? resolved.warning ?? 'Pi does not have it.'}`)
-    const model = resolved.model
-    const folder = join(root, 'client', 'review-agent')
-    if (!existsSync(folder)) mkdirSync(folder, { recursive: true, mode: 0o700 })
-    const settingsManager = pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: true } })
-    const resourceLoader = new pi.DefaultResourceLoader({
-      cwd: folder,
-      agentDir: folder,
-      settingsManager,
-      noExtensions: true,
-      noSkills: true,
-      noPromptTemplates: true,
-      noThemes: true,
-      noContextFiles: true,
-      systemPrompt: system,
-    })
-    await resourceLoader.reload?.()
-    const { session, modelFallbackMessage } = await pi.createAgentSession({
-      cwd: folder,
-      agentDir: folder,
-      modelRuntime: models,
-      model,
-      thinkingLevel: choice.effort,
-      noTools: 'all',
-      tools: [],
-      resourceLoader,
-      settingsManager,
-      sessionManager: pi.SessionManager.inMemory(folder),
-    })
-    // Pi falls back to another model when the one asked for cannot run. A review then says so instead of running on it.
-    if (modelFallbackMessage) {
-      session.dispose()
-      throw new Error(modelFallbackMessage)
-    }
-    const stop = () => void session.abort().catch(() => {})
-    signal.addEventListener('abort', stop, { once: true })
-    try {
-      await session.prompt(prompt)
-      const reply = [...session.messages].reverse().find((message) => message.role === 'assistant')
-      const parts = Array.isArray(reply?.content) ? reply.content : []
-      return parts.filter((part) => part.type === 'text').map((part) => String(part.text ?? '')).join('\n')
-    } finally {
-      signal.removeEventListener('abort', stop)
-      session.dispose()
-    }
+/** One question to a model in a session of its own, with no tools: its written answer, as text. */
+async function askPi({ root, models, choice, system, prompt, signal }: { root: string; models: PiModelRuntime; choice: TierChoice; system: string; prompt: string; signal: AbortSignal }): Promise<string> {
+  const pi = (await loadPiCodingAgent()) as unknown as {
+    createAgentSession(options: Record<string, unknown>): Promise<{ session: PiSession; modelFallbackMessage?: string }>
+    resolveCliModel(options: { cliModel: string; modelRuntime: unknown }): { model?: unknown; error?: string; warning?: string }
+    SettingsManager: { inMemory(settings: Record<string, unknown>): unknown }
+    SessionManager: { inMemory(cwd?: string): unknown }
+    DefaultResourceLoader: new (options: Record<string, unknown>) => { reload?(): Promise<void> }
+  }
+  // Resolved the way hobkin resolves its own models, so a tier names a model the same way everywhere.
+  const resolved = pi.resolveCliModel({ cliModel: choice.model, modelRuntime: models })
+  if (resolved.error || resolved.warning || !resolved.model) throw new Error(`The ${choice.tier} tier's model, ${choice.model}, cannot be used: ${resolved.error ?? resolved.warning ?? 'Pi does not have it.'}`)
+  const model = resolved.model
+  const folder = join(root, 'client', 'review-agent')
+  if (!existsSync(folder)) mkdirSync(folder, { recursive: true, mode: 0o700 })
+  const settingsManager = pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: true } })
+  const resourceLoader = new pi.DefaultResourceLoader({
+    cwd: folder,
+    agentDir: folder,
+    settingsManager,
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    systemPrompt: system,
+  })
+  await resourceLoader.reload?.()
+  const { session, modelFallbackMessage } = await pi.createAgentSession({
+    cwd: folder,
+    agentDir: folder,
+    modelRuntime: models,
+    model,
+    thinkingLevel: choice.effort,
+    noTools: 'all',
+    tools: [],
+    resourceLoader,
+    settingsManager,
+    sessionManager: pi.SessionManager.inMemory(folder),
+  })
+  // Pi falls back to another model when the one asked for cannot run. A review then says so instead of running on it.
+  if (modelFallbackMessage) {
+    session.dispose()
+    throw new Error(modelFallbackMessage)
+  }
+  const stop = () => void session.abort().catch(() => {})
+  signal.addEventListener('abort', stop, { once: true })
+  try {
+    await session.prompt(prompt)
+    const reply = [...session.messages].reverse().find((message) => message.role === 'assistant')
+    const parts = Array.isArray(reply?.content) ? reply.content : []
+    return parts.filter((part) => part.type === 'text').map((part) => String(part.text ?? '')).join('\n')
+  } finally {
+    signal.removeEventListener('abort', stop)
+    session.dispose()
   }
 }
 
