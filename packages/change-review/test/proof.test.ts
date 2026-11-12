@@ -14,12 +14,25 @@ function tempDir(t: TestContext, name: string): string {
   return dir
 }
 
+/** Runs git in `dir` as a throwaway author, with no signing and no hooks, and returns its trimmed output. */
+function gitIn(dir: string) {
+  return (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+      { encoding: 'utf8', timeout: 30_000 },
+    ).trim()
+}
+
 function writeIn(dir: string, files: Record<string, string>) {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true })
     writeFileSync(join(dir, path), text)
   }
 }
+
+/** A file's text from its lines, ending in a newline. */
+const fileOf = (...rows: string[]) => `${rows.join('\n')}\n`
 
 const DOUBLES = ['stub(:sym', 'receive(:sym)', 'expects(:sym)', 'mock.method(', 'spyOn(', 'vi.mock(', 'sinon.stub(']
 
@@ -246,8 +259,7 @@ const TEST_HEADER = "import assert from 'node:assert/strict'\nimport { test } fr
 /** A node --test project with base and head commits: the change in `src/shop.ts`, its tests, and one test that fails at head. */
 function shopRepo(t: TestContext) {
   const dir = tempDir(t, 'proof')
-  const git = (...args: string[]) =>
-    execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', timeout: 30_000 }).trim()
+  const git = gitIn(dir)
   git('init', '--quiet', '--initial-branch=main')
   writeIn(dir, {
     'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
@@ -388,13 +400,21 @@ test('the proof refuses a checkout that is not exactly the change, and runs noth
 test('a test the runner never ran, or one that also fails at head, proves nothing', async (t) => {
   const dir = tempDir(t, 'proof-unsettled')
   const count = join(tempDir(t, 'proof-count'), 'runs')
-  const git = (...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', timeout: 30_000 }).trim()
+  const git = gitIn(dir)
   const shop = (a: number, b: number, c: number) => `export function a() {\n  return ${a}\n}\n\nexport function b() {\n  return ${b}\n}\n\nexport function c() {\n  return ${c}\n}\n`
   git('init', '--quiet', '--initial-branch=main')
   writeIn(dir, {
     'package.json': JSON.stringify({ type: 'module' }),
     // Like vitest: a file its configuration leaves out is not run, and a run left with no file says so and fails.
-    'runner.mjs': "import { spawnSync } from 'node:child_process'\nconst files = process.argv.slice(2).filter((file) => !file.includes('.excluded.'))\nif (files.length === 0) {\n  console.log('No test files found, exiting with code 1')\n  process.exit(1)\n}\nprocess.exit(spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit' }).status ?? 1)\n",
+    'runner.mjs': fileOf(
+      "import { spawnSync } from 'node:child_process'",
+      "const files = process.argv.slice(2).filter((file) => !file.includes('.excluded.'))",
+      'if (files.length === 0) {',
+      "  console.log('No test files found, exiting with code 1')",
+      '  process.exit(1)',
+      '}',
+      "process.exit(spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit' }).status ?? 1)",
+    ),
     'src/shop.js': shop(0, 0, 0),
   })
   git('add', '-A')
@@ -404,7 +424,21 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
     'src/shop.js': shop(1, 2, 3),
     'test/flow/a.excluded.test.js': `${TEST_HEADER}import { a } from '../../src/shop.js'\n\ntest('a is one', () => {\n  assert.equal(a(), 1)\n})\n`,
     // Passes the first time it runs and fails every time after, whatever the code says.
-    'test/b.test.js': `${TEST_HEADER}import { readFileSync, writeFileSync } from 'node:fs'\nimport { b } from '../src/shop.js'\n\ntest('b passes once', () => {\n  let runs = 0\n  try {\n    runs = Number(readFileSync(process.env.CHANGE_REVIEW_COUNT, 'utf8'))\n  } catch {}\n  writeFileSync(process.env.CHANGE_REVIEW_COUNT, String(runs + 1))\n  assert.equal(runs, 0)\n  assert.equal(typeof b(), 'number')\n})\n`,
+    'test/b.test.js': fileOf(
+      TEST_HEADER.trimEnd(),
+      "import { readFileSync, writeFileSync } from 'node:fs'",
+      "import { b } from '../src/shop.js'",
+      '',
+      "test('b passes once', () => {",
+      '  let runs = 0',
+      '  try {',
+      "    runs = Number(readFileSync(process.env.CHANGE_REVIEW_COUNT, 'utf8'))",
+      '  } catch {}',
+      '  writeFileSync(process.env.CHANGE_REVIEW_COUNT, String(runs + 1))',
+      '  assert.equal(runs, 0)',
+      "  assert.equal(typeof b(), 'number')",
+      '})',
+    ),
     'test/c.test.js': `${TEST_HEADER}import { c } from '../src/shop.js'\n\ntest('c is three', () => {\n  assert.equal(c(), 3)\n})\n`,
   })
   git('add', '-A')
@@ -419,7 +453,11 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
       { id: 'n2', symbol: 'b', kind: 'function', path: 'src/shop.js', lines: [5, 7], change: 'modified' },
       { id: 'n3', symbol: 'c', kind: 'function', path: 'src/shop.js', lines: [9, 11], change: 'modified' },
     ],
-    candidates: { n1: [candidate('test/flow/a.excluded.test.js', true, false)], n2: [candidate('test/b.test.js', false, false)], n3: [candidate('test/c.test.js', false, false)] },
+    candidates: {
+      n1: [candidate('test/flow/a.excluded.test.js', true, false)],
+      n2: [candidate('test/b.test.js', false, false)],
+      n3: [candidate('test/c.test.js', false, false)],
+    },
     runbook: detectRunbook(dir, { command: [process.execPath, 'runner.mjs'], env: { CHANGE_REVIEW_COUNT: count } }),
     diffs: await gitRepo(dir).diffs(base, head),
     doublePatterns: DOUBLES,
@@ -427,8 +465,20 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
   })
 
   // The passing first run named the left-out file too; run alone, it is seen not to run at all.
-  assert.deepEqual(result.nodes.n1, { value: 'unknown', evidence: 'the test runner found no test to run in test/flow/a.excluded.test.js when a is put back to base.', observedBy: [], doubles: [], stillPass: [] })
-  assert.deepEqual(result.nodes.n2, { value: 'unknown', evidence: 'test/b.test.js fails when b is put back to base, and again at head with nothing changed: that failure does not show the change.', observedBy: [], doubles: [], stillPass: [] })
+  assert.deepEqual(result.nodes.n1, {
+    value: 'unknown',
+    evidence: 'the test runner found no test to run in test/flow/a.excluded.test.js when a is put back to base.',
+    observedBy: [],
+    doubles: [],
+    stillPass: [],
+  })
+  assert.deepEqual(result.nodes.n2, {
+    value: 'unknown',
+    evidence: 'test/b.test.js fails when b is put back to base, and again at head with nothing changed: that failure does not show the change.',
+    observedBy: [],
+    doubles: [],
+    stillPass: [],
+  })
   assert.deepEqual(result.nodes.n3?.observedBy, ['test/c.test.js'])
   assert.equal(result.nodes.n3?.value, 'isolated')
   assert.deepEqual(result.findings, [])
@@ -448,10 +498,20 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
 
 test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
   const dir = tempDir(t, 'proof-latin')
-  const git = (...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', timeout: 30_000 }).trim()
+  const git = gitIn(dir)
   const latin = (body: string) => Buffer.concat([Buffer.from('// caf'), Buffer.from([0xe9]), Buffer.from(`\nexport function f() { return ${body} }\n`)])
   git('init', '--quiet', '--initial-branch=main')
-  writeIn(dir, { 'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }), 'test/f.test.js': `${TEST_HEADER}import { f } from '../src/latin.js'\n\ntest('f gives a number', () => {\n  assert.equal(typeof f(), 'number')\n})\n` })
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'test/f.test.js': fileOf(
+      TEST_HEADER.trimEnd(),
+      "import { f } from '../src/latin.js'",
+      '',
+      "test('f gives a number', () => {",
+      "  assert.equal(typeof f(), 'number')",
+      '})',
+    ),
+  })
   mkdirSync(join(dir, 'src'))
   writeFileSync(join(dir, 'src/latin.js'), latin('1'))
   git('add', '-A')
@@ -470,7 +530,13 @@ test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
     diffs: await gitRepo(dir).diffs(base, head),
     doublePatterns: DOUBLES,
   })
-  assert.deepEqual(result.nodes.n1, { value: 'unknown', evidence: 'could not put it back to base: src/latin.js is not plain UTF-8 text, so it is not rewritten.', observedBy: [], doubles: [], stillPass: [] })
+  assert.deepEqual(result.nodes.n1, {
+    value: 'unknown',
+    evidence: 'could not put it back to base: src/latin.js is not plain UTF-8 text, so it is not rewritten.',
+    observedBy: [],
+    doubles: [],
+    stillPass: [],
+  })
   assert.deepEqual(result.runs.map((run) => run.kind), ['baseline'])
   assert.ok(readFileSync(join(dir, 'src/latin.js')).equals(latin('2')))
 })

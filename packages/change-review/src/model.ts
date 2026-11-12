@@ -140,7 +140,12 @@ interface RequestData {
 
 /** The node's level as it stands, or its floor when no level was set yet. */
 function levelOf(node: ReviewNode): NodeData['level'] {
-  const facts = { effect: node.facts.effect.value, proof: node.facts.proof.value, exposure: node.facts.exposure.value, undo: node.facts.undo.value }
+  const facts = {
+    effect: node.facts.effect.value,
+    proof: node.facts.proof.value,
+    exposure: node.facts.exposure.value,
+    undo: node.facts.undo.value,
+  }
   const level = node.level ?? nodeLevelOf(floor({ ...node.extras, ...facts }))
   return { current: level.current, floor: level.floor, rule: level.rule, why: level.why.join(' ') }
 }
@@ -149,7 +154,8 @@ function levelOf(node: ReviewNode): NodeData['level'] {
 function runLine(run: TestRun): string {
   const tests = run.tests.length <= 3 ? run.tests.join(', ') || 'no test files' : `${run.tests.length} test files`
   const failed = run.failed.length > 3 ? `${run.failed.slice(0, 3).join(', ')} and ${run.failed.length - 3} more` : run.failed.join(', ')
-  const result = failed ? `failed: ${failed}` : run.exit_code === 0 ? 'all passed' : 'did not pass'
+  let result = run.exit_code === 0 ? 'all passed' : 'did not pass'
+  if (failed) result = `failed: ${failed}`
   return `${run.kind}${run.node ? ` of ${run.node}` : ''}, condition ${run.condition_state}: ${tests}, ${result} (exit ${run.exit_code}, ${run.seconds} s)`
 }
 
@@ -258,7 +264,21 @@ const MAX_LINES = 40
 const MAX_SIGNALS = 10
 const MAX_GAPS = 8
 const MAX_SETTING = 12
-const LIMITS = { evidence: 600, rule: 60, question: 300, suggest: 300, gap: 200, name: 120, at: 160, undo: 200, title: 100, does: 300, setting: 160, what: 400, claim: 300 }
+const LIMITS = {
+  evidence: 600,
+  rule: 60,
+  question: 300,
+  suggest: 300,
+  gap: 200,
+  name: 120,
+  at: 160,
+  undo: 200,
+  title: 100,
+  does: 300,
+  setting: 160,
+  what: 400,
+  claim: 300,
+}
 
 type Suggestion = NonNullable<RiskEvent['suggest']>
 
@@ -345,14 +365,19 @@ function questionsOf(value: unknown, at: string, problems: Problems): Question[]
     }
     const where = `${at}.questions[${index}]`
     const changes = problems.text(raw.changes, LIMITS.question, `${where}.changes`)
-    questions.push({ text: problems.capped(raw.text, LIMITS.question, `${where}.text`), why: problems.capped(raw.why, LIMITS.question, `${where}.why`), ...(changes ? { changes } : {}) })
+    questions.push({
+      text: problems.capped(raw.text, LIMITS.question, `${where}.text`),
+      why: problems.capped(raw.why, LIMITS.question, `${where}.why`),
+      ...(changes ? { changes } : {}),
+    })
   }
   return questions
 }
 
 function suggestOf(value: unknown, at: string, problems: Problems): Suggestion | null {
   if (value === undefined) return null
-  if (!isRecord(value) || !filled(value.text) || !oneOf(LEVELS, value.to) || !(value.kind === undefined || oneOf(SUGGEST_KINDS, value.kind))) {
+  const knownKind = isRecord(value) && (value.kind === undefined || oneOf(SUGGEST_KINDS, value.kind))
+  if (!isRecord(value) || !filled(value.text) || !oneOf(LEVELS, value.to) || !knownKind) {
     return problems.drop(`${at}.suggest`, 'needs a text, the level it leads to, and a known kind')
   }
   const text = problems.capped(value.text, LIMITS.suggest, `${at}.suggest.text`)
@@ -369,7 +394,11 @@ function watchOf(value: unknown, at: string, problems: Problems): Watch | null {
       continue
     }
     const where = `${at}.watch.signals[${index}]`
-    signals.push({ kind: raw.kind, name: problems.capped(raw.name, LIMITS.name, `${where}.name`), at: problems.capped(raw.at, LIMITS.at, `${where}.at`) })
+    signals.push({
+      kind: raw.kind,
+      name: problems.capped(raw.name, LIMITS.name, `${where}.name`),
+      at: problems.capped(raw.at, LIMITS.at, `${where}.at`),
+    })
   }
   const gaps = (Array.isArray(value.gaps) ? value.gaps.slice(0, MAX_GAPS) : [])
     .map((gap, index) => problems.text(gap, LIMITS.gap, `${at}.watch.gaps[${index}]`))
@@ -517,9 +546,14 @@ function claimsOf(value: unknown, known: readonly Claim[], problems: Problems): 
  * schema for known nodes, words for known units and answers to known claims, removes hidden characters and caps
  * lengths. Everything dropped or cut is listed in `problems`, with why.
  */
-export function readReviewAnswer(text: string, known: { nodes: readonly { id: string }[]; units: readonly { id: string }[]; claims: readonly Claim[] }): ReviewAnswer {
+export function readReviewAnswer(
+  text: string,
+  known: { nodes: readonly { id: string }[]; units: readonly { id: string }[]; claims: readonly Claim[] },
+): ReviewAnswer {
   const found = jsonObjectIn(text, ['events', 'words', 'claims'])
-  if (!found) return { events: [], words: {}, claims: [], problems: ['no JSON object with events, words or claims in the answer'] }
+  if (!found) {
+    return { events: [], words: {}, claims: [], problems: ['no JSON object with events, words or claims in the answer'] }
+  }
   const problems = new Problems()
   return {
     events: eventsOf(found.events, new Set(known.nodes.map((node) => node.id)), problems),

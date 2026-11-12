@@ -15,7 +15,12 @@ function repoOf(t: TestContext, before: Record<string, string>, after: Record<st
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const repo = join(root, 'shop')
   mkdirSync(repo)
-  const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+  const git = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args],
+      { encoding: 'utf8' },
+    ).trim()
   const commit = (files: Record<string, string>, message: string) => {
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(join(repo, path, '..'), { recursive: true })
@@ -37,7 +42,12 @@ const TEST_HEADER = "import assert from 'node:assert/strict'\nimport { test } fr
 function project(t: TestContext) {
   return repoOf(
     t,
-    { 'package.json': PACKAGE, 'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n', 'src/config.js': 'export const PRECISION = 2\n', 'src/money.ts': 'export type Money = number\n' },
+    {
+      'package.json': PACKAGE,
+      'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n',
+      'src/config.js': 'export const PRECISION = 2\n',
+      'src/money.ts': 'export type Money = number\n',
+    },
     {
       'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n',
       'src/config.js': 'export const PRECISION = 3\n',
@@ -62,9 +72,43 @@ const scanning = (scan: Scan) => async (): Promise<ScanOutcome> => ({ ok: true, 
 /** What agentic-search would report for that change. */
 const scanOf = (): Scan => ({
   anchors: [
-    { id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [{ id: 'n3', symbol: 'rounds the total', path: 'test/total.test.js', line: 5 }] },
-    { id: 'n2', symbol: 'PRECISION', kind: 'constant', path: 'src/config.js', startLine: 1, endLine: 1, changedLines: [1], language: 'javascript', status: 'modified', loadTime: true, tests: [] },
-    { id: 'n3', symbol: 'rounds the total', kind: 'test', path: 'test/total.test.js', startLine: 5, endLine: 7, changedLines: [1, 2, 3, 4, 5, 6, 7], language: 'javascript', status: 'added', tests: [] },
+    {
+      id: 'n1',
+      symbol: 'total',
+      kind: 'function',
+      path: 'src/total.js',
+      startLine: 1,
+      endLine: 3,
+      changedLines: [2],
+      language: 'javascript',
+      status: 'modified',
+      tests: [{ id: 'n3', symbol: 'rounds the total', path: 'test/total.test.js', line: 5 }],
+    },
+    {
+      id: 'n2',
+      symbol: 'PRECISION',
+      kind: 'constant',
+      path: 'src/config.js',
+      startLine: 1,
+      endLine: 1,
+      changedLines: [1],
+      language: 'javascript',
+      status: 'modified',
+      loadTime: true,
+      tests: [],
+    },
+    {
+      id: 'n3',
+      symbol: 'rounds the total',
+      kind: 'test',
+      path: 'test/total.test.js',
+      startLine: 5,
+      endLine: 7,
+      changedLines: [1, 2, 3, 4, 5, 6, 7],
+      language: 'javascript',
+      status: 'added',
+      tests: [],
+    },
     // A type, erased before the code runs, and a helper inside a test file: neither is a unit to review on its own.
     { id: 'n4', symbol: 'Money', kind: 'type', path: 'src/money.ts', startLine: 1, endLine: 1, changedLines: [1], language: 'javascript', status: 'modified', tests: [] },
     { id: 'n5', symbol: 'cents', kind: 'function', path: 'test/total.test.js', startLine: 1, endLine: 1, changedLines: [1], language: 'javascript', status: 'added', tests: [] },

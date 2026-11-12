@@ -93,12 +93,17 @@ export function trackProgress(options: ProgressOptions): ProgressTracker {
     const estimates = state.steps.reduce((sum, step) => sum + step.estimate_seconds, 0)
     const behind = state.steps.reduce((sum, step) => sum + step.estimate_seconds * doneShare(step), 0)
     const left = estimates - behind
-    state.percent = estimates > 0 ? Math.floor((100 * behind) / estimates) : Math.floor((100 * state.steps.filter(isFinished).length) / Math.max(1, state.steps.length))
+    const finishedCount = state.steps.filter(isFinished).length
+    state.percent =
+      estimates > 0 ? Math.floor((100 * behind) / estimates) : Math.floor((100 * finishedCount) / Math.max(1, state.steps.length))
     state.eta_seconds = estimates > 0 ? Math.round(left * measuredScale(state.steps)) : null
+
     const open = state.steps.filter((step) => !isFinished(step))
+    const unitsLeftIn = (step: StepProgress) =>
+      step.status === 'running' ? Math.max(0, step.total - step.done) : (planned.get(step.id) ?? 0)
     state.remaining = {
       steps: open.length,
-      units: open.reduce((sum, step) => sum + (step.status === 'running' ? Math.max(0, step.total - step.done) : (planned.get(step.id) ?? 0)), 0),
+      units: open.reduce((sum, step) => sum + unitsLeftIn(step), 0),
     }
   }
   measure()

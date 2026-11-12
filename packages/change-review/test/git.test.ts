@@ -11,7 +11,11 @@ function tempRepo(t: TestContext) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'change-review-git-')))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const git = (...args: string[]) =>
-    execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', timeout: 30_000 }).trim()
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+      { encoding: 'utf8', timeout: 30_000 },
+    ).trim()
   const write = (path: string, text: string | Buffer) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true })
     writeFileSync(join(dir, path), text)

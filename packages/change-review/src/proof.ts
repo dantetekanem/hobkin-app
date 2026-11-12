@@ -55,7 +55,10 @@ const readOr = (path: string) => {
     return ''
   }
 }
-const object = (value: unknown): Record<string, unknown> => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {})
+function object(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value as Record<string, unknown>
+}
 
 /**
  * The runbook for the checkout at `cwd`: the override when given, else Ruby's (a Rails app is first a Ruby app, even
@@ -92,7 +95,8 @@ function packageRunbook(cwd: string): Runbook | null {
   } catch {
     return null
   }
-  const script = typeof object(pkg.scripts).test === 'string' ? (object(pkg.scripts).test as string) : ''
+  const testScript = object(pkg.scripts).test
+  const script = typeof testScript === 'string' ? testScript : ''
   const dependencies = { ...object(pkg.dependencies), ...object(pkg.devDependencies) }
   const bin = (name: string) => join(cwd, 'node_modules', '.bin', name)
   // The node that runs this package runs node --test too: an app opened from the Finder may have no node on PATH.
@@ -146,7 +150,12 @@ function conventionNames(path: string): string[] {
     }
     if (lib >= 0) {
       const [root, rest] = [segments.slice(0, lib), segments.slice(lib + 1)]
-      return [joined(root, 'test', 'lib', rest) + '_test.rb', joined(root, 'spec', 'lib', rest) + '_spec.rb', joined(root, 'test', rest) + '_test.rb', joined(root, 'spec', rest) + '_spec.rb']
+      return [
+        joined(root, 'test', 'lib', rest) + '_test.rb',
+        joined(root, 'spec', 'lib', rest) + '_spec.rb',
+        joined(root, 'test', rest) + '_test.rb',
+        joined(root, 'spec', rest) + '_spec.rb',
+      ]
     }
     return [joined('test', segments) + '_test.rb', joined('spec', segments) + '_spec.rb']
   }
@@ -154,7 +163,12 @@ function conventionNames(path: string): string[] {
   const folder = segments.slice(0, -1)
   const names = [joined(folder, `${name}.test${ending}`), joined(folder, `${name}.spec${ending}`), joined(folder, '__tests__', `${name}.test${ending}`)]
   const src = folder.lastIndexOf('src')
-  if (src >= 0) names.push(joined(folder.slice(0, src), 'test', folder.slice(src + 1), `${name}.test${ending}`), joined(folder.slice(0, src), 'test', `${name}.test${ending}`))
+  if (src >= 0) {
+    names.push(
+      joined(folder.slice(0, src), 'test', folder.slice(src + 1), `${name}.test${ending}`),
+      joined(folder.slice(0, src), 'test', `${name}.test${ending}`),
+    )
+  }
   names.push(joined('test', `${name}.test${ending}`))
   return [...new Set(names)]
 }
@@ -573,7 +587,9 @@ async function rubyParses(texts: string[]): Promise<boolean[] | null> {
 /** The parse check this package has: JavaScript and TypeScript through node, Ruby through `ruby -c`. */
 export const checkParses: ParseCheck = async (path, original, changed) => {
   const ending = extname(path)
-  const verdict = ending === '.rb' ? await rubyParses([original, changed]) : PROBED_SCRIPTS.has(ending) ? await scriptsParse(TYPESCRIPT.has(ending), [original, changed]) : null
+  let verdict: boolean[] | null = null
+  if (ending === '.rb') verdict = await rubyParses([original, changed])
+  else if (PROBED_SCRIPTS.has(ending)) verdict = await scriptsParse(TYPESCRIPT.has(ending), [original, changed])
   if (!verdict) return `nothing here can check that ${path} still parses.`
   if (!verdict[0]) return `${path} does not parse here as it is, so a changed copy cannot be checked.`
   if (!verdict[1]) return `the changed ${path} would not parse.`
@@ -612,7 +628,17 @@ const lifecycleTests = (size: number) => (size === 1 ? 'a life-cycle test' : 'li
  * short, that the runner did not run, or that fails at head too proves nothing either way. A failing test that stubs
  * the definition is coverage, not validation.
  */
-export function proofOf({ symbol, mutation, observations, timeoutMs }: { symbol: string; mutation: 'revert' | 'probe'; observations: readonly Observation[]; timeoutMs?: number }): NodeProof {
+export function proofOf({
+  symbol,
+  mutation,
+  observations,
+  timeoutMs,
+}: {
+  symbol: string
+  mutation: 'revert' | 'probe'
+  observations: readonly Observation[]
+  timeoutMs?: number
+}): NodeProof {
   const what = mutation === 'revert' ? `${symbol} is put back to base` : `${symbol} is made to throw`
   const paths = (items: readonly Observation[]) => items.map((item) => item.candidate.path)
   const ended = (outcome: Observation['outcome']) => paths(observations.filter((item) => item.outcome === outcome))
@@ -624,14 +650,18 @@ export function proofOf({ symbol, mutation, observations, timeoutMs }: { symbol:
 
   if (failed.length === 0) {
     const cut = ended('timed-out')
-    if (cut.length) return answer('unknown', `${listed(cut)} did not finish within ${timeoutMs ? `${timeoutMs / 1000} seconds` : 'the time limit'} when ${what}.`)
+    if (cut.length) {
+      const limit = timeoutMs ? `${timeoutMs / 1000} seconds` : 'the time limit'
+      return answer('unknown', `${listed(cut)} did not finish within ${limit} when ${what}.`)
+    }
     const unsettled = ended('unsettled')
     if (unsettled.length) return answer('unknown', `${fail(unsettled)} when ${what}, and again at head with nothing changed: that failure does not show the change.`)
     const notRun = ended('not-run')
     if (notRun.length) return answer('unknown', `the test runner found no test to run in ${listed(notRun)} when ${what}.`)
     const passed = paths(observations)
     const one = passed.length === 1
-    return answer('none', `${listed(passed)} ${one ? 'still passes' : 'still pass'} when ${what}: nothing in ${one ? 'it' : 'them'} ${mutation === 'revert' ? 'checks the change' : 'reaches it'}.`)
+    const doesWhat = mutation === 'revert' ? 'checks the change' : 'reaches it'
+    return answer('none', `${listed(passed)} ${one ? 'still passes' : 'still pass'} when ${what}: nothing in ${one ? 'it' : 'them'} ${doesWhat}.`)
   }
   const real = failed.filter((item) => item.doubles.length === 0)
   if (real.length === 0) return answer('mocked', `only tests that stub ${symbol} fail when ${what}: ${doubles.join('; ')}.`)
@@ -657,7 +687,9 @@ export function doublesIn(text: string, path: string, symbol: string, nodePath: 
     }
     return (line) => line.includes(pattern) && (named.test(line) || module.test(line))
   })
-  return text.split('\n').flatMap((line, index) => (matchers.some((matches) => matches(line)) ? [`${path}:${index + 1}: ${line.trim().slice(0, 160)}`] : []))
+  return text
+    .split('\n')
+    .flatMap((line, index) => (matchers.some((matches) => matches(line)) ? [`${path}:${index + 1}: ${line.trim().slice(0, 160)}`] : []))
 }
 
 // ───────────────────────── Running tests ─────────────────────────
@@ -697,7 +729,11 @@ function tailOf(run: Started, timeoutMs: number): string {
  */
 const NO_TESTS = [/^\s*No test files found\b/m, /^\s*No tests found\b/m]
 
-const outcomeOf = (run: Started): Outcome => (run.timedOut ? 'timed-out' : NO_TESTS.some((said) => said.test(run.tail)) ? 'not-run' : run.code === 0 ? 'passed' : 'failed')
+function outcomeOf(run: Started): Outcome {
+  if (run.timedOut) return 'timed-out'
+  if (NO_TESTS.some((said) => said.test(run.tail))) return 'not-run'
+  return run.code === 0 ? 'passed' : 'failed'
+}
 
 /** The files a run records as failed: none when it passed, was stopped, or ran no test. */
 const failedIn = (run: Started, files: readonly string[]): string[] => (run.code === 0 || run.aborted || outcomeOf(run) === 'not-run' ? [] : [...files])
@@ -713,7 +749,15 @@ function testEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 
 async function start(runner: Runner, files: readonly string[]): Promise<Started | { stopped: string }> {
   const [program, ...args] = runner.book.command
-  const run = await runProgram(program!, [...args, ...files], { cwd: runner.cwd, env: runner.env, timeoutMs: runner.timeoutMs, group: true, signal: runner.signal, overflow: 'tail', maxBytes: 1024 * 1024 })
+  const run = await runProgram(program!, [...args, ...files], {
+    cwd: runner.cwd,
+    env: runner.env,
+    timeoutMs: runner.timeoutMs,
+    group: true,
+    signal: runner.signal,
+    overflow: 'tail',
+    maxBytes: 1024 * 1024,
+  })
   return run.started ? run : { stopped: `${program} could not start: ${run.reason}` }
 }
 
@@ -884,7 +928,9 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
     if (outcome === 'failed') findings.push({ rule: 'failing-test', text: `${file} fails at head, before anything is changed.`, by: 'proof' })
     if (outcome === 'timed-out') findings.push({ rule: 'test-timeout', text: `${file} did not finish within ${timeoutMs / 1000} seconds at head.`, by: 'proof' })
   }
-  if (!stopped && baselineFiles.length && !(await repo.clean({ untracked: false }))) stopped = 'the tests at head changed tracked files, so later runs would not test the change.'
+  if (!stopped && baselineFiles.length && !(await repo.clean({ untracked: false }))) {
+    stopped = 'the tests at head changed tracked files, so later runs would not test the change.'
+  }
 
   for (const [index, node] of nodes.entries()) {
     const plan = plans[index]!
@@ -901,7 +947,10 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
     if (passing.length === 0) {
       const notRun = plan.tests.filter((test) => atHead.get(test.path) === 'not-run').map((test) => test.path)
       const failing = plan.tests.map((test) => test.path).filter((path) => !notRun.includes(path))
-      const said = [failing.length ? `its tests fail or hang at head, before anything is changed: ${listed(failing)}` : '', notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '']
+      const said = [
+        failing.length ? `its tests fail or hang at head, before anything is changed: ${listed(failing)}` : '',
+        notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '',
+      ]
       answers[node.id] = unknown(`${said.filter(Boolean).join('; ')}.`)
       continue
     }
@@ -939,7 +988,9 @@ async function proveNode({
   const file = resolve(runner.cwd, node.path)
   try {
     // Written only where it is: a plain file, inside the checkout even once every link on the way is followed.
-    if (!lstatSync(file).isFile() || !realpathSync(file).startsWith(realpathSync(runner.cwd) + sep)) return cannot(`${node.path} is not a plain file inside the checkout.`)
+    if (!lstatSync(file).isFile() || !realpathSync(file).startsWith(realpathSync(runner.cwd) + sep)) {
+      return cannot(`${node.path} is not a plain file inside the checkout.`)
+    }
   } catch {
     return cannot(`${node.path} is not in the checkout.`)
   }
@@ -959,8 +1010,9 @@ async function proveNode({
   } finally {
     restore(file, original)
   }
-  const back = readFileSync(file).equals(original) && (await repo.clean({ untracked: false })) && (await repo.head()) === head
-  if (!back) return { stopped: `${node.path} or the checkout did not come back exactly as it was.` }
+  const fileIsBack = readFileSync(file).equals(original)
+  const checkoutIsBack = fileIsBack && (await repo.clean({ untracked: false })) && (await repo.head()) === head
+  if (!checkoutIsBack) return { stopped: `${node.path} or the checkout did not come back exactly as it was.` }
   if ('stopped' in ran) return ran
 
   // A file that failed with the change made observes it only if it passes again run alone at head: one that fails
@@ -971,13 +1023,18 @@ async function proveNode({
     if ('stopped' in confirmed) return confirmed
     again.set(candidate.path, confirmed.outcomes.get(candidate.path) ?? 'timed-out')
   }
-  if (again.size && !(await repo.clean({ untracked: false }))) return { stopped: 'the tests at head changed tracked files, so later runs would not test the change.' }
+  if (again.size && !(await repo.clean({ untracked: false }))) {
+    return { stopped: 'the tests at head changed tracked files, so later runs would not test the change.' }
+  }
 
   const observations = passing.map((candidate): Observation => {
     // Every file has an outcome; were one missing, it would prove nothing rather than count as a failure.
     const during = ran.outcomes.get(candidate.path) ?? 'timed-out'
     const outcome = during === 'failed' && again.get(candidate.path) !== 'passed' ? 'unsettled' : during
-    const doubles = outcome === 'failed' ? doublesIn(readOr(join(runner.cwd, candidate.path)), candidate.path, node.symbol, node.path, doublePatterns) : []
+    const doubles =
+      outcome === 'failed'
+        ? doublesIn(readOr(join(runner.cwd, candidate.path)), candidate.path, node.symbol, node.path, doublePatterns)
+        : []
     return { candidate, outcome, doubles }
   })
   return { answer: proofOf({ symbol: node.symbol, mutation, observations, timeoutMs: runner.timeoutMs }) }

@@ -209,8 +209,8 @@ function guardState(guard: Guard, checks: Check[], range: [number, number], conf
     index = checks.length - 1
   }
   const negated = /(^|\W)(!|not\s+)\s*$/.test(guard.text.slice(0, hit.index)) || /^\s*unless\b/.test(guard.text)
-  // `after-return`: the guard's own condition is false from here on.
-  const on = guard.branch === 'then' ? !negated : guard.branch === 'else' ? negated : negated
+  // `else` and `after-return` both mean the guard's own condition is false from here on.
+  const on = guard.branch === 'then' ? !negated : negated
   return { check: index, state: on ? 'on' : 'off' }
 }
 
@@ -260,8 +260,12 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
     // interface
     const looksLikeDefinition = (line: string) => /^\s*(def |function\b|async function\b|class |module |export\b)|=>\s*\{?\s*$|\)\s*(:\s*[^={]+)?\{\s*$/.test(line)
     if (anchor.signatureChanged === true) note('interface', reported('signature changed'))
-    else if (anchor.signatureChanged === undefined && changed.includes(anchor.startLine) && (anchor.removed ?? []).some((r) => r.lines.some(looksLikeDefinition)) && anchor.status !== 'added') {
-      note('interface', found('the definition line changed'))
+    else if (anchor.signatureChanged === undefined) {
+      const startLineChanged = changed.includes(anchor.startLine)
+      const removedADefinition = (anchor.removed ?? []).some((block) => block.lines.some(looksLikeDefinition))
+      if (startLineChanged && removedADefinition && anchor.status !== 'added') {
+        note('interface', found('the definition line changed'))
+      }
     }
     if (changed.length === 0 && removedCode.length > 0) {
       if (goneAtHead(anchor, head)) note('interface', found('a definition was removed'))
@@ -297,7 +301,12 @@ function deriveEffect(input: FactsInput, reading: Reading): EffectResult {
     if (loadPath(path, config)) note('load', found(`configuration or dependency file ${path}`))
 
     // behaviour
-    if (reasons.size === 0 || code.length > 0 || nothingReported) note('behaviour', nothingReported ? found('no changed lines reported') : head ? found('executable lines changed') : 'source lines not available, so treated as behaviour')
+    if (reasons.size === 0 || code.length > 0 || nothingReported) {
+      let why = 'source lines not available, so treated as behaviour'
+      if (nothingReported) why = found('no changed lines reported')
+      else if (head) why = found('executable lines changed')
+      note('behaviour', why)
+    }
   }
 
   const effects = SEVERITY.filter((e) => reasons.has(e))
@@ -347,7 +356,7 @@ function deriveConditions(input: FactsInput, reading: Reading): { checks: Check[
   const stateAt = (line: number): Mark[] => {
     const own = marks.get(line) ?? []
     if (own.some((m) => m.state === 'scaffold')) return own.filter((m) => m.state === 'scaffold')
-    return guards ? fromTool.get(line) ?? [] : own
+    return guards ? (fromTool.get(line) ?? []) : own
   }
   return { checks, stateAt, viaGuards: guards !== undefined, marks }
 }
@@ -363,7 +372,11 @@ function deriveExposure(input: FactsInput, effect: EffectResult, reading: Readin
     name: c.name,
     line: c.line,
     text: c.text,
-    dominates: changed.flatMap((line) => stateAt(line).filter((m) => m.check === checks.indexOf(c) && (m.state === 'on' || m.state === 'off')).map((m) => ({ line, state: m.state as 'on' | 'off' }))),
+    dominates: changed.flatMap((line) =>
+      stateAt(line)
+        .filter((m) => m.check === checks.indexOf(c) && (m.state === 'on' || m.state === 'off'))
+        .map((m) => ({ line, state: m.state as 'on' | 'off' })),
+    ),
     added: added.has(c.line),
   }))
   const hosts = conditions.some((c) => c.added)

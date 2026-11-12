@@ -58,7 +58,11 @@ function kindOfPath(path: string): BucketKind {
   return 'code'
 }
 
-const treatmentOf = (kind: BucketKind): Treatment => (kind === 'test' ? 'tests' : kind === 'docs' || kind === 'asset' || kind === 'generated' || kind === 'other' ? 'skip' : 'scan')
+function treatmentOf(kind: BucketKind): Treatment {
+  if (kind === 'test') return 'tests'
+  if (kind === 'docs' || kind === 'asset' || kind === 'generated' || kind === 'other') return 'skip'
+  return 'scan'
+}
 
 const WHY: Partial<Record<BucketKind, string>> = {
   code: 'production code, read line by line',
@@ -83,8 +87,10 @@ export function localeOf(path: string): { locale: string; set: string } | null {
   const stem = name.replace(/\.[^.]+$/, '')
   // `en.yml`, `pt-BR.json`, and Rails' `devise.en.yml`.
   const fileLocale = LOCALE_CODE.test(stem) ? stem : stem.split('.').at(-1)!
-  if (LOCALE_CODE.test(fileLocale) && fileLocale !== stem.split('.')[0] || LOCALE_CODE.test(stem)) {
-    return { locale: fileLocale, set: [...parts.slice(0, -1), name.replace(new RegExp(`(^|\\.)${escapeRegex(fileLocale)}(\\.[^.]+)$`), '$1*$2')].join('/') }
+  const localeLedByName = LOCALE_CODE.test(fileLocale) && fileLocale !== stem.split('.')[0]
+  if (localeLedByName || LOCALE_CODE.test(stem)) {
+    const localeInName = new RegExp(`(^|\\.)${escapeRegex(fileLocale)}(\\.[^.]+)$`)
+    return { locale: fileLocale, set: [...parts.slice(0, -1), name.replace(localeInName, '$1*$2')].join('/') }
   }
   // `locales/en/common.json`: the locale is a folder.
   const at = parts.slice(0, -1).findIndex((part, index) => index > 0 && LOCALE_CODE.test(part) && LOCALE_FOLDER.test(`${parts.slice(0, index).join('/')}/`))
@@ -310,11 +316,17 @@ export function triage(meta: ChangeMeta, { diffs = [] }: { diffs?: readonly File
     const kinded = classify(file)
     if (ported.has(file.path)) {
       const side = file.status === 'deleted' ? 'old' : 'new'
-      return { file, kinded: { kind: kinded.kind === 'test' ? 'test' : 'code', treatment: 'parity', why: `port to another language: the ${side} tree, checked by test parity first` }, key: `parity:${side}`, folder: '' }
+      const ported: Kinded = {
+        kind: kinded.kind === 'test' ? 'test' : 'code',
+        treatment: 'parity',
+        why: `port to another language: the ${side} tree, checked by test parity first`,
+      }
+      return { file, kinded: ported, key: `parity:${side}`, folder: '' }
     }
     if (removed.has(file.path)) {
       const folder = removed.get(file.path)!
-      return { file, kinded: { kind: kinded.kind, treatment: 'removal', why: 'removed: checked for what still refers to it, never read' }, key: `removal:${folder}`, folder }
+      const gone: Kinded = { kind: kinded.kind, treatment: 'removal', why: 'removed: checked for what still refers to it, never read' }
+      return { file, kinded: gone, key: `removal:${folder}`, folder }
     }
     const locale = kinded.kind === 'translation' ? localeOf(file.path) : null
     if (locale) return { file, kinded, key: `translation:${locale.set}`, folder: '' }
@@ -326,7 +338,11 @@ export function triage(meta: ChangeMeta, { diffs = [] }: { diffs?: readonly File
   for (const [index, paths] of mechanicalGroups(diffs, eligible).entries()) {
     const read = sitesToRead(paths)
     for (const entry of placed.filter((candidate) => paths.includes(candidate.file.path))) {
-      entry.kinded = { kind: 'code', treatment: 'sample', why: `${paths.length} files with the same edit once the changed name is normalized: ${read.length} read, the rest counted` }
+      entry.kinded = {
+        kind: 'code',
+        treatment: 'sample',
+        why: `${paths.length} files with the same edit once the changed name is normalized: ${read.length} read, the rest counted`,
+      }
       entry.key = `mechanical:${index}`
       entry.sample = { read, trusted: paths.length - read.length }
     }
@@ -357,7 +373,12 @@ export function triage(meta: ChangeMeta, { diffs = [] }: { diffs?: readonly File
         ...(sample ? { sample } : {}),
       }
     })
-    .sort((a, b) => ORDER.indexOf(a.treatment) - ORDER.indexOf(b.treatment) || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.folder.localeCompare(b.folder))
+    .sort(
+      (a, b) =>
+        ORDER.indexOf(a.treatment) - ORDER.indexOf(b.treatment) ||
+        KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+        a.folder.localeCompare(b.folder),
+    )
     .map((bucket, index) => ({ id: `b${index + 1}`, ...bucket }))
 
   const { claims, directives, flagged } = claimsOf(meta)
@@ -367,7 +388,11 @@ export function triage(meta: ChangeMeta, { diffs = [] }: { diffs?: readonly File
     range: meta.range,
     mode: modeOf(buckets, flagged),
     description_source,
-    totals: { files: meta.files.length, added: meta.files.reduce((sum, file) => sum + file.added, 0), deleted: meta.files.reduce((sum, file) => sum + file.deleted, 0) },
+    totals: {
+      files: meta.files.length,
+      added: meta.files.reduce((sum, file) => sum + file.added, 0),
+      deleted: meta.files.reduce((sum, file) => sum + file.deleted, 0),
+    },
     buckets,
     claims,
     ...(directives.length ? { directives } : {}),
@@ -444,11 +469,26 @@ async function localeChecks(bucket: Bucket, reader: RepoReader, { base, head }: 
     for (const key of gained.filter((key) => keys.has(key))) {
       const want = variablesOf(readKeys.get(key)!)
       const have = variablesOf(keys.get(key)!)
-      if (want.join() !== have.join()) problems.push(`${path}: ${key} has ${have.join(' ') || 'no variables'} where ${readPath} has ${want.join(' ') || 'none'}`)
+      if (want.join() !== have.join()) {
+        problems.push(`${path}: ${key} has ${have.join(' ') || 'no variables'} where ${readPath} has ${want.join(' ') || 'none'}`)
+      }
     }
-    checks.push({ name: `locale ${localeOf(path)?.locale ?? path}`, passed: problems.length === 0, ...(problems.length ? { breaks: true } : {}), detail: problems.join('; ') || `${path} has all ${gained.length} keys ${readPath} gained` })
+    checks.push({
+      name: `locale ${localeOf(path)?.locale ?? path}`,
+      passed: problems.length === 0,
+      ...(problems.length ? { breaks: true } : {}),
+      detail: problems.join('; ') || `${path} has all ${gained.length} keys ${readPath} gained`,
+    })
   }
   return checks
+}
+
+/** The variable written the way its syntax writes it: `%{name}`, `{{name}}`, `%(name)` or `{name}`. */
+function variableSpelling(matched: string, name: string | undefined): string {
+  if (matched.startsWith('%{')) return `%{${name}}`
+  if (matched.startsWith('{{')) return `{{${name}}}`
+  if (matched.startsWith('%(')) return `%(${name})`
+  return `{${name}}`
 }
 
 /** Interpolation variables a translation uses: `%{name}`, `{{name}}`, `{name}`, `%(name)s`, sorted. */
@@ -456,7 +496,7 @@ function variablesOf(value: string): string[] {
   const found = new Set<string>()
   for (const match of value.matchAll(/%\{(\w+)\}|\{\{\s*(\w+)\s*\}\}|(?<![{%$])\{(\w+)\}|%\((\w+)\)[sd]/g)) {
     const name = match[1] ?? match[2] ?? match[3] ?? match[4]
-    found.add(match[0].startsWith('%{') ? `%{${name}}` : match[0].startsWith('{{') ? `{{${name}}}` : match[0].startsWith('%(') ? `%(${name})` : `{${name}}`)
+    found.add(variableSpelling(match[0], name))
   }
   return [...found].sort()
 }
@@ -569,7 +609,11 @@ async function removalChecks(bucket: Bucket, reader: RepoReader, { base, head, f
   const checks: BucketCheck[] = [
     references.length
       ? { name: 'nothing refers to what was removed', passed: false, breaks: true, detail: references.join('\n') }
-      : { name: 'nothing refers to what was removed', passed: true, detail: `no file at head refers to the ${deleted.length} removed files (${[...terms].length} names searched)` },
+      : {
+          name: 'nothing refers to what was removed',
+          passed: true,
+          detail: `no file at head refers to the ${deleted.length} removed files (${[...terms].length} names searched)`,
+        },
   ]
   // A test deleted while its subject stays is a finding, not a break.
   const orphans: string[] = []
@@ -593,7 +637,8 @@ function subjectsOf(testPath: string): string[] {
 
 async function renameChecks(bucket: Bucket, reader: RepoReader, { head, files }: Pick<ChangeMeta, 'head' | 'files'>): Promise<BucketCheck[]> {
   const moved = files.filter((file) => bucket.paths.includes(file.path) && file.oldPath)
-  const terms = moved.map((file) => importPathOf(file.oldPath!)).filter((term, index, all) => all.indexOf(term) === index && !moved.some((file) => importPathOf(file.path) === term))
+  const oldTerms = moved.map((file) => importPathOf(file.oldPath!))
+  const terms = oldTerms.filter((term, index) => oldTerms.indexOf(term) === index && !moved.some((file) => importPathOf(file.path) === term))
   const references = await referencesTo(reader, head, terms, new Set(bucket.paths))
   return [
     references.length

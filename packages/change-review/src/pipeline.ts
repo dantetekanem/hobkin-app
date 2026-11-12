@@ -21,7 +21,28 @@ import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
 import { renderStory } from './story.ts'
 import { checkBuckets, triage as triageOf } from './triage.ts'
-import type { BlindAction, BlindCheck, ChangeDescription, FileDiff, Graph, GraphEdge, Level, ModelRunner, Progress, Question, ReviewNode, RiskEvent, Scan, ScanAnchor, StepId, StoryWords, Triage, Unit, Units } from './types.ts'
+import type {
+  BlindAction,
+  BlindCheck,
+  ChangeDescription,
+  Dangling,
+  FileDiff,
+  Graph,
+  GraphEdge,
+  Level,
+  ModelRunner,
+  Progress,
+  Question,
+  ReviewNode,
+  RiskEvent,
+  Scan,
+  ScanAnchor,
+  StepId,
+  StoryWords,
+  Triage,
+  Unit,
+  Units,
+} from './types.ts'
 
 export interface ReviewChangeOptions {
   /** The checkout of the change at `head`, clean, at the repository's top folder. */
@@ -137,6 +158,52 @@ function changeOf(anchor: ScanAnchor, atHead: readonly string[] | null): ReviewN
   return anchor.changedLines.length >= span && !(anchor.removed ?? []).some((block) => block.lines.length) ? 'added' : 'modified'
 }
 
+/** The node for a removed definition that something remaining still refers to: broken, decided by search alone. */
+function brokenReferenceNode(dangling: Dangling, id: string): ReviewNode {
+  const where = dangling.references
+    .slice(0, 3)
+    .map((ref) => `${ref.path}:${ref.line}`)
+    .join(', ')
+  const verb = dangling.references.length === 1 ? 'refers' : 'refer'
+  return {
+    id,
+    kind: 'general',
+    symbol: dangling.symbol,
+    path: dangling.path,
+    lines: [1, 1],
+    change: 'removed',
+    changed_lines: [],
+    entries: [],
+    facts: {
+      effect: { value: 'interface', evidence: 'a definition was removed' },
+      proof: { value: 'not-applicable', evidence: 'a broken reference is decided by search, not by a test' },
+      exposure: { value: 'everyone', evidence: `still referred to at ${where}` },
+      undo: { value: 'rollback', evidence: 'reverting the deploy restores the definition' },
+    },
+    extras: { broken: `${where} still ${verb} to ${dangling.symbol}, which this diff removes.` },
+    conditions: [],
+    hosts_condition: false,
+    runs: [],
+    sensitive: [],
+    level: null,
+    critical: false,
+    findings: [{ rule: 'dangling-reference', text: `${dangling.symbol} is removed while ${where} still refers to it.`, by: 'search' }],
+    watch: null,
+    questions: [],
+  }
+}
+
+/** What the review works from when the scan could not run: nothing found, and the coverage says it failed. */
+const failedScan = (): Scan => ({
+  anchors: [],
+  nodes: {},
+  edges: [],
+  dangling: [],
+  tests: [],
+  files: [],
+  coverage: { truncated: true, truncatedBy: 'failed', skippedAnchors: 0, unresolved: 0, notes: [] },
+})
+
 /** The name a symbol is called by: `total` for `Cart#total` or `Billing::Cart.total`. */
 const shortName = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).at(-1) ?? symbol
 
@@ -185,7 +252,10 @@ function callersOf(scan: Scan, anchor: ScanAnchor): CallerSite[] {
 }
 
 /** A unit's identity across reshaping: the nodes it holds, or the buckets for a unit with no node. */
-const unitKey = (unit: Pick<Unit, 'nodes' | 'buckets'>) => (unit.nodes.length ? `n:${[...unit.nodes].sort().join(',')}` : `b:${[...(unit.buckets ?? [])].sort().join(',')}`)
+function unitKey(unit: Pick<Unit, 'nodes' | 'buckets'>): string {
+  if (unit.nodes.length) return `n:${[...unit.nodes].sort().join(',')}`
+  return `b:${[...(unit.buckets ?? [])].sort().join(',')}`
+}
 
 /** Words written for one shaping of the units, carried to another where a unit holds the same nodes. */
 function carryWords(words: StoryWords, from: readonly Unit[], to: readonly Unit[]): StoryWords {
@@ -270,7 +340,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   tracker.start('map-search', 1, `map-search: asking agentic-search for every changed definition in ${mapped.size} files`)
   const scanned = await (options.scan ?? runScan)({ cwd, base, head, signal })
   halt('map-search')
-  const scan: Scan = scanned.ok ? scanned.scan : { anchors: [], nodes: {}, edges: [], dangling: [], tests: [], files: [], coverage: { truncated: true, truncatedBy: 'failed', skippedAnchors: 0, unresolved: 0, notes: [] } }
+  const scan: Scan = scanned.ok ? scanned.scan : failedScan()
   if (scanned.ok) tracker.end('map-search')
   else {
     problems.push(`The scan could not run: ${scanned.reason}`)
@@ -324,42 +394,30 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     })
   }
   // A definition removed while something that remains still refers to it: broken, whatever else is true.
-  for (const [index, dangling] of scan.dangling.entries()) {
-    const where = dangling.references.slice(0, 3).map((ref) => `${ref.path}:${ref.line}`).join(', ')
-    nodes.push({
-      id: `x${index + 1}`,
-      kind: 'general',
-      symbol: dangling.symbol,
-      path: dangling.path,
-      lines: [1, 1],
-      change: 'removed',
-      changed_lines: [],
-      entries: [],
-      facts: {
-        effect: { value: 'interface', evidence: 'a definition was removed' },
-        proof: { value: 'not-applicable', evidence: 'a broken reference is decided by search, not by a test' },
-        exposure: { value: 'everyone', evidence: `still referred to at ${where}` },
-        undo: { value: 'rollback', evidence: 'reverting the deploy restores the definition' },
-      },
-      extras: { broken: `${where} still ${dangling.references.length === 1 ? 'refers' : 'refer'} to ${dangling.symbol}, which this diff removes.` },
-      conditions: [],
-      hosts_condition: false,
-      runs: [],
-      sensitive: [],
-      level: null,
-      critical: false,
-      findings: [{ rule: 'dangling-reference', text: `${dangling.symbol} is removed while ${where} still refers to it.`, by: 'search' }],
-      watch: null,
-      questions: [],
-    })
-  }
+  for (const [index, dangling] of scan.dangling.entries()) nodes.push(brokenReferenceNode(dangling, `x${index + 1}`))
   const known = new Set(nodes.map((node) => node.id))
   const edges: GraphEdge[] = scan.edges.flatMap((edge) => {
     if (!edge.to || !known.has(edge.from) || !known.has(edge.to)) return []
     if (edge.relationship !== 'calls' && edge.relationship !== 'called_by' && edge.relationship !== 'enqueues') return []
-    return [{ from: edge.from, to: edge.to, relationship: edge.relationship, resolution: edge.resolution, ...(edge.line ? { line: edge.line } : {}) }]
+    return [
+      {
+        from: edge.from,
+        to: edge.to,
+        relationship: edge.relationship,
+        resolution: edge.resolution,
+        ...(edge.line ? { line: edge.line } : {}),
+      },
+    ]
   })
-  const graphOf = (list: ReviewNode[]): Graph => ({ schema: 'review-graph/1', range: triage.range, base, head, nodes: list, edges, coverage: { truncated: scan.coverage.truncated, notes: scan.coverage.notes } })
+  const graphOf = (list: ReviewNode[]): Graph => ({
+    schema: 'review-graph/1',
+    range: triage.range,
+    base,
+    head,
+    nodes: list,
+    edges,
+    coverage: { truncated: scan.coverage.truncated, notes: scan.coverage.notes },
+  })
   save('graph.json', graphOf(nodes))
 
   // 3. Proof: the repository's own tests, at head and with each changed definition undone.
@@ -402,8 +460,9 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     signal,
     onRun: (run) => {
       if (run.node) proved.add(run.node)
-      const who = run.node ? nodes.find((node) => node.id === run.node)?.symbol ?? run.node : 'every candidate test'
-      tracker.tick('map-proof', proved.size, `map-proof: ${run.kind} run for ${who}: ${run.tests.length} test ${run.tests.length === 1 ? 'file' : 'files'}, exit ${run.exit_code}`)
+      const who = run.node ? (nodes.find((node) => node.id === run.node)?.symbol ?? run.node) : 'every candidate test'
+      const testFileWord = run.tests.length === 1 ? 'file' : 'files'
+      tracker.tick('map-proof', proved.size, `map-proof: ${run.kind} run for ${who}: ${run.tests.length} test ${testFileWord}, exit ${run.exit_code}`)
     },
   })
   halt('map-proof')
@@ -412,7 +471,9 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const proofEvents: RiskEvent[] = []
   for (const node of nodes) {
     if (node.kind === 'test') node.facts.proof = { value: 'not-applicable', evidence: 'a test itself' }
-    else if (node.kind === 'function' && node.facts.effect.value === 'text') node.facts.proof = { value: 'not-applicable', evidence: 'only comments or whitespace changed' }
+    else if (node.kind === 'function' && node.facts.effect.value === 'text') {
+      node.facts.proof = { value: 'not-applicable', evidence: 'only comments or whitespace changed' }
+    }
     const answer = proof.nodes[node.id]
     if (answer) node.facts.proof = { value: answer.value, evidence: answer.evidence }
     const mine = new Set((candidates[node.id] ?? []).map((candidate) => candidate.path))
@@ -420,13 +481,24 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     // A test that fails at head, before anything is changed, is a finding at high. Its text starts with the test's path.
     for (const finding of proof.findings.filter((item) => [...mine].some((path) => item.text.startsWith(`${path} `)))) {
       node.findings.push(finding)
-      proofEvents.push({ node: node.id, level: 'high', direction: 'up', aspect: 'failure', evidence: finding.text, rule: finding.rule, by: 'proof' })
+      proofEvents.push({
+        node: node.id,
+        level: 'high',
+        direction: 'up',
+        aspect: 'failure',
+        evidence: finding.text,
+        rule: finding.rule,
+        by: 'proof',
+      })
     }
     // Rule 11 needs the condition on in a test that observes it, and the off path held by an unchanged life-cycle test
     // that ran and still passed with the change undone: one never run, failing or cut short holds nothing.
     if (node.facts.exposure.value === 'nobody-yet' && answer) {
       const flags = node.conditions.map((condition) => condition.name)
-      const turnsOn = (path: string) => config.flags.testOn.some((pattern) => flags.some((flag) => (readOr(join(cwd, path)) ?? '').match(rx(pattern))?.groups?.flag === flag))
+      const turnsOn = (path: string) =>
+        config.flags.testOn.some((pattern) =>
+          flags.some((flag) => (readOr(join(cwd, path)) ?? '').match(rx(pattern))?.groups?.flag === flag),
+        )
       node.extras.conditionOnProven = answer.observedBy.some(turnsOn)
       node.extras.offPathProven = (candidates[node.id] ?? []).some((candidate) => candidate.lifecycle && !candidate.changed && answer.stillPass.includes(candidate.path))
     }
@@ -459,7 +531,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   tracker.start('risk-model', model ? 1 : 0, model ? `risk-model: one careful pass over ${assessed} nodes that are mid, high or hold a new check` : 'risk-model: no model')
   if (!model) tracker.skip('risk-model', 'no model to ask: levels stay at their floors and the story is written from the facts')
   else {
-    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code: Object.fromEntries(nodes.map((node) => [node.id, changedExcerpt(diffs, node)])) })
+    const code = Object.fromEntries(nodes.map((node) => [node.id, changedExcerpt(diffs, node)]))
+    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code })
     problems.push(...request.cut.map((cut) => `Left out of the careful pass: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
@@ -512,7 +585,10 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     blind.answer = checked?.answer ?? null
     blind.check = checked?.check ?? null
     if (!checked?.check) {
-      blind.note = 'failed' in asked ? `the checker failed (${asked.failed}), so the check did not run` : 'the checker gave no answer that could be read, so the check did not run'
+      blind.note =
+        'failed' in asked
+          ? `the checker failed (${asked.failed}), so the check did not run`
+          : 'the checker gave no answer that could be read, so the check did not run'
       if ('failed' in asked) problems.push(`The blind check failed: ${asked.failed}. It counts as not run.`)
       tracker.skip('blind-check', blind.note)
     } else {
@@ -554,10 +630,18 @@ function withBlindOutcome(units: Units, before: readonly Unit[], outcome: Return
     const was = before.find((old) => unitKey(old) === unitKey(unit))
     const answer = was && !unit.nodes.length ? answerOf.get(was.id) : undefined
     // The same rules as for nodes: thin evidence raises one step; something unknown makes a safe unit mid.
-    const level = answer === 'thin-evidence' ? STEP_UP[unit.level] : answer === 'unknown' && unit.level === 'safe' ? 'mid' : unit.level
+    let level = unit.level
+    if (answer === 'thin-evidence') level = STEP_UP[unit.level]
+    else if (answer === 'unknown' && unit.level === 'safe') level = 'mid'
     if (level !== unit.level) {
       const why = answer === 'thin-evidence' ? 'it could not be shown simply from the story' : 'something it needs is unknown'
-      return { ...unit, level, questions, reading_minutes: Math.max(unit.reading_minutes, level === 'high' ? 2 : 1), why_level: [...unit.why_level, `Raised to ${level} by the blind check: ${why}.`] }
+      return {
+        ...unit,
+        level,
+        questions,
+        reading_minutes: Math.max(unit.reading_minutes, level === 'high' ? 2 : 1),
+        why_level: [...unit.why_level, `Raised to ${level} by the blind check: ${why}.`],
+      }
     }
     return { ...unit, questions }
   })

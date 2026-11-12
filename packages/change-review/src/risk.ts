@@ -133,13 +133,22 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
     }
 
     if (RANK[event.level] !== RANK[level.current]) level.current = event.level
-    if (fromFailingTest(event) && RANK[event.level] > RANK[held.get(event.node) ?? 'safe']) held.set(event.node, event.level)
+
+    const heldLevel = held.get(event.node) ?? 'safe'
+    if (fromFailingTest(event) && RANK[event.level] > RANK[heldLevel]) held.set(event.node, event.level)
+
     if (level.current !== 'high') node.critical = false
     else if (event.critical === true) node.critical = true
     if (event.confidence) node.confidence = event.confidence
 
     addOnce(level.why, event.evidence, (w) => w)
-    addOnce(node.findings, { rule: event.rule ?? 'risk-event', text: event.evidence, ...(event.lines ? { lines: event.lines } : {}), by: event.by ?? 'model' }, findingKey)
+    const finding: Finding = {
+      rule: event.rule ?? 'risk-event',
+      text: event.evidence,
+      ...(event.lines ? { lines: event.lines } : {}),
+      by: event.by ?? 'model',
+    }
+    addOnce(node.findings, finding, findingKey)
     for (const question of event.questions ?? []) addOnce(node.questions, question, questionKey)
     node.watch = mergeWatch(node.watch, event.watch)
     if (event.suggest) addOnce(level.if, { text: event.suggest.text, level: event.suggest.to }, (s) => `${s.text}|${s.level}`)
@@ -153,10 +162,15 @@ export function checkInvariants(nodes: readonly ReviewNode[]): Violation[] {
   const found: Violation[] = []
   for (const node of nodes) {
     const current = node.level?.current
-    if (node.critical && current !== 'high') found.push({ node: node.id, text: `critical on a ${current ?? 'missing'} node: critical implies high` })
+    if (node.critical && current !== 'high') {
+      found.push({ node: node.id, text: `critical on a ${current ?? 'missing'} node: critical implies high` })
+    }
+
     const proof = node.facts.proof.value
     const noRunningTest = proof === 'none' || proof === 'mocked' || proof === 'isolated' || proof === 'unknown'
-    if (current === 'safe' && noRunningTest && node.level?.rule !== 2) found.push({ node: node.id, text: `safe with proof ${proof}: safe needs a life cycle test that ran` })
+    if (current === 'safe' && noRunningTest && node.level?.rule !== 2) {
+      found.push({ node: node.id, text: `safe with proof ${proof}: safe needs a life cycle test that ran` })
+    }
   }
   return found
 }

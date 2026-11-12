@@ -5,7 +5,7 @@
  *
  * This file also holds `runProgram`, the one way this package starts a program. The scan and the proof use it too.
  */
-import { spawn } from 'node:child_process'
+import { spawn, type StdioOptions } from 'node:child_process'
 import { constants } from 'node:os'
 import type { ChangedFile, ChangeMeta, Commit, FileDiff, FileStatus, Hunk, RepoReader } from './types.ts'
 
@@ -82,14 +82,25 @@ function keeper(limit: number) {
  * something it started in a group of its own still holds that output a moment after the exit, the output is cut off.
  */
 export function runProgram(program: string, args: readonly string[], options: RunOptions): Promise<ProgramRun> {
-  const { cwd, env = process.env, timeoutMs, graceMs = 2_000, signal, input, maxBytes = 64 * 1024 * 1024, overflow = 'stop', ignoreStdout = false } = options
+  const {
+    cwd,
+    env = process.env,
+    timeoutMs,
+    graceMs = 2_000,
+    signal,
+    input,
+    maxBytes = 64 * 1024 * 1024,
+    overflow = 'stop',
+    ignoreStdout = false,
+  } = options
   const group = options.group === true && process.platform !== 'win32'
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve({ started: false, reason: 'it was stopped before it started.' })
     const startedAt = performance.now()
     let child: ReturnType<typeof spawn>
     try {
-      child = spawn(program, [...args], { cwd, env, detached: group, windowsHide: true, stdio: [input === undefined ? 'ignore' : 'pipe', ignoreStdout ? 'ignore' : 'pipe', 'pipe'] })
+      const stdio: StdioOptions = [input === undefined ? 'ignore' : 'pipe', ignoreStdout ? 'ignore' : 'pipe', 'pipe']
+      child = spawn(program, [...args], { cwd, env, detached: group, windowsHide: true, stdio })
     } catch (error) {
       return resolve({ started: false, reason: error instanceof Error ? error.message : String(error) })
     }
@@ -401,7 +412,15 @@ function changedFiles(status: string, numstat: string): ChangedFile[] {
   const counts = lineCounts(numstat)
   return nameStatus(status).map(({ path, oldPath, status: fileStatus, similarity }) => {
     const { added, deleted, binary } = counts.get(path) ?? { added: 0, deleted: 0, binary: false }
-    return { path, ...(oldPath !== undefined ? { oldPath } : {}), status: fileStatus, added, deleted, binary, ...(similarity !== undefined ? { similarity } : {}) }
+    return {
+      path,
+      ...(oldPath !== undefined ? { oldPath } : {}),
+      status: fileStatus,
+      added,
+      deleted,
+      binary,
+      ...(similarity !== undefined ? { similarity } : {}),
+    }
   })
 }
 
@@ -487,7 +506,14 @@ export function parsePatch(patch: string): FileDiff[] {
       const line = lines[at]!
       const hunk = HUNK.exec(line)
       if (hunk) {
-        const parsed: Hunk = { oldStart: Number(hunk[1]), oldLines: hunk[2] === undefined ? 1 : Number(hunk[2]), newStart: Number(hunk[3]), newLines: hunk[4] === undefined ? 1 : Number(hunk[4]), lines: [] }
+        // A header without a count means one line.
+        const parsed: Hunk = {
+          oldStart: Number(hunk[1]),
+          oldLines: hunk[2] === undefined ? 1 : Number(hunk[2]),
+          newStart: Number(hunk[3]),
+          newLines: hunk[4] === undefined ? 1 : Number(hunk[4]),
+          lines: [],
+        }
         at += 1
         let oldLeft = parsed.oldLines
         let newLeft = parsed.newLines

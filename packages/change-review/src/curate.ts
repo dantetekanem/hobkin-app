@@ -40,7 +40,7 @@ export function checkMap(graph: Graph, triage: Triage, scannedFiles: readonly st
   for (const edge of graph.edges) {
     for (const end of [edge.from, edge.to]) {
       if (ids.has(end)) continue
-      const other = ids.has(edge.from) ? edge.from : ids.has(edge.to) ? edge.to : undefined
+      const other = [edge.from, edge.to].find((id) => ids.has(id))
       problems.push({ rule: 'edge-endpoint', text: `edge ${edge.from} -> ${edge.to} names ${end}, which is not a node`, node: other })
     }
   }
@@ -188,7 +188,13 @@ function depths(graph: Graph): Map<string, number> {
 
 const short = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).pop() ?? symbol
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
-const BEHAVES: Record<Effect, string> = { text: 'changes only text', behaviour: 'changes behaviour', interface: 'changes its interface', data: 'changes data it writes, sends or keeps', load: 'changes what runs at load' }
+const BEHAVES: Record<Effect, string> = {
+  text: 'changes only text',
+  behaviour: 'changes behaviour',
+  interface: 'changes its interface',
+  data: 'changes data it writes, sends or keeps',
+  load: 'changes what runs at load',
+}
 const AUDIENCE: Record<Exposure, string> = { 'nobody-yet': ' for nobody yet', subset: ' for a subset', everyone: ' for everyone', 'at-load': ' at load' }
 const PROVEN: Record<Proof, string> = {
   'lifecycle-observed': 'a test observes it',
@@ -210,10 +216,15 @@ function titleOf(node: ReviewNode): string {
   const condition = node.conditions.find((item) => item.added)
   if (node.hosts_condition) return `The new check on \`${condition?.name ?? 'a condition'}\` in ${name} runs for everyone`
   if (isSchema(node)) return `${name} changes the schema${node.extras?.additiveSchema ? ', only by adding' : ''}`
-  if (node.extras?.typeOnly) return `${name} ${node.change === 'added' ? 'is a new type' : node.change === 'removed' ? 'is a removed type' : 'changes a type'}, erased before the code runs`
+  if (node.extras?.typeOnly) {
+    const typeChange = { added: 'is a new type', removed: 'is a removed type' }[node.change as string] ?? 'changes a type'
+    return `${name} ${typeChange}, erased before the code runs`
+  }
   const facts = normalizedFacts(node)
   const proof = PROVEN[facts.proof.value as Proof] ?? 'no test shows it'
-  const verb = node.change === 'removed' ? 'is removed' : node.change === 'added' ? `is new and ${BEHAVES[facts.effect.value as Effect] ?? 'changes behaviour'}` : (BEHAVES[facts.effect.value as Effect] ?? 'changes')
+  let verb = BEHAVES[facts.effect.value as Effect] ?? 'changes'
+  if (node.change === 'removed') verb = 'is removed'
+  else if (node.change === 'added') verb = `is new and ${BEHAVES[facts.effect.value as Effect] ?? 'changes behaviour'}`
   // "changes what runs at load" already says when; "at load" again would say it twice.
   const audience = facts.effect.value === 'load' && facts.exposure.value === 'at-load' ? '' : (AUDIENCE[facts.exposure.value as Exposure] ?? '')
   return `${name} ${verb}${audience}${proof ? `, and ${proof}` : ''}`
@@ -279,12 +290,18 @@ interface BucketVerdict {
 /** What a bucket's checks say about it (floor rules 1 and 2). */
 function judgeBucket(bucket: Bucket): BucketVerdict {
   const checks = bucket.checks ?? []
-  const line = (check: NonNullable<Bucket['checks']>[number]) => `Check "${check.name}": ${check.passed === null ? 'could not run' : check.passed ? 'passed' : 'failed'}. ${check.detail}`
-  const why = checks.map(line)
+  const outcomeOf = (check: NonNullable<Bucket['checks']>[number]) => {
+    if (check.passed === null) return 'could not run'
+    return check.passed ? 'passed' : 'failed'
+  }
+  const why = checks.map((check) => `Check "${check.name}": ${outcomeOf(check)}. ${check.detail}`)
   const breaking = checks.filter((check) => check.passed === false && check.breaks)
   const would = checks
     .filter((check) => check.passed !== true)
-    .map((check) => ({ text: check.passed === null ? `Make the check "${check.name}" run.` : `Fix what "${check.name}" found: ${check.detail}`, level: 'safe' as Level }))
+    .map((check) => ({
+      text: check.passed === null ? `Make the check "${check.name}" run.` : `Fix what "${check.name}" found: ${check.detail}`,
+      level: 'safe' as Level,
+    }))
   if (breaking.length) return { level: 'high', critical: true, rule: 1, why: ['Floor rule 1: a check found something broken or missing.', ...why], would }
   if (checks.some((check) => check.passed === null)) return { level: 'high', critical: false, rule: 3, why: ['A check could not run, so the bucket is treated as the worse case.', ...why], would }
   if (checks.some((check) => check.passed === false)) return { level: 'mid', critical: false, rule: 8, why: ['A check failed without breaking anything.', ...why], would }
@@ -356,7 +373,10 @@ function neighbourCode(input: CurateInput, owner: ReviewNode, inside: Set<string
   if (changed.lines.length) return shown(node.path, why, changed)
   const text = input.source?.(node.path, node.change === 'removed' ? 'base' : 'head')
   if (!text) return undefined
-  const around = line && line >= node.lines[0] && line <= node.lines[1] ? plainLines(text, line - 2, line + 2) : plainLines(text, node.lines[0], Math.min(node.lines[1], node.lines[0] + SIDE_BUDGET - 1))
+  const lineInNode = line && line >= node.lines[0] && line <= node.lines[1]
+  const around = lineInNode
+    ? plainLines(text, line - 2, line + 2)
+    : plainLines(text, node.lines[0], Math.min(node.lines[1], node.lines[0] + SIDE_BUDGET - 1))
   return around.lines.length ? shown(node.path, why, around) : undefined
 }
 
@@ -367,7 +387,8 @@ function ownCode(input: CurateInput, node: ReviewNode, budget: number, why: stri
   const first = node.changed_lines[0] ?? node.lines[0]
   const text = input.source?.(node.path, node.change === 'removed' ? 'base' : 'head')
   const fallback = text ? plainLines(text, first - 2, first + 2) : { lines: [], cut: 0 }
-  return fallback.lines.length ? shown(node.path, `${why}, as unchanged context: no diff text was available`, fallback) : { path: node.path, why: `${why}: no diff text or source was available`, diff: '' }
+  if (!fallback.lines.length) return { path: node.path, why: `${why}: no diff text or source was available`, diff: '' }
+  return shown(node.path, `${why}, as unchanged context: no diff text was available`, fallback)
 }
 
 function mergeWatch(nodes: ReviewNode[]): Watch {
@@ -407,7 +428,11 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
   const level = worst(nodes.map(levelOf))
   const names = new Set(nodes.map((node) => node.id))
   const critical = level === 'high' && nodes.some((node) => node.critical)
-  const members = nodes.map((node) => ({ node: node.id, name: short(node.symbol), what: node === owner && grouping === 'definition-with-helpers' ? 'the definition' : grouping === 'mechanical' ? 'the same change as the others' : 'a helper changed with it' }))
+  const memberWhat = (node: ReviewNode) => {
+    if (node === owner && grouping === 'definition-with-helpers') return 'the definition'
+    return grouping === 'mechanical' ? 'the same change as the others' : 'a helper changed with it'
+  }
+  const members = nodes.map((node) => ({ node: node.id, name: short(node.symbol), what: memberWhat(node) }))
   let code: CodeShown[]
   let title = titleOf(owner)
   let what: string
@@ -437,6 +462,7 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     what = whatOf(owner, own)
   }
   const onPath = isOnPath(input.graph, owner)
+  const unverifiedNode = nodes.find((node) => node.unverified)
   const depth = context.depth.get(owner.id) ?? 0
   const unit: Omit<Unit, 'id'> = {
     title,
@@ -456,10 +482,17 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     watch: level === 'safe' ? 'not assessed' : mergeWatch(nodes),
     questions: mergeQuestions(nodes),
     ...(grouping !== 'single' ? { members } : {}),
-    ...(nodes.some((node) => node.unverified) ? { unverified: nodes.find((node) => node.unverified)!.unverified } : {}),
+    ...(unverifiedNode ? { unverified: unverifiedNode.unverified } : {}),
     reading_minutes: MINUTES[level],
   }
-  return { unit, stop: onPath ? depth : OFF_PATH, entry: owner.entries[0] ?? '', sensitive: nodes.reduce((sum, node) => sum + node.sensitive.length, 0), path: owner.path, line: owner.lines[0] }
+  return {
+    unit,
+    stop: onPath ? depth : OFF_PATH,
+    entry: owner.entries[0] ?? '',
+    sensitive: nodes.reduce((sum, node) => sum + node.sensitive.length, 0),
+    path: owner.path,
+    line: owner.lines[0],
+  }
 }
 
 const OFF_PATH = 1_000_000
@@ -469,17 +502,28 @@ interface Context {
   depth: Map<string, number>
 }
 
-const KIND_EFFECT: Partial<Record<Bucket['kind'], Effect>> = { translation: 'text', generated: 'text', docs: 'text', migration: 'load', config: 'load', dependency: 'load' }
+const KIND_EFFECT: Partial<Record<Bucket['kind'], Effect>> = {
+  translation: 'text',
+  generated: 'text',
+  docs: 'text',
+  migration: 'load',
+  config: 'load',
+  dependency: 'load',
+}
 
 /** A mechanical bucket's verdict: the worst level of the sites that were read, with their reasons. */
 function sitesVerdict(bucket: Bucket, sites: readonly ReviewNode[], level: Level): BucketVerdict {
   const read = bucket.sample?.read.length ?? sites.length
   const would = sites.flatMap((node) => node.level?.if ?? []).filter((item, index, all) => all.findIndex((other) => other.text === item.text) === index)
+  const worstSites = sites.filter((node) => levelOf(node) === level)
   return {
     level,
     critical: false,
-    rule: sites.find((node) => levelOf(node) === level)?.level?.rule ?? 12,
-    why: [`The same edit in ${plural(bucket.files, 'file')}: ${read} read, and the worst of them is ${level}.`, ...sites.filter((node) => levelOf(node) === level).flatMap((node) => node.level?.why.slice(0, 1) ?? [])],
+    rule: worstSites[0]?.level?.rule ?? 12,
+    why: [
+      `The same edit in ${plural(bucket.files, 'file')}: ${read} read, and the worst of them is ${level}.`,
+      ...worstSites.flatMap((node) => node.level?.why.slice(0, 1) ?? []),
+    ],
     would,
   }
 }
@@ -490,19 +534,41 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
   const removal = bucket.treatment === 'removal' || bucket.change === 'deleted' || bucket.change === 'renamed'
   const effect: Effect = removal ? 'interface' : (KIND_EFFECT[bucket.kind] ?? 'behaviour')
   const failed = (bucket.checks ?? []).filter((check) => check.passed === false).length
-  const outcome = !bucket.checks?.length ? 'and no check ran' : failed ? `and ${plural(failed, 'check')} failed` : bucket.checks.some((check) => check.passed === null) ? 'and a check could not run' : 'and every check passed'
-  const what = `${plural(bucket.files, 'file')} in \`${bucket.folder}\` (${bucket.kind}, ${bucket.change}): ${bucket.added} lines added, ${bucket.deleted} removed. ${bucket.treatment === 'sample' && bucket.sample ? `${bucket.sample.read.length} read, ${bucket.sample.trusted} trusted on the checks.` : 'Checked rather than read line by line.'}`
+  let outcome = 'and every check passed'
+  if (!bucket.checks?.length) outcome = 'and no check ran'
+  else if (failed) outcome = `and ${plural(failed, 'check')} failed`
+  else if (bucket.checks.some((check) => check.passed === null)) outcome = 'and a check could not run'
+  const readNote =
+    bucket.treatment === 'sample' && bucket.sample
+      ? `${bucket.sample.read.length} read, ${bucket.sample.trusted} trusted on the checks.`
+      : 'Checked rather than read line by line.'
+  const what = `${plural(bucket.files, 'file')} in \`${bucket.folder}\` (${bucket.kind}, ${bucket.change}): ${bucket.added} lines added, ${bucket.deleted} removed. ${readNote}`
   const sample = (bucket.sample?.read.length ? bucket.sample.read : bucket.paths).slice(0, 2)
   const code: CodeShown[] = []
   for (const path of sample) {
     const file = input.diffs.find((item) => item.path === path)
     const hunk: Hunk | undefined = file?.hunks[0]
-    if (hunk) code.push(shown(path, bucket.sample?.read.includes(path) ? 'a file that was read' : 'the first hunk', { lines: hunk.lines.slice(0, 12), range: [hunk.newStart, hunk.newStart + hunk.newLines - 1], cut: Math.max(0, hunk.lines.length - 12) }))
+    if (hunk) {
+      const why = bucket.sample?.read.includes(path) ? 'a file that was read' : 'the first hunk'
+      const excerpt: Excerpt = {
+        lines: hunk.lines.slice(0, 12),
+        range: [hunk.newStart, hunk.newStart + hunk.newLines - 1],
+        cut: Math.max(0, hunk.lines.length - 12),
+      }
+      code.push(shown(path, why, excerpt))
+    }
   }
   if (!code.length) {
     const mark = bucket.change === 'deleted' ? '-' : bucket.change === 'added' ? '+' : ' '
     const cut = Math.max(0, bucket.paths.length - 10)
-    code.push({ path: bucket.folder, why: `the files in this bucket${cut ? ` (first 10; ${cut} more not shown)` : ''}`, diff: bucket.paths.slice(0, 10).map((path) => `${mark}${path}`).join('\n') })
+    code.push({
+      path: bucket.folder,
+      why: `the files in this bucket${cut ? ` (first 10; ${cut} more not shown)` : ''}`,
+      diff: bucket.paths
+        .slice(0, 10)
+        .map((path) => `${mark}${path}`)
+        .join('\n'),
+    })
   }
   const unit: Omit<Unit, 'id'> = {
     title: `\`${bucket.folder}\`: ${plural(bucket.files, bucket.kind === 'code' ? 'file' : `${bucket.kind} file`)} ${removal ? 'removed or moved' : 'changed'}, ${outcome}`,
@@ -521,7 +587,10 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
       : {
           effect: { value: effect, evidence: bucket.why },
           proof: { value: 'not-applicable', evidence: 'decided by the bucket checks, not by a test' },
-          exposure: { value: bucket.kind === 'migration' || bucket.kind === 'config' || bucket.kind === 'dependency' ? 'at-load' : 'everyone', evidence: `${bucket.kind} files take effect on their own, not through a call` },
+          exposure: {
+            value: bucket.kind === 'migration' || bucket.kind === 'config' || bucket.kind === 'dependency' ? 'at-load' : 'everyone',
+            evidence: `${bucket.kind} files take effect on their own, not through a call`,
+          },
           undo: { value: 'rollback', evidence: 'reverting the deploy restores them' },
         },
     why_level: verdict.why,
@@ -572,7 +641,7 @@ function signature(input: CurateInput, node: ReviewNode): string {
   return lines.map((line) => line.replace(new RegExp(`(?<![A-Za-z0-9])${name}(?![A-Za-z0-9])`, 'g'), '$S')).join('\n')
 }
 
-const node_order = (a: ReviewNode, b: ReviewNode) => a.path.localeCompare(b.path) || a.lines[0] - b.lines[0]
+const byPosition = (a: ReviewNode, b: ReviewNode) => a.path.localeCompare(b.path) || a.lines[0] - b.lines[0]
 
 // ───────────────────────── curate ─────────────────────────
 
@@ -613,7 +682,7 @@ export function curate(input: CurateInput): Units {
   const helperIds = new Set([...helpers.values()].flat().map((node) => node.id))
   for (const [ownerId, list] of helpers) {
     const owner = open.find((node) => node.id === ownerId)!
-    drafts.push(nodeDraft(work, [owner, ...list.sort(node_order)], 'definition-with-helpers', context))
+    drafts.push(nodeDraft(work, [owner, ...list.sort(byPosition)], 'definition-with-helpers', context))
     for (const node of [owner, ...list]) claimed.add(node.id)
   }
   const sites = new Map<string, ReviewNode[]>()
@@ -626,7 +695,7 @@ export function curate(input: CurateInput): Units {
   }
   for (const list of sites.values()) {
     if (list.length < MECHANICAL_MIN) continue
-    drafts.push(nodeDraft(work, list.sort(node_order), 'mechanical', context))
+    drafts.push(nodeDraft(work, list.sort(byPosition), 'mechanical', context))
     for (const node of list) claimed.add(node.id)
   }
   for (const node of open.filter((item) => !claimed.has(item.id))) drafts.push(nodeDraft(work, [node], 'single', context))
@@ -638,10 +707,18 @@ export function curate(input: CurateInput): Units {
 function finish(drafts: Draft[], triage: Triage, hasNodeUnits: boolean): Units {
   const stops = [...new Set(drafts.map((draft) => draft.stop))].sort((a, b) => a - b)
   for (const draft of drafts) draft.unit.story_order = stops.indexOf(draft.stop) + 1
-  for (const draft of drafts) if (draft.unit.where.startsWith('Stop 0.')) draft.unit.where = draft.unit.where.replace('Stop 0.', `Stop ${draft.unit.story_order}.`)
+  for (const draft of drafts) {
+    if (draft.unit.where.startsWith('Stop 0.')) {
+      draft.unit.where = draft.unit.where.replace('Stop 0.', `Stop ${draft.unit.story_order}.`)
+    }
+  }
 
   const inLevel = (a: Draft, b: Draft) =>
-    RANK[b.unit.level] - RANK[a.unit.level] || a.unit.story_order - b.unit.story_order || b.sensitive - a.sensitive || a.path.localeCompare(b.path) || a.line - b.line
+    RANK[b.unit.level] - RANK[a.unit.level] ||
+    a.unit.story_order - b.unit.story_order ||
+    b.sensitive - a.sensitive ||
+    a.path.localeCompare(b.path) ||
+    a.line - b.line
   const parts = drafts.length > MAX_UNITS ? splitByEntry(drafts) : new Map(drafts.map((draft) => [draft, 1]))
   const ordered = [...drafts].sort((a, b) => parts.get(a)! - parts.get(b)! || inLevel(a, b))
   const partCount = Math.max(...parts.values(), 1)
@@ -651,8 +728,18 @@ function finish(drafts: Draft[], triage: Triage, hasNodeUnits: boolean): Units {
     return partCount > 1 ? { ...base, part: parts.get(draft)! } : base
   })
   const nodesAlone = units.filter((unit) => unit.grouping !== 'bucket')
-  const collapsed = nodesAlone.reduce((sum, unit) => sum + unit.nodes.length - 1, 0) + units.filter((unit) => unit.grouping === 'bucket').reduce((sum, unit) => sum + unit.nodes.length, 0)
-  const mapKind: Units['map'] = !hasNodeUnits ? 'file-level' : triage.buckets.some((bucket) => bucket.treatment === 'scan' && bucket.kind !== 'code' && units.some((unit) => unit.grouping === 'bucket' && unit.buckets?.includes(bucket.id))) ? 'mixed' : 'node-level'
+  const absorbedByBuckets = units.filter((unit) => unit.grouping === 'bucket').reduce((sum, unit) => sum + unit.nodes.length, 0)
+  const collapsed = nodesAlone.reduce((sum, unit) => sum + unit.nodes.length - 1, 0) + absorbedByBuckets
+  const hasBucketUnitForConfig = triage.buckets.some(
+    (bucket) =>
+      bucket.treatment === 'scan' &&
+      bucket.kind !== 'code' &&
+      units.some((unit) => unit.grouping === 'bucket' && unit.buckets?.includes(bucket.id)),
+  )
+  let mapKind: Units['map'] = 'node-level'
+  if (!hasNodeUnits) mapKind = 'file-level'
+  else if (hasBucketUnitForConfig) mapKind = 'mixed'
+  const skipped = triage.buckets.filter((bucket) => bucket.treatment === 'skip')
   return {
     schema: 'review-units/1',
     map: mapKind,
@@ -660,8 +747,10 @@ function finish(drafts: Draft[], triage: Triage, hasNodeUnits: boolean): Units {
       units: units.length,
       reading_minutes: units.reduce((sum, unit) => sum + unit.reading_minutes, 0),
       ...(collapsed ? { nodes_collapsed: collapsed } : {}),
-      ...(triage.buckets.some((bucket) => bucket.sample) ? { files_sampled: triage.buckets.reduce((sum, bucket) => sum + (bucket.sample?.read.length ?? 0), 0) } : {}),
-      ...(triage.buckets.some((bucket) => bucket.treatment === 'skip') ? { files_skipped: triage.buckets.filter((bucket) => bucket.treatment === 'skip').reduce((sum, bucket) => sum + bucket.files, 0) } : {}),
+      ...(triage.buckets.some((bucket) => bucket.sample)
+        ? { files_sampled: triage.buckets.reduce((sum, bucket) => sum + (bucket.sample?.read.length ?? 0), 0) }
+        : {}),
+      ...(skipped.length ? { files_skipped: skipped.reduce((sum, bucket) => sum + bucket.files, 0) } : {}),
       parts: partCount,
     },
     units,

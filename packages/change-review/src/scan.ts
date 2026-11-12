@@ -66,7 +66,8 @@ function guardOf(value: unknown): Guard | undefined {
   const at = line(raw?.line)
   const said = text(raw?.text)
   const branch = text(raw?.branch)
-  return at !== undefined && said !== undefined && branch !== undefined && BRANCHES.has(branch) ? { line: at, text: said, branch: branch as Guard['branch'] } : undefined
+  if (at === undefined || said === undefined || branch === undefined || !BRANCHES.has(branch)) return undefined
+  return { line: at, text: said, branch: branch as Guard['branch'] }
 }
 
 function lineGuardsOf(value: unknown): { line: number; guards: Guard[] } | undefined {
@@ -81,7 +82,8 @@ function effectOf(value: unknown): NonNullable<ScanAnchor['effects']>[number] | 
   const kind = text(raw?.kind)
   const at = line(raw?.line)
   const said = text(raw?.text)
-  return kind && EFFECTS.has(kind) && at !== undefined && said !== undefined ? { kind: kind as 'write' | 'enqueue' | 'cache', line: at, text: said } : undefined
+  if (!kind || !EFFECTS.has(kind) || at === undefined || said === undefined) return undefined
+  return { kind: kind as 'write' | 'enqueue' | 'cache', line: at, text: said }
 }
 
 function removedOf(value: unknown): { oldStart: number; lines: string[] } | undefined {
@@ -144,7 +146,8 @@ function anchorOf(value: unknown, languageOf: (id: string, path: string) => stri
   const startLine = line(raw.startLine)
   const endLine = line(raw.endLine)
   const changedLines = all(raw.changedLines, line)
-  if (!id || symbol === undefined || !kind || !path || startLine === undefined || endLine === undefined || endLine < startLine || !changedLines) return undefined
+  const hasPlace = id && kind && path && startLine !== undefined && endLine !== undefined && endLine >= startLine
+  if (!hasPlace || symbol === undefined || !changedLines) return undefined
   const language = text(raw.language) ?? languageOf(id, path)
   return {
     id,
@@ -168,7 +171,8 @@ function nodeOf(value: unknown): Scan['nodes'][string] | undefined {
   const path = name(raw?.path)
   const startLine = line(raw?.startLine)
   const endLine = line(raw?.endLine)
-  return id && symbol !== undefined && kind && path && startLine !== undefined && endLine !== undefined ? { id, symbol, kind, path, startLine, endLine } : undefined
+  if (!id || symbol === undefined || !kind || !path || startLine === undefined || endLine === undefined) return undefined
+  return { id, symbol, kind, path, startLine, endLine }
 }
 
 /** An edge needs its source and what kind of link it is; the target is absent for calls nothing in the repository defines. */
@@ -280,7 +284,13 @@ export function readPack(pack: unknown): Scan {
     dangling,
     tests,
     files: files.map(({ path, kind, status }) => ({ path, kind, status })),
-    coverage: { truncated: truncatedBy !== 'none' || skippedAnchors > 0 || tally.get('dangling entry') > 0, truncatedBy, skippedAnchors, unresolved, notes },
+    coverage: {
+      truncated: truncatedBy !== 'none' || skippedAnchors > 0 || tally.get('dangling entry') > 0,
+      truncatedBy,
+      skippedAnchors,
+      unresolved,
+      notes,
+    },
   }
 }
 
@@ -334,7 +344,19 @@ export async function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEO
   const folder = mkdtempSync(join(tmpdir(), 'change-review-scan-'))
   try {
     const out = join(folder, 'pack')
-    const args = ['scan', '--diff', `${base}..${head}`, '--cwd', cwd, '--json', '--output-dir', out, ...option('--max-anchors', maxAnchors), ...option('--max-nodes', maxNodes), ...option('--max-depth', depth)]
+    const args = [
+      'scan',
+      '--diff',
+      `${base}..${head}`,
+      '--cwd',
+      cwd,
+      '--json',
+      '--output-dir',
+      out,
+      ...option('--max-anchors', maxAnchors),
+      ...option('--max-nodes', maxNodes),
+      ...option('--max-depth', depth),
+    ]
     // The pack on disk is what is read; the same report on stdout is not needed.
     const run = await runProgram(file, args, { cwd, env: { ...process.env, NO_COLOR: '1' }, timeoutMs, group: true, ignoreStdout: true, signal })
     if (!run.started) return { ok: false, reason: `agentic-search could not start: ${run.reason}` }

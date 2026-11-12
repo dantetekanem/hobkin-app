@@ -165,7 +165,9 @@ function neededUnknown(unit: Checked, answer: UnitAnswer, outcome: BlindOutcome)
   const question: Question = { text: `The blind check could not decide from the story alone: "${said}". Can you settle it?`, why: QUESTION_WHY }
   if (events.length) question.changes = 'It was raised from safe to mid only because this is unknown.'
   outcome.questions.push({ unit: unit.id, question })
-  const did = events.length ? 'asked the reviewer, and raised to mid: something needed is unknown' : unit.level === 'safe' ? `asked the reviewer; not raised to mid: ${NO_NODE}` : 'asked the reviewer: something needed is unknown'
+  let did = 'asked the reviewer: something needed is unknown'
+  if (events.length) did = 'asked the reviewer, and raised to mid: something needed is unknown'
+  else if (unit.level === 'safe') did = `asked the reviewer; not raised to mid: ${NO_NODE}`
   outcome.actions.push({ unit: unit.id, answer: 'unknown', did })
 }
 
@@ -194,9 +196,14 @@ export function blindActions(check: BlindCheck, units: readonly Checked[]): Blin
  * says. `answer` is the raw text, to be saved unedited; `check` is null when there was no model or the answer could
  * not be read, and then nothing changes.
  */
-export async function runBlindCheck(run: ModelRunner, input: CheckerInput, signal: AbortSignal): Promise<BlindOutcome & { answer: string | null; check: BlindCheck | null }> {
+export async function runBlindCheck(
+  run: ModelRunner,
+  input: CheckerInput,
+  signal: AbortSignal,
+): Promise<BlindOutcome & { answer: string | null; check: BlindCheck | null }> {
   const answer = await run({ pass: 'checker', ...checkerRequest(input), signal })
-  const check = answer === null ? null : readCheckerAnswer(answer, input.units.map((unit) => unit.id))
+  const unitIds = input.units.map((unit) => unit.id)
+  const check = answer === null ? null : readCheckerAnswer(answer, unitIds)
   const outcome = check ? blindActions(check, input.units) : { actions: [], events: [], questions: [], openQuestions: [] }
   return { answer, check, ...outcome }
 }

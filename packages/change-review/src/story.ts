@@ -126,7 +126,9 @@ function opening(input: StoryInput, items: Numbered[], title: (unit: Unit) => st
   const critical = [...high.filter((item) => item.unit.critical), ...high.filter((item) => !item.unit.critical)]
   const kinds = [...new Set(triage.buckets.map((bucket) => bucket.kind))].join(', ')
   const definitions = graph.nodes.filter((node) => node.kind !== 'test').length
-  const countedOnly = triage.buckets.filter((bucket) => ['sample', 'removal', 'skip', 'parity'].includes(bucket.treatment)).reduce((sum, bucket) => sum + bucket.files, 0)
+  const countedOnly = triage.buckets
+    .filter((bucket) => ['sample', 'removal', 'skip', 'parity'].includes(bucket.treatment))
+    .reduce((sum, bucket) => sum + bucket.files, 0)
   const minutes = Math.max(1, Math.round(units.attention.reading_minutes))
   const becomes = !after.units.length
     ? 'No suggestion would change it.'
@@ -169,7 +171,10 @@ function testsRun(node: ReviewNode | undefined): string {
 function setting(input: StoryInput, items: Numbered[]): string[] {
   const { graph, words } = input
   const nodeOf = (unit: Unit) => graph.nodes.find((node) => node.id === unit.nodes[0])
-  const onPath = items.filter((item) => { const node = nodeOf(item.unit); return node ? isOnPath(graph, node) : item.unit.where.startsWith('Stop') })
+  const onPath = items.filter((item) => {
+    const node = nodeOf(item.unit)
+    return node ? isOnPath(graph, node) : item.unit.where.startsWith('Stop')
+  })
   const outside = items.filter((item) => !onPath.includes(item))
   const lines = [
     'The path, in the order it runs. A "life cycle test" is a test that enters through the controller or job and moves through the request, as opposed to one that calls a method directly.',
@@ -247,7 +252,11 @@ function conclusion(input: StoryInput, items: Numbered[], title: (unit: Unit) =>
   const after = afterSuggestions(items)
   const high = items.filter((item) => item.unit.level === 'high').map((item) => item.number)
   const because = high.length ? `, because of ${unitsText(high)}` : ''
-  const lowered = !after.units.length ? '' : after.level === after.now ? ` With their suggested changes made it stays **${after.level}**.` : ` With their suggested changes made it is **${after.level}**.`
+  let lowered = ''
+  if (after.units.length) {
+    const verb = after.level === after.now ? 'stays' : 'is'
+    lowered = ` With their suggested changes made it ${verb} **${after.level}**.`
+  }
   const lines = ['## Conclusion', '', `**Verdict: ${after.now}**${because}.${lowered}`, '']
 
   const runs = new Map<string, string>()
@@ -266,12 +275,12 @@ function conclusion(input: StoryInput, items: Numbered[], title: (unit: Unit) =>
   const gaps = [...new Set(attention.flatMap((item) => (item.unit.watch === 'not assessed' ? [] : item.unit.watch.gaps)))]
   const undoBy = new Map<string, number[]>()
   for (const item of items) undoBy.set(item.unit.facts.undo.value, [...(undoBy.get(item.unit.facts.undo.value) ?? []), item.number])
-  const after_launch = [
+  const afterLaunch = [
     watched.length ? `To watch: ${[...new Set(watched)].join(', ')}.` : 'No signal was found to watch.',
     gaps.length ? `Missing: ${gaps.join('; ')}.` : '',
     `Undone by ${[...undoBy].map(([how, numbers]) => `${how}: ${unitsText(numbers)}`).join('; ')}.`,
   ].filter(Boolean)
-  lines.push(`**After launch:** ${after_launch.join(' ')}`, '')
+  lines.push(`**After launch:** ${afterLaunch.join(' ')}`, '')
 
   const mid = items.filter((item) => item.unit.level === 'mid')
   lines.push('**Fast follow:**', ...(mid.length ? mid.map((item) => `- ${title(item.unit)} (unit ${item.number})`) : ['- none']), '')
@@ -299,8 +308,20 @@ export function renderStory(input: StoryInput): string {
   const { triage, units, words } = input
   const items = numbered(units.units)
   const title = (unit: Unit) => words?.units?.[unit.id]?.title ?? unit.title
-  const heading = words?.title ?? (triage.description_source !== 'none' && triage.claims[0] ? triage.claims[0].text.replace(/\.$/, '') : triage.range)
-  const out = [`# ${heading}`, '', '## Opening', '', ...opening(input, items, title), '', '## Setting', '', ...setting(input, items), '']
+  const firstClaim = triage.description_source !== 'none' ? triage.claims[0] : undefined
+  const heading = words?.title ?? (firstClaim ? firstClaim.text.replace(/\.$/, '') : triage.range)
+  const out = [
+    `# ${heading}`,
+    '',
+    '## Opening',
+    '',
+    ...opening(input, items, title),
+    '',
+    '## Setting',
+    '',
+    ...setting(input, items),
+    '',
+  ]
   for (const level of ORDER) {
     const here = items.filter((item) => item.unit.level === level)
     if (!here.length) continue
