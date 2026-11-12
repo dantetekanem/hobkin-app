@@ -29,6 +29,7 @@ import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
 import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted } from './inbox.mjs';
+import { clientNotice, clientNoticesToPost, markClientNoticesPosted } from './client-notices.mjs';
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
@@ -385,6 +386,7 @@ export class HobkinApplication {
     const sessionsEnded = sessionsToPost(this.runtime.directory);
     const cardActions = cardActionsToPost(this.runtime.directory);
     const handedOver = inboxToPost(this.runtime.directory, this.now());
+    const clientLines = clientNoticesToPost(this.runtime.directory);
     const runReports = runs
       .filter(run => run.kind !== 'main' && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
       .filter(run => !deleted.has(run.id) && !isQuietRun(run))
@@ -492,7 +494,7 @@ export class HobkinApplication {
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
     const handedLines = handedOver.map(entry => inboxNotice(entry, this.now()));
-    for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines]) {
+    for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines, ...clientLines.map(clientNotice)]) {
       if (noticeIds.has(notice.id)) continue;
       notices.push(notice);
       noticeIds.add(notice.id);
@@ -594,6 +596,7 @@ export class HobkinApplication {
     markPosted(this.runtime.directory, sessionsEnded);
     markCardActionsPosted(this.runtime.directory, cardActions);
     markInboxPosted(this.runtime.directory, handedOver);
+    markClientNoticesPosted(this.runtime.directory, clientLines);
     const active = new Set(runs
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
