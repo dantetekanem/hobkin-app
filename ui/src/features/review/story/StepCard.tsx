@@ -4,7 +4,7 @@ import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { KIND, statusOf } from '../graph/kinds.tsx'
+import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 
 /** What the card beside the focus says: a step of the story, or a node the reviewer stepped aside to. */
 export type CardContent =
@@ -33,8 +33,11 @@ export function CardBody({ content, review, actions, canOpenCode, brief = false 
   if (brief) {
     return (
       <div className="flex flex-col gap-1.5 px-4 py-3.5">
-        <span className="eyebrow">
-          Step {index + 1} of {total}
+        <span className="flex items-center gap-2">
+          <span className="eyebrow text-[12px]">
+            Step {index + 1} of {total}
+          </span>
+          {step.level ? <LevelBadge level={step.level} /> : null}
         </span>
         <h2 className="font-heading text-[16px] leading-[1.22] font-semibold tracking-[-0.02em] text-balance">{step.title}</h2>
       </div>
@@ -45,10 +48,11 @@ export function CardBody({ content, review, actions, canOpenCode, brief = false 
     <div className="flex flex-col gap-2.5 p-[18px]">
       <div className="flex items-center gap-2">
         <Hob mood={MOOD[step.kind]} size={30} stage="var(--rv-float)" still />
-        <span className="eyebrow">
+        <span className="eyebrow text-[12px]">
           Step {index + 1} of {total}
         </span>
-        {step.specStep ? <span className="ml-auto rounded-full bg-secondary px-2 py-0.5 font-heading text-[11px] font-semibold text-muted-foreground">{step.specStep}</span> : null}
+        {step.level ? <LevelBadge level={step.level} /> : null}
+        {step.specStep ? <span className="ml-auto rounded-full bg-secondary px-2 py-0.5 font-heading text-[12px] font-semibold text-muted-foreground">{step.specStep}</span> : null}
       </div>
       <h2 className="font-heading text-[18px] leading-[1.22] font-semibold tracking-[-0.02em] text-balance">{step.title}</h2>
       {step.text ? <p className="rv-text text-pretty">{step.text}</p> : null}
@@ -56,11 +60,11 @@ export function CardBody({ content, review, actions, canOpenCode, brief = false 
       {step.kind === 'outcome' ? (
         <>
           {review.summary && review.summary !== step.text ? <p className="rv-text text-pretty text-muted-foreground">{review.summary}</p> : null}
-          <p className="font-mono text-[11.5px] text-muted-foreground">
+          <p className="font-mono text-[12.5px] text-muted-foreground">
             {review.change.files} files <span className="text-ok-fg">+{review.change.additions}</span> <span className="text-bad-fg">−{review.change.deletions}</span>
           </p>
           {review.notices.map((notice) => (
-            <p key={notice} className="text-[12.5px] leading-snug text-muted-foreground">
+            <p key={notice} className="text-[13px] leading-snug text-muted-foreground">
               {notice}
             </p>
           ))}
@@ -77,14 +81,14 @@ export function CardBody({ content, review, actions, canOpenCode, brief = false 
 
       {step.criteria.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[12px] text-muted-foreground">Serves</span>
+          <span className="text-[13px] text-muted-foreground">Serves</span>
           {step.criteria.map((id) => (
             <button
               key={id}
               type="button"
               onClick={() => actions.focusOn(id)}
               title={review.nodes.find((node) => node.id === id)?.summary}
-              className="rounded-full bg-[color-mix(in_oklab,var(--hb-sun)_22%,var(--rv-float))] px-2 py-0.5 font-heading text-[11.5px] font-semibold text-sun-fg transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97]"
+              className="rounded-full bg-[color-mix(in_oklab,var(--hb-sun)_22%,var(--rv-float))] px-2 py-0.5 font-heading text-[12.5px] font-semibold text-sun-fg transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97]"
             >
               {id}
             </button>
@@ -92,7 +96,7 @@ export function CardBody({ content, review, actions, canOpenCode, brief = false 
         </div>
       ) : null}
 
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Kbd>←</Kbd>
           <Kbd>→</Kbd>
@@ -122,7 +126,7 @@ function Listed({ title, items }: { title: string; items: readonly string[] }) {
       <h3 className="eyebrow mb-1">{title}</h3>
       <ul className="flex flex-col gap-1">
         {items.map((item) => (
-          <li key={item} className="relative pl-3.5 text-[13.5px] leading-snug text-pretty before:absolute before:top-[0.55em] before:left-0.5 before:size-1 before:rounded-full before:bg-border-strong">
+          <li key={item} className="relative pl-3.5 text-[14px] leading-snug text-pretty before:absolute before:top-[0.55em] before:left-0.5 before:size-1 before:rounded-full before:bg-border-strong">
             {item}
           </li>
         ))}
@@ -139,19 +143,20 @@ function NodeBody({ node, backTo, actions, canOpenCode }: { node: ReviewNode; ba
     <div className="flex flex-col gap-2.5 p-[18px]">
       <div className="flex items-center gap-1.5">
         <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
-        <span className="eyebrow">{label}</span>
-        <span className="ml-auto flex items-center gap-1 font-heading text-[11.5px] font-semibold text-muted-foreground data-[tone=bad]:text-bad-fg data-[tone=ok]:text-ok-fg" data-tone={status.tone}>
+        <span className="eyebrow text-[12px]">{label}</span>
+        {node.level ? <LevelBadge level={node.level} /> : null}
+        <span className="ml-auto flex items-center gap-1 font-heading text-[12.5px] font-semibold text-muted-foreground data-[tone=bad]:text-bad-fg data-[tone=ok]:text-ok-fg" data-tone={status.tone}>
           <status.icon className="size-3" aria-hidden="true" />
           {status.text}
         </span>
       </div>
       <h2 className="font-heading text-[17px] leading-[1.24] font-semibold tracking-[-0.02em] [overflow-wrap:anywhere]">{node.title}</h2>
-      {node.subtitle ? <p className="font-mono text-[11.5px] [overflow-wrap:anywhere] text-muted-foreground">{node.subtitle}</p> : null}
+      {node.subtitle ? <p className="font-mono text-[12.5px] [overflow-wrap:anywhere] text-muted-foreground">{node.subtitle}</p> : null}
       <p className="rv-text text-pretty">{node.summary}</p>
-      {node.warning ? <p className="text-[13px] leading-snug text-bad-fg">{node.warning}</p> : null}
-      {node.proof && !node.warning ? <p className="font-mono text-[11.5px] leading-relaxed [overflow-wrap:anywhere] text-muted-foreground">{node.proof}</p> : null}
+      {node.warning ? <p className="text-[13.5px] leading-snug text-bad-fg">{node.warning}</p> : null}
+      {node.proof && !node.warning ? <p className="font-mono text-[12.5px] leading-relaxed [overflow-wrap:anywhere] text-muted-foreground">{node.proof}</p> : null}
       {node.stats && node.kind !== 'criterion' && node.kind !== 'context' ? (
-        <p className="font-mono text-[11.5px]">
+        <p className="font-mono text-[12.5px]">
           <span className="text-ok-fg">+{node.stats.additions}</span> <span className="text-bad-fg">−{node.stats.deletions}</span>
         </p>
       ) : null}

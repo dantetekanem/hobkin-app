@@ -6,6 +6,7 @@ import { focusLevels, hoverLevels } from '../src/features/review/graph/levels.ts
 import { nodeAlongWire, nodeToward } from '../src/features/review/graph/navigate.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
+import { followCursor, shownPlaces } from '../src/features/review/state/cursor.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 import { backToStep, focusNode, focusOf, goToStep, leaveFocus, offPath, startStory, stepFrom } from '../src/features/review/story/story.ts'
 
@@ -235,4 +236,42 @@ test('digits jump to a step, G shows the whole graph, and history goes back and 
   assert.equal(press(','), true)
   assert.equal(session.getState().story.detour, null)
   assert.equal(session.getState().story.step, stepOf('The row'))
+})
+
+test('a review opens where hobkin pointed, at a step or a node, once', () => {
+  const memory = createReviewMemory(memoryStorage())
+  const saved = new Map<string, string>()
+  const storage = { getItem: (name: string) => saved.get(name) ?? null, setItem: (name: string, value: string) => void saved.set(name, value) }
+  const places = shownPlaces(storage)
+  const helpers = stepOf('Two helpers, one for each kind of event')
+
+  // hobkin pointed at a step while the review was closed. Opening it goes there, and the camera moves to frame it.
+  let session = createSession(sample, memory)
+  const opened = session.getState().move.key
+  assert.equal(followCursor(session, places, sample.id, { step: helpers + 1, at: 10 }), true)
+  assert.equal(session.getState().story.step, helpers)
+  assert.deepEqual(session.getState().focus, sample.story[helpers]!.focus)
+  assert.ok(session.getState().move.key > opened)
+
+  // The reviewer walks on and closes the review. Opening it again keeps their place: that pointer was shown.
+  session.getState().step(1)
+  session = createSession(sample, memory)
+  assert.equal(followCursor(session, places, sample.id, { step: helpers + 1, at: 10 }), false)
+  assert.equal(session.getState().story.step, helpers + 1)
+
+  // A node hobkin pointed at afterwards is focused off the path, with the way back to the step.
+  const send = idOf('send')
+  assert.equal(followCursor(session, places, sample.id, { node: send, at: 20 }), true)
+  assert.deepEqual(session.getState().focus, [send])
+  assert.equal(session.getState().story.detour, send)
+
+  // Pointing again at what is already in focus frames it again, for a view the reviewer may have panned away from.
+  const framed = session.getState().move.key
+  assert.equal(followCursor(session, places, sample.id, { node: send, at: 30 }), true)
+  assert.ok(session.getState().move.key > framed)
+
+  // A place the review does not have moves nothing, and what was shown is still known after a restart.
+  assert.equal(followCursor(session, places, sample.id, { node: 'missing', at: 40 }), false)
+  assert.deepEqual(session.getState().focus, [send])
+  assert.equal(shownPlaces(storage).shown(sample.id), 40)
 })

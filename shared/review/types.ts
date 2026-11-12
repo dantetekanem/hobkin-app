@@ -19,6 +19,9 @@ export type ChangeKind = 'added' | 'modified' | 'deleted' | 'unchanged'
 /** `proven` and `unproven` belong to acceptance lines. The rest belong to tests. */
 export type NodeStatus = 'proven' | 'unproven' | 'passed' | 'failed' | 'not-run'
 
+/** How much a part of the change needs a reviewer, as the change review rates it (`packages/change-review`). */
+export type ReviewLevel = 'safe' | 'mid' | 'high'
+
 /**
  * How two nodes connect.
  *
@@ -66,6 +69,8 @@ export interface ReviewNode {
   proof?: string
   /** Why the node needs a second look: a missing Proof line, a Proof naming a test that does not exist. */
   warning?: string
+  /** The change review's level for this node, once it has rated it. The card shows it. */
+  level?: ReviewLevel
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }
@@ -109,6 +114,8 @@ export interface StoryStep {
   specStep?: string
   /** The path this step walks, such as `p1`. */
   path?: string
+  /** The change review's level for what this step shows, once it has rated it. */
+  level?: ReviewLevel
 }
 
 /**
@@ -152,6 +159,8 @@ export interface ReviewChange {
   files: number
   /** The risk the item named, if any. Shown in the closing step. */
   risk?: string
+  /** A pull request's description, as its author wrote it on GitHub. Empty when it has none, missing for a hobkin change. */
+  description?: string
 }
 
 export interface ReviewSpec {

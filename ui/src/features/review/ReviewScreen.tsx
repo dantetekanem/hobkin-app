@@ -29,10 +29,12 @@ import './review.css'
 import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
 import { reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
 import { memoryKey } from './state/memory.ts'
+import { followCursor, shownPlaces } from './state/cursor.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { StoryLayer } from './story/StoryLayer.tsx'
 import { useCamera } from './story/useCamera.ts'
+import type { VerdictCommands } from './verdict.ts'
 
 /**
  * What floats over the canvas, which the focus is never framed under: the frame's two menus at the top
@@ -41,6 +43,16 @@ import { useCamera } from './story/useCamera.ts'
 const COVER = { top: 112, bottom: 68 }
 /** Below this zoom a card shows only its name, large. */
 const FAR = 0.6
+
+/** The places hobkin pointed to (`review.show`) that this window has shown, so each is shown once. */
+const shown = shownPlaces(storageOrNull())
+function storageOrNull(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
 
 /**
  * Change Review's canvas screen. This file is the entry the frame mounts.
@@ -71,9 +83,18 @@ export function ReviewScreen() {
     return () => { clearInterval(timer); loader.dispose() }
   }, [loader, live])
 
+  // The verdict asks the same host the review came from, and nothing once another host has taken its place.
+  const verdict = useMemo<VerdictCommands | null>(() => {
+    if (!live) return null
+    return (name, args) => {
+      if (hostStore.getState().home !== home) return Promise.reject(new Error('The connected host changed. Reopen this review.'))
+      return runCommand(name, args)
+    }
+  }, [home, live])
+
   return <ReviewLoad loader={loader} renderReview={(review) => (
     <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}`}>
-      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} />
+      <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} />
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => (
     <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />
@@ -108,28 +129,26 @@ function ReviewWaiting({ status, reason, closeReview }: { status: string; reason
   )
 }
 
-function Stage({ review, source, loader, live, close }: { review: Review; source: ReviewSource; loader: ReviewLoader; live: boolean; close: () => void }) {
+function Stage({ review, source, loader, live, close, verdict }: { review: Review; source: ReviewSource; loader: ReviewLoader; live: boolean; close: () => void; verdict: VerdictCommands | null }) {
   const root = useRef<HTMLDivElement>(null)
   const [shortcuts, setShortcuts] = useState(false)
   const preparation = useStore(loader, (state) => state.preparation)
 
-  const chrome = useMemo<PanelChrome>(() => ({ live, preparation, rebuild: () => void loader.refresh(), close }), [live, preparation, loader, close])
+  const chrome = useMemo<PanelChrome>(
+    () => ({ live, preparation, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes }),
+    [live, preparation, loader, close, verdict],
+  )
   const graph = useRef<HTMLDivElement>(null)
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
   const [session] = useState(() => createSession(review, reviewMemory))
   useEffect(() => session.connect(), [session])
-  // hobkin moves the reviewer's view through the host: a step or a node newer than what was there when the review opened.
+  // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was
+  // opened is shown too: a review opened from Work, Home, a report or the chat lands where hobkin said. Each place once.
   const cursor = preparation?.cursor
-  const followed = useRef(cursor?.at ?? 0)
-  useEffect(() => {
-    if (!cursor || cursor.at <= followed.current) return
-    followed.current = cursor.at
-    const state = session.getState()
-    if (cursor.step != null) state.goTo(Math.min(cursor.step, state.view.story.length) - 1)
-    else if (cursor.node != null && state.nodeOf.has(cursor.node)) state.focusOn(cursor.node)
-  }, [cursor, session])
+  const place = `${(review as Review & { memoryScope?: string }).memoryScope ?? ''}:${review.id}`
+  useEffect(() => void followCursor(session, shown, place, cursor), [cursor, place, session])
 
   const [canvas, setCanvas] = useState<Size>({ width: 0, height: 0 })
   const [windowHeight, setWindowHeight] = useState(() => innerHeight)
@@ -235,8 +254,11 @@ function Stage({ review, source, loader, live, close }: { review: Review; source
         },
         talk: () => steps?.dispatchEvent(new Event('rv-talk')),
         verdict: (kind: Verdict) => {
-          // The keyboard goes to the choice, which opens the panel. Enter makes it: one key alone asks hobkin nothing.
-          steps?.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)?.focus({ preventScroll: true })
+          // The keyboard goes to the choice, which opens the panel. A choice the host carries out shows at once what it
+          // will do, and waits for a second yes. Any other waits for Enter: one key alone asks hobkin nothing.
+          const choice = steps?.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)
+          choice?.focus({ preventScroll: true })
+          if (choice?.hasAttribute('data-shows')) choice.click()
         },
       })
       if (used) event.preventDefault()

@@ -59,14 +59,14 @@ export function Rail() {
           ))}
         </ol>
       </LayoutGroup>
-      <span className="shrink-0 px-1 font-heading text-[12px] font-medium text-muted-foreground tabular-nums" aria-live="polite">
+      <span className="shrink-0 px-1 font-heading text-[13px] font-medium text-muted-foreground tabular-nums" aria-live="polite" aria-label={pending ? undefined : `Step ${current + 1} of ${steps.length}, ${seen.length} seen`}>
         {pending ? (
           // A digit waiting for a second one: the number typed so far, in the accent, until it is taken.
           <span className="rounded-full bg-primary px-1.5 text-primary-foreground">Go to {pending}…</span>
         ) : (
           <>
-            {current + 1}
-            <span className="opacity-50"> / </span>
+            <span className="font-semibold text-foreground">{current + 1}</span>
+            <span className="opacity-60"> / </span>
             {steps.length}
           </>
         )}
@@ -89,7 +89,7 @@ function RailArrow({ label, keys, disabled, onClick, children }: { label: string
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
-            className="flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2 font-heading text-[12.5px] font-medium text-foreground transition-[background-color,transform,opacity] duration-[160ms] ease-[var(--ease-out)] hover:bg-secondary active:scale-[0.96] disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4"
+            className="flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2 font-heading text-[13px] font-medium text-foreground transition-[background-color,transform,opacity] duration-[160ms] ease-[var(--ease-out)] hover:bg-secondary active:scale-[0.96] disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4"
           />
         }
       >

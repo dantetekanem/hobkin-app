@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { nodeRect, type Rect } from '#shared/review/layout.ts'
 import { stressReview } from '#shared/review/stress.ts'
 import type { Review } from '#shared/review/types.ts'
-import { cameraFor, composeShot, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
+import { cameraFor, composeShot, FRAME, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 
@@ -45,7 +45,7 @@ test('frames the focus inside the uncovered area', async () => {
             for (const rect of focus) {
               assert.ok(inside(toScreen(rect, shot.camera, area), area), `${review.id} ${step.id} in ${canvas.width}x${canvas.height} under ${cover.bottom}: ${JSON.stringify(toScreen(rect, shot.camera, area))} not in ${JSON.stringify(area)}`)
             }
-            assert.ok(shot.camera.zoom > 0 && shot.camera.zoom <= 1, 'it never zooms past full size to fill the room')
+            assert.ok(shot.camera.zoom > 0 && shot.camera.zoom <= FRAME.maxZoom, 'it never zooms past a little over full size to fill the room')
             shots += 1
           }
         }
@@ -54,11 +54,11 @@ test('frames the focus inside the uncovered area', async () => {
   }
   assert.ok(shots > 5000)
 
-  // With room to spare the focus is shown at full size, and a single node sits in the middle of what is uncovered.
+  // With room to spare the focus is shown at its closest, and a single node sits in the middle of what is uncovered.
   const area = uncoveredArea({ width: 1000, height: 840 }, { top: TOP, bottom: RAIL })
   const one = rectsOf(sample, [sample.nodes.find((node) => node.title === 'doingAfter')!.id])
   const alone = composeShot({ focus: one, area, card: null, others: [] })
-  assert.equal(alone.camera.zoom, 1)
+  assert.equal(alone.camera.zoom, FRAME.maxZoom)
   const onScreen = toScreen(one[0]!, alone.camera, area)
   assert.ok(Math.abs(onScreen.x + onScreen.width / 2 - (area.x + area.width / 2)) < 1)
   assert.ok(Math.abs(onScreen.y + onScreen.height / 2 - (area.y + area.height / 2)) < 1)
@@ -74,6 +74,11 @@ test('frames the focus inside the uncovered area', async () => {
   const whole = composeShot({ focus: all, area, card: null, others: [] })
   for (const rect of all) assert.ok(inside(toScreen(rect, whole.camera, area), area))
   assert.ok(whole.camera.zoom < 1)
+
+  // As a story opens on the whole graph it is framed closer, around the same middle. G frames all of it, as above.
+  const opening = composeShot({ focus: all, area, card: null, others: [], closer: FRAME.closer })
+  assert.ok(Math.abs(opening.camera.zoom - whole.camera.zoom * FRAME.closer) < 1e-9)
+  assert.ok(Math.abs(opening.camera.x - whole.camera.x) < 1e-6 && Math.abs(opening.camera.y - whole.camera.y) < 1e-6)
 })
 
 test('places the step text beside the focus without overlap', async () => {
@@ -109,10 +114,10 @@ test('places the step text beside the focus without overlap', async () => {
   const card = { width: 320, height: 260 }
   const wide = composeShot({ focus: node, area: uncoveredArea({ width: 980, height: 840 }, { top: TOP, bottom: RAIL }), card, others: [] })
   assert.equal(wide.card?.side, 'right')
-  assert.equal(wide.camera.zoom, 1)
+  assert.equal(wide.camera.zoom, FRAME.maxZoom)
   const narrow = composeShot({ focus: node, area: uncoveredArea({ width: 432, height: 840 }, { top: TOP, bottom: RAIL }), card, others: [] })
   assert.equal(narrow.card?.side, 'below')
-  assert.equal(narrow.camera.zoom, 1)
+  assert.equal(narrow.camera.zoom, FRAME.maxZoom)
 
   // It goes to the side with the most room: nodes on the right push it left.
   const area = uncoveredArea({ width: 980, height: 840 }, { top: TOP, bottom: RAIL })

@@ -248,11 +248,11 @@ export function CodePanel({ height, windowHeight }: { height: number; windowHeig
             {active?.node.title}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] opacity-60" title={path?.path}>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] opacity-70" title={path?.path}>
           {path?.oldPath && path.oldPath !== path.path ? `${path.oldPath} → ${path.path}` : path?.path}
         </span>
         {active?.node.stats && active.node.kind !== 'criterion' && active.node.kind !== 'context' ? (
-          <span className="shrink-0 font-mono text-[11.5px]">
+          <span className="shrink-0 font-mono text-[12.5px]">
             <span className="text-ok-fg">+{active.node.stats.additions}</span> <span className="text-bad-fg">−{active.node.stats.deletions}</span>
           </span>
         ) : null}

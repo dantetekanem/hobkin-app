@@ -1,5 +1,5 @@
 import { Braces, Check, CircleCheck, CircleDashed, FileText, FlaskConical, Minus, Plus, Target, Trash2, TriangleAlert, X, type LucideIcon } from 'lucide-react'
-import type { NodeKind, ReviewNode } from '#shared/review/types.ts'
+import type { NodeKind, ReviewLevel, ReviewNode } from '#shared/review/types.ts'
 
 /** Kinds are told apart by icon and word first, and by color second. */
 export const KIND: Record<NodeKind, { label: string; icon: LucideIcon }> = {
@@ -35,4 +35,16 @@ export function statusOf(node: Pick<ReviewNode, 'kind' | 'status' | 'change'>): 
 /** True for the two things a reviewer must not miss: a line with no proof and a test that failed. */
 export function needsALook(node: Pick<ReviewNode, 'status'>): boolean {
   return node.status === 'unproven' || node.status === 'failed'
+}
+
+const LEVEL_WORD: Record<ReviewLevel, string> = { safe: 'Safe', mid: 'Mid', high: 'High' }
+
+/** The change review's level, as a word on its color (`.rv-level`). On a card it sits on the top edge. */
+export function LevelBadge({ level, critical = false }: { level: ReviewLevel; critical?: boolean }) {
+  return (
+    <span className="rv-level shrink-0" data-level={level} title={`The change review rates this ${LEVEL_WORD[level].toLowerCase()}${critical ? ', and critical' : ''}`}>
+      {LEVEL_WORD[level]}
+      {critical ? ' · critical' : ''}
+    </span>
+  )
 }

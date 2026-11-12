@@ -18,11 +18,19 @@
   /* Ink around the yellow ring, so the ring reads on cream as well as on ink. */
   --rv-ring-edge: color-mix(in oklab, var(--hb-text) 62%, transparent);
   --rv-float: var(--hb-surface);
+  /* The dots under the graph: barely there, for depth. */
+  --rv-dot: color-mix(in oklab, var(--hb-text) 24%, transparent);
+  /* Hobkin's box in the panel takes the periwinkle of the site's hills, apart from the panel and from yellow. */
+  --rv-ask: color-mix(in oklab, var(--hb-code) 20%, var(--hb-surface));
+  --rv-ask-edge: color-mix(in oklab, var(--hb-code) 42%, transparent);
 }
 
 .dark .rv {
   --rv-ring-edge: transparent;
   --rv-float: var(--hb-surface-2);
+  --rv-dot: color-mix(in oklab, var(--hb-text) 17%, transparent);
+  --rv-ask: color-mix(in oklab, var(--hb-code) 22%, var(--hb-surface));
+  --rv-ask-edge: color-mix(in oklab, var(--hb-code) 46%, transparent);
 }
 
 /* The keyboard is in the review: the same inset ring the frame draws on a screen it has focused. */
@@ -223,7 +231,7 @@
   flex: none;
   margin-top: 2px;
   font-family: var(--font-heading);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -249,8 +257,8 @@
   direction: rtl;
   text-align: left;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 15px;
   color: var(--hb-muted);
 }
 
@@ -269,8 +277,8 @@
   margin-top: 3px;
   overflow: hidden;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 15px;
+  font-size: 11px;
+  line-height: 16px;
   color: var(--muted-foreground);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -287,9 +295,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 15px;
-  font-size: 10.5px;
-  line-height: 15px;
+  min-height: 16px;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .rv-stats {
@@ -348,38 +356,40 @@
 }
 
 /*
- * Focus levels. The focus is sharp, its neighbors are dimmed and sharp, the rest is blurred and faded.
+ * Focus levels. The focus is lit, with its ring and its shadow. Its neighbors and the rest settle back, and stay
+ * readable: the user found blurred, faint cards too dim to read (2026-11-12), so nothing is blurred any more.
  *
- * A dimmed card settles flat into the canvas: its surface, its tint and its shadow step back, and its text
+ * A card that steps back settles flat into the canvas: its surface, its tint and its shadow recede, and its text
  * keeps its own color. Fading the whole card would thin the text and let wires show through it.
  */
 .rv-node[data-level='neighbor'] .rv-card::before,
+.rv-node[data-level='background'] .rv-card::before,
 .rv-node[data-level='rest'][data-hover='dim'] .rv-card::before {
-  opacity: 0.72;
+  opacity: 0.5;
 }
 .rv-node[data-level='neighbor'] .rv-head::before,
+.rv-node[data-level='background'] .rv-head::before,
 .rv-node[data-level='rest'][data-hover='dim'] .rv-head::before {
-  opacity: 0.07;
+  opacity: 0.09;
 }
 .rv-node[data-level='neighbor']::before,
+.rv-node[data-level='background']::before,
 .rv-node[data-level='rest'][data-hover='dim']::before {
   opacity: 0;
 }
 .rv-node[data-level='background'] {
-  opacity: 0.46;
-  filter: blur(2.5px);
+  opacity: 0.78;
 }
 /* What the story has not reached yet sits further back than what it has. */
 .rv-node[data-level='background'][data-seen='false'] {
-  opacity: 0.28;
+  opacity: 0.6;
 }
-/* The cheaper treatment: no blur on the nodes, a deeper fade instead. */
+/* The deeper treatment, from the development tools. */
 .rv[data-treatment='fade'] .rv-node[data-level='background'] {
-  filter: none;
-  opacity: 0.3;
+  opacity: 0.6;
 }
 .rv[data-treatment='fade'] .rv-node[data-level='background'][data-seen='false'] {
-  opacity: 0.16;
+  opacity: 0.45;
 }
 
 /*
@@ -477,13 +487,13 @@
   stroke-dasharray: 5 6;
 }
 .rv-wire[data-level='faded'] .rv-wire-base {
-  opacity: 0.24;
+  opacity: 0.38;
 }
 .rv-wire[data-level='faded'][data-seen='false'] .rv-wire-base {
-  opacity: 0.12;
+  opacity: 0.24;
 }
 .rv-wire[data-level='rest'][data-hover='dim'] .rv-wire-base {
-  opacity: 0.12;
+  opacity: 0.2;
 }
 /* An active wire is drawn over by its live line. A proposed one keeps its dashes and lights up in place. */
 .rv-wire[data-active='true'][data-proposed='false'] .rv-wire-base {
@@ -659,6 +669,52 @@
 .rv-notes svg {
   width: 10px;
   height: 10px;
+}
+
+/* The change review's level: safe, mid or high. Told by its word first and its color second. */
+.rv-level {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--level) 22%, var(--hb-surface));
+  color: var(--level-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--level) 55%, transparent);
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.rv-level[data-level='safe'] {
+  --level: var(--hb-ok);
+  --level-fg: var(--hb-ok-fg);
+}
+.rv-level[data-level='mid'] {
+  --level: var(--hb-warn);
+  --level-fg: var(--hb-warn-fg);
+}
+.rv-level[data-level='high'] {
+  --level: var(--hb-bad);
+  --level-fg: var(--hb-bad-fg);
+}
+/* On a card it sits on the top edge, where it reads from far away too. */
+.rv-node > .rv-level {
+  position: absolute;
+  z-index: 2;
+  top: -10px;
+  left: 12px;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--level) 55%, transparent),
+    0 0 0 1.5px var(--hb-surface);
+}
+.rv[data-far='true'] .rv-node > .rv-level {
+  top: -15px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 16px;
 }
 
 .rv-chip-notes {

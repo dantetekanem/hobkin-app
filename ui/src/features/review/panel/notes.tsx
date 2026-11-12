@@ -9,7 +9,7 @@ import { reviewMemory, useReviewMemory, useSessionStore } from '../state/context
 /** How many comments and questions a step has, beside its title. */
 export function NoteMarks({ comments, questions }: { comments: number; questions: number }) {
   return (
-    <span className="mt-0.5 flex shrink-0 items-center gap-1.5 font-heading text-[11px] font-semibold text-muted-foreground tabular-nums">
+    <span className="mt-0.5 flex shrink-0 items-center gap-1.5 font-heading text-[12px] font-semibold text-muted-foreground tabular-nums">
       {comments > 0 ? (
         <span className="flex items-center gap-0.5" aria-label={`${comments} ${comments === 1 ? 'comment' : 'comments'}`}>
           <MessageSquare className="size-3" aria-hidden="true" />
@@ -33,7 +33,7 @@ export function NoteButton({ intent, keys, onClick }: { intent: NoteIntent; keys
       type="button"
       data-stop
       onClick={onClick}
-      className="flex h-7 items-center gap-1.5 rounded-full bg-background px-2.5 font-heading text-[12px] font-medium transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97] [&_svg]:size-3.5"
+      className="flex h-8 items-center gap-1.5 rounded-full bg-background px-3 font-heading text-[13px] font-medium transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97] [&_svg]:size-3.5"
     >
       <Icon aria-hidden="true" />
       {intent === 'question' ? 'Question' : 'Comment'}
@@ -54,12 +54,12 @@ export function NoteRow({ note, review }: { note: Note; review: Review }) {
     <li className="group flex items-start gap-2 rounded-lg bg-background px-2.5 py-2" data-author={note.author}>
       <Icon className={cn('mt-0.5 size-3.5 shrink-0', note.intent === 'question' ? 'text-sun-fg' : note.author === 'hobkin' ? 'text-primary' : 'text-muted-foreground')} aria-label={note.intent === 'question' ? 'Question' : 'Comment'} />
       <button type="button" data-stop title={about ? `Go to ${about}` : undefined} onClick={() => store.getState().showNote(note.id)} className="min-w-0 flex-1 rounded-md text-left">
-        <span className="block font-heading text-[11px] font-semibold [overflow-wrap:anywhere] text-muted-foreground group-hover:underline underline-offset-2">
+        <span className="block font-heading text-[12px] font-semibold [overflow-wrap:anywhere] text-muted-foreground group-hover:underline underline-offset-2">
           {by} · step {stepIndex + 1}
           {about ? ` · on ${about}` : ''}
         </span>
-        <span className="block text-[13px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{note.text}</span>
-        {note.sent ? <span className="mt-0.5 block text-[11px] text-muted-foreground">{note.intent === 'question' ? 'Asked' : 'Sent'}</span> : null}
+        <span className="block text-[14px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{note.text}</span>
+        {note.sent ? <span className="mt-0.5 block text-[12px] text-muted-foreground">{note.intent === 'question' ? 'Asked' : 'Sent'}</span> : null}
       </button>
       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity duration-[140ms] group-focus-within:opacity-100 group-hover:opacity-100">
         <button
@@ -132,12 +132,12 @@ export function NoteEditor({ review, target }: { review: Review; target: string 
               set({ intent: kind })
               field.current?.focus()
             }}
-            className={cn('rounded-full px-2 py-0.5 font-heading text-[11.5px] font-semibold', intent === kind ? 'bg-secondary' : 'text-muted-foreground')}
+            className={cn('rounded-full px-2.5 py-0.5 font-heading text-[12.5px] font-semibold', intent === kind ? 'bg-secondary' : 'text-muted-foreground')}
           >
             {kind === 'question' ? 'Question' : 'Comment'}
           </button>
         ))}
-        <span className="min-w-0 flex-1 truncate text-right text-[11.5px] text-muted-foreground">on {target}</span>
+        <span className="min-w-0 flex-1 truncate text-right text-[12.5px] text-muted-foreground">on {target}</span>
       </div>
       <textarea
         ref={field}
@@ -157,9 +157,9 @@ export function NoteEditor({ review, target }: { review: Review; target: string 
             leave(false)
           }
         }}
-        className="rv-scroll w-full resize-none bg-transparent text-[13.5px] leading-[1.5] outline-none placeholder:text-muted-foreground"
+        className="rv-scroll w-full resize-none bg-transparent text-[14px] leading-[1.5] outline-none placeholder:text-muted-foreground"
       />
-      <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+      <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Kbd>↵</Kbd> keep
         </span>

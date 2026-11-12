@@ -5,7 +5,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { wireCurve } from '../graph/wire-path.ts'
 import { STEPS_STRIP, stepsPanelWidth } from '../panel/StepsPanel.tsx'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
-import { composeShot, pointToScreen, viewportFor, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
+import { composeShot, FRAME, pointToScreen, viewportFor, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
 import { CardBody, type CardContent } from './StepCard.tsx'
 import { offPath } from './story.ts'
 import { wireEnds } from './travel.ts'
@@ -87,7 +87,9 @@ export function StoryLayer({ canvas, panelHeight }: { canvas: Size; panelHeight:
     const others = focused.size > 0 ? rects.filter((entry) => !focused.has(entry.id)).map((entry) => entry.rect) : []
     const area = rig.area(panelHeight, side)
     const height = content ? (measure.current?.offsetHeight ?? 0) : 0
-    const shot = composeShot({ focus: subject.map((entry) => entry.rect), area, card: content && height > 0 ? { width, height } : null, others })
+    // A story that opens or closes on the whole graph frames it closer. G, which asks for all of it, fits it whole.
+    const closer = focused.size === 0 && move.kind !== 'whole' ? FRAME.closer : 1
+    const shot = composeShot({ focus: subject.map((entry) => entry.rect), area, card: content && height > 0 ? { width, height } : null, others, closer })
 
     const now = {
       move: move.key,
@@ -185,7 +187,7 @@ function BackPill({ show, step, onBack }: { show: boolean; step: number; onBack:
             whileTap={{ transform: 'translateY(0px) scale(0.97)' }}
           >
             Back to step {step + 1}
-            <kbd className="rounded-sm bg-muted px-1 font-sans text-[11px] text-muted-foreground">B</kbd>
+            <kbd className="rounded-sm bg-muted px-1 font-sans text-[12px] text-muted-foreground">B</kbd>
           </motion.button>
         </motion.div>
       ) : null}

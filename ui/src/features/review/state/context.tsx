@@ -2,6 +2,7 @@ import { useReducedMotion } from 'motion/react'
 import { createContext, useContext, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import type { StateStorage } from 'zustand/middleware'
+import type { StoreApi } from 'zustand/vanilla'
 import type { ReviewSource } from '#shared/review/types.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useDev } from '../dev/dev.ts'
@@ -19,8 +20,20 @@ function browserStorage(): StateStorage {
   }
 }
 
+/*
+ * One store for the window, kept on globalThis. A hot update runs this file again, and a second store would not reach
+ * the review on screen, which holds the one it opened with, while both wrote over each other in storage. So the store
+ * is kept while its own code is the same, and when that code changed a window showing a review loads again instead.
+ */
+const holder = globalThis as { __hobkinReviewMemory?: { store: StoreApi<MemoryState>; made: typeof createReviewMemory } }
+const kept = holder.__hobkinReviewMemory
+const fresh = !kept || kept.made !== createReviewMemory
+const reloading = import.meta.hot != null && fresh && typeof document !== 'undefined' && document.querySelector('[data-rv-root]') != null
+if (reloading) location.reload()
+
 /** What the reviewer left in every review, kept across reloads. */
-export const reviewMemory = createReviewMemory(browserStorage())
+export const reviewMemory: StoreApi<MemoryState> =
+  kept && (!fresh || reloading) ? kept.store : (holder.__hobkinReviewMemory = { store: createReviewMemory(browserStorage()), made: createReviewMemory }).store
 
 export function useReviewMemory<Value>(selector: (state: MemoryState) => Value): Value {
   return useStore(reviewMemory, selector)

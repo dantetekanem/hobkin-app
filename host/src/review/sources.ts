@@ -12,8 +12,8 @@ import type { Vicinity } from '#shared/review/vicinity.ts'
 import { ghText, type GhCall } from './gh.ts'
 import { gitReader, type GitReader } from './git.ts'
 
-/** What the review passes need, but its id. */
-export type ChangeInput = Omit<PrepareInput, 'id'>
+/** What the review passes need, but its id. A pull request also has its description, which the review shows as it is. */
+export type ChangeInput = Omit<PrepareInput, 'id'> & { description?: string }
 
 export interface ReviewSource {
   /** The commit the change is at now, or null when it is gone: merged, closed or deleted. */
@@ -116,7 +116,7 @@ export function pullSource({ gh, limit = SIZE_LIMIT }: { gh: GhCall; limit?: { f
     async read(target, head) {
       const { repo, target: pull } = pullOf(target)
       if (pull.kind !== 'pull') throw new Error('Not a pull request.')
-      const details = await api<{ title: string; base: { sha: string }; head: { ref: string }; user?: { login?: string } }>(`${repo}/pulls/${pull.number}`)
+      const details = await api<{ title: string; body?: string | null; base: { sha: string }; head: { ref: string }; user?: { login?: string } }>(`${repo}/pulls/${pull.number}`)
       // The files GitHub lists are against the merge base, so that is the side the review compares with.
       const compare = await api<{ merge_base_commit?: { sha?: string } }>(`${repo}/compare/${details.base.sha}...${head}`)
       const base = compare.merge_base_commit?.sha ?? details.base.sha
@@ -171,6 +171,8 @@ export function pullSource({ gh, limit = SIZE_LIMIT }: { gh: GhCall; limit?: { f
       const specFile = specPath ? await fetchFile(head, specPath) : null
       return {
         change: { project: `${pull.owner}/${pull.repo}`, item: `#${pull.number}`, title: details.title, branch: details.head.ref },
+        // The same answer as the title, so nothing more is asked of GitHub. GitHub writes its lines with \r\n.
+        description: (details.body ?? '').replace(/\r\n?/g, '\n').trim(),
         vicinity: { links: [], notice: 'Callers and callees are not shown: a pull request is read from GitHub, with no checkout to scan.' },
         capture,
         spec: specPath && specFile?.kind === 'text' ? { path: specPath, text: specFile.text } : null,

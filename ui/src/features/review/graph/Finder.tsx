@@ -102,7 +102,7 @@ function FinderBox() {
             return node ? <Row key={hit.id} hit={hit} node={node} active={hit === chosen} onPoint={() => setActive(index)} onChoose={() => go(hit)} /> : null
           })}
         </ul>
-        <p className="flex items-center gap-3 border-t border-border px-4 py-2 text-[11.5px] text-muted-foreground">
+        <p className="flex items-center gap-3 border-t border-border px-4 py-2 text-[12.5px] text-muted-foreground">
           <span className="flex items-center gap-1">
             <Kbd>↑</Kbd>
             <Kbd>↓</Kbd>
@@ -145,9 +145,9 @@ function Row({ hit, node, active, onPoint, onChoose }: { hit: FinderHit; node: R
         <span className="block truncate font-heading text-[13.5px] font-medium tracking-[-0.01em]">
           <Marked text={node.title} marks={hit.marks} />
         </span>
-        {node.subtitle ? <span className="block truncate font-mono text-[11px] text-muted-foreground">{node.subtitle}</span> : null}
+        {node.subtitle ? <span className="block truncate font-mono text-[12px] text-muted-foreground">{node.subtitle}</span> : null}
       </span>
-      <span className="mt-0.5 shrink-0 font-heading text-[10.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{label}</span>
+      <span className="mt-0.5 shrink-0 font-heading text-[11.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{label}</span>
     </li>
   )
 }

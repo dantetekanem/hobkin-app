@@ -4,7 +4,7 @@ import { animate, motion } from 'motion/react'
 import { memo, useEffect, useRef } from 'react'
 import { spring, tween } from '@/lib/motion.ts'
 import { useEntrance } from './entrance.tsx'
-import { KIND, needsALook, statusOf } from './kinds.tsx'
+import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
 import { useReduced, useSession } from '../state/context.tsx'
 
 /** Long titles take two lines of the header, which leaves one line for the summary. */
@@ -110,6 +110,7 @@ function NodeCardComponent({ id }: NodeProps) {
               </div>
             </div>
           </div>
+          {node.level ? <LevelBadge level={node.level} /> : null}
           {notes > 0 ? (
             <span className="rv-notes" aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}>
               <MessageSquare aria-hidden="true" />

@@ -1,6 +1,7 @@
 import { ArrowUp, CircleHelp } from 'lucide-react'
 import { forwardRef, useLayoutEffect, useRef, useState, type ForwardedRef } from 'react'
 import type { Review, StoryStep } from '#shared/review/types.ts'
+import { Hob } from '@/avatar/Hob.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { runCommand, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
@@ -10,6 +11,7 @@ import { reviewMemory } from '../state/context.tsx'
 /**
  * The quick way to talk to hobkin about the review. It is hobkin's main conversation: a message goes there with the
  * review, the step and the node the reviewer is on, so hobkin knows what "this" is and can walk the review itself.
+ * It sits on a surface of its own, apart from the panel and from the yellow of the actions, and says what to type.
  */
 export const HobkinBox = forwardRef(function HobkinBox(
   { review, live, step, node, notes }: { review: Review; live: boolean; step: StoryStep | undefined; node: string | undefined; notes: readonly Note[] },
@@ -50,20 +52,25 @@ export const HobkinBox = forwardRef(function HobkinBox(
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <section aria-label="Ask Hobkin" className="flex flex-col gap-2 rounded-2xl bg-[var(--rv-ask)] p-3 ring-1 ring-[var(--rv-ask-edge)]">
+      <div className="flex items-center gap-2">
+        <Hob mood={busy ? 'searching' : 'hello'} size={24} stage="var(--rv-ask)" still />
+        <h3 className="min-w-0 flex-1 font-heading text-[14.5px] font-semibold">Ask Hobkin</h3>
+        <Kbd>H</Kbd>
+      </div>
       {questions.length > 0 ? (
         <button
           type="button"
           data-stop
           disabled={!live || sending}
           onClick={askQuestions}
-          className="flex items-center gap-1.5 self-start rounded-full bg-sun/15 px-2.5 py-1 font-heading text-[12px] font-medium text-sun-fg disabled:opacity-50 [&_svg]:size-3.5"
+          className="flex items-center gap-1.5 self-start rounded-full bg-sun/20 px-2.5 py-1 font-heading text-[13px] font-medium text-sun-fg disabled:opacity-50 [&_svg]:size-3.5"
         >
           <CircleHelp aria-hidden="true" />
           Ask your {questions.length === 1 ? 'open question' : `${questions.length} open questions`}
         </button>
       ) : null}
-      <div className={cn('flex items-end gap-2 rounded-2xl bg-background p-2 ring-1 ring-border-strong/50 focus-within:ring-primary/60', !live && 'opacity-60')}>
+      <div className={cn('flex items-end gap-2 rounded-xl bg-[var(--hb-surface)] p-2 ring-1 ring-[var(--rv-ask-edge)] focus-within:ring-2 focus-within:ring-primary/70', !live && 'opacity-60')}>
         <textarea
           ref={(element) => {
             own.current = element
@@ -74,7 +81,7 @@ export const HobkinBox = forwardRef(function HobkinBox(
           rows={1}
           disabled={!live}
           aria-label="Ask hobkin about this review"
-          placeholder={live ? 'Ask Hobkin about this step' : 'Sample review: Hobkin is not connected here'}
+          placeholder={live ? 'Ask about this step, or say what to change' : 'Sample review: Hobkin is not connected here'}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             // The words belong to the field: no key typed here walks the story.
@@ -87,7 +94,7 @@ export const HobkinBox = forwardRef(function HobkinBox(
               event.currentTarget.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
             }
           }}
-          className="rv-scroll min-h-[22px] flex-1 resize-none bg-transparent px-1 text-[13.5px] leading-[1.5] outline-none placeholder:text-muted-foreground"
+          className="rv-scroll min-h-[22px] flex-1 resize-none bg-transparent px-1 text-[14px] leading-[1.5] outline-none placeholder:text-muted-foreground"
         />
         <button
           type="button"
@@ -100,13 +107,12 @@ export const HobkinBox = forwardRef(function HobkinBox(
           <ArrowUp />
         </button>
       </div>
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground" role="status">
-        {problem ?? (busy ? 'Hobkin is answering…' : (
-          <>
-            <Kbd>H</Kbd> to write here · Hobkin sees this step and can move your view
-          </>
-        ))}
-      </p>
-    </div>
+      <p className="text-[13px] leading-snug text-pretty text-muted-foreground">Ask what a line does or why it is safe, or say what to change. Hobkin sees this step and can move your view.</p>
+      {problem || busy ? (
+        <p role="status" className={cn('text-[13px] leading-snug', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
+          {problem ?? 'Hobkin is answering…'}
+        </p>
+      ) : null}
+    </section>
   )
 })

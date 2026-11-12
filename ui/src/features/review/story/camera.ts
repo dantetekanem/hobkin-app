@@ -53,10 +53,15 @@ export const FRAME = {
   margin: 20,
   /** Room between the focus and its text. */
   gap: 20,
-  /** The focus is never blown up past its real size to fill the room. */
-  maxZoom: 1,
+  /** The focus is shown at most a little over its real size, close enough to read (the user's 1.2, 2026-11-12). */
+  maxZoom: 1.2,
   /** The least of a card that is worth showing. A shorter area hides the text. */
   minCardHeight: 120,
+  /**
+   * How much closer than a fit the whole graph is framed when a story opens on it: its middle fills the room and its
+   * edges may run under what covers the canvas. G frames all of it, and a step's focus is always shown whole.
+   */
+  closer: 1.2,
 } as const
 
 const MIN_AREA = 24
@@ -97,6 +102,8 @@ export interface ShotInput {
   /** Every other node. The text goes to the side where it covers the least of them. */
   others?: readonly Rect[]
   maxZoom?: number
+  /** Over 1, only the middle of the focus is fitted, so it is drawn this much bigger and its edges run past the room. */
+  closer?: number
 }
 
 /**
@@ -106,8 +113,9 @@ export interface ShotInput {
  * it otherwise. Between two sides of the same kind, it takes the one with the most room: the one where it
  * covers the least of the other nodes. It is never placed on top of a focus node.
  */
-export function composeShot({ focus, area, card = null, others = [], maxZoom = FRAME.maxZoom }: ShotInput): Shot {
-  const box = boundsOf(focus)
+export function composeShot({ focus, area, card = null, others = [], maxZoom = FRAME.maxZoom, closer = 1 }: ShotInput): Shot {
+  const whole = boundsOf(focus)
+  const box = closer > 1 ? { x: whole.x + (whole.width - whole.width / closer) / 2, y: whole.y + (whole.height - whole.height / closer) / 2, width: whole.width / closer, height: whole.height / closer } : whole
   const margin = clamp(Math.min(area.width, area.height) * 0.08, 4, FRAME.margin)
   const [roomWidth, roomHeight] = [area.width - margin * 2, area.height - margin * 2]
   const fit = (width: number, height: number) => Math.max(0.01, Math.min(maxZoom, width / Math.max(1, box.width), height / Math.max(1, box.height)))

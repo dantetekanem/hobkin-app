@@ -223,8 +223,10 @@ export class Reviews {
     const system = (this.options.skill ?? changeReviewSkill)()
     const written = await agent({ system, prompt: agentPrompt(modelRequest(draft)), signal: this.controller.signal })
     this.set(id, { phase: 'checking' })
-    const { review, corrections } = await completeReview(draft, written ?? undefined)
+    const { review: completed, corrections } = await completeReview(draft, written ?? undefined)
     for (const line of corrections) this.options.log?.(`Review ${id}: ${line}`)
+    // A pull request's description is shown as its author wrote it. Nothing in the review rests on it.
+    const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
     const meta = { preparedAt: new Date((this.options.now ?? Date.now)()).toISOString(), storyBy: written ? ('agent' as const) : ('host' as const) }

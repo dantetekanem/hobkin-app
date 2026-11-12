@@ -1,4 +1,4 @@
-import { Background, BackgroundVariant, ReactFlow, ViewportPortal, useNodesState, type Edge, type Node, type NodeMouseHandler, type OnMove } from '@xyflow/react'
+import { Background, BackgroundVariant, ReactFlow, ViewportPortal, useNodesState, useStore as useFlowStore, type Edge, type Node, type NodeMouseHandler, type OnMove } from '@xyflow/react'
 import '@xyflow/react/dist/base.css'
 import { motion, useTransform } from 'motion/react'
 import { useEffect, useMemo, useRef } from 'react'
@@ -15,6 +15,8 @@ const edgeTypes = { wire: Wire }
 const PRO_OPTIONS = { hideAttribution: true }
 /** The whole graph of a wide change has to fit a narrow canvas, so the camera may pull far back. */
 const ZOOM = { min: 0.08, max: 1.6 }
+/** A dot every `gap` points of the graph, `size` pixels wide on screen. */
+const DOTS = { gap: 32, size: 1.6 }
 const fine = typeof matchMedia === 'function' ? matchMedia('(hover: hover) and (pointer: fine)') : null
 
 /**
@@ -102,10 +104,20 @@ export function Graph() {
       proOptions={PRO_OPTIONS}
       aria-label="The change as a graph"
     >
-      <Background variant={BackgroundVariant.Dots} gap={32} size={1} color="color-mix(in oklab, var(--hb-text) 9%, transparent)" />
+      <Dots />
       <Rider />
     </ReactFlow>
   )
+}
+
+/**
+ * Barely visible dots under the graph, for depth: they move and spread with it, keep their size on screen, and fade as
+ * the camera pulls back and they crowd together. Their color is a token of the review (`--rv-dot`), for both themes.
+ */
+function Dots() {
+  const zoom = useFlowStore((state) => state.transform[2])
+  const apart = DOTS.gap * zoom
+  return <Background variant={BackgroundVariant.Dots} gap={DOTS.gap} size={DOTS.size / zoom} color="var(--rv-dot)" style={{ opacity: Math.min(1, Math.max(0.3, (apart - 6) / 18)) }} />
 }
 
 /**

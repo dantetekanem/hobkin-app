@@ -38,8 +38,8 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'The verdict',
     keys: [
-      [['A'], 'Approve: opens the pull request of a hobkin change'],
-      [['M'], 'Approve and merge a hobkin change'],
+      [['A'], 'Approve a hobkin change: shows how its pull request opens, and Enter opens it'],
+      [['M'], 'Approve and merge a hobkin change: shows how it lands, and Enter lands it'],
       [['X'], 'Send the fixes, or request changes on a pull request'],
     ],
   },
