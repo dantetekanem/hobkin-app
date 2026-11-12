@@ -72,8 +72,8 @@ Reviewing a change is a guided walk. The right arrow moves to the next step: the
 - A2. `ui/test/review-travel.test.ts` › "picks the connecting wire, or a straight glide when there is none"
 - A3. `ui/test/review-camera.test.ts` › "frames the focus inside the uncovered area"
 - A4. `ui/test/review-focus.test.ts` › "reveals a node once"
-- A5. `ui/test/review-camera.test.ts` › "places the step text beside the focus without overlap"
-- A6. check: click and hover rail segments in the sample review.
+- A5. `ui/test/review-camera.test.ts` › "hangs the step text under its node, never on another focus node"
+- A6. `ui/test/review-pager.test.ts` › "the pager counts the steps and walks them: back and next one at a time, a position straight there"
 - A7. check: press Right three times fast and watch for a jump.
 - A8. `ui/test/review-focus.test.ts` › "remembers the step when focus leaves the path"
 - A9. `ui/test/review-progress.test.ts` › "restores the step and the seen marks"

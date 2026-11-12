@@ -48,10 +48,13 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - A8. The blind check runs once, is saved unedited, never lowers a level, and leads to at most one action per unit.
 - A9. While a review runs, `progress.json` names the current step and what it is doing, with status, measured seconds, done and total for every step.
 - A10. A change hobkin finishes gets its review without the user asking, and the same commit is never reviewed twice.
-- A11. Opening a finished change shows its story first; the graph is one key away, and the Work card shows the change's level.
+- ~~A11. Opening a finished change shows its story first; the graph is one key away, and the Work card shows the change's level.~~ Retired 2026-11-12: the user replaced the story page with the story inside graph navigation. See A15.
 - A12. Approve and Approve and merge in the Review panel do what they say, or say why they cannot.
 - A13. The Review page shows the project, the title and the lines changed, keeps the panel in the order of the Decisions, and an external pull request's description opens from a button.
 - A14. `agentic-search scan --diff <range>` finishes on a checkout whose working tree differs from the scanned head.
+- A15. A finished change's review opens on its graph with a sidebar header that stays the same for the whole review and carries the overall risk badge; each step's explanation sits in its node; moving the focus frames that node at a reading size and never every node it is wired to; a pager at the bottom center counts and walks the steps; unchanged code on the life cycle is dimmed; Enter shows the unit's explanation beside its code; the Work card shows the change's level.
+- A16. A verdict turns into "Click again to confirm" and goes back after ten seconds; only a second click sends it, for the commit on screen; a landed change closes its review with a celebration of five seconds at most.
+- A17. A pull request opened from GitHub waits for "Start AI review"; while a review is prepared its page says it can be closed, shows the time, what it is doing and its steps, and keeps updating; hobkin says in the chat when it is ready; Work's AI Reviews tab lists every review, running or done.
 
 ## Proof
 
@@ -65,10 +68,13 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - A8. `packages/change-review/test/pipeline.test.ts` › "the blind check runs once and never lowers"
 - A9. `packages/change-review/test/pipeline.test.ts` › "progress names the step and measures every one"
 - A10. `host/test/change-review-host.test.ts` › "a finished change is reviewed once per commit, in the background"
-- A11. check: finish a change in the dev home, open it from its card. The story shows first, `G` shows the graph, and the card shows its level.
+- A11. Retired.
 - A12. `ui/test/review-verdict-actions.test.ts` › "approve and approve-and-merge reach the host's verdict"
 - A13. check: open a finished change and an external pull request in the dev window. Compare the header and the panel order with the Decisions.
 - A14. check: in a checkout with uncommitted edits, `agentic-search scan --diff HEAD~1..HEAD --json` exits 0.
+- A15. check: restart the app, open a finished change from its Work card: the header and its badge stay put while stepping, the step text sits in the node, a node with many wires stays framed close, the pager walks the steps, Enter shows the explanation beside the code, and the card shows the level.
+- A16. `ui/test/review-verdict-actions.test.ts` (the in-place confirm, its ten-second return and the head it sends), then check: approve and merge a change in the dev home and watch the review close with the celebration.
+- A17. `ui/test/review-load-pull.test.ts` and `ui/test/work-ai-reviews.test.ts`, then check: open a pull request from the GitHub page, start its review, close the window, and open it from hobkin's chat message.
 
 ## Steps
 
@@ -80,6 +86,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - [x] S6 (A10). The host: the review worktree, the model runner, the background run, the artifacts.
 - [ ] S7 (A11, A12, A13). The Review screen on the story, the page rework, the card's level, and the verdict buttons.
 - [x] S8 (A14). pi-agentic-search: the scan fix and the search facts, on a branch there.
+- [ ] S9 (A15, A16, A17). The user's second round: the Review page reworked for navigation, verdicts in place, the background flow and the AI Reviews tab.
 
 ## Open questions
 
