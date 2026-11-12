@@ -1,4 +1,5 @@
 import { Type } from 'typebox'
+import { Check } from 'typebox/value'
 import { COMMANDS, isCommand, type CommandDefinition } from '#shared/commands/registry.ts'
 import type { CommandOutcome } from './commands.ts'
 
@@ -55,7 +56,9 @@ export function createClientTool({ run }: ClientToolOptions) {
     ].join(' '),
     promptSnippet: "client: run the hobkin app's commands, such as listing model providers, starting a sign-in, or walking an open code review",
     parameters,
-    async execute(_id: string, { action, name, args }: ClientToolCall) {
+    async execute(_id: string, params: ClientToolCall) {
+      if (!Check(parameters, params)) throw Error('Invalid client tool arguments.')
+      const { action, name, args } = params
       if (action === 'list') {
         return reply(
           Object.entries(COMMANDS as Record<string, CommandDefinition>)

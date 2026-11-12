@@ -146,8 +146,18 @@ declare module 'hobkin/src/cli/pi-session.mjs' {
    */
   export function openPiSession(
     options: MainSessionOptions,
-    dependencies?: { agentDir?: string; modelRuntime?: unknown; createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }> },
+    dependencies?: { agentDir?: string; modelRuntime?: unknown; createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }>; clientBridge?: { tool: unknown; extensionPath: string } },
   ): Promise<MainSession>
+}
+
+declare module 'hobkin/src/cli/bridge.mjs' {
+  export interface BridgeContext {
+    mode: string
+    ui: { input(title: string, request: string, options: { signal?: AbortSignal }): Promise<string | undefined>; setStatus(key: string, value: string): void }
+  }
+  export const BRIDGE: string
+  export function callBridge<T>(ctx: BridgeContext, request: unknown, signal?: AbortSignal): Promise<T>
+  export function serveBridge(request: string, dependencies: { tools: Record<string, unknown> }, signal?: AbortSignal): Promise<unknown>
 }
 
 declare module 'hobkin/src/cli/checks.mjs' {

@@ -1,11 +1,13 @@
 import { existsSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { HobkinApplication, HobkinSnapshot, MainSession, MainSessionOptions, OpenOptions, PiSessionEvent } from 'hobkin/src/cli/application.mjs'
 import type { Decision } from 'hobkin/src/cli/decisions.mjs'
 import type { OwnerState } from '#shared/protocol/messages.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { loadPiCodingAgent, loadPiModelPick, type PiModelSettings } from './pi.ts'
+import { CLIENT_TOOL } from './client-tool.ts'
 import { createScriptedModel, SCRIPTED_MODEL, type ScriptedOptions, type SessionTool } from './scripted.ts'
 
 /** What hobkin says when another process holds the home's lock (`src/cli/runtime.mjs`). */
@@ -204,8 +206,10 @@ export class HomeOwner {
     if (live) {
       const [{ openPiSession }, pi, pickModel] = await Promise.all([import('hobkin/src/cli/pi-session.mjs'), loadPiCodingAgent(), loadPiModelPick()])
       // hobkin builds the session as always. The app only adds its tools, through the same seam hobkin's tests use,
-      // and passes the model runtime it holds, so a sign-in in the window reaches the session at once. With a
-      // launcher configured hobkin runs the session as a child process, which this seam does not reach.
+      // and passes the model runtime it holds, so a sign-in in the window reaches the session at once.
+      // Configured main uses the same captured client callback through the fixed RPC proxy.
+      const client = tools.find(tool => tool.name === CLIENT_TOOL)
+      const clientBridge = client ? { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) } : undefined
       const modelRuntime = (await this.options.modelRuntime?.()) ?? (await pi.ModelRuntime.create({ allowModelNetwork: false }))
       this.modelRuntime = modelRuntime
       const createSession = async (options: Record<string, unknown>) => {
@@ -216,7 +220,7 @@ export class HomeOwner {
         const model = picked ? await pickModel(options.modelRuntime, options.settingsManager as PiModelSettings) : options.model
         return pi.createAgentSession({ ...options, model, customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools] })
       }
-      return { createMain: this.tapped((options) => openPiSession(options, { modelRuntime, createSession })), memoryIndex: {}, ...offline }
+      return { createMain: this.tapped((options) => openPiSession(options, { modelRuntime, createSession, ...(options.config.launcher && clientBridge ? { clientBridge } : {}) })), memoryIndex: {}, ...offline }
     }
     const model = await createScriptedModel(root, { ...scripted, tools: [...(scripted?.tools ?? []), ...tools] })
     return {
