@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { setTimeout as pause } from 'node:timers/promises'
 import type { HarnessRequest, MainSession, MainSessionOptions } from 'hobkin/src/cli/application.mjs'
 import { loadPiAi, loadPiCodingAgent, type PiEventStream } from './pi.ts'
@@ -228,10 +230,10 @@ export interface ScriptedModel {
   runHarness: (request: HarnessRequest) => Promise<unknown>
 }
 
-export async function createScriptedModel(root: string, { reply = builtInReply, tools = [] }: ScriptedOptions = {}): Promise<ScriptedModel> {
-  const [pi, ai, { openPiSession }] = await Promise.all([loadPiCodingAgent(), loadPiAi(), import('hobkin/src/cli/pi-session.mjs')])
+/** The fixed child supplies runtime-owned tools/settings; this factory replaces only the provider. */
+export async function createScriptedSessionFactory(agentDir: string, reply: NonNullable<ScriptedOptions['reply']> = builtInReply): Promise<ScriptedModel['dependencies']['createSession']> {
+  const [pi, ai] = await Promise.all([loadPiCodingAgent(), loadPiAi()])
   // Its own agent folder inside the home, so Pi's real settings, extensions and credentials are never read.
-  const agentDir = join(root, 'client', 'scripted-agent')
   const model = {
     ...SCRIPTED_MODEL,
     name: 'Scripted model',
@@ -262,10 +264,7 @@ export async function createScriptedModel(root: string, { reply = builtInReply, 
         agentDir,
         modelRuntime: models,
         model,
-        customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools],
-        // Only the app's own tools can run: nothing the script says can touch the machine.
-        tools: tools.map(({ name }) => name),
-        settingsManager: pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
+        // Keep the same runtime-owned settings, resource loader and exact active tools.
       })
       created.session.agent.streamFunction = (
         selected: { api: string; provider: string; id: string },
@@ -293,11 +292,32 @@ export async function createScriptedModel(root: string, { reply = builtInReply, 
     },
   }
 
+  return dependencies.createSession
+}
+
+export async function createScriptedModel(root: string, { reply, tools = [] }: ScriptedOptions = {}): Promise<ScriptedModel> {
+  const agentDir = join(root, 'client', 'scripted-agent'), client = tools.find(tool => tool.name === 'client'), local = typeof reply === 'function'
+  if (!local && (tools.length !== 1 || !client || !('execute' in client) || typeof client.execute !== 'function')) {
+    throw Error('Scripted main requires the captured client tool.')
+  }
+  let factory: ReturnType<typeof createScriptedSessionFactory> | undefined
+  const dependencies: ScriptedModel['dependencies'] = { agentDir, createSession: async options => {
+    const pi = await loadPiCodingAgent()
+    factory ??= createScriptedSessionFactory(agentDir, reply)
+    return (await factory)({ ...options, customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools],
+      tools: tools.map(tool => tool.name), settingsManager: pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }) })
+  } }
   return {
     dependencies,
-    // The home's own model and launcher would start a real Pi, so the script's session never sees them.
-    createMain: (options) =>
-      openPiSession({ ...options, config: { ...options.config, launcher: undefined, main: { ...options.config.main, model: null } } }, dependencies),
+    createMain: async options => {
+      const { openPiSession } = await import('hobkin/src/cli/pi-session.mjs')
+      // Only an explicitly injected reply stays local; home launchers/models never select a real provider.
+      return openPiSession({ ...options, config: { ...options.config, launcher: undefined, main: { ...options.config.main, model: null } } }, local ? dependencies : {
+        isolatedMain: true, scriptedMain: true, agentDir,
+        clientBridge: { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) },
+        spawnProcess: (_command, _args, options) => spawn(process.execPath, [fileURLToPath(new URL('./scripted-main-child.ts', import.meta.url))], options),
+      })
+    },
     runHarness: async (request) => ({
       id: request.id,
       harness: 'pi',

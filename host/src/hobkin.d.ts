@@ -153,7 +153,16 @@ declare module 'hobkin/src/cli/application.mjs' {
 }
 
 declare module 'hobkin/src/cli/pi-session.mjs' {
-  import type { MainSession, MainSessionOptions } from 'hobkin/src/cli/application.mjs'
+  import type { HobkinConfig, MainSession, MainSessionOptions } from 'hobkin/src/cli/application.mjs'
+
+  export interface PiSessionDependencies {
+    isolatedMain?: boolean; scriptedMain?: boolean; deferExtensionBinding?: boolean; recoverScriptedHistory?: boolean
+    agentDir?: string; modelRuntime?: unknown
+    createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }>
+    clientBridge?: { tool: unknown; extensionPath: string }
+    spawnProcess?: (command: string, args: readonly string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess
+  }
+  export function openConversation(options: { root: string; config: HobkinConfig; file: string; expected: unknown }, dependencies: PiSessionDependencies): Promise<{ session: MainSession; services: Record<string, unknown> }>
 
   /**
    * `dependencies` is the seam hobkin's own tests use: a session factory, an agent folder and a model runtime of their own.
@@ -162,8 +171,13 @@ declare module 'hobkin/src/cli/pi-session.mjs' {
    */
   export function openPiSession(
     options: MainSessionOptions,
-    dependencies?: { isolatedMain?: boolean; recoverScriptedHistory?: boolean; agentDir?: string; modelRuntime?: unknown; createSession?: (options: Record<string, unknown>) => Promise<{ session: unknown }>; clientBridge?: { tool: unknown; extensionPath: string } },
+    dependencies?: PiSessionDependencies,
   ): Promise<MainSession>
+}
+
+declare module 'hobkin/src/cli/main-session-child.mjs' {
+  import type { openConversation } from 'hobkin/src/cli/pi-session.mjs'
+  export function runMainSessionChild(channel: NodeJS.Process, dependencies: { openSession: typeof openConversation }): Promise<void>
 }
 
 declare module 'hobkin/src/cli/bridge.mjs' {
