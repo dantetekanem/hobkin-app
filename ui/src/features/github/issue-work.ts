@@ -24,7 +24,8 @@ const STANDINGS: Record<string, { label: string; tone: ChipTone; shown?: 'queue'
   waiting: { label: 'Waiting for you', tone: 'warn' },
   branch: { label: 'Waiting for you', tone: 'warn', shown: 'card' },
   pr: { label: 'PR open', tone: 'ok', shown: 'card' },
-  merged: { label: 'Merged', tone: 'ok' },
+  // A merge is the work done, and hobkin closes the issue as it merges.
+  merged: { label: 'Done', tone: 'ok' },
   done: { label: 'Done', tone: 'ok' },
   declined: { label: 'Declined', tone: 'quiet' },
   dropped: { label: 'Dropped', tone: 'quiet' },

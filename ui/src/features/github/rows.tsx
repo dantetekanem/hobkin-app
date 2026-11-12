@@ -5,7 +5,6 @@ import {
   CircleDashed,
   CircleDot,
   Clock,
-  GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
   ListPlus,
@@ -18,7 +17,9 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { motion, type Variants } from 'motion/react'
-import { createContext, useContext, useState, type MouseEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useStore } from 'zustand'
+import type { IssueWork } from '#shared/protocol/github.ts'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -27,11 +28,13 @@ import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
+import { heldDown } from '@/features/review/verdict.ts'
 import { LevelCounts, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
 import { runWork, useWorkUi } from '@/features/work/store.ts'
 import { openOnWork } from '@/features/work/work-target.ts'
 import { runCommand, type ChecksState, type GitHubIssue, type ReviewState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
+import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand } from './issue-close.ts'
 import { issueChip, JUST_ADDED, type ChipTone } from './issue-work.ts'
 import { openOnGitHub, openPullRequestReview } from './open.ts'
 import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
@@ -285,7 +288,7 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
 /**
  * An issue, with why it is on the list: assigned to the user, opened by them, or both. It opens on github.com. On its
  * right, Add to queue files it as work on the project whose repository it is in, and once hobkin has work filed for it
- * a chip says where that work stands.
+ * a chip says where that work stands. Close issue closes it on GitHub, after a second click.
  */
 export function IssueRow({ issue, live, now, ...placed }: Placed & { issue: GitHubIssue; live: boolean; now: number }) {
   const updated = Date.parse(issue.updatedAt)
@@ -329,7 +332,6 @@ const CHIP_ICON: Record<string, LucideIcon> = {
   Working: LoaderCircle,
   'Waiting for you': UserRound,
   'PR open': GitPullRequest,
-  Merged: GitMerge,
   Done: CircleCheck,
   Declined: Ban,
   Dropped: Minus,
@@ -337,12 +339,28 @@ const CHIP_ICON: Record<string, LucideIcon> = {
 
 const CHIP = 'inline-flex h-7 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-medium whitespace-nowrap'
 
+/** What a chip's tooltip says of the item hobkin filed for an issue. A merged one reads Done, so its tooltip says it merged. */
+const filedWords = ({ state, project, item }: IssueWork) => (state === 'merged' ? `Merged on ${project} as ${item}.` : `Filed on ${project} as ${item}.`)
+
 /**
- * Where an issue's work stands, on its card: Add to queue while hobkin has nothing filed for it, and then a chip.
- * Right after Add to queue the chip says so, with hobkin's whole answer in its tooltip. A chip whose item the Work
- * screen shows opens it there, and a PR's chip comes with the PR's link. A refusal says why, in a line or two.
+ * The right of an issue's card: where its work stands, then Close issue. Every row is an open issue, so every row
+ * can be closed.
  */
 function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+  return (
+    <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-3">
+      <IssueWorkStanding issue={issue} live={live} />
+      <CloseIssue issue={issue} live={live} />
+    </div>
+  )
+}
+
+/**
+ * Where an issue's work stands: Add to queue while hobkin has nothing filed for it, and then a chip. Right after Add
+ * to queue the chip says so, with hobkin's whole answer in its tooltip. A chip whose item the Work screen shows opens
+ * it there, and a PR's chip comes with the PR's link. A refusal says why, in a line or two.
+ */
+function IssueWorkStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
   const place = `issue:${issue.url}`
   const busy = useWorkUi((state) => Boolean(state.busy[place]))
   const said = useWorkUi((state) => state.said[place])
@@ -351,7 +369,7 @@ function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
 
   if (work || added) {
     const chip = work ? issueChip(work, added) : JUST_ADDED
-    const why = added ? (said?.text ?? '') : `Filed on ${work!.project} as ${work!.item}.`
+    const why = added ? (said?.text ?? '') : filedWords(work!)
     const Icon = CHIP_ICON[chip.label] ?? CircleDot
     const face = (
       <>
@@ -360,7 +378,7 @@ function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
       </>
     )
     return (
-      <div className="relative z-10 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {chip.target ? (
           <button
             type="button"
@@ -393,13 +411,110 @@ function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
   }
 
   return (
-    <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
+    <div className="flex flex-col items-start gap-2">
       <Button variant="outline" data-stop="" disabled={busy} focusableWhenDisabled onClick={() => void runWork({ do: 'issue', repo: issue.repo, number: issue.number }, { live, place })}>
         <ListPlus aria-hidden="true" />
         {busy ? 'Adding…' : 'Add to queue'}
       </Button>
       {said ? (
         <p role="alert" title={said.text} className="line-clamp-2 text-[13px] leading-snug text-bad-fg">
+          {said.text}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+const REASON = 'inline-flex h-6 items-center rounded-full px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap outline-offset-2 transition-colors duration-[160ms] ease-[ease]'
+
+const closeOnHost: CloseCommand = (args) => runCommand('github.issue.close', args)
+
+/**
+ * Close issue, confirmed in place as a verdict in Review is (`issue-close.ts`): the first click turns the button into
+ * "Click again to close" for ten seconds, a line along its foot running out over them, with the reason to close it
+ * as, Completed or Not planned, and what becomes of hobkin's item for it. The second click closes it through the
+ * host's gh; Escape, leaving the button or the ten seconds running out take the first click back. With no host it
+ * answers that this is sample data.
+ */
+function CloseIssue({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+  const still = useStill()
+  // The close reads the issue and the host as they are when it is confirmed, not as they were when the row appeared.
+  const latest = useRef({ issue, live })
+  useEffect(() => {
+    latest.current = { issue, live }
+  })
+  const [flow] = useState(() => createIssueClose({ close: (reason) => closeIssueAs(reason, { ...latest.current, command: closeOnHost }) }))
+  useEffect(() => () => flow.dispose(), [flow])
+
+  const { armed, reason, busy, said } = useStore(flow)
+  const label = busy ? 'Closing…' : armed ? 'Click again to close' : 'Close issue'
+  const warning = armed ? closeWarning(issue.work) : null
+  const Icon = reason === 'not-planned' ? Ban : CircleCheck
+
+  const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || !armed) return
+    // Escape takes the first click back here, before the screen or the frame hears it.
+    event.preventDefault()
+    event.stopPropagation()
+    flow.cancel()
+  }
+  // Focus that moves to another control takes the first click back. A click that focuses nothing names nowhere, and the ten seconds see to it.
+  const onBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (armed && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) flow.cancel()
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-2" onKeyDownCapture={onKeyDownCapture} onBlur={onBlur}>
+      <Button
+        variant="outline"
+        data-stop=""
+        aria-pressed={armed}
+        disabled={busy}
+        focusableWhenDisabled
+        // A key held from the first click only repeats, and never gives the second.
+        onKeyDown={(event) => {
+          if (heldDown(event)) event.preventDefault()
+        }}
+        onClick={() => void flow.press()}
+        className={cn('relative overflow-hidden', armed && 'border-foreground bg-foreground text-background hover:bg-foreground hover:text-background')}
+      >
+        <Icon aria-hidden="true" />
+        {label}
+        {armed && !still ? (
+          <motion.span
+            key={reason}
+            aria-hidden="true"
+            className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-current opacity-55"
+            initial={{ scaleX: 1 }}
+            animate={{ scaleX: 0 }}
+            transition={{ duration: CLOSE_CONFIRM_MS / 1000, ease: 'linear' }}
+          />
+        ) : null}
+      </Button>
+      {armed ? (
+        <div role="radiogroup" aria-label="Close it as" className="flex flex-wrap gap-1.5">
+          {CLOSE_REASONS.map((choice) => (
+            <button
+              key={choice.value}
+              type="button"
+              role="radio"
+              aria-checked={reason === choice.value}
+              data-stop=""
+              onClick={() => flow.choose(choice.value)}
+              className={cn(REASON, reason === choice.value ? 'bg-foreground text-background' : 'bg-surface-2 text-muted-foreground hover:text-foreground')}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {warning ? <p className="text-[13px] leading-snug text-warn-fg">{warning}</p> : null}
+      {said ? (
+        <p
+          role={said.tone === 'refused' ? 'alert' : 'status'}
+          title={said.text}
+          className={cn('line-clamp-3 text-[13px] leading-snug', said.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}
+        >
           {said.text}
         </p>
       ) : null}

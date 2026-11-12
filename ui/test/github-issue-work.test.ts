@@ -15,7 +15,8 @@ test("a filed issue's chip says where its hobkin item stands, in plain words", (
     waiting: 'Waiting for you',
     branch: 'Waiting for you',
     pr: 'PR open',
-    merged: 'Merged',
+    // A merge is the work done: hobkin closes the issue as it merges.
+    merged: 'Done',
     done: 'Done',
     declined: 'Declined',
     dropped: 'Dropped',
@@ -38,7 +39,7 @@ test('the chip opens the item on the Work screen where Work shows it: its row in
 
 test('the sample shows every chip, one issue with nothing filed, and the items it links to are in the Work sample', () => {
   const issues = sampleGitHub(Date.parse('2026-11-12T12:00:00Z')).issues
-  assert.deepEqual(issues.map(({ work }) => (work ? issueChip(work).label : 'Add to queue')).toSorted(), ['Add to queue', 'Declined', 'Done', 'In queue', 'Merged', 'PR open', 'Waiting for you', 'Working'])
+  assert.deepEqual(issues.map(({ work }) => (work ? issueChip(work).label : 'Add to queue')).toSorted(), ['Add to queue', 'Declined', 'Done', 'Done', 'In queue', 'PR open', 'Waiting for you', 'Working'])
 
   const work = sampleWork()
   const rows = new Set(work.queue.map(({ key }) => `[data-queue-row="${key}"]`))
