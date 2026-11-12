@@ -377,6 +377,24 @@ test('an open PR waits in Action Items as one card with its PR, its head, what i
   assert.notEqual(sameBranch.id, card.item);
 });
 
+test('a card gets the whole proof up to 2000 characters, and a longer one ends at its last whole word with an ellipsis', t => {
+  const h = workspace(t);
+  const sentence = 'The retry spec failed before the change and passes after it, with 14 cases in 3 files. ';
+  const whole = sentence.repeat(20).trim();
+  const long = sentence.repeat(40).trim();
+  const kept = finished(h, 'hobkin/1-fix', { proof: whole.replace(' and passes', '\n\nand passes') });
+  const cut = finished(h, 'hobkin/2-fix', { proof: long });
+
+  assert.ok(whole.length > 1500 && whole.length <= 2000);
+  assert.equal(row(h, kept).proof, whole, 'all of it, on one line');
+  const shown = row(h, cut).proof;
+  assert.ok(shown.length <= 2000 && shown.length > 1900, `${shown.length} characters`);
+  assert.ok(shown.endsWith('…'));
+  const before = shown.slice(0, -1);
+  assert.ok(long.startsWith(before), 'the start of the proof');
+  assert.match(long.slice(before.length), /^\W/, 'it ends at a whole word');
+});
+
 test('a PR merged from its card closes at once, as the survey closes one its host reports merged, and leaves Decisions', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/7-fix', 'feature.txt', 'feature\n');

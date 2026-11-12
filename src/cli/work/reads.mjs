@@ -196,12 +196,21 @@ function gapOf(item, unit, items) {
 /** Everything a branch would bring with it, because merging it merges them too. A grade on the top one says nothing about these. */
 const stackedBeneath = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
 
-// A card says what the work did in a few lines, so this is enough of a description or a proof to read at a glance.
+// A card says what the work did in a few lines, so this is enough of a description to read at a glance. A proof is what the user decides on, so a
+// card shows a few lines of it and the rest on asking, and only a proof longer than this is cut.
 const LONGEST_ABOUT = 420;
-const LONGEST_PROOF = 260;
+const LONGEST_PROOF = 2000;
 // What it said first is all a card shows, so the rest of a long description is not read.
 const MOST_DESCRIPTION_READ = 8192;
-const oneLine = (text, most) => String(text).replace(/\s+/g, ' ').trim().slice(0, most);
+
+/** One line of at most `most` characters. A longer one ends at its last whole word, with an ellipsis. */
+function oneLine(text, most) {
+  const flat = String(text).replace(/\s+/g, ' ').trim();
+  if (flat.length <= most) return flat;
+  const room = flat.slice(0, most - 1);
+  const whole = flat[most - 1] === ' ' ? room : room.replace(/\s*\S*$/, '');
+  return `${(whole || room).replace(/[\s,;:]+$/, '')}…`;
+}
 
 /** What the work did, in its own words: the first paragraph of its description past the title, the issue line and headings, or else its summary. */
 function aboutOf(file, summary) {
