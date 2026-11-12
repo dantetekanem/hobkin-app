@@ -93,6 +93,7 @@ import.meta.hot?.dispose(unsubscribeWorld)
 
 const unsubscribeHost = hostStore.subscribe((state, previous) => {
   if (state.home === previous.home && state.epoch === previous.epoch && state.link === previous.link) {
+    if (worldProject && !chosenProject(worldProject.slug)) worldProject = null
     const target = state.owner?.startup?.target
     if (!state.owner?.startup || (target && startupKey(target) !== startupKey(previous.owner?.startup?.target ?? null))) {
       startupAttempt = null

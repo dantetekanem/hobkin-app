@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
+import { registerHooks } from 'node:module'
 import { useView } from '../src/app/view-store.ts'
 import { inMenu, walkScreens } from '../src/app/screens.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
-import * as workUi from '../src/features/work/store.ts'
+
+const aliases = registerHooks({ resolve(specifier, context, next) {
+  return next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context)
+} })
+const workUi = await import('../src/features/work/store.ts')
+aliases.deregister()
 
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 after(() => mock.timers.reset())
@@ -98,6 +104,15 @@ test('exact project handoff wins over first-control focus but not typing or a ne
     arrive()
     assert.equal(focused, '', 'source changes before arrival invalidate the handoff')
     stale?.()
+    useView.getState().openScreen('world')
+    assert.equal(workUi.returnToWorldProject('exact-1', source()), true)
+    page.activeElement = {}
+    const removed = workUi.bindWorldProject(root)
+    hostStore.setState({ work: { ...work, projects: [] } })
+    hostStore.setState({ work })
+    arrive()
+    assert.equal(focused, '', 'removed project cannot regain a pending focus target')
+    removed?.()
   } finally { Reflect.deleteProperty(globalThis, 'document') }
 })
 
@@ -109,4 +124,13 @@ test('pending target is invalidated by source replacement, departure or project 
     invalidate()
     assert.equal(workUi.takeWorldProject(), null)
   }
+})
+
+test('project removal invalidates a target even if the project returns before Work arrives', () => {
+  fixture()
+  useView.getState().openScreen('world')
+  assert.equal(workUi.returnToWorldProject('exact-1', source()), true)
+  hostStore.setState({ work: { ...work, projects: [] } })
+  hostStore.setState({ work })
+  assert.equal(workUi.takeWorldProject(), null)
 })
