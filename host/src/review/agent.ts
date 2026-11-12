@@ -1,7 +1,8 @@
 /**
- * The models the change review asks (spec 032): its one careful pass on the review tier with high thinking, and its
- * blind check on the cheapest tier. Each is one question in a Pi session of its own, with no tools: it reads no file,
- * runs nothing and changes nothing. Whatever it answers is checked by the change review before anyone sees it.
+ * The models the change review asks (spec 032). A review uses two: the Reviewer, for its one careful pass, on the
+ * high tier with high thinking; and Quick, for its blind check, on the fast tier. Each is one question in a Pi session
+ * of its own, with no tools: it reads no file, runs nothing and changes nothing. Whatever it answers is checked by the
+ * change review before anyone sees it.
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,18 +19,18 @@ export interface TierChoice {
 /** Building a review is careful reading, so it thinks hard whatever effort the tier names. */
 export const REVIEW_EFFORT = 'high'
 
-/** The tiers nearest to `mid` first: one step up, one step down, then the last one up. */
-const NEAREST_MID = ['mid', 'high', 'fast', 'max'] as const
+/** The tiers nearest to `high` first: the cheaper neighbour, then the dearer one, then the cheapest. */
+const NEAREST_HIGH = ['high', 'mid', 'max', 'fast'] as const
 
 /**
- * The tier a review is built on: `mid`, as hobkin's tiers are meant for reviews, from the home's config.json, always
- * with high thinking. Without a `mid` model it takes the closest tier that has one, and then the main conversation's
- * model. Null when none names a model.
+ * The Reviewer: the tier a review is built on. `high`, from the home's config.json, always with high thinking: a
+ * review that rates a change wrongly costs more than the model that reads it. Without a `high` model it takes the
+ * closest tier that has one, and then the main conversation's model. Null when none names a model.
  */
 export function reviewTier(root: string): TierChoice | null {
   try {
     const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as { tiers?: Record<string, { model?: string }>; main?: { model?: string } }
-    for (const tier of NEAREST_MID) {
+    for (const tier of NEAREST_HIGH) {
       const model = config.tiers?.[tier]?.model
       if (model) return { tier, model, effort: REVIEW_EFFORT }
     }
@@ -44,8 +45,8 @@ export function reviewTier(root: string): TierChoice | null {
 const CHEAPEST = ['fast', 'mid', 'high', 'max'] as const
 
 /**
- * The tier the change review's blind check runs on (spec 032): the cheapest one that is set, at its own thinking or
- * low, then the main chat's model at low. It sees only the story and its units, with no tools, so a small model is
+ * Quick: the tier the change review's blind check runs on (spec 032). `fast`, else the cheapest one that is set, at
+ * its own thinking or low, then the main chat's model at low. It sees only the story and its units, with no tools, so a small model is
  * the point: it reads what the reviewer would read. Null when none names a model.
  */
 export function checkerTier(root: string): TierChoice | null {
