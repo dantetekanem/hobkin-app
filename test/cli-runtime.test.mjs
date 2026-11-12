@@ -1,12 +1,32 @@
+import childProcess from 'node:child_process';
+import { registerHooks, syncBuiltinESMExports } from 'node:module';
+import { mock } from 'node:test';
+if (process.env.HOBKIN_ACTIVITY_TEST_ONLY === '1') {
+  const forbidden = () => { throw Error('Activity fixture forbids SDK/resources/process/network/signals'); };
+  for (const key of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, key, forbidden);
+  mock.method(process, 'kill', forbidden);
+  mock.method(globalThis, 'fetch', forbidden);
+  syncBuiltinESMExports();
+  const sdk = 'data:text/javascript,' + encodeURIComponent(`
+    export const defineTool = tool => tool;
+    const no = () => { throw Error('SDK/resources forbidden'); };
+    export {
+      no as createAgentSession, no as DefaultResourceLoader, no as SessionManager,
+      no as ModelRuntime, no as SettingsManager, no as getAgentDir,
+      no as getMarkdownTheme, no as getSelectListTheme, no as initTheme,
+    };
+  `);
+  registerHooks({ resolve(specifier, context, next) { return specifier === '@earendil-works/pi-coding-agent' ? { url: sdk, shortCircuit: true } : next(specifier, context); } });
+}
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HobkinRuntime } from '../src/cli/runtime.mjs';
-import { openPiSession } from '../src/cli/pi-session.mjs';
-import { initialize } from '../src/cli/config.mjs';
-import { readReport } from '../src/cli/reports.mjs';
+const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
+const { openPiSession } = await import('../src/cli/pi-session.mjs');
+const { initialize } = await import('../src/cli/config.mjs');
+const { readReport } = await import('../src/cli/reports.mjs');
 
 function home(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-runtime-'));
@@ -181,33 +201,52 @@ function mainFactory(control = {}) {
   });
 }
 
-test('agents the main chat spawns through teams stand as teams says, and a reset ends the old ones unreported', async t => {
-  const { root, config } = home(t);
-  const control = {};
-  const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(control) });
-  t.after(() => runtime.close());
-  await runtime.connect();
+test('owned-publication runtime selects admitted roots and retains unknown controls after display reset', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'owned-runtime-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const rows = [{ id: 'child', rootId: 'main-root', parentId: 'main-root', depth: 1, name: 'same', status: 'unknown' }];
+  const runtime = new HobkinRuntime(root, {}, { ownedLifecycle: { snapshot: () => structuredClone(rows),
+    targets: () => [{ kind: 'owned', runId: 'child', rootId: 'main-root', canForce: true }] } });
+  runtime.main = { sessionId: 'main-session' };
+  runtime.admit = async () => true;
+  runtime.finish = async () => {};
+  runtime.state = async () => ({ runs: { 'main-root': { status: 'completed' } } });
+  const gate = Promise.withResolvers(), started = Promise.withResolvers();
+  const work = runtime.dispatch({ id: 'main-root', kind: 'main', sessionId: 'main-session' }, () => { started.resolve(); return gate.promise; });
+  await started.promise;
+  assert.equal(runtime.ownedActivity.groups.get('main-root').settled, false);
+  assert.equal(runtime.mainChildren()[0]?.id, 'child');
+  runtime.observeOwnedActivity(rows[0], { type: 'message_end', text: 'Public child' });
+  assert.equal(runtime.mainChildren()[0].activity[0].text, 'Public child');
+  runtime.resetting = true; runtime.mainFault = Error('fault');
+  assert.equal(runtime.mainChildren()[0].state, 'unknown');
+  const controls = runtime.stopControls();
+  runtime.installMainActivity({ snapshot: () => [] }, true);
   assert.deepEqual(runtime.mainChildren(), []);
-  control.emit({ type: 'tool_execution_end', toolCallId: 's', toolName: 'spawn_swarm_agents', isError: false, result: { details: {
-    session: 'private', spawned: [{ name: 'scout', role: 'read', modelSlot: 'read-collect' }, { name: 'fixer', role: 'write' }], failed: [] } } });
-  control.emit({ type: 'message_end', message: { role: 'custom', customType: 'pi-extended-teams-report', display: true, content: 'Private report', details: { name: 'scout', ok: true } } });
-  const states = () => runtime.mainChildren().map(({ name, state }) => [name, state]);
-  assert.deepEqual(states(), [['scout', 'reported'], ['fixer', 'running']]);
-  assert.doesNotMatch(JSON.stringify(runtime.mainChildren()), /private|Private report/i);
-  // The old session's agents live inside it and end with it, without a report.
-  const createMain = runtime.createMain;
-  const opening = Promise.withResolvers();
-  runtime.createMain = async options => { await opening.promise; return createMain(options); };
-  const reset = runtime.reset();
-  assert.deepEqual(states(), [['scout', 'reported'], ['fixer', 'stopped']]);
-  opening.resolve();
-  await reset;
-  assert.deepEqual(runtime.mainChildren(), [], 'a fresh session starts with none');
-  control.emit({ type: 'tool_execution_end', toolCallId: 'n', toolName: 'spawn_agent', isError: false, result: { details: { name: 'next', role: 'read' } } });
-  assert.deepEqual(states(), [['next', 'running']]);
-  runtime.mainFault = Error('Main Pi exited.');
-  assert.deepEqual(states(), [['next', 'stopped']], 'a main Pi that stopped took its agents with it');
-  runtime.mainFault = null;
+  assert.deepEqual(runtime.stopControls(), controls, 'successful installation clears selection, never Force custody');
+  gate.resolve({ status: 'completed' }); await work;
+  assert.equal(runtime.ownedActivity.groups.get('main-root').settled, true);
+  assert.equal(rows[0].status, 'unknown');
+});
+
+test('owned-publication runtime waits for captured parent closure before terminal display retention', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'owned-runtime-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const runtime = new HobkinRuntime(root, {}, {});
+  runtime.admit = async () => true;
+  runtime.finish = async () => {};
+  runtime.state = async () => ({ runs: { parent: { status: 'completed' } } });
+  const closed = Promise.withResolvers();
+  const work = runtime.dispatch({ id: 'parent', kind: 'background', harnessId: 'harness' }, async () => {
+    runtime.bindHarness('parent', 'harness', { closed: closed.promise });
+    return { status: 'completed' };
+  });
+  await work;
+  assert.equal(runtime.ownedActivity.groups.get('parent').settled, false);
+  assert.equal(runtime.active.get('parent').finished, true);
+  closed.resolve(true);
+  await runtime.active.get('parent').closed.promise;
+  assert.equal(runtime.ownedActivity.groups.get('parent').settled, true);
 });
 
 test('the main chat keeps its own recent activity like a job does, never its thinking, and a reset starts it over', async t => {

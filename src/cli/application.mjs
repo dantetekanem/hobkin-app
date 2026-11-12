@@ -186,7 +186,10 @@ export class HobkinApplication {
       onChange: () => app.requestRefresh(),
     });
     app.runtime = await HobkinRuntime.open(root, app.config, {
-      ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle({ onChange: () => app.requestRefresh() }),
+      ownedLifecycle: ownedLifecycle ?? createOwnedLifecycle({
+        onChange: () => app.requestRefresh(),
+        onEvent: (identity, event) => app.runtime?.observeOwnedActivity(identity, event),
+      }),
       createMain,
       onMainStartup,
       askQuestion,
@@ -330,9 +333,7 @@ export class HobkinApplication {
     this.snapshot = {
       ...this.snapshot,
       jobActivity: Object.fromEntries([...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()])),
-      jobChildren: Object.fromEntries([...this.jobActivity]
-        .map(([id, feed]) => [id, feed.children()])
-        .filter(([, children]) => children.length)),
+      jobChildren: this.runtime.jobChildren(),
       mainActivity: this.runtime.mainActivity(),
       mainChildren: this.runtime.mainChildren(),
       busy: this.runtime.mainBusy,
@@ -601,10 +602,7 @@ export class HobkinApplication {
     const jobActivity = Object.fromEntries(
       [...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()]),
     );
-    // The agents each job spawned through pi-extended-teams, only for jobs that spawned any.
-    const jobChildren = Object.fromEntries([...this.jobActivity]
-      .map(([id, feed]) => [id, feed.children({ ended: !active.has(id) })])
-      .filter(([, children]) => children.length));
+    const jobChildren = this.runtime.jobChildren();
     for (const id of this.jobActivity.keys()) {
       if (!active.has(id)) this.jobActivity.delete(id);
     }

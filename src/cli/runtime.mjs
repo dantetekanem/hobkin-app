@@ -10,7 +10,7 @@ import { compactionDue } from './compaction.mjs';
 import { allCardActions, recordCardAction } from './work/card-actions.mjs';
 import { doingAfter } from './doing.mjs';
 import { skipInQueue } from './work/store.mjs';
-import { JobActivity } from './job-activity.mjs';
+import { JobActivity, OwnedActivity } from './job-activity.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
@@ -86,6 +86,8 @@ export class HobkinRuntime {
     this.stopWorkload = stopWorkload;
     this.ownedAgent = ownedAgent;
     this.ownedLifecycle = ownedLifecycle;
+    this.ownedActivity = new OwnedActivity();
+    this.mainOwnedRoots = new Set();
     this.editReport = editReport;
     this.onChange = onChange;
     this.active = new Map();
@@ -261,7 +263,7 @@ export class HobkinRuntime {
     }
 
     let unsubscribe;
-    // What this session does and the agents it spawns, kept like a job's. A fresh session starts with none.
+    // Parent content stays complete and separate from the owned descendant display.
     const feed = new JobActivity({ most: MAIN_ACTIVITY_ENTRIES });
     try {
       unsubscribe = main.subscribe(event => {
@@ -311,7 +313,7 @@ export class HobkinRuntime {
     const unsubscribePrevious = this.unsubscribe;
     this.main = main;
     startup.installed = true;
-    this.mainFeed = feed;
+    this.installMainActivity(feed, fresh);
     this.unsubscribe = unsubscribe;
     this.mainFault = null;
     // A child Pi that exits unasked ends the chat until a restart; scheduled checks keep running.
@@ -342,8 +344,35 @@ export class HobkinRuntime {
   }
 
   messages() { return this.main?.messages ?? []; }
-  /** The agents the main chat spawned through pi-extended-teams. A reset or a main Pi that stopped ends any still out unreported. */
-  mainChildren() { return this.mainFeed?.children({ ended: this.resetting || Boolean(this.mainFault) }) ?? []; }
+  installMainActivity(feed, fresh) {
+    this.mainFeed = feed;
+    if (fresh) this.mainOwnedRoots.clear();
+  }
+
+  observeOwnedActivity(identity, event) {
+    this.ownedChildren();
+    this.ownedActivity.observe(identity, event);
+    this.notify(true);
+  }
+
+  ownedChildren() {
+    const groups = this.ownedActivity.project(this.ownedLifecycle?.snapshot?.() ?? []);
+    for (const id of this.mainOwnedRoots) {
+      if (!this.ownedActivity.groups.has(id)) this.mainOwnedRoots.delete(id);
+    }
+    return groups;
+  }
+
+  mainChildren() {
+    return Object.entries(this.ownedChildren())
+      .filter(([id]) => this.mainOwnedRoots.has(id))
+      .flatMap(([, rows]) => rows);
+  }
+
+  jobChildren() {
+    return Object.fromEntries(Object.entries(this.ownedChildren())
+      .filter(([id]) => this.ownedActivity.groups.get(id).kind !== 'main'));
+  }
   /** The main chat's latest words and tool calls, as a job's activity is kept: never its thinking. */
   mainActivity() { return this.mainFeed?.snapshot() ?? []; }
   get mainBusy() { return Boolean(this.main && this.busySessions.has(this.main.sessionId)); }
@@ -538,6 +567,8 @@ export class HobkinRuntime {
     const completion = Promise.resolve().then(async () => {
       if (!await this.admit(request)) return (await this.state()).runs[request.id];
       active.admitted = true;
+      this.ownedActivity.track(request.id, request.kind);
+      if (request.kind === 'main' && request.sessionId === this.main?.sessionId) this.mainOwnedRoots.add(request.id);
       recordRunStarted(this.directory, request);
       onAdmitted?.();
       let result;
@@ -556,7 +587,17 @@ export class HobkinRuntime {
     });
     active.completion = completion;
     this.active.set(request.id, active);
-    return completion.finally(() => {
+    return completion.then(run => {
+      if (active.admitted) {
+        const settled = () => {
+          this.ownedActivity.settle(request.id);
+          this.notify();
+        };
+        if (!active.transport || active.transportClosed) settled();
+        else void active.closed.promise.then(settled);
+      }
+      return run;
+    }).finally(() => {
       active.finished = true;
       if (!active.transport || active.transportClosed) this.active.delete(request.id);
     });

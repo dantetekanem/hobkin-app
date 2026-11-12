@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JobActivity } from '../src/cli/job-activity.mjs';
+import * as activity from '../src/cli/job-activity.mjs';
 
 const update = (type, extra = {}) => ({ type: 'message_update', assistantMessageEvent: { type, contentIndex: 0, ...extra } });
 
@@ -123,66 +124,47 @@ test('unsafe, hidden and malformed records are ignored; visible content stays te
   assert.equal(feed.snapshot()[1].output, 'File content');
 });
 
-const spawned = (toolName, details, isError = false) => ({ type: 'tool_execution_end', toolCallId: toolName, toolName, isError, result: { content: [{ type: 'text', text: 'Spawned.' }], details } });
-const said = (customType, details, display = true) => ({ type: 'message_end', message: { role: 'custom', customType, display, content: 'Report body', details } });
-
-test('spawned teams agents stand by their own spawn details and reports, never their transcripts', () => {
-  let clock = 100;
-  const feed = new JobActivity({ now: () => clock });
-  feed.accept(spawned('spawn_agent', { name: 'scout', role: 'read', modelSlot: 'read-collect', model: 'm', sessionContext: 'full', session: 'session-x', queued: false }));
-  feed.accept(spawned('spawn_agent', { name: 'fixer', role: 'write', modelSlot: 'write-feature', queued: true, queuePosition: 2 }));
-  feed.accept(spawned('spawn_agent', { name: 'refused' }, true));
-  assert.deepEqual(feed.children(), [
-    { name: 'scout', role: 'read', modelSlot: 'read-collect', state: 'running', startedAt: 100 },
-    { name: 'fixer', role: 'write', modelSlot: 'write-feature', state: 'queued', queuePosition: 2, startedAt: 100 },
+const child = (rootId, id, status = 'running', parentId = rootId) => ({
+  id, parentId, rootId, depth: parentId === rootId ? 1 : 2, name: 'same name', status,
+});
+test('owned-publication projects exact ancestry and bounded public observations only', () => {
+  assert.equal(typeof activity.OwnedActivity, 'function');
+  const display = new activity.OwnedActivity();
+  display.track('root');
+  const rows = [child('root', 'child'), child('root', 'grandchild', 'unknown', 'child')];
+  display.project(rows);
+  display.observe({ id: 'impostor', rootId: 'root', name: 'same name' }, { type: 'message_end', text: 'SECRET' });
+  display.observe(rows[0], { type: 'message_end', text: '\x1b[31mPublic\x1b[0m' + 'x'.repeat(9000), usage: { private: 'SECRET' } });
+  display.observe(rows[0], { type: 'tool_execution_start', toolCallId: 'tool', toolName: 'read', args: { path: 'SECRET' } });
+  display.observe(rows[0], { type: 'tool_execution_end', toolCallId: 'tool', toolName: 'read', isError: true, result: 'SECRET' });
+  const view = display.project(rows).root;
+  assert.deepEqual(view.map(({ id, parentId, rootId, depth, state }) => [id, parentId, rootId, depth, state]), [
+    ['child', 'root', 'root', 1, 'running'], ['grandchild', 'child', 'root', 2, 'unknown'],
   ]);
-  clock = 250;
-  feed.accept(said('pi-extended-teams-report', { name: 'scout', ok: true, summary: 'Found it' }));
-  feed.accept(said('pi-extended-teams-report', { name: 'fixer', ok: false }));
-  feed.accept(said('pi-extended-teams-report', { name: 'stranger', ok: true }));
-  assert.deepEqual(feed.children().map(({ name, state, endedAt, queuePosition }) => ({ name, state, endedAt, queuePosition })), [
-    { name: 'scout', state: 'reported', endedAt: 250, queuePosition: undefined },
-    { name: 'fixer', state: 'failed', endedAt: 250, queuePosition: undefined },
-  ]);
-  assert.doesNotMatch(JSON.stringify(feed.children()), /session|Report body|Found it|"m"/);
+  assert.equal(view[0].activity[0].text.length, 8000);
+  assert.deepEqual(view[0].activity[1], { id: 'tool:tool', kind: 'tool', name: 'read', state: 'failed' });
+  assert.doesNotMatch(JSON.stringify(view), /SECRET|usage|args|result|\\u001b/);
+  view[0].activity[0].text = 'changed'; view[1].state = 'completed';
+  assert.equal(display.project(rows).root[0].activity[0].text.startsWith('Public'), true);
+  assert.equal(display.project(rows).root[1].state, 'unknown');
 });
 
-test('a grouped swarm finishes on its own wake; status results refine only agents it spawned', () => {
-  const feed = new JobActivity({ now: () => 5 });
-  feed.accept(spawned('spawn_swarm_agents', {
-    session: 'session-x', completionGroup: { groupId: 'g1', journalPath: '/private/journal.json' },
-    spawned: [{ name: 'a', role: 'read', queued: false }, { name: 'b', role: 'read', queued: true, queuePosition: 1 }],
-    failed: [{ name: 'c', error: 'capacity' }],
-  }));
-  feed.accept({ type: 'tool_execution_end', toolCallId: 's', toolName: 'get_agent_status', result: { details: { statuses: [
-    { name: 'a', role: 'read', phase: 'working', activeTool: 'grep', progress: 'private progress' },
-    { name: 'b', role: 'read', phase: 'starting' },
-    { name: 'grandchild', role: 'read', phase: 'working' },
-  ] } } });
-  assert.deepEqual(feed.children(), [
-    { name: 'a', role: 'read', state: 'running', group: 'g1', startedAt: 5, phase: 'working', activeTool: 'grep' },
-    { name: 'b', role: 'read', state: 'running', group: 'g1', startedAt: 5, phase: 'starting' },
-    { name: 'c', state: 'failed', group: 'g1', endedAt: 5 },
-  ]);
-  feed.accept(said('pi-extended-teams-wake', { completionGroup: { teamName: 't', groupId: 'other', deliveryId: 'd' } }, false));
-  assert.deepEqual(feed.children().map(child => child.state), ['running', 'running', 'failed']);
-  feed.accept(said('pi-extended-teams-wake', { completionGroup: { teamName: 't', groupId: 'g1', deliveryId: 'd' } }, false));
-  assert.deepEqual(feed.children().map(child => [child.state, child.activeTool]), [['reported', undefined], ['reported', undefined], ['failed', undefined]]);
-  assert.doesNotMatch(JSON.stringify(feed.children()), /journal|private|grandchild|capacity/);
-});
-
-test('a child still out when its run ends is stopped, not reported', () => {
-  const feed = new JobActivity({ now: () => 1 });
-  feed.accept(spawned('spawn_agent', { name: 'done', role: 'read' }));
-  feed.accept(spawned('spawn_agent', { name: 'busy', role: 'write' }));
-  feed.accept(spawned('spawn_agent', { name: 'waiting', role: 'read', queued: true, queuePosition: 1 }));
-  feed.accept(said('pi-extended-teams-report', { name: 'done', ok: true }));
-  assert.deepEqual(feed.children({ ended: true }).map(({ name, state, queuePosition }) => ({ name, state, queuePosition })), [
-    { name: 'done', state: 'reported', queuePosition: undefined },
-    { name: 'busy', state: 'stopped', queuePosition: undefined },
-    { name: 'waiting', state: 'stopped', queuePosition: undefined },
-  ]);
-  assert.equal(feed.children()[1].state, 'running', 'only the published copy says stopped');
+test('owned-publication retains unsettled and unknown roots and evicts only oldest settled display groups', () => {
+  assert.equal(typeof activity.OwnedActivity, 'function');
+  const display = new activity.OwnedActivity(), rows = [];
+  for (const id of ['unsettled', 'unknown', 'active', ...Array.from({ length: 21 }, (_, i) => 'done' + i)]) {
+    display.track(id);
+    rows.push(child(id, id + ':child', id === 'unknown' ? 'unknown' : id === 'active' ? 'running' : 'completed'));
+    if (id !== 'unsettled') display.settle(id);
+  }
+  const expected = ['unsettled', 'unknown', 'active', ...Array.from({ length: 20 }, (_, i) => 'done' + (i + 1))];
+  assert.deepEqual(Object.keys(display.project(rows)), expected);
+  assert.deepEqual(Object.keys(display.project(rows.toReversed())), expected, 'refresh does not resurrect evicted custody rows');
+  assert.equal(rows.length, 24, 'display eviction never prunes lifecycle authority');
+  const many = Array.from({ length: 40 }, (_, i) => child('active', 'bounded' + i));
+  assert.equal(display.project([...rows, ...many]).active.length, 32);
+  for (let i = 0; i < 100; i++) display.observe(many[0], { type: 'tool_execution_start', toolCallId: 't' + i, toolName: 'grep' });
+  assert.equal(display.project([...rows, ...many]).active.find(row => row.id === 'bounded0').activity.length, 32);
 });
 
 test('codemode details preserve ordered call snapshots, including duplicate running ids', () => {

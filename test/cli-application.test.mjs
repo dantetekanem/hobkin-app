@@ -1,29 +1,49 @@
+import childProcess from 'node:child_process';
+import { registerHooks, syncBuiltinESMExports } from 'node:module';
+import { mock } from 'node:test';
+if (process.env.HOBKIN_ACTIVITY_TEST_ONLY === '1') {
+  const forbidden = () => { throw Error('Activity fixture forbids SDK/resources/process/network/signals'); };
+  for (const key of ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']) mock.method(childProcess, key, forbidden);
+  mock.method(process, 'kill', forbidden);
+  mock.method(globalThis, 'fetch', forbidden);
+  syncBuiltinESMExports();
+  const sdk = 'data:text/javascript,' + encodeURIComponent(`
+    export const defineTool = tool => tool;
+    const no = () => { throw Error('SDK/resources forbidden'); };
+    export {
+      no as createAgentSession, no as DefaultResourceLoader, no as SessionManager,
+      no as ModelRuntime, no as SettingsManager, no as getAgentDir,
+      no as getMarkdownTheme, no as getSelectListTheme, no as initTheme,
+    };
+  `);
+  registerHooks({ resolve(specifier, context, next) { return specifier === '@earendil-works/pi-coding-agent' ? { url: sdk, shortCircuit: true } : next(specifier, context); } });
+}
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initialize, atomicJson, loadConfig, setLearning } from '../src/cli/config.mjs';
-import { HobkinApplication, readLocalView } from '../src/cli/application.mjs';
-import { HobkinRuntime, IMAGE_ROOM_BYTES, MAIN_BUSY } from '../src/cli/runtime.mjs';
-import { MAX_SESSION_BYTES } from '../src/cli/migration/ownership.mjs';
-import { deleteReports, saveReport } from '../src/cli/reports.mjs';
-import { readPresentationState, savePresentationState } from '../src/cli/view.mjs';
-import { fakePi } from './helpers/pi-session.mjs';
+const { initialize, atomicJson, loadConfig, setLearning } = await import('../src/cli/config.mjs');
+const { HobkinApplication, readLocalView } = await import('../src/cli/application.mjs');
+const { HobkinRuntime, IMAGE_ROOM_BYTES, MAIN_BUSY } = await import('../src/cli/runtime.mjs');
+const { MAX_SESSION_BYTES } = await import('../src/cli/migration/ownership.mjs');
+const { deleteReports, saveReport } = await import('../src/cli/reports.mjs');
+const { readPresentationState, savePresentationState } = await import('../src/cli/view.mjs');
+const { fakePi } = await import('./helpers/pi-session.mjs');
 import { png } from './helpers/png.mjs';
-import { fileActionItem, fileDecision, markShown, openDecisions } from '../src/cli/decisions.mjs';
-import { readBriefState, writeBriefState } from '../src/cli/brief.mjs';
-import { openCheck } from '../src/cli/checks.mjs';
-import { retireOffers } from '../src/cli/work/land-offer.mjs';
-import { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } from '../src/cli/work/store.mjs';
-import { branched, git, repository } from './helpers/work-fixture.mjs';
-import { createDashboard } from '../src/cli/ui.mjs';
-import { readActions, saveState } from '../src/cli/learning/store.mjs';
-import { startSession } from '../src/cli/session.mjs';
-import { recordSessionEnd, recordSessionStart, sessionsToPost, sessionsToWake } from '../src/cli/session-log.mjs';
-import { allCardActions, cardActionsToTell, markCardActionsHeard } from '../src/cli/work/card-actions.mjs';
-import { listTemplates } from '../src/cli/routine-templates.mjs';
-import { stripTerminalSequences } from '@earendil-works/pi-tui';
+const { fileActionItem, fileDecision, markShown, openDecisions } = await import('../src/cli/decisions.mjs');
+const { readBriefState, writeBriefState } = await import('../src/cli/brief.mjs');
+const { openCheck } = await import('../src/cli/checks.mjs');
+const { retireOffers } = await import('../src/cli/work/land-offer.mjs');
+const { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } = await import('../src/cli/work/store.mjs');
+const { branched, git, repository } = await import('./helpers/work-fixture.mjs');
+const { createDashboard } = await import('../src/cli/ui.mjs');
+const { readActions, saveState } = await import('../src/cli/learning/store.mjs');
+const { startSession } = await import('../src/cli/session.mjs');
+const { recordSessionEnd, recordSessionStart, sessionsToPost, sessionsToWake } = await import('../src/cli/session-log.mjs');
+const { allCardActions, cardActionsToTell, markCardActionsHeard } = await import('../src/cli/work/card-actions.mjs');
+const { listTemplates } = await import('../src/cli/routine-templates.mjs');
+const { stripTerminalSequences } = await import('@earendil-works/pi-tui');
 
 function fixture(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-app-')));
@@ -1316,19 +1336,41 @@ test('confirmed Stop recovers missing notices on open without reviving heard or 
   assert.equal(readFileSync(join(h.root, 'work/card-actions.jsonl'), 'utf8'), log);
 });
 
-test('spawned agents publish beside job activity, once more stopped when the run ends without their report', async t => {
-  const h = fixture(t);
-  const app = await h.openApp({ intervalMs: 60000 });
-  t.after(() => app.close());
-  await app.runtime.admit({ id: 'lead', kind: 'background', scheduleId: 'check', title: 'Check' });
-  app.observeActivity('lead', { type: 'tool_execution_end', toolCallId: 'spawn', toolName: 'spawn_agent', isError: false, result: { details: { name: 'scout', role: 'read', session: 'private' } } });
-  const live = await app.refresh();
-  assert.deepEqual(live.jobChildren.lead.map(({ name, role, state }) => ({ name, role, state })), [{ name: 'scout', role: 'read', state: 'running' }]);
-  assert.deepEqual(live.mainChildren, [], "a job's agents are not the main chat's");
-  await app.runtime.finish('lead', { status: 'interrupted', text: 'Stopped.' });
-  assert.equal((await app.refresh()).jobChildren.lead[0].state, 'stopped');
-  assert.deepEqual((await app.refresh()).jobChildren, {});
-  assert.equal(Object.hasOwn(JSON.parse(readFileSync(join(h.root, 'runtime/view.json'), 'utf8')), 'jobChildren'), false);
+test('owned-publication application publishes terminal and unknown descendants after parent feed release', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'owned-publication-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = initialize(root, { cwd: root });
+  const runtime = new HobkinRuntime(root, config, { ownedLifecycle: { snapshot: () => [
+    { id: 'child', parentId: 'job', rootId: 'job', depth: 1, name: 'same', status: 'completed' },
+    { id: 'grandchild', parentId: 'child', rootId: 'job', depth: 2, name: 'same', status: 'unknown' },
+  ] } });
+  assert.equal(typeof runtime.jobChildren, 'function');
+  runtime.ownedActivity.track('job'); runtime.ownedActivity.settle('job');
+  const app = new HobkinApplication();
+  app.runtime = runtime; app.snapshot = {};
+  app.jobActivity.set('job', { snapshot: () => [{ kind: 'assistant', text: 'Full parent content' }] });
+  app.publishActivity();
+  assert.equal(app.snapshot.jobActivity.job[0].text, 'Full parent content');
+  app.jobActivity.clear();
+  app.publishActivity(); app.publishActivity();
+  assert.deepEqual(app.snapshot.jobChildren.job.map(({ id, parentId, state }) => [id, parentId, state]),
+    [['child', 'job', 'completed'], ['grandchild', 'child', 'unknown']]);
+  assert.deepEqual(app.snapshot.mainChildren, []);
+  runtime.main = { model: { provider: 'fixture', id: 'local' }, thinkingLevel: 'medium' };
+  runtime.state = async () => ({ runs: { job: { id: 'job', kind: 'background', status: 'completed', result: { text: 'Done.' } } } });
+  app.config = config; app.snapshot.history = { reports: [] }; app.noticeRunIds = new Set();
+  app.delivery = { syncEvidence: async () => {} };
+  app.runner = { snapshot: async () => ({ schedules: [], errors: [] }), steeringReceipts: () => ({}) };
+  app.learner = { takePost: () => null }; app.ledger = { sync: () => ({}) };
+  app.telemetry = { attention: () => [] }; app.now = () => 0;
+  app.workView = () => ({ harnessLines: [], folderLines: [], discovery: {} });
+  app.moods = { observe() {}, reaction: {} };
+  app.templatesLooked = true; app.uploadLooked = true;
+  app.yesterdayWins = () => null; app.waitingNow = () => ({}); app.winsToday = () => null;
+  const projected = await app.project();
+  assert.deepEqual(projected.jobChildren, app.snapshot.jobChildren);
+  assert.deepEqual(projected.jobChildren.job.map(row => row.state), ['completed', 'unknown']);
+  assert.deepEqual(projected.jobActivity, {});
 });
 
 for (const status of ['completed', 'failed', 'interrupted']) {
