@@ -56,16 +56,25 @@ export function startMainSessionChild(payload, { startupTimeoutMs = 180000, onFa
   ready.promise.catch(() => {});
   let received = false, admitted;
   const pending = new Map();
-  const rejectPending = error => { for (const waiter of pending.values()) waiter.reject(error); pending.clear(); };
+  const rejectPending = error => {
+    for (const waiter of pending.values()) waiter.reject(error);
+    pending.clear();
+  };
   const transport = startRpcProcess({ ...options, command: process.execPath, args: [entry], cwd: bootstrap.config.main.cwd, ipc: true,
     onFail: error => { ready.reject(error); rejectPending(error); onFail(error); },
     onControl: record => {
       if (record.type === 'hobkin/main/metadata') {
-        fields(record, ['type', 'version', 'id', 'sessionId', 'sessionFile', 'compactions', 'last', 'error']);
-        if (!admitted || record.version !== 1 || record.sessionId !== admitted.sessionId || record.sessionFile !== bootstrap.file
-          || !pending.has(record.id)) throw Error('Main child metadata identity or correlation changed.');
-        const waiter = pending.get(record.id); pending.delete(record.id);
-        return record.error ? waiter.reject(Error(record.error)) : waiter.resolve(record);
+        fields(record, [
+          'type', 'version', 'id', 'sessionId', 'sessionFile', 'compactions', 'last', 'error',
+        ]);
+        if (
+          !admitted || record.version !== 1 || record.sessionId !== admitted.sessionId
+          || record.sessionFile !== bootstrap.file || !pending.has(record.id)
+        ) throw Error('Main child metadata identity or correlation changed.');
+        const waiter = pending.get(record.id);
+        pending.delete(record.id);
+        if (record.error) return waiter.reject(Error(record.error));
+        return waiter.resolve(record);
       }
       fields(record, ['type', 'version', 'id', 'success', 'sessionId', 'sessionFile', 'cwd', 'error']);
       if (received || record.type !== 'hobkin/main/ready' || record.version !== 1 || record.id !== bootstrap.id || record.success !== true
@@ -80,16 +89,35 @@ export function startMainSessionChild(payload, { startupTimeoutMs = 180000, onFa
   ready.promise.then(() => clearTimeout(timer), () => clearTimeout(timer));
   transport.closed.then(() => { const error = Error('Main child exited or closed before completion.'); ready.reject(error); rejectPending(error); });
   try { transport.sendControl(bootstrap); } catch (error) { ready.reject(error); }
-  return Object.assign(transport, { ready: ready.promise, metadata: async catalog => {
-    await ready.promise;
-    if (pending.size >= 16) throw Error('Main child metadata capacity exceeded.');
-    const id = randomUUID(), waiter = Promise.withResolvers(); pending.set(id, waiter);
-    const timeout = setTimeout(() => { waiter.expired = true; waiter.reject(Error('Main child metadata timed out.')); }, startupTimeoutMs); timeout.unref();
-    try {
-      transport.sendControl({ type: 'hobkin/main/metadata', version: 1, id, sessionId: admitted.sessionId, sessionFile: bootstrap.file, catalog });
-      return await waiter.promise;
-    } finally { clearTimeout(timeout); if (!waiter.expired) pending.delete(id); }
-  } });
+  return Object.assign(transport, {
+    ready: ready.promise,
+    metadata: async catalog => {
+      await ready.promise;
+      if (pending.size >= 16) throw Error('Main child metadata capacity exceeded.');
+      const id = randomUUID();
+      const waiter = Promise.withResolvers();
+      pending.set(id, waiter);
+      const timeout = setTimeout(() => {
+        waiter.expired = true;
+        waiter.reject(Error('Main child metadata timed out.'));
+      }, startupTimeoutMs);
+      timeout.unref();
+      try {
+        transport.sendControl({
+          type: 'hobkin/main/metadata',
+          version: 1,
+          id,
+          sessionId: admitted.sessionId,
+          sessionFile: bootstrap.file,
+          catalog,
+        });
+        return await waiter.promise;
+      } finally {
+        clearTimeout(timeout);
+        if (!waiter.expired) pending.delete(id);
+      }
+    },
+  });
 }
 
 /** Native RPC owns all ordinary commands; this channel accepts one trusted bootstrap, never a module selector. */
@@ -132,16 +160,37 @@ export function runMainSessionChild(channel = process, {
       identity();
       metadata = async request => {
         fields(request, ['type', 'version', 'id', 'sessionId', 'sessionFile', 'catalog']);
-        if (stopped || request.version !== 1 || !identityString(request.id) || request.sessionId !== admittedSessionId
-          || request.sessionFile !== session.sessionFile || typeof request.catalog !== 'boolean') throw Error('Main child metadata request changed.');
-        const reply = { type: request.type, version: 1, id: request.id, sessionId: admittedSessionId, sessionFile: data.file };
+        if (
+          stopped || request.version !== 1 || !identityString(request.id) || request.sessionId !== admittedSessionId
+          || request.sessionFile !== session.sessionFile || typeof request.catalog !== 'boolean'
+        ) throw Error('Main child metadata request changed.');
+        const reply = {
+          type: request.type,
+          version: 1,
+          id: request.id,
+          sessionId: admittedSessionId,
+          sessionFile: data.file,
+        };
         try {
-          identity(); services.assertMainInvariants();
-          if (request.catalog) { try { await session.modelRuntime.refresh({ allowNetwork: false }); } catch { /* Keep the last usable catalog, like the local settings adapter. */ } }
-          identity(); services.assertMainInvariants();
+          identity();
+          services.assertMainInvariants();
+          if (request.catalog) {
+            try {
+              await session.modelRuntime.refresh({ allowNetwork: false });
+            } catch {
+              /* Keep the last usable catalog, like the local settings adapter. */
+            }
+          }
+          identity();
+          services.assertMainInvariants();
           const entries = session.sessionManager.getBranch().filter(entry => entry.type === 'compaction');
-          Object.assign(reply, { compactions: entries.length, last: entries.at(-1)?.timestamp ?? null });
-        } catch (error) { reply.error = String(error.message).slice(0, 2000); }
+          Object.assign(reply, {
+            compactions: entries.length,
+            last: entries.at(-1)?.timestamp ?? null,
+          });
+        } catch (error) {
+          reply.error = String(error.message).slice(0, 2000);
+        }
         if (!stopped) channel.send(reply);
       };
       let reloadFailure;

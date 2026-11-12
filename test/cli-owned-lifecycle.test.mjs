@@ -135,11 +135,13 @@ test('unknown teardown stays occupied; joining never hangs behind it and retains
 });
 
 test('host Force remains available after invalidation and reports only captured helper closure', { timeout: 1000 }, async () => {
-  const f = transportFactory(true), life = createOwnedLifecycle({ startProcess: f.startProcess, stopMs: 5 });
+  const f = transportFactory(true);
+  const life = createOwnedLifecycle({ startProcess: f.startProcess, stopMs: 5 });
   const root = life.register({ id: 'root', allowHelpers: true, binding });
   const other = life.register({ id: 'other', allowHelpers: true, binding });
   const child = root.request({ action: 'spawn', name: 'target' });
-  const outside = other.request({ action: 'spawn', name: 'outside' }); await tick();
+  const outside = other.request({ action: 'spawn', name: 'outside' });
+  await tick();
   f.children[0].emit(end('partial'));
   const old = await root.cancel();
   assert.equal(old.confirmed, false);
@@ -153,13 +155,16 @@ test('host Force remains available after invalidation and reports only captured 
   f.children[0].emit(end('late success'));
   const reconciled = await life.force('root', child.id);
   assert.equal(reconciled.confirmed, true);
-  assert.equal(reconciled.cleanupScope, 'captured-rpc-children'); assert.equal(reconciled.detachedCleanup, 'unknown');
+  assert.equal(reconciled.cleanupScope, 'captured-rpc-children');
+  assert.equal(reconciled.detachedCleanup, 'unknown');
   assert.deepEqual(reconciled.agents.map(agent => [agent.status, agent.report]), [['cancelled', 'partial']]);
   assert.equal(f.children[0].forces, 1);
-  assert.equal(old.confirmed, false); assert.equal(old.agents[0].status, 'unknown');
+  assert.equal(old.confirmed, false);
+  assert.equal(old.agents[0].status, 'unknown');
   assert.throws(() => root.request({ action: 'spawn', name: 'restart' }), /active/);
   assert.equal(other.request({ action: 'status', id: outside.id }).status, 'running');
-  f.children[1].closed.resolve({ code: 0 }); await life.close();
+  f.children[1].closed.resolve({ code: 0 });
+  await life.close();
 });
 
 test('nested completion forwards bounded terminal facts, then only the later parent text', { timeout: 1000 }, async () => {

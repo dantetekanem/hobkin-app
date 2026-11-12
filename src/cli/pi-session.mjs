@@ -366,8 +366,18 @@ export async function openConversation(
       await bind(hooks);
       validateTools();
     };
-    return { session, services: { cwd: config.main.cwd, agentDir: effectiveAgentDir,
-      settingsManager, resourceLoader, modelRuntime: session.modelRuntime ?? modelRuntime, diagnostics: [], assertMainInvariants: validateTools } };
+    return {
+      session,
+      services: {
+        cwd: config.main.cwd,
+        agentDir: effectiveAgentDir,
+        settingsManager,
+        resourceLoader,
+        modelRuntime: session.modelRuntime ?? modelRuntime,
+        diagnostics: [],
+        assertMainInvariants: validateTools,
+      },
+    };
   }
   try {
     await session.bindExtensions({});

@@ -141,9 +141,15 @@ for (const [scriptedMain, active] of [[false], [true], [true, []], [true, ['clie
     h.session.model = { provider: 'hobkin-client', id: 'scripted' };
     const loadSdk = h.dependencies.loadSdk;
     h.dependencies.loadSdk = async () => {
-      const sdk = await loadSdk(); sdk.SettingsManager.create = () => assert.fail('inherited settings read'); return sdk;
+      const sdk = await loadSdk();
+      sdk.SettingsManager.create = () => assert.fail('inherited settings read');
+      return sdk;
     };
-    Object.assign(h.dependencies, { modelRuntime: {}, recoverScriptedHistory: true, pickModel: () => assert.fail('live model picker') });
+    Object.assign(h.dependencies, {
+      modelRuntime: {},
+      recoverScriptedHistory: true,
+      pickModel: () => assert.fail('live model picker'),
+    });
   }
   // The child factory supplies no parent function-valued tools across its bootstrap boundary.
   const { openConversation } = await import('../src/cli/pi-session.mjs');

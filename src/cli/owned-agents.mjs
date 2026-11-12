@@ -98,25 +98,37 @@ export function createOwnedAgents({ adapter, maxRunning = 4, maxQueued = 8, maxD
     const target = scoped(scopeId, id);
     const branch = [...nodes.values()].filter(node => within(target.id, node));
     for (const node of branch) {
-      if (node.status === 'queued' || (node.root && node.status === 'running')) node.status = 'cancelled';
-      else if (occupied(node)) node.status = 'cancelling';
+      if (node.status === 'queued' || (node.root && node.status === 'running')) {
+        node.status = 'cancelled';
+      } else if (occupied(node)) {
+        node.status = 'cancelling';
+      }
     }
     // Invoke every captured member before awaiting any receipt; ordinary stops may never return.
     const receipts = branch.filter(occupied).map(node => {
       if (!forces.has(node.id)) {
         let receipt;
-        try { receipt = handles.get(node.id)?.force?.(); } catch { receipt = false; }
-        forces.set(node.id, Promise.resolve(receipt).catch(() => false).then(confirmed => {
-          if (occupied(node)) node.status = confirmed === true ? 'cancelled' : 'unknown';
-          if (node.status === 'cancelled') handles.delete(node.id);
-        }).finally(() => { forces.delete(node.id); }));
+        try {
+          receipt = handles.get(node.id)?.force?.();
+        } catch { receipt = false; }
+        forces.set(node.id, Promise.resolve(receipt).catch(() => false)
+          .then(confirmed => {
+            if (occupied(node)) node.status = confirmed === true ? 'cancelled' : 'unknown';
+            if (node.status === 'cancelled') handles.delete(node.id);
+          })
+          .finally(() => { forces.delete(node.id); }));
       }
       return forces.get(node.id);
     });
     await Promise.all(receipts);
     drain();
-    return { id, confirmed: branch.every(node => !occupied(node)), agents: branch.map(snapshot),
-      cleanupScope: 'captured-rpc-children', detachedCleanup: 'unknown' };
+    return {
+      id,
+      confirmed: branch.every(node => !occupied(node)),
+      agents: branch.map(snapshot),
+      cleanupScope: 'captured-rpc-children',
+      detachedCleanup: 'unknown',
+    };
   }
   // Roots consume no child capacity, including when several host runs share this tree.
   return { registerRoot, spawn, list, status: (scopeId, id) => snapshot(scoped(scopeId, id)), cancel, force };

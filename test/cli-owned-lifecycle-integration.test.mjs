@@ -164,7 +164,8 @@ test('application close invalidates owned admission before waiting for main idle
 test('parent Force before transport capture binds only the admitted run/harness, before startup awaits', { timeout: 1000 }, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = runtimeFixture(createOwnedLifecycle({ startProcess: () => { throw Error('No helpers'); } }));
-  const ready = Promise.withResolvers(), closed = Promise.withResolvers(), calls = [];
+  const ready = Promise.withResolvers(), closed = Promise.withResolvers();
+  const calls = [];
   const harnessId = '11111111-1111-4111-8111-111111111111';
   const work = f.runtime.dispatch({ id: 'parent', kind: 'background', harnessId }, async signal => {
     await ready.promise;
@@ -177,7 +178,9 @@ test('parent Force before transport capture binds only the admitted run/harness,
   });
   await tick();
   assert.throws(() => f.runtime.bindHarness('parent', 'wrong-harness', {}), /identity|harness/i);
-  const force = f.runtime.forceRun('parent'); ready.resolve(); await tick();
+  const force = f.runtime.forceRun('parent');
+  ready.resolve();
+  await tick();
   assert.deepEqual(calls.slice(0, 2), ['force', 'get_state']);
   assert.equal(f.runtime.active.get('parent').controller.signal.aborted, true);
   assert.equal(f.runtime.stopControls().targets[0].runId, 'parent');
@@ -200,7 +203,8 @@ test('terminal parent retains exact nested control authority and rejects a diffe
   life.register({ id: 'other-parent', allowHelpers: true, binding });
   const child = parent.request({ action: 'spawn', name: 'exact child' }); await tick();
   await parent.cancel();
-  const app = new HobkinApplication(), f = runtimeFixture(life); app.runtime = f.runtime; app.now = Date.now; app.refresh = async () => {};
+  const app = new HobkinApplication(), f = runtimeFixture(life);
+  app.runtime = f.runtime; app.now = Date.now; app.refresh = async () => {};
   f.state.runs['finished-parent'] = { id: 'finished-parent', status: 'interrupted', result: { text: 'preserved' } };
   assert.equal(f.runtime.stopControls().targets[0].agentId, child.id);
   const args = { kind: 'agent', runId: 'finished-parent', agentId: child.id, mode: 'stop', attemptId: '11111111-1111-4111-8111-111111111111' };
@@ -214,7 +218,8 @@ test('terminal parent retains exact nested control authority and rejects a diffe
 
 test('Work Force pins user intent and decline before immediate close; legacy Stop keeps its disposition', { timeout: 1000 }, async () => {
   const f = runtimeFixture(createOwnedLifecycle()), app = new HobkinApplication();
-  const closed = Promise.withResolvers(), done = Promise.withResolvers(), pendingStop = Promise.withResolvers(), workRun = { id: 'work:exact', title: 'Work', item: 'item' };
+  const closed = Promise.withResolvers(), done = Promise.withResolvers(), pendingStop = Promise.withResolvers();
+  const workRun = { id: 'work:exact', title: 'Work', item: 'item' };
   const director = Object.create(WorkDirector.prototype); director.root = fixtureHome; director.active = new Map([[workRun.id, workRun]]);
   app.runtime = f.runtime; app.director = director; app.now = Date.now; app.refresh = async () => {};
   let stops = 0;
@@ -256,7 +261,8 @@ test('a stale Work Stop cannot undo a newer unconfirmed not-approved Force', { t
     const olderStop = app.stopExecution({ ...args, how: 'for-now', mode: 'stop' });
     await tick();
     const force = app.stopExecution({ ...args, how: 'not-approved', mode: 'force' });
-    t.mock.timers.tick(2000); await tick();
+    t.mock.timers.tick(2000);
+    await tick();
     assert.equal((await olderStop).stop.status, 'unknown');
     t.mock.timers.tick(2000);
     assert.equal((await force).closure.status, 'unknown');
@@ -273,7 +279,9 @@ test('a stale Work Stop cannot undo a newer unconfirmed not-approved Force', { t
     const staleDecline = Promise.withResolvers();
     const stale = director.stopRun(workRun.id, { decline: true, stopOperation: () => staleDecline.promise });
     await director.stopRun(workRun.id, { decline: true, stopOperation: async () => true });
-    staleDecline.resolve(false); assert.equal(await stale, null); assert.equal(workRun.declined, true);
+    staleDecline.resolve(false);
+    assert.equal(await stale, null);
+    assert.equal(workRun.declined, true);
     closed.resolve({}); done.resolve({ status: 'interrupted', text: 'partial' }); await completion;
     await f.runtime.close();
   });

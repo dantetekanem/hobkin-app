@@ -126,7 +126,8 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
       if (transport) void fail(error);
       else { finished = true; result.reject(error); }
     }
-    return { result: result.promise,
+    return {
+      result: result.promise,
       force() {
         if (forcing) return forcing;
         cancelled = true;
@@ -141,11 +142,12 @@ export function createOwnedAgentAdapter({ bindingFor, startProcess = startRpcPro
         return forcing;
       },
       async cancel() {
-      cancelled = true;
-      controller.abort();
-      const confirmed = await stop();
-      if (confirmed) { finished = true; result.reject(Error('Owned child cancelled')); }
-      return confirmed;
-    } };
+        cancelled = true;
+        controller.abort();
+        const confirmed = await stop();
+        if (confirmed) { finished = true; result.reject(Error('Owned child cancelled')); }
+        return confirmed;
+      },
+    };
   } };
 }

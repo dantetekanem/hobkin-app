@@ -50,16 +50,25 @@ function childFixture(t) {
     async fork() { calls.push(['teardown']); }
     async importFromJsonl() { calls.push(['teardown']); }
   }
-  const dependencies = { loadSdk: async () => ({ AgentSessionRuntime: Runtime, runRpcMode: async runtime => {
-    calls.push(['native']); await runtime.session.bindExtensions({ mode: 'rpc' });
-    for (const method of ['newSession', 'switchSession', 'fork', 'importFromJsonl']) await assert.rejects(runtime[method]('other'), /replacement/);
-    await runtime.session.reload();
-    await runtime.dispose();
-  } }), openSession: async (_options, deps) => {
-    assert.equal(deps.deferExtensionBinding, true);
-    assert.deepEqual(deps.rpcBridge, {});
-    return { session, services };
-  } };
+  const dependencies = {
+    loadSdk: async () => ({
+      AgentSessionRuntime: Runtime,
+      runRpcMode: async runtime => {
+        calls.push(['native']);
+        await runtime.session.bindExtensions({ mode: 'rpc' });
+        for (const method of ['newSession', 'switchSession', 'fork', 'importFromJsonl']) {
+          await assert.rejects(runtime[method]('other'), /replacement/);
+        }
+        await runtime.session.reload();
+        await runtime.dispose();
+      },
+    }),
+    openSession: async (_options, deps) => {
+      assert.equal(deps.deferExtensionBinding, true);
+      assert.deepEqual(deps.rpcBridge, {});
+      return { session, services };
+    },
+  };
   return { data, channel, replies, calls, session, services, dependencies };
 }
 

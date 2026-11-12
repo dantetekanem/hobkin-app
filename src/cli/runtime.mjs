@@ -576,27 +576,66 @@ export class HobkinRuntime {
 
   async forceRun(runId, stop = { source: 'user', reason: 'Stopped from the agent view.' }) {
     const active = this.active.get(runId);
-    if (!active?.admitted || active.request.kind === 'main') throw Error('Stale execution target.');
-    if (!active.userStop || stop.reason === 'Not approved.') active.userStop = { source: 'user', reason: stop.reason };
+    if (!active?.admitted || active.request.kind === 'main') {
+      throw Error('Stale execution target.');
+    }
+
+    if (!active.userStop || stop.reason === 'Not approved.') {
+      active.userStop = { source: 'user', reason: stop.reason };
+    }
     active.forceRequested = true;
+
     let closure = active.closed.promise;
-    try { if (active.transport && !active.transportClosed) { active.transport.force(); active.controller.abort(); } }
-    catch (error) { closure = Promise.reject(error); }
+    try {
+      if (active.transport && !active.transportClosed) {
+        active.transport.force();
+        active.controller.abort();
+      }
+    } catch (error) {
+      closure = Promise.reject(error);
+    }
+
     const descendants = this.ownedLifecycle?.targets?.().some(target => target.runId === runId)
-      ? this.ownedLifecycle.force(runId) : Promise.resolve({ confirmed: true, agents: [] });
-    const [closed, cleanup] = await Promise.all([controlWait(closure), controlWait(descendants)]);
-    return { closure: { status: closed === true ? 'confirmed' : 'unknown' }, descendants: descendantReceipt(cleanup) };
+      ? this.ownedLifecycle.force(runId)
+      : Promise.resolve({ confirmed: true, agents: [] });
+    const [closed, cleanup] = await Promise.all([
+      controlWait(closure),
+      controlWait(descendants),
+    ]);
+
+    return {
+      closure: { status: closed === true ? 'confirmed' : 'unknown' },
+      descendants: descendantReceipt(cleanup),
+    };
   }
 
   async forceMain(turn) {
-    if (this.mainTurn !== turn || this.main !== turn.session) throw Error('Stale execution target.');
+    if (this.mainTurn !== turn || this.main !== turn.session) {
+      throw Error('Stale execution target.');
+    }
+
     const supported = typeof turn.session.force === 'function';
     let closure;
-    try { closure = supported ? turn.session.force() : undefined; }
-    catch (error) { closure = Promise.reject(error); }
-    const descendants = turn.owned && this.ownedLifecycle?.force ? this.ownedLifecycle.force(turn.id) : { confirmed: !turn.owned, agents: [] };
-    const [closed, cleanup] = await Promise.all([controlWait(closure), controlWait(descendants)]);
-    return { closure: { status: supported ? closed === true ? 'confirmed' : 'unknown' : 'unsupported' }, descendants: descendantReceipt(cleanup) };
+    try {
+      closure = supported ? turn.session.force() : undefined;
+    } catch (error) {
+      closure = Promise.reject(error);
+    }
+
+    const descendants = turn.owned && this.ownedLifecycle?.force
+      ? this.ownedLifecycle.force(turn.id)
+      : { confirmed: !turn.owned, agents: [] };
+    const [closed, cleanup] = await Promise.all([
+      controlWait(closure),
+      controlWait(descendants),
+    ]);
+
+    return {
+      closure: {
+        status: supported ? closed === true ? 'confirmed' : 'unknown' : 'unsupported',
+      },
+      descendants: descendantReceipt(cleanup),
+    };
   }
 
   stopControls() {

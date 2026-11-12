@@ -114,16 +114,25 @@ export class WorkDirector {
     if (!run) return null;
     const wasDeclined = run.declined;
     const mutation = run.item && decline ? { previous: declineMutations.get(run) } : null;
-    if (mutation) { run.declined = true; declineMutations.set(run, mutation); }
+    if (mutation) {
+      run.declined = true;
+      declineMutations.set(run, mutation);
+    }
     const rollback = () => {
       if (!mutation || declineMutations.get(run) !== mutation) return;
+
       run.declined = wasDeclined;
-      if (mutation.previous) declineMutations.set(run, mutation.previous);
-      else declineMutations.delete(run);
+      if (mutation.previous) {
+        declineMutations.set(run, mutation.previous);
+      } else {
+        declineMutations.delete(run);
+      }
     };
+
     try {
       const stopped = await stopOperation(id, { source: 'user', reason: decline ? 'Not approved.' : 'Stopped for now.' });
       if (stopped) return run;
+
       rollback();
       return null;
     } catch (error) {
