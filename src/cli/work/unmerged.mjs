@@ -370,9 +370,16 @@ function landedElsewhere(item, pull, { tips, before }, at) {
   return { landed };
 }
 
+/**
+ * What every merge writes on each item it closes, whatever way it merged. The item is done, and the pass after a merge (`after-merge.mjs`) finds
+ * it by this to tell once what its run left for the user and to close the GitHub issue it came from.
+ */
+export const AFTER_MERGE = { afterMerge: 'due' };
+
 const mergedOutcome = (item, pull, found, at) => ({
   state: 'merged',
   mergedAt: pull?.mergedAt ?? at,
+  ...AFTER_MERGE,
   ...landedElsewhere(item, pull, found, at),
 });
 

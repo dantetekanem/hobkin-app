@@ -12,6 +12,7 @@ import { runHarness as defaultRunHarness } from '../harnesses.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { tierBinding } from '../tiers.mjs';
+import { afterMerges } from './after-merge.mjs';
 import { budgetFor, fitsDay, fitsHour, hourShareOf, withStart } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
@@ -173,6 +174,8 @@ export class WorkDirector {
     this.publish();
     // Work merges whether the mode is on or not, and finding that costs no tokens.
     this.surveyWork();
+    // A merge is the work done, mode on or not: what each one left is told, and its issue closed.
+    this.settleMerges();
     this.dropFinishedPicks();
 
     const mode = readMode(this.root);
@@ -365,6 +368,17 @@ export class WorkDirector {
       this.watching = null;
       this.onChange();
     });
+  }
+
+  // Code only: what each merge left for the user is told in Chat, and the GitHub issue it came from is closed. It runs by itself, because gh must not hold a tick.
+  settleMerges() {
+    if (this.settlingMerges) return;
+    this.settlingMerges = afterMerges(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
+      .then(followed => {
+        if (followed.length) this.onChange();
+      })
+      .catch(() => {})
+      .finally(() => { this.settlingMerges = null; });
   }
 
   // Code only: gh reads the issues of the projects that pick them up, and the new ones are filed. It runs by itself, because gh must not hold a tick.

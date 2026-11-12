@@ -15,7 +15,7 @@ import {
   requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
-import { changeFacts, closeMergedPull, ghWithin, landedRecord, landingTip, pullNow, readUnmerged, SHIP_KIND } from './unmerged.mjs';
+import { AFTER_MERGE, changeFacts, closeMergedPull, ghWithin, landedRecord, landingTip, pullNow, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const run = promisify(execFile);
 
@@ -467,7 +467,7 @@ async function closeWhatLanded({ root, repo, slug, merged, target, landing, now 
     const unit = units.find(({ branch }) => branch === item.branch);
     const { size = null, area = null } = item.id === merged.id ? landing : unit ?? {};
     const landed = landedRecord(item, { ...landing, sha: target, at, safety: unit?.safety, size, area, spot: item.id === merged.id && landing.spot });
-    updateItem(root, slug, item.id, { state: 'merged', mergedAt: at, ...(item.kind === SHIP_KIND ? {} : { landed }) }, now);
+    updateItem(root, slug, item.id, { state: 'merged', mergedAt: at, ...AFTER_MERGE, ...(item.kind === SHIP_KIND ? {} : { landed }) }, now);
   }
   return closing.length;
 }
