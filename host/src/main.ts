@@ -5,6 +5,7 @@ import { resolveHome } from './home.ts'
 import { startHost } from './host.ts'
 import { openGitHubPage } from './github.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
+import { watchParent } from './parent-watch.ts'
 import { openInBrowser } from './signin.ts'
 import { spawnGh } from './review/gh.ts'
 
@@ -58,6 +59,8 @@ async function main(args: readonly string[]): Promise<void> {
   // for it, and a listener that removed itself would let that happen before hobkin had closed.
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
+  // The app that started this host passes its own process id: a host it left behind would hold the home and the port.
+  if (options.parent) watchParent(options.parent, stop)
 }
 
 if (import.meta.main) {

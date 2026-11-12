@@ -10,6 +10,8 @@ export interface HostArguments {
   /** With the scripted model, the GitHub page reads the real GitHub through gh, read only. Without it the page shows made-up data. Set only when given. */
   github?: boolean
   port: number | null
+  /** The process that started this host. The host stops once it is gone. Set only when given. */
+  parent?: number
   help: boolean
 }
 
@@ -21,6 +23,7 @@ export const USAGE = [
   '  --signed-out     with the scripted model, start with no provider connected',
   '  --github         with the scripted model, read the real GitHub through gh, read only. Default: sample GitHub data',
   '  --port <number>  listen on this port. Default: a free port, or 5188 with --dev',
+  '  --parent <pid>   stop once this process has gone, as the app passes its own',
 ].join('\n')
 
 export function parseArguments(args: readonly string[]): HostArguments {
@@ -38,6 +41,10 @@ export function parseArguments(args: readonly string[]): HostArguments {
       const port = Number(value())
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw Error(`--port needs a number from 0 to 65535.\n${USAGE}`)
       options.port = port
+    } else if (flag === '--parent') {
+      const parent = Number(value())
+      if (!Number.isInteger(parent) || parent < 1) throw Error(`--parent needs a process id.\n${USAGE}`)
+      options.parent = parent
     } else if (flag === '--live') options.live = true
     else if (flag === '--dev') options.dev = true
     else if (flag === '--signed-out') options.signedOut = true
