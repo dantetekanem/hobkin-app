@@ -415,7 +415,7 @@ function ReviewRow({ role, tier, name, effort, onChoose }: ReviewRowProps) {
 }
 
 /** One of the four tiers. Left and Right move along them and stop at the ends; the chosen one is the group's stop for Tab. */
-function TierChoice({ label, value, onChoose }: { label: string; value: TierId; onChoose: (tier: TierId) => void }) {
+export function TierChoice({ label, value, onChoose }: { label: string; value: TierId; onChoose: (tier: TierId) => void }) {
   return (
     <div
       role="radiogroup"

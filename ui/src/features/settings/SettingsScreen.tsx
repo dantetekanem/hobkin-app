@@ -15,6 +15,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
+import { ReviewTile } from './ReviewTile.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { NerdStats } from './NerdStats.tsx'
@@ -41,6 +42,7 @@ export function SettingsScreen() {
         <DayAndNight />
         <AgentsAtOnce />
         <Models />
+        <ReviewTile />
         <IntegrationsTile />
         <TypeTile />
         <OpacityTile />
