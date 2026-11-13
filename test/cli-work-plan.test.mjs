@@ -8,7 +8,7 @@ import { workStatus } from '../src/cli/work/commands.mjs';
 import { countsAgainst, ideasWanted, itemGrade, planWork } from '../src/cli/work/plan.mjs';
 import { itemsView, queueView, searchView } from '../src/cli/work/reads.mjs';
 import {
-  chooseProject, fileItem, lenses, nextLookAt, paths, pickNext, readProject, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
+  chooseProject, fileItem, lenses, nextLookAt, paths, pickNext, readMode, readProject, setAgents, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
@@ -30,7 +30,7 @@ function project(root, slug, level = 'important') {
   chooseProject(root, `/repos/${slug}`, level, now);
   mkdirSync(paths(root, slug).directory, { recursive: true });
   writeFileSync(paths(root, slug).project, '# What it is\n');
-  writeState(root, slug, { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString(), lastSignalsAt: new Date(now).toISOString() });
+  writeState(root, slug, { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString(), lastSignalsAt: new Date(now).toISOString(), lastMachinesAt: new Date(now).toISOString() });
 }
 
 const plan = (root, options = {}) => planWork(root, { now, ...options });
@@ -526,6 +526,20 @@ test('a max project still waits 12 hours between looks, because each is the dear
   assert.deepEqual(dueSlugs(root), ['dear']);
 });
 
+test('every project gets a state-machines look once a week, whatever its priority, and it comes before its next lens', t => {
+  const root = dataRoot(t);
+  project(root, 'app', 'casual');
+  // Never looked at for its state machines: due now, on the first night.
+  writeState(root, 'app', { lastMachinesAt: null, lastLensAt: null });
+  assert.deepEqual(plan(root).entries.map(entry => [entry.key, entry.kind, entry.focus, entry.title]), [['machines:app', 'machines', 'state-machines', 'state machines look']]);
+
+  // Done six days ago: the week is not up, so the lens that is due goes.
+  writeState(root, 'app', { lastMachinesAt: new Date(now - 6 * 24 * HOUR).toISOString() });
+  assert.deepEqual(plan(root).entries.map(entry => entry.kind), ['look']);
+  writeState(root, 'app', { lastMachinesAt: new Date(now - 7 * 24 * HOUR).toISOString() });
+  assert.deepEqual(plan(root).entries.map(entry => entry.kind), ['machines']);
+});
+
 test('new ideas come every eighth look, so they follow the priority too', t => {
   const root = dataRoot(t);
   project(root, 'first', 'important');
@@ -960,6 +974,31 @@ test('while a run is going work starts spaced out, and the plan says when the ne
   assert.equal(next, null);
   assert.equal(Date.parse(nextStartAt), now - 60000 + 5 * 60000);
   assert.ok(plan(root, { running, lastStartAt: now - 5 * 60000 }).next);
+});
+
+test('room the user adds is filled right away: the gap between starts does not hold what the new workers take', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  project(root, 'site');
+  fileItem(root, 'api', item('fix'), now);
+  const running = [{ slug: 'site', lane: 'look' }];
+  assert.equal(plan(root, { running, lastStartAt: now - 60000 }).next, null, 'a start a minute ago holds the next one');
+
+  // The user raises the number of agents: they made room because they want more running now.
+  setAgents(root, 4, now);
+  assert.deepEqual(readMode(root).roomAdded, { count: 2, at: new Date(now).toISOString() });
+  const filled = plan(root, { running, lastStartAt: now - 60000 });
+  assert.equal(filled.next.title, 'fix');
+  assert.equal(filled.nextStartAt, null);
+
+  // Once the added room is taken, starts are spaced again. Room nobody took within ten minutes is no longer waiting to be filled.
+  writeMode(root, { roomAdded: { count: 0, at: new Date(now).toISOString() } });
+  assert.equal(plan(root, { running, lastStartAt: now - 60000 }).next, null);
+  writeMode(root, { roomAdded: { count: 2, at: new Date(now - 11 * 60000).toISOString() } });
+  assert.equal(plan(root, { running, lastStartAt: now - 60000 }).next, null);
+  // Taking room away asks for nothing to start.
+  setAgents(root, 2, now);
+  assert.equal(readMode(root).roomAdded, null);
 });
 
 test('with nothing running a free worker does not sit out the gap, because no cost is left to wait for', t => {

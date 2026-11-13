@@ -8,7 +8,7 @@ import { readyItems } from './reads.mjs';
 import { shipFirst } from './ship.mjs';
 import { aheadOfPace, readSubscription, usageWindows } from './usage.mjs';
 import {
-  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf,
+  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf, roomToFill,
   readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
@@ -51,7 +51,9 @@ const lensWorth = { security: 3, bugs: 3, updates: 2, improvements: 2, features:
 // How many grades below its project a row sits.
 const impactSteps = { high: 0, medium: 1, low: 2 };
 const IDEAS_STEPS = 2;
-const entryOrder = ['discover', 'study', 'watch', 'item', 'signals', 'look', 'ideas'];
+const entryOrder = ['discover', 'study', 'watch', 'item', 'signals', 'machines', 'look', 'ideas'];
+// The state-machines look comes once a week for every project, whatever its priority: it is a deep read, not a pace.
+const MACHINES_EVERY_MS = 7 * 24 * HOUR_MS;
 
 const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
 const plainList = parts => parts.filter(Boolean).join(', ');
@@ -208,6 +210,28 @@ export function lensEntry(project, state, now, triggered) {
   };
 }
 
+/**
+ * The weekly look for implicit state machines: every place the project keeps a state in flags, strings or columns
+ * that can disagree. Due at once on a project never looked at this way, and then once a week. It runs on the max tier
+ * (the director binds it), so it is worth as much as a security look and comes before the next lens.
+ */
+export function machinesEntry(project, state, now, triggered) {
+  const { slug, level } = project;
+  if (elapsedSince(state.lastMachinesAt, now) < MACHINES_EVERY_MS && !triggered) return null;
+  return {
+    ...ofProject(project),
+    key: `machines:${slug}`,
+    kind: 'machines',
+    lane: 'look',
+    focus: 'state-machines',
+    grade: priorityOf(project),
+    title: 'state machines look',
+    effort: 'medium',
+    score: levelWorth[level] * lensWorth.bugs / effortCost.medium,
+    why: plainList([levelWord(level), state.lastMachinesAt ? 'a week old' : 'never done']),
+  };
+}
+
 export function ideasEntry(project, state, { root, now, budget }) {
   const { slug, level } = project;
   const every = lookEveryHours(project) * LOOKS_PER_IDEAS * HOUR_MS;
@@ -270,11 +294,12 @@ export function signalsEntry(project, state, { root, now }, triggered) {
   };
 }
 
-/** A project has one look due at most: its study until that is done, then a lens, then ideas. A trigger makes a look due, and nothing else about it changes. */
+/** A project has one look due at most: its study until that is done, then its weekly state-machines look, then a lens, then ideas. A trigger makes a look due, and nothing else about it changes. */
 function lookEntry(context, project, state, studied, items) {
   const triggered = kind => context.mode.queueNext.includes(`${kind}:${project.slug}`);
   if (triggered('study')) return studyEntry(project, items);
-  if (studied) return lensEntry(project, state, context.now, triggered('look')) ?? ideasEntry(project, state, context);
+  const machines = context.mode.machinesLook === false ? null : machinesEntry(project, state, context.now, triggered('machines'));
+  if (studied) return machines ?? lensEntry(project, state, context.now, triggered('look')) ?? ideasEntry(project, state, context);
   if (elapsedSince(state.lastLookAt, context.now) < STUDY_RETRY_MS) return null;
   // Once a study has been tried the items run without it, so trying again unlocks nothing.
   return studyEntry(project, state.lastLookAt ? [] : items);
@@ -463,8 +488,9 @@ function inQueueOrder(mode, entries, lastRun, isLeftAlone) {
 /** What a row waits on, with what stops the whole plan left to the pause. A row started now waits for no worker. */
 export const rowWait = ({ waiting, pickedNow }, free) => waiting ?? (free > 0 || pickedNow ? null : 'a free worker');
 
-// Urgent work may pass the hour's share. A look is routine, however high it ranks.
-export const skipsTheHour = entry => entry.grade === 'P0' && entry.kind !== 'look';
+// Urgent work may pass the hour's share. A look is routine, however high it ranks. The weekly state-machines look is
+// larger than an hour's share by design, and the user asked for it by name, so the hour never holds it: the day does.
+export const skipsTheHour = entry => entry.kind === 'machines' || (entry.grade === 'P0' && entry.kind !== 'look');
 
 function budgetWait(entry, budget) {
   if (!fitsDay(budget, entry.estimate.fresh)) return 'over today\'s budget';
@@ -545,7 +571,8 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const startsAt = lastStartAt === null ? null : lastStartAt + startGap(mode, running);
   const stop = hardStop(context);
   const pause = stop ?? budgetPause(entries.filter(entry => !entry.skipped), budget, now);
-  const spaced = startsAt !== null && startsAt > now;
+  // Room the user just added is filled right away: the wait between starts does not hold what the new workers take.
+  const spaced = startsAt !== null && startsAt > now && roomToFill(mode, now) === 0;
   const waitingOn = checks && free <= 0 ? 'Scheduled checks are running, so nothing new starts until they finish.' : null;
   const canGo = entry => !entry.waiting && mayStart(mode, entry);
   // With no worker free, a row the user said to start now still goes, as one extra worker.

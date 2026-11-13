@@ -22,7 +22,8 @@ const item = (key, details = {}) => ({ key, kind: 'fix', title: key, brief, impa
 function dataRoot(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-forecast-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  writeMode(root, { enabled: true });
+  // The weekly state-machines look is off here, so each test counts only the work it sets up.
+  writeMode(root, { enabled: true, machinesLook: false });
   writeJson(join(root, 'work', 'subscription.json'), { secondary: { usedPercent: 10, windowMinutes: 10080, resetAt: now + 3 * 24 * HOUR } });
   return root;
 }

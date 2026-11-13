@@ -25,8 +25,8 @@ import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
-  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
-  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, runnableStates, takeHanded,
+  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, issueMode, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
+  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, roomToFill, runnableStates, takeHanded,
   sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
@@ -261,8 +261,11 @@ export class WorkDirector {
     const lastStartAt = new Date(this.lastStartAt).toISOString();
     const priority = countsAgainst(entry);
     const without = keys => keys.filter(key => key !== entry.key);
+    // A start that fills room the user added takes one of those workers.
+    const room = roomToFill(mode, this.lastStartAt);
     writeMode(this.root, {
       lastStartAt,
+      ...(room > 0 ? { roomAdded: { ...mode.roomAdded, count: room - 1 } } : {}),
       ...(entry.picked ? { queueNext: without(mode.queueNext), queueNow: without(mode.queueNow) } : {}),
       ...(priority ? { countedStarts: withStart(mode.countedStarts, priority, this.lastStartAt) } : {}),
     });
@@ -475,6 +478,18 @@ export class WorkDirector {
     return { model, effort: follows ? levels[level][`${lane}Effort`] : effort };
   }
 
+  /** What a named tier runs with now, for a run that takes its tier from what it does and not from its project's level. A tier with no model of its own thinks as hard as `effort`. */
+  bindingOfTier(tier, effort) {
+    let config = this.config;
+    try {
+      config = loadConfig(this.root);
+    } catch {
+      // No configuration on disk to read just now: the tiers are as this director was given them.
+    }
+    const bound = tierBinding(config, tier);
+    return { model: bound.model, effort: bound.follows ? effort : bound.effort };
+  }
+
   command(subcommand) {
     return hobkinCommand(this.root, `work ${subcommand}`);
   }
@@ -497,7 +512,7 @@ export class WorkDirector {
     const items = readItems(this.root, slug).slice(-MAX_ITEMS_SENT)
       .map(({ id, key, kind, title, state, pr }) => ({ id, key, kind, title, state, pr }));
     return {
-      project: { slug, name, level, summary, checkout: project.path ?? paths(this.root, slug).clone },
+      project: { slug, name, level, summary, checkout: project.path ?? paths(this.root, slug).clone, issues: issueMode(project) },
       projectFile: notes,
       projectNotes: readBounded(notes),
       directions: readBounded(directions),
@@ -697,6 +712,7 @@ export class WorkDirector {
     const stampedBy = {
       study: { lastLookAt: now },
       ideas: { lastIdeasAt: now },
+      'state-machines': { lastLookAt: now, lastMachinesAt: now },
       signals: { lastSignalsAt: now },
       watch: { lastWatchAt: now },
     };
@@ -715,7 +731,8 @@ export class WorkDirector {
       cwd: tree,
       level,
       ...cost,
-      ...this.bindingFor(level, 'look'),
+      // The weekly state-machines look is a deep read of the whole project: it runs on the max tier, whatever the project's level.
+      ...(focus === 'state-machines' ? this.bindingOfTier('max', 'xhigh') : this.bindingFor(level, 'look')),
       instructions: `Look at ${project.name} with the focus ${focus}.`,
       prepare: entry => this.place(entry, { project, tree, writes: looksThatWrite.includes(focus) }),
       work: place => ({ lane: 'look', focus, tokens, place, ...ideas, ...this.describeLook(project, focus) }),

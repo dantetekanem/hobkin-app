@@ -19,8 +19,8 @@ import { AFTER_MERGE, changeFacts, closeMergedPull, ghWithin, landedRecord, land
 
 const run = promisify(execFile);
 
-const QUEUE_KEY = /^(item|look|study|ideas|signals|watch):([^:]+)(?::(.+))?$/;
-const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch'];
+const QUEUE_KEY = /^(item|look|study|ideas|signals|watch|machines):([^:]+)(?::(.+))?$/;
+const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch', 'machines'];
 // A finished branch can go round again. Its item goes back to `open`, and the next run picks up from that branch.
 const statesThatRun = [...runnableStates, 'branch'];
 // A look's pace in the words people use: every hour, every 12 hours, every day, every 3 days, every week.

@@ -162,6 +162,8 @@ export function readMode(root) {
   const defaults = {
     version: 1, enabled: false, agents: DEFAULT_AGENTS, folder: null, dailyTokens: DEFAULT_DAILY_TOKENS,
     startGapMs: START_GAP_MS, lastDiscoveryAt: null, autoPick: true, queueSkipped: [], queueNext: [], queueNow: [], countedStarts: [],
+    // The weekly look for implicit state machines, on every project. On unless the user turns it off.
+    machinesLook: true,
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
   const { pool, ...saved } = readJson(modePath(root), {});
@@ -201,9 +203,25 @@ export function startWork(root, requested, { autoPick = false } = {}) {
 /** The user's own word on auto-pick, kept beside the switch, so turning work mode on again keeps it. Until they say, there is none. */
 export const chooseAutoPick = (root, on) => writeMode(root, { autoPick: on, autoPickChoice: on });
 
-export function setAgents(root, agents) {
+// How long room the user added waits to be filled before the usual spacing of starts is back.
+const ROOM_FILLS_FOR_MS = 10 * 60000;
+
+/** How many of the workers the user just added are still to be filled. They made the room because they want more running now. */
+export function roomToFill({ roomAdded }, now = Date.now()) {
+  if (!roomAdded || !(roomAdded.count > 0)) return 0;
+  return now - Date.parse(roomAdded.at) <= ROOM_FILLS_FOR_MS ? roomAdded.count : 0;
+}
+
+/**
+ * The user's word on how many agents work at once. Raising it asks for more to run right away, so the workers added
+ * are filled without the wait between starts. Lowering it asks for nothing to start.
+ */
+export function setAgents(root, agents, now = Date.now()) {
   if (!Number.isInteger(agents) || agents < 1 || agents > MAX_AGENTS) throw Error(`The number of agents must be between 1 and ${MAX_AGENTS}.`);
-  return writeMode(root, { agents });
+  const mode = readMode(root);
+  const more = agents - mode.agents;
+  const roomAdded = more > 0 ? { count: roomToFill(mode, now) + more, at: new Date(now).toISOString() } : more < 0 ? null : mode.roomAdded ?? null;
+  return writeMode(root, { agents, roomAdded });
 }
 
 /** Queue keys are the plan's own, such as `item:api:abc123` or `look:api`. Picking one puts it first, and takes it back out of skipped. */

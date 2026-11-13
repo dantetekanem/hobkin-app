@@ -23,6 +23,8 @@ export const firstGuess = {
   study: { fresh: 300000, cached: 2000000 },
   look: { fresh: 300000, cached: 2000000 },
   ideas: { fresh: 200000, cached: 1000000 },
+  // A deep read of the whole project on the strongest model, once a week.
+  machines: { fresh: 1500000, cached: 6000000 },
   signals: { fresh: 200000, cached: 1000000 },
   watch: { fresh: 200000, cached: 1000000 },
   do: { fresh: 1000000, cached: 2500000 },

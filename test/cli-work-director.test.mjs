@@ -120,7 +120,8 @@ function fixture(t, agent = async () => {}, earlier = null) {
   h.runtime = runtime;
   h.runner = runner;
   // Most of these are about what starts, not when, so the gap between starts is off here, and a reading of the subscription allows two agents.
-  writeMode(root, { startGapMs: 0 });
+  // The weekly state-machines look is off here too: it would come first on every new project, and its own test turns it on.
+  writeMode(root, { startGapMs: 0, machinesLook: false });
   writeJson(join(root, 'work', 'subscription.json'), { secondary: { usedPercent: 1, windowMinutes: 10080, resetAt: h.clock + 6 * 24 * HOUR } });
   h.director = new WorkDirector({
     root,
@@ -1185,6 +1186,21 @@ test('a level names the tier of each kind of run, and a tier the user set brings
   assert.deepEqual([run('billing', 'work-look').model, run('billing', 'work-look').effort], ['fixture/strong', 'high']);
   assert.deepEqual([run('site', 'work-look').model, run('site', 'work-look').effort], ['fixture/quick', 'minimal']);
   assert.deepEqual([run('site', 'work-do').model, run('site', 'work-do').effort], ['fixture/main', 'medium']);
+});
+
+test("the weekly state-machines look runs on the max tier, whatever its project's level, and comes once a week", async t => {
+  const h = fixture(t);
+  h.agent = doesItsJob(h);
+  h.director.config = { ...config, tiers: { max: { model: 'fixture/deepest', effort: 'xhigh' } } };
+  writeMode(h.root, { enabled: true, machinesLook: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, repository(h.base, 'site'), 'casual');
+  await h.ticks(8);
+
+  const machines = h.calls.filter(call => call.purpose === 'work-look' && h.work(call).focus === 'state-machines');
+  assert.equal(machines.length, 1, 'once, not on every tick');
+  assert.deepEqual([machines[0].model, machines[0].effort], ['fixture/deepest', 'xhigh']);
+  // The look is told whether its project picks up issues by itself, so it knows whether an issue alone is enough.
+  assert.equal(h.work(machines[0]).project.issues, 'off');
 });
 
 test('a run lands the way its project says, whatever its level, and stays a local branch until the project says otherwise', async t => {
