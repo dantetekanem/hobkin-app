@@ -33,7 +33,8 @@ const listed = (number, details = {}) => ({
   number, title: `Issue ${number}`, body: `What goes wrong in ${number}.`, url: `https://github.com/acme/api/issues/${number}`, labels: [], ...details,
 });
 
-const ISSUE_LIST = ['issue', 'list', '--repo', 'acme/api', '--state', 'open', '--json', 'number,title,body,url,labels'];
+// gh lists 30 issues unless it is told how many: a project with more open would never have the rest picked up.
+const ISSUE_LIST = ['issue', 'list', '--repo', 'acme/api', '--state', 'open', '--limit', '1000', '--json', 'number,title,body,url,labels'];
 
 function home(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-issues-')));

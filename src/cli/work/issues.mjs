@@ -17,6 +17,8 @@ const defaultGh = ghWithin(GH_TIMEOUT_MS);
 // What marks an issue for hobkin on a project that picks up only those.
 const ISSUE_LABEL = 'hobkin';
 const ISSUE_FIELDS = 'number,title,body,url,labels';
+// gh lists 30 issues unless it is told how many, so a project with more open would never have the rest picked up.
+const MOST_ISSUES = '1000';
 // Enough of an issue's own words to say what is wrong. A longer body is cut at a word.
 const MOST_BODY = 4000;
 // `owner/name` on github.com, however a remote writes it: https, ssh or the short `git@github.com:` form.
@@ -117,7 +119,7 @@ export function addIssue(root, reference, value, now = Date.now()) {
 async function openIssues(gh, { path }, repo, mode) {
   const labeled = mode === 'labeled' ? ['--label', ISSUE_LABEL] : [];
   try {
-    const list = JSON.parse(await gh(['issue', 'list', '--repo', repo, '--state', 'open', '--json', ISSUE_FIELDS, ...labeled], path));
+    const list = JSON.parse(await gh(['issue', 'list', '--repo', repo, '--state', 'open', '--limit', MOST_ISSUES, '--json', ISSUE_FIELDS, ...labeled], path));
     return Array.isArray(list) ? list : [];
   } catch {
     return [];
