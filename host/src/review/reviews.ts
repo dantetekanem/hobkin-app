@@ -365,6 +365,8 @@ export class Reviews {
       const target = targetOfReviewId(id)
       if (!target) return []
       const status = this.status(id)
+      // What merged on the user's yes is done: it is kept in the home and is no longer listed.
+      if (status.landing?.state === 'merged' || this.options.store.landedAt(target)) return []
       const kept = stored.get(id)
       const head = status.head ?? kept?.change?.head ?? null
       const about = this.about.get(id) ?? this.options.describe?.(target) ?? kept?.change ?? aboutFromTarget(target)
@@ -429,6 +431,7 @@ export class Reviews {
     }
     if (this.running.has(id) && !refresh) return now
     const ahead = this.queue.length + this.running.size
+    this.options.store.saveLanded(target, null)
     this.queue.push({ target, head: null, refresh })
     const at = this.now()
     const startedAt = new Date(at).toISOString()
@@ -854,13 +857,18 @@ export class Reviews {
     const at = new Date(this.now()).toISOString()
     try {
       const done = await this.give(id, verdict, summary, confirm, head)
-      this.options.store.saveMergeAsked(target, this.landingOf(target)?.state === 'refreshing' ? { at, state: 'waiting' } : null)
+      const waits = this.landingOf(target)?.state === 'refreshing'
+      this.options.store.saveMergeAsked(target, waits ? { at, state: 'waiting' } : null)
+      // Merged: it leaves the list of reviews, so nothing stays on screen that reads as if it had not gone through.
+      if (!waits) this.options.store.saveLanded(target, at)
       this.options.onChange?.()
       return done
     } catch (error) {
       // What was never sent, because it was not what the user was shown, is no merge they asked for.
       if (!(error instanceof Unavailable && /has changed since it was shown/.test(error.message))) {
         this.options.store.saveMergeAsked(target, { at, state: 'failed', why: messageOf(error) })
+        // It is not merged, whatever was recorded before, so it is listed, at the top, with why.
+        this.options.store.saveLanded(target, null)
         this.options.onChange?.()
       }
       throw error

@@ -61,6 +61,9 @@ export interface ReviewStore {
   /** The merge the user asked for that has not happened, kept in the home so it outlives a restart. Null when there is none. */
   mergeAsked(target: ReviewTarget): MergeAsked | null
   saveMergeAsked(target: ReviewTarget, asked: MergeAsked | null): void
+  /** When the user's yes merged it, as an ISO time, or null. A merged review is kept and leaves the list of reviews. */
+  landedAt(target: ReviewTarget): string | null
+  saveLanded(target: ReviewTarget, at: string | null): void
 }
 
 const short = (head: string) => head.slice(0, 12)
@@ -163,6 +166,15 @@ export function reviewStore(root: string): ReviewStore {
       if (!asked) return rmSync(join(folder, 'merge-asked.json'), { force: true })
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       writeWhole(join(folder, 'merge-asked.json'), JSON.stringify(asked))
+    },
+    landedAt(target) {
+      return readJson<{ at?: string }>(join(folderOf(target), 'landed.json'))?.at ?? null
+    },
+    saveLanded(target, at) {
+      const folder = folderOf(target)
+      if (!at) return rmSync(join(folder, 'landed.json'), { force: true })
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      writeWhole(join(folder, 'landed.json'), JSON.stringify({ at }))
     },
     remove(target) {
       const folder = folderOf(target)

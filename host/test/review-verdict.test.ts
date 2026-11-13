@@ -73,6 +73,10 @@ test("approve and merge calls the card's action and passes its refusal through",
 
   const asked = () => reviews.list().reviews.find((item) => item.id === id)?.mergeAsked
   assert.equal(asked(), undefined, 'a merge that went through leaves nothing to track')
+  // Merged: it leaves the list of reviews, so nothing is left on screen that reads as if it were still waiting.
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), false)
+  // The review itself still opens for whoever has it on screen, until they leave it.
+  assert.equal(reviews.get(id).review.id, sample.id)
 
   // hobkin's own refusal, such as a branch that moved, comes back as it is.
   refuse('The branch moved since the card was shown.')
@@ -256,6 +260,7 @@ test('once a pull request has merged, the host is told, so what GitHub lists is 
   const preview = await reviews.preview(id, 'approve-merge', '')
   await reviews.verdict(id, 'approve-merge', '', preview.confirm)
   assert.equal(merges.length, 1)
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), false, 'and its review leaves the list of reviews with it')
 })
 
 test("approve and merge on someone else's pull request approves it, then merges the reviewed commit the way its repository allows", async (t) => {
