@@ -108,6 +108,7 @@ export function reviewBrief(reviews: Reviews, { id, step, node }: { id: string; 
     ...(onNode ? [onNode] : []),
     '',
     'You can work in this review with the client tool: review.map {id} for every node, wire, path, step and note; review.code {id, node} for the lines of one node; review.show {id, step} or {id, node} to move the user\'s view; review.note {id, intent, text, and node, wire or step} to leave a note signed as you.',
+    'A level in this review is the risk that the change breaks something, and nothing else: high means a break is shown or named, mid means nothing shows it breaks and nothing shows it working through a request, safe means it is shown to work or cannot break anything. That code changes what it does, or that a test was not run, is no reason for a level: when asked why a part has its level, name what breaks, or say plainly that nothing found does.',
     'Walk it one node at a time, following each test\'s path inward, and say what goes in and comes out at each hop. Leave a comment for every fix you would make. When the review is done, the user sends the comments to an agent from the review panel. You cannot send them yourself.',
   ]
   return {

@@ -3,7 +3,7 @@
  * unit of the change review, in the order its story walks the request, then the closing the review already had. Each
  * step tells its unit: its title (a claim), what changed, and its level. Its focus is the graph's nodes that hold the
  * unit's definitions: in the same file, on overlapping lines, at head, or at base for a definition the change removed.
- * Tests are never steps, and never in a step's focus.
+ * A step may hold several nodes, and the walk goes to each node once. Tests are never steps, and never in a step's focus.
  */
 import type { StoryWords, Unit } from '#shared/review/assessment.ts'
 import { testCovers } from '#shared/review/draft.ts'
@@ -184,9 +184,13 @@ export function unitStory(review: Review, parts: UnitStoryParts): StoryStep[] {
   const served = (focus: readonly string[]) => [...criteria].filter((id) => review.edges.some((edge) => edge.from === id && focus.includes(edge.to)))
   const focusOf = focusFinder(review, parts)
   const ordered = parts.units.map((unit, index) => ({ unit, index })).sort((a, b) => (a.unit.part ?? 1) - (b.unit.part ?? 1) || a.unit.story_order - b.unit.story_order || a.index - b.index)
+  // The walk goes to each node once. A step may hold several nodes, and a node belongs to the first step that holds
+  // it: a later step that would go back there keeps only what is its alone.
+  const visited = new Set<string>()
   const walks: StoryStep[] = ordered.map(({ unit }) => {
     const said = parts.words?.units?.[unit.id]
-    const focus = focusOf(unit)
+    const focus = focusOf(unit).filter((id) => !visited.has(id))
+    for (const id of focus) visited.add(id)
     return {
       id: `unit-${unit.id}`,
       kind: 'walk',

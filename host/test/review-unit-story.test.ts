@@ -151,3 +151,16 @@ test('code of a unit says what the unit says of it: its member line, else what c
   assert.equal(titled('old_total'), 'The totals change.')
   assert.equal(titled('en.yml'), graph.nodes.find((node) => node.title === 'en.yml')!.summary, 'a node of no unit keeps its own words')
 })
+
+test('the walk goes to each node once: a node an earlier step holds is not in a later step’s focus', async () => {
+  const graph = await review()
+  // Two units of the change review whose places both fall on the lines of `total`, as when the map held one twice.
+  const twice: UnitPlace[] = [...places, { id: 'n9', kind: 'general', path: 'app/models/cart.rb', lines: [2, 2], change: 'modified' }]
+  const units = [unit('u1', 1, { nodes: ['n1'] }), unit('u2', 2, { nodes: ['n9', 'n2'] })]
+  const story = unitStory(graph, { units, places: twice, words: null, story: STORY, buckets: [] })
+  const walks = story.filter((step) => step.kind === 'walk')
+  const seen = walks.flatMap((step) => step.focus)
+  assert.equal(new Set(seen).size, seen.length, 'no node is the focus of two steps')
+  assert.equal(walks[0]!.focus.length, 1)
+  assert.equal(walks[1]!.focus.length, 1, 'the later step keeps the node that is its alone')
+})
