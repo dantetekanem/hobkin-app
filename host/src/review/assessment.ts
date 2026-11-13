@@ -642,6 +642,18 @@ export class Assessments {
     while (this.working) await this.working
   }
 
+  /** A change review of this target is waiting or under way, at any commit. */
+  busy(target: ReviewTarget): boolean {
+    const mine = `${reviewIdOf(target)}@`
+    return [...this.live].some(([key, status]) => key.startsWith(mine) && (status.state === 'queued' || status.state === 'running'))
+  }
+
+  /** Forgets what this host remembers of a target's change reviews, once its files are gone. */
+  forget(target: ReviewTarget): void {
+    const mine = `${reviewIdOf(target)}@`
+    for (const map of [this.live, this.records]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
+  }
+
   close(): void {
     this.controller.abort()
     this.queue.length = 0

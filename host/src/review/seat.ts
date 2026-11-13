@@ -199,13 +199,14 @@ export function toPrepare(work: WorkState | null, _github?: GitHubState): Watche
   return finishedIn(work).map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
 }
 
-type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
+type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.remove' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
 
 export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewCommand> {
   return {
     // Asked for by the window or by hobkin, as against what the background prepares by itself.
     'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true }),
     'review.list': () => reviews.list(),
+    'review.remove': ({ id }) => reviews.remove(id),
     'review.status': ({ id }) => {
       // An open review asks now and then, so it can say when its change has moved on.
       void reviews.lookAgain(id)

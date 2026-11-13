@@ -102,3 +102,19 @@ test("a message sent during a review tells hobkin where the user is and how to w
   assert.match(brief.body, /review\.note/)
 })
 
+
+test('hobkin removes a review: its stored map and notes go, it leaves the list, and it can be prepared again', (t) => {
+  const { reviews, store, changes } = seated(t)
+  const target = targetOfReviewId(ID)!
+  reviews.note(ID, { intent: 'comment', text: 'Say why it waits.', step: 2 })
+  assert.equal(reviews.list().reviews.some((item) => item.id === ID), true)
+
+  assert.deepEqual(reviews.remove(ID), { id: ID, removed: true })
+  assert.equal(store.newest(target), null, 'nothing of it is left in the home')
+  assert.deepEqual(store.notes(target).entries, [])
+  assert.equal(reviews.list().reviews.some((item) => item.id === ID), false)
+  assert.equal(reviews.status(ID).state, 'idle')
+  assert.ok(changes.length >= 2, 'the window is told, so its list follows')
+  assert.throws(() => reviews.get(ID), /./, 'there is nothing to open until it is prepared again')
+  assert.throws(() => reviews.remove('nothing:like:this'), /no review named/)
+})

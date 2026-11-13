@@ -611,6 +611,22 @@ export class Reviews {
     this.options.store.saveNotes(target, { entries: merged.map((note) => ({ op: 'put', note })), draft: notes.draft })
   }
 
+  /**
+   * Removes a review from the app: every map built for it, its change reviews and its notes leave the home, and it
+   * leaves the list. Refused while it is being prepared or reviewed. Preparing it again builds it from nothing.
+   */
+  remove(id: string): { id: string; removed: true } {
+    const target = this.target(id)
+    if (this.preparing(id) || this.options.assessments?.busy(target)) throw new Unavailable('This review is being prepared. Wait for it to finish, then remove it.')
+    this.options.store.remove(target)
+    this.options.assessments?.forget(target)
+    // What it is watched at stays, so the background does not build it again until its change moves.
+    for (const kept of [this.statuses, this.opened, this.lookedAt, this.changedAt, this.about, this.runs]) kept.delete(id)
+    this.asked.delete(id)
+    this.options.onChange?.()
+    return { id, removed: true }
+  }
+
   /** Moves the reviewer's view to a step, by its number from 1 in the story they read, or to a node. The window follows. */
   show(id: string, place: { step?: number; node?: string }): ReviewCursor {
     const review = this.shown(this.target(id), this.loaded(id).review)

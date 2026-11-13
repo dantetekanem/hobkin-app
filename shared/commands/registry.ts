@@ -437,7 +437,7 @@ export const COMMANDS = {
   },
   'review.prepare': {
     description:
-      "Prepare the Change Review of a finished hobkin change or a GitHub pull request, by its review id. It runs in the background and answers at once with how it stands. A review already prepared for the change's commit is used as it is, and `refresh` prepares it again anyway. A pull request is only read, through gh.",
+      "Start the AI review of a finished hobkin change or a GitHub pull request, by its review id, or review it again. It runs in the background and answers at once with how it stands: follow it with review.status or review.list. A review already prepared for the change's commit is used as it is. To review again, pass `refresh: true`: the review is built once more at the change's commit, with its tests and its model pass. A pull request is only read, through gh.",
     runs: 'host',
     args: Type.Object({ id: reviewId, refresh: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
     hobkin: true,
@@ -452,6 +452,13 @@ export const COMMANDS = {
     description: 'Every review the app knows, newest first: finished changes and pull requests, each with how its preparation stands, its change review when it has one (state, percent, what it is doing, its level once ready), and when it last changed.',
     runs: 'host',
     args: nothing,
+    hobkin: true,
+  },
+  'review.remove': {
+    description:
+      "Remove a review from the app, only ever on the user's word: every map built for it, its change review and the notes on it are deleted, and it leaves the list of AI reviews. This cannot be undone. It is refused while the review is being prepared. review.prepare builds it again from nothing.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
     hobkin: true,
   },
   'review.map': {
@@ -731,6 +738,7 @@ export interface CommandResults {
   'review.prepare': ReviewStatus
   'review.status': ReviewStatus
   'review.list': ReviewList
+  'review.remove': { id: string; removed: true }
   'review.get': OpenedReview
   'review.file': ReviewFileContents
   'review.notes': { ok: true }

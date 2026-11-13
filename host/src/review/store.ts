@@ -3,7 +3,7 @@
  * `client/reviews/<folder>/` holds one review file and one files file per commit it was built from, and the
  * reviewer's notes, sent or not. A new commit makes a new review, and the old one stays where it is.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { reviewFolder, targetOfReviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
 import type { NoteEntry } from '#shared/review/notes.ts'
@@ -55,6 +55,8 @@ export interface ReviewStore {
   write(target: ReviewTarget, review: Review, files: ReviewFileContents[], meta?: ReviewMeta): void
   notes(target: ReviewTarget): NotesFile
   saveNotes(target: ReviewTarget, notes: NotesFile): void
+  /** Takes everything of a target out of the home: every review built for it, its change reviews and its notes. */
+  remove(target: ReviewTarget): void
 }
 
 const short = (head: string) => head.slice(0, 12)
@@ -147,6 +149,11 @@ export function reviewStore(root: string): ReviewStore {
       const folder = folderOf(target)
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       writeWhole(join(folder, 'notes.json'), JSON.stringify(notes))
+    },
+    remove(target) {
+      const folder = folderOf(target)
+      for (const file of about.keys()) if (file.startsWith(`${folder}/`)) about.delete(file)
+      rmSync(folder, { recursive: true, force: true })
     },
   }
 }
