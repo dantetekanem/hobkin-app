@@ -54,3 +54,21 @@ export function hostCode(startedAt: number, folders: readonly string[] = roots()
   for (const folder of folders) newerIn(folder, startedAt, found)
   return { startedAt: new Date(startedAt).toISOString(), changed: found.length, newestAt: found.length ? new Date(Math.max(...found)).toISOString() : null }
 }
+
+/** How long the code on disk must have been left alone before a host restarts for it: a change is often one of several. */
+const SETTLED_MS = 60_000
+
+/**
+ * Whether a host should restart itself now to load the code on disk. Only a host the app keeps, since that one is
+ * started again when it ends. Never while anything runs: no agent, review or chat turn is ever stopped for this.
+ * And only once the files have been left alone for a minute.
+ */
+export function shouldRestart({ changed, newestAt, kept, busy, now }: { changed: number; newestAt: string | null; kept: boolean; busy: boolean; now: number }): boolean {
+  if (!kept || busy || changed === 0 || !newestAt) return false
+  return now - Date.parse(newestAt) >= SETTLED_MS
+}
+
+/** Whether the app started this host and will start another when it ends: the app's own process is its parent. */
+export function keptByApp(parentCommand: string): boolean {
+  return /(^|\/)hobkin(\.app\/|$|\s)/.test(parentCommand.trim()) || /target\/(debug|release)\/hobkin\b/.test(parentCommand)
+}

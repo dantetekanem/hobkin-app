@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { hostCode } from '../src/code-age.ts'
+import { hostCode, shouldRestart } from '../src/code-age.ts'
 import { temporaryDirectory } from './support.ts'
 
 test('a host says when the code on disk is newer than the code it started with, and how many files changed', (t) => {
@@ -24,4 +24,13 @@ test('a host says when the code on disk is newer than the code it started with, 
   assert.deepEqual(hostCode(started, [folder]), { startedAt: '2026-11-12T20:56:00.000Z', changed: 2, newestAt: '2026-11-12T20:58:00.000Z' })
   assert.deepEqual(hostCode(started + 600_000, [folder]), { startedAt: '2026-11-12T21:06:00.000Z', changed: 0, newestAt: null }, 'a host started after the last change runs what is on disk')
   assert.equal(hostCode(started, [join(folder, 'missing')]).changed, 0)
+})
+
+test('a host restarts itself for newer code only when it is kept by the app, nothing is running, and the code has settled', () => {
+  const quiet = { changed: 3, newestAt: '2026-11-12T22:00:00.000Z', kept: true, busy: false, now: Date.parse('2026-11-12T22:02:00.000Z') }
+  assert.equal(shouldRestart(quiet), true)
+  assert.equal(shouldRestart({ ...quiet, changed: 0, newestAt: null }), false, 'it runs what is on disk')
+  assert.equal(shouldRestart({ ...quiet, busy: true }), false, 'an agent, a review or a chat turn is running: nothing is stopped for this')
+  assert.equal(shouldRestart({ ...quiet, kept: false }), false, 'a host somebody runs by hand would not come back')
+  assert.equal(shouldRestart({ ...quiet, now: Date.parse('2026-11-12T22:00:30.000Z') }), false, 'files are still being changed')
 })

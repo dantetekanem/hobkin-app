@@ -8,7 +8,8 @@ import { appStateHandlers } from './app-state.ts'
 import { createClientTool } from './client-tool.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
-import { hostCode } from './code-age.ts'
+import { execFileSync } from 'node:child_process'
+import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
 import { History } from './history.ts'
@@ -133,6 +134,15 @@ function thenReadGitHub<Handlers extends object>(handlers: Handlers, names: read
     }) as unknown as Handlers[typeof name]
   }
   return wrapped
+}
+
+/** The command line of the process that started this one, or nothing when it cannot be read. */
+function parentCommand(): string {
+  try {
+    return execFileSync('ps', ['-o', 'command=', '-p', String(process.ppid)], { encoding: 'utf8', timeout: 2000 })
+  } catch {
+    return ''
+  }
 }
 
 export async function startHost(options: HostOptions): Promise<RunningHost> {
@@ -523,6 +533,34 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   openWhenReady()
   lookAgain()
   github.start()
+
+  // A host loads its code once. When the code on disk is newer, this one restarts itself to load it, so a fix never
+  // waits unseen behind a host left running: only while nothing runs, only once the files have settled, and only when
+  // the app keeps it, since the app then starts the next one. The window stays open and connects again.
+  const kept = options.dev === true && keptByApp(parentCommand())
+  const busy = () => {
+    const snapshot = owner.snapshot
+    if (!snapshot || snapshot.busy || user.typing) return true
+    // Any run hobkin has going or waiting, whatever it is: an agent's work, a routine, a check.
+    const runs: unknown = (snapshot as { runs?: unknown }).runs
+    const going = (run: unknown) => ['running', 'queued', 'cancelling'].includes(String((run as { state?: unknown; status?: unknown })?.state ?? (run as { status?: unknown })?.status))
+    if (Array.isArray(runs) && runs.some(going)) return true
+    return reviews.list().reviews.some((item) => item.state === 'preparing' || item.assessment?.state === 'queued' || item.assessment?.state === 'running')
+  }
+  const reload = setInterval(() => {
+    let quiet = false
+    try {
+      quiet = !busy()
+    } catch {
+      // Whether anything runs could not be told just now: it is asked again next time.
+    }
+    const code = hostCode(startedAt)
+    if (!shouldRestart({ ...code, kept, busy: !quiet, now: Date.now() })) return
+    log(`Restarting to load newer code: ${code.changed} of this host's files changed, and nothing is running.`)
+    clearInterval(reload)
+    process.kill(process.pid, 'SIGTERM')
+  }, 20_000)
+  reload.unref()
 
   let closing: Promise<void> | null = null
   return {
