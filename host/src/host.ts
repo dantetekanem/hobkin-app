@@ -8,6 +8,7 @@ import { appStateHandlers } from './app-state.ts'
 import { createClientTool } from './client-tool.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
+import { hostCode } from './code-age.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
 import { History } from './history.ts'
@@ -135,6 +136,8 @@ function thenReadGitHub<Handlers extends object>(handlers: Handlers, names: read
 }
 
 export async function startHost(options: HostOptions): Promise<RunningHost> {
+  // When this host loaded its code, to tell when the code on disk is newer.
+  const startedAt = Date.now()
   const { root, live = false, real = false, dev = false, port = 0, log = () => {} } = options
   const other = runningHost(root)
   if (other) throw Error(`A host is already serving ${root} (process ${other.pid}).`)
@@ -395,6 +398,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     'signin.out': ({ provider }) => signIn.signOut(provider),
     'github.refresh': () => github.refresh(),
+    // Whether this host runs older code than what is on disk, and the way to load it: the host closes as it does on
+    // a signal, and the app that started it starts another. Answered first, so the window hears it went.
+    'host.code': () => hostCode(startedAt),
+    'host.restart': () => {
+      setTimeout(() => process.kill(process.pid, 'SIGTERM'), 150).unref()
+      return { ok: true as const }
+    },
     // Integrations changes Pi's configuration only on the user's word, through Pi's own code (023-integrations).
     'integrations.refresh': () => integrations.refresh(),
     'integrations.turn-off': ({ name }) => integrations.turnOff(name),

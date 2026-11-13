@@ -145,6 +145,14 @@ export const COMMANDS = {
     description: 'Reproject current app information and return a completed read receipt. Does not reload, restart or reset. An unchanged state revision is a successful refresh.',
     runs: 'host', args: nothing, hobkin: true,
   },
+  'host.code': {
+    description: "Whether the host is running older code than the code on disk: when it started, and how many files of its own code changed since. A host loads its code once, so changes made afterwards wait for its next start.",
+    runs: 'host', args: nothing, hobkin: true,
+  },
+  'host.restart': {
+    description: "Restart the host alone, on the user's word, so it loads the code on disk: hobkin closes cleanly, and the app starts a new host. The window stays open and connects again. Agents and reviews that are running stop.",
+    runs: 'host', args: nothing,
+  },
   'conversation.send': {
     description: 'Send a message to hobkin, with the images attached to it and the report it is about, by id. While a turn is running it steers that turn.',
     runs: 'host',
@@ -706,6 +714,8 @@ export interface AppStateRead {
 export interface CommandResults {
   'app.state': AppStateRead
   'app.refresh': AppStateRead
+  'host.code': { startedAt: string; changed: number; newestAt: string | null }
+  'host.restart': { ok: true }
   'conversation.send': { id: string; queued: boolean }
   'conversation.attach': { id: string; name: string; mimeType: string; notice?: string }
   'conversation.detach': { ok: true }

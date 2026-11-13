@@ -184,7 +184,7 @@ test('hobkin starts a sign-in from the conversation through the client tool', as
   const tool = createClientTool({ run: async (name, args) => (ran.push([name, args]), { ok: true, value: { ok: true } }) })
   const listed = JSON.parse((await tool.execute('call-1', { action: 'list' })).content[0]!.text) as { name: string }[]
   assert.deepEqual(listed.map(({ name }) => name).sort(), [
-    'app.refresh', 'app.state', 'appearance.set', 'canvas.close', 'canvas.show', 'models.key-help', 'models.list',
+    'app.refresh', 'app.state', 'appearance.set', 'canvas.close', 'canvas.show', 'host.code', 'models.key-help', 'models.list',
     'review.code', 'review.list', 'review.map', 'review.note', 'review.prepare', 'review.remove', 'review.show', 'review.status', 'review.stop',
     'signin.cancel', 'signin.start', 'tiers.read',
   ])
