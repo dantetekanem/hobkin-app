@@ -15,12 +15,14 @@ test('numbered commands resolve only within the current menu', () => {
 test('each frame key in the list resolves in the key map', () => {
   const press: [string, Parameters<typeof resolveKey>[0]][] = [
     ['⌘K', { key: 'k', meta: true }],
+    ['⌘N', { key: 'n', meta: true }],
     ['⌘Y', { key: 'y', meta: true }],
     ['⌘,', { key: ',', meta: true }],
     ['⌘I', { key: 'i', meta: true }],
     ['⌘J', { key: 'j', code: 'KeyJ', meta: true }],
     ['⌘G', { key: 'g', meta: true }],
     ['⌃⌥P', { key: 'π', code: 'KeyP', ctrl: true, alt: true }],
+    ['⌃⌥S', { key: 'ß', code: 'KeyS', ctrl: true, alt: true }],
     ['↓', { key: 'ArrowDown' }],
   ]
   for (const [keys, event] of press) {
@@ -28,6 +30,11 @@ test('each frame key in the list resolves in the key map', () => {
     assert.ok(resolveKey(event, context), `${keys} does something`)
   }
   assert.equal(resolveKey({ key: 'Tab' }, context), null, 'tab is never the frame\'s')
+  assert.ok(KEY_LIST.some((entry) => entry.keys === '⌃O'), '⌃O is listed')
+  assert.ok(resolveKey({ key: 'o', code: 'KeyO', ctrl: true }, { ...context, screen: 'agent' }), "⌃O does something on an agent's screen")
+  assert.ok(KEY_LIST.some((entry) => entry.keys === '⌃X'), '⌃X is listed')
+  assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', hobkinPage: true, zone: 'canvas' }), "⌃X does something on a durable hobkin's page")
+  assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', zone: 'canvas' }), "⌃X does something on any other agent's page")
 })
 
 test('the hints are in the list and the walkthrough names every key', () => {

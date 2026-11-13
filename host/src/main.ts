@@ -6,6 +6,7 @@ import { startHost } from './host.ts'
 import { openGitHubPage } from './github.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
 import { watchParent } from './parent-watch.ts'
+import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
 import { openInBrowser } from './signin.ts'
 import { spawnGh } from './review/gh.ts'
 
@@ -41,6 +42,8 @@ async function main(args: readonly string[]): Promise<void> {
     openSystem: openInSystem,
     openFile: openFileInSystem,
     ...scripted,
+    // Installing Pi or a Pi package changes the Mac outside the app: only a live host may, on the user's word in the window.
+    ...(options.live ? { installPi: () => installPi(), installPiPackage: (name: string) => installPackage(name, { agentDir: piAgentFolder }) } : {}),
     // A live host always reads the real GitHub, read only. The scripted one shows made-up data unless asked.
     // Change Review reads pull requests the same way, and only a live host posts a verdict the user confirmed.
     ...(options.live || options.github ? { github: ghSource(), reviewGh: spawnGh() } : {}),

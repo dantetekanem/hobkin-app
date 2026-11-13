@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { emptyQueue, type Answer, type QuestionQueue } from '../questions/queue.ts'
 import { useQuestions } from '../questions/store.ts'
-import { waiting, type ActionItem, type WaitingRow } from './items.ts'
+import { isActionItem, waiting, type ActionItem, type WaitingRow } from './items.ts'
 import { sampleItems } from './sample.ts'
 import { hostStore } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
@@ -39,7 +39,8 @@ function syncActions(state: HostState, previous?: HostState): void {
     state.snapshot.waiting === previous.snapshot.waiting && state.epoch === previous.epoch) return
   const sample = !hasHost(state)
   const changedHome = previous !== undefined && state.home !== previous.home
-  useActionItems.setState({ sample, rows: sample || changedHome ? [] : hostRows(state.snapshot) })
+  // Only genuine decisions wait on the user here: work that just opens in Work, or a lone "Mark it done", is not one.
+  useActionItems.setState({ sample, rows: sample || changedHome ? [] : hostRows(state.snapshot).filter(isActionItem) })
 }
 
 syncActions(hostStore.getState())
@@ -57,7 +58,7 @@ export function useWaitingRows(): WaitingRow[] {
   const answered = useQuestions((state) => state.queue.answered)
   const deferred = useQuestions((state) => state.queue.deferred)
   return useMemo(
-    () => (sample ? waiting(items, { ...emptyQueue, answered: [...answered, ...answeredHere], deferred }) : rows.filter(({ id }) => !answering.includes(id))),
+    () => (sample ? waiting(items, { ...emptyQueue, answered: [...answered, ...answeredHere], deferred }).filter(isActionItem) : rows.filter(({ id }) => !answering.includes(id))),
     [sample, rows, items, answered, deferred, answering, answeredHere],
   )
 }

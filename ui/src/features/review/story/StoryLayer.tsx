@@ -18,6 +18,7 @@ import { StepBody, type CardGraph } from './StepBody.tsx'
 import { CardBody, type CardContent } from './StepCard.tsx'
 import { offPath } from './story.ts'
 import { wireEnds } from './travel.ts'
+import { ratingGap } from './words.ts'
 
 /** How wide the text beside the whole graph is, for a canvas of a given width. */
 const cardWidth = (canvas: number) => Math.round(Math.min(380, Math.max(288, canvas * 0.27)))
@@ -72,6 +73,8 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const view = useSession((session) => session.view)
   const focus = useSession((session) => session.focus)
   const story = useSession((session) => session.story)
+  // In Free Roam no step leads, so nothing offers to go back to one.
+  const roam = useSession((session) => session.mode === 'roam')
   const move = useSession((session) => session.move)
   const nodeOf = useSession((session) => session.nodeOf)
   const panelOpen = useSession((session) => session.panelOpen)
@@ -83,13 +86,13 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const content = useMemo<CardContent | null>(() => {
     if (story.detour) {
       const node = nodeOf.get(story.detour)
-      return node ? { kind: 'node', key: `node:${node.id}`, node, backTo: story.step } : null
+      return node ? { kind: 'node', key: `node:${node.id}`, node, backTo: roam ? null : story.step } : null
     }
     // The whole graph, or a unit's nodes shown from the story: no step is told beside them. "Back to step N" waits below.
     if (story.whole || story.group) return null
     const step = view.story[story.step]
     return step ? { kind: 'step', key: `step:${step.id}`, step, index: story.step, total: view.story.length } : null
-  }, [nodeOf, story.detour, story.group, story.step, story.whole, view.story])
+  }, [nodeOf, roam, story.detour, story.group, story.step, story.whole, view.story])
 
   // The unit a step tells, by its own name or by its nodes', and the unit of a node looked at.
   const unit = useMemo(() => {
@@ -182,7 +185,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const shownCard = placement && content?.kind === 'step' && placement.key === content.key ? { placement, content } : null
   const body = (inPlace: boolean) =>
     content && beside ? (
-      <StepBody content={content} unit={unit} rated={Boolean(units?.length)} graph={graphFacts} ask={inPlace ? askAbout : null} actions={actions} canOpenCode={canOpenCode} brief={brief} />
+      <StepBody content={content} unit={unit} gap={ratingGap(units)} graph={graphFacts} ask={inPlace ? askAbout : null} actions={actions} canOpenCode={canOpenCode} brief={brief} />
     ) : content?.kind === 'step' ? (
       <CardBody content={content} review={review} />
     ) : null
@@ -208,7 +211,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
         ) : null}
       </AnimatePresence>
       <NotesBeside area={area} step={shownBeside} />
-      <BackPill show={offPath({ ...review, ...view }, story) && !content} step={story.step} onBack={actions.back} />
+      <BackPill show={!roam && offPath({ ...review, ...view }, story) && !content} step={story.step} onBack={actions.back} />
     </>
   )
 }

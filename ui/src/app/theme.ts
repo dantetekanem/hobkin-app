@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react'
 import { borderColors } from '#shared/protocol/appearance.ts'
-import { DARK_PALETTE, LIGHT_PALETTE, isDarkPalette, onAccent, readablePalette, stepOpacity, type Palette } from '@/features/settings/rules.ts'
+import { BASE_THEME_SETTINGS, DARK_PALETTE, LIGHT_PALETTE, adjustedPalette, backgroundImageCss, isDarkPalette, onAccent, stepOpacity, type Background, type Palette } from '@/features/settings/rules.ts'
 import { useSettings, watchAppearance } from '@/features/settings/store.ts'
-import { hostStore } from '@/lib/host/client.ts'
+import { hostStore, runCommand } from '@/lib/host/client.ts'
+import { tellHostTheme } from './theme-host.ts'
 
 export type Theme = 'light' | 'dark'
 /** What the user chose. `system` follows the Mac's appearance. `custom` is the user's own colors, from Settings. */
@@ -43,9 +44,14 @@ function choice(): ThemeChoice {
   return useSettings.getState().customTheme ? 'custom' : (saved() ?? 'system')
 }
 
-/** The custom colors to show: null when none are saved or they would not read. */
+/** The custom colors to show, with text nudged until it reads: null when none are saved or they are not a palette. */
 function customPalette(): Palette | null {
-  return readablePalette(useSettings.getState().palette)
+  return adjustedPalette(useSettings.getState().palette)
+}
+
+/** The custom theme's backdrop, or null for a flat palette background. */
+function customBackground(): Background | null {
+  return useSettings.getState().background
 }
 
 const baseOf = (palette: Palette): Theme => (isDarkPalette(palette) ? 'dark' : 'light')
@@ -65,19 +71,23 @@ function notify() {
   for (const listener of listeners) listener()
 }
 
-/** Shows a theme, and over it the custom colors when there are any (tokens.css mixes the rest of the palette). */
-function apply(theme: Theme, palette: Palette | null = null) {
+/** Shows a theme, and over it the custom colors and backdrop when there are any (tokens.css mixes the rest). */
+function apply(theme: Theme, palette: Palette | null = null, background: Background | null = null) {
   const root = document.documentElement
   root.classList.toggle('dark', theme === 'dark')
   root.classList.toggle('light', theme === 'light')
   for (const name of Object.keys(customVars(DARK_PALETTE))) root.style.removeProperty(name)
   root.style.removeProperty('--hb-border')
   root.style.removeProperty('--hb-border-strong')
+  root.style.removeProperty('--hb-bg-image')
+  if (palette && background?.kind === 'photo') root.dataset.photo = background.id
+  else delete root.dataset.photo
   if (palette) {
     const borders = borderColors(useSettings.getState())
     if (borders?.border) root.style.setProperty('--hb-border', borders.border)
     if (borders?.borderStrong) root.style.setProperty('--hb-border-strong', borders.borderStrong)
     for (const [name, value] of Object.entries(customVars(palette))) root.style.setProperty(name, value)
+    if (background) root.style.setProperty('--hb-bg-image', backgroundImageCss(background, palette))
     root.dataset.palette = 'custom'
   } else {
     delete root.dataset.palette
@@ -95,15 +105,15 @@ function showOpacity(opacity: number) {
  * that was used, until it covers the window. With reduced motion, or where the browser cannot do it, the
  * colors cross-fade or switch at once.
  */
-function reveal(theme: Theme, palette: Palette | null, origin?: { x: number; y: number }) {
+function reveal(theme: Theme, palette: Palette | null, background: Background | null = null, origin?: { x: number; y: number }) {
   const root = document.documentElement
   const still = root.dataset.motion === 'still' || (root.dataset.motion !== 'lively' && matchMedia('(prefers-reduced-motion: reduce)').matches)
-  if (still) return apply(theme, palette)
+  if (still) return apply(theme, palette, background)
 
   if (!document.startViewTransition) {
     // No view transitions here: let every color ease to its new value instead.
     root.dataset.themeFade = ''
-    apply(theme, palette)
+    apply(theme, palette, background)
     setTimeout(() => delete root.dataset.themeFade, REVEAL_MS)
     return
   }
@@ -112,7 +122,7 @@ function reveal(theme: Theme, palette: Palette | null, origin?: { x: number; y: 
   const y = origin?.y ?? 0
   const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))
   root.dataset.themeReveal = ''
-  const transition = document.startViewTransition(() => apply(theme, palette))
+  const transition = document.startViewTransition(() => apply(theme, palette, background))
   void transition.ready.then(() => {
     root.animate(
       { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
@@ -124,17 +134,34 @@ function reveal(theme: Theme, palette: Palette | null, origin?: { x: number; y: 
 
 /**
  * Sets what the user chose: light, dark, follow the Mac, or custom. Pass where the control is, so the new theme
- * opens from it. Custom starts from the colors showing now the first time, and from the saved ones after that.
+ * opens from it. Picking a base theme drops the custom one, so Custom starts from the colors showing now each time.
+ * The host is told too, since it keeps the last custom theme and would show it again on its next start.
  */
 export function setThemeChoice(next: ThemeChoice, origin?: { x: number; y: number }) {
+  showThemeChoice(next, origin)
+  tellHostTheme(next, { connected: hostStore.getState().link === 'open', run: runCommand })
+}
+
+/** Shows a choice in this window. A theme hobkin asked for comes here, since the host already knows it. */
+function showThemeChoice(next: ThemeChoice, origin?: { x: number; y: number }) {
   const settings = useSettings.getState()
-  if (next === 'custom' && !customPalette()) settings.setPalette(current() === 'dark' ? DARK_PALETTE : LIGHT_PALETTE)
+  if (next === 'custom') {
+    // A fresh custom theme starts from the colors showing now, unnamed until hobkin gives it a title.
+    if (!customPalette()) {
+      settings.setPalette(current() === 'dark' ? DARK_PALETTE : LIGHT_PALETTE)
+      useSettings.setState({ themeName: null })
+    }
+  } else {
+    // Light, Dark and Follow the Mac drop the custom theme, so a restart keeps the base the user chose.
+    useSettings.setState(BASE_THEME_SETTINGS)
+  }
   const palette = next === 'custom' ? customPalette() : null
+  const background = palette ? customBackground() : null
   const theme: Theme = palette ? baseOf(palette) : next === 'light' || next === 'dark' ? next : system.matches ? 'dark' : 'light'
   remember(next === 'system' ? null : theme)
   settings.setCustomTheme(palette !== null)
   const showingCustom = document.documentElement.dataset.palette === 'custom'
-  if (theme !== current() || (palette !== null) !== showingCustom) reveal(theme, palette, origin)
+  if (theme !== current() || (palette !== null) !== showingCustom) reveal(theme, palette, background, origin)
   else notify()
 }
 
@@ -161,13 +188,14 @@ useSettings.subscribe((state, before) => {
   if (state.requestedTheme && state.requestedTheme !== before.requestedTheme) {
     const requested = state.requestedTheme
     useSettings.setState({ requestedTheme: null })
-    setThemeChoice(requested)
+    showThemeChoice(requested)
     return
   }
-  const palette = state.customTheme && (state.palette !== before.palette || state.border !== before.border || state.borderStrong !== before.borderStrong) ? customPalette() : null
+  const changed = state.palette !== before.palette || state.background !== before.background || state.border !== before.border || state.borderStrong !== before.borderStrong
+  const palette = state.customTheme && changed ? customPalette() : null
   if (palette) {
     remember(baseOf(palette))
-    apply(baseOf(palette), palette)
+    apply(baseOf(palette), palette, customBackground())
   } else if (
     state.appearanceHome !== before.appearanceHome &&
     before.customTheme &&
@@ -183,7 +211,7 @@ import.meta.hot?.dispose(stopAppearance)
 // What was saved, before the first render. index.html has already put on the light or dark under it.
 showOpacity(useSettings.getState().backgroundOpacity)
 const startPalette = useSettings.getState().customTheme ? customPalette() : null
-if (startPalette) apply(baseOf(startPalette), startPalette)
+if (startPalette) apply(baseOf(startPalette), startPalette, customBackground())
 
 function subscribe(listener: () => void) {
   listeners.add(listener)

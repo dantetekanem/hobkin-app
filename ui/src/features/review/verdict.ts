@@ -26,14 +26,15 @@ function refusal(error: unknown): Pick<State, 'error' | 'message'> {
 /**
  * One explicit confirmation, bound to this mounted target, the commit of the review on screen (`head`) and its saved
  * notes. Both yeses name that commit, so the host refuses them, and says why, once the review it holds is for another.
+ * A row of the AI Reviews list that knows no commit names none: only a no is chosen there, which holds wherever the change is.
  * `done` hears of a verdict the host did, with the host's words, even when the panel that asked for it has gone since.
  * The verdict is under way until what `done` does next has started. `failed` hears of a verdict the host could not do
  * once the user had confirmed it, with the host's reason, and hands it to hobkin: a yes the user gave is never left as
- * a dead end. It answers whether hobkin has it.
+ * a dead end. It answers whether hobkin has it. A discard is never handed over (`handsOver`).
  */
 interface VerdictOptions {
   id: string
-  head: string
+  head?: string | null
   command: VerdictCommands
   saveNotes: () => Promise<void>
   current: () => boolean
@@ -43,6 +44,13 @@ interface VerdictOptions {
 
 /** What the panel says once a verdict that could not be done is with hobkin. */
 const HANDED_OVER = 'It could not be done by itself, so hobkin was asked to sort it out:'
+
+/**
+ * Whether a verdict the host could not do goes to hobkin to sort out. A discard never does: it closes, says no and
+ * deletes, and its refusals are what keep that to exactly what the user was shown, such as a branch that moved or a
+ * folder of theirs that holds it. An agent told to do it anyway could do it by other means, unpinned. The user sees why.
+ */
+export const handsOver = (verdict: Verdict): boolean => verdict !== 'discard' && verdict !== 'discard-branch'
 
 export function createVerdict({ id, head, command, saveNotes, current, done, failed }: VerdictOptions) {
   const store = createStore<State>(() => ({ busy: false, preview: null, error: null, message: null }))
@@ -63,7 +71,7 @@ export function createVerdict({ id, head, command, saveNotes, current, done, fai
     try {
       await saveNotes()
       if (!active(turn)) return
-      const result = await command('review.preview', { id, verdict, summary: '', head })
+      const result = await command('review.preview', { id, verdict, summary: '', ...(head ? { head } : {}) })
       if (!active(turn)) return
       choice = verdict
       store.setState({ preview: result })
@@ -81,13 +89,13 @@ export function createVerdict({ id, head, command, saveNotes, current, done, fai
     choice = null
     store.setState({ busy: true, preview: null, error: null })
     try {
-      const result = await command('review.verdict', { id, verdict, summary: '', confirm: shown.confirm, head })
+      const result = await command('review.verdict', { id, verdict, summary: '', confirm: shown.confirm, ...(head ? { head } : {}) })
       if (active(turn)) store.setState({ message: result.message })
       await done?.(verdict, result.message)
     } catch (error) {
       const said = refusal(error)
-      // The user said yes and it did not happen: hobkin gets it, with the reason, to fix what stops it.
-      const handed = said.error && failed ? await failed(verdict, said.error).catch(() => false) : false
+      // The user said yes and it did not happen: hobkin gets it, with the reason, to fix what stops it. Never a discard.
+      const handed = said.error && failed && handsOver(verdict) ? await failed(verdict, said.error).catch(() => false) : false
       if (active(turn)) store.setState(handed ? { error: null, message: `${HANDED_OVER} ${said.error}` } : said)
     } finally {
       if (active(turn)) store.setState({ busy: false })
@@ -106,9 +114,10 @@ export function createVerdict({ id, head, command, saveNotes, current, done, fai
 
 /**
  * Whether a verdict takes the reviewer's comments with it, as the host marks them: every verdict but a finished change's
- * Approve and Approve and merge, which leave them for the fixes.
+ * Approve and Approve and merge, which leave them for the fixes, and the two discards, which post no review.
  */
 export function sendsComments(id: string, verdict: Verdict): boolean {
+  if (verdict === 'discard' || verdict === 'discard-branch') return false
   return !(targetOfReviewId(id)?.kind === 'change' && (verdict === 'approve' || verdict === 'approve-merge'))
 }
 
@@ -145,12 +154,18 @@ export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]
     { verdict: 'approve', label: 'Approve', doing: 'Opening its pull request…', keys: 'A' },
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
     { verdict: 'request-changes', label: 'Send fixes', doing: 'Sending…', keys: 'X' },
+    // The no. It has no key of its own, so it is never one slip away: it is clicked, or walked to, and then confirmed.
+    { verdict: 'discard', label: 'Discard', doing: 'Discarding…' },
+    // The no, and its branch deleted too. Last, and with no key either.
+    { verdict: 'discard-branch', label: 'Discard and delete branch', doing: 'Deleting…' },
   ],
   pull: [
     { verdict: 'approve', label: 'Approve', doing: 'Posting…', keys: 'A' },
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
     { verdict: 'request-changes', label: 'Request changes', doing: 'Posting…', keys: 'X' },
     { verdict: 'comment', label: 'Comment', doing: 'Posting…' },
+    { verdict: 'discard', label: 'Discard', doing: 'Closing…' },
+    { verdict: 'discard-branch', label: 'Discard and delete branch', doing: 'Deleting…' },
   ],
 }
 

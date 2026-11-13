@@ -1,19 +1,12 @@
 import type { CatalogEntry, ConfiguredServer, Split } from '#shared/integrations/types.ts'
-import type { GitHubConnection } from '#shared/protocol/github.ts'
-
-/** How gh stands. GitHub connects through gh, with the login gh already has (024-github). */
-export interface GhLink {
-  connection: GitHubConnection
-  login: string | null
-}
 
 /**
- * What the screen draws: one item per tile, in the three parts. An item's key stays the same while it moves
- * between the catalog and the connected part, so its tile can travel from one to the other.
+ * What the screen draws of the MCP servers: one item per tile, in the three parts. An item's key stays the same while
+ * it moves between the catalog and the connected part, so its tile can travel from one to the other. GitHub is not
+ * one of them: it is a full integration, with a card of its own.
  */
 export type Item =
-  /** `gh`: GitHub's item only, which follows gh. */
-  | { kind: 'service'; key: string; entry: CatalogEntry; server: ConfiguredServer | null; gh?: GhLink }
+  | { kind: 'service'; key: string; entry: CatalogEntry; server: ConfiguredServer | null }
   | { kind: 'own'; key: string; server: ConfiguredServer }
 
 export interface Items {

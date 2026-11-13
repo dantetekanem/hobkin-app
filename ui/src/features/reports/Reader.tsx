@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Reply, Trash, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MessagesSquare, Trash, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { slideVariants } from './slide.ts'
@@ -95,9 +95,10 @@ function Toolbar({ at, of, onStep, onClose, onReply, onDelete }: Pick<ReaderProp
         ) : null}
       </div>
       <div className="pointer-events-auto ml-auto flex items-center gap-1">
-        <Button size="sm" tabIndex={-1} onClick={onReply} title="Reply in chat (r)">
-          <Reply aria-hidden="true" />
-          Reply in chat
+        {/* Discuss, as on every action item: the report goes with the next message, and nothing is sent until the user sends. */}
+        <Button size="sm" tabIndex={-1} onClick={onReply} title="Discuss with hobkin (r)">
+          <MessagesSquare aria-hidden="true" />
+          Discuss
           <Kbd className="bg-primary-foreground/10 text-primary-foreground">r</Kbd>
         </Button>
         <Button variant="ghost" size="sm" tabIndex={-1} onClick={onDelete} disabled={!onDelete} title={onDelete ? 'Delete (Backspace)' : 'Deleting reports is not connected yet'}>

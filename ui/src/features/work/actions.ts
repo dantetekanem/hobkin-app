@@ -21,11 +21,12 @@ export type WorkAction =
   | { do: 'issue'; repo: string; number: number }
   | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
   | { do: 'agents'; agents: number }
+  | { do: 'tokens'; tokens: number }
   | { do: 'change'; change: FinishedChange; choice: HobkinChoice; note?: string }
   | { do: 'group'; group: FinishedGroup }
   | { do: 'stop'; run: string; how: 'for-now' | 'not-approved' }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.issue' | 'work.proposal' | 'work.agents' | 'work.change' | 'work.group' | 'agent.stop'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.issue' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.change' | 'work.group' | 'agent.stop'
 
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
@@ -132,6 +133,16 @@ export interface AgentControlState {
   result: { id: string; text: string } | null
 }
 
+/**
+ * What Control+X does on an agent's page, the same press as Force Stop (`019-keyboard`): the first opens the page's Force
+ * Stop question, and one while that question asks about this run forces it. Nothing while it is being forced, or once it
+ * cannot be forced, as a finished run cannot.
+ */
+export function forceStopStep({ runId, asking, canForce, pending }: { runId: string; asking: AgentStopTarget | null; canForce: boolean; pending: boolean }): 'ask' | 'force' | null {
+  if (!canForce || pending) return null
+  return asking?.id === runId && asking.mode === 'force' ? 'force' : 'ask'
+}
+
 /** A confirmation belongs to one selected execution, never the row that later takes its place. */
 export function createAgentControls({ selected, send, changed }: {
   selected: () => AgentStopTarget | undefined
@@ -199,7 +210,7 @@ export function createAgentControls({ selected, send, changed }: {
   }
 }
 
-const CHANGE_ACTION = { merge: 'merge', mergePr: 'merge-pr', refreshMerge: 'refresh-merge', review: 'review', decline: 'decline' } as const
+const CHANGE_ACTION = { merge: 'merge', mergePr: 'merge-pr', refreshMerge: 'refresh-merge', review: 'review', decline: 'decline', done: 'done' } as const
 
 export function commandFor(action: WorkAction): WorkCall {
   switch (action.do) {
@@ -219,6 +230,8 @@ export function commandFor(action: WorkAction): WorkCall {
       return { name: 'work.proposal', args: { slug: action.slug, answer: action.answer } }
     case 'agents':
       return { name: 'work.agents', args: { agents: action.agents } }
+    case 'tokens':
+      return { name: 'work.tokens', args: { tokens: action.tokens } }
     case 'change': {
       const { slug, item, head } = action.change
       const { choice } = action

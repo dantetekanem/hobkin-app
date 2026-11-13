@@ -30,6 +30,11 @@ test('Pi\'s off is a level, levels the tiers do not know are left out, and a mod
   assert.deepEqual(plain!.efforts, [])
 })
 
+test('every level Pi lists for a model is kept in Pi\'s order, max included', () => {
+  const [choice] = choicesFromPi({ providers, models: [{ id: 'qwen3.6', provider: 'ollama', name: 'qwen3.6', thinking: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], contextWindow: null }] })
+  assert.deepEqual(choice!.efforts, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+})
+
 test('an id that already starts with its provider is kept, and an unknown provider keeps its id as its name', () => {
   const [choice] = choicesFromPi({ providers, models: [{ id: 'ollama/qwen', provider: 'ollama', name: 'qwen', thinking: [], contextWindow: null }] })
   assert.equal(choice!.id, 'ollama/qwen')

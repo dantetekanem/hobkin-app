@@ -5,7 +5,7 @@ import { Hero } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
-import { useActionItemCount, useAgents, useHasHost, useHost } from '@/lib/host/hooks.ts'
+import { useAgents, useHost } from '@/lib/host/hooks.ts'
 import { dur, ease, spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useActionCount } from '../actions/store.ts'
@@ -177,10 +177,8 @@ export function Overview({
   const attention = useHost((state) => state.snapshot.reportAttention)
   const facts = useRoutines((state) => state.prepared.facts)
   const agents = useAgents()
-  // As the menu's badge counts them: hobkin's own count, or the sample's rows.
-  const hostItems = useActionItemCount()
-  const sampleItems = useActionCount()
-  const actionItems = useHasHost() ? hostItems : sampleItems
+  // The same filtered action items the screen and the menu badge show: only genuine decisions.
+  const actionItems = useActionCount()
   const today = dayKey(now)
   const summary = useMemo(() => summarize(list, read), [list, read])
   const sources = useMemo(() => needsAttention(list, read), [list, read])

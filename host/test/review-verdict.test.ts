@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { agentMessage } from '#shared/agent-message.ts'
+import { CLIENT_PRODUCER_VERSION } from '../src/producer-version.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -17,14 +21,20 @@ const step = sample.story.find((entry) => entry.title === 'The runtime keeps the
 const sendNode = sample.nodes.find((node) => node.title === 'send')!.id
 const NEWER = 'f'.repeat(40)
 
-/** Reviews over a review already in the home, with a fake hobkin and a fake gh that only write down what they were asked. */
-function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish }: { card?: ChangeCard | null; publish?: Publisher } = {}) {
+/**
+ * Reviews over a review already in the home, with a fake hobkin and a fake gh that only write down what they were asked.
+ * `plan` is what hobkin says deleting the change's branch takes; `branch` lets a test refuse that look, change it, or fail the deletion.
+ * `timeline` is every call to either, in the order they came.
+ */
+function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish, plan = null as unknown }: { card?: ChangeCard | null; publish?: Publisher; plan?: unknown } = {}) {
   const home = temporaryDirectory(t)
   const store = reviewStore(home)
   const target = targetOfReviewId(id)!
   store.write(target, sample, files)
   const actions: unknown[][] = []
   const posts: { args: readonly string[]; input?: string }[] = []
+  const timeline: string[] = []
+  const branch = { plan, refuse: null as string | null, fail: null as string | null }
   let refuse: string | null = null
   // The change is at the review's commit until a test moves it on.
   let at = sample.change.head
@@ -34,7 +44,13 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
     work: () => ({
       workAction: async (...args: unknown[]) => {
         actions.push(args)
+        timeline.push(`work ${String(args[0])}`)
         if (refuse) throw new Error(refuse)
+        if (args[0] === 'deleteBranch' && (args[3] as { look?: boolean } | undefined)?.look) {
+          if (branch.refuse) throw new Error(branch.refuse)
+          return { message: 'It deletes its branch.', plan: branch.plan }
+        }
+        if (args[0] === 'deleteBranch' && branch.fail) throw new Error(branch.fail)
         return { message: `hobkin did ${String(args[0])}.` }
       },
     }),
@@ -42,6 +58,7 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
     ...(publish ? { publish } : {}),
     gh: async (args, input): Promise<GhOutcome> => {
       posts.push({ args, input })
+      if (args.includes('--method')) timeline.push(`gh ${args[args.indexOf('--method') + 1]} ${args.find((arg) => arg.startsWith('repos/'))}`)
       return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#pullrequestreview-1' }) }
     },
     now: () => 1000,
@@ -54,7 +71,7 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
     reviews.prepare(id)
     await reviews.settled(id)
   }
-  return { reviews, store, target, actions, posts, notes, moveOn, refuse: (reason: string | null) => (refuse = reason) }
+  return { reviews, store, target, actions, posts, timeline, branch, notes, moveOn, refuse: (reason: string | null) => (refuse = reason) }
 }
 
 const note = (id: string, rest: Partial<Note>): Note => ({ id, step: step.id, target: { kind: 'step' }, intent: 'comment', text: 'x', author: 'user', at: 1, ...rest })
@@ -108,17 +125,18 @@ test('approving a finished change opens its pull request at the reviewed commit,
   const { reviews, actions } = seated(t, id, { publish })
 
   const preview = await reviews.preview(id, 'approve', '')
+  const body = agentMessage({ summary: sample.summary, details: `Branch: ${sample.change.branch}\nBase: ${sample.change.base}\nReviewed commit: ${sample.change.head}` })
   // The title and description it opens with are shown, as they go into the token.
   assert.deepEqual(preview.lines, [
     `Push hobkin/7d02c9-say-what-hobkin-is-doing at ${sample.change.head.slice(0, 7)} to acme/shop on GitHub, as you.`,
     `Open a pull request from it into main, titled "${sample.change.title}".`,
-    `Its description: ${sample.summary}`,
+    `Its description: ${body}`,
     'Nothing is merged.',
   ])
   assert.deepEqual(opened, [], 'a preview opens nothing')
 
   assert.deepEqual(await reviews.verdict(id, 'approve', '', preview.confirm), { message: 'Opened https://github.com/acme/shop/pull/9' })
-  assert.deepEqual(opened, [{ plan: { repo: 'acme/shop', base: 'main', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', slug: 'hobkin' }, pull: { head: sample.change.head, title: sample.change.title, body: sample.summary } }])
+  assert.deepEqual(opened, [{ plan: { repo: 'acme/shop', base: 'main', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', slug: 'hobkin' }, pull: { head: sample.change.head, title: sample.change.title, body } }])
   assert.deepEqual(actions, [])
 
   // A change whose pull request is open already has nothing to open: it can be merged, or sent back.
@@ -200,7 +218,7 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   // The comments went with it, so they are marked sent and are not posted again. The question stays for hobkin.
   const after = store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null))
   assert.deepEqual(after, [['n1', 1000], ['n2', 1000], ['n3', null]])
-  assert.equal((await reviews.preview(id, 'comment', '')).post!.body, '**hobkin automated review**\n\nCommented.')
+  assert.equal((await reviews.preview(id, 'comment', '')).post!.body, agentMessage({ summary: 'Commented.', version: CLIENT_PRODUCER_VERSION }))
 })
 
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
@@ -211,21 +229,57 @@ function pullSeat(
     author = 'dev',
     settings = { allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true } as Record<string, boolean>,
     refuseMerge = null as string | null,
+    refuseClose = null as string | null,
+    refuseDelete = null as string | null,
     current = sample.change.head,
+    headRef = 'feature/rounding',
+    headRepo = 'acme/shop' as string | null,
     moved = undefined as Moved | undefined,
+    protectedBranch = false,
+    /** Other open pull requests from the same branch, and open pull requests that merge into it. */
+    sharing = { heads: [] as number[], bases: [] as number[] },
   } = {},
 ) {
   const id = 'pr:acme/shop/482'
   const store = reviewStore(temporaryDirectory(t))
   store.write(targetOfReviewId(id)!, sample, files)
   const calls: { args: readonly string[]; input?: string }[] = []
-  const github = { settings, state: 'open' }
+  /**
+   * GitHub as these calls find it. `gate`, while set, holds the close until a test lets it go; `pushOnClose` is a commit
+   * someone pushes to the branch just as the pull request closes; `deleted` says whether its branch went.
+   */
+  const github = { settings, state: 'open', head: current, gate: null as Promise<void> | null, pushOnClose: null as string | null, deleted: false }
+  const branchPath = `repos/acme/shop/branches/${headRef.split('/').map(encodeURIComponent).join('/')}`
+  const listed = (numbers: number[]) => ({ kind: 'done' as const, stdout: JSON.stringify(numbers.map((number) => ({ number }))) })
   const gh = async (args: readonly string[], input?: string): Promise<GhOutcome> => {
     calls.push({ args, input })
-    const path = args.find((arg) => arg === 'user' || arg.startsWith('repos/'))
+    const path = args.find((arg) => arg === 'user' || arg === 'graphql' || arg.startsWith('repos/'))
     if (path === 'user') return { kind: 'done', stdout: JSON.stringify({ login: viewer }) }
-    if (path === 'repos/acme/shop') return { kind: 'done', stdout: JSON.stringify(github.settings) }
-    if (path === 'repos/acme/shop/pulls/482') return { kind: 'done', stdout: JSON.stringify({ state: github.state, user: { login: author }, base: { ref: 'main' }, head: { sha: current } }) }
+    if (path === 'repos/acme/shop') return { kind: 'done', stdout: JSON.stringify({ default_branch: 'main', node_id: 'R_shop', ...github.settings }) }
+    if (path === branchPath) return { kind: 'done', stdout: JSON.stringify({ name: headRef, protected: protectedBranch }) }
+    if (path === `repos/acme/shop/pulls?state=open&head=${encodeURIComponent(`acme:${headRef}`)}`) return listed([...(github.state === 'open' ? [482] : []), ...sharing.heads])
+    if (path === `repos/acme/shop/pulls?state=open&base=${encodeURIComponent(headRef)}`) return listed(sharing.bases)
+    // The one delete there is: `updateRefs`, which GitHub does only while the branch is still at `beforeOid`.
+    if (path === 'graphql') {
+      if (refuseDelete) return { kind: 'failed', code: 1, stdout: '', stderr: refuseDelete }
+      const { variables } = JSON.parse(input ?? '{}') as { variables: { repo: string; name: string; before: string } }
+      if (variables.repo !== 'R_shop' || variables.name !== `refs/heads/${headRef}` || variables.before !== github.head) {
+        return { kind: 'done', stdout: JSON.stringify({ data: { updateRefs: null }, errors: [{ message: `refs/heads/${headRef} is not at ${variables.before}.` }] }) }
+      }
+      github.deleted = true
+      return { kind: 'done', stdout: JSON.stringify({ data: { updateRefs: { clientMutationId: null } } }) }
+    }
+    if (path === 'repos/acme/shop/issues/482/comments') return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#issuecomment-1' }) }
+    if (path === 'repos/acme/shop/pulls/482' && args.includes('PATCH')) {
+      if (github.gate) await github.gate
+      if (refuseClose) return { kind: 'failed', code: 1, stdout: '', stderr: refuseClose }
+      github.state = 'closed'
+      if (github.pushOnClose) github.head = github.pushOnClose
+    }
+    if (path === 'repos/acme/shop/pulls/482') {
+      const head = { sha: github.head, ref: headRef, repo: headRepo ? { full_name: headRepo } : null }
+      return { kind: 'done', stdout: JSON.stringify({ state: github.state, user: { login: author }, base: { ref: 'main', repo: { full_name: 'acme/shop' } }, head }) }
+    }
     if (path === 'repos/acme/shop/pulls/482/reviews') return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#pullrequestreview-1' }) }
     if (path === 'repos/acme/shop/pulls/482/merge') {
       return refuseMerge ? { kind: 'failed', code: 1, stdout: '', stderr: refuseMerge } : { kind: 'done', stdout: JSON.stringify({ merged: true, sha: 'e'.repeat(40) }) }
@@ -359,4 +413,265 @@ test('a reviewed pull request that GitHub says is no longer open leaves the list
   github.state = 'closed'
   await reviews.sweepPulls({ force: true })
   assert.equal(reviews.list().reviews.some((item) => item.id === id), false)
+})
+
+/** What was sent to GitHub: the method, the path and the body of every call that was not a read. */
+const sentTo = (calls: { args: readonly string[]; input?: string }[]) => {
+  const writes = calls.filter((call) => call.args.includes('--method'))
+
+  return writes.map((call) => {
+    const method = call.args[call.args.indexOf('--method') + 1]
+    const path = call.args.find((arg) => arg.startsWith('repos/') || arg === 'graphql')
+    const body = JSON.parse(call.input ?? 'null')
+
+    return [method, path, body]
+  })
+}
+
+test('discarding a pull request closes it on GitHub without merging it, and only after the yes', async (t) => {
+  const { id, reviews, calls, merges } = pullSeat(t)
+
+  const preview = await reviews.preview(id, 'discard', 'Superseded by the new checkout.')
+  assert.deepEqual(sentTo(calls), [], 'a preview sends nothing')
+  assert.deepEqual(preview.lines, ['Close acme/shop#482 on GitHub without merging it, as you.', 'Your words go on it as a comment first.', 'Its branch stays.'])
+  assert.equal(preview.post, undefined, 'a discard is no review')
+
+  // Other words than the ones shown are not what the user said yes to.
+  await assert.rejects(reviews.verdict(id, 'discard', 'Something else.', preview.confirm), /has changed since it was shown/)
+  assert.deepEqual(sentTo(calls), [])
+
+  assert.deepEqual(await reviews.verdict(id, 'discard', 'Superseded by the new checkout.', preview.confirm), { message: 'Closed acme/shop#482 without merging it.' })
+  assert.deepEqual(sentTo(calls), [
+    ['POST', 'repos/acme/shop/issues/482/comments', { body: '**hobkin automated review**\n\nSuperseded by the new checkout.' }],
+    ['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }],
+  ])
+  // It is closed on GitHub, so the host is told and it leaves the lists at once, and its review leaves with it.
+  assert.deepEqual(merges, [482])
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), false)
+})
+
+test('a discard with no words only closes, and a close GitHub refuses says why and keeps the review', async (t) => {
+  const quiet = pullSeat(t)
+  const preview = await quiet.reviews.preview(quiet.id, 'discard', '  ')
+  assert.deepEqual(preview.lines, ['Close acme/shop#482 on GitHub without merging it, as you.', 'Its branch stays.'])
+  await quiet.reviews.verdict(quiet.id, 'discard', '  ', preview.confirm)
+  assert.deepEqual(sentTo(quiet.calls), [['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }]])
+
+  const refused = pullSeat(t, { refuseClose: 'HTTP 403: Must have write access to close this pull request.' })
+  const shown = await refused.reviews.preview(refused.id, 'discard', '')
+  await assert.rejects(refused.reviews.verdict(refused.id, 'discard', '', shown.confirm), /Must have write access/)
+  assert.deepEqual(refused.merges, [])
+  assert.equal(refused.reviews.list().reviews.some((item) => item.id === refused.id), true)
+})
+
+test("discarding a finished change is hobkin's own no, and closes its pull request when one is open", async (t) => {
+  const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
+  const local = seated(t, id)
+  // A discard never needs a comment, and never waits on the review being for the newest commit.
+  await local.moveOn()
+  const preview = await local.reviews.preview(id, 'discard', '', sample.change.head.slice(0, 12))
+  assert.deepEqual(preview.lines, ['Say no to this change. hobkin does not work on it again, and learns from the no.', 'Its branch stays.'])
+  assert.deepEqual(local.actions, [], 'a preview does nothing')
+  assert.deepEqual(await local.reviews.verdict(id, 'discard', '', preview.confirm, sample.change.head.slice(0, 12)), { message: 'hobkin did decline.' })
+  assert.deepEqual(local.actions, [['decline', 'hobkin', '7d02c9']])
+  assert.deepEqual(local.posts, [], 'with no pull request, nothing goes to GitHub')
+  assert.equal(local.reviews.list().reviews.some((item) => item.id === id), false, 'and its review leaves the list')
+
+  // With a pull request open, that is closed first, so a no never leaves an open pull request behind.
+  const open = seated(t, id, { card: { landing: 'mergePr', yes: 'Merge its pull request.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: 'https://github.com/acme/shop/pull/482' } })
+  const withPull = await open.reviews.preview(id, 'discard', '')
+  assert.deepEqual(withPull.lines, [
+    'Say no to this change. hobkin does not work on it again, and learns from the no.',
+    'Close its pull request on GitHub without merging it, as you: https://github.com/acme/shop/pull/482',
+    'Its branch stays.',
+  ])
+  assert.deepEqual(await open.reviews.verdict(id, 'discard', '', withPull.confirm), { message: 'hobkin did decline. Closed https://github.com/acme/shop/pull/482 without merging it.' })
+  assert.deepEqual(sentTo(open.posts), [['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }]])
+  assert.deepEqual(open.actions, [['decline', 'hobkin', '7d02c9']])
+
+  // hobkin's refusal comes back as it is, and the review stays for another try.
+  const held = seated(t, id)
+  held.refuse('"Say what hobkin is doing" is running, so it cannot be declined now.')
+  const again = await held.reviews.preview(id, 'discard', '')
+  await assert.rejects(held.reviews.verdict(id, 'discard', '', again.confirm), /is running, so it cannot be declined now/)
+  assert.equal(held.reviews.list().reviews.some((item) => item.id === id), true)
+})
+
+test('discarding a pull request and deleting its branch closes it, then deletes its head branch on GitHub, and only after the yes', async (t) => {
+  const { id, reviews, calls, merges, github, store, target } = pullSeat(t)
+  reviews.saveNotes(id, { entries: [{ op: 'put', note: note('n1', { text: 'Rename it later.' }) }], draft: null })
+
+  const preview = await reviews.preview(id, 'discard-branch', 'Superseded by the new checkout.')
+  assert.deepEqual(sentTo(calls), [], 'a preview only reads GitHub')
+  assert.deepEqual(preview.lines, [
+    'Close acme/shop#482 on GitHub without merging it, as you.',
+    'Your words go on it as a comment first.',
+    `Then delete its branch feature/rounding on GitHub, in acme/shop, as you, only if it is still at ${sample.change.head.slice(0, 7)}: a commit pushed since keeps it.`,
+    'Its commits stay on the closed pull request, and GitHub can restore the branch from there.',
+  ])
+
+  assert.deepEqual(await reviews.verdict(id, 'discard-branch', 'Superseded by the new checkout.', preview.confirm), { message: 'Closed acme/shop#482 without merging it, and deleted its branch feature/rounding.' })
+  const writes = sentTo(calls)
+  assert.deepEqual(writes.slice(0, 2), [
+    ['POST', 'repos/acme/shop/issues/482/comments', { body: '**hobkin automated review**\n\nSuperseded by the new checkout.' }],
+    ['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }],
+  ])
+  // The delete is one atomic update of the ref, from the commit shown to nothing.
+  const [method, path, body] = writes[2]!
+  assert.deepEqual([method, path, body.variables], ['POST', 'graphql', { repo: 'R_shop', name: 'refs/heads/feature/rounding', before: sample.change.head }])
+  assert.match(body.query, /updateRefs\(input: \{ repositoryId: \$repo, refUpdates: \[\{ name: \$name, beforeOid: \$before, afterOid: "0{40}"/)
+  assert.equal(writes.length, 3)
+  assert.equal(github.deleted, true)
+  assert.deepEqual(merges, [482])
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), false)
+  // The review is kept, as a merged one is: the notes written on it are not deleted with the branch.
+  assert.deepEqual(store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null)), [['n1', null]])
+})
+
+test('a push to the branch while the pull request closes keeps the branch: the delete is pinned to the commit shown', async (t) => {
+  const { id, reviews, github } = pullSeat(t)
+  const preview = await reviews.preview(id, 'discard-branch', '')
+  github.pushOnClose = NEWER
+  await assert.rejects(
+    reviews.verdict(id, 'discard-branch', '', preview.confirm),
+    new RegExp(`Closed acme/shop#482 without merging it, but its branch feature/rounding was not deleted: refs/heads/feature/rounding is not at ${sample.change.head}\\.$`),
+  )
+  assert.equal(github.deleted, false)
+})
+
+test('a protected branch, the branch of another open pull request and one open pull requests merge into are not deleted, and Discard alone still closes', async (t) => {
+  const refusals: [Parameters<typeof pullSeat>[1], RegExp][] = [
+    [{ protectedBranch: true }, /Its branch feature\/rounding is protected in acme\/shop, so it is not deleted from here\. Discard closes the pull request and keeps the branch\.$/],
+    [{ sharing: { heads: [490], bases: [] } }, /Its branch feature\/rounding is also the branch of acme\/shop#490, which is open, so it is not deleted\. Discard closes this pull request and keeps the branch\.$/],
+    [{ sharing: { heads: [], bases: [501, 502, 503] } }, /Its branch feature\/rounding is what acme\/shop#501 and 2 more open pull requests merge into, so it is not deleted\. Discard closes this pull request and keeps the branch\.$/],
+  ]
+  for (const [options, refused] of refusals) {
+    const seat = pullSeat(t, options)
+    await assert.rejects(seat.reviews.preview(seat.id, 'discard-branch', ''), refused)
+    await assert.rejects(seat.reviews.verdict(seat.id, 'discard-branch', '', 'any'), refused)
+    const discard = await seat.reviews.preview(seat.id, 'discard', '')
+    await seat.reviews.verdict(seat.id, 'discard', '', discard.confirm)
+    assert.deepEqual(sentTo(seat.calls), [['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }]], 'only the close went')
+    assert.equal(seat.github.deleted, false)
+  }
+})
+
+test('one verdict at a time on a review: the same yes again joins the one under way, another is refused, and a discard done is not done twice', async (t) => {
+  const { id, reviews, calls, github } = pullSeat(t)
+  let release!: () => void
+  github.gate = new Promise<void>((resolve) => (release = resolve))
+  const preview = await reviews.preview(id, 'discard', 'Superseded.')
+
+  const first = reviews.verdict(id, 'discard', 'Superseded.', preview.confirm)
+  const again = reviews.verdict(id, 'discard', 'Superseded.', preview.confirm)
+  await assert.rejects(reviews.verdict(id, 'comment', '', 'another-token'), /Another verdict on this review is under way\. Wait for it to end, then look again\./)
+  release()
+  const closed = { message: 'Closed acme/shop#482 without merging it.' }
+  assert.deepEqual(await Promise.all([first, again]), [closed, closed])
+  assert.deepEqual(sentTo(calls).map(([method, path]) => [method, path]), [['POST', 'repos/acme/shop/issues/482/comments'], ['PATCH', 'repos/acme/shop/pulls/482']], 'one comment and one close')
+
+  // A window still showing it gives the same yes once more: it is closed already, and nothing is sent again.
+  await assert.rejects(reviews.verdict(id, 'discard', 'Superseded.', preview.confirm), /acme\/shop#482 is closed already, so there is nothing left to discard\./)
+  assert.equal(sentTo(calls).length, 2)
+})
+
+test('a branch in a fork or a repository’s default branch is never deleted from here, one that moved since is refused, and a delete GitHub refuses says what was done', async (t) => {
+  const fork = pullSeat(t, { headRepo: 'dev/shop' })
+  await assert.rejects(fork.reviews.preview(fork.id, 'discard-branch', ''), /Its branch feature\/rounding lives in dev\/shop, a fork, and is not deleted from here\. Discard closes the pull request and keeps the branch\.$/)
+  const gone = pullSeat(t, { headRepo: null })
+  await assert.rejects(gone.reviews.preview(gone.id, 'discard-branch', ''), /The repository its branch lived in is gone, so there is no branch to delete\. Discard closes the pull request\.$/)
+  const main = pullSeat(t, { headRef: 'main' })
+  await assert.rejects(main.reviews.preview(main.id, 'discard-branch', ''), /Its branch is main, the default branch of acme\/shop, which is never deleted\. Discard closes the pull request and keeps the branch\.$/)
+  assert.deepEqual([...sentTo(fork.calls), ...sentTo(gone.calls), ...sentTo(main.calls)], [])
+
+  // A commit pushed to the branch after the preview: deleting it now would take that too, so the yes no longer goes.
+  const moved = pullSeat(t)
+  const shown = await moved.reviews.preview(moved.id, 'discard-branch', '')
+  moved.github.head = NEWER
+  await assert.rejects(moved.reviews.verdict(moved.id, 'discard-branch', '', shown.confirm), /has changed since it was shown/)
+  assert.deepEqual(sentTo(moved.calls), [])
+
+  const refused = pullSeat(t, { refuseDelete: 'HTTP 422: Reference does not exist' })
+  const asked = await refused.reviews.preview(refused.id, 'discard-branch', '')
+  await assert.rejects(refused.reviews.verdict(refused.id, 'discard-branch', '', asked.confirm), /Closed acme\/shop#482 without merging it, but its branch feature\/rounding was not deleted: gh said: HTTP 422: Reference does not exist$/)
+  assert.deepEqual(refused.merges, [482], 'it is closed on GitHub, so it leaves the lists all the same')
+})
+
+const BRANCH = 'hobkin/7d02c9-say-what-hobkin-is-doing'
+const TREE = join(homedir(), '.hobkin/work/hobkin/trees/7d02c9-say-what-hobkin-is-doing')
+/** What hobkin says deleting the change's branch takes: here and on GitHub, with its worktree and the files git ignores in it, and two commits only on it. */
+const PLAN = { branch: BRANCH, here: sample.change.head, remote: { name: 'origin', url: 'git@github.com:acme/shop.git', sha: sample.change.head }, worktree: TREE, ignored: ['.env', 'build/', 'dist/', 'node_modules/', 'tmp/'], lost: 2 }
+const WITH_PULL: ChangeCard = { landing: 'mergePr', yes: 'Merge its pull request.', branch: BRANCH, pr: 'https://github.com/acme/shop/pull/482' }
+
+test("discarding a finished change and deleting its branch: its pull request closed, hobkin's no, then the branch hobkin deletes, exactly as shown", async (t) => {
+  const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
+  const seat = seated(t, id, { card: WITH_PULL, plan: PLAN })
+  seat.notes([note('n1', { text: 'Rename it later.' })])
+
+  const preview = await seat.reviews.preview(id, 'discard-branch', '')
+  assert.deepEqual(preview.lines, [
+    'Say no to this change. hobkin does not work on it again, and learns from the no.',
+    'Close its pull request on GitHub without merging it, as you: https://github.com/acme/shop/pull/482',
+    `Then delete its branch ${BRANCH} on this Mac and on GitHub, in acme/shop.`,
+    'Remove the worktree that holds it, at ~/.hobkin/work/hobkin/trees/7d02c9-say-what-hobkin-is-doing.',
+    'Files git ignores in its worktree go with it: ".env", "build/", "dist/" and 2 more.',
+    '2 commits on no other branch or tag on this Mac are lost.',
+  ])
+  assert.deepEqual(seat.actions, [['deleteBranch', 'hobkin', '7d02c9', { look: true }]], 'a preview only asks hobkin what it would delete')
+  assert.deepEqual(seat.posts, [])
+
+  const done = await seat.reviews.verdict(id, 'discard-branch', '', preview.confirm)
+  assert.equal(done.message, 'Closed https://github.com/acme/shop/pull/482 without merging it. hobkin took the no. hobkin did deleteBranch.')
+  // The yes looks once more, so it does only what was shown: then the close, the no and the deletion, in that order.
+  assert.deepEqual(seat.timeline, ['work deleteBranch', 'work deleteBranch', 'gh PATCH repos/acme/shop/pulls/482', 'work decline', 'work deleteBranch'])
+  assert.deepEqual(seat.actions.at(-1), ['deleteBranch', 'hobkin', '7d02c9', { expect: PLAN }], 'it deletes exactly what was shown')
+  assert.equal(seat.reviews.list().reviews.some((item) => item.id === id), false)
+  assert.deepEqual(seat.store.notes(seat.target).entries.map((entry) => (entry.op === 'put' ? entry.note.id : null)), ['n1'], 'its review keeps the notes written on it')
+})
+
+test('what deleting the branch takes is said as it is: on this Mac, on GitHub or elsewhere, and how many commits are lost', async (t) => {
+  const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
+  const sha = sample.change.head
+  const linesFor = async (plan: unknown) => (await seated(t, id, { plan }).reviews.preview(id, 'discard-branch', '')).lines.slice(1)
+
+  assert.deepEqual(await linesFor({ ...PLAN, remote: null, worktree: null, lost: 0 }), [`Then delete its branch ${BRANCH} on this Mac.`, 'No commit is lost: every one on it is on another branch or tag on this Mac.'])
+  assert.deepEqual(await linesFor({ ...PLAN, remote: null, ignored: ['.env', 'build/'], lost: 0 }), [
+    `Then delete its branch ${BRANCH} on this Mac.`,
+    'Remove the worktree that holds it, at ~/.hobkin/work/hobkin/trees/7d02c9-say-what-hobkin-is-doing.',
+    'Files git ignores in its worktree go with it: ".env" and "build/".',
+    'No commit is lost: every one on it is on another branch or tag on this Mac.',
+  ])
+  // A tree with nothing ignored in it says nothing of them, nor does what an older hobkin says without the list.
+  const { ignored: _ignored, ...older } = PLAN
+  assert.equal((await linesFor({ ...PLAN, ignored: [] })).some((line) => line.startsWith('Files git ignores')), false)
+  assert.equal((await linesFor(older)).some((line) => line.startsWith('Files git ignores')), false)
+  assert.deepEqual(await linesFor({ ...PLAN, here: null, remote: { name: 'origin', url: 'https://github.com/acme/shop.git', sha }, worktree: null, lost: 1 }), [
+    `Then delete its branch ${BRANCH} on GitHub, in acme/shop. It is gone from this Mac already.`,
+    '1 commit on no other branch or tag on this Mac is lost.',
+  ])
+  assert.deepEqual(await linesFor({ ...PLAN, remote: { name: 'origin', url: '/srv/git/shop.git', sha }, worktree: null, lost: null }), [`Then delete its branch ${BRANCH} on this Mac and on origin, at /srv/git/shop.git.`, 'Commits on no other branch or tag on this Mac are lost.'])
+})
+
+test("hobkin's refusal comes before anything is done, a branch that changed since is refused, and a deletion that fails after the no says what was done", async (t) => {
+  const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
+
+  const held = seated(t, id, { card: WITH_PULL, plan: PLAN })
+  held.branch.refuse = `${BRANCH} is checked out in the project's own folder, ~/Poetry/hobkin, so it is not deleted. Switch that folder to another branch first.`
+  await assert.rejects(held.reviews.preview(id, 'discard-branch', ''), /is checked out in the project's own folder, ~\/Poetry\/hobkin, so it is not deleted\. Switch that folder to another branch first\.$/)
+  await assert.rejects(held.reviews.verdict(id, 'discard-branch', '', 'any'), /checked out in the project's own folder/)
+  assert.deepEqual([held.timeline.filter((call) => call !== 'work deleteBranch'), held.posts], [[], []], 'nothing was closed, declined or deleted')
+
+  // The branch gained a commit after the preview, so deleting it now takes more than was shown.
+  const moved = seated(t, id, { card: WITH_PULL, plan: PLAN })
+  const shown = await moved.reviews.preview(id, 'discard-branch', '')
+  moved.branch.plan = { ...PLAN, here: NEWER, lost: 3 }
+  await assert.rejects(moved.reviews.verdict(id, 'discard-branch', '', shown.confirm), /has changed since it was shown/)
+  assert.deepEqual(moved.timeline, ['work deleteBranch', 'work deleteBranch'])
+
+  const failing = seated(t, id, { plan: PLAN })
+  const asked = await failing.reviews.preview(id, 'discard-branch', '')
+  failing.branch.fail = `Removed its worktree, but ${BRANCH} was not deleted on this Mac: cannot lock ref`
+  await assert.rejects(failing.reviews.verdict(id, 'discard-branch', '', asked.confirm), new RegExp(`hobkin took the no, but its branch was not deleted: Removed its worktree, but ${BRANCH} was not deleted on this Mac: cannot lock ref$`))
+  assert.deepEqual(failing.actions.map((action) => action[0]), ['deleteBranch', 'deleteBranch', 'decline', 'deleteBranch'])
+  assert.equal(failing.reviews.list().reviews.some((item) => item.id === id), false, 'the no went, so its review leaves the list')
 })

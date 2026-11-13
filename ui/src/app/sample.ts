@@ -13,6 +13,12 @@ export interface SampleAgent {
   title: string
   project: string
   doing: string
+  /**
+   * The agent's own latest words, in one line: what it is doing right now, said the way it said it ("I'm now reviewing
+   * whether the old tests still cover everything…"). Read straight from its activity, so it costs nothing extra. The
+   * dock shows it small and truncated; a hover gives the whole line. Absent before it has said anything.
+   */
+  update?: string
   tier: Tier
   /** Hue of the agent's small hood, in degrees. */
   hue: number

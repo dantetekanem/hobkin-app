@@ -6,6 +6,7 @@ import type { CanvasState } from './canvas.ts'
 import type { GitHubState } from './github.ts'
 import type { MessageOp } from './message-ops.ts'
 import type { ModelsState } from './models.ts'
+import type { Nudge } from './nudge.ts'
 import type { PendingQuestion } from './question.ts'
 import type { SignInState } from './signin.ts'
 import type { WireSnapshot } from './snapshot.ts'
@@ -74,6 +75,10 @@ export interface StateMessage {
   work?: WorkState | null
   /** The canvas panel: open or closed and the page it shows, whole, whenever it changed and with every reset. */
   canvas?: CanvasState
+  /** Each durable hobkin's canvas, by the hobkin's id, whole, whenever any changed and with every reset. `canvas` stays the main hobkin's. */
+  canvases?: Record<string, CanvasState>
+  /** A one-shot instruction for the window (navigate or draft), sent only when it is new, never on a reset. */
+  nudge?: Nudge
   /** The latest validated theme request, sent on changes and resets. */
   appearance?: AppearanceRequest | null
 }

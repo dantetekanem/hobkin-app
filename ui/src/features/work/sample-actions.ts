@@ -34,6 +34,8 @@ function saidOf({ title, project }: FinishedChange, choice: HobkinChoice): strin
       return `${named} goes to the front of the queue for a review. It leaves the list while it is reviewed, and comes back to approve with its grade.`
     case 'decline':
       return `Said no to ${named}. Its branch stays, and hobkin learns from this.`
+    case 'done':
+      return `${named} is done. It leaves the queue, and any branch or PR stays as it is.`
     case 'rebase':
     case 'changes':
       return `An agent goes back to ${named} next.`
@@ -124,6 +126,8 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
     }
     case 'agents':
       return { state: { ...state, agents: action.agents, agentsAllowed: action.agents }, message: '' }
+    case 'tokens':
+      return { state: { ...state, dailyTokens: action.tokens }, message: '' }
     case 'prs':
       return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, prMode: action.prs } : project)) }, message: '' }
     case 'issues':

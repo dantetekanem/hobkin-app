@@ -1,4 +1,4 @@
-import { ArrowUpRight, ExternalLink, Waypoints } from 'lucide-react'
+import { ArrowUpRight, ExternalLink, MessagesSquare, Waypoints } from 'lucide-react'
 import { motion, type Variants } from 'motion/react'
 import { Fragment } from 'react'
 import { Button } from '@/components/ui/button.tsx'
@@ -23,6 +23,8 @@ interface ItemCardProps {
   onReview: (row: WaitingRow) => void
   /** Opens it where it is handled, from its own link. */
   onOpenElsewhere?: (row: WaitingRow) => void
+  /** Puts it on the next message to hobkin, to talk it over. */
+  onDiscuss: (row: WaitingRow) => void
 }
 
 const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
@@ -30,9 +32,9 @@ const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
 /**
  * One thing waiting on the user: what kind it is and who asks, the one line that says what it is, and its
  * choices in words, with hobkin's pick marked. The whole card is one button that opens its whole decision, or
- * opens it where hobkin handles it. Its own controls (links, Review) sit on top, and Right reaches them.
+ * opens it where hobkin handles it. Its own controls (links, Review, Discuss) sit on top, and Right reaches them.
  */
-export function ItemCard({ row, now, variants, order, reads = false, onAsk, onReview, onOpenElsewhere }: ItemCardProps) {
+export function ItemCard({ row, now, variants, order, reads = false, onAsk, onReview, onOpenElsewhere, onDiscuss }: ItemCardProps) {
   const { label, icon: Icon } = KIND[row.kind]
   const at = timeOf(row.at)
   const choices = row.question.choices
@@ -127,12 +129,27 @@ export function ItemCard({ row, now, variants, order, reads = false, onAsk, onRe
             ))}
           </p>
         </div>
-        {row.branch ? (
-          <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" onClick={() => onReview(row)} className="pointer-events-auto shrink-0 self-center">
-            <Waypoints aria-hidden="true" />
-            Review
+        {/* Discuss is on every card, last on the right, so it is always in the same place. */}
+        <div className="flex shrink-0 items-center gap-1.5 self-center">
+          {row.branch ? (
+            <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" onClick={() => onReview(row)} className="pointer-events-auto">
+              <Waypoints aria-hidden="true" />
+              Review
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            tabIndex={-1}
+            data-row-control=""
+            onClick={() => onDiscuss(row)}
+            aria-label={`Discuss with hobkin: ${row.summary}`}
+            className="pointer-events-auto text-muted-foreground"
+          >
+            <MessagesSquare aria-hidden="true" />
+            Discuss
           </Button>
-        ) : null}
+        </div>
       </div>
     </motion.li>
   )

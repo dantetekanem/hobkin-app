@@ -1,4 +1,4 @@
-import type { Choice, Question, QuestionQueue } from '../questions/queue.ts'
+import type { Answer, Choice, Question, QuestionQueue } from '../questions/queue.ts'
 
 /**
  * Action items: everything waiting on the user. hobkin calls them decisions (`src/cli/decisions.mjs`), and
@@ -135,8 +135,11 @@ export interface WaitingRow {
   links: { label: string; url: string }[]
   /** The item as hobkin filed it. Null for a question from the sheet. */
   item: ActionItem | null
-  /** How hobkin takes the answer: its decision action, or its learning action for a proposal. Absent on sample rows. */
-  answers?: { by: 'decision' | 'learning'; id: string }
+  /**
+   * How hobkin takes the answer: its decision action, its learning action for a learning proposal, its work action for
+   * a cleared step, or its work-mode answer for a project proposal (take or skip). Absent on sample rows.
+   */
+  answers?: { by: 'decision' | 'learning'; id: string } | { by: 'work'; id: string; slug: string; item: string } | { by: 'proposal'; slug: string }
   /** Something hobkin keeps elsewhere, which opens where it is handled instead of being answered here. */
   opens?: { screen: 'reports'; report: string } | { screen: 'work' }
 }
@@ -227,6 +230,57 @@ export function answersOf(row: WaitingRow, sample: boolean): { choices: Choice[]
   if (row.opens || (!row.answers && !sample)) return { choices: [], words: false }
   const choices = row.question.choices
   return { choices, words: row.answers ? row.answers.by === 'decision' : choices.length > 0 }
+}
+
+/**
+ * Whether a waiting row is an action item at all: something the user decides here, among more than one option. Work is
+ * work, not an action item. A row that only opens where it is handled — a finished branch in Work, a report in Reports —
+ * is not a decision, and neither is a lone "Mark it done". hobkin's own filed decisions always qualify: they take one of
+ * their choices or the user's own words. Everything else must offer at least two choices (a learning proposal, a
+ * take-or-skip, a sample). The list and the count rest on this, so only true decisions ever wait on the user.
+ */
+export function isActionItem(row: WaitingRow): boolean {
+  if (row.opens) return false
+  if (row.answers?.by === 'decision') return true
+  return row.question.choices.length >= 2
+}
+
+/** The host command an answer becomes, as hobkin takes it, or why it is refused. The choice's own value is its answer. */
+export type AnswerCommand =
+  | { name: 'work.change'; args: { slug: string; item: string; action: 'done' } }
+  | { name: 'work.proposal'; args: { slug: string; answer: 'take' | 'skip' } }
+  | { name: 'learning.answer'; args: { id: string; value: 'yes' | 'later' | 'no' } }
+  | { name: 'decision.answer'; args: { id: string; value: string } | { id: string; typed: string } }
+  | { refused: string }
+
+/**
+ * How an open item's answer goes to hobkin. Only a decision takes the user's own words; a learning proposal, a project
+ * proposal and a cleared step take one of their choices, so typed words there are refused with a word about why. Pure,
+ * so the mapping is tested without a window; the screen runs the command it returns.
+ */
+export function answerCommand(answers: NonNullable<WaitingRow['answers']>, given: Answer): AnswerCommand {
+  // The user's own words are a decision's alone; every other kind takes one of its choices.
+  if ('typed' in given) {
+    if (answers.by === 'decision') return { name: 'decision.answer', args: { id: answers.id, typed: given.typed } }
+    return {
+      refused:
+        answers.by === 'learning'
+          ? 'A learning proposal takes one of its three choices.'
+          : answers.by === 'proposal'
+            ? 'A project proposal is taken or skipped.'
+            : 'Mark it done, or reply about it in chat.',
+    }
+  }
+  switch (answers.by) {
+    case 'work':
+      return { name: 'work.change', args: { slug: answers.slug, item: answers.item, action: 'done' } }
+    case 'proposal':
+      return { name: 'work.proposal', args: { slug: answers.slug, answer: given.value as 'take' | 'skip' } }
+    case 'learning':
+      return { name: 'learning.answer', args: { id: answers.id, value: given.value as 'yes' | 'later' | 'no' } }
+    case 'decision':
+      return { name: 'decision.answer', args: { id: answers.id, value: given.value } }
+  }
 }
 
 /**

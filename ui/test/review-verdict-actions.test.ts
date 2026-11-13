@@ -4,11 +4,11 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
-const TOKEN: Record<Verdict, string> = { approve: 'a'.repeat(64), 'approve-merge': 'b'.repeat(64), 'request-changes': 'c'.repeat(64), comment: 'd'.repeat(64) }
+const TOKEN: Record<Verdict, string> = { approve: 'a'.repeat(64), 'approve-merge': 'b'.repeat(64), 'request-changes': 'c'.repeat(64), comment: 'd'.repeat(64), discard: 'e'.repeat(64), 'discard-branch': 'f'.repeat(64) }
 /** The commit of the review on screen, and a newer one its change has moved to since. */
 const SHOWN = '7d02c99f8c61be4291e0c2046d29787cbc1c010a'
 const NEWER = 'f'.repeat(40)
@@ -209,9 +209,44 @@ test('a verdict is confirmed in place: the first click shows what it does, a sec
 })
 
 test('a pull request can be approved, approved and merged, sent back for changes or commented on; a finished change approved, merged or sent its fixes', () => {
-  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'comment'])
-  assert.deepEqual(VERDICT_CHOICES.change.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes'])
-  // Its key is the click on it: A, M and X, wherever the reviewer is in the review.
-  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', 'X', null])
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'comment', 'discard', 'discard-branch'])
+  assert.deepEqual(VERDICT_CHOICES.change.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'discard', 'discard-branch'])
+  // Its key is the click on it: A, M and X, wherever the reviewer is in the review. Comment and the two discards have none.
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', 'X', null, null, null])
   assert.deepEqual([verdictKind(PULL), verdictKind(CHANGE)], ['pull', 'change'])
+})
+
+test('Discard comes after every yes for a finished change and for a pull request, shown before it goes, and takes no comments with it', async () => {
+  for (const [id, kind] of [[CHANGE, 'change'], [PULL, 'pull']] as const) {
+    const no = VERDICT_CHOICES[kind].at(-2)!
+    assert.deepEqual([no.verdict, no.label, no.keys], ['discard', 'Discard', undefined], `${kind}: it comes after the yeses and no single key gives it`)
+
+    const sent: string[][] = []
+    const { choices, calls } = panel(id, host, { comments: () => ['n1'], markSent: (ids) => sent.push([...ids]) })
+    // The first click only shows what the no will do.
+    await choices.press('discard')
+    assert.deepEqual(calls, [{ name: 'save', args: null }, { name: 'review.preview', args: { id, verdict: 'discard', summary: '', head: SHOWN } }])
+    assert.equal(choices.armed(), 'discard')
+    // The second does it, with the token the host answered.
+    await choices.press('discard')
+    assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id, verdict: 'discard', summary: '', confirm: TOKEN.discard, head: SHOWN } })
+    assert.equal(choices.getState().message, 'Done: discard')
+    // A no posts no review, so the comments written on it are not marked as sent.
+    assert.equal(sendsComments(id, 'discard'), false)
+    assert.deepEqual(sent, [])
+  }
+})
+
+test('Discard and delete branch is the last choice for both kinds, with no key of its own, shown before it goes, and takes no comments with it', async () => {
+  for (const [id, kind] of [[CHANGE, 'change'], [PULL, 'pull']] as const) {
+    const last = VERDICT_CHOICES[kind].at(-1)!
+    assert.deepEqual([last.verdict, last.label, last.keys], ['discard-branch', 'Discard and delete branch', undefined], `${kind}: it is last and no single key gives it`)
+
+    const { choices, calls } = panel(id, host, { comments: () => ['n1'] })
+    await choices.press('discard-branch')
+    assert.deepEqual(calls, [{ name: 'save', args: null }, { name: 'review.preview', args: { id, verdict: 'discard-branch', summary: '', head: SHOWN } }], 'the first click only shows what it deletes')
+    await choices.press('discard-branch')
+    assert.deepEqual(calls.at(-1), { name: 'review.verdict', args: { id, verdict: 'discard-branch', summary: '', confirm: TOKEN['discard-branch'], head: SHOWN } })
+    assert.equal(sendsComments(id, 'discard-branch'), false)
+  }
 })

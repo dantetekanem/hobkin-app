@@ -16,7 +16,6 @@ const json = (value: unknown) => JSON.stringify(value, null, 2) ?? ''
 export function SavedRun({ report, onBack }: { report: string; onBack: () => void }) {
   const root = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<SavedRunState>({ phase: 'loading' })
-  const [mode, setMode] = useState<'transcript' | 'code'>('transcript')
   const [origin] = useState(() => hostStore.getState())
   const home = useHost(state => state.home)
   const epoch = useHost(state => state.epoch)
@@ -47,10 +46,6 @@ export function SavedRun({ report, onBack }: { report: string; onBack: () => voi
     }}>
       <div className="flex flex-wrap items-center gap-2 px-5 py-4">
         <Button variant="ghost" size="sm" onClick={onBack}>Back to report</Button>
-        <div role="group" aria-label="Saved run display" className="ml-auto flex gap-1">
-          <Button variant={mode === 'transcript' ? 'secondary' : 'ghost'} size="sm" aria-pressed={mode === 'transcript'} onClick={() => setMode('transcript')}>Transcript</Button>
-          <Button variant={mode === 'code' ? 'secondary' : 'ghost'} size="sm" aria-pressed={mode === 'code'} onClick={() => setMode('code')}>Code</Button>
-        </div>
       </div>
       <div data-saved-scroll className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 pb-10">
         <p className="mb-5 text-sm text-muted-foreground">Saved branch through its last complete entry · read-only · maximum 2 MiB. No session is resumed. Thinking appears only when stored. ↑/↓ walks controls; Page Up/Down reads; Esc returns.</p>
@@ -59,7 +54,7 @@ export function SavedRun({ report, onBack }: { report: string; onBack: () => voi
           {state.session.skipped > 0 ? <p role="status">The final incomplete record could not be read. Its content is unavailable.</p> : null}
           {!state.session.entries.length ? <p>No entries were stored.</p> : null}
           <ol className="flex flex-col gap-6">{state.session.entries.map((entry, index) => <li key={String(entry.id ?? index)} className="min-w-0 [content-visibility:auto] [contain-intrinsic-size:auto_120px]">
-            {mode === 'code' ? <CodeText text={json(entry)} language="json" label={`Stored entry ${index + 1}`} /> : <StoredEntry entry={entry} codemode={codemode} />}
+            <StoredEntry entry={entry} codemode={codemode} />
           </li>)}</ol>
         </>}
       </div>

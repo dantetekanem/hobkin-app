@@ -16,17 +16,14 @@ import { WorldScreen } from '@/features/work/WorldScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
 import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
 import { CanvasPanel } from '@/features/canvas-panel/CanvasPanel.tsx'
+import { HobkinScreen } from '@/features/hobkins/HobkinScreen.tsx'
+import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { ScreenMenu } from './ScreenMenu.tsx'
 import { useStill } from './still.ts'
 import { type ScreenId } from './screens.ts'
-import { useView, type ScreenMotion } from './view-store.ts'
-
-/** How far the canvas grows over the chat while the user talks to an agent, in pixels. */
-export const TALK_GROW = 132
-/** How much of the chat stays in view beside a review that has the user's attention, in pixels. */
-export const REVIEW_KEEPS = 112
+import { canvasGrowth, useView, type ScreenMotion } from './view-store.ts'
 
 // The menu's screens load with the frame. A screen loaded on demand slides in empty, and React shows it only once its
 // fallback has been up for a while, so its content would appear in place after the slide instead of sliding in.
@@ -101,7 +98,6 @@ export function Canvas() {
   const screen = useView((view) => view.screen)
   const motionOf = useView((view) => view.screenMotion)
   const openAgent = useView((view) => view.openAgent)
-  const talking = useView((view) => view.agentTalk)
   const engaged = useView((view) => view.canvasEngaged)
   const engageCanvas = useView((view) => view.engageCanvas)
   const conversationWidth = useView((view) => view.conversationWidth)
@@ -111,9 +107,10 @@ export function Canvas() {
   const still = useStill()
   const enteringAgent = screen === 'agent' && !needsModel
   const travelOf: Travel = { ...motionOf, still, agent: enteringAgent }
-  const View = needsModel ? SignInScreen : SCREEN_VIEWS[screen]
-  // A review that has the user's attention takes almost the whole window. Talking to an agent takes a little.
-  const grow = screen === 'review' && engaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : talking ? TALK_GROW : 0
+  // A durable hobkin is an agent with a page of its own (034-durable-hobkins). Moving between it and an agent travels.
+  const durable = enteringAgent && hobkinOfAgent(openAgent) !== null
+  const View = needsModel ? SignInScreen : durable ? HobkinScreen : SCREEN_VIEWS[screen]
+  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth })
   // Each agent has a key of its own, which focus and the keys go by. The agents share one section, though: moving from
   // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
   const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen
@@ -131,12 +128,14 @@ export function Canvas() {
     >
       {/* The empty top of the canvas, around the menu, is a title bar: it drags the window and a double-click zooms it.
           It never starts a text selection, which the Mac window would paint as a band of the selection color. */}
-      <div data-tauri-drag-region className="select-none-chrome absolute inset-x-0 top-0 z-10 h-14" />
+      {/* The empty top is a window-drag title bar, but it must not cover the top-right controls (Nerd stats, close,
+          Stop) that some screens place there, or it swallows their clicks. Leave that corner out of the drag region. */}
+      <div data-tauri-drag-region className="select-none-chrome absolute top-0 left-0 right-44 z-10 h-14" />
       {needsModel ? null : <ScreenMenu />}
       <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float">
         <AnimatePresence initial={false} custom={travelOf}>
           <motion.section
-            key={enteringAgent ? 'agent' : key}
+            key={enteringAgent ? (durable ? 'hobkin' : 'agent') : key}
             custom={travelOf}
             variants={travel}
             initial="enter"

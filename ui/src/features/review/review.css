@@ -952,9 +952,12 @@
 /*
  * The merge's moment (Celebration.tsx): "Merged!" in gold on a dark flat band across the whole window, a little taller
  * than the word. One timeline, `--rv-merged-total` long, holds every phase as a share of it, so the pieces stay in
- * step: the band opens from the middle outwards (0 to 17%, the strong ease-out), the word rises into place as it opens
- * (5 to 22%), a light crosses the gold (24 to 50%, moving on screen, so ease-in-out), and everything fades away
- * together (81 to 97%). Only transform and opacity change. It is fixed over the window and takes no pointer.
+ * step: the band opens from the middle outwards (0 to 17%, the strong ease-out). The word comes at the screen from the
+ * reader's side and lands on it with a splat (5 to 11%, speeding up as it falls): wide and flat where it hits, then it
+ * springs back tall, wobbles a little either way, as a tada does, and settles (11 to 27%). A flash spreads along the
+ * band from where it hit (10 to 30%), a light crosses the gold once it is still (30 to 56%, moving on screen, so
+ * ease-in-out), and everything fades away together (81 to 97%). Only transform and opacity change. It is fixed over
+ * the window and takes no pointer.
  */
 .rv-merged {
   position: fixed;
@@ -966,6 +969,7 @@
   pointer-events: none;
 }
 .rv-merged-band,
+.rv-merged-flash,
 .rv-merged-word {
   grid-area: 1 / 1;
 }
@@ -980,13 +984,21 @@
   transform-origin: center;
   animation: rv-merged-band var(--rv-merged-total) both;
 }
+/* The flash where the word lands: as tall as the band and no taller, since it takes its height from the word's row. */
+.rv-merged-flash {
+  justify-self: center;
+  align-self: stretch;
+  width: min(76vw, 980px);
+  background: radial-gradient(50% 50% at 50% 50%, rgb(255 246 208 / 0.5), rgb(255 201 64 / 0.2) 48%, transparent 76%);
+  animation: rv-merged-flash var(--rv-merged-total) both;
+}
 .rv-merged-word {
   /* The gap above and below the word, and its copy's too, so the two sets of letters lie on each other. */
   --rv-merged-pad: 0.14em 0.25em;
   position: relative;
   margin: 0;
   padding: var(--rv-merged-pad);
-  font-size: clamp(64px, 9vw, 120px);
+  font-size: clamp(58px, 8.1vw, 108px);
   line-height: 1.05;
   letter-spacing: -0.03em;
   white-space: nowrap;
@@ -1039,52 +1051,100 @@
   }
 }
 @keyframes rv-merged-word {
+  /* Far out towards the reader, and unseen. */
   0%,
   5% {
     opacity: 0;
-    transform: translateY(0.22em) scale(0.96);
-    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+    transform: scale(2.6) rotate(0deg);
+    animation-timing-function: linear;
   }
-  22%,
+  /* In sight and falling, faster as it nears the screen. */
+  8% {
+    opacity: 1;
+    transform: scale(1.9) rotate(0deg);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.3);
+  }
+  /* The splat: it hits and spreads, wide and flat. */
+  11% {
+    opacity: 1;
+    transform: scale(1.2, 0.74) rotate(0deg);
+    animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  /* It springs back off the screen, tall, and wobbles to rest: each swing smaller than the last. */
+  15% {
+    opacity: 1;
+    transform: scale(0.93, 1.12) rotate(-2deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.3, 1);
+  }
+  19% {
+    opacity: 1;
+    transform: scale(1.05, 0.96) rotate(1.6deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.3, 1);
+  }
+  23% {
+    opacity: 1;
+    transform: scale(0.985, 1.02) rotate(-0.8deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.3, 1);
+  }
+  27%,
   81% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: scale(1) rotate(0deg);
     animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
   }
   97%,
   100% {
     opacity: 0;
-    transform: translateY(0) scale(1);
+    transform: scale(1) rotate(0deg);
+  }
+}
+@keyframes rv-merged-flash {
+  0%,
+  10% {
+    opacity: 0;
+    transform: scaleX(0.2);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  14% {
+    opacity: 1;
+    transform: scaleX(1);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.3, 1);
+  }
+  30%,
+  100% {
+    opacity: 0;
+    transform: scaleX(1.25);
   }
 }
 @keyframes rv-merged-sheen-window {
   0%,
-  24% {
+  30% {
     transform: translateX(-100%);
     animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1);
   }
-  50%,
+  56%,
   100% {
     transform: translateX(100%);
   }
 }
 @keyframes rv-merged-sheen-text {
   0%,
-  24% {
+  30% {
     transform: translateX(100%);
     animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1);
   }
-  50%,
+  56%,
   100% {
     transform: translateX(-100%);
   }
 }
-/* Reduced motion: the band and the word fade in and out where they stand, with no scale, no travel and no light. */
+/* Reduced motion: the band and the word fade in and out where they stand, with no scale, no travel, no flash and no light. */
 .rv-merged[data-reduced='true'] .rv-merged-band,
 .rv-merged[data-reduced='true'] .rv-merged-word {
   animation-name: rv-merged-fade;
 }
-.rv-merged[data-reduced='true'] .rv-merged-sheen {
+.rv-merged[data-reduced='true'] .rv-merged-sheen,
+.rv-merged[data-reduced='true'] .rv-merged-flash {
   display: none;
 }
 @keyframes rv-merged-fade {

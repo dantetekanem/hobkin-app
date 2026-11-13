@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
+import { registerHooks } from 'node:module'
 import type { FinishedChange } from '../../shared/protocol/work.ts'
 
 const opened: unknown[][] = []
@@ -8,6 +9,8 @@ Object.defineProperty(globalThis, 'window', { configurable: true, value: {
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   open: (...args: unknown[]) => opened.push(args),
 } })
+// The app's `@/` imports point at ui/src, as Vite resolves them.
+registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context) })
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
@@ -88,5 +91,17 @@ test('URL targets open only supported GitHub HTTPS pages through the existing op
   }
 
   assert.deepEqual(opened, [[url, '_blank', 'noopener,noreferrer']])
+  assert.deepEqual(commands, [])
+})
+
+test('a review request opens its pull request in Review, and connections open Integrations', () => {
+  useView.getState().openScreen('home')
+  openTarget({ to: 'pull', url: 'https://example.com/owner/repo/pull/7' })
+  assert.equal(useView.getState().screen, 'home')
+  openTarget({ to: 'pull', url: 'https://github.com/Owner/Repo/pull/7' })
+  assert.equal(useView.getState().screen, 'review')
+  assert.equal(useView.getState().openReview, 'pr:owner/repo/7')
+  openTarget({ to: 'screen', screen: 'integrations' })
+  assert.equal(useView.getState().screen, 'integrations')
   assert.deepEqual(commands, [])
 })

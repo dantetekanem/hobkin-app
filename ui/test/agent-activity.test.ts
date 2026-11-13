@@ -187,6 +187,23 @@ test('any other tool is one step with its name, its first argument and its outpu
   assert.equal(step.failure, 'Scan stopped: too many files')
 })
 
+test('where the page shows the tasks in their own line, task calls are not steps, and one that failed still is', () => {
+  const work = [
+    bash('1', 'git status'),
+    tool('2', 'task_update', { taskId: '2', status: 'in_progress' }, 'completed', 'Updated task #2 status'),
+    bash('3', 'pnpm test'),
+    tool('4', 'task_done', { taskId: '9' }, 'failed', 'Task #9 not found'),
+    tool('5', 'task_output', { task_id: 'b1' }, 'completed', 'build finished'),
+  ]
+  const steps = stepsOf(work, { tasksOnLine: true })
+  // The commands on either side of a task call are one group, as if it were not there.
+  assert.deepEqual(kinds(steps), ['shell', 'tool', 'tool'])
+  assert.equal(steps[0]!.kind === 'shell' && steps[0]!.commands.length, 2)
+  assert.deepEqual(steps.slice(1).map((step) => step.kind === 'tool' && [step.name, step.state]), [['task_done', 'failed'], ['task_output', 'done']])
+  // A page without the line still draws every call.
+  assert.deepEqual(kinds(stepsOf(work)), ['shell', 'tool', 'shell', 'tool', 'tool'])
+})
+
 test('thinking is hidden except when long or important', () => {
   // hobkin keeps no thinking, so none can be drawn. Between steps the canvas says the agent is thinking, and since when.
   const steps = stepsOf([said('1:0', 'Looking.'), bash('1', 'ls')])

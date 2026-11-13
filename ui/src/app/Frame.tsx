@@ -15,7 +15,11 @@ import { KeyHints } from './KeyHints.tsx'
 import { useFrameKeys } from './keys.ts'
 import { useView } from './view-store.ts'
 import { QuestionSheet } from '@/features/questions/QuestionSheet.tsx'
+// The Mac's notifications start with the frame, and only when the shell has them (`037-notifications`).
+import '@/features/notifications/live.ts'
 import { TiersLightbox } from '@/features/tiers/TiersLightbox.tsx'
+import { NewHobkin } from '@/features/hobkins/NewHobkin.tsx'
+import { NerdStatsPanel } from '@/features/settings/NerdStats.tsx'
 import { FirstRunSetup } from '@/features/onboarding/FirstRunSetup.tsx'
 
 /**
@@ -59,6 +63,8 @@ export function Frame() {
       <Divider />
       <Canvas />
       <TiersLightbox />
+      <NewHobkin />
+      <NerdStatsPanel />
       <FirstRunSetup />
       <QuestionSheet />
     </div>

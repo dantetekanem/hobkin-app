@@ -226,7 +226,7 @@ const NEEDS: FinishedChange[] = [
   }),
 ]
 
-/** Finished work whose run left the user a note, which no group's yes takes: Review, and no merge (`host/src/work-items.ts`). */
+/** Finished work whose run left the user a note, which no group's yes takes: Review, and Close without merging, and no merge (`host/src/work-items.ts`). */
 const LEFT: FinishedChange[] = [
   merging({
     slug: 'storefront',
@@ -241,13 +241,16 @@ const LEFT: FinishedChange[] = [
     about: "A guest's cart moves to their account when they sign in, instead of being replaced by the account's older cart.",
     proof: 'pnpm test cart: 58 pass, with a guest cart and an account cart that both hold lines.',
     left: "The check that a guest's cart survives a real sign-in needs a browser session, and this run had no permission to start one. Say if it may, or try it by hand once.",
-    yes: 'Nothing merges from here. Ask for changes sends an agent back to it with your words.',
+    yes: 'Close without merging marks it done: nothing merges, and its branch stays as it is.',
     reason: 'Its run left you a note, so no group merges it until you answer.',
     safety: null,
     size: { lines: 48, files: 3 },
     behind: 3,
     landing: 'refreshMerge',
-    choices: [{ value: 'diff', label: 'Show the diff' }],
+    choices: [
+      { value: 'diff', label: 'Show the diff' },
+      { value: 'done', label: 'Close without merging' },
+    ],
   }),
 ]
 
@@ -284,9 +287,10 @@ function projects(now: number): WorkProject[] {
     ...rest,
   })
   return [
-    project({ slug: 'storefront', priority: 'P0', prMode: 'draft', issues: 'labeled', level: 'critical', open: 4, prs: 1, branches: 2, unmerged: 3, nextLookAt: at(0.7) }),
-    project({ slug: 'billing-api', priority: 'P1', prMode: 'off', level: 'important', open: 7, branches: 2, left: 1, unmerged: 2, nextLookAt: at(5) }),
-    project({ slug: 'docs-site', priority: 'P2', prMode: 'published', level: 'casual', open: 2, prs: 1, nextLookAt: at(50) }),
+    // Their repositories are the GitHub sample's, so the GitHub page's project tabs narrow its lists.
+    project({ slug: 'storefront', priority: 'P0', prMode: 'draft', issues: 'labeled', level: 'critical', open: 4, prs: 1, branches: 2, unmerged: 3, merged: 23, nextLookAt: at(0.7), repo: 'hobkin-sample/storefront' }),
+    project({ slug: 'billing-api', priority: 'P1', prMode: 'off', level: 'important', open: 7, branches: 2, left: 1, unmerged: 2, merged: 9, nextLookAt: at(5), repo: 'hobkin-sample/api' }),
+    project({ slug: 'docs-site', priority: 'P2', prMode: 'published', level: 'casual', open: 2, prs: 1, merged: 2, nextLookAt: at(50), repo: 'hobkin-sample/docs' }),
     // What the look for projects found and the user has not answered, and one they left alone.
     project({ slug: 'design-kit', state: 'proposed', priority: 'P2', prMode: 'off', level: 'casual' }),
     project({ slug: 'old-landing', state: 'skipped', priority: 'P3', prMode: 'off', level: 'casual' }),
@@ -303,6 +307,8 @@ export function sampleWork(now = Date.now()): WorkState {
     agents: 2,
     agentsAllowed: 2,
     maxAgents: 8,
+    dailyTokens: 100_000_000,
+    tokensToday: 38_000_000,
     queue: [
       { key: 'item:storefront:7a31c2', kind: 'item', slug: 'storefront', project: 'storefront', item: '7a31c2', title: 'Tighten the checkout tests', grade: 'P0', why: 'urgent, critical, high impact, small', waiting: null, skipped: false, picked: true, tokens: 180_000 },
       { key: 'look:billing-api', kind: 'look', slug: 'billing-api', project: 'billing-api', item: null, title: 'security look', grade: 'P1', why: 'important, due', waiting: 'a free worker', skipped: false, picked: false, tokens: 90_000 },

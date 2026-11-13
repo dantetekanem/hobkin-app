@@ -16,7 +16,7 @@ import { rasterImage } from './message-images.ts'
 import type { StoredImage } from '#shared/commands/registry.ts'
 
 /** hobkin's names for its main conversations: `mainSessionFile` and `openImportedPiSession` in its `src/cli/pi-session.mjs`. */
-const MAIN = /^(?:main(?:-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})?|legacy-[\da-f]{64})\.jsonl$/i
+export const MAIN = /^(?:main(?:-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})?|legacy-[\da-f]{64})\.jsonl$/i
 /** Chat's own cut for one message (`chatMessage` in hobkin's `src/cli/application.mjs`), and a title's. */
 const LONGEST = 8192
 const TITLE = 80
@@ -46,6 +46,16 @@ interface Read {
   cut: boolean
   messages: HistoryMessage[]
   image?: StoredImage | null
+  /** Pi gave it a name. */
+  named: boolean
+  /** The first user message and the first answer after it: what a made title comes from. Empty when the user said nothing. */
+  words: string[]
+}
+/** What a host with a model for titles gives History. */
+export interface Titling {
+  get(key: string, words: string[]): string | null | undefined
+  want(key: string, words: string[]): void
+  pending(): number
 }
 type Found = { id: string; file: string; size: number; changed: number }
 
@@ -112,9 +122,13 @@ async function readConversation({ file, size, changed }: Found, bytes: number, w
     if (at.message) messages.push(at.message)
   }
   messages.reverse()
-  const first = messages.find(({ role, text }) => role === 'user' && text.trim())?.text.trim().split('\n')[0]!.trim()
+  const asked = messages.findIndex(({ role, text }) => role === 'user' && text.trim())
+  const first = messages[asked]?.text.trim().split('\n')[0]!.trim()
+  const answer = asked < 0 ? undefined : messages.slice(asked + 1).find(({ role, text }) => role === 'assistant' && text.trim())
   return {
     title: (name ?? first ?? 'A conversation without words').slice(0, TITLE),
+    named: name !== null,
+    words: asked < 0 ? [] : [messages[asked]!.text.trim(), ...(answer ? [answer.text.trim()] : [])],
     at: messages.at(-1)?.at ?? timeOf(header.timestamp) ?? changed,
     cut: size > bytes,
     messages,
@@ -132,16 +146,27 @@ export class History {
   private readonly current: () => string | null | undefined
   private readonly limits: HistoryLimits
   /** What each file held when it was last listed, so a file that did not change is not read again. */
-  private readonly listed = new Map<string, { stamp: string; read: Omit<HistoryEntry, 'id' | 'current'> | null }>()
+  private readonly listed = new Map<string, { stamp: string; read: (Omit<HistoryEntry, 'id' | 'current'> & { named: boolean; words: string[] }) | null }>()
+  private readonly titles?: Titling
 
   /** `current` is the file of the conversation hobkin is in now, when hobkin is open. */
-  constructor(root: string, current: () => string | null | undefined, limits: HistoryLimits = LIMITS) {
+  constructor(root: string, current: () => string | null | undefined, limits: HistoryLimits = LIMITS, titles?: Titling) {
     this.root = root
     this.current = current
     this.limits = limits
+    this.titles = titles
   }
 
-  async list(): Promise<{ conversations: HistoryEntry[] }> {
+  /** The title a conversation shows: Pi's name, else a made one, else its first line. A made one is asked for when it is missing. */
+  private titled(id: string, { title, named, words }: { title: string; named: boolean; words: string[] }): string {
+    if (named || !this.titles || !words.length) return title
+    const made = this.titles.get(id, words)
+    if (made) return made
+    this.titles.want(id, words)
+    return title
+  }
+
+  async list(): Promise<{ conversations: HistoryEntry[]; titling?: number }> {
     const current = this.current()
     const conversations: HistoryEntry[] = []
     for (const found of await this.files()) {
@@ -152,9 +177,12 @@ export class History {
         kept = { stamp, read: read && { ...read, messages: read.messages.length } }
         this.listed.set(found.file, kept)
       }
-      if (kept.read) conversations.push({ id: found.id, ...kept.read, current: !!current && resolve(current) === found.file })
+      if (kept.read) {
+        const { named, words, ...entry } = kept.read
+        conversations.push({ id: found.id, ...entry, title: this.titled(found.id, kept.read), current: !!current && resolve(current) === found.file })
+      }
     }
-    return { conversations: conversations.sort((a, b) => b.at - a.at) }
+    return { conversations: conversations.sort((a, b) => b.at - a.at), ...(this.titles ? { titling: this.titles.pending() } : {}) }
   }
 
   async open(id: string): Promise<HistoryConversation> {
@@ -164,7 +192,8 @@ export class History {
     if (!read) throw new Unavailable(`${id} is not one of hobkin's conversations.`)
     const current = this.current()
     const earlier = Math.max(0, read.messages.length - this.limits.messages)
-    return { id, ...read, messages: read.messages.slice(earlier), earlier, current: !!current && resolve(current) === file }
+    const { named, words, ...conversation } = read
+    return { id, ...conversation, title: this.titled(id, read), messages: read.messages.slice(earlier), earlier, current: !!current && resolve(current) === file }
   }
 
   async image(id: string, messageId: string, ordinal: number): Promise<StoredImage | null> {

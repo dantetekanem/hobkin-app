@@ -1,7 +1,6 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { create } from 'zustand'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { agentControls, answerAgent, questionOf, useAgent, useAgentControl, useRunningAgents, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, stillVariants, useStill } from '@/app/still.ts'
@@ -9,11 +8,9 @@ import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { ActivityModeSwitch } from '@/features/agent-activity/ActivityModeSwitch.tsx'
-import { callsOf, type CallRow } from '@/features/agent-activity/calls.ts'
-import { CallItem } from '@/features/agent-activity/CodeMode.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useNow } from '@/features/chat/use-now.ts'
@@ -32,24 +29,19 @@ import { useExecution } from './store.ts'
 
 /** Where the small screen's header starts, below the menu and its second row. */
 const HEADER_TOP = 152
-/** The header shrinks into a bar at the top when the user steps in. */
+/** The header shrinks into a bar at the top while there is an exchange to read. */
 const FULL = 'translateY(0px) scale(1)'
 const COMPACT = 'translateY(-36px) scale(0.56)'
-/** Where the switch between transcript and code sits, under the shrunken header. */
-const SWITCH_TOP = 214
-/** Where the exchange starts below the shrunken header and the switch, and the room always kept for the input. */
+/** Where the agent's helpers sit, under the shrunken header. */
+const HELPERS_TOP = 214
+/** Where the exchange starts, below the shrunken header and the helpers. */
 const EXCHANGE_TOP = 252
-const INPUT_ROOM = 124
-
-type Mode = 'transcript' | 'code'
-/** How runs are read, the same for every agent while the window is open. */
-const useMode = create<{ mode: Mode; setMode: (mode: Mode) => void }>((set) => ({ mode: 'transcript', setMode: (mode) => set({ mode }) }))
 
 /**
  * One agent's canvas. This file is the entry the frame mounts. Specs: 011-work, 021-agent-rendering.
  *
- * Every entry route draws existing activity immediately, already anchored to its newest step. An empty agent
- * shows its face and current task. Stepping in raises an input into the room kept for it; Escape returns to reading.
+ * Every entry route draws existing activity immediately, already anchored to its newest step, which rests just above
+ * the input. An empty agent shows its face and current task. The input to talk to the agent is always at the bottom.
  * Only transforms and opacity move, and steps out of view are not drawn.
  */
 export function AgentScreen() {
@@ -60,8 +52,6 @@ export function AgentScreen() {
   if (present) kept.current = openAgent
   const agentId = kept.current
   const side = useSide(agentId)
-  const talking = useView((view) => view.agentTalk)
-  const mode = useMode((state) => state.mode)
   const running = useAgent(agentId)
   const agent = useLastSeen(agentId, running)
   // With a host an agent leaves the running list when its run ends. Its canvas stays readable (011 A3).
@@ -71,15 +61,14 @@ export function AgentScreen() {
   const activity = useAgentActivity(agentId)
   const notes = useAgentThreads((threads) => (agentId ? threads.notes[agentId] : undefined))
   const still = useStill()
-  const reading = agentReading(Boolean(agent && agentId), (activity?.entries.length ?? 0) > 0 || Boolean(notes?.length) || Boolean(question), talking)
-  const compact = talking || reading
+  const reading = agentReading(Boolean(agent && agentId), (activity?.entries.length ?? 0) > 0 || Boolean(notes?.length) || Boolean(question))
   // The canvas supplies the entry movement; snapshot content never waits for a second entrance.
   const Lift = Plain
   const Rise = Plain
 
   return (
     // A click inside a canvas previewed from the agents list keeps it open: the list losing the keyboard ends a preview.
-    <div className="relative h-full overflow-hidden" onPointerDownCapture={() => present && agentId && keepPreview(agentId)}>
+    <div className="relative h-full overflow-hidden" onKeyDown={upToAgents} onPointerDownCapture={() => present && agentId && keepPreview(agentId)}>
       {/* Moving to another agent changes the agent's own pieces in place. The controls stay where they are. */}
       <AnimatePresence initial={false} custom={side}>
         <AgentPart key={agentId} className="absolute inset-x-0 top-0">
@@ -87,7 +76,7 @@ export function AgentScreen() {
             className="absolute inset-x-[10%] flex origin-top flex-col items-center gap-4 text-center"
             style={{ top: HEADER_TOP }}
             initial={false}
-            animate={{ transform: compact ? COMPACT : FULL }}
+            animate={{ transform: reading ? COMPACT : FULL }}
             transition={agentEntry(still)}
           >
             {agent ? (
@@ -100,9 +89,9 @@ export function AgentScreen() {
             </Lift>
             {/* The rest of the small screen gives way to the exchange while it is read. */}
             <motion.div
-              className={cn('flex w-full flex-col items-center gap-4', compact && 'pointer-events-none')}
+              className={cn('flex w-full flex-col items-center gap-4', reading && 'pointer-events-none')}
               initial={false}
-              animate={{ opacity: compact ? 0 : 1 }}
+              animate={{ opacity: reading ? 0 : 1 }}
               transition={agentEntry(still)}
             >
               {agent ? (
@@ -124,40 +113,41 @@ export function AgentScreen() {
               ) : null}
             </motion.div>
           </motion.div>
-          {/* Drawn with the screen, the switch and the exchange are simply there. Arriving later, they rise in. */}
+          {/* Drawn with the screen, the helpers and the exchange are simply there. Arriving later, they rise in. */}
           <AnimatePresence initial={false}>
             {reading && agent && agentId ? (
               <motion.div
-                key="switch"
-                className="absolute inset-x-0 flex justify-center"
-                style={{ top: SWITCH_TOP }}
+                key="helpers"
+                // In a row of their own, so helpers and tasks arriving never move the exchange below.
+                className="absolute inset-x-[10%] flex justify-center"
+                style={{ top: HELPERS_TOP }}
                 initial={holdStill({ opacity: 0 }, still)}
                 animate={holdStill({ opacity: 1, transition: agentEntry(still) }, still)}
                 exit={holdStill({ opacity: 0, transition: tween.exit }, still)}
               >
-                <ModeSwitch />
-                {/* Beside the switch, so helpers arriving never move the exchange below. */}
-                <div className="absolute inset-y-0 right-[10%] left-[calc(50%+80px)] flex items-center">
-                  <HelpersStrip runId={agentId} hue={agent.hue} />
-                </div>
+                <HelpersStrip runId={agentId} hue={agent.hue} />
+                <TaskList entries={activity?.entries} hue={agent.hue} />
               </motion.div>
             ) : null}
           </AnimatePresence>
         </AgentPart>
       </AnimatePresence>
-      <AgentStopControl key={agentId} agentId={agentId} />
-      <AnimatePresence initial={false}>
-        <AgentPart key={agentId} className="pointer-events-none absolute inset-0">
+      <AgentStopControl key={agentId} agentId={agentId} forceKey />
+      {/* The exchange fills the room between the shrunken header and the input, which is always there under it. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col" style={{ top: EXCHANGE_TOP }}>
+        <div className="relative min-h-0 flex-1">
           <AnimatePresence initial={false}>
-            {reading && agent && agentId ? <Exchange key={`${agentId}:${mode}`} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} activity={activity} mode={mode} /> : null}
+            <AgentPart key={agentId} className="absolute inset-0 flex flex-col">
+              <AnimatePresence initial={false}>
+                {reading && agent && agentId ? <Exchange key={agentId} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} activity={activity} /> : null}
+              </AnimatePresence>
+            </AgentPart>
           </AnimatePresence>
-        </AgentPart>
-      </AnimatePresence>
-      <AnimatePresence>
-        {talking && agent && agentId ? (
-          <TalkInput key={agentId} agentId={agentId} name={agent.title} hue={agent.hue} mood={agent.mood} answering={waiting} finished={finished} walkable={(activity?.entries.length ?? 0) > 0} />
+        </div>
+        {agent && agentId ? (
+          <TalkInput key={agentId} agentId={agentId} name={agent.title} hue={agent.hue} mood={agent.mood} answering={waiting} finished={finished} />
         ) : null}
-      </AnimatePresence>
+      </div>
     </div>
   )
 }
@@ -167,7 +157,7 @@ const Plain = ({ children, className }: { children: ReactNode; className?: strin
 /** An agent previewed from the list stays open, as one chosen in the menu does, so the list's blur does not end it. */
 function keepPreview(agentId: string) {
   const view = useView.getState()
-  if (view.screen === 'agent' && view.openAgent === agentId && view.previewReturn !== null && !view.agentTalk) view.openAgentCanvas(agentId)
+  if (view.screen === 'agent' && view.openAgent === agentId && view.previewReturn !== null) view.openAgentCanvas(agentId)
 }
 
 /** Which way the user moved: 1 to an agent later in the list, -1 to one before it. */
@@ -233,7 +223,11 @@ function Passing({ side, children }: { side: Side; children: ReactNode }) {
   )
 }
 
-function AgentStopControl({ agentId }: { agentId: string | null }) {
+/**
+ * Stop Agent and Force Stop, each asking first. `forceKey`: Control+X presses Force Stop on this page (`force-stop.ts`), so
+ * the control shows it. Not on a durable hobkin's page, where the key is End.
+ */
+export function AgentStopControl({ agentId, forceKey = false }: { agentId: string | null; forceKey?: boolean }) {
   const { target, result } = useAgentControl()
   const host = useHost(state => state)
   const control = executionTargets(host).find(row => row.kind === 'run' && row.runId === agentId)
@@ -280,8 +274,8 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
         className="ml-2 rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
       >
         Force Stop
+        {forceKey ? <Kbd className="ml-1.5">⌃X</Kbd> : null}
       </button>
-      {!control ? <p className="text-muted-foreground">Live cancellation capability unknown.</p> : null}
       {executionResult || result?.id === agentId ? (
         <p role="status" className="mt-2 max-w-72 text-muted-foreground">
           {executionResult?.text ?? result?.text}
@@ -314,6 +308,7 @@ function AgentStopControl({ agentId }: { agentId: string | null }) {
             onClick={() => void agentControls.confirm()}
           >
             {target?.mode === 'force' ? 'Confirm Force Stop' : 'Stop run'}
+            {forceKey && target?.mode === 'force' ? <Kbd className="ml-1.5">⌃X</Kbd> : null}
           </button>
         </div>
       </dialog>
@@ -358,7 +353,7 @@ function Glance({ agentId, hue, question, waiting, activity }: { agentId: string
         <NowLine doing={doing} />
         <p className="text-[12px] text-muted-foreground tabular-nums">
           {steps === 1 ? '1 step' : `${steps} steps`}
-          {notes?.length ? ` · ${notes.length === 1 ? '1 message' : `${notes.length} messages`}` : ''} · Enter to talk
+          {notes?.length ? ` · ${notes.length === 1 ? '1 message' : `${notes.length} messages`}` : ''}
         </p>
       </div>
     )
@@ -367,9 +362,7 @@ function Glance({ agentId, hue, question, waiting, activity }: { agentId: string
     return (
       <div className="flex w-full flex-col items-center gap-2">
         <p className="line-clamp-2 max-w-[72%] rounded-2xl bg-secondary px-3.5 py-2 text-[15px] leading-relaxed">{last.text}</p>
-        <p className="text-[12px] text-muted-foreground">
-          {notes!.length === 1 ? '1 message' : `${notes!.length} messages`} · Enter to talk
-        </p>
+        <p className="text-[12px] text-muted-foreground">{notes!.length === 1 ? '1 message' : `${notes!.length} messages`}</p>
       </div>
     )
   }
@@ -446,7 +439,7 @@ function HelpersGlance({ runId, hue }: { runId: string; hue: number }) {
   )
 }
 
-/** While the run is read, its helpers sit beside the switch: their small faces, each with its story on hover, and the count. */
+/** While the run is read, its helpers sit under the shrunken header: their small faces, each with its story on hover, and the count. */
 function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
   const children = useRunChildren(runId)
   const id = useId()
@@ -461,14 +454,6 @@ function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
   )
 }
 
-/** Transcript or code: the same run read as the agent's steps, or as each tool call's task, parameters and output. */
-function ModeSwitch() {
-  const still = useStill()
-  const mode = useMode((state) => state.mode)
-  const setMode = useMode((state) => state.setMode)
-  return <ActivityModeSwitch mode={mode} onChange={setMode} label="Show the run as" layoutId="agent-mode" transition={agentEntry(still)} />
-}
-
 const RISE_IN = {
   initial: { opacity: 0, transform: 'translateY(22px) scale(0.92)' },
   animate: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } },
@@ -476,21 +461,39 @@ const RISE_IN = {
 
 /** The steps and messages of the exchange, top to bottom, for the keyboard. */
 const walkable = (list: HTMLElement) => [...list.querySelectorAll<HTMLElement>(':scope > [data-step]')]
-const focusTalkInput = () => document.querySelector<HTMLTextAreaElement>('[data-agent-input]')?.focus({ preventScroll: true })
+/** A screen on its way out keeps its own input and exchange: each is found from within its own screen. */
+const screenOf = (element: Element) => element.closest('[data-canvas-screen]')
+const focusTalkInput = (from: Element) => screenOf(from)?.querySelector<HTMLTextAreaElement>('[data-agent-input]')?.focus({ preventScroll: true })
 
 /** Moves the keyboard from the input up onto the newest step. False when there is nothing to walk. */
-function focusNewestStep(): boolean {
-  const list = document.querySelector<HTMLElement>('[data-agent-exchange]')
+function focusNewestStep(input: Element): boolean {
+  const list = screenOf(input)?.querySelector<HTMLElement>('[data-agent-exchange]')
   const newest = list ? walkable(list).at(-1) : undefined
   newest?.focus()
   return Boolean(newest)
 }
 
 /**
+ * Up on the agent screen is navigation, never a jump into the input: Up and Down walk the steps and, past them, the agents.
+ *  - On the canvas (focus on the screen itself, not a step or control): Up moves to the agents list, this agent's row.
+ *  - In the steps: Up walks to the previous step; from the first step it spills to the agents list.
+ *  - In an empty input: Up walks the steps, newest first; with no steps it goes to the agents list.
+ *  - In the agents list (AgentsDock): Up walks to the previous agent, and from the first agent to the main chat input.
+ * The input is reached by Down from the newest step, or Escape — not by Up.
+ */
+export function upToAgents(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== 'ArrowUp' || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
+  const target = event.target as HTMLElement
+  if (target.closest('[data-step], input, textarea, select, button, a, dialog, [contenteditable="true"], [role="dialog"]')) return
+  // Not into the input: Up leaves the canvas for the agents list, where Up and Down then walk between agents.
+  if (focusAgentsDock()) event.preventDefault()
+}
+
+/**
  * The exchange's keys (021 A9): Up and Down move between steps, Right or Enter opens a group or a change, Left
  * closes it, Home and End go to the first and the newest, and Down from the newest or Escape goes back to the input.
  */
-function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
+export function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
   const items = walkable(event.currentTarget)
   const current = (event.target as HTMLElement).closest<HTMLElement>('[data-step]')
   const at = current ? items.indexOf(current) : -1
@@ -498,57 +501,58 @@ function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
   // Inside a step, its own controls keep their keys. Escape still leads back.
   if (event.target !== current && event.key !== 'Escape') return
   const toggle = (expanded: boolean) => current.querySelector<HTMLElement>(`[data-step-toggle][aria-expanded="${expanded}"]`)
-  if (event.key === 'ArrowUp') items[Math.max(0, at - 1)]?.focus()
+  if (event.key === 'ArrowUp') {
+    // Up from the first step spills to the agents list, on this agent. Without a list it stays.
+    if (at > 0) items[at - 1]!.focus()
+    else focusAgentsDock()
+  }
   else if (event.key === 'ArrowDown') {
     if (at < items.length - 1) items[at + 1]!.focus()
-    else focusTalkInput()
+    else focusTalkInput(current)
   } else if (event.key === 'Home') items[0]?.focus()
   else if (event.key === 'End') items.at(-1)?.focus()
   else if (event.key === 'ArrowRight' || event.key === 'Enter') toggle(false)?.click()
   else if (event.key === 'ArrowLeft') toggle(true)?.click()
-  else if (event.key === 'Escape') focusTalkInput()
+  else if (event.key === 'Escape') focusTalkInput(current)
   else return
   event.preventDefault()
 }
 
 /**
- * The whole exchange, drawn while it is read: the agent's steps with the user's messages where they were sent, or in
- * code mode each tool call with the agent's words between them. It fills the room between the shrunken header and the
- * input's room, opens at its newest step and stays there as steps arrive, unless the user has scrolled up to read, and
- * then offers the way back down. Each step is drawn only while it is in view, so a long run, code included, costs what fits on screen.
+ * The whole exchange, drawn while it is read: the agent's steps with the user's messages where they were sent. It fills
+ * the room between the shrunken header and the input, opens at its newest step, just above the input, and stays there
+ * as steps arrive, unless the user has scrolled up to read, and then offers the way back down. Each step is drawn only
+ * while it is in view, so a long run costs what fits on screen.
  */
-function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId: string; hue: number; question?: string; waiting: boolean; activity: AgentActivity | null; mode: Mode }) {
+function Exchange({ agentId, hue, question, waiting, activity }: { agentId: string; hue: number; question?: string; waiting: boolean; activity: AgentActivity | null }) {
   const still = useStill()
   const live = useHasHost()
   const notes = useAgentThreads((threads) => threads.notes[agentId])
   const scroll = useFollow(still)
   const items = useMemo<ExchangeItem[]>(
     () =>
-      mode === 'code'
-        ? []
-        : activity
-          ? exchangeOf(activity.entries, notes ?? [], { seenAt: (id) => activity.timeOf(id)?.seen, ended: activity.ended, cwd: activity.cwd })
-          : (notes ?? []).map((note) => ({ kind: 'note', key: `note:${note.id}`, note })),
-    [activity, notes, mode],
+      activity
+        ? // The tasks line above the exchange is where task calls show.
+          exchangeOf(activity.entries, notes ?? [], { seenAt: (id) => activity.timeOf(id)?.seen, ended: activity.ended, cwd: activity.cwd, tasksOnLine: true })
+        : (notes ?? []).map((note) => ({ kind: 'note', key: `note:${note.id}`, note })),
+    [activity, notes],
   )
-  const rows = useMemo<CallRow[]>(() => (mode === 'code' && activity ? callsOf(activity.entries, { ended: activity.ended, cwd: activity.cwd }) : []), [activity, mode])
   const thinking = activity !== null && !waiting && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
   // Where the list is on screen before the new steps are in place, so it can glide from there rather than jump.
   scroll.note()
-  useLayoutEffect(scroll.settle, [items, rows, thinking, scroll.settle])
+  useLayoutEffect(scroll.settle, [items, thinking, scroll.settle])
 
   return (
     <motion.div
       ref={scroll.scroller}
       onScroll={scroll.onScroll}
-      // Steps scrolled up under the switch fade out rather than being cut.
-      className="scroll-quiet pointer-events-auto absolute inset-x-0 bottom-0 overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
-      style={{ top: EXCHANGE_TOP, paddingBottom: INPUT_ROOM }}
+      // Steps scrolled up under the helpers fade out rather than being cut.
+      className="scroll-quiet pointer-events-auto relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: agentEntry(still) }, still)}
       exit={holdStill({ opacity: 0, transform: 'translateY(16px)', transition: { duration: 0.16, ease: 'linear' } } as const, still)}
     >
-      <motion.ol ref={scroll.content} style={{ y: scroll.y }} data-agent-exchange onKeyDown={walkSteps} aria-label={mode === 'code' ? "The agent's tool calls" : 'What the agent has done'} className="flex min-h-full flex-col justify-end gap-3 pt-2">
+      <motion.ol ref={scroll.content} style={{ y: scroll.y }} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {question ? (
           <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 rounded-[18px] outline-none [contain-intrinsic-size:auto_64px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
             <QuestionBubble hue={hue} question={question} waiting={waiting} />
@@ -556,9 +560,7 @@ function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId
           </li>
         ) : null}
         <AnimatePresence initial={false}>
-          {mode === 'code'
-            ? rows.map((row) => <CallItem key={row.key} row={row} timeOf={activity!.timeOf} ended={activity!.ended} />)
-            : items.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
+          {items.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
         </AnimatePresence>
         {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
         <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>
@@ -568,8 +570,8 @@ function Exchange({ agentId, hue, question, waiting, activity, mode }: { agentId
           <li className="self-end text-[12px] text-muted-foreground">Sample data. The host will deliver these to the agent as it works.</li>
         ) : null}
       </motion.ol>
-      {/* Stays above the input while the user reads further up, and takes them back to the newest step. */}
-      <div className="pointer-events-none sticky bottom-[136px] z-10 flex h-0 justify-center">
+      {/* Stays just above the input while the user reads further up, and takes them back to the newest step. */}
+      <div className="pointer-events-none sticky bottom-3 z-10 flex h-0 justify-center">
         <AnimatePresence>
           {scroll.pinned ? null : (
             <motion.button
@@ -640,22 +642,16 @@ function Said({ note }: { note: AgentNote }) {
   )
 }
 
-/** The input for talking to one agent. It rises from the bottom of the canvas into the room kept for it, and leaves the same way. */
-function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean; walkable: boolean }) {
-  const leaveAgentTalk = useView((view) => view.leaveAgentTalk)
-  const still = useStill()
+/**
+ * The input for talking to one agent, always at the bottom of its canvas. It takes the keyboard when the user clicks
+ * it or presses Enter on the agent in the list, never on its own, so walking the list keeps the keyboard there.
+ */
+function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean }) {
   const sendNote = useAgentThreads((threads) => threads.send)
   const live = useHasHost()
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
-  const input = useRef<HTMLTextAreaElement | null>(null)
   const canSend = draft.trim().length > 0 && !finished
-
-  // Stepping in hands the keyboard to this input. Without preventScroll the browser would scroll the canvas
-  // to show the input while it is still below the edge, and the whole canvas would jump.
-  useEffect(() => {
-    input.current?.focus({ preventScroll: true })
-  }, [])
 
   const send = async () => {
     if (!canSend) return
@@ -672,21 +668,10 @@ function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: 
     if (answering && !live) answerAgent(agentId)
   }
 
-  const stepOut = () => {
-    leaveAgentTalk()
-    // Back onto the same agent in the list, where Enter was pressed.
-    focusAgentsDock()
-  }
-
   const label = finished ? `${name} has finished` : answering ? `Answer ${name}` : `Message ${name}`
 
   return (
-    <motion.div
-      className="absolute inset-x-0 bottom-0 px-[10%] pt-2 pb-5"
-      initial={holdStill({ opacity: 0, transform: 'translateY(100%)' }, still)}
-      animate={holdStill({ opacity: 1, transform: 'translateY(0%)', transition: agentEntry(still) }, still)}
-      exit={holdStill({ opacity: 0, transform: 'translateY(100%)', transition: agentEntry(still) }, still)}
-    >
+    <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-5">
       <form
         className="flex items-end gap-2 rounded-[26px] border-[1.5px] border-input bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring"
         onSubmit={(event) => {
@@ -698,22 +683,21 @@ function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: 
           <AgentHood hue={hue} size={26} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} />
         </span>
         <textarea
-          ref={input}
           data-agent-input
           value={draft}
           readOnly={finished}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
-              // The key is used here, so the frame leaves it alone.
-              event.preventDefault()
-              stepOut()
+              // Back onto the same agent in the list. One the list no longer holds leaves the key to the frame,
+              // which leaves the canvas.
+              if (!finished && focusAgentsDock()) event.preventDefault()
             } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               void send()
-            } else if (event.key === 'ArrowUp' && !draft && focusNewestStep()) {
-              // Up from an empty input walks the agent's steps, newest first.
-              event.preventDefault()
+            } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
+              // Up from an empty input walks the agent's steps, newest first, or else goes to the agents list.
+              if (focusNewestStep(event.currentTarget) || (!finished && focusAgentsDock())) event.preventDefault()
             }
           }}
           rows={1}
@@ -737,12 +721,10 @@ function TalkInput({ agentId, name, hue, mood, answering, finished, walkable }: 
         <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
           {problem}
         </p>
-      ) : (
-        <p className="mt-1.5 px-3 text-[11px] text-muted-foreground">
-          {finished ? 'It has finished, so nothing more reaches it. ' : 'Enter sends. '}
-          {walkable ? '↑ walks its steps. ' : ''}Esc steps back out.
-        </p>
-      )}
-    </motion.div>
+      ) : finished ? (
+        // Only what the user cannot tell by looking: the keys are in the key list, not under every input.
+        <p className="mt-1.5 px-3 text-[11px] text-muted-foreground">It has finished, so nothing more reaches it.</p>
+      ) : null}
+    </div>
   )
 }

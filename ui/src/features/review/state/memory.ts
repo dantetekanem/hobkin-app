@@ -11,6 +11,7 @@ import type { Review, ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 import type { ReviewNotes } from '#shared/review/status.ts'
 import { arrange, isTestGroup, type Arranged, type ViewStep } from '../graph/arrange.ts'
 import { foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
+import { readMode, type ReviewMode } from '../story/mode.ts'
 
 export interface Point {
   x: number
@@ -67,6 +68,8 @@ export interface MemoryState {
   splitDiff: boolean
   /** The steps panel is kept open, instead of tucking away while the reviewer walks the story. */
   panelPinned: boolean
+  /** Story or Free Roam, as the reviewer last chose: every review opens in it. Story until they choose. */
+  reviewMode: ReviewMode
 
   of(review: Review): ReviewMemory
   moveNode(review: Review, nodeId: string, position: Point): void
@@ -86,6 +89,7 @@ export interface MemoryState {
   setPanelShare(share: number): void
   setSplitDiff(split: boolean): void
   setPanelPinned(pinned: boolean): void
+  setReviewMode(mode: ReviewMode): void
 }
 
 const EMPTY: ReviewMemory = { positions: {}, wires: {}, progress: null, opened: false, notes: [], draft: null }
@@ -174,6 +178,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
           panelShare: null,
           splitDiff: false,
           panelPinned: false,
+          reviewMode: 'story',
 
           of: (review) => get().reviews[memoryKey(review)] ?? EMPTY,
           moveNode: (review, nodeId, position) => {
@@ -226,6 +231,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
           setPanelShare: (panelShare) => set({ panelShare }),
           setSplitDiff: (splitDiff) => set({ splitDiff }),
           setPanelPinned: (panelPinned) => set({ panelPinned }),
+          setReviewMode: (reviewMode) => set({ reviewMode }),
         }
       },
       {
@@ -233,7 +239,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
         version: 1,
         storage: createJSONStorage(() => storage),
         // A conversation an earlier version kept beside a review is left behind: hobkin's chat holds it.
-        partialize: ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned }) => ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned }),
+        partialize: ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned, reviewMode }) => ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned, reviewMode }),
         merge: (persisted, current) => {
           const saved = isRecord(persisted) ? persisted : {}
           const reviews: Record<string, ReviewMemory> = {}
@@ -251,6 +257,8 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
             panelShare: typeof saved.panelShare === 'number' && Number.isFinite(saved.panelShare) ? saved.panelShare : null,
             splitDiff: saved.splitDiff === true,
             panelPinned: saved.panelPinned === true,
+            // What an older window saved has no mode: it opens in Story.
+            reviewMode: readMode(saved.reviewMode),
           }
         },
       },

@@ -11,6 +11,8 @@ declare module 'hobkin/src/cli/work/issues.mjs' {
   export function filedIssues(
     root: string,
   ): (issue: { repo: string; number: number }) => { project: { slug: string; name?: string }; item: { id: string; state: string; pr?: string | null } } | null
+  /** `owner/name` of a remote on github.com, however it is written: https, ssh or `git@github.com:`. Null for anywhere else, or nothing. */
+  export function githubRepoOf(remote: unknown): string | null
   /** The project whose repository on GitHub is `owner/name`, in any case, from its folder's origin or the remote hobkin clones. Null when hobkin knows none. */
   export function projectOfRepo(root: string, repo: string): Promise<{ slug: string; name?: string; state?: string; [key: string]: unknown } | null>
   /**

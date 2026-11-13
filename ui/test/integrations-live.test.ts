@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { INTEGRATIONS_UNKNOWN, type IntegrationsState } from '#shared/integrations/wire.ts'
-import { FRESH_MS, needsLook, shownServers } from '../src/features/integrations/source.ts'
+import { FRESH_MS, needsLook, shouldLookAtServers, shownServers } from '../src/features/integrations/source.ts'
 import { SAMPLE_SERVERS } from '../src/features/integrations/sample-data.ts'
 
 const NOW = Date.parse('2026-11-10T10:00:00.000Z')
@@ -32,4 +32,14 @@ test('opening the screen looks at the servers when nothing was read in the last 
   assert.equal(needsLook(read({ checkedAt: new Date(NOW - FRESH_MS - 1).toISOString() }), NOW), true, 'read over a minute ago')
   assert.equal(needsLook(read({ checking: true, checkedAt: null }), NOW), false, 'a look is under way')
   assert.equal(needsLook(null, NOW), false, 'a host that does not read Pi has nothing to look at')
+})
+
+test('Home asks the host to look at Pi once per connection, once the host has sent its empty reading', () => {
+  const ask = (rest: Partial<Parameters<typeof shouldLookAtServers>[0]>) =>
+    shouldLookAtServers({ connected: true, asked: false, pi: INTEGRATIONS_UNKNOWN, now: NOW, ...rest })
+  assert.equal(ask({}), true, 'connected with nothing read')
+  assert.equal(ask({ pi: null }), false, 'the state with the reading has not arrived yet')
+  assert.equal(ask({ asked: true }), false, 'already asked on this connection')
+  assert.equal(ask({ connected: false }), false, 'no connection')
+  assert.equal(ask({ pi: read() }), false, 'read a moment ago')
 })

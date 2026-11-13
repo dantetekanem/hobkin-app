@@ -31,4 +31,7 @@ declare module 'hobkin/src/cli/reports.mjs' {
   export function splitReportReference(text: string): { text: string; about: string | null }
   /** Text without hobkin's hidden markers. */
   export function reportText(text: unknown): string
+  /** Hides the reports from every inventory and removes their saved text. hobkin's own delete; it cannot be undone. */
+  export function deleteReports(root: string, ids: readonly string[]): Set<string>
+  export function deletedReportIds(root: string): Set<string>
 }

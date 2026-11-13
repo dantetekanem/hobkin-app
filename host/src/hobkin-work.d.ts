@@ -63,6 +63,8 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export const MAX_AGENTS: number
   /** How many agents may run at once, as `hobkin work agents <n>` sets it. Throws for a number out of range. */
   export function setAgents(root: string, agents: number): { agents: number; [key: string]: unknown }
+  /** The tokens work mode may spend in a day, as `hobkin work tokens <n>` sets it. Throws for a number that is not positive. */
+  export function setDailyTokens(root: string, tokens: number): { dailyTokens: number; [key: string]: unknown }
   /** Work mode's switch and settings, as saved in the home. */
   export function readMode(root: string): { enabled: boolean; folder: string | null; autoPick: boolean; [key: string]: unknown }
   /** Takes a project: a known one by slug, or a folder by its absolute path. */

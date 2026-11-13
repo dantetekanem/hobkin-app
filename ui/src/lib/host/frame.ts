@@ -1,3 +1,4 @@
+import { isHobkinTurn } from '#shared/protocol/hobkins.ts'
 import type { RunChild, RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { SampleAgent, SampleProject, Tier } from '../../app/sample.ts'
 import type { HostState } from './state.ts'
@@ -11,24 +12,26 @@ import type { HostState } from './state.ts'
 const SEARCH_TOOL = /read|grep|find|glob|search|fetch|^ls$/i
 
 // Until `017-model-tiers` gives each run a tier, its thinking level stands in for one.
-const TIER_BY_EFFORT: Record<string, Tier> = { off: 'fast', minimal: 'fast', low: 'fast', medium: 'mid', high: 'high', xhigh: 'max', max: 'max' }
+export const TIER_BY_EFFORT: Record<string, Tier> = { off: 'fast', minimal: 'fast', low: 'fast', medium: 'mid', high: 'high', xhigh: 'max', max: 'max' }
 
 interface ActivityEntry {
   kind?: string
   name?: string
   state?: string
+  /** The agent's own words, for an `assistant` entry. */
+  text?: string
 }
 
 /** A color that stays with the agent for as long as it runs. */
-function hueOf(id: string): number {
+export function hueOf(id: string): number {
   let hash = 0
   for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) % 360
   return hash
 }
 
-const folderName = (path: string | undefined) => path?.split('/').filter(Boolean).at(-1) ?? 'session'
+export const folderName = (path: string | undefined) => path?.split('/').filter(Boolean).at(-1) ?? 'session'
 
-function doingOf(activity: ActivityEntry[] | undefined): Pick<SampleAgent, 'doing' | 'mood'> {
+export function doingOf(activity: ActivityEntry[] | undefined): Pick<SampleAgent, 'doing' | 'mood'> {
   const last = activity?.at(-1)
   if (!last) return { doing: activity ? 'thinking' : 'starting', mood: 'thinking' }
   if (last.kind === 'tool' && last.state === 'running') {
@@ -37,24 +40,44 @@ function doingOf(activity: ActivityEntry[] | undefined): Pick<SampleAgent, 'doin
   return last.kind === 'tool' ? { doing: 'thinking', mood: 'thinking' } : { doing: 'writing', mood: 'thinking' }
 }
 
+/**
+ * The agent's own latest words, in one line: what it is saying as it works, taken straight from the activity the
+ * snapshot already carries. No extra work and no second agent — just the newest thing it said. Absent until it speaks.
+ */
+export function updateOf(activity: ActivityEntry[] | undefined): string | undefined {
+  if (!activity) return undefined
+  for (let index = activity.length - 1; index >= 0; index--) {
+    const entry = activity[index]!
+    if (entry.kind === 'assistant' && entry.text && entry.text.trim()) {
+      return entry.text.replace(/\s+/g, ' ').trim()
+    }
+  }
+  return undefined
+}
+
 function kindOf(run: RunSummary): SampleAgent['kind'] {
   if (run.work) return 'work'
   // `hobkin session` outside Herdr runs as a job on a schedule id of its own (`session-jobs.mjs` in hobkin).
   return run.scheduleId && !run.scheduleId.startsWith('session.') ? 'routine' : 'session'
 }
 
-/** Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent. */
+/**
+ * Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent, and nor is a
+ * durable hobkin's turn: the hobkin itself stands for its turns (`features/hobkins/list.ts`).
+ */
 export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { includeEnded?: boolean } = {}): SampleAgent[] {
   const activity = (snapshot.jobActivity ?? {}) as Record<string, ActivityEntry[]>
   return (snapshot.runs ?? [])
-    .filter((run): run is RunSummary & { id: string } => (includeEnded || run.state === 'running') && run.kind !== 'main' && typeof run.id === 'string')
+    .filter((run): run is RunSummary & { id: string } => (includeEnded || run.state === 'running') && run.kind !== 'main' && typeof run.id === 'string' && !isHobkinTurn(run))
     .map((run) => {
       const kind = kindOf(run)
+      const update = run.state === 'running' ? updateOf(activity[run.id]) : undefined
       return {
         id: run.id,
         title: run.title,
         project: run.work?.slug ?? (kind === 'routine' ? 'routine' : folderName(run.cwd)),
         ...(run.state === 'running' ? doingOf(activity[run.id]) : { doing: run.state, mood: 'idle' as const }),
+        ...(update ? { update } : {}),
         tier: TIER_BY_EFFORT[run.effort ?? ''] ?? 'mid',
         hue: hueOf(run.id),
         kind,

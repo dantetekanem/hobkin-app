@@ -62,14 +62,11 @@ test('Home entry and return paths issue no host commands', async (t) => {
   assert.deepEqual(calls, [])
 })
 
-test('Home survives agent preview, talk, canvas and Settings return paths', () => {
+test('Home survives agent preview, canvas and Settings return paths', () => {
   useView.setState(useView.getInitialState())
   const view = useView.getState()
   view.previewAgent('one', 1)
   view.endAgentPreview()
-  assert.equal(useView.getState().screen, 'home')
-  view.enterAgentTalk('two')
-  view.closeAgentCanvas()
   assert.equal(useView.getState().screen, 'home')
   view.openAgentCanvas('three')
   assert.equal(useView.getState().agentReturn, 'home')

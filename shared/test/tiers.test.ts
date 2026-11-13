@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MAIN_EFFORTS } from '../commands/registry.ts'
+import { checkArguments, MAIN_EFFORTS } from '../commands/registry.ts'
 import { clampEffort, EFFORTS, filterModels, resolveTier, setTierModel, type ModelChoice, type TiersConfig } from '../tiers/tiers.ts'
 
 const MODELS: ModelChoice[] = [
@@ -69,7 +69,26 @@ test('several words must all match', () => {
   assert.deepEqual(filterModels(MODELS, 'openai quick').map((model) => model.id), ['openai/quick'])
 })
 
-test('the thinking levels are the ones the host accepts for hobkin, weakest first, with off', () => {
+test('the thinking levels are Pi\'s seven, weakest first, and the ones the host accepts for hobkin', () => {
+  // MODEL_THINKING_LEVELS in pi-ai's providers/model-schema.
+  assert.deepEqual([...EFFORTS], ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
   assert.deepEqual([...EFFORTS], [...MAIN_EFFORTS])
-  assert.equal(EFFORTS[0], 'off')
+})
+
+test('a model that thinks at max keeps max, and one that stops at xhigh moves down to it', () => {
+  const deepest: ModelChoice = { id: 'anthropic/deepest', name: 'deepest', provider: 'Anthropic', efforts: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] }
+  assert.equal(clampEffort(deepest, 'max'), 'max')
+  assert.equal(clampEffort(MODELS[2]!, 'max'), 'xhigh')
+
+  const kept = setTierModel({ ...CONFIG, tiers: { ...CONFIG.tiers, max: { model: 'anthropic/deepest', effort: 'max' } } }, 'max', deepest)
+  assert.deepEqual(kept.config.tiers.max, { model: 'anthropic/deepest', effort: 'max' })
+  assert.equal(kept.effortMovedFrom, null)
+})
+
+test('the host takes max for a tier, for hobkin\'s own model and for a durable hobkin on a model of its own', () => {
+  const model = 'anthropic/deepest'
+  assert.deepEqual(checkArguments('tiers.apply', { tiers: { max: { model, effort: 'max' } } }), { ok: true })
+  assert.deepEqual(checkArguments('models.select', { model, effort: 'max' }), { ok: true })
+  assert.deepEqual(checkArguments('hobkin.start', { cwd: '~', engine: { kind: 'pi', model, effort: 'max' } }), { ok: true })
+  assert.equal(checkArguments('tiers.apply', { tiers: { max: { model, effort: 'turbo' } } }).ok, false, 'a level Pi does not name is refused')
 })

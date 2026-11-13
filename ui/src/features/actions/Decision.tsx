@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUpRight, ExternalLink, MessageSquareReply, Waypoints } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, ExternalLink, MessagesSquare, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useStops } from '@/app/stops.ts'
@@ -7,6 +7,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import type { Answer } from '@/features/questions/queue.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import { cn } from '@/lib/utils.ts'
+import { discussesKey } from './discuss.ts'
 import { answersOf, type WaitingRow } from './items.ts'
 import { KIND } from './kinds.ts'
 import { SCREEN_PANES } from '@/app/screen-layout.ts'
@@ -24,12 +25,12 @@ interface OpenItemProps {
   onClose: () => void
   onAnswer: (row: WaitingRow, given: Answer) => void
   onReview: (row: WaitingRow) => void
-  /** Read here though it is handled elsewhere, because work mode is off: it is replied to in chat, as a report is. */
+  /** Read here though it is handled elsewhere, because work mode is off. Where it is handled is then a button of its own. */
   reads?: boolean
-  /** Puts the item on the next message to the main agent. */
-  onReply?: (row: WaitingRow) => void
   /** Opens it where it is handled. */
   onOpenElsewhere?: (row: WaitingRow) => void
+  /** Puts the item on the next message to hobkin, to talk it over. It answers nothing. */
+  onDiscuss: (row: WaitingRow) => void
 }
 
 /**
@@ -37,7 +38,7 @@ interface OpenItemProps {
  * from that list slides its card in from the side it lies on. Up and Down walk the controls, Enter presses, Escape
  * goes back to the list.
  */
-export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch, onClose, onAnswer, onReview, reads = false, onReply, onOpenElsewhere }: OpenItemProps) {
+export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch, onClose, onAnswer, onReview, reads = false, onOpenElsewhere, onDiscuss }: OpenItemProps) {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
 
@@ -46,7 +47,12 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
     if (event.key === 'Escape') onClose()
     // Pressed here rather than left to the browser, so a key that comes from hobkin's commands presses it the same way.
     else if (event.key === 'Enter' && event.target instanceof HTMLButtonElement) event.target.click()
-    else return
+    // As r replies to a report: the item that has the keyboard goes with the next message, the open one or one in the
+    // list beside it. Typed in the answer field, it is a letter.
+    else if (discussesKey({ key: event.key, shift: event.shiftKey }, event.target instanceof HTMLInputElement)) {
+      const listed = event.target.closest<HTMLElement>('[data-side-row]')?.dataset.sideRow
+      onDiscuss(rows.find((each) => each.id === listed) ?? row)
+    } else return
     event.preventDefault()
   }
 
@@ -64,7 +70,7 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
       <div className="relative min-h-0 overflow-hidden rounded-[28px]">
         <AnimatePresence initial={false} custom={step}>
           <motion.div key={row.id} custom={step} variants={slides} initial="enter" animate="center" exit="exit" className="absolute inset-0">
-            <Card row={row} sample={sample} now={now} onClose={onClose} onAnswer={onAnswer} onReview={onReview} reads={reads} onReply={onReply} onOpenElsewhere={onOpenElsewhere} />
+            <Card row={row} sample={sample} now={now} onClose={onClose} onAnswer={onAnswer} onReview={onReview} reads={reads} onOpenElsewhere={onOpenElsewhere} onDiscuss={onDiscuss} />
           </motion.div>
         </AnimatePresence>
       </div>
@@ -77,6 +83,7 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
               <button
                 type="button"
                 data-stop=""
+                data-side-row={each.id}
                 aria-current={open ? 'true' : undefined}
                 onClick={() => onSwitch(each)}
                 className="group relative isolate flex w-full cursor-default items-start gap-3 rounded-2xl px-3 py-2.5 text-left outline-offset-[-2px]"
@@ -108,9 +115,9 @@ const flat = (text: string) => text.replace(/\s+/g, ' ').trim()
 /**
  * One item as a whole decision: who asks and since when, the whole question, what changed and why it is the user's,
  * then its answers in words, hobkin's pick marked with its reason, and the user's own words where hobkin takes them.
- * A number answers at once.
+ * A number answers at once. Discuss, first among its buttons, talks it over with hobkin and answers nothing.
  */
-function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onReply, onOpenElsewhere }: Pick<OpenItemProps, 'row' | 'sample' | 'now' | 'onClose' | 'onAnswer' | 'onReview' | 'reads' | 'onReply' | 'onOpenElsewhere'>) {
+function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElsewhere, onDiscuss }: Pick<OpenItemProps, 'row' | 'sample' | 'now' | 'onClose' | 'onAnswer' | 'onReview' | 'reads' | 'onOpenElsewhere' | 'onDiscuss'>) {
   const back = useRef<HTMLButtonElement | null>(null)
   const titleId = useId()
   const [words, setWords] = useState('')
@@ -204,41 +211,36 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onReply, o
               className="h-11 rounded-full border-[1.5px] border-input bg-card px-4 text-[15px] outline-none transition-colors duration-[160ms] ease-[ease] placeholder:text-muted-foreground focus:border-ring"
             />
           ) : null}
-          {reads && row.opens ? (
-            // Work mode is off, so Work would do nothing with it. It is answered in chat, where the main agent gets it whole.
-            <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <Button size="sm" data-stop="" onClick={() => onReply?.(row)}>
-                <MessageSquareReply aria-hidden="true" />
-                Reply in chat
+          {/* Every item can be talked over with hobkin, whether or not it has anything to answer here. */}
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Button variant="outline" size="sm" data-stop="" onClick={() => onDiscuss(row)}>
+              <MessagesSquare aria-hidden="true" />
+              Discuss
+              <Kbd>r</Kbd>
+            </Button>
+            {row.branch ? (
+              <Button variant="outline" size="sm" data-stop="" onClick={() => onReview(row)}>
+                <Waypoints aria-hidden="true" />
+                Review
               </Button>
+            ) : null}
+            {reads && row.opens ? (
+              // Work mode is off, so Work would do nothing with it, but it can still be opened there.
               <Button variant="ghost" size="sm" data-stop="" onClick={() => onOpenElsewhere?.(row)}>
                 Opens in Work
                 <ArrowUpRight aria-hidden="true" />
               </Button>
-            </p>
-          ) : !choices.length && !takesWords ? (
-            <p className="text-[14px] text-muted-foreground">Nothing to answer here.</p>
-          ) : null}
-
-          {row.branch || row.links.length ? (
-            <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {row.branch ? (
-                <Button variant="outline" size="sm" data-stop="" onClick={() => onReview(row)}>
-                  <Waypoints aria-hidden="true" />
-                  Review
-                </Button>
-              ) : null}
-              {row.links.map((link) => (
-                <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" data-stop="" className="inline-flex items-center gap-1 rounded-sm text-[13px] underline decoration-border-strong underline-offset-[3px] hover:decoration-foreground">
-                  {link.label}
-                  <ExternalLink className="size-3" aria-hidden="true" />
-                </a>
-              ))}
-            </p>
-          ) : null}
+            ) : null}
+            {row.links.map((link) => (
+              <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" data-stop="" className="inline-flex items-center gap-1 rounded-sm text-[13px] underline decoration-border-strong underline-offset-[3px] hover:decoration-foreground">
+                {link.label}
+                <ExternalLink className="size-3" aria-hidden="true" />
+              </a>
+            ))}
+          </p>
 
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            {[...(choices.length ? [[`1–${choices.length}`, 'answer']] : []), ['↑ ↓', 'move'], ['enter', 'press'], ['esc', 'back']].map(([keys, does]) => (
+            {[...(choices.length ? [[`1–${choices.length}`, 'answer']] : []), ['r', 'discuss'], ['↑ ↓', 'move'], ['enter', 'press'], ['esc', 'back']].map(([keys, does]) => (
               <span key={keys} className="flex items-center gap-1">
                 <Kbd>{keys}</Kbd> {does}
               </span>

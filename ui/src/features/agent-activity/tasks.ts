@@ -12,11 +12,21 @@ import type { ActivityEntry } from '#shared/protocol/activity.ts'
 
 export type TaskState = 'queued' | 'now' | 'done'
 
+/**
+ * The tools that make or change the list, or show it. Their calls are drawn as the list, not as steps. `task_output`
+ * is not one: it shows what a background command printed.
+ */
+const TASK_TOOLS = new Set(['task_create', 'task_append', 'task_prepend', 'tasks_create_in_batch', 'task_list', 'task_get', 'task_update', 'task_done', 'tasks_done', 'task_wait', 'task_stop'])
+
+export const isTaskTool = (name: string | undefined): boolean => TASK_TOOLS.has(name ?? '')
+
 export interface AgentTask {
   /** The number the tools give it, without its #. */
   id: string
   /** Its title. Empty while only its number is known. */
   title: string
+  /** What needs to be done, as the agent wrote it. */
+  description?: string
   /** What the agent says while it works on it, such as "Writing the report". */
   doing?: string
   state: TaskState
@@ -32,6 +42,7 @@ const STATE: Record<Status, TaskState> = { pending: 'queued', in_progress: 'now'
 interface Held {
   id: string
   title: string
+  description?: string
   doing?: string
   state: TaskState
   parent?: string
@@ -74,6 +85,8 @@ const LISTED = /^([\s│├└─]*)#(\d+) \[(pending|in_progress|completed)\] (
 const UPDATED = /^Updated task #(\d+)\b/
 const DONE = /^Task #(\d+) completed\.\nQueue state: (?:ready|waiting|complete)\n\n([\s\S]*?)(?:\n\n- ready:|$)/
 const GOT = /^Task #(\d+): (.*)\nStatus: (pending|in_progress|completed)/
+// task_get's description runs until the next line it prints after it.
+const GOT_DESCRIPTION = /\nDescription: ([\s\S]*?)(?=\n(?:Parent: #|Progress: \d|Children: |Group status follows|Blocked by: #|Blocks: #|Metadata: \{)|$)/
 const STOPPED = /^Task #(\d+) stopped successfully and returned to pending/
 const WAITING = /^Waiting on #(\d+): /
 // What task_list adds after a title: a group's progress, who owns it, what it waits for.
@@ -91,13 +104,14 @@ class Board {
   readonly finished: string[] = []
 
   /** The task with this number, made known with what is new about it. It is placed by whoever asked. */
-  know(id: string, fields: { title?: string; doing?: string; parent?: string } = {}): Held {
+  know(id: string, fields: { title?: string; description?: string; doing?: string; parent?: string } = {}): Held {
     let held = this.tasks.get(id)
     if (!held) {
       held = { id, title: '', state: 'queued' }
       this.tasks.set(id, held)
     }
     if (fields.title) held.title = fields.title
+    if (fields.description) held.description = fields.description
     if (fields.doing) held.doing = fields.doing
     if (fields.parent) held.parent = fields.parent
     return held
@@ -171,6 +185,7 @@ class Board {
       return {
         id: task.id,
         title: task.title,
+        ...(task.description ? { description: task.description } : {}),
         ...(task.doing ? { doing: task.doing } : {}),
         state: task.state,
         order,
@@ -261,7 +276,7 @@ function batched(board: Board, args: Args, output: string): void {
       continue
     }
     if (board.tasks.has(id)) continue
-    board.know(id, { title, doing: text(item?.activeForm), parent })
+    board.know(id, { title, description: text(item?.description), doing: text(item?.activeForm), parent })
     board.state(id, STATE[status])
   }
 }
@@ -297,7 +312,7 @@ function readHandoff(board: Board, context: Args): void {
   const nextId = idOf(next?.id)
   if (next && nextId && next.kind !== 'group') {
     const placed = board.tasks.has(nextId)
-    board.know(nextId, { title: text(next.subject), doing: text(next.activeForm), parent: idOf(next.parentId) })
+    board.know(nextId, { title: text(next.subject), description: text(next.description), doing: text(next.activeForm), parent: idOf(next.parentId) })
     const status = statusOf(next.status)
     if (!placed && status) board.state(nextId, STATE[status])
   }
@@ -332,7 +347,7 @@ function read(board: Board, entry: ActivityEntry): void {
         return
       }
       const known = board.tasks.has(id)
-      board.know(id, { title, doing: text(args.activeForm), parent: idOf(args.parentId) })
+      board.know(id, { title, description: text(args.description), doing: text(args.activeForm), parent: idOf(args.parentId) })
       if (!known) board.place(id, (args.position as Args | undefined) ?? {})
       return
     }
@@ -342,7 +357,7 @@ function read(board: Board, entry: ActivityEntry): void {
       if (!match) return
       const id = match[1]!
       const known = board.tasks.has(id)
-      board.know(id, { title: text(args.subject) ?? match[2]!, doing: text(args.activeForm), parent: idOf(args.parentId) })
+      board.know(id, { title: text(args.subject) ?? match[2]!, description: text(args.description), doing: text(args.activeForm), parent: idOf(args.parentId) })
       if (!known) board.place(id, { type: entry.name === 'task_append' ? 'after' : 'before', taskId: args.taskId })
       const queue = QUEUE.exec(output)
       if (queue) board.openAre(idsIn(queue[1]!))
@@ -360,7 +375,7 @@ function read(board: Board, entry: ActivityEntry): void {
         board.groups.set(id, title)
         return
       }
-      board.know(id, { title })
+      board.know(id, { title, description: GOT_DESCRIPTION.exec(output)?.[1]?.trim() })
       board.state(id, STATE[status])
       return
     }
@@ -374,7 +389,7 @@ function read(board: Board, entry: ActivityEntry): void {
         return
       }
       const known = board.tasks.has(id)
-      board.know(id, { title: text(args.subject), doing: text(args.activeForm) })
+      board.know(id, { title: text(args.subject), description: text(args.description), doing: text(args.activeForm) })
       if (args.status === 'in_progress') board.state(id, 'now')
       else if (args.status === 'completed') board.state(id, 'done')
       else if (!known) board.state(id, 'queued')
@@ -404,7 +419,7 @@ export function tasksOf(entries: readonly ActivityEntry[]): AgentTask[] {
   const board = new Board()
   const seen = new Set<string>()
   for (const entry of entries) {
-    if (entry.kind !== 'tool' || !entry.name?.startsWith('task')) continue
+    if (entry.kind !== 'tool' || !isTaskTool(entry.name)) continue
     if (entry.state !== 'completed' || seen.has(entry.id)) continue
     seen.add(entry.id)
     read(board, entry)
@@ -430,6 +445,7 @@ export function sameTasks(left: readonly AgentTask[], right: readonly AgentTask[
     return (
       task.id === other.id &&
       task.title === other.title &&
+      task.description === other.description &&
       task.doing === other.doing &&
       task.state === other.state &&
       task.order === other.order &&
@@ -446,4 +462,32 @@ export function progressOf(tasks: readonly AgentTask[]): TaskProgress {
     now: tasks.filter((task) => task.state === 'now'),
     ...(next ? { next } : {}),
   }
+}
+
+/** A task's title, or its number while only that is known. */
+export const titleOf = (task: AgentTask): string => task.title || `Task ${task.id}`
+
+/** The tasks in one line, in parts so each can be drawn in its own weight. */
+export interface TaskLine {
+  /** How many are done of how many: "2 of 5 tasks". */
+  count: string
+  lead: 'in progress' | 'next' | 'all done'
+  /** The task the line names: the first in progress, or else the next one. */
+  title?: string
+  /** How many more are in progress beside the one named. */
+  more: number
+  /** The whole line: "2 of 5 tasks · in progress: Post-process the completed change and verify". */
+  text: string
+}
+
+/** The tasks in one line: how many are done of how many, then the one in progress, or else the next one, or that all are done. */
+export function taskLine(progress: TaskProgress): TaskLine {
+  const count = `${progress.done} of ${progress.total} ${progress.total === 1 ? 'task' : 'tasks'}`
+  const now = progress.now[0]
+  const named = now ?? progress.next
+  const lead = now ? 'in progress' : named ? 'next' : 'all done'
+  const more = Math.max(0, progress.now.length - 1)
+  const title = named ? titleOf(named) : undefined
+  const text = `${count} · ${lead}${title ? `: ${title}${more ? ` +${more}` : ''}` : ''}`
+  return { count, lead, ...(title ? { title } : {}), more, text }
 }

@@ -9,10 +9,11 @@ export const TIER_IDS = ['fast', 'mid', 'high', 'max'] as const
 export type TierId = (typeof TIER_IDS)[number]
 
 /**
- * Thinking levels, weakest first: Pi's own, which are also the ones hobkin accepts for its main model
- * (MAIN_EFFORTS in shared/commands/registry.ts). The order is what "nearest" means when a level has to move.
+ * Thinking levels, weakest first: Pi's own (MODEL_THINKING_LEVELS in pi-ai), which are also the ones hobkin accepts
+ * for its main model and its tiers (MAIN_EFFORTS in shared/commands/registry.ts). A model has only some of them, and
+ * only those are offered for it. The order is what "nearest" means when a level has to move.
  */
-export const EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export const EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export type Effort = (typeof EFFORTS)[number]
 
 export interface TierSetting {

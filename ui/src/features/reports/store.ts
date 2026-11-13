@@ -41,6 +41,10 @@ interface ReportsState {
 }
 
 let settling: ReturnType<typeof setTimeout> | undefined
+/** The real report in its undo time, which hobkin has not been told about. */
+let pending: { id: string; home: string } | null = null
+/** Reports hobkin was told to delete, until its snapshot stops listing them. */
+const deleting = new Set<string>()
 const READ_MS = 3000
 
 /** The mounted reader owns this lifetime, not its retained selection after leaving Reports. */
@@ -80,7 +84,8 @@ let completedOpen: Report | null = null
 /**
  * The Reports screen's state. It outlives the screen, so leaving Reports and coming back finds the same
  * filters and the same open report. The host persists read marks after three seconds; actions stay open.
- * Deletion is sample-only until the host supports it.
+ * A delete of a real report waits out its undo time, then hobkin deletes it (`report.delete`, which cannot be
+ * undone). Until hobkin's snapshot stops listing it, snapshots do not bring it back.
  */
 export const useReports = create<ReportsState>()((set, get) => ({
   sample: true,
@@ -103,21 +108,43 @@ export const useReports = create<ReportsState>()((set, get) => ({
   },
   close: () => { completedOpen = null; set({ openId: null, selectionRevision: get().selectionRevision + 1 }) },
   remove: (id) => {
-    if (!get().sample) return
-    const { inbox, openId } = get()
+    const { inbox, openId, sample } = get()
+    if (!sample) {
+      const { home, link } = hostStore.getState()
+      if (home === null || link !== 'open') return toast.error('hobkin is not connected, so the report was not deleted.')
+      if (!inbox.reports.some((report) => report.id === id)) return
+      deleteInHobkin()
+      pending = { id, home }
+    }
     const next = removeReport(inbox, id, Date.now())
     if (next === inbox) return
     set({ inbox: next, openId: openId === id ? null : openId })
     // The undo line leaves on its own, whether or not the screen is still showing.
     clearTimeout(settling)
-    settling = setTimeout(() => set({ inbox: settle(get().inbox, Date.now()) }), next.removed!.until - Date.now())
+    settling = setTimeout(() => {
+      set({ inbox: settle(get().inbox, Date.now()) })
+      deleteInHobkin()
+    }, next.removed!.until - Date.now())
   },
   undo: () => {
-    if (!get().sample) return
+    pending = null
     clearTimeout(settling)
     set({ inbox: undoRemove(get().inbox) })
   },
 }))
+
+/** Tells hobkin to delete the report whose undo time has passed. If hobkin refuses, the report is listed again. */
+function deleteInHobkin(): void {
+  const settled = pending
+  pending = null
+  if (!settled || hostStore.getState().home !== settled.home) return
+  deleting.add(settled.id)
+  runCommand('report.delete', { id: settled.id }).catch((error: unknown) => {
+    deleting.delete(settled.id)
+    toast.error(error instanceof Error ? error.message : 'Could not delete the report.')
+    if (hostStore.getState().home === settled.home) syncReports(hostStore.getState())
+  })
+}
 
 function isReport(value: unknown): value is Report & { readState?: unknown } {
   if (!value || typeof value !== 'object') return false
@@ -144,17 +171,26 @@ function syncReports(state: HostState, previous?: HostState): void {
   const ready = sample ? state.link === 'none' : !changedHome && (current.ready || published)
   const rows = ready ? state.snapshot.reports : []
   const reports = Array.isArray(rows) ? rows.filter(isReport) : []
-  if (changedHome) completedOpen = null
+  if (changedHome) {
+    completedOpen = null
+    pending = null
+    deleting.clear()
+  }
   if (completedOpen && current.openId === completedOpen.id) {
     const index = reports.findIndex(({ id }) => id === completedOpen!.id)
     if (index < 0) reports.unshift(completedOpen)
     else reports[index] = completedOpen
   }
+  // What the user deleted stays off the list while hobkin's snapshot still lists it.
+  if (ready) for (const id of deleting) if (!reports.some((report) => report.id === id)) deleting.delete(id)
+  const hidden = sample ? [] : reports.filter((report) => deleting.has(report.id) || report.id === pending?.id)
+  if (hidden.length) reports.splice(0, reports.length, ...reports.filter((report) => !hidden.includes(report)))
   const read = reports
     .filter((report) => report.readState === 'read' || (!changedHome && current.inbox.read.has(report.id)))
     .map(({ id }) => id)
   const inbox = sample ? createInbox(sampleReports, sampleRead) : createInbox(reports, read)
-  clearTimeout(settling)
+  if (pending) inbox.removed = current.inbox.removed
+  else clearTimeout(settling)
   useReports.setState({
     sample,
     ready,

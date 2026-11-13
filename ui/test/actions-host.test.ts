@@ -65,17 +65,46 @@ test('all waiting groups carry real summaries without invented choices or review
   assert.equal(actual[0]?.summary, 'Ready branch', 'known dates sort oldest first')
   assert.equal(actual.find(({ kind }) => kind === 'yours')?.question.tldr, 'Needs your access')
   assert.equal(actual.find(({ id }) => id === 'waiting:reports:recap')?.question.tldr, 'Check the finding')
-  assert.ok(actual.filter(({ item }) => item === null).every(({ question, branch }) => question.choices.length === 0 && !branch))
+  assert.ok(actual.filter(({ item, answers }) => item === null && answers?.by !== 'work').every(({ question, branch }) => question.choices.length === 0 && !branch))
 })
 
-test('work approvals and unknown steps do not acquire a personal-only label or shipping command', () => {
-  const rows = hostRows({ waiting: { yours: [
-    { slug: 'app', item: 'ship', title: 'Ship exact head', attentionKind: 'approval', head: 'abc123' },
-    { slug: 'app', item: 'unknown', title: 'Investigate remaining work' },
-    { slug: 'app', item: 'access', title: 'Provide access', attentionKind: 'personal' },
-  ] } })
-  assert.deepEqual(rows.map(row => row.kind), ['approval', 'work', 'yours'])
-  assert.ok(rows.every(row => row.opens?.screen === 'work' && !row.answers && row.question.choices.length === 0))
+test('work steps that Work does not show are cleared here with hobkin\'s done, never a shipping command', () => {
+  const rows = hostRows({ waiting: {
+    branches: [{ slug: 'app', item: 'shown', title: 'Finished branch' }],
+    yours: [
+      { slug: 'app', item: 'ship', title: 'Ship exact head', attentionKind: 'approval', head: 'abc123' },
+      { slug: 'app', item: 'unknown', title: 'Investigate remaining work' },
+      { slug: 'app', item: 'access', title: 'Provide access', attentionKind: 'personal' },
+      { slug: 'app', item: 'shown', title: 'Finished branch', reason: 'Smoke test unverified' },
+    ],
+  } }).filter(row => row.id.startsWith('waiting:yours:'))
+  assert.deepEqual(rows.map(row => row.kind), ['approval', 'work', 'yours', 'work'])
+  for (const row of rows.slice(0, 3)) {
+    const item = row.id.split(':').at(-1)!
+    assert.equal(row.opens, undefined, 'Work has no card for it, so it is handled here')
+    assert.deepEqual(row.question.choices.map(choice => choice.value), ['done'])
+    assert.deepEqual(row.answers, { by: 'work', id: `app:${item}`, slug: 'app', item })
+  }
+  // A step Work does show as a finished change is still handled there.
+  assert.equal(rows[3]?.opens?.screen, 'work')
+  assert.equal(rows[3]?.answers, undefined)
+})
+
+test('only genuine decisions wait on the user: work that opens elsewhere and a lone mark-done are not action items', () => {
+  hello()
+  snapshot([decision], {
+    branches: [{ slug: 'app', item: 'abc', title: 'Ready branch' }],
+    yours: [{ slug: 'app', item: 'clear', title: 'Only you can do this' }],
+    proposals: [{ id: 'a1b2c3', scope: 'work.app', title: 'A learning proposal', question: 'Plan it?' }],
+    asks: [{ slug: 'app', item: 'prop', kind: 'proposal', question: 'Take this project?' }],
+    reports: [{ id: 'recap', title: 'Recap' }],
+  })
+  // The decision (its own choices), the learning proposal (three choices) and the take-or-skip (two) stay. The finished
+  // branch and the report open where they are handled, and the lone "Mark it done" step is a single option: none wait here.
+  assert.deepEqual(
+    rows().map(({ id }) => id).toSorted(),
+    ['decision-1', 'waiting:asks:app:prop', 'waiting:proposals:a1b2c3'],
+  )
 })
 
 test('host rows ignore local answers and deferred sample questions', () => {

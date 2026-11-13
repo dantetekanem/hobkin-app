@@ -1,13 +1,20 @@
 import { Type, type Static, type TSchema } from 'typebox'
 import { Check, Errors } from 'typebox/value'
+import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, type BackupState } from '../backup/types.ts'
 import type { IntegrationsState } from '../integrations/wire.ts'
 import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
-import type { CanvasState } from '../protocol/canvas.ts'
+import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
+import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
+import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState } from '../protocol/models.ts'
+import { NUDGE_SCREENS } from '../protocol/nudge.ts'
+import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
+import { COMPUTER_KINDS, PROFILE_TEXT_MAX, type PiSetup, type UserProfile } from '../protocol/setup.ts'
+import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
@@ -86,12 +93,20 @@ const words = (maxLength: number) => Type.String({ minLength: 1, maxLength, patt
 /** Pi's id for a provider. Plain enough to name in a shell command. */
 const provider = Type.Object({ provider: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' }) }, { additionalProperties: false })
 /** The thinking levels hobkin's main conversation takes: `efforts.pi` in hobkin's `src/cli/schedules.mjs`. */
-export const MAIN_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export const MAIN_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 /** One of a few words. A union built with map checks the same at runtime, but its type collapses, so the type is named here. */
 const oneOf = <const Word extends string>(choices: readonly Word[]) => Type.Unsafe<Word>(Type.Union(choices.map((choice) => Type.Literal(choice))))
 /** One of hobkin's four tiers for delegated work, and the model and thinking level a tier holds (`017-model-tiers`). */
 const tierName = oneOf(TIER_IDS)
 const tierSetting = Type.Object({ model: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}/\\S{1,256}$' }), effort: oneOf(MAIN_EFFORTS) }, { additionalProperties: false })
+/** A durable hobkin by its id (`034-durable-hobkins`). On a canvas command it names whose canvas; left out, the main hobkin's. */
+const hobkinId = Type.String({ pattern: '^[0-9a-f]{8}$' })
+/** What a durable hobkin runs on: a tier, Claude Code with nothing asked, or a model Pi can reach with a thinking level. */
+const hobkinEngine = Type.Union([
+  Type.Object({ kind: Type.Literal('tier'), tier: tierName }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('claude'), model: Type.Optional(oneOf(CLAUDE_MODELS)), effort: Type.Optional(oneOf(HOBKIN_CLAUDE_EFFORTS)) }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('pi'), model: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}/\\S{1,256}$' }), effort: oneOf(MAIN_EFFORTS) }, { additionalProperties: false }),
+])
 /** A work project by hobkin's slug for it, and one of its items by id. */
 const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
@@ -104,7 +119,7 @@ const clock = Type.String({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' })
 const mcpServer = Type.Object({ name: Type.String({ pattern: '^[A-Za-z0-9_-]{1,64}$' }) }, { additionalProperties: false })
 /** A review by what it reviews: a finished change, `change:<slug>:<item>`, or a pull request, `pr:<owner>/<repo>/<number>`. */
 const reviewId = Type.String({ pattern: '^(change|pr):\\S{3,300}$' })
-const verdict = oneOf(['comment', 'approve', 'approve-merge', 'request-changes'])
+const verdict = oneOf(['comment', 'approve', 'approve-merge', 'request-changes', 'discard', 'discard-branch'])
 /** A reviewer's note as `shared/review/notes.ts` has it, so nothing else is kept in the home or sent with a verdict. */
 const note = Type.Object(
   {
@@ -151,6 +166,42 @@ export const COMMANDS = {
   },
   'host.restart': {
     description: "Restart the host alone, on the user's word, so it loads the code on disk: hobkin closes cleanly, and the app starts a new host. The window stays open and connects again. Agents and reviews that are running stop.",
+    runs: 'host', args: nothing,
+  },
+  // Local backup of hobkin's records in its home into timestamped zips outside it. Restore replaces the records, so it is the user's alone.
+  'backup.list': {
+    description: 'Read the local backup settings, the backups kept (name, time, size), and when the next automatic one runs. It only reads.',
+    runs: 'host', args: nothing, hobkin: true,
+  },
+  'backup.config': {
+    description: `Turn automatic local backup of hobkin's records on or off, choose how often it runs (hourly or daily), and how many backups to keep (1 to ${BACKUP_LIMIT_MAX}, the oldest are deleted). Whatever is left out stays as it is.`,
+    runs: 'host',
+    args: Type.Object(
+      { enabled: Type.Optional(Type.Boolean()), cadence: Type.Optional(oneOf(BACKUP_CADENCES)), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: BACKUP_LIMIT_MAX })) },
+      { additionalProperties: false },
+    ),
+    rule: ({ enabled, cadence, limit }) => (enabled === undefined && cadence === undefined && limit === undefined ? 'need a setting to change' : null),
+  },
+  'backup.now': {
+    description:
+      "Zip hobkin's own records now (settings, memory, notes, routines, reports, decisions, conversations and each project's work records) into a timestamped file, and delete the oldest backups past the limit (the copies taken before a restore are kept apart). Working copies and clones of projects, any other git checkout, what runs leave beside their reports, run transcripts and the search index are left out, and what it could not read is listed.",
+    runs: 'host', args: nothing,
+  },
+  'backup.restore': {
+    description:
+      "Put hobkin's records back as a backup has them, after saving a copy of the records there now. Working copies and clones of projects, the rest a backup leaves out, and any file no backup could take stay as they are now. Destructive and only for the user to confirm in the window, once nothing runs: hobkin must be restarted afterwards to see it, and the window restarts the host at once.",
+    runs: 'host',
+    args: Type.Object(
+      { name: Type.String({ pattern: '^hobkin-backup-\\d{4}-\\d\\d-\\d\\dT\\d\\d-\\d\\d-\\d\\d(-before-restore)?\\.zip$' }), confirm: Type.Literal(true) },
+      { additionalProperties: false },
+    ),
+  },
+  'system.metrics': {
+    description: 'Read how busy the machine the host runs on is now: CPU use, memory used and disk space occupied. It only reads.',
+    runs: 'host', args: nothing,
+  },
+  'usage.facts': {
+    description: "Read when hobkin was first set up and how many conversations it has had, from hobkin's own files. It only reads.",
     runs: 'host', args: nothing,
   },
   'conversation.send': {
@@ -233,11 +284,13 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ id: words(64), value: Type.Optional(words(80)), typed: Type.Optional(words(1000)) }, { additionalProperties: false }),
     rule: ({ value, typed }) => ((value === undefined) !== (typed === undefined) ? null : 'need "value" or "typed", and only one of them'),
+    hobkin: true,
   },
   'question.defer': {
     description: 'Put the question off. It leaves the screen and waits under Action items.',
     runs: 'host',
     args: Type.Object({ id: words(64) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'models.list': {
     description: 'List the model providers Pi knows: how each connects (a sign-in, an API key, cloud credentials) and whether it is connected now. Then the models Pi can use now, with their thinking levels and context size.',
@@ -292,6 +345,31 @@ export const COMMANDS = {
     rule: ({ tiers, review }) => (Object.keys(tiers ?? {}).length + Object.keys(review ?? {}).length > 0 ? null : 'need a tier or a review tier to save'),
     outside: true,
   },
+  'claude-code.read': {
+    description:
+      "Read whether Claude Code is installed on this Mac and signed in, and how hobkin's other agents use it: whether Work runs, delegated jobs and routines run on Claude Code instead of Pi, with which model and thinking effort, and what they may do without asking. The main chat always runs on Pi.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'claude-code.apply': {
+    description:
+      "Change how hobkin's other agents use Claude Code. `enabled` runs them on Claude Code instead of Pi. `kinds` picks which of them: work, sessions (jobs hobkin delegates) and routines. `model` is a Claude Code alias, or default for the account's own. `effort` follows each agent's tier or fixes a level. `permissions` says what they may do without asking: auto (Claude Code's reviewer approves safe actions and asks the user when unsure), ask (every action that needs approval asks the user), edits (file edits go ahead, commands ask) or all (everything goes ahead). Whatever is left out stays as it is. Agents already running keep what they started with.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        enabled: Type.Optional(Type.Boolean()),
+        kinds: Type.Optional(Type.Object(Object.fromEntries(CLAUDE_AGENT_KINDS.map((kind) => [kind, Type.Optional(Type.Boolean())])), { additionalProperties: false })),
+        model: Type.Optional(oneOf(CLAUDE_MODELS)),
+        effort: Type.Optional(oneOf(CLAUDE_EFFORTS)),
+        permissions: Type.Optional(oneOf(CLAUDE_PERMISSIONS)),
+      },
+      { additionalProperties: false },
+    ),
+    rule: (change) => (Object.keys(change).length > 0 ? null : 'need a setting to change'),
+    // It spends the user's Claude subscription and sets what agents may do, so only the window changes it.
+    outside: true,
+  },
   'signin.start': {
     description: 'Start signing in to a model provider through Pi, for a provider that offers a sign-in, such as a ChatGPT or Claude subscription. The user approves in the browser.',
     runs: 'host',
@@ -313,6 +391,39 @@ export const COMMANDS = {
     description: "Sign out of a model provider. Removes its credential from Pi's store.",
     runs: 'host',
     args: provider,
+    outside: true,
+  },
+  // The first-run setup (025-onboarding). hobkin keeps its own `profile` command, so these are the window's alone.
+  'profile.read': {
+    description: "Read who the user told hobkin they are, from profile.json in its home: their name, their email, and whether this is their personal or their work computer. Null is not said yet.",
+    runs: 'host',
+    args: nothing,
+  },
+  'profile.set': {
+    description:
+      "Save who the user is in hobkin's profile.json: `name`, `email`, and `computer`, personal or work. Whatever is left out stays as it is. hobkin checks every value, and saves all of them or none.",
+    runs: 'host',
+    args: Type.Object(
+      { name: Type.Optional(words(PROFILE_TEXT_MAX)), email: Type.Optional(words(PROFILE_TEXT_MAX)), computer: Type.Optional(oneOf(COMPUTER_KINDS)) },
+      { additionalProperties: false },
+    ),
+    rule: (change) => (Object.keys(change).length > 0 ? null : 'need a name, an email or a computer to save'),
+  },
+  'setup.pi': {
+    description: "Read whether Pi is installed on this Mac at the version hobkin runs on, whether npm is there to install it, and which of the Pi packages hobkin's agents use Pi has. It only reads.",
+    runs: 'host',
+    args: nothing,
+  },
+  'setup.install-pi': {
+    description: 'Install the Pi version hobkin runs on, globally on this Mac, with npm. Answers with Pi as it is after.',
+    runs: 'host',
+    args: nothing,
+    outside: true,
+  },
+  'setup.install-package': {
+    description: "Install one of the Pi packages hobkin's agents use, by its name, through `pi install`. Answers with Pi as it is after.",
+    runs: 'host',
+    args: Type.Object({ name: oneOf(PI_PACKAGES.map(({ name }) => name)) }, { additionalProperties: false }),
     outside: true,
   },
   'github.refresh': {
@@ -386,15 +497,123 @@ export const COMMANDS = {
       'Open the canvas, a panel beside the screens that shows a web page, so the user can see work happening for real, such as a local app under test. `url` is an http or https address. `title` names the page.',
     runs: 'host',
     args: Type.Object(
-      { url: Type.String({ pattern: '^https?://\\S', maxLength: 4096 }), title: Type.Optional(words(120)) },
+      { url: Type.String({ pattern: '^https?://\\S', maxLength: 4096 }), title: Type.Optional(words(120)), hobkin: Type.Optional(hobkinId) },
       { additionalProperties: false },
     ),
     hobkin: true,
   },
   'canvas.close': {
-    description: 'Close the canvas panel.',
+    description: "Close the canvas panel. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+    runs: 'host',
+    args: Type.Object({ hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'canvas.draw': {
+    description:
+      "Draw on the canvas: `html` is one whole HTML document that stands by itself, such as a diagram, a whiteboard or a mock-up, and it replaces the drawing that was there. The canvas opens on it. `title` names it. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+    runs: 'host',
+    args: Type.Object(
+      { html: Type.String({ minLength: 1, maxLength: DRAWING_MAX_BYTES }), title: Type.Optional(words(120)), hobkin: Type.Optional(hobkinId) },
+      { additionalProperties: false },
+    ),
+    hobkin: true,
+  },
+  'canvas.read': {
+    description:
+      "What a canvas shows now: open or closed, a page or a drawing, its title, and the file that holds its drawing, to read before changing it. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+    runs: 'host',
+    args: Type.Object({ hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'canvas.save': {
+    description:
+      "Save the canvas's drawing as an HTML file: at `path` (absolute or under ~), or in Downloads under a name made from the title. It never replaces a file. Answers with where it went.",
+    runs: 'host',
+    args: Type.Object({ path: Type.Optional(words(1024)), hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  // Durable hobkins (`034-durable-hobkins`): the hobkins the user starts with Command+N and drives themselves. Starting,
+  // talking and ending are the window's, since they spend the user's subscriptions. hobkin may read, list and message
+  // them, and its message is always its own, never the user's.
+  'hobkin.start': {
+    description:
+      'Start a durable hobkin: a hobkin the user talks to directly, which keeps its conversation until the user ends it. `cwd` is the folder it works in, and `engine` what it runs on: a tier, Claude Code with nothing asked (with a model and a thinking level of its own), or a model Pi can reach with a thinking level. `text` is its first message: with none it starts waiting, and its first turn is the first message sent to it.',
+    runs: 'host',
+    args: Type.Object(
+      { cwd: words(1024), engine: hobkinEngine, text: Type.Optional(words(HOBKIN_MESSAGE_MAX)), title: Type.Optional(words(HOBKIN_TITLE_MAX)) },
+      { additionalProperties: false },
+    ),
+  },
+  'hobkin.say': {
+    description:
+      "Send the user's words to a durable hobkin. While it waits they start its next turn; while it works they reach the turn in flight.",
+    runs: 'host',
+    args: Type.Object(
+      { id: hobkinId, text: words(HOBKIN_MESSAGE_MAX), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })) },
+      { additionalProperties: false },
+    ),
+  },
+  'hobkin.end': {
+    description: 'End a durable hobkin: its turn in flight stops and it leaves the lists. Its conversation file stays on disk.',
+    runs: 'host',
+    args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
+  },
+  'hobkin.rename': {
+    description: 'Give a durable hobkin another name.',
+    runs: 'host',
+    args: Type.Object({ id: hobkinId, title: words(HOBKIN_TITLE_MAX) }, { additionalProperties: false }),
+  },
+  'hobkin.seen': {
+    description: 'Say the user has looked at a durable hobkin that is waiting, so the main hobkin does not tell them about it.',
+    runs: 'host',
+    args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
+  },
+  'hobkin.read': {
+    description: "Read a durable hobkin's conversation: what it is, and each turn with what was asked, who asked it (`from`) and what it answered, oldest first.",
+    runs: 'host',
+    args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'hobkin.list': {
+    description: 'List the durable hobkins you can message, newest first, each with its id, title and whether it works or waits.',
     runs: 'host',
     args: nothing,
+    hobkin: true,
+  },
+  'hobkin.tell': {
+    description:
+      'Message a durable hobkin as the main hobkin, never as the user. While it waits the words start its next turn, shown there as from you; while it works they wait and start the turn after the one in flight. A message needs no answer, and its answer, if it sends one, comes to you as a message. Each thing the user says allows at most three messages between hobkins in all.',
+    runs: 'host',
+    args: Type.Object({ id: hobkinId, text: words(HOBKIN_TELL_MAX) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  // Driving the window for the user: move it to a screen, open the spotlight, step back, or put words in the
+  // composer. The host holds the latest as a one-shot instruction and tells the window, which does the move
+  // (`shared/protocol/nudge.ts`). None of them send a message or take an action on the user's behalf.
+  'view.open': {
+    description:
+      'Move the window to a screen, as clicking its place in the menu does: home, reports, routines, actions, work, github, settings or integrations. It only shows the screen; it takes no action on it.',
+    runs: 'host',
+    args: Type.Object({ screen: oneOf(NUDGE_SCREENS) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'view.spotlight': {
+    description: 'Open the spotlight over the window, the Command+K search the user types into to jump anywhere. It opens it and nothing more.',
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'view.back': {
+    description: 'Step the window back to the place it was before this one, as Command+Left does. Does nothing when there is nowhere back.',
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'conversation.draft': {
+    description:
+      'Put words in the message composer without sending them, so the user can read, edit and send. It replaces whatever is being written. It never sends: sending stays the user\'s.',
+    runs: 'host',
+    args: Type.Object({ text: words(65536) }, { additionalProperties: false }),
     hobkin: true,
   },
   'appearance.customize': {
@@ -433,12 +652,21 @@ export const COMMANDS = {
     rule: ({ palette }) => paletteProblems(palette).join(' ') || null,
     hobkin: true,
   },
+  'appearance.photo': {
+    description: 'Select the locally bundled Milky Way photo for the active custom theme (`id`: "milky-way"), or disable its photo (`id`: null). No URLs, files or downloads are accepted. Built-in themes never show this photo.',
+    runs: 'host',
+    args: Type.Object(
+      { id: Type.Union([Type.Literal('milky-way'), Type.Null()]) },
+      { additionalProperties: false },
+    ),
+    hobkin: true,
+  },
   'appearance.use': {
     description:
       "Put the app on one of its own themes. `theme` is `system` (the default: follows the Mac, light by day and dark at night, and the way back from any custom theme), `light`, or `dark`. Use it when the user asks to go back to the default theme, to use dark mode or light mode, or to stop using a custom theme. It changes the window at once.",
     runs: 'host',
     args: Type.Object(
-      { theme: Type.Union(BUILT_IN_THEMES.map((theme) => Type.Literal(theme))) },
+      { theme: oneOf(BUILT_IN_THEMES) },
       { additionalProperties: false },
     ),
     hobkin: true,
@@ -534,13 +762,13 @@ export const COMMANDS = {
   },
   'review.preview': {
     description:
-      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments. For a finished change, `approve` opens its pull request, `approve-merge` lands it as its card does, and `request-changes` sends the notes to hobkin's agent. `summary` is the user's words to go with it. `head` is the commit of the review on the user's screen: when the review the host holds is for another commit, the preview is refused. Answers with the `confirm` that review.verdict needs.",
+      "Show exactly what a verdict on a review would do, and do nothing: for a pull request the review GitHub would get, with its line comments. For a finished change, `approve` opens its pull request, `approve-merge` lands it as its card does, and `request-changes` sends the notes to hobkin's agent. `discard` is the no: a pull request is closed on GitHub without merging it, and a finished change gets hobkin's own no, with its pull request closed when one is open. `discard-branch` is that no and then deletes the branch: a pull request's head branch on GitHub, only while it is at the commit shown, refused for a fork, a default or protected branch, or one other open pull requests use, or a finished change's own branch on this Mac and on GitHub with the worktree that holds it, refused while it runs or when the user's own folder has it checked out; the preview names the branch, where it goes and what is lost. `summary` is the user's words to go with it. `head` is the commit of the review on the user's screen: when the review the host holds is for another commit, the preview is refused. Answers with the `confirm` that review.verdict needs.",
     runs: 'host',
     args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), head: Type.Optional(commit) }, { additionalProperties: false }),
   },
   'review.verdict': {
     description:
-      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user. A finished change gets its pull request opened, or is merged or sent back through hobkin's own work actions. `confirm` is what the preview answered, and `head` the commit of the review on the user's screen. A verdict that would now do anything else, or act on another commit, is refused.",
+      "Give a verdict on a review, only ever on the user's word, once review.preview has shown them exactly what it does: a pull request gets one review on GitHub through gh, as the user. A finished change gets its pull request opened, or is merged or sent back through hobkin's own work actions. A discard closes the pull request without merging it, and says hobkin's own no to a finished change; `discard-branch` then deletes the branch the preview named, and a step that fails says what was already done. `confirm` is what the preview answered, and `head` the commit of the review on the user's screen. A verdict that would now do anything else, or act on another commit, is refused.",
     runs: 'host',
     args: Type.Object({ id: reviewId, verdict, summary: Type.String({ maxLength: 20000 }), confirm: Type.String({ pattern: '^[0-9a-f]{64}$' }), head: Type.Optional(commit) }, { additionalProperties: false }),
     outside: true,
@@ -550,12 +778,14 @@ export const COMMANDS = {
       "Turn work mode on or off with hobkin's own switch. On starts nothing by itself: what runs is what the user starts, unless they chose auto-pick. The first time, `folder` says where to look for projects. Off lets running agents finish and starts nothing new.",
     runs: 'host',
     args: Type.Object({ on: Type.Boolean(), folder: Type.Optional(words(4096)) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'work.queue': {
     description:
       "Act on a row of hobkin's queue, named by hobkin's own name for it in `row` (such as `item:storefront:3fa9c1`): `run` puts it first, as Enter does in the terminal, and it starts as soon as hobkin's limits allow. `now` starts it at once, as one extra worker when none is free and without waiting out the gap between starts, while a pause, the budget and any stop still hold it, and hobkin says which. `skip` sends it to the end of the queue, and `back` puts a skipped row back in its place.",
     runs: 'host',
     args: Type.Object({ row: words(256), action: oneOf(['run', 'now', 'skip', 'back']) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'work.project': {
     description:
@@ -566,27 +796,36 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
     rule: ({ priority, prs, issues }) => ([priority, prs, issues].filter((setting) => setting !== undefined).length === 1 ? null : 'need "priority", "prs" or "issues", and only one of them'),
+    hobkin: true,
   },
   'work.proposal': {
     description:
       "Answer a project hobkin proposed, as y and n do in the terminal: `take` chooses it at the level hobkin proposed, so its work joins the queue, and `skip` leaves it alone. A project left alone is taken again with `take`.",
     runs: 'host',
     args: Type.Object({ slug: projectSlug, answer: oneOf(['take', 'skip']) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'work.agents': {
     description: "Set how many work agents may run at once, from 1 to hobkin's most of 8, as `hobkin work agents` sets it. Running agents finish as they are.",
     runs: 'host',
     args: Type.Object({ agents: Type.Integer({ minimum: 1, maximum: 8 }) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'work.tokens': {
+    description: "Set the fresh tokens work mode may spend in a day, as `hobkin work tokens` sets it. When the day is used up, work mode starts nothing new until tomorrow. Running agents finish as they are.",
+    runs: 'host',
+    args: Type.Object({ tokens: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'work.change': {
     description:
-      "Act on a finished change, only ever on the user's word: `merge` merges its branch on this machine and pushes nothing, `merge-pr` merges its PR on GitHub, `refresh-merge` has an agent bring it up to date and merges it once that run ends well, `review` has an agent review it, `ask` sends an agent back to it with the user's `note`, and `decline` says no. `head` is the commit the card showed, so a change that moved since is refused.",
+      "Act on a finished change, only ever on the user's word: `merge` merges its branch on this machine and pushes nothing, `merge-pr` merges its PR on GitHub, `refresh-merge` has an agent bring it up to date and merges it once that run ends well, `review` has an agent review it, `ask` sends an agent back to it with the user's `note`, `decline` says no, and `done` marks the item done: what it left for the user is cleared and any branch or PR stays as it is. `head` is the commit the card showed, so a change that moved since is refused.",
     runs: 'host',
     args: Type.Object(
       {
         slug: projectSlug,
         item: workItem,
-        action: oneOf(['merge', 'merge-pr', 'refresh-merge', 'review', 'ask', 'decline']),
+        action: oneOf(['merge', 'merge-pr', 'refresh-merge', 'review', 'ask', 'decline', 'done']),
         head: Type.Optional(commit),
         note: Type.Optional(Type.String({ maxLength: 4000 })),
       },
@@ -643,11 +882,13 @@ export const COMMANDS = {
     description: "Turn a routine on or off: hobkin writes `enabled` in the routine's file, and nothing else in it changes. Off, it never runs by itself.",
     runs: 'host',
     args: Type.Object({ id: routineId, enabled: Type.Boolean() }, { additionalProperties: false }),
+    hobkin: true,
   },
   'routine.delete': {
     description: 'Delete the confirmed routine definition only; reports and run history stay.',
     runs: 'host',
     args: Type.Object({ id: routineId, expectedDefinition: Type.String({ pattern: '^[a-f0-9]{64}$' }) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'routine.times': {
     description:
@@ -662,12 +903,27 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
     rule: ({ at, window }) => ((at === undefined) !== (window === undefined) ? null : 'need "at" or "window", and only one of them'),
+    hobkin: true,
+  },
+  'report.delete': {
+    description: "Delete a report with hobkin's own `reports delete`: it leaves every list and its saved text goes. This cannot be undone, so the window asks only once its own undo time has passed.",
+    runs: 'host',
+    args: Type.Object({ id: words(256) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'report.read': {
     description: 'Record a report read after at least three seconds in its reader. This never completes its action.',
     runs: 'host',
     args: Type.Object({ id: words(256), dwellMs: Type.Integer({ minimum: 3000, maximum: 86400000 }) }, { additionalProperties: false }),
+    hobkin: true,
   },
+  // User-only, like a decision answer: agents may read a reminder but cannot claim the user completed it.
+  'reminder.resolve': {
+    description: 'Record the user’s explicit Done or Dismissed choice for an existing reminder occurrence. Never creates a reminder or sends anything.',
+    runs: 'host',
+    args: Type.Object({ home: words(4096), id: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,79}:\\d{4}-\\d{2}-\\d{2}$' }), status: oneOf(['done', 'dismissed']) }, { additionalProperties: false }),
+  },
+  // Deliberately not `hobkin: true`: a decision answer may merge, so the user retains this authority.
   'decision.answer': {
     description:
       "Answer something waiting in Action Items with hobkin's own decision action, as its Decisions tab does: `value` is one of its choices, `typed` the user's own words, which whoever asked hears. What the answer then does, such as a merge or a note to the routine that asked, is hobkin's.",
@@ -680,6 +936,7 @@ export const COMMANDS = {
       "Answer one of hobkin's learning proposals with its own learning action: `yes` plans it with the main agent in Chat, `later` asks again in a week, and `no` does not ask it again.",
     runs: 'host',
     args: Type.Object({ id: Type.String({ pattern: '^[0-9a-f]{6}$' }), value: oneOf(['yes', 'later', 'no']) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'conversation.image': {
     description: 'Read one raster image from a currently displayed main message. Bytes are returned only to this request.',
@@ -726,6 +983,13 @@ export interface CommandResults {
   'app.refresh': AppStateRead
   'host.code': { startedAt: string; changed: number; newestAt: string | null }
   'host.restart': { ok: true }
+  'system.metrics': SystemMetrics
+  'usage.facts': UsageFacts
+  'backup.list': BackupState
+  'backup.config': BackupState
+  'backup.now': BackupState
+  /** `safety`: the backup taken of the data it replaced. */
+  'backup.restore': { ok: true; restored: string; safety: string | null }
   'conversation.send': { id: string; queued: boolean }
   'conversation.attach': { id: string; name: string; mimeType: string; notice?: string }
   'conversation.detach': { ok: true }
@@ -745,11 +1009,21 @@ export interface CommandResults {
   'tiers.read': HostTiers
   /** The tiers as hobkin holds them once saved. */
   'tiers.apply': HostTiers
+  'claude-code.read': ClaudeCodeState
+  /** The settings as saved, with what the host found of Claude Code. */
+  'claude-code.apply': ClaudeCodeState
   'signin.start': { ok: true }
   'signin.answer': { ok: true }
   'signin.cancel': { ok: true }
   /** `stillConnected`: Pi reaches the provider another way, such as an environment variable. `message` says so. */
   'signin.out': { ok: true; stillConnected: boolean; message: string }
+  'profile.read': UserProfile
+  /** The profile as saved. */
+  'profile.set': UserProfile
+  'setup.pi': PiSetup
+  /** Pi as it is once the install is done. */
+  'setup.install-pi': PiSetup
+  'setup.install-package': PiSetup
   'github.refresh': GitHubState
   'github.open': { ok: true }
   /** What was done, in plain words: the issue closed on GitHub, and what hobkin said of its item, when it had one to decline. */
@@ -757,7 +1031,26 @@ export interface CommandResults {
   'system.open': { ok: true }
   'canvas.show': CanvasState
   'canvas.close': CanvasState
+  'canvas.draw': CanvasState
+  'canvas.read': CanvasContent
+  'canvas.save': CanvasSaved
+  /** The new hobkin's id, and the run of its first turn, or null when it was started with no first message. */
+  'hobkin.start': { id: string; run: string | null }
+  /** `started`: the words began a new turn. `queued`: they were handed to the turn in flight. `run` is that turn's run. */
+  'hobkin.say': { started: boolean; queued: boolean; run: string }
+  'hobkin.end': { ok: true }
+  'hobkin.rename': HobkinSummary
+  'hobkin.seen': { ok: true }
+  'hobkin.read': HobkinConversation
+  'hobkin.list': { hobkins: HobkinReach[] }
+  /** `started`: the words began its next turn, which is `run`. `queued`: they wait for the turn in flight to end, so no run yet. */
+  'hobkin.tell': { started: boolean; queued: boolean; run: string | null }
+  'view.open': { ok: true }
+  'view.spotlight': { ok: true }
+  'view.back': { ok: true }
+  'conversation.draft': { ok: true }
   'appearance.set': { ok: true }
+  'appearance.photo': { ok: true }
   'appearance.use': { ok: true }
   'appearance.customize': ThemeOperation
   'appearance.status': ThemeOperation | null
@@ -792,6 +1085,8 @@ export interface CommandResults {
   'work.proposal': { ok: true }
   /** How many work agents may run at once now. */
   'work.agents': { agents: number }
+  /** The daily limit now. */
+  'work.tokens': { tokens: number }
   /** What hobkin did, in its own words. */
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */
@@ -808,12 +1103,15 @@ export interface CommandResults {
   'routine.times': { ok: true }
   'routine.delete': { id: string; deleted: true }
   /** What hobkin said of the answer, and whether the item went to the main agent in Chat and stays open until done. */
+  'report.delete': { id: string; deleted: true }
   'report.read': { ok: true }
+  'reminder.resolve': { ok: true }
   'decision.answer': { message: string; handedOff: boolean }
   'learning.answer': { message: string }
   'conversation.image': StoredImage | null
   'history.image': StoredImage | null
-  'history.list': { conversations: HistoryEntry[] }
+  /** `titling`: how many of the listed conversations are having a title made for them now, so the window looks again. None from a host that makes no titles. */
+  'history.list': { conversations: HistoryEntry[]; titling?: number }
   'history.open': HistoryConversation
 }
 

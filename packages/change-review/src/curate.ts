@@ -372,6 +372,8 @@ export interface CurateInput {
   source?: (path: string, side: 'head' | 'base') => string | null
   /** Files triage marked `scan`, for the "every scanned file has a node" check. */
   scannedFiles?: readonly string[]
+  /** Changed files the scan listed with no language: it has no parser for them. */
+  unparsed?: readonly string[]
   /** Whether code at a path runs in a request, job or consumer. A script or a build tool does not. Taken as true when not given. */
   runsInRequest?: (path: string) => boolean
 }
@@ -786,15 +788,31 @@ const byPosition = (a: ReviewNode, b: ReviewNode) => a.path.localeCompare(b.path
 // ───────────────────────── curate ─────────────────────────
 
 /**
- * Units from the map. Throws `scan failure` when a code change has no nodes: that is a wrong root or an unsupported
- * language, never "nothing to review". Never drops a node and never merges units to fit nine.
+ * Units from the map. Throws `scan failure` when lines that run changed in scanned code and no node holds any of them,
+ * saying which files and, for a file the scan has no parser for, that; never "nothing to review". Comments and blank
+ * lines alone are no code change. Never drops a node and never merges units to fit nine.
  */
 export function curate(input: CurateInput): Units {
   const graph = markUnverified(input.graph, checkMap(input.graph, input.triage, input.scannedFiles ?? []))
   const work: CurateInput = { ...input, graph }
   const code = graph.nodes.filter((node) => node.kind !== 'test')
-  const scanned = input.triage.buckets.some((bucket) => bucket.kind === 'code' && (bucket.treatment === 'scan' || bucket.treatment === 'parity'))
-  if (!code.length && scanned) throw new Error('scan failure: the change has code but the scan produced no nodes (wrong root or unsupported language)')
+  if (!code.length) {
+    // A file with no diff to read is taken as code that runs, as a line that cannot be read is.
+    const runs = (path: string) => {
+      const file = input.diffs.find((item) => item.path === path)
+      return !file || (file.hunks.length > 0 && changesCode(input, file))
+    }
+    const scanned = input.triage.buckets.filter((bucket) => bucket.kind === 'code' && (bucket.treatment === 'scan' || bucket.treatment === 'parity'))
+    const running = scanned.flatMap((bucket) => bucket.paths).filter(runs)
+    const named = (paths: readonly string[]) => `${paths.slice(0, 3).map((path) => `\`${path}\``).join(', ')}${paths.length > 3 ? ` and ${paths.length - 3} more` : ''}`
+    const unread = running.filter((path) => input.unparsed?.includes(path))
+    const missed = running.filter((path) => !unread.includes(path))
+    const reasons = [
+      unread.length ? `agentic-search has no parser for ${named(unread)}, so what changed in ${unread.length === 1 ? 'it' : 'them'} could not be mapped` : '',
+      missed.length ? `lines that run changed in ${named(missed)}, and the scan found no definition holding them` : '',
+    ].filter(Boolean)
+    if (reasons.length) throw new Error(`scan failure: ${reasons.join('; ')}`)
+  }
 
   const context: Context = { depth: depths(graph) }
   const drafts: Draft[] = []

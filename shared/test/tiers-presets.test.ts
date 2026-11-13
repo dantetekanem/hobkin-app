@@ -61,6 +61,18 @@ test('each tier\'s thinking is moved to what the model allows, and max takes the
   assert.equal(mini?.config.tiers.max?.effort, 'high')
 })
 
+test('a model that thinks at max gives the max tier max, and the others their usual levels', () => {
+  const deepest: ModelChoice[] = [
+    { id: 'anthropic/claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'Anthropic', efforts: ['off', ...LOW_TO_XHIGH, 'max'] },
+  ]
+
+  const preset = presetFor(deepest, { ...ANTHROPIC, defaultModel: 'claude-opus-5-5' })
+
+  assert.equal(preset?.config.tiers.max?.effort, 'max')
+  assert.equal(preset?.config.tiers.high?.effort, 'high')
+  assert.equal(preset?.config.lead.effort, 'medium')
+})
+
 test('with no default for the provider, or one Pi cannot use now, the first model Pi lists that thinks', () => {
   const listed: ModelChoice[] = [
     { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI', efforts: ['off'] },

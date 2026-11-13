@@ -9,6 +9,8 @@ import { checkArguments } from '#shared/commands/registry.ts'
 import type { OwnerState } from '#shared/protocol/messages.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { HostTiers, TiersChange } from '#shared/tiers/tiers.ts'
+import { agentHarness, type ClaudeCodeHooks } from './claude-code/agents.ts'
+import type { RunFacts } from './claude-code/route.ts'
 import { CLIENT_TOOL } from './client-tool.ts'
 import { applyHostTiers, readHostTiers } from './tiers.ts'
 import { createScriptedModel, type ScriptedOptions, type SessionTool } from './scripted.ts'
@@ -39,6 +41,8 @@ export interface OwnerOptions {
   tools?: readonly SessionTool[]
   /** UI model access when no live main session can provide its own catalog. */
   modelRuntime?: () => Promise<unknown>
+  /** Lets a live home run hobkin's other agents on Claude Code where its settings say so (033-claude-code-agents). */
+  claudeCode?: ClaudeCodeHooks
 }
 
 /** hobkin's only use of `fetch` is its own server: enrolling a home, then sending usage and approved feedback. */
@@ -422,7 +426,7 @@ export class HomeOwner {
       // Runtime owns history recovery and launcher precedence; no parent SDK work precedes child capture.
       const client = tools.find(tool => tool.name === CLIENT_TOOL)
       const clientBridge = client ? { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) } : undefined
-      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline }
+      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline, ...(await this.agentHarness()) }
     }
     const model = await createScriptedModel(root, { ...scripted, tools: [...(scripted?.tools ?? []), ...tools] })
     return {
@@ -432,6 +436,31 @@ export class HomeOwner {
       // The script spends nothing and reports nothing, not even from the real home.
       fetch: refuseNetwork,
     }
+  }
+
+  /**
+   * The harness hobkin starts its other agents with: its own, except where the Claude Code settings send them to
+   * Claude Code. Should that fail to come together, hobkin builds its own as it always has, and every agent runs on Pi.
+   */
+  private async agentHarness(): Promise<Pick<OpenOptions, 'runHarness'>> {
+    if (!this.options.claudeCode) return {}
+    try {
+      return { runHarness: await agentHarness(this.options.claudeCode, (harnessId: string, signal?: AbortSignal) => this.runFor(harnessId, signal)) }
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * hobkin's record of the run a harness id belongs to. One that starts while hobkin is still opening waits for it, for
+   * up to a minute, and stops waiting once the run is stopped.
+   */
+  private async runFor(harnessId: string, signal?: AbortSignal): Promise<RunFacts | undefined> {
+    for (let waited = 0; !this.app && !this.closed && !signal?.aborted && waited < 60_000; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (!this.app) return undefined
+    return Object.values((await this.app.runtime.state()).runs).find((run) => run.harnessId === harnessId)
   }
 
   /** hobkin reduces the main session's events to one word. The host listens to the session itself for the rest. */

@@ -7,6 +7,9 @@
  * new commit gets a new review, and the old one stays where it was. Specs: 005-review-model, 009-review-notes, 032.
  */
 import { createHash } from 'node:crypto'
+import { homedir } from 'node:os'
+import { agentMessage } from '#shared/agent-message.ts'
+import { CLIENT_PRODUCER_VERSION } from '../producer-version.ts'
 import { completeReview, draftReview } from '#shared/review/prepare.ts'
 import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
@@ -15,7 +18,7 @@ import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
-import { askForChanges, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
+import { askForChanges, closingComment, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
 import { LOG_LINES, pendingSteps, type Assessments } from './assessment.ts'
 import { ghText, type GhCall } from './gh.ts'
@@ -152,6 +155,96 @@ interface Planned {
   plan?: MergePlan
   /** Nothing is left to do, and this says why: it merged already, or it is being brought up to date to merge. */
   done?: string
+  /** For `discard` and `discard-branch`. */
+  discard?: Discard
+}
+
+/** A pull request on GitHub, by where it lives. */
+interface PullPlace {
+  owner: string
+  repo: string
+  number: number
+}
+
+/** What a discard closes on GitHub, and under what name it says so: the pull request under review, or a finished change's own. */
+interface Discard {
+  /** Null for a finished change with no pull request open: nothing goes to GitHub then. */
+  pull: (PullPlace & { named: string }) | null
+  /** The reviewer's words, posted on the pull request before it is closed. Null when there are none. */
+  comment: string | null
+  /** For `discard-branch` on a pull request: its head branch, deleted on GitHub once it is closed, only while it is still at `sha`. */
+  branch?: PullBranch
+  /** For `discard-branch` on a finished change: what hobkin said deleting its branch takes, which it deletes once it took the no. */
+  deletes?: BranchPlan
+}
+
+/** A pull request's head branch as GitHub had it when it was shown: its name, its commit, and its repository's node id. */
+interface PullBranch {
+  ref: string
+  sha: string
+  repo: string
+}
+
+/**
+ * GitHub's one delete of a branch that is pinned to a commit: `updateRefs` moves the ref from `beforeOid` to nothing,
+ * atomically, and changes nothing when the ref is anywhere else (docs.github.com/en/graphql/reference/git). `force` only
+ * lets it move other than forward; the commit it must be at still holds.
+ */
+const DELETE_REF =
+  'mutation($repo: ID!, $name: GitRefname!, $before: GitObjectID!) { updateRefs(input: { repositoryId: $repo, refUpdates: [{ name: $name, beforeOid: $before, afterOid: "0000000000000000000000000000000000000000", force: true }] }) { clientMutationId } }'
+
+/**
+ * What deleting a finished change's own branch takes, as hobkin reads it (`deleteBranch` with `look`): the branch, where it
+ * is on this Mac and on origin, the worktree that goes with it and what git ignores in that worktree, and how many commits
+ * no other branch or tag on this Mac holds, or null when git cannot say. hobkin deletes it only when told exactly this again.
+ */
+interface BranchPlan {
+  branch: string
+  here: string | null
+  remote: { name: string; url: string; sha: string } | null
+  worktree: string | null
+  /** The files and folders git ignores in the worktree, such as `.env` or `build/`. An older hobkin says nothing of them. */
+  ignored?: string[]
+  lost: number | null
+}
+
+/** A folder as the user knows it, with their home folder as `~`. */
+function tilde(path: string): string {
+  const home = homedir()
+  return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
+}
+
+/** Where a remote is, in words: a repository on GitHub by its name, any other by its address. */
+function remoteWords({ name, url }: { name: string; url: string }): string {
+  const repo = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(url)?.[1]
+  return repo ? `on GitHub, in ${repo}` : `on ${name}, at ${url}`
+}
+
+/**
+ * What deleting a finished change's branch takes, line by line: where the branch goes, its worktree and the files git
+ * ignores in it (three by name, then how many more), and the commits no other branch or tag on this Mac holds.
+ */
+function deletionLines({ branch, here, remote, worktree, ignored = [], lost }: BranchPlan): string[] {
+  const there = remote ? remoteWords(remote) : null
+  const where = here ? (there ? `on this Mac and ${there}` : 'on this Mac') : `${there ?? 'on origin'}. It is gone from this Mac already`
+  const losing =
+    lost == null
+      ? 'Commits on no other branch or tag on this Mac are lost.'
+      : lost === 0
+        ? 'No commit is lost: every one on it is on another branch or tag on this Mac.'
+        : `${count(lost, 'commit')} on no other branch or tag on this Mac ${lost === 1 ? 'is' : 'are'} lost.`
+  return [
+    `Then delete its branch ${branch} ${where}.`,
+    ...(worktree ? [`Remove the worktree that holds it, at ${tilde(worktree)}.`] : []),
+    ...(worktree && ignored.length > 0 ? [`Files git ignores in its worktree go with it: ${some(ignored)}.`] : []),
+    losing,
+  ]
+}
+
+/** The pull request a github.com address names, or null for any other address. */
+function pullOfAddress(address: string): PullPlace | null {
+  const found = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)\/?$/.exec(address)
+  return found ? { owner: found[1]!, repo: found[2]!, number: Number(found[3]) } : null
 }
 
 /** What a preparation did, for the log its change review takes over, and what it reviews once it is read. */
@@ -264,6 +357,8 @@ export class Reviews {
   private readonly about = new Map<string, { title: string; project: string }>()
   /** What each review's latest preparation did. */
   private readonly runs = new Map<string, RunLog>()
+  /** The verdict under way on each review, and the token it was confirmed with: one at a time. */
+  private readonly deciding = new Map<string, { confirm: string; done: Promise<{ message: string }> }>()
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
@@ -370,7 +465,7 @@ export class Reviews {
       const target = targetOfReviewId(id)
       if (!target) return []
       const status = this.status(id)
-      // What merged on the user's yes is done: it is kept in the home and is no longer listed.
+      // What merged or was discarded on the user's yes is done: it is kept in the home, notes and all, and is no longer listed.
       if (status.landing?.state === 'merged' || this.options.store.landedAt(target)) return []
       const kept = stored.get(id)
       const head = status.head ?? kept?.change?.head ?? null
@@ -515,7 +610,7 @@ export class Reviews {
     const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
-    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES }
+    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION }
     store.write(target, review, files, meta)
     say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
     this.opened.set(id, { review, files, meta })
@@ -748,7 +843,7 @@ export class Reviews {
   /** The preview, and the review, card and pull request it was built from, so a verdict does exactly what was shown. */
   private async planned(id: string, verdict: Verdict, summary: string, head?: string): Promise<Planned> {
     const target = this.target(id)
-    const { files, review: prepared } = this.loaded(id)
+    const { files, review: prepared, meta } = this.loaded(id)
     const review = this.shown(target, prepared)
     const at = review.change.head
     // Every token holds the commit it was shown for, so no verdict ever acts on another one.
@@ -762,13 +857,35 @@ export class Reviews {
     }
     // Approve and merge lands where the branch is now and says what moved, so a moved head is no refusal there.
     const lands = verdict === 'approve-merge' && (target.kind === 'pull' || this.options.merging != null)
-    if (head != null && !at.startsWith(head) && !lands) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
+    // A discard is a no to the change wherever it is now, so a moved head is no refusal there either. What it deletes is in its token.
+    const no = verdict === 'discard' || verdict === 'discard-branch'
+    if (head != null && !at.startsWith(head) && !lands && !no) throw new Unavailable(`This review is for commit ${head.slice(0, 7)}; the change has moved to ${at.slice(0, 7)}. Rebuild the review and look again.`)
     const notes = foldNotes(this.options.store.notes(target).entries as NoteEntry[])
     const byId = new Map(files.map((file) => [file.fileId, file]))
     const loose = new Set(detachedNotes(notes, (fileId, side) => (side === 'added' ? byId.get(fileId)?.head : byId.get(fileId)?.base) ?? null))
 
     if (target.kind === 'pull') {
       const name = `${target.owner}/${target.repo}#${target.number}`
+      if (no) {
+        const comment = closingComment(summary)
+        const closing = [`Close ${name} on GitHub without merging it, as you.`, ...(comment ? ['Your words go on it as a comment first.'] : [])]
+        const pull = { owner: target.owner, repo: target.repo, number: target.number, named: name }
+        // Closed already, by this yes from another window or on GitHub: there is no second comment and no second delete.
+        if (this.options.store.landedAt(target)) throw new Unavailable(`${name} is closed already, so there is nothing left to discard.`)
+        if (verdict === 'discard') {
+          const discard: Discard = { pull, comment }
+          return { review, card: null, discard, preview: { verdict, lines: [...closing, 'Its branch stays.'], confirm: token('discard', comment) } }
+        }
+        // The branch as GitHub has it now, commit and all: one that gains a commit after this is not the one shown.
+        const branch = await this.pullHead(target)
+        const lines = [
+          ...closing,
+          `Then delete its branch ${branch.ref} on GitHub, in ${target.owner}/${target.repo}, as you, only if it is still at ${branch.sha.slice(0, 7)}: a commit pushed since keeps it.`,
+          'Its commits stay on the closed pull request, and GitHub can restore the branch from there.',
+        ]
+        const discard: Discard = { pull, comment, branch }
+        return { review, card: null, discard, preview: { verdict, lines, confirm: token('discard-branch', comment, branch) } }
+      }
       const lineComments = (post: PullReviewPost) => (post.comments.length ? `with ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines` : 'with no comments on lines')
       const pinned = `At commit ${at.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
       if (verdict === 'approve-merge') {
@@ -779,10 +896,10 @@ export class Reviews {
         const movedOn = !(current.startsWith(reviewed) || reviewed.startsWith(current))
         const said = movedOn ? await this.pullMovedWords(target, reviewed, current, base) : null
         // GitHub lets nobody approve their own pull request: what the user wrote still goes, as a comment, and then it merges.
-        const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
+        const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose, CLIENT_PRODUCER_VERSION)
         // A review with no line to place goes on the commit it merges; lines stay on the commit they were written on.
         const post = movedOn && written.comments.length === 0 ? { ...written, commit_id: current } : written
-        const says = !mine || !saysNothing(post)
+        const says = !mine || !saysNothing(post, CLIENT_PRODUCER_VERSION)
         const at7 = current.slice(0, 7)
         const tail = said ? [said, `This merges ${at7}, the commit shown here. GitHub refuses if the pull request moves again before then.`] : [pinned]
         const lines = mine
@@ -800,7 +917,7 @@ export class Reviews {
       if (verdict === 'approve' && this.options.gh && (await this.pullFacts(target)).mine) {
         throw new Unavailable('GitHub does not let you approve your own pull request. Approve and merge merges it without an approval, or leave a comment.')
       }
-      const post = pullReviewPost(review, notes, verdict, summary, loose)
+      const post = pullReviewPost(review, notes, verdict, summary, loose, CLIENT_PRODUCER_VERSION)
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
       const lines = [`${words} ${name} on GitHub, as you, through gh.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`]
       return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
@@ -809,8 +926,21 @@ export class Reviews {
     const card = this.options.card(target.slug, target.item)
     if (!card) throw new Unavailable('hobkin no longer lists this change as finished.')
     if (verdict === 'comment') throw new Unavailable('A finished change has nobody to comment to. Approve it, approve and merge it, or ask for changes.')
+    if (no) {
+      const place = card.pr ? pullOfAddress(card.pr) : null
+      if (card.pr && !place) throw new Unavailable(`Its pull request is not one this host can close: ${card.pr}. Close it on GitHub, then discard the change.`)
+      // hobkin says what deleting the branch takes, and refuses there, before anything is done, when it is not one to delete.
+      const deletes = verdict === 'discard-branch' ? await this.branchPlan(target) : null
+      const lines = [
+        'Say no to this change. hobkin does not work on it again, and learns from the no.',
+        ...(card.pr ? [`Close its pull request on GitHub without merging it, as you: ${card.pr}`] : []),
+        ...(deletes ? deletionLines(deletes) : ['Its branch stays.']),
+      ]
+      const discard: Discard = { pull: card.pr && place ? { ...place, named: card.pr } : null, comment: null, ...(deletes ? { deletes } : {}) }
+      return { review, card, discard, preview: { verdict, lines, confirm: deletes ? token('discard-branch', card.pr, deletes) : token('discard', card.pr) } }
+    }
     if (verdict === 'approve') {
-      const publication = await this.publication(target.slug, card, review)
+      const publication = await this.publication(target.slug, card, prepared, meta?.producerVersion)
       const { plan, pull } = publication
       const lines = [
         `Push ${plan.branch} at ${pull.head.slice(0, 7)} to ${plan.repo} on GitHub, as you.`,
@@ -837,6 +967,64 @@ export class Reviews {
     const note = askForChanges(review, notes, summary)
     if (!note) throw new Unavailable('There is nothing to ask for yet. Write a comment, or say what to change.')
     return { review, card, preview: { verdict, lines: ["hobkin's agent goes back to this change with your notes:"], note, confirm: token(note) } }
+  }
+
+  /**
+   * The branch a pull request comes from, as GitHub has it now, for deleting it once it is closed. Refused, before anything
+   * is sent, when it is not one to delete from here: in a fork, in a repository that is gone, the repository's default
+   * branch, a protected branch, the branch of another open pull request, or one that open pull requests merge into.
+   */
+  private async pullHead(target: PullTarget): Promise<PullBranch> {
+    const { gh } = this.options
+    if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
+    const api = async <Value>(path: string) => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
+    const repo = `repos/${target.owner}/${target.repo}`
+    type Pull = { head?: { ref?: string; sha?: string; repo?: { full_name?: string } | null }; base?: { repo?: { full_name?: string } } }
+    const read = async <Facts>(reads: Promise<unknown>[]) => {
+      try {
+        return (await Promise.all(reads)) as Facts
+      } catch (error) {
+        throw new Unavailable(messageOf(error))
+      }
+    }
+    const [pull, settings] = await read<[Pull, { default_branch?: string; node_id?: string }]>([api(`${repo}/pulls/${target.number}`), api(repo)])
+    const home = `${target.owner}/${target.repo}`
+    const ref = pull.head?.ref
+    const from = pull.head?.repo?.full_name
+    const keeps = 'Discard closes the pull request and keeps the branch.'
+    if (!ref || !from) throw new Unavailable('The repository its branch lived in is gone, so there is no branch to delete. Discard closes the pull request.')
+    if (from.toLowerCase() !== (pull.base?.repo?.full_name ?? home).toLowerCase()) throw new Unavailable(`Its branch ${ref} lives in ${from}, a fork, and is not deleted from here. ${keeps}`)
+    if (ref === settings.default_branch) throw new Unavailable(`Its branch is ${ref}, the default branch of ${home}, which is never deleted. ${keeps}`)
+    const sha = pull.head?.sha
+    if (!sha || !settings.node_id) throw new Unavailable(`GitHub did not say which commit its branch ${ref} is at, so it is not deleted. ${keeps}`)
+    type Listed = { number?: number }[]
+    const [branch, heads, bases] = await read<[{ protected?: boolean }, Listed, Listed]>([
+      api(`${repo}/branches/${ref.split('/').map(encodeURIComponent).join('/')}`),
+      api(`${repo}/pulls?state=open&head=${encodeURIComponent(`${target.owner}:${ref}`)}`),
+      api(`${repo}/pulls?state=open&base=${encodeURIComponent(ref)}`),
+    ])
+    const others = 'Discard closes this pull request and keeps the branch.'
+    if (branch.protected) throw new Unavailable(`Its branch ${ref} is protected in ${home}, so it is not deleted from here. ${keeps}`)
+    const sharing = heads.find((open) => open.number !== target.number)
+    if (sharing) throw new Unavailable(`Its branch ${ref} is also the branch of ${home}#${sharing.number}, which is open, so it is not deleted. ${others}`)
+    if (bases.length > 0) {
+      const into = bases.length === 1 ? `${home}#${bases[0]!.number}, an open pull request, merges` : `${home}#${bases[0]!.number} and ${bases.length - 1} more open pull requests merge`
+      throw new Unavailable(`Its branch ${ref} is what ${into} into, so it is not deleted. ${others}`)
+    }
+    return { ref, sha, repo: settings.node_id }
+  }
+
+  /** What hobkin says deleting a finished change's own branch takes, read and never changed. Its refusal comes back as it is. */
+  private async branchPlan(target: ChangeTarget): Promise<BranchPlan> {
+    let answer: unknown
+    try {
+      answer = await this.options.work().workAction('deleteBranch', target.slug, target.item, { look: true })
+    } catch (error) {
+      throw new Unavailable(messageOf(error))
+    }
+    const plan = (answer as { plan?: BranchPlan } | null)?.plan
+    if (!plan || typeof plan.branch !== 'string') throw new Unavailable('hobkin did not say what deleting its branch takes, so nothing is deleted.')
+    return plan
   }
 
   /**
@@ -880,6 +1068,23 @@ export class Reviews {
    * approve and merge merges it too; a finished change gets one of hobkin's own work actions.
    */
   async verdict(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
+    // One verdict at a time on a review, from however many windows: the same yes again joins the one under way.
+    const key = reviewIdOf(this.target(id))
+    const under = this.deciding.get(key)
+    if (under) {
+      if (under.confirm === confirm) return under.done
+      throw new Unavailable('Another verdict on this review is under way. Wait for it to end, then look again.')
+    }
+    const done = this.decide(id, verdict, summary, confirm, head)
+    this.deciding.set(key, { confirm, done })
+    try {
+      return await done
+    } finally {
+      this.deciding.delete(key)
+    }
+  }
+
+  private async decide(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
     if (verdict !== 'approve-merge') return this.give(id, verdict, summary, confirm, head)
     // A merge the user asked for is kept until it happens: one that is refused, or that waits for something first,
     // stays in the list with why, so a yes that did not land is never lost from sight.
@@ -916,10 +1121,11 @@ export class Reviews {
 
   private async give(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
     // Done with what the token was checked against: a review prepared again meanwhile is never the one acted on.
-    const { preview, review, card, publication, merge, plan, done } = await this.planned(id, verdict, summary, head)
+    const { preview, review, card, publication, merge, plan, done, discard } = await this.planned(id, verdict, summary, head)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')
     const target = this.target(id)
     if (done) return { message: done }
+    if (discard) return this.discarded(id, target, discard)
 
     if (target.kind === 'pull') {
       const { gh } = this.options
@@ -961,6 +1167,84 @@ export class Reviews {
     return { message: String((said as { message?: unknown } | null)?.message ?? 'Done.') }
   }
 
+  /**
+   * The no the user confirmed. A pull request is closed on GitHub without merging, first, so a no never leaves one open
+   * behind it. A finished change then gets hobkin's own no, the one its card gives. With `discard-branch` the branch goes
+   * last: a pull request's head branch on GitHub, or the change's own branch, which hobkin deletes exactly as it was shown.
+   * A step that fails says what was already done and stops there. Once the no went, the review leaves the list and is
+   * kept in the home, as a merged one is, with the notes written on it. Remove is what deletes a review.
+   */
+  private async discarded(id: string, target: ReviewTarget, { pull, comment, branch, deletes }: Discard): Promise<{ message: string }> {
+    const closed = pull ? await this.closePull(pull, comment) : null
+    const leave = () => {
+      // What closed on GitHub leaves the lists at once, as what merged does.
+      if (pull) this.merged(id)
+      this.options.store.saveLanded(target, new Date(this.now()).toISOString())
+      this.options.onChange?.()
+    }
+    let said = closed ?? 'Discarded.'
+    if (target.kind === 'pull' && pull && branch) {
+      const done = said.replace(/\.$/, '')
+      try {
+        await this.deleteHeadBranch(branch)
+      } catch (error) {
+        leave()
+        throw new Error(`${done}, but its branch ${branch.ref} was not deleted: ${messageOf(error)}`)
+      }
+      said = `${done}, and deleted its branch ${branch.ref}.`
+    }
+    if (target.kind === 'change') {
+      let answer: unknown
+      try {
+        answer = await this.options.work().workAction('decline', target.slug, target.item)
+      } catch (error) {
+        if (closed) throw new Error(`Its pull request was closed on GitHub, but hobkin did not take the no: ${messageOf(error)}`)
+        throw error
+      }
+      const no = String((answer as { message?: unknown } | null)?.message ?? 'Said no to it.')
+      said = closed ? `${no} ${closed}` : no
+      if (deletes) {
+        const done = closed ? `${closed} hobkin took the no` : 'hobkin took the no'
+        try {
+          const gone = await this.options.work().workAction('deleteBranch', target.slug, target.item, { expect: deletes })
+          said = `${done}. ${String((gone as { message?: unknown } | null)?.message ?? `Deleted ${deletes.branch}.`)}`
+        } catch (error) {
+          leave()
+          throw new Error(`${done}, but its branch was not deleted: ${messageOf(error)}`)
+        }
+      }
+    }
+    leave()
+    return { message: said }
+  }
+
+  /** Deletes a closed pull request's head branch on GitHub, through gh, as the user, only while it is at the commit shown. */
+  private async deleteHeadBranch({ ref, sha, repo }: PullBranch): Promise<void> {
+    const { gh } = this.options
+    if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
+    const body = JSON.stringify({ query: DELETE_REF, variables: { repo, name: `refs/heads/${ref}`, before: sha } })
+    const answer = await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'POST', 'graphql', '--input', '-'], body)
+    // GitHub answers a refused update with its reasons beside the data.
+    const errors = (JSON.parse(answer || '{}') as { errors?: { message?: string }[] }).errors ?? []
+    if (errors.length > 0) throw new Error(errors.map((error) => error.message ?? 'GitHub refused it.').join(' '))
+  }
+
+  /** Closes a pull request on GitHub without merging it, through gh, as the user, with their words as a comment first. */
+  private async closePull(pull: PullPlace & { named: string }, comment: string | null): Promise<string> {
+    const { gh } = this.options
+    if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
+    const send = (method: 'POST' | 'PATCH', path: string, body: unknown) =>
+      ghText(gh, ['api', '--hostname', 'github.com', '--method', method, `repos/${pull.owner}/${pull.repo}/${path}`, '--input', '-'], JSON.stringify(body))
+    if (comment) await send('POST', `issues/${pull.number}/comments`, { body: comment })
+    try {
+      await send('PATCH', `pulls/${pull.number}`, { state: 'closed' })
+    } catch (error) {
+      if (comment) throw new Error(`Your comment went on GitHub, but it was not closed: ${messageOf(error)}`)
+      throw error
+    }
+    return `Closed ${pull.named} without merging it.`
+  }
+
   /** Tells the host something merged. What it does next never undoes the merge. */
   private merged(id: string) {
     try {
@@ -971,7 +1255,7 @@ export class Reviews {
   }
 
   /** Where a finished change's pull request would go, and what it would say. Refused, with the reason, when it cannot have one. */
-  private async publication(slug: string, card: ChangeCard, review: Review): Promise<Publication> {
+  private async publication(slug: string, card: ChangeCard, review: Review, producerVersion?: string | null): Promise<Publication> {
     if (card.pr) throw new Unavailable(`The pull request for this change is already open: ${card.pr}. Approve and merge it, or ask for changes.`)
     if (!this.options.publish) throw new Unavailable('This host cannot open pull requests.')
     if (!card.branch) throw new Unavailable('This change has no branch to push.')
@@ -981,7 +1265,9 @@ export class Reviews {
     } catch (error) {
       throw new Unavailable(messageOf(error))
     }
-    return { plan, pull: { head: review.change.head, title: review.change.title, body: review.summary } }
+    const { head, base, branch } = review.change
+    const body = agentMessage({ summary: review.summary, version: producerVersion, details: `Branch: ${branch}\nBase: ${base}\nReviewed commit: ${head}` })
+    return { plan, pull: { head, title: review.change.title, body } }
   }
 
   /** A verdict that went takes its comments with it: they are marked sent, so they are never sent twice. */

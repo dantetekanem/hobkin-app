@@ -1,0 +1,176 @@
+---
+{
+  "id": "034-durable-hobkins",
+  "title": "Durable hobkins: a hobkin of your own with Command+N",
+  "kind": "work",
+  "status": "doing",
+  "depends": ["011-work", "017-model-tiers", "019-keyboard", "021-agent-rendering", "033-claude-code-agents"],
+  "updated": "2026-11-13"
+}
+---
+# Durable hobkins: a hobkin of your own with Command+N
+
+## Outcome
+
+Command+N starts a new hobkin that the user drives themselves. It is durable: it keeps its whole conversation, it stays in the list when its turn ends, and it is still there after the app restarts. Only the user ends it. The user picks what it runs on when starting it: one of the four tiers, Claude Code with nothing asked, or any model Pi can reach with a thinking level. It has a page of its own with its conversation and a talk box that always works. When it stops and waits and the user has not looked, the main hobkin learns of it and tells the user in the chat. The first Command+N explains how a durable hobkin differs from the main one before it asks anything.
+
+## Decisions
+
+### What a durable hobkin is
+
+- One kept Pi conversation file per hobkin, `hobkins/<id>.jsonl` under the home, and one record in hobkin's own durable store beside its runs. Each message the user sends while it waits starts a new turn. A turn is an ordinary background run that reopens the same conversation file, so the agent has everything said before. No process stays alive between turns.
+- A turn's run has the id `hobkin:<id>:<n>` and the schedule id `hobkin.<id>`, and it carries what the user asked. The conversation shown on the page is those runs in order: what was asked and what it answered.
+- A message sent while a turn is running steers that turn, the way a note to any running agent does.
+- It works in one folder, picked at the start: a project hobkin knows, or the user's home folder.
+- It gets the tools a delegated job gets, and its own directions (`prompts/durable.md` in hobkin): it talks with the user turn by turn, does the work itself in its folder, and says plainly what it did and what it needs. It writes no report file.
+- A name the user did not give is made twice over: at once from the first line of its first message, and then, once, by a small model on the quick tier that reads its first message and first answer. A name the user gave is never replaced.
+- A turn saves no report, takes no humanizer pass and puts no report line in Chat. It does not count against the places routines and delegated jobs share.
+- After a restart, a turn that was running shows as cut off, and the hobkin waits. The next message carries on from the conversation file.
+- Ending is the user's alone, with one confirmation. An ended hobkin leaves the lists. Its conversation file stays on disk.
+- At most 12 durable hobkins are kept at once. Starting a thirteenth is refused and says to end one first.
+
+### What it runs on
+
+- A tier (fast, mid, high, max): the model and thinking that tier has when each turn starts, read from hobkin's tiers.
+- Claude Code with nothing asked: the installed `claude`, started as `033-claude-code-agents` starts it, with the permission mode `bypassPermissions`, whatever the Claude Code tile's switch and permissions say. The user picks its model and its thinking level in the sheet, from all of Claude Code's own (`default` for either passes none, so Claude Code uses its own). They start on what the last Claude hobkin used, else on the tile's. The first turn starts a Claude session and later turns resume it. The choice is offered only while Claude Code is installed, and it says in one line that it spends the Claude subscription and never asks before it acts.
+- Custom: any model Pi can reach now, with one of that model's thinking levels.
+- The choice is made once, at the start. It shows on the page and does not change afterwards.
+
+### Telling the user through the main hobkin
+
+- When a turn ends, the hobkin waits. If its page is on screen then, or the user opens it within 20 seconds, nothing more happens: the user saw it.
+- Otherwise the main hobkin gets a turn of its own as soon as it is free: a `<hobkin-wake>` block with `hobkins`, each with its title, how the turn ended and what it said last. The main hobkin tells the user in a line or two. Each wait is told once.
+- A turn that failed or was cut off is told the same way, with what went wrong.
+- The main hobkin can read a durable hobkin's conversation (`hobkin.read`) and message one (`hobkin.tell`, under Messages between hobkins). It cannot start one, end one or speak to one as the user. Those are the window's: its `client` tool runs none of `hobkin.start`, `hobkin.say` and `hobkin.end`, and its `message_check` tool neither lists nor reaches a durable hobkin.
+- A wake the main hobkin cannot take, as with a sign-in that ran out, is tried again after five minutes, not on the next tick.
+
+### Messages between hobkins
+
+The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something read the hobkin skill and handed the words over with `hobkin remember`, to be heard "with your next message there". "I need this to not need to load a skill (should be injected), and we need tooling to allow them to communicate, not hack a remember."
+
+- A durable hobkin is inside hobkin. Its directions say how to message, so it never reads the hobkin skill, and it never passes words on with `hobkin remember`, `remind` or `decide`, which are for the user's agents outside hobkin.
+- A durable hobkin runs `hobkin tell main <words>` to message the main hobkin and `hobkin tell <id> <words>` to message another durable hobkin. Everything after the recipient is the message as typed, flags and all; `--home` goes before the recipient. `-` in place of the words sends standard input, which the directions show with a heredoc for anything with shell characters. `hobkin tell` alone lists who it can reach: the main hobkin and every other durable hobkin, each with its id, title and whether it works or waits. It answers with one line of JSON: that the message went, to whom, and when it arrives.
+- Inside a durable hobkin's turn, `hobkin remember`, `remind`, `decide`, `action` and `session` are refused, with a line that says to use `hobkin tell main`. So a durable turn cannot wake the main hobkin through a session's `--wake`, outside the count below.
+- The main hobkin uses its `client` tool: `hobkin.list {}` lists the durable hobkins, and `hobkin.tell { id, text }` messages one. `hobkin.say` stays the user's words alone.
+- Who sent a message is never typed. Each turn's process gets two things from hobkin: `HOBKIN_TURN`, a random token hobkin holds in memory for that turn alone, and `HOBKIN_HOME`, the home that hobkin runs on. `hobkin tell` hands the token and the words to the running hobkin through `runtime/tell-requests/` in that home and waits up to 15 seconds for its answer. hobkin names the sender from the token, so a turn cannot send as another hobkin, and the command has no flag for a sender. A token is good only while its turn runs. The main hobkin sends only through its `client` tool, which nothing else has.
+- A command run outside any turn has no token: the user's terminal, another agent, or the main hobkin's own shell. It is refused and sends nothing. So is a token of a turn that has ended, one from another home, and any message while hobkin is not running.
+- The token keeps an agent from sending as another hobkin by mistake or by a guess. It does not stop a process of the user's own that goes looking for it in another process's environment.
+- A message is kept in hobkin's durable store before the command answers, and it leaves the store once it is delivered. So it is delivered once, and a restart before that still delivers it.
+- `hobkin tell` and the running hobkin meet in `runtime/tell-requests/`. Only a regular file named as a request is one: a link or a pipe in its place is removed unread, a folder is left alone, and each entry is looked at on its own, so one bad entry never stops hobkin or costs another request its answer. What a write, a take or an answer left there for over a minute is removed. When hobkin has not taken a message in 15 seconds, the command takes it back and says nothing was sent. When hobkin took it and gave no answer, the command says only that whether it went is not known.
+- To the main hobkin it comes as a `<hobkin-wake>` with `messages`, each with the sender's id, its title, the words and when they were sent. It goes as soon as the main hobkin is free, so a busy one gets it right after the turn it is on. Several that wait go in one wake, as many as fit the main conversation's limit on one message, measured as the wake is sent; the rest go in the next. One message alone always fits, so the oldest is never held back. A wake the main hobkin cannot take for another reason, as with a sign-in that ran out, is tried again after five minutes. Chat shows the main hobkin's answer and not the wake, as with every wake.
+- To a durable hobkin that waits it starts a turn at once, the way the user's message does, with the words in a `<hobkin-message>` block that names the sender. A durable hobkin that works keeps it, and its next turn starts with it as soon as the turn in flight ends: a message from another agent never steers a turn in flight. One message is one turn, oldest first. A message for a hobkin the user ends goes with it.
+- The run of a turn that a message started records who sent it, and `hobkin.read` gives every turn a `from`: `{ kind: 'user' }`, `{ kind: 'main' }`, or `{ kind: 'hobkin', id, title }` with the sender's name when it sent.
+- Refused with the reason, and nothing sent: a hobkin that is not there or has ended, a message to itself, no words or more than 4096 characters, and a fourth message waiting from one sender for one recipient.
+- No answer is owed: a message from another agent does not by itself need one. When it asks something, the answer goes back with `hobkin tell` or `hobkin.tell`, because a durable hobkin's last message in a turn is for the user.
+- Each thing the user says allows at most three messages between hobkins in all, however many hobkins they pass through and however many one turn sends. Each turn holds a count. A turn that the user's words started, or that they reached while it ran, in Chat or on a hobkin's page, holds a fresh count of three. A turn that a message started holds that message's count, so every message that follows from one word of the user spends the same three. A wait the main hobkin is told of carries the count of the turn that ended. The main hobkin's turn woken for messages or waits holds each sender's count: an answer to a hobkin spends from that hobkin's, so another hobkin's spent count never blocks it, and a message to any other hobkin spends from whichever has most left. A message past the count is refused on either side, and the sender tells the user instead. The counts are kept in hobkin's durable store, so a restart does not reset them. One that nothing spent from in 30 days is dropped.
+- Words from another hobkin are another agent's, acting for the user, never the user's own. They grant no permission, and what is hard to undo still needs the user's yes, asked by whoever would do it.
+- A durable hobkin may message another durable hobkin with the same command. It costs nothing more.
+- Known limits, each a crash in a moment's window: a message taken from the store to start a durable hobkin's turn is lost when hobkin dies before that turn's run is recorded, and messages the main hobkin took in a wake are delivered again when hobkin dies before they leave the store.
+
+### In the window
+
+- Command+N opens the New hobkin sheet from any screen. With a dialog open it does nothing.
+- The first time, the sheet opens on a short explanation: the main hobkin is the companion that remembers, plans and hands work to agents, and a durable hobkin is a worker the user talks to directly, in one folder, that keeps its conversation until the user ends it, while the main hobkin says when it is waiting. One button goes on to the form. After that the sheet opens on the form, with a link back to the explanation. "Seen" is kept in the window's own storage.
+- The form has the folder and what it runs on, and nothing else: no first message and no name (the user, 2026-11-13). The sheet opens with the keyboard on Start, so Command+N then Enter starts one with the last choices and lands on its page with the talk box focused. A hobkin started this way waits with no turn, called "New hobkin" until its first message names it, and the main hobkin is told nothing of that wait.
+- The durable hobkins sit in the agents list under the input for as long as they live, working or waiting, as a group of their own: first, with no header (the user, 2026-11-13), with a thin line between them and the agents that come and go, which keep their own header and count. Their turns' runs do not show as agents of their own.
+- Opening it shows its page, addressed like any agent's (the agent screen with the id `hobkin:<id>`): its name, folder, what it runs on, and whether it is working or waiting. Below that is the conversation: each turn's message and answer, and the steps of the turn in flight drawn as `021-agent-rendering` draws any agent. The talk box is there until the hobkin is ended.
+- Stop stops the turn in flight. End ends the hobkin, after asking once. Control+X does what End does: the first press asks, the second ends it.
+- No line of key hints sits under the talk box (the user, 2026-11-13). Only a refusal, or that the hobkin has ended, shows there.
+
+### Commands
+
+- `hobkin.start { text, cwd, engine, title? }`, `hobkin.say { id, text, noteId? }`, `hobkin.end { id }`, `hobkin.rename { id, title }` and `hobkin.seen { id }` are the window's.
+- `hobkin.read { id }` returns the hobkin and its turns, and the main hobkin may run it.
+- `hobkin.list {}` and `hobkin.tell { id, text }` are the main hobkin's, through its `client` tool (Messages between hobkins).
+- The snapshot carries `hobkins`: each one's id, title, folder, engine, state, turn count, running run and what it said last.
+
+## Out of scope
+
+- A durable hobkin that is a second main hobkin: memory, routines, the question sheet, the `client` tool and delegation stay the main hobkin's.
+- Images in a message to a durable hobkin.
+- Changing the folder or what it runs on after the start.
+- Drawing the steps of earlier turns. The page shows what was asked and answered, and the steps of the turn in flight.
+- A separate native window. The page is the agent screen.
+- Bringing back an ended hobkin.
+- The main hobkin starting or ending a durable hobkin.
+- Messages to a durable hobkin from outside hobkin: the user's other agents keep `hobkin remember`, `remind` and `decide`.
+
+## Acceptance
+
+- A1. Starting a durable hobkin records it, starts its first turn in the chosen folder with the chosen engine, and the snapshot lists it as working. When the turn ends it is listed as waiting, with what it said last.
+- A2. A message to a waiting hobkin starts a new turn on the same conversation file, so the agent has the earlier turns. A message to a working hobkin reaches the turn in flight and starts no second turn.
+- A3. After the host restarts, the hobkin is still listed with its turns. A turn that was running reads as cut off, and the next message starts a new turn on the same conversation.
+- A4. A turn saves no report, has no humanizer pass, puts no report line in Chat, and takes no place from routines or delegated jobs.
+- A5. A tier engine runs each turn on the model and thinking the tier has then. A custom engine runs on its model and level. An engine that cannot run is refused at the start with the reason.
+- A6. A Claude engine starts `claude` with `--permission-mode bypassPermissions` whatever the Claude Code tile says, and its second turn resumes the first turn's Claude session. With Claude Code missing, the start is refused and says so.
+- A7. A hobkin that has waited 20 seconds unseen gives the main hobkin one wake turn that names it and what it said. A hobkin the user saw gives none, and a wait is never told twice.
+- A8. Ending stops a turn in flight, takes the hobkin out of the lists and keeps its conversation file. A thirteenth hobkin is refused.
+- A9. `hobkin.read` returns the turns in order with what was asked and answered, and the main hobkin's `client` tool can run it. The `client` tool cannot run `hobkin.start`, `hobkin.say` or `hobkin.end`, and the main hobkin's `message_check` neither lists a durable hobkin's turn nor reaches it.
+- A10. Command+N opens the New hobkin sheet from any screen and does nothing while a dialog is open. The first time it opens on the explanation, and afterwards on the form.
+- A11. The form offers the four tiers with what each runs on, Claude Code only while it is installed, with every model and thinking level of its own, and a custom model with that model's own thinking levels. It starts with a folder alone, and shows what was chosen last as soon as that can run.
+- A12. A durable hobkin stays in the agents list while it waits, its turns' runs are not listed as agents, and the durable hobkins are a group of their own above the other agents.
+- A13. Its page shows each turn's message and answer in order and the steps of the turn in flight. The talk box sends while it waits and while it works, and is gone only once the hobkin is ended.
+- A14. With its page on screen when a turn ends, the window tells the host the user saw it.
+- A15. A hobkin started with no message is listed at once, waiting, with no turn, and the main hobkin is told nothing. Its first message is its first turn and gives it its name, unless the user named it.
+- A16. A Claude hobkin's own model and thinking level are what Claude Code is started with, `default` passes neither, and anything that is not one of Claude Code's own words is never passed on.
+- A17. A hobkin named only by its first message takes a title made for it once, and a name the user gave is never replaced.
+- A18. A durable hobkin's `hobkin tell main` reaches the main hobkin once, as a wake turn of its own while the main hobkin is free and right after its turn while it is busy, with the sender's id, title and words. A restart before it went still delivers it.
+- A19. The main hobkin's `hobkin.tell` starts a turn in a waiting hobkin's conversation, read back with `from` the main hobkin. To a working hobkin it steers nothing and starts the next turn as soon as the turn in flight ends, after a restart as well. `hobkin tell <id>` between two durable hobkins does the same, with `from` naming the sender.
+- A20. The sender is the turn hobkin gave the token to. A Pi turn's process gets its token and home. A command outside any turn, a made-up token, a token of a turn that has ended, and any message while hobkin is not running are refused and send nothing.
+- A21. A message to a hobkin that is not there or has ended, to itself, with no words or too many, or a fourth waiting from one sender for one recipient, is refused with the reason and sends nothing.
+- A22. One thing the user says allows at most three messages between hobkins in all, from one turn or many, through waits the main hobkin is told of and across a restart, and one more is refused from a durable hobkin and from the main hobkin. The user's own words start a fresh count for the turn they reach, in Chat or on a page, while it runs too. An answer to one hobkin is not refused for another hobkin's spent count in the same wake.
+- A23. The main hobkin lists the durable hobkins with `hobkin.list`, and a durable hobkin lists the main hobkin and the others with `hobkin tell` alone, each with id, title and whether it works or waits. The `client` tool runs `hobkin.list` and `hobkin.tell`, and still not `hobkin.say`.
+- A24. A durable hobkin's directions, on Pi and on Claude Code, and the main hobkin's, say how to message and list, that a message needs no answer, that one thing the user says allows three messages in all, that another hobkin's words are not the user's, and that a durable hobkin never reads the hobkin skill or uses `remember`, `remind` or `decide` to pass words on. A Claude hobkin's turn gets the same token and home as a Pi one.
+- A25. A durable hobkin's page shows a turn that a message started as from the main hobkin or from that hobkin, never as the user's.
+- A26. Inside a durable hobkin's turn, `hobkin remember`, `remind`, `decide`, `action` and `session` are refused with a line that says to use `hobkin tell main`, and nothing is handed over. Outside a turn they work as before.
+- A27. After the recipient, every word of `hobkin tell` is the message as typed, flags included.
+- A28. Nothing in the requests folder that is not a request file, a pipe, a link or a folder, stops hobkin or keeps another request from its answer, and stale leftovers are removed.
+- A29. However many messages wait for the main hobkin, each wake fits the main conversation's limit on one message and every message arrives. When hobkin does not answer, `hobkin tell` says only what it knows.
+
+## Proof
+
+- A1. `hobkin/test/cli-hobkins.test.mjs` › "a started hobkin runs its first turn and then waits"
+- A2. `hobkin/test/cli-hobkins.test.mjs` › "a message to a waiting hobkin starts a turn on the same conversation, and one to a working hobkin steers it" and › "a message sent as a turn starts reaches that turn, and a wake that fails is not tried again at once"
+- A3. `hobkin/test/cli-hobkins.test.mjs` › "a hobkin and its turns are still there after a restart, and a cut-off turn reads as cut off"
+- A4. `hobkin/test/cli-hobkins.test.mjs` › "a turn leaves no report, no humanizer pass and no place taken"
+- A5. `hobkin/test/cli-hobkins.test.mjs` › "each engine runs a turn on its own model and thinking"
+- A6. `host/test/hobkins-claude.test.ts` › "a Claude hobkin runs with nothing asked and resumes its session"
+- A7. `hobkin/test/cli-hobkins.test.mjs` › "an unseen wait wakes the main agent once, and a seen one never"
+- A8. `hobkin/test/cli-hobkins.test.mjs` › "ending stops the turn and keeps the conversation, and a thirteenth is refused"
+- A9. `host/test/hobkins.test.ts` › "the main hobkin reads a hobkin's turns and cannot start one, end one or speak as the user"; the commands over the real host and runtime: `host/test/hobkins.test.ts` › "a hobkin started from the window runs its turn, waits, takes another message and ends"; `hobkin/test/cli-hobkins.test.mjs` › "the main agent's message tool neither lists nor reaches a hobkin's turn"
+- A10. `ui/test/keys.test.ts` › "Command+N opens the New hobkin sheet"; `ui/test/hobkins-intro.test.ts` › "the explanation shows once"
+- A11. `ui/test/hobkins-rules.test.ts` › "the form offers what can run and starts with a folder alone", › "the form shows what the user wanted as soon as it can run, and Mid until then" and › "Claude Code offers every model and effort, and starts on what the last Claude hobkin used"
+- A12. `ui/test/hobkins-list.test.ts` › "a durable hobkin stays listed and its turns are not agents" and › "the durable hobkins are a group of their own, above the agents that come and go"
+- A13. `ui/test/hobkins-page.test.ts` › "the page orders the turns and keeps the talk box until the hobkin is ended"; check: start one in the app, send two messages, read the page. Seen 2026-11-13 as a still render (server markup with the app's built CSS, no browser, a canned conversation), dark and light: the sheet's explanation and form, the page waiting and working, and the agents list with a working and a waiting hobkin.
+- A14. `ui/test/hobkins-page.test.ts` › "a turn that ends on screen is marked seen"
+- A15. `hobkin/test/cli-hobkins.test.mjs` › "a hobkin started with no message waits untold, and its first message is its first turn and gives it its name"; `ui/test/hobkins-page.test.ts` › "a hobkin started with no message shows no conversation and waits for its first"; check: Command+N, Enter, and type in the page that opens.
+- A16. `host/test/hobkins-claude.test.ts` › "a Claude hobkin's own model and thinking are what Claude Code gets, and default passes neither"
+- A17. `hobkin/test/cli-hobkins.test.mjs` › "a hobkin named from its first message can be given a better title once, and never over a name the user gave"; `host/test/titles.test.ts` › "a hobkin named from its first message takes the title made for it"
+- A18. `hobkin/test/cli-hobkins.test.mjs` › "a durable hobkin's message reaches the main hobkin once, right after a busy turn, and after a restart"
+- A19. `hobkin/test/cli-hobkins.test.mjs` › "the main hobkin's message starts a turn from it, and waits for a working hobkin's turn to end" and › "a durable hobkin messages another, and a message for a working one survives a restart"
+- A20. `hobkin/test/cli-hobkins.test.mjs` › "a turn cannot send as another hobkin, and nothing outside a running turn sends"
+- A21. `hobkin/test/cli-hobkins.test.mjs` › "a message to nobody, to an ended hobkin, to itself or past three waiting is refused"
+- A22. `hobkin/test/cli-hobkins.test.mjs` › "one word from the user allows three messages between hobkins in all, however they fan out, and a restart keeps the count", › "the user's words start a fresh count for the turn they reach, in Chat or on a hobkin's page, while it runs too" and › "answering one hobkin is not held back by another hobkin's count in the same wake, and a wait carries its count"
+- A23. `hobkin/test/cli-hobkins.test.mjs` › "each side lists who it can reach"; `host/test/hobkins.test.ts` › "the main hobkin lists and messages hobkins through the client tool"
+- A24. check: read `hobkin/src/prompts/durable.md` and `hobkin/src/prompts/v2-runtime.md`; `host/test/hobkins-claude.test.ts` › "a Claude hobkin's turn gets the token and home hobkin gives it"
+- A25. `ui/test/hobkins-page.test.ts` › "a turn another hobkin began says who sent it, and the user's own turns say nothing"; check: have the main hobkin message a durable one and read its page (not seen live yet).
+- A26. `hobkin/test/cli-hobkins.test.mjs` › "inside a durable hobkin's turn, remember, remind, decide, action and session say to use hobkin tell"
+- A27. `hobkin/test/cli-hobkins.test.mjs` › "after the recipient every word is the message as typed, flags and all"
+- A28. `hobkin/test/cli-hobkins.test.mjs` › "nothing in the requests folder that is not a request file stops hobkin or costs another request its answer"
+- A29. `hobkin/test/cli-hobkins.test.mjs` › "however many messages wait for the main hobkin, each wake fits and every one arrives" and › "when hobkin does not answer, the command says only what it knows"
+
+## Steps
+
+- [x] S1 (A1, A2, A3, A4, A5, A7, A8). hobkin: the durable store, turns as runs, the directions, the wake, and what runs with `hobkin` leave alone.
+- [x] S2 (A6, A9). Host: the commands, the snapshot's `hobkins`, and Claude Code with nothing asked and a resumed session.
+- [x] S3 (A10, A11). Command+N, the New hobkin sheet and its first-time explanation.
+- [ ] S4 (A12, A13, A14). The agents list and the hobkin's page.
+- [ ] S5 (A1, A6, A13). One live durable hobkin on a tier, and one on Claude Code, with the user's go-ahead, since both spend their subscriptions.
+- [x] S6 (A18, A19, A20, A21, A22, A23, A24, A26, A27, A28, A29). Messages between hobkins: hobkin's `hobkin tell` and the messages it keeps, the host's `hobkin.list` and `hobkin.tell`, a Claude turn's token, and both sets of directions.
+- [x] S7 (A25). The page shows who a turn is from.
+
+## Open questions
+
+- Should every unseen wait give the main hobkin a turn of its own? It costs one main turn each time. The cheaper choice is a line in Chat that the main hobkin hears with the user's next message.
+- A durable hobkin has a delegated job's tools and no memory of the user. Should it also get the main hobkin's memory and the question sheet?
+- "A custom setting from Pi" is read here as any model Pi can reach, with a thinking level. If it meant a Pi launcher or a saved Pi profile, the Custom choice changes.

@@ -129,3 +129,16 @@ test('only the keys that changed are sent, and a new owner starts over', () => {
   assert.equal(sync.update({ owner: live, signIn, models: structuredClone(models), snapshot }), null)
   assert.deepEqual(sync.full().models, models)
 })
+
+test('the other hobkins canvases travel whole, on a change and with every reset', () => {
+  const facts = { owner: { state: 'opening' } as const, signIn: { status: 'unknown' } as const, models: null, snapshot: null }
+  const sync = new StateSync(facts)
+  assert.equal(sync.full().canvases, undefined)
+  const canvases = { a1b2c3d4: { open: true, url: 'http://127.0.0.1:1/canvas/k?r=1', title: 'Sketch', kind: 'drawing' as const, revision: 1 } }
+  assert.deepEqual(sync.update({ ...facts, canvases })!.canvases, canvases)
+  assert.equal(sync.update({ ...facts, canvases: structuredClone(canvases) }), null)
+  assert.deepEqual(sync.full().canvases, canvases)
+  const closed = { a1b2c3d4: { open: false, url: null, title: null } }
+  assert.deepEqual(sync.update({ ...facts, canvases: closed })!.canvases, closed)
+  assert.deepEqual(sync.update({ ...facts, owner: { state: 'failed', message: 'fake owner changed' } })!.canvases, closed)
+})

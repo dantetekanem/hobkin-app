@@ -5,6 +5,9 @@ import { LinkLayer } from '@/features/viewer/LinkLayer.tsx'
 import { startHostConnection } from '@/lib/host/index.ts'
 import { AvatarGallery } from './dev/AvatarGallery.tsx'
 import { Frame } from './Frame.tsx'
+import { PhotoCredit } from './PhotoCredit.tsx'
+// Carries out the window moves and composer drafts hobkin drives for the user (013-hobkin-access).
+import './nudge.ts'
 
 function useHash(): string {
   return useSyncExternalStore(
@@ -26,6 +29,7 @@ export function App() {
     <MotionConfig reducedMotion="user">
       <TooltipProvider>
         <LinkLayer />
+        <PhotoCredit />
         {hash === '#/dev/avatar' ? (
           <AvatarGallery />
         ) : (

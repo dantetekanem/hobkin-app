@@ -159,3 +159,23 @@ test('the words that hand a failed verdict to hobkin say what was tried, why it 
     'I chose "Approve and merge" on this change and it could not be done: It moved since it was offered, so nothing merged. Fix what stops it and do it, or tell me exactly what you need from me first.',
   )
 })
+
+test('a discard the host refuses after the yes is never handed to hobkin: the user sees why, and nothing more is asked', async () => {
+  for (const verdict of ['discard', 'discard-branch'] as const) {
+    const asked: string[] = []
+    const reason = 'What deleting hobkin/7d02c9-say-what-hobkin-is-doing takes has changed since it was shown, so nothing was deleted.'
+    const command = (async (name: string) => {
+      if (name === 'review.preview') return { verdict, lines: ['Close it.'], confirm: 'a'.repeat(64) }
+      throw new Error(reason)
+    }) as VerdictCommands
+    const failed = async (_verdict: string, why: string) => {
+      asked.push(why)
+      return true
+    }
+    const flow = createVerdict({ id: 'change:shop:4c9e21', head: 'c'.repeat(40), command, saveNotes: async () => {}, current: () => true, failed })
+    await flow.preview(verdict)
+    await flow.confirm()
+    assert.deepEqual(asked, [], `${verdict}: an agent never gets a no to carry out by other means`)
+    assert.deepEqual([flow.getState().error, flow.getState().message], [reason, null])
+  }
+})

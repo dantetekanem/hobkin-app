@@ -74,10 +74,17 @@ export interface WorkProject {
   branches: number
   left: number
   unmerged: number
+  /** How many of its changes have merged, in all (hobkin's count of its `merged` items). A host older than this count does not send it. */
+  merged?: number
   /** When hobkin looks at it again, as an ISO time. */
   nextLookAt: string | null
   /** Why its last look failed, in hobkin's words. */
   lookError: string | null
+  /**
+   * Its repository on GitHub, `owner/name`, as hobkin finds it (`repoOfProject`): its folder's origin, or the remote hobkin clones.
+   * Null for one that is not on github.com. Sent only for the projects hobkin works on, and not by a host older than this.
+   */
+  repo?: string | null
 }
 
 /**
@@ -91,9 +98,10 @@ export type Landing = 'merge' | 'mergePr' | 'refreshMerge'
 
 /**
  * What a card offers, in hobkin's words and order (`cardChoices` in its `src/cli/ui.mjs`). `diff` is the terminal's
- * "Show the diff", which here opens the change in Change Review. `open` opens the PR.
+ * "Show the diff", which here opens the change in Change Review. `open` opens the PR. `done` is hobkin's own done,
+ * "Close without merging": the item is closed and its branch, or PR, stays as it is, unmerged.
  */
-export type ChangeChoice = Landing | 'rebase' | 'diff' | 'open' | 'review' | 'decline'
+export type ChangeChoice = Landing | 'rebase' | 'diff' | 'open' | 'review' | 'decline' | 'done'
 
 export interface FinishedChange {
   /** `slug:item` */
@@ -184,6 +192,9 @@ export interface WorkState {
   /** The user's own number of agents that may run at once (`hobkin work agents`), and the most hobkin allows. */
   agentsAllowed: number
   maxAgents: number
+  /** The fresh tokens work mode may spend today, and what it has spent. Null, or missing, from a host that does not report them. */
+  dailyTokens?: number | null
+  tokensToday?: number | null
   queue: QueueRow[]
   /** How many rows are queued in all. `queue` holds the first of them, then the skipped ones. */
   queued: number

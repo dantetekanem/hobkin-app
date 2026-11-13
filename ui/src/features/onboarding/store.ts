@@ -1,68 +1,63 @@
 import { create } from 'zustand'
-import type { TiersConfig } from '#shared/tiers/tiers.ts'
+import type { PiSetup } from '#shared/protocol/setup.ts'
 import { markSetupSeen, setupWantedNow } from './first-run.ts'
-import { startFlow, stepFlow, type Flow, type FlowEvent } from './flow.ts'
-
-/** The tiers proposed for a provider, with the user's changes. */
-export interface SetupDraft {
-  /** Pi's id for the provider the proposal came from. */
-  provider: string
-  config: TiersConfig
-}
-
-/** What became of hobkin's own model when the first settings were accepted: saved through hobkin, or refused with the host's reason. */
-export type MainOutcome =
-  | { state: 'saving' }
-  | { state: 'saved'; name: string }
-  | { state: 'refused'; reason: string }
+import { startTale, tellOn, type Answers, type Facts, type Tale, type TaleEvent } from './story.ts'
 
 interface SetupState {
   open: boolean
-  /** `again`: opened from Settings over the app, so the character leaves its place by the message input to lead it. */
+  /** `again`: opened from Settings over the app, so the window's cover fades in and the opening is shorter. */
   origin: 'first-run' | 'again'
-  flow: Flow
-  /** The connected provider the first settings come from. Null until the user picks one or one connects. */
-  provider: string | null
-  draft: SetupDraft | null
-  main: MainOutcome | null
-  /** Goes up each time the setup is opened again, so it starts over from its first step. */
+  /** Where the story is. */
+  tale: Tale
+  /** What the user answered so far. */
+  answers: Answers
+  /** Pi on this Mac, as the host last said. Null until it has, and where there is no host. */
+  pi: PiSetup | null
+  /** Claude Code is installed and signed in, as the host last said. */
+  claude: boolean
+  /** Goes up each time the setup is opened again, so it starts over from its first bubble. */
   run: number
 
   openSetup: () => void
-  go: (event: FlowEvent) => void
-  chooseProvider: (provider: string) => void
-  setDraft: (draft: SetupDraft) => void
-  setMain: (main: MainOutcome) => void
+  /** One move of the story, for what is known about this Mac now. */
+  tell: (event: TaleEvent, facts: Facts) => void
+  /** Keeps an answer, and the story goes on from the question it answered. */
+  answer: (change: Partial<Answers>, facts: Facts) => void
+  setPi: (pi: PiSetup) => void
+  setClaude: (claude: boolean) => void
   /** Marks the setup seen and takes it away. The setup calls this once it has handed over to the app. */
   close: () => void
 }
 
-/** The first-run setup: whether it is open and where it is. See _specs/025-onboarding. */
+const NOTHING_ANSWERED: Answers = { replies: {} }
+
+/** The first-run setup: whether it is open, where its story is and what was answered. See _specs/025-onboarding. */
 export const useSetup = create<SetupState>()((set, get) => ({
   open: setupWantedNow(),
   origin: 'first-run',
-  flow: startFlow(),
-  provider: null,
-  draft: null,
-  main: null,
+  tale: startTale(),
+  answers: NOTHING_ANSWERED,
+  pi: null,
+  claude: false,
   run: 0,
 
   openSetup: () =>
     set({
       open: true,
       origin: 'again',
-      flow: startFlow(),
-      provider: null,
-      draft: null,
-      main: null,
+      tale: startTale(),
+      answers: NOTHING_ANSWERED,
       run: get().run + 1,
     }),
-  go: (event) => set({ flow: stepFlow(get().flow, event) }),
-  chooseProvider: (provider) => {
-    if (provider !== get().provider) set({ provider })
+  tell: (event, facts) => set({ tale: tellOn(get().tale, event, get().answers, facts) }),
+  answer: (change, facts) => {
+    const answers = { ...get().answers, ...change }
+    set({ answers, tale: tellOn(get().tale, 'answered', answers, facts) })
   },
-  setDraft: (draft) => set({ draft }),
-  setMain: (main) => set({ main }),
+  setPi: (pi) => set({ pi }),
+  setClaude: (claude) => {
+    if (claude !== get().claude) set({ claude })
+  },
   close: () => {
     markSetupSeen()
     set({ open: false })

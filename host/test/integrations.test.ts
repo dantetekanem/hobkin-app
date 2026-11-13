@@ -112,30 +112,28 @@ test("lists configured servers with Pi's state", { timeout: 30000 }, async (t) =
   assert.deepEqual(integrationsOf(client), state)
 })
 
-test('a keyed service is added with an environment reference, never a value', { timeout: 30000 }, async (t) => {
+test('a catalog service is added as the catalog writes it, and nothing typed can stand where a key goes', { timeout: 30000 }, async (t) => {
   const folder = piFolder(t, { mcpServers: { notes: local() } })
   const host = await hostFor(t, { integrations: () => offlinePi(folder) })
   const client = await Client.connect(host)
   afterTest(t, () => client.close())
 
-  const added = await client.run<IntegrationsState>('integrations.add', { service: 'github' })
+  const added = await client.run<IntegrationsState>('integrations.add', { service: 'linear' })
   assert.deepEqual(
     added.servers.map(({ name }) => name),
-    ['notes', 'github'],
+    ['notes', 'linear'],
   )
   const written = readConfig(folder).mcpServers
-  assert.deepEqual(written.github, catalogEntry('github')!.entry, 'the catalog entry, as it is')
-  assert.equal((written.github!.headers as Record<string, string>).Authorization, 'Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}')
+  assert.deepEqual(written.linear, catalogEntry('linear')!.entry, 'the catalog entry, as it is')
   assert.deepEqual(written.notes, local(), 'the other entry is as it was')
 
   // What a person fills in goes only where the entry has a place for it, and never as a reference to read.
   const before = readFileSync(join(folder, 'mcp.json'), 'utf8')
   for (const [args, code] of [
-    [{ service: 'github', headers: { Authorization: 'Bearer typed-into-the-app' } }, 'invalid-arguments'],
-    [{ service: 'slack', values: { 'slack-client-id': '${SLACK_CLIENT_SECRET}' } }, 'unavailable'],
-    [{ service: 'slack', values: { 'slack-client-id': '12345.678', token: 'xoxb-typed-into-the-app' } }, 'unavailable'],
-    [{ service: 'slack' }, 'unavailable'],
-    [{ service: 'figma' }, 'unavailable'],
+    [{ service: 'linear', headers: { Authorization: 'Bearer typed-into-the-app' } }, 'invalid-arguments'],
+    [{ service: 'home-assistant', values: { address: '${HOME_ASSISTANT_TOKEN}' } }, 'unavailable'],
+    [{ service: 'home-assistant', values: { address: 'http://127.0.0.1:9/', token: 'typed-into-the-app' } }, 'unavailable'],
+    [{ service: 'home-assistant' }, 'unavailable'],
     [{ service: 'no-such-service' }, 'unavailable'],
   ] as const) {
     const refused = await client.command('integrations.add', args)

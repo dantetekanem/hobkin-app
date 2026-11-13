@@ -1,11 +1,21 @@
+import { join } from 'node:path'
 import type { RawData, WebSocket } from 'ws'
 import { CLOSE, PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type HostMessage, type OwnerState } from '#shared/protocol/messages.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
+import { systemMetrics } from './system-metrics.ts'
+import { usageFacts } from './usage-facts.ts'
+import { Backups, type Archiver } from './backup.ts'
 import { Attachments } from './attachments.ts'
 import { appStateHandlers } from './app-state.ts'
 import { createClientTool } from './client-tool.ts'
+import { claudeStatus, findClaude } from './claude-code/install.ts'
+import { ClaudeCodeSettingsFile } from './claude-code/settings.ts'
+import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
+import type { PiSetup } from '#shared/protocol/setup.ts'
+import { piSetup, piSetupHandlers, refuseInstall } from './pi/install.ts'
+import { profileHandlers } from './profile.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { execFileSync } from 'node:child_process'
@@ -13,6 +23,8 @@ import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
 import { History } from './history.ts'
+import { Titles, titleHobkins } from './titles.ts'
+import { piModelRunner } from './review/agent.ts'
 import { mainImage } from './message-images.ts'
 import { readJobSession } from './job-session.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
@@ -32,12 +44,16 @@ import { StateSync } from './state-sync.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
+import { hobkinHandlers } from './hobkins.ts'
 import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
 import { appearanceSession } from './appearance-session.ts'
-import { Canvas } from './canvas.ts'
+import * as canvasStore from 'hobkin/src/cli/canvas.mjs'
+import { Canvases, canvasHandlers } from './canvases.ts'
+import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
+import { reminderHandlers, reminderState } from './reminders.ts'
 import { workHandlers } from './work.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
@@ -70,6 +86,16 @@ export interface HostOptions {
   questionWaitMs?: number
   /** Where the GitHub page reads from (024-github). Made-up data when not given, and gh never runs. The entry (`main.ts`) passes gh for --live and --github. */
   github?: GitHubSource
+  /** What the host finds of the `claude` CLI (033-claude-code-agents). The real lookup runs `claude` when not given. */
+  claudeStatus?: () => Promise<ClaudeCodeStatus>
+  /** What the host finds of Pi for the first-run setup (025-onboarding). The real lookup runs `pi` when not given. */
+  piSetup?: () => Promise<PiSetup>
+  /**
+   * Install the pinned Pi, and one of hobkin's Pi packages by name. They change the Mac outside the app, so a host
+   * refuses without them, and only the entry (`main.ts`) passes the real ones, for a live host.
+   */
+  installPi?: () => Promise<void>
+  installPiPackage?: (name: string) => Promise<void>
   /**
    * gh for Change Review: it reads pull requests, and a live host posts a verdict the user confirmed. Without it a
    * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
@@ -87,6 +113,10 @@ export interface HostOptions {
    * folder in its home, never ~/.pi/agent.
    */
   integrations?: () => Promise<McpSource>
+  /** Where backups of the home and their settings are kept. Beside the home (`<home>-backups`) when not given. Never inside it. */
+  backupsDir?: string
+  /** The zip tool, for tests. */
+  backupArchiver?: Archiver
   log?: (line: string) => void
 }
 
@@ -198,6 +228,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   // Load optional styling before any owner startup; canonical data comes from root admission.
   const appearance = await loadHostAppearance(root, publish, log)
+  // How hobkin's other agents use Claude Code (033-claude-code-agents), kept beside the custom theme in the home's data root.
+  const { resolveDataRoot } = await import('hobkin/src/cli/migration/admission.mjs')
+  const claudeCode = new ClaudeCodeSettingsFile(resolveDataRoot(root))
+  const lookUpClaude = options.claudeStatus ?? (() => claudeStatus({ find: findClaude }))
   const owner = new HomeOwner({
     root,
     live,
@@ -216,6 +250,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     tools: [client],
     modelRuntime: live ? async () => ((await access()) as Partial<LiveModelAccess>).runtime : undefined,
+    claudeCode: { settings: () => claudeCode.read(), findClaude, ask: questions.ask },
   })
   const customTheme = appearanceSession(
     { captureExecution: () => live ? owner.captureExecution() : null },
@@ -241,8 +276,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const github = new GitHub({ source: options.github ?? sampleGitHubSource(), onChange: publish, wanted: connected, log })
   // Integrations reads Pi's MCP servers only when asked, through Pi's own code, and hides their secrets before anything is sent.
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
-  // The canvas panel: the page hobkin shows beside the screens. The window draws it (030-canvas-panel).
-  const canvas = new Canvas({ onChange: publish })
+  // The canvases: the page or drawing each hobkin shows, kept by hobkin under the home, where the `hobkin canvas`
+  // command writes them too. The window draws them, and each drawing is served here (030-canvas-panel, 035-canvas-drawings).
+  const canvases = new Canvases({
+    store: canvasStore,
+    root: () => {
+      if (!owner.app) throw new Unavailable(whyNotLive(owner.state))
+      return owner.app.runtime.directory
+    },
+    port: () => server?.port ?? 0,
+    onChange: publish,
+  })
+  // The window moves and the composer draft hobkin drives for the user (013-hobkin-access). The window carries each out.
+  const nudge = new Nudges({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
   // Work mode for the Work screen and Change Review, from the snapshot with hobkin's own rules and hobkin's items (011-work).
@@ -262,20 +308,54 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
   const issueWork = issueWorkReader(() => hobkin().runtime.directory)
+  const reminders = () => {
+    const home = owner.app?.runtime.directory ?? resolveDataRoot(root)
+    try { return reminderState(home) }
+    catch (error) {
+      log(`Could not read reminder metadata: ${error instanceof Error ? error.message : String(error)}`)
+      return { home, entries: [] }
+    }
+  }
   const facts = () => ({
     owner: owner.wireState(),
     signIn: signIn.state,
     models: signIn.models,
     github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
-    canvas: canvas.state,
+    canvas: canvases.main,
+    canvases: canvases.others(),
+    nudge: nudge.state,
     appearance: appearanceRequest(appearance),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workOf(owner.snapshot) : null,
-    snapshot: owner.snapshot && activity.keep(owner.wireSnapshot()!),
+    snapshot: owner.snapshot && { ...activity.keep(owner.wireSnapshot()!), reminderOccurrences: reminders() },
   })
   // hobkin's main conversations, only read, from the home (014-continuity A8). The one its session has open is current.
-  const history = new History(root, () => (owner.app?.runtime.main as { sessionFile?: string } | undefined)?.sessionFile)
+  // Titles: a small model on the quick tier names a conversation from its first messages, once, and the name is kept
+  // in the home. History shows them, and a durable hobkin named only by its first message takes one. With the
+  // scripted model nothing is asked, so first lines stay.
+  const quick = piModelRunner({
+    root,
+    data: () => {
+      if (!owner.app) throw new Unavailable(whyNotLive(owner.state))
+      return owner.app.runtime.directory
+    },
+    runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
+  })
+  const titleHobkinsNow = () => {
+    const hobkins = owner.app?.hobkins
+    if (hobkins) void titleHobkins(hobkins, titles, (line, error) => log(`${line}${error ? ` ${error instanceof Error ? error.message : String(error)}` : ''}`))
+  }
+  const titles: Titles = new Titles({
+    ask: ({ system, prompt, signal }) => quick({ pass: 'checker', system, prompt, signal }),
+    file: () => join(resolveDataRoot(root), 'client', 'titles.json'),
+    // A title made for a hobkin is given to it at once. One made for a conversation shows the next time History lists.
+    onTitled: (key) => {
+      if (key.startsWith('hobkin:')) titleHobkinsNow()
+    },
+    log: (line, error) => log(`${line}${error ? ` ${error instanceof Error ? error.message : String(error)}` : ''}`),
+  })
+  const history = new History(root, () => (owner.app?.runtime.main as { sessionFile?: string } | undefined)?.sessionFile, undefined, titles)
   const sync = new StateSync(facts())
   const lookAgain = () => void signIn.refresh().catch((error: unknown) => log(`Could not ask Pi about models: ${error instanceof Error ? error.message : String(error)}`))
 
@@ -299,6 +379,16 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
   })
   const done = { ok: true } as const
+  // Local backup of the home: automatic while this host runs, and on the user's word (never agent restore).
+  const backups = new Backups({
+    source: root,
+    directory: options.backupsDir ?? `${root}-backups`,
+    archiver: options.backupArchiver,
+    log,
+    // A restore swaps the records under hobkin, so it waits while anything runs. A hobkin that never came up runs
+    // nothing, and that is when a restore is needed most.
+    busy: () => (owner.snapshot && busy() ? 'hobkin is answering or something is running. Restore once it is quiet.' : null),
+  })
   const handlers: HostHandlers = {
     ...appStateHandlers({ root, owner, revision: () => sync.full().rev }),
     'conversation.send': async ({ text, images = [], report, review, item }) => {
@@ -408,8 +498,31 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     'signin.out': ({ provider }) => signIn.signOut(provider),
     'github.refresh': () => github.refresh(),
+    'claude-code.read': async () => ({ status: await lookUpClaude(), settings: claudeCode.read() }),
+    'claude-code.apply': async (change) => ({ settings: claudeCode.apply(change), status: await lookUpClaude() }),
+    // Who the user is, for the first-run setup. hobkin's snapshot carries the name the window greets them by, so it is
+    // read again once the profile is saved.
+    ...profileHandlers({
+      root: () => owner.app?.runtime.directory ?? resolveDataRoot(root),
+      saved: async () => {
+        await owner.app?.refresh()
+      },
+    }),
+    // Pi on this Mac. Nothing installs unless the caller hands the installers in: only the entry does (main.ts).
+    ...piSetupHandlers({
+      live,
+      read: options.piSetup ?? (() => piSetup()),
+      installPi: options.installPi ?? refuseInstall,
+      installPackage: options.installPiPackage ?? refuseInstall,
+    }),
     // Whether this host runs older code than what is on disk, and the way to load it: the host closes as it does on
     // a signal, and the app that started it starts another. Answered first, so the window hears it went.
+    'system.metrics': () => systemMetrics(root),
+    'usage.facts': () => usageFacts(root, options.backupsDir ?? `${root}-backups`),
+    'backup.list': () => backups.state(),
+    'backup.config': (change) => backups.setConfig(change),
+    'backup.now': () => backups.backupNow(),
+    'backup.restore': async ({ name }) => ({ ok: true as const, ...(await backups.restore(name)) }),
     'host.code': () => hostCode(startedAt),
     'host.restart': () => {
       setTimeout(() => process.kill(process.pid, 'SIGTERM'), 150).unref()
@@ -431,9 +544,26 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       ;(options.openSystem ?? (() => {}))(openableUrl(url).href)
       return done
     },
-    'canvas.show': ({ url, title }) => canvas.show(url, title),
-    'canvas.close': () => canvas.close(),
+    ...canvasHandlers(canvases),
+    // Driving the window for the user: the host records the move or draft and tells the window, which carries it out.
+    'view.open': ({ screen }) => {
+      nudge.open(screen)
+      return done
+    },
+    'view.spotlight': () => {
+      nudge.spotlight()
+      return done
+    },
+    'view.back': () => {
+      nudge.back()
+      return done
+    },
+    'conversation.draft': ({ text }) => {
+      nudge.draft(text)
+      return done
+    },
     'appearance.set': ({ palette, name }) => appearance.set(palette, name),
+    'appearance.photo': ({ id }) => appearance.photo(id),
     'appearance.use': ({ theme }) => appearance.use(theme),
     'appearance.customize': ({ request }) => customTheme.start(request),
     'appearance.status': ({ id }) => customTheme.status(id),
@@ -451,9 +581,20 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
+    // Durable hobkins (034-durable-hobkins): hobkin's runtime keeps them, and the host checks only what it knows.
+    ...hobkinHandlers({
+      app: hobkin,
+      claudeMissing: async () => (findClaude() ? null : 'Claude Code is not installed on this Mac, so a hobkin cannot run on it. Install it, or pick a tier.'),
+      // Only a model Pi can use now: what the models slice lists, asked again.
+      modelProblem: async (model, effort) => {
+        await signIn.refresh()
+        return signIn.models ? whyNotUsable(signIn.models, model, effort) : 'Pi has not listed its models yet. Try again in a moment.'
+      },
+    }),
     // Action Items answered from the window, each through hobkin's own decision or learning action (012).
     ...decisionHandlers({ app: hobkin }),
     ...reportHandlers({ app: hobkin }),
+    ...reminderHandlers({ root: () => hobkin().runtime.directory, changed: publish }),
     // A routine's switch, its times and Run now, each through hobkin's own runner (010-routines).
     ...routineHandlers({ app: hobkin }),
     // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
@@ -500,6 +641,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     token,
     origins: options.origins ?? [APP_ORIGIN, ...(dev ? [DEV_UI_ORIGIN] : [])],
     dev,
+    serve: (request, response) => canvases.serve(request, response),
     onConnection: (socket) => {
       owner.reconnectStartup()
       send(socket, hello())
@@ -517,6 +659,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   openWhenReady()
   lookAgain()
   github.start()
+  backups.start()
+  // The canvases are followed on disk. The folder is there only once hobkin's home is open, so they are also read
+  // again every couple of seconds, which picks them up after hobkin opens and whenever a change was missed.
+  canvases.watch()
+  const canvasRead = setInterval(() => canvases.refresh(), 2000)
+  canvasRead.unref()
+  // A durable hobkin named by its first message is given a title a little after that message, and again once it has answered.
+  const hobkinTitles = setInterval(titleHobkinsNow, 5000)
+  hobkinTitles.unref()
 
   // A host loads its code once. When the code on disk is newer, this one restarts itself to load it, so a fix never
   // waits unseen behind a host left running: only while nothing runs, only once the files have settled, and only when
@@ -557,8 +708,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         questions.close()
         signIn.cancel()
         github.close()
+        backups.close()
         integrations.close()
         reviews.close()
+        clearInterval(canvasRead)
+        canvases.stop()
+        clearInterval(hobkinTitles)
+        titles.close()
         for (const socket of server.sockets()) socket.close(CLOSE.hostClosing, 'The host is closing')
         await customTheme.close()
         await owner.close()

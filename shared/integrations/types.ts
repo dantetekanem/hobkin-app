@@ -1,6 +1,7 @@
 /**
- * Integrations: the services hobkin can reach. An integration is an MCP server in Pi's configuration
- * (`mcpServers` in `~/.pi/agent/mcp.json`), and nothing else. These types describe the catalog of
+ * Integrations: the services hobkin can reach, of two kinds. A full integration connects its own way and has a
+ * page of its own in the app: GitHub, through gh (024-github). Every other one is an MCP server in Pi's
+ * configuration (`mcpServers` in `~/.pi/agent/mcp.json`). These types describe the MCP kind: the catalog of
  * services that can be added and the servers that are configured. They hold no React and no DOM,
  * so the host and the UI share them. See _specs/023-integrations.
  *

@@ -1,7 +1,8 @@
 [package]
 name = "hobkin"
-version = "0.0.1"
-description = "A Mac client for hobkin"
+version = "0.1.19"
+description = "Your next level Harness."
+authors = ["Leonardo Pereira"]
 edition = "2021"
 publish = false
 
@@ -13,6 +14,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `unstable` is Tauri's multi-webview API: the canvas's browser is a child webview of the main window (036-canvas-browser).
+tauri = { version = "2", features = ["unstable"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-window-state = "2"
+tauri-plugin-notification = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+# The Mac's own notification permission (037-notifications): asked and read through UNUserNotificationCenter.
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSError"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "UNUserNotificationCenter", "UNNotificationSettings"] }

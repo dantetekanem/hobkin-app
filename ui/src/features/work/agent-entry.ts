@@ -9,8 +9,8 @@ export function agentEntry(still: boolean) {
 }
 
 /** Content availability, not elapsed time or the entry route, decides what can be read. */
-export function agentReading(available: boolean, content: boolean, talking: boolean) {
-  return available && (content || talking)
+export function agentReading(available: boolean, content: boolean) {
+  return available && content
 }
 
 /** Preserve every other screen's own transition. */

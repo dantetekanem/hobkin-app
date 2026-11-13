@@ -1,21 +1,24 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
-import { memo, useMemo, useState, type ReactNode } from 'react'
+import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
+import { Fragment, memo, useMemo, type ReactNode } from 'react'
+import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { MessageText, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { diffOf, startView, unifiedRows, type FileSides } from '@/features/review/code/diff-rows.ts'
-import { DiffView } from '@/features/review/code/DiffView.tsx'
+import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
 import { languageOf } from '@/features/review/code/languages.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
+import { useBlock } from './blocks.ts'
+import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
 import { previewOf } from './preview.ts'
 import { foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
 import { useUnfold } from './unfold.ts'
+import { useNear } from './use-colors.ts'
 import type { EntryTime } from './use-agent-activity.ts'
 
 /** A running command shows at most this many of its last lines (021 A5). One that failed shows as many. */
@@ -29,9 +32,11 @@ const arriving = { transform: spring.rise, opacity: tween.enter }
 
 /**
  * One step of an agent's work as its canvas draws it: what it said as Markdown, its commands folded into one group,
- * a file it changed as a diff, and what it read in one row. A step that arrives after the canvas has opened rises
- * into place by itself (Reveal.tsx: a piece that comes later needs its own entrance). A step that did not change
- * is not drawn again, and one out of view is not drawn at all.
+ * a file it changed as a diff, and what it read in one row. Each kind of tool block arrives open or closed to its
+ * one-line header as Settings says, and opens or closes by that header, or with every other block by Control+O
+ * (blocks.ts). A step that arrives after the canvas has
+ * opened rises into place by itself (Reveal.tsx: a piece that comes later needs its own entrance). A step that did not
+ * change is not drawn again, and one out of view is not drawn at all.
  */
 export const StepItem = memo(
   function StepItem({ step, timeOf }: { step: Step; timeOf: TimeOf; ended: boolean }) {
@@ -47,7 +52,7 @@ export const StepItem = memo(
         // (content-visibility), and the inset leaves room for a glyph's edge and for a row's hover to bleed into.
         className={cn(
           'w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
-          step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : step.kind === 'change' ? '[contain-intrinsic-size:auto_220px]' : '[contain-intrinsic-size:auto_44px]',
+          step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : '[contain-intrinsic-size:auto_44px]',
         )}
       >
         <StepBody step={step} timeOf={timeOf} />
@@ -60,7 +65,7 @@ export const StepItem = memo(
 function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
   switch (step.kind) {
     case 'codemode':
-      return <CodemodeCall entry={step.entries[0]!} ended={step.state === 'stopped'} />
+      return <CodemodeStep entry={step.entries[0]!} state={step.state} />
     case 'says':
       return (
         <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
@@ -173,25 +178,25 @@ function Opened({ children }: { children: ReactNode[] }) {
 }
 
 /**
- * Commands in a row (021 A3, A4). The newest stays open, with any still running and any that failed. The ones
- * that passed before it fold into one row that opens to the list. When a new command starts, the one before it
+ * Commands in a row (021 A3, A4). The newest stays out of the fold, with any still running and any that failed. The
+ * ones that passed before it fold into one row that opens to the list. When a new command starts, the one before it
  * slides up into that row and the count goes up as the new one rises in.
  */
 function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf }) {
   const still = useStill()
-  const [open, setOpen] = useState(false)
+  const { open, toggle } = useBlock('shell')
   const { folded, open: shown } = foldOf(commands)
   return (
     <div className="flex flex-col gap-1.5">
       {folded.length ? (
         <>
-          <FoldRow icon={SquareTerminal} open={open} onToggle={() => setOpen(!open)}>
+          <FoldRow icon={SquareTerminal} open={open} onToggle={toggle}>
             <span className="shrink-0 font-medium">
               <Count value={folded.length} /> {folded.length === 1 ? 'command' : 'commands'}
             </span>
             <span className="truncate font-mono text-[12px] text-muted-foreground">{folded.map((command) => firstLine(command.command)).join(' · ')}</span>
           </FoldRow>
-          {open ? <Opened>{folded.map((command) => <CommandCard key={command.id} command={command} time={timeOf(command.id)} closed />)}</Opened> : null}
+          {open ? <Opened>{folded.map((command) => <CommandCard key={command.id} command={command} time={timeOf(command.id)} />)}</Opened> : null}
         </>
       ) : null}
       {/* Positioned, so a command giving way is lifted out within it and never stretches the canvas. */}
@@ -218,9 +223,9 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
 
 const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? ''
 
-/** One command: its line, its state and time, and the last of its output, all of which opens on request. */
-function CommandCard({ command, time, closed = false }: { command: Command; time?: EntryTime; closed?: boolean }) {
-  const [shown, setShown] = useState(!closed)
+/** One command: its line, its state and time, and, once opened by its line, the last of its output, all of which opens on request. */
+function CommandCard({ command, time }: { command: Command; time?: EntryTime }) {
+  const { open: shown, toggle: toggleShown } = useBlock('shell')
   const { open: all, toggle, box } = useUnfold<HTMLDivElement>()
   const tail = tailOf(command.output, all ? Number.MAX_SAFE_INTEGER : command.state === 'done' ? DONE_LINES : TAIL_LINES)
   const lines = command.command.split('\n')
@@ -236,8 +241,9 @@ function CommandCard({ command, time, closed = false }: { command: Command; time
     >
       <button
         type="button"
+        data-step-toggle
         aria-expanded={shown}
-        onClick={() => setShown(!shown)}
+        onClick={toggleShown}
         className="flex w-full min-w-0 items-start gap-2 px-3.5 py-2 text-left"
       >
         <span className="font-mono text-[13px] leading-[1.7] opacity-50" aria-hidden="true">
@@ -272,6 +278,8 @@ function CommandCard({ command, time, closed = false }: { command: Command; time
 interface Part {
   key: string
   file: FileSides
+  /** Its diff, worked out once for the counts and the rows. */
+  diff: Diff
   /** The rows its diff starts with (lines and the gaps between them), and how many of them are lines. */
   rows: number
   lines: number
@@ -285,7 +293,7 @@ function partsOf(change: Change): Part[] {
   const part = (key: string, base: string | null, head: string, numbered: boolean): Part => {
     const diff = diffOf(base, head)
     const rows = unifiedRows(diff, startView(diff))
-    return { key, file: { path: change.path, base, head, binary: false }, rows: rows.length, lines: rows.filter((row) => row.type === 'line').length, additions: diff.additions, deletions: diff.deletions, numbered }
+    return { key, file: { path: change.path, base, head, binary: false }, diff, rows: rows.length, lines: rows.filter((row) => row.type === 'line').length, additions: diff.additions, deletions: diff.deletions, numbered }
   }
   if (change.whole !== null) return [part('whole', null, change.whole, true)]
   return change.hunks.filter((hunk) => hunk.oldText !== hunk.newText).map((hunk, index) => part(`hunk${index}`, hunk.oldText, hunk.newText, false))
@@ -293,19 +301,25 @@ function partsOf(change: Change): Part[] {
 
 /**
  * A file the agent changed (021 A1, A2): the review's own diff, with syntax colors, added and removed lines tinted
- * and the words that changed marked. Edits to one file in a row are one change that updates in place. It is as tall
- * as its lines, wrapped: a long one shows its first lines across its parts and opens in place to all of them.
+ * and the words that changed marked. It arrives open, unless Settings says otherwise. Edits to one file in a row are
+ * one change that updates in place, drawn in one box as Pi's code previews draw an edit: each place it changed after
+ * the one before, with a quiet band where lines were left out between them. It is as tall as its lines, wrapped: a
+ * long one shows its first lines across its parts and opens in place to all of them.
  */
 function ChangeBlock({ change }: { change: Change }) {
+  const block = useBlock('change')
   const { open, toggle, box } = useUnfold<HTMLDivElement>()
+  // Colored only once in or near view: a page's changes far above it wait until they are scrolled to.
+  const near = useNear(box)
   const parts = useMemo(() => partsOf(change), [change])
   const additions = parts.reduce((sum, part) => sum + part.additions, 0)
   const deletions = parts.reduce((sum, part) => sum + part.deletions, 0)
   const preview = previewOf(parts.map((part) => part.rows), open)
   const verb = change.whole !== null ? 'Wrote' : 'Edited'
+  const shown = block.open && parts.length > 0
   return (
     <div ref={box} className="flex min-w-0 flex-col gap-1.5">
-      <FoldRow icon={FilePenLine} open={open} onToggle={preview.foldable ? toggle : undefined} failed={change.state === 'failed'}>
+      <FoldRow icon={FilePenLine} open={shown} onToggle={parts.length ? block.toggle : undefined} failed={change.state === 'failed'}>
         <span className="shrink-0 font-medium">{change.state === 'running' ? (change.whole !== null ? 'Writing' : 'Editing') : change.state === 'failed' ? 'Could not change' : verb}</span>
         <code className="truncate font-mono text-[12px]">{change.path}</code>
         {additions || deletions ? (
@@ -315,16 +329,25 @@ function ChangeBlock({ change }: { change: Change }) {
         ) : null}
         {change.calls > 1 ? <span className="shrink-0 text-[11px] text-muted-foreground">{change.calls} edits</span> : null}
       </FoldRow>
-      {parts.map((part, index) =>
-        preview.shown[index] ? (
-          <div key={part.key} className="aa-diff overflow-hidden rounded-2xl" data-numbers={part.numbered ? undefined : 'none'}>
-            <div {...{ [BOX]: '' }} className="aa-box scroll-quiet">
-              <DiffView file={part.file} natural rows={preview.shown[index]} className="py-1" />
-            </div>
+      {shown ? (
+        <div className="aa-diff overflow-hidden rounded-2xl" data-numbers={parts[0]!.numbered ? undefined : 'none'}>
+          <div {...{ [BOX]: '' }} className="aa-box scroll-quiet bg-code-bg py-1">
+            {parts.map((part, index) =>
+              preview.shown[index] ? (
+                <Fragment key={part.key}>
+                  {index > 0 ? (
+                    <div className="aa-skip" role="separator" aria-label="Lines left out">
+                      <span aria-hidden="true">⋯</span>
+                    </div>
+                  ) : null}
+                  <ChangeDiff file={part.file} diff={part.diff} rows={preview.shown[index]!} near={near} />
+                </Fragment>
+              ) : null,
+            )}
           </div>
-        ) : null,
-      )}
-      {preview.foldable ? (
+        </div>
+      ) : null}
+      {shown && preview.foldable ? (
         <p>
           <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} />
         </p>
@@ -374,24 +397,50 @@ function ReadText({ look, className }: { look: Look; className: string }) {
   )
 }
 
+/** One read or search in an opened list: its line, which opens to what a read gave back. */
+function LookItem({ look }: { look: Look }) {
+  const { open, toggle } = useBlock('looks')
+  if (!look.text) {
+    return (
+      <div className="py-0.5 text-[13px]">
+        <LookLine look={look} />
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1 py-0.5 text-[13px]">
+      <button
+        type="button"
+        data-step-toggle
+        aria-expanded={open}
+        onClick={toggle}
+        className="-mx-1.5 min-w-0 rounded-lg px-1.5 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1"
+      >
+        <LookLine look={look} />
+      </button>
+      {open ? <ReadText look={look} className="pb-1" /> : null}
+    </div>
+  )
+}
+
 /** Reads and searches in a row (021 A7): one row that says how many, and opens to the list of what was read. */
 function Looks({ looks }: { looks: Look[] }) {
-  const [open, setOpen] = useState(false)
+  const { open, toggle } = useBlock('looks')
   const failed = looks.filter((look) => look.state === 'failed').length
   const latest = looks.at(-1)!
   if (looks.length === 1) {
     return (
       <div className="flex flex-col gap-1">
-        <FoldRow icon={LOOK_ICON[latest.kind]} open={false} failed={failed > 0}>
+        <FoldRow icon={LOOK_ICON[latest.kind]} open={open && Boolean(latest.text)} onToggle={latest.text ? toggle : undefined} failed={failed > 0}>
           <LookLine look={latest} />
         </FoldRow>
-        <ReadText look={latest} className="" />
+        {open ? <ReadText look={latest} className="" /> : null}
       </div>
     )
   }
   return (
     <div className="flex flex-col gap-1">
-      <FoldRow icon={LOOK_ICON[latest.kind]} open={open} onToggle={() => setOpen(!open)}>
+      <FoldRow icon={LOOK_ICON[latest.kind]} open={open} onToggle={toggle}>
         <span className="shrink-0 font-medium">{looksSummary(looks)}</span>
         {failed ? <span className="shrink-0 text-[12px] text-bad-fg">{failed === 1 ? '1 failed' : `${failed} failed`}</span> : null}
         {latest.state === 'running' ? <span className="truncate text-[12px] text-muted-foreground">{LOOK_WORDS[latest.kind][0]} {latest.what}</span> : null}
@@ -399,10 +448,7 @@ function Looks({ looks }: { looks: Look[] }) {
       {open ? (
         <Opened>
           {looks.map((look) => (
-            <div key={look.id} className="flex flex-col gap-1 py-0.5 text-[13px]">
-              <LookLine look={look} />
-              <ReadText look={look} className="pb-1" />
-            </div>
+            <LookItem key={look.id} look={look} />
           ))}
         </Opened>
       ) : null}
@@ -412,10 +458,12 @@ function Looks({ looks }: { looks: Look[] }) {
 
 /** A tool the canvas has no words of its own for: its name, what it was given, and its output on request. */
 function OtherTool({ name, summary, state, output, failure }: { name: string; summary: string; state: CallState; output: string; failure?: string }) {
-  const [open, setOpen] = useState(false)
+  const block = useBlock('other')
+  const opens = Boolean(output.trim()) && !failure
+  const open = opens && block.open
   return (
     <div className="flex flex-col gap-1">
-      <FoldRow icon={Wrench} open={open} onToggle={output.trim() && !failure ? () => setOpen(!open) : undefined} failed={state === 'failed'}>
+      <FoldRow icon={Wrench} open={open} onToggle={opens ? block.toggle : undefined} failed={state === 'failed'}>
         <span className="shrink-0 font-medium">{state === 'running' ? 'Using' : 'Used'}</span>
         <code className="shrink-0 font-mono text-[12px]">{name}</code>
         {summary ? <span className="truncate text-[12px] text-muted-foreground">{summary}</span> : null}
@@ -425,6 +473,23 @@ function OtherTool({ name, summary, state, output, failure }: { name: string; su
       </FoldRow>
       {failure ? <p className="pl-[22px] text-[12px] break-words whitespace-pre-wrap text-bad-fg">{failure}</p> : null}
       {open ? <CodeText text={output} language={null} label={`Output of ${name}`} /> : null}
+    </div>
+  )
+}
+
+/** A codemode script: one row with how it stands, which opens to its operations, output and source. */
+function CodemodeStep({ entry, state }: { entry: ActivityEntry; state: CallState }) {
+  const { open, toggle } = useBlock('other')
+  return (
+    <div className="flex flex-col gap-1.5">
+      <FoldRow icon={Braces} open={open} onToggle={toggle} failed={state === 'failed'}>
+        <span className="shrink-0 font-medium">{state === 'running' ? 'Running' : 'Ran'}</span>
+        <code className="shrink-0 font-mono text-[12px]">codemode</code>
+        <span className="ml-auto">
+          <StateMark state={state} />
+        </span>
+      </FoldRow>
+      {open ? <CodemodeCall entry={entry} ended={state === 'stopped'} /> : null}
     </div>
   )
 }

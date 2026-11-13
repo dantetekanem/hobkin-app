@@ -321,6 +321,29 @@ test('a code change with no nodes is a scan failure', () => {
   assert.throws(() => curate({ graph: graph([]), triage: triage([code]), diffs: [] }), /scan failure/)
 })
 
+test('a code file whose change is only comments, or only blank lines, has no node and no unit, and is no scan failure', () => {
+  const cases: [string, FileDiff, Record<'head' | 'base', string>][] = [
+    ['comments', { path: 'app/models/cart.rb', hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-# an old note', '+# a new note'] }] }, { base: '# an old note\nclass Cart\nend\n', head: '# a new note\nclass Cart\nend\n' }],
+    ['blank lines', { path: 'app/models/cart.rb', hunks: [{ oldStart: 1, oldLines: 0, newStart: 2, newLines: 1, lines: ['+'] }] }, { base: 'class Cart\nend\n', head: 'class Cart\n\nend\n' }],
+  ]
+  for (const [what, diff, texts] of cases) {
+    const code = bucket('b1', { paths: [diff.path], files: 1 })
+    const result = curate({ graph: graph([]), triage: triage([code]), diffs: [diff], scannedFiles: code.paths, source: (path, side) => (path === diff.path ? texts[side] : null) })
+    assert.deepEqual(result.units, [], what)
+  }
+})
+
+test('lines that run changed with no node holding them is still a scan failure, and it names the file and never guesses a wrong root', () => {
+  const code = bucket('b1', { paths: ['app/a.rb'], files: 1 })
+  const texts: Record<'head' | 'base', string> = { base: 'class A\n  def a\n    1\n  end\nend\n', head: 'class A\n  def a\n    2\n  end\nend\n' }
+  const input = { graph: graph([]), triage: triage([code]), diffs: [fileDiff('app/a.rb', 3, '    1', '    2')], scannedFiles: code.paths, source: (_path: string, side: 'head' | 'base') => texts[side] }
+  assert.throws(() => curate(input), (error: Error) => /^scan failure: lines that run changed in `app\/a\.rb`/.test(error.message) && !/wrong root/.test(error.message))
+  assert.throws(
+    () => curate({ ...input, unparsed: ['app/a.rb'] }),
+    (error: Error) => error.message === 'scan failure: agentic-search has no parser for `app/a.rb`, so what changed in it could not be mapped',
+  )
+})
+
 test('a change with no code gets units from buckets with map file-level', () => {
   const docsOnly = triage([
     bucket('b1', { folder: 'config', kind: 'config', paths: ['config/a.yml'], files: 1, added: 2, deleted: 1 }),

@@ -6,10 +6,12 @@ import { useSettings } from '@/features/settings/store.ts'
 import { useAgentThreads } from '@/features/work/agent-threads.ts'
 import { createAgentControls, executionTargets, receiptText, type AgentControlState } from '@/features/work/actions.ts'
 import { runExecution } from '@/features/work/store.ts'
-import { agentsFrom, hasHost } from '@/lib/host/frame.ts'
-import { hostStore, useAgents, useHasHost } from '@/lib/host/index.ts'
+import { listedAgents, type ListedAgent } from '@/features/hobkins/list.ts'
+import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
+import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
+import { hasHost } from '@/lib/host/frame.ts'
+import { hostStore, useHasHost, useHost } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
-import type { SampleAgent } from './sample.ts'
 import { useView } from './view-store.ts'
 
 /**
@@ -18,7 +20,7 @@ import { useView } from './view-store.ts'
  * its activity. With no host they are sample values: as many as the "Agents at once" setting allows, two of
  * them waiting for the user, to show what that looks like.
  */
-export interface RunningAgent extends SampleAgent {
+export interface RunningAgent extends ListedAgent {
   /** What the agent is waiting on the user for, in its own words. Absent while it gets on with its work. */
   asks?: string
   /** The answers it offers, shown in the question sheet. The user can always type another. */
@@ -86,9 +88,17 @@ function running(limit: number, answered: readonly string[]): RunningAgent[] {
   return waitingFirst(POOL.slice(0, limit).map((agent) => settle(agent, answered)))
 }
 
+/** hobkin's agents with a host: the user's durable hobkins, then every run at work that is not the main conversation. */
+function useHostedAgents(): RunningAgent[] {
+  const runs = useHost((state) => state.snapshot.runs)
+  const jobActivity = useHost((state) => state.snapshot.jobActivity)
+  const hobkins = useHost((state) => state.snapshot.hobkins)
+  return useMemo(() => listedAgents({ runs, jobActivity, hobkins }), [runs, jobActivity, hobkins])
+}
+
 export function useRunningAgents(): RunningAgent[] {
   const live = useHasHost()
-  const hosted = useAgents()
+  const hosted = useHostedAgents()
   const limit = useSettings((state) => state.agents)
   const answered = useAnswered((state) => state.ids)
   return useMemo(() => (live ? hosted : running(limit, answered)), [live, hosted, limit, answered])
@@ -97,7 +107,7 @@ export function useRunningAgents(): RunningAgent[] {
 /** One agent, following whether it is still waiting. It is found even after it has left the list. */
 export function useAgent(id: string | null): RunningAgent | undefined {
   const live = useHasHost()
-  const hosted = useAgents()
+  const hosted = useHostedAgents()
   const answered = useAnswered((state) => state.ids)
   return useMemo(() => {
     if (live) return hosted.find((agent) => agent.id === id)
@@ -109,7 +119,7 @@ export function useAgent(id: string | null): RunningAgent | undefined {
 /** The running agents as they are this instant, for code outside a component. */
 export function runningAgents(): RunningAgent[] {
   const host = hostStore.getState()
-  if (hasHost(host)) return agentsFrom(host.snapshot)
+  if (hasHost(host)) return listedAgents(host.snapshot)
   return running(useSettings.getState().agents, useAnswered.getState().ids)
 }
 
@@ -118,9 +128,11 @@ export const agentControls = createAgentControls({
   selected: () => {
     const view = useView.getState()
     const host = hostStore.getState()
+    // A durable hobkin is stopped through the run of its turn in flight. Stop never ends the hobkin.
+    const runId = view.screen === 'agent' ? (turnInFlight(host.snapshot, view.openAgent) ?? view.openAgent) : null
     const control =
       view.screen === 'agent'
-        ? executionTargets(host).find(target => target.kind === 'run' && target.runId === view.openAgent)
+        ? executionTargets(host).find(target => target.kind === 'run' && target.runId === runId)
         : undefined
     const agent = view.screen === 'agent' ? findAgent(view.openAgent) : undefined
 
@@ -163,9 +175,15 @@ export function questionOf(id: string | null): string | undefined {
 /** What some sample agents have done so far, in hobkin's activity shape, by agent id. A real agent's comes from the host (`useAgentActivity`). */
 export { SAMPLE_ACTIVITY } from '@/features/agent-activity/sample.ts'
 
+/** The run of a durable hobkin's turn in flight, for its agent id. Null for any other agent, and while it waits. */
+function turnInFlight(snapshot: WireSnapshot, agentId: string | null): string | null {
+  const id = hobkinOfAgent(agentId)
+  return id ? (snapshot.hobkins?.find((hobkin) => hobkin.id === id)?.run ?? null) : null
+}
+
 export function findAgent(id: string | null): RunningAgent | undefined {
   const host = hostStore.getState()
-  if (hasHost(host)) return agentsFrom(host.snapshot).find((agent) => agent.id === id)
+  if (hasHost(host)) return listedAgents(host.snapshot).find((agent) => agent.id === id)
   const agent = POOL.find((entry) => entry.id === id)
   return agent && settle(agent, useAnswered.getState().ids)
 }

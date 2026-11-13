@@ -182,6 +182,8 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
             const waiting = armed === choice.verdict
             const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
             const primary = choice.verdict === PRIMARY
+            // The no, and the no that deletes the branch too, read apart from the yeses, in the color of what cannot be taken back.
+            const discards = choice.verdict === 'discard' || choice.verdict === 'discard-branch'
             const secondClick = choice.verdict === 'approve-merge' && moved ? 'Click again to merge it as it is now' : 'Click again to confirm'
             return (
               <Button
@@ -195,7 +197,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
                 data-armed={waiting}
                 aria-pressed={waiting}
                 variant={primary ? 'default' : 'outline'}
-                className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3.5 text-[14px] font-semibold"
+                className={cn('rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3.5 text-[14px] font-semibold', discards && 'text-destructive hover:text-destructive')}
                 // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
                 // A click then does nothing. A change that lands is past choosing.
                 disabled={!verdict || landing != null || (needsComment(choice.verdict) && comments === 0)}

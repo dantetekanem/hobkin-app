@@ -14,7 +14,7 @@ import { useGitHub } from '@/lib/host/index.ts'
 import { spring, stagger, staggerDelay } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { checkedOn, Detail } from './Detail.tsx'
-import { withGh } from './gh.ts'
+import { GitHubCard } from './GitHubCard.tsx'
 import { allItems, itemsOf, type Item } from './items.ts'
 import { actionsFor, useServers } from './live.ts'
 import { needsLook } from './source.ts'
@@ -69,12 +69,13 @@ function useLanding(root: RefObject<HTMLDivElement | null>, scroller: RefObject<
 }
 
 /**
- * Integrations: every service hobkin can reach. Three parts, in this order: what is connected, the catalog
- * of services that can be added, and the person's own servers. A tile opens to its detail, which grows out
- * of it. Spec: 023-integrations. This file is the entry the frame mounts.
+ * Integrations: every service hobkin can reach, of two kinds. A full integration connects its own way and has a
+ * whole page in the app: GitHub, through gh. The MCP servers in Pi's configuration come in three parts, in this
+ * order: what is connected, the catalog of services that can be added, and the person's own servers. A tile opens
+ * to its detail, which grows out of it. Spec: 023-integrations. This file is the entry the frame mounts.
  *
- * Keys: the arrows move between tiles by where they sit, Enter opens one, and Escape closes an open detail.
- * An Escape with nothing of the screen's own open is left for the frame, which steps back up to Settings.
+ * Keys: the arrows move between tiles and controls by where they sit, Enter opens one, and Escape closes an open
+ * detail. An Escape with nothing of the screen's own open is left for the frame, which steps back up to Settings.
  */
 export function IntegrationsScreen() {
   // With a host, only what it read from Pi's configuration. Without one, the sample.
@@ -82,9 +83,9 @@ export function IntegrationsScreen() {
   const actions = actionsFor(live)
   /** What the host said when connecting or removing did not happen. */
   const [notice, setNotice] = useState<string | null>(null)
-  // GitHub connects through gh, so its tile follows how gh stands (024-github).
-  const { connection, login, sample } = useGitHub()
-  const items = useMemo(() => withGh(itemsOf(splitServers(servers)), { connection, login }), [servers, connection, login])
+  // GitHub connects through gh (024-github), apart from Pi's servers.
+  const github = useGitHub()
+  const items = useMemo(() => itemsOf(splitServers(servers)), [servers])
   const [openKey, setOpenKey] = useState<string | null>(null)
   const root = useRef<HTMLDivElement | null>(null)
   const scroller = useRef<HTMLDivElement | null>(null)
@@ -156,7 +157,7 @@ export function IntegrationsScreen() {
     actions.refresh().catch((error: unknown) => setNotice(messageOf(error)))
   }
 
-  /** Pages › GitHub, with the keyboard on the page once it has arrived. From GitHub's detail. */
+  /** Pages › GitHub, with the keyboard on the page once it has arrived. From GitHub's card. */
   const openGitHubPage = () => {
     useView.getState().openGitHub()
     requestCanvasFocus()
@@ -183,18 +184,14 @@ export function IntegrationsScreen() {
     next.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' })
   }
 
-  // GitHub works through gh, whatever its MCP server's state.
-  const works = (item: Item) => item.server?.state === 'connected' || (item.kind === 'service' && item.gh?.connection === 'connected')
-  const working = items.connected.filter(works).length
+  const working = items.connected.filter((item) => item.server?.state === 'connected').length
   const needLook = items.connected.length - working
   const fromMakers = CATALOG.every((entry) => entry.fromVendor)
   const connectedLine = live
     ? pi
       ? piLine(pi)
       : "This host does not read Pi's configuration yet. Restart it to see your servers here."
-    : sample
-      ? "Sample data. Nothing here changes Pi's configuration yet."
-      : "Sample data, apart from GitHub through gh. Nothing here changes Pi's configuration yet."
+    : "Sample data. Nothing here changes Pi's configuration yet."
   // What did not go as asked, then what Pi could not read: each in its own words.
   const notices = [...(notice ? [notice] : []), ...(pi?.error ? [pi.error] : []), ...(pi?.problems ?? []).map((problem) => `Pi skipped part of its configuration: ${problem}`)]
 
@@ -203,72 +200,83 @@ export function IntegrationsScreen() {
       <LayoutGroup id="integrations">
         <motion.div ref={scroller} layoutScroll inert={open !== null} className={`${SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-12`}>
           {/* The screen loads on demand and may arrive after the canvas has played its entrance, so it starts its own. */}
-          <motion.div variants={pieces} initial="enter" animate="center" className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
-            {/* Above the parts below it, so a tile flying up from the catalog passes over the tiles it crosses. */}
-            <Hero className="relative z-10">
-              <Part
-                label="Connected"
-                title={items.connected.length === 0 ? 'Nothing connected yet' : needLook > 0 ? `${working} connected, ${needLook} need${needLook === 1 ? 's' : ''} a look` : `${working} connected`}
-                line={connectedLine}
-                aside={
-                  live && pi ? (
-                    <Button variant="outline" size="sm" data-key-stop="" aria-label="Check every server again" onClick={lookAgain} className="shrink-0">
-                      <RotateCw className={cn(pi.checking && 'svc-spin')} aria-hidden="true" />
-                      {pi.checking ? 'Looking' : 'Check again'}
-                    </Button>
-                  ) : null
-                }
-              >
-                {notices.length > 0 ? (
-                  <ul className="flex flex-col gap-1.5">
-                    {notices.map((text) => (
-                      <li key={text} className="rounded-2xl bg-warn/15 px-4 py-2.5 text-[13px] break-words text-warn-fg">
-                        {text}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                <Grid
-                  count={items.connected.length}
-                  empty={live && pi?.checking ? "Reading Pi's configuration." : 'Pick a service below to connect it.'}
-                  className="gap-3 grid-cols-3 @max-[1000px]:grid-cols-2 @max-[640px]:grid-cols-1"
-                >
-                  {items.connected.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
-                </Grid>
-              </Part>
+          <motion.div variants={pieces} initial="enter" animate="center" className={`flex flex-col gap-12 ${SCREEN_COLUMN}`}>
+            <Hero>
+              <section aria-label="Full integrations" className="flex flex-col gap-4">
+                <KindHeading title="Full integrations" line="Each connects through a tool you already use, and has a whole page in hobkin." />
+                <GitHubCard github={github} still={still} onOpen={openGitHubPage} />
+              </section>
             </Hero>
-            <Rise>
-              <Part
-                label="Catalog"
-                title={items.available.length === 0 ? 'Everything here is connected' : `${items.available.length} more hobkin can reach`}
-                line={
-                  fromMakers
-                    ? `Each one is the maker's own server, read from the maker's page on ${checkedOn(CHECKED)}.`
-                    : `Each one says whose server it is, read on ${checkedOn(CHECKED)}.`
-                }
-              >
-                <Grid count={items.available.length} empty="Every service in the catalog is configured." className="grid-cols-4 gap-2.5 @max-[1000px]:grid-cols-3 @max-[760px]:grid-cols-2">
-                  {items.available.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
-                </Grid>
-              </Part>
-            </Rise>
-            <Rise>
-              <Part
-                label="Your own servers"
-                title={items.own.length === 0 ? 'None yet' : items.own.length === 1 ? '1 server' : `${items.own.length} servers`}
-                line={
-                  <>
-                    Servers you add with <code className="font-mono text-[12px]">pi mcp add</code> show here, with their state and tools.
-                  </>
-                }
-              >
-                <Grid count={items.own.length} empty="Nothing of your own yet." className="gap-3 grid-cols-2 @max-[760px]:grid-cols-1">
-                  <AnimatePresence initial={false}>
-                    {items.own.map((item) => (item.kind === 'own' ? <OwnTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
-                  </AnimatePresence>
-                </Grid>
-              </Part>
-            </Rise>
+            <section aria-label="MCP servers" className="flex flex-col gap-10">
+              <Rise>
+                <KindHeading title="MCP servers" line="Allow connections to the services you use. Each is an MCP server in Pi's configuration, and routines and agents use its tools." />
+              </Rise>
+              {/* Above the parts below it, so a tile flying up from the catalog passes over the tiles it crosses. */}
+              <Rise className="relative z-10">
+                <Part
+                  label="Connected"
+                  title={items.connected.length === 0 ? 'Nothing connected yet' : needLook > 0 ? `${working} connected, ${needLook} need${needLook === 1 ? 's' : ''} a look` : `${working} connected`}
+                  line={connectedLine}
+                  aside={
+                    live && pi ? (
+                      <Button variant="outline" size="sm" data-key-stop="" aria-label="Check every server again" onClick={lookAgain} className="shrink-0">
+                        <RotateCw className={cn(pi.checking && 'svc-spin')} aria-hidden="true" />
+                        {pi.checking ? 'Looking' : 'Check again'}
+                      </Button>
+                    ) : null
+                  }
+                >
+                  {notices.length > 0 ? (
+                    <ul className="flex flex-col gap-1.5">
+                      {notices.map((text) => (
+                        <li key={text} className="rounded-2xl bg-warn/15 px-4 py-2.5 text-[13px] break-words text-warn-fg">
+                          {text}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <Grid
+                    count={items.connected.length}
+                    empty={live && pi?.checking ? "Reading Pi's configuration." : 'Pick a service below to connect it.'}
+                    className="gap-3 grid-cols-3 @max-[1000px]:grid-cols-2 @max-[640px]:grid-cols-1"
+                  >
+                    {items.connected.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
+                  </Grid>
+                </Part>
+              </Rise>
+              <Rise>
+                <Part
+                  label="Catalog"
+                  title={items.available.length === 0 ? 'Everything here is connected' : `${items.available.length} more hobkin can reach`}
+                  line={
+                    fromMakers
+                      ? `Each one is the maker's own server, read from the maker's page on ${checkedOn(CHECKED)}.`
+                      : `Each one says whose server it is, read on ${checkedOn(CHECKED)}.`
+                  }
+                >
+                  <Grid count={items.available.length} empty="Every service in the catalog is configured." className="grid-cols-4 gap-2.5 @max-[1000px]:grid-cols-3 @max-[760px]:grid-cols-2">
+                    {items.available.map((item) => (item.kind === 'service' ? <ServiceTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
+                  </Grid>
+                </Part>
+              </Rise>
+              <Rise>
+                <Part
+                  label="Your own servers"
+                  title={items.own.length === 0 ? 'None yet' : items.own.length === 1 ? '1 server' : `${items.own.length} servers`}
+                  line={
+                    <>
+                      Servers you add with <code className="font-mono text-[12px]">pi mcp add</code> show here, with their state and tools.
+                    </>
+                  }
+                >
+                  <Grid count={items.own.length} empty="Nothing of your own yet." className="gap-3 grid-cols-2 @max-[760px]:grid-cols-1">
+                    <AnimatePresence initial={false}>
+                      {items.own.map((item) => (item.kind === 'own' ? <OwnTile key={item.key} item={item} live={live} still={still} onOpen={setOpenKey} /> : null))}
+                    </AnimatePresence>
+                  </Grid>
+                </Part>
+              </Rise>
+            </section>
           </motion.div>
         </motion.div>
         <AnimatePresence
@@ -292,7 +300,6 @@ export function IntegrationsScreen() {
                 if (open.kind === 'service') connect(open.entry, values)
               }}
               onRemove={() => remove(open)}
-              onOpenPage={open.kind === 'service' && open.gh ? openGitHubPage : undefined}
             />
           ) : null}
         </AnimatePresence>
@@ -301,13 +308,23 @@ export function IntegrationsScreen() {
   )
 }
 
-/** One of the three parts: a label, a line that sums it up, and its tiles. The heading glides when the parts above it change size. */
+/** The heading of one kind of integration: full integrations, or MCP servers. */
+function KindHeading({ title, line }: { title: string; line: string }) {
+  return (
+    <header>
+      <h2 className="font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]">{title}</h2>
+      <p className="mt-1 max-w-[72ch] text-[13px] text-muted-foreground">{line}</p>
+    </header>
+  )
+}
+
+/** One of the three parts of the MCP servers: a label, a line that sums it up, and its tiles. The heading glides when the parts above it change size. */
 function Part({ label, title, line, aside, children }: { label: string; title: string; line: ReactNode; aside?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={label} className="flex flex-col gap-4">
       <motion.header layout="position" transition={spring.screen} className="flex items-end justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="eyebrow">{label}</h2>
+          <h3 className="eyebrow">{label}</h3>
           <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">{title}</p>
           <p className="mt-1 text-[13px] break-words text-muted-foreground">{line}</p>
         </div>

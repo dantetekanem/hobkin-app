@@ -32,9 +32,9 @@ test('a new server gets a name no configured server already has', () => {
 })
 
 test('a configured server is matched to the catalog by where it connects, not by what it is called', () => {
-  assert.equal(catalogMatch(server('gh', remote('https://api.githubcopilot.com/mcp/')))?.id, 'github', 'another name, the same address')
-  assert.equal(catalogMatch(server('github', remote('https://api.githubcopilot.com/mcp')))?.id, 'github', 'with or without the last slash')
-  assert.equal(catalogMatch(server('issues', remote('https://api.githubcopilot.com/mcp/x/issues/readonly')))?.id, 'github', 'a narrower address of the same server')
+  assert.equal(catalogMatch(server('tickets', remote('https://mcp.linear.app/mcp')))?.id, 'linear', 'another name, the same address')
+  assert.equal(catalogMatch(server('linear', remote('https://mcp.linear.app/mcp/')))?.id, 'linear', 'with or without the last slash')
+  assert.equal(catalogMatch(server('tickets', remote('https://mcp.linear.app/mcp/readonly')))?.id, 'linear', 'a narrower address of the same server')
   assert.equal(catalogMatch(server('sentry', remote('https://mcp.sentry.dev/mcp/acme/storefront')))?.id, 'sentry', 'scoped to one project')
   assert.equal(catalogMatch(server('db', remote('https://mcp.supabase.com/mcp?read_only=true')))?.id, 'supabase', 'the query does not matter')
   assert.equal(catalogMatch(server('stripe', remote('https://mcp.stripe.com/')))?.id, 'stripe', 'an address with no path')
@@ -44,7 +44,7 @@ test('a configured server is matched to the catalog by where it connects, not by
 
 test('a server that only shares a name with a catalog entry is the person\'s own', () => {
   assert.equal(catalogMatch(server('gmail', { command: 'node', args: ['~/tools/mail/server.js'] })), null, 'a local command called gmail is not Google\'s server')
-  assert.equal(catalogMatch(server('github', remote('https://example.com/mcp'))), null, 'another address called github')
+  assert.equal(catalogMatch(server('stripe', remote('https://example.com/mcp'))), null, 'another address called stripe')
   assert.equal(catalogMatch(server('notion', remote('https://mcp.notion.com.example.org/mcp'))), null, 'a host that only starts the same')
   assert.equal(catalogMatch(server('linear', remote('https://mcp.linear.app/mcpx'))), null, 'a path that only starts the same')
   assert.equal(catalogMatch(server('odd', remote('not an address'))), null, 'an address that cannot be read')
@@ -63,14 +63,32 @@ test('configured servers split into the catalog\'s and the person\'s own, and th
   const docs = server('docs', { url: 'https://example.com/mcp', headers: { Authorization: 'Bearer ${DOCS_TOKEN}' } })
   const files = server('filesystem', { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] })
   const stripe = server('stripe', remote('https://mcp.stripe.com'), { state: 'off' })
-  const github = server('gh', remote('https://api.githubcopilot.com/mcp/'))
-  const split = splitServers([docs, stripe, files, github])
+  const linear = server('tickets', remote('https://mcp.linear.app/mcp'))
+  const split = splitServers([docs, stripe, files, linear])
 
-  assert.deepEqual(split.connected.map((item) => [item.entry.id, item.server.name]), [['github', 'gh'], ['stripe', 'stripe']], 'in the catalog\'s order, each with its own server')
+  assert.deepEqual(split.connected.map((item) => [item.entry.id, item.server.name]), [['linear', 'tickets'], ['stripe', 'stripe']], 'in the catalog\'s order, each with its own server')
   assert.deepEqual(split.own.map((item) => item.name), ['docs', 'filesystem'], 'in the order of the file')
-  assert.ok(!split.available.some((entry) => entry.id === 'github' || entry.id === 'stripe'), 'a service that is configured is not offered again')
+  assert.ok(!split.available.some((entry) => entry.id === 'linear' || entry.id === 'stripe'), 'a service that is configured is not offered again')
   assert.equal(split.available.length, CATALOG.length - 2)
-  assert.deepEqual(split.available.map((entry) => entry.id), CATALOG.filter((entry) => entry.id !== 'github' && entry.id !== 'stripe').map((entry) => entry.id), 'in the catalog\'s order')
+  assert.deepEqual(split.available.map((entry) => entry.id), CATALOG.filter((entry) => entry.id !== 'linear' && entry.id !== 'stripe').map((entry) => entry.id), 'in the catalog\'s order')
+})
+
+test('a server for a service the catalog does not carry is one of the person\'s own, such as GitHub\'s, Google\'s or Vercel\'s', () => {
+  const notInCatalog = [
+    server('github', { url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}' } }),
+    server('gmail', remote('https://gmailmcp.googleapis.com/mcp/v1')),
+    server('google-calendar', remote('https://calendarmcp.googleapis.com/mcp/v1')),
+    server('google-drive', remote('https://drivemcp.googleapis.com/mcp/v1')),
+    server('figma', remote('https://mcp.figma.com/mcp')),
+    server('vercel', remote('https://mcp.vercel.com')),
+    server('slack', remote('https://mcp.slack.com/mcp')),
+    server('asana', remote('https://mcp.asana.com/v2/mcp')),
+  ]
+
+  const split = splitServers(notInCatalog)
+
+  assert.deepEqual(split.own.map((item) => item.name), notInCatalog.map((item) => item.name), 'each shows with the person\'s own servers, in the order of the file')
+  assert.deepEqual(split.connected, [])
 })
 
 test('two servers for one service both show, such as one per account', () => {
@@ -90,7 +108,7 @@ test('a server is shown by its address or by its command line, with references l
   assert.deepEqual(targetOf({ url: 'https://example.com/mcp', headers: { Authorization: 'Bearer ${DOCS_TOKEN}' } }), { kind: 'remote', text: 'https://example.com/mcp' })
   assert.deepEqual(targetOf({ command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] }), { kind: 'command', text: 'npx -y @modelcontextprotocol/server-filesystem .' })
   assert.deepEqual(targetOf({ command: 'uvx' }), { kind: 'command', text: 'uvx' })
-  assert.deepEqual(targetOf(catalogEntry('github')!.entry), { kind: 'remote', text: 'https://api.githubcopilot.com/mcp/' })
+  assert.deepEqual(targetOf(catalogEntry('linear')!.entry), { kind: 'remote', text: 'https://mcp.linear.app/mcp' })
 })
 
 test('a tool counts as changing unless its server says it only reads', () => {

@@ -15,6 +15,7 @@ When hobkin has something to show, such as an app it is testing or a page it is 
 
 ## Decisions
 - hobkin opens and closes the panel with the host commands `canvas.show { url, title? }` and `canvas.close`, both marked for hobkin's `client` tool. The host holds the state (open, url, title) and pushes it to the window as `canvas` in the state message, whole, on every change and with every reset.
+- Since `035-canvas-drawings` the state is hobkin's, kept under the home, one canvas per hobkin, and it also has a kind and a revision. Showing the same page again raises the revision, so the page loads again.
 - Only http and https addresses open, with a host and no sign-in in the address. The check is shared (`shared/protocol/canvas.ts`) and runs in the host, so no other kind of address reaches the window.
 - The panel is a separate component with its own store (`ui/src/features/canvas-panel`). The frame mounts it with one line inside the area it covers.
 - Pages on `http://localhost` and `http://127.0.0.1` run in a sandbox with scripts and their own origin, so a dev server works. Every other page runs scripts without its origin, with no top-level navigation and no downloads.

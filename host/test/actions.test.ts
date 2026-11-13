@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { initialize } from 'hobkin/src/cli/config.mjs'
+import { deletedReportIds } from 'hobkin/src/cli/reports.mjs'
 import { fileDecision, openDecisions } from 'hobkin/src/cli/decisions.mjs'
 import { runCommand } from '../src/commands.ts'
 import { decisionHandlers } from '../src/decisions.ts'
@@ -11,7 +12,7 @@ import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
 test('report reads persist telemetry only for listed reports and cannot answer an action', async () => {
   const reads: unknown[] = []
-  const handlers = reportHandlers({ app: () => ({ snapshot: { reports: [{ id: 'report-1' }] }, recordReportRead: (read) => { reads.push(read) } }) })
+  const handlers = reportHandlers({ app: () => ({ snapshot: { reports: [{ id: 'report-1' }] }, runtime: { directory: '' }, recordReportRead: (read) => { reads.push(read) } }) })
   assert.deepEqual(await runCommand(handlers, 'report.read', { id: 'report-1', dwellMs: 3000 }), { ok: true, value: { ok: true } })
   assert.deepEqual(reads, [{ id: 'report-1', dwellMs: 3000 }])
   const missing = await runCommand(handlers, 'report.read', { id: 'missing', dwellMs: 3000 })
@@ -20,6 +21,15 @@ test('report reads persist telemetry only for listed reports and cannot answer a
     assert.equal((await runCommand(handlers, 'report.read', { id: 'report-1', dwellMs })).ok, false)
   }
   assert.equal(reads.length, 1)
+})
+
+test('report.delete hides a listed report in hobkin by its own delete, and refuses one that is not listed', async (t) => {
+  const root = temporaryDirectory(t)
+  const handlers = reportHandlers({ app: () => ({ snapshot: { reports: [{ id: 'local:recap:1' }] }, runtime: { directory: root }, recordReportRead: () => {} }) })
+  assert.deepEqual(await runCommand(handlers, 'report.delete', { id: 'local:recap:1' }), { ok: true, value: { id: 'local:recap:1', deleted: true } })
+  assert.deepEqual([...deletedReportIds(root)], ['local:recap:1'])
+  assert.equal((await runCommand(handlers, 'report.delete', { id: 'missing' })).ok, false)
+  assert.deepEqual([...deletedReportIds(root)], ['local:recap:1'])
 })
 
 /** Stands in for hobkin's application: it writes down every action it is asked for, and answers as told. */

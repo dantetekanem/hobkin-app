@@ -5,8 +5,6 @@
 
 /** Lines a box shows until it is opened. */
 export const PREVIEW_LINES = 12
-/** In code mode the calls are the thing read, so only a very long one is cut. */
-export const CODE_PREVIEW_LINES = 40
 /** A box only this many lines past its preview is shown whole: folding it would hide too little. */
 const WORTH_FOLDING = 4
 

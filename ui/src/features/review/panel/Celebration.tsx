@@ -36,9 +36,11 @@ export function celebrate({ kind, message }: { kind: 'tada' | 'done'; title?: st
 /**
  * "Merged!" in gold, large, on a dark flat band across the whole width of the window, a little taller than the word
  * (the user, 2026-11-12: "a flat line covering all the width with a small gap in height, opening from the center and
- * moving! animation is critical in hobkin"). The band opens from the middle outwards, the word rises into place as it
- * opens, a light runs across the gold, and then all of it fades away together. It is fixed over the window, so
- * nothing on the page moves, and it never takes the pointer. With reduced motion it only fades in and out.
+ * moving! animation is critical in hobkin"). The band opens from the middle outwards, the word comes at the screen and
+ * lands on it with a splat, springs back and settles as a tada does, with a flash where it hit (the user, 2026-11-13:
+ * "it should also splat and get back to the screen, like a tada animated and with shine"), a light runs across the
+ * gold, and then all of it fades away together. It is fixed over the window, so nothing on the page moves, and it
+ * never takes the pointer. With reduced motion it only fades in and out.
  *
  * Played by CSS on the compositor: the review closes and the next screen draws in the same moment, and the main
  * thread is busy then.
@@ -54,6 +56,7 @@ function Merged({ onGone }: { onGone: () => void }) {
   return (
     <div className="rv-merged" data-reduced={reduced} role="status" aria-live="polite" style={{ '--rv-merged-total': `${MERGED_MS}ms` } as CSSProperties}>
       <div className="rv-merged-band" aria-hidden="true" />
+      <div className="rv-merged-flash" aria-hidden="true" />
       <p className="rv-merged-word font-heading font-bold">
         Merged!
         {/* The light: a soft window that crosses the word, over a brighter copy of it that stays in place. */}

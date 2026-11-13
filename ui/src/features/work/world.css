@@ -1,0 +1,207 @@
+/*
+ * The Work world: a globe seen from above its pole, where each project is an island. See WorldMap.tsx.
+ * Only transform and opacity move, and nothing moves while movement is held still.
+ */
+
+.world {
+  --world-sea: color-mix(in oklab, var(--hb-code) 24%, var(--hb-surface));
+  --world-sea-lit: color-mix(in oklab, var(--hb-code) 36%, var(--hb-surface));
+  --world-deep: color-mix(in oklab, var(--hb-code) 18%, var(--hb-bg));
+  --world-line: color-mix(in oklab, var(--hb-code) 70%, var(--hb-text));
+  /* Land nothing has happened on yet. WorldMap.tsx mixes the accent into it by how much has. */
+  --world-soil: color-mix(in oklab, var(--hb-muted) 40%, var(--hb-surface-2));
+  --world-cloud: light-dark(rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.07));
+}
+
+/* The sea, lit from one side as a ball is, with the pole's rings and meridians on it. */
+.world-sea {
+  background: radial-gradient(circle at 36% 30%, var(--world-sea-lit), var(--world-sea) 55%, var(--world-deep));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--world-line) 40%, transparent),
+    0 0 56px color-mix(in oklab, var(--hb-code) 20%, transparent);
+}
+
+.world-grid circle,
+.world-grid line,
+.world-grid path,
+.world-current circle {
+  fill: none;
+  stroke: var(--world-line);
+  vector-effect: non-scaling-stroke;
+}
+.world-grid circle,
+.world-grid line { stroke-opacity: 0.14; }
+.world-grid path { stroke-opacity: 0.6; }
+
+/* Currents: dotted rings that turn about the pole, each at its own pace. */
+.world-current { animation: world-turn 200s linear infinite; }
+.world-current circle {
+  stroke-opacity: 0.42;
+  stroke-width: 2px;
+  stroke-linecap: round;
+}
+
+.world-weather {
+  position: absolute;
+  inset: 0;
+  animation: world-turn 320s linear infinite reverse;
+}
+.world-cloud {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--world-cloud), transparent);
+}
+
+/* An island. Its colour is --world-land, and --world-heat is how busy it is, from 0 to 1. */
+.world-rise {
+  position: absolute;
+  inset: 0;
+  animation: world-rise 600ms cubic-bezier(0.23, 1, 0.32, 1) var(--world-entry, 0ms) both;
+}
+.world-art { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.world-art path,
+.world-ripple path { vector-effect: non-scaling-stroke; }
+.world-island[data-active] .world-art { transform: scale(1.04); }
+
+/* Shallow water round the coast, paler the busier the island. */
+.world-shelf {
+  fill: color-mix(in oklab, var(--world-sea-lit) 70%, white);
+  fill-opacity: calc(0.16 + 0.24 * var(--world-heat));
+  stroke: transparent;
+  stroke-width: 2px;
+}
+.world-land {
+  fill: var(--world-land);
+  stroke: color-mix(in oklab, var(--world-land) 62%, white);
+  stroke-width: 1.5px;
+}
+.world-height {
+  fill: color-mix(in oklab, var(--world-land) 84%, white);
+  stroke: color-mix(in oklab, var(--world-land) 70%, black);
+  stroke-opacity: 0.25;
+  stroke-width: 1px;
+}
+.world-height[data-tier='1'] { fill: color-mix(in oklab, var(--world-land) 70%, white); }
+.world-height[data-tier='2'] { fill: color-mix(in oklab, var(--world-land) 54%, white); }
+
+.world-island[data-active] .world-land { stroke: var(--hb-text); }
+.world-island[data-focus] .world-shelf { stroke: var(--hb-focus); }
+.world-island[data-paused] .world-art { opacity: 0.55; }
+.world-island[data-paused] .world-land { stroke-dasharray: 5 4; }
+
+/* Waves off the coast, in the island's own shape: slow and faint on a quiet island, quick and yellow while an agent works there. */
+.world-ripple {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  color: var(--world-line);
+  pointer-events: none;
+  animation: world-ripple var(--world-beat, 9s) cubic-bezier(0.23, 1, 0.32, 1) var(--world-wait, 0s) infinite;
+}
+.world-ripple + .world-ripple { animation-delay: calc(var(--world-wait, 0s) + var(--world-beat, 9s) / 2); }
+.world-ripple path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+}
+.world-island[data-live] {
+  --world-beat: 2.8s;
+  --world-tide: 0.75;
+}
+.world-island[data-live] .world-ripple { color: var(--hb-accent); }
+
+/* A merge seen while the globe is open. */
+.world-burst {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--hb-accent),
+    inset 0 0 24px color-mix(in oklab, var(--hb-accent) 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: world-burst 1.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.world-name {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  width: max-content;
+  text-align: center;
+  color: var(--hb-text);
+  text-shadow: 0 0 5px var(--world-deep), 0 0 2px var(--world-deep);
+}
+.world-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--hb-sun-fg);
+}
+.world-working::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hb-accent);
+  animation: world-blink 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+}
+
+/* An agent, standing on its island. */
+.world-worker {
+  background: var(--hb-surface);
+  box-shadow: 0 0 0 1.5px var(--hb-border-strong), 0 2px 8px rgb(0 0 0 / 0.35);
+}
+.world-worker:hover,
+.world-worker:focus-visible { box-shadow: 0 0 0 2.5px var(--hb-focus), 0 2px 8px rgb(0 0 0 / 0.35); }
+.world-worker[data-live]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--hb-accent);
+  opacity: 0;
+  pointer-events: none;
+  animation: world-ping 2.2s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+.world-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* What the host last said, while it cannot be asked: the land loses its colour. */
+.world[data-stale] .world-island,
+.world[data-stale] .world-worker { filter: saturate(0.45); }
+
+/* Held still: nothing turns, spreads or blinks, and a ring round the coast says where an agent works. */
+.world[data-still] *,
+.world[data-still] *::before,
+.world[data-still] *::after { animation: none !important; }
+.world[data-still] .world-art { transition: none; }
+.world[data-still] .world-island[data-live] .world-shelf { stroke: var(--hb-accent); }
+
+@keyframes world-turn {
+  to { transform: rotate(360deg); }
+}
+@keyframes world-rise {
+  from { opacity: 0; transform: scale(0.96); }
+}
+@keyframes world-ripple {
+  0% { transform: scale(1.03); opacity: 0; }
+  14% { opacity: var(--world-tide, 0.3); }
+  100% { transform: scale(1.42); opacity: 0; }
+}
+@keyframes world-burst {
+  0% { transform: scale(0.7); opacity: 0.95; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes world-ping {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+@keyframes world-blink {
+  from { opacity: 0.35; }
+}

@@ -108,3 +108,44 @@ test("reads only hobkin's main session files, within its bounds", async (t) => {
   }
   assert.deepEqual(filesIn(sessions), before)
 })
+
+test('History shows a made title in place of the first line, asks for the ones it lacks, and says how many are being made', async (t) => {
+  const home = temporaryDirectory(t)
+  const sessions = join(home, 'sessions')
+  mkdirSync(sessions)
+  const file = (at: number, lines: object[]) =>
+    [{ type: 'session', version: 3, id: `s${at}`, timestamp: new Date(at).toISOString(), cwd: home }, ...lines].map((line) => JSON.stringify(line)).join('\n') + '\n'
+  const message = (id: string, parentId: string | null, role: string, text: string, at: number) => ({ type: 'message', id, parentId, timestamp: new Date(at).toISOString(), message: { role, content: text, timestamp: at } })
+  const A = 'main-11111111-1111-4111-8111-111111111111.jsonl'
+  const B = 'main-22222222-2222-4222-8222-222222222222.jsonl'
+  const C = 'main-33333333-3333-4333-8333-333333333333.jsonl'
+  const D = 'main-44444444-4444-4444-8444-444444444444.jsonl'
+  const at = Date.UTC(2026, 10, 9)
+  writeFileSync(join(sessions, A), file(at, [message('a1', null, 'user', 'Help me plan a trip\nwith details', at), message('a2', 'a1', 'assistant', 'Sure.', at + 1000)]))
+  writeFileSync(join(sessions, B), file(at - 1e6, [message('b1', null, 'user', 'Fix the login bug', at - 1e6), { type: 'session_info', id: 'b2', parentId: 'b1', name: 'Named by Pi' }]))
+  writeFileSync(join(sessions, C), file(at - 2e6, [message('c1', null, 'user', 'Already titled', at - 2e6), message('c2', 'c1', 'assistant', 'Yes.', at - 2e6 + 1000)]))
+  writeFileSync(join(sessions, D), file(at - 3e6, [message('d1', null, 'assistant', 'Only an answer', at - 3e6)]))
+  const before = filesIn(sessions)
+
+  const wanted: [string, string[]][] = []
+  const titles = {
+    get: (key: string, words: string[]) => (key === C && words.join() === 'Already titled,Yes.' ? 'A made title' : null),
+    want: (key: string, words: string[]) => void wanted.push([key, words]),
+    pending: () => wanted.length,
+  }
+  const history = new History(home, () => join(sessions, A), undefined, titles)
+  const listed = await history.list()
+  assert.deepEqual(
+    listed.conversations.map(({ id, title }) => [id, title]),
+    [[A, 'Help me plan a trip'], [B, 'Named by Pi'], [C, 'A made title'], [D, 'A conversation without words']],
+  )
+  // Pi's own name is kept, a made title is not asked for again, and a conversation with no word from the user waits.
+  assert.deepEqual(wanted, [[A, ['Help me plan a trip\nwith details', 'Sure.']]])
+  assert.equal(listed.titling, 1)
+  assert.equal((await history.open(C)).title, 'A made title')
+  assert.equal((await history.open(B)).title, 'Named by Pi')
+  assert.deepEqual(filesIn(sessions), before)
+
+  // A host with no titles answers as it always did.
+  assert.equal('titling' in (await new History(home, () => null).list()), false)
+})

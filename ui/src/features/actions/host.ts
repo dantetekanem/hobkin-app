@@ -44,6 +44,15 @@ const learningChoices = (scope: string) => [
   { value: 'no', label: scope.startsWith('work.') ? 'No, never again for this repo' : 'No, never again' },
 ]
 
+/** hobkin's `work done`: what the step left for the user is cleared, and any branch or PR stays as it is. */
+const DONE = { value: 'done', label: 'Mark it done' }
+
+/** A work-mode project proposal (an `asks` entry of kind `proposal`): taken at hobkin's level or skipped, by its slug. */
+const TAKE_SKIP = [
+  { value: 'take', label: 'Take it' },
+  { value: 'skip', label: 'Skip' },
+]
+
 /** Where a waiting row that is not answered here is handled: a report in Reports, anything about work in Work. */
 function opensOf(group: string, entry: Record<string, unknown>): WaitingRow['opens'] {
   if (group === 'reports' && text(entry.id)) return { screen: 'reports', report: text(entry.id) }
@@ -67,6 +76,8 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
       : [],
   }))
   const pending = record(snapshot.waiting)
+  const branches = Array.isArray(pending?.branches) ? pending.branches : []
+  const inWork = new Set(branches.map((value) => `${text(record(value)?.slug)}:${text(record(value)?.item)}`))
   for (const [group, kind] of GROUPS) {
     const entries = pending?.[group]
     if (!Array.isArray(entries)) continue
@@ -81,6 +92,11 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
       const detail = text(entry.summary) || text(entry.reason) || text(entry.next)
       // A learning proposal is a question hobkin answers with its learning action. The rest open where they are handled.
       const proposal = group === 'proposals' && /^[0-9a-f]{6}$/.test(text(entry.id))
+      // A step Work shows no card for would open onto nothing there, so it is cleared here with hobkin's own done.
+      const [slug, item] = [text(entry.slug), text(entry.item)]
+      const clears = group === 'yours' && Boolean(slug && item) && !inWork.has(`${slug}:${item}`)
+      // A work-mode project proposal is answered here, taken or skipped, so it never opens onto Work's hidden panel.
+      const projectProposal = group === 'asks' && text(entry.kind) === 'proposal' && Boolean(slug)
       rows.push({
         id,
         kind: group === 'yours' ? ATTENTION_KINDS.get(text(entry.attentionKind)) ?? 'work' : kind,
@@ -91,7 +107,7 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
           id,
           from,
           question: proposal ? text(entry.question) || summary : summary,
-          choices: proposal ? learningChoices(text(entry.scope)) : [],
+          choices: proposal ? learningChoices(text(entry.scope)) : clears ? [DONE] : projectProposal ? TAKE_SKIP : [],
           ...(detail ? { tldr: detail } : {}),
         },
         putOff: false,
@@ -101,7 +117,9 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
         links: [],
         item: null,
         ...(proposal ? { answers: { by: 'learning' as const, id: text(entry.id) } } : {}),
-        ...(opensOf(group, entry) ? { opens: opensOf(group, entry) } : {}),
+        ...(clears ? { answers: { by: 'work' as const, id: `${slug}:${item}`, slug, item } } : {}),
+        ...(projectProposal ? { answers: { by: 'proposal' as const, slug } } : {}),
+        ...(!clears && !projectProposal && opensOf(group, entry) ? { opens: opensOf(group, entry) } : {}),
       })
     })
   }

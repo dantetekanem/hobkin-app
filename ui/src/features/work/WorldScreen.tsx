@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useRunningAgents } from '@/app/running-agents.ts'
@@ -14,7 +14,9 @@ export function WorldScreen() {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const { work } = useWorkView()
-  const agents = useRunningAgents()
+  // A durable hobkin is the user's own and no work of hobkin's, so the map leaves it out (034-durable-hobkins).
+  const listed = useRunningAgents()
+  const agents = useMemo(() => listed.filter(agent => !agent.durable), [listed])
   const home = useHost(state => state.home)
   const epoch = useHost(state => state.epoch)
   const source = JSON.stringify([home, epoch])

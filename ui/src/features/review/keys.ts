@@ -1,6 +1,8 @@
 /**
  * The review's keys. Tab belongs to the frame everywhere, so inside the review the rule is the terminal's:
- * Left and Right change the step, Up and Down move between nodes, Enter opens.
+ * Left and Right change the step, Up and Down move between nodes, Enter opens the code and closes it again.
+ * O is Free Roam and P is Story (`story/mode.ts`): in Free Roam no step leads, every arrow moves between nodes, and
+ * the keys that walk the story move nothing.
  * See _specs/019-keyboard and the keys in _specs/007-review-story.
  *
  * A key that was used is prevented, and the frame then leaves it alone. Escape is the screen's own
@@ -9,6 +11,7 @@
  */
 import type { Verdict } from '#shared/review/verdict.ts'
 import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
+import { modeOfKey } from './story/mode.ts'
 import type { Session } from './state/session.ts'
 
 export interface KeyPress {
@@ -98,8 +101,9 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   // With code open, Shift with Up and Down selects lines for a note.
   if (session.code && shift && (key === 'ArrowUp' || key === 'ArrowDown')) return effects.panelKey(key, true)
 
+  const roam = session.mode === 'roam'
   const direction = ARROWS[key]
-  if (direction && (shift || direction === 'up' || direction === 'down')) {
+  if (direction && (shift || roam || direction === 'up' || direction === 'down')) {
     const from = session.pointed ?? session.focus[0] ?? null
     // Sideways, the focus follows a wire to the node it connects to, because connection matters more than
     // place. Where no wire leaves that side, it goes to the nearest node that way.
@@ -110,6 +114,12 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
     return true
   }
   if (shift) return false
+
+  // O and P choose the mode, and start it from the beginning, wherever the reviewer is.
+  const mode = modeOfKey(key)
+  if (mode) return session.setMode(mode), true
+  // In Free Roam no step leads: the keys that walk the story are still the review's, and move nothing.
+  if (roam && (/^[0-9]$/.test(key) || [' ', 'Home', 'End', 'b', 'B'].includes(key))) return true
 
   // 1 to 9 and 0 go to a step. Two digits typed quickly make one number.
   if (/^[0-9]$/.test(key)) return session.typeDigit(key), true
@@ -124,8 +134,9 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
       return session.goTo(0), true
     case 'End':
       return session.goTo(session.view.story.length - 1), true
+    // Enter opens the code of the focus, and Enter again closes it, putting the review back as it was.
     case 'Enter':
-      return session.openCode(), true
+      return session.toggleCode(), true
     // G for the whole graph: 0 now goes to step 10.
     case 'g':
     case 'G':

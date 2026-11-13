@@ -109,10 +109,13 @@ export function stepFrom(review: Story, state: StoryState, delta: number): numbe
   return clampStep(review, from + delta)
 }
 
-/** Focuses one node. A node of the current step stays on the path, and any other is a detour. */
-export function focusNode(review: Story, state: StoryState, nodeId: string): Moved {
+/**
+ * Focuses one node. A node of the current step stays on the path, and any other is a detour. `alone`, as Free Roam
+ * asks (`mode.ts`), focuses every node by itself: no step takes the focus back.
+ */
+export function focusNode(review: Story, state: StoryState, nodeId: string, { alone = false }: { alone?: boolean } = {}): Moved {
   if (!review.nodes.some((node) => node.id === nodeId)) return { state, fresh: NOTHING }
-  if (review.story[state.step]?.focus.includes(nodeId)) return backToStep(review, state)
+  if (!alone && review.story[state.step]?.focus.includes(nodeId)) return backToStep(review, state)
   const { revealed, fresh } = reveal(review, state.revealed, [nodeId])
   return { state: { ...state, revealed, detour: nodeId, group: null, whole: false }, fresh }
 }

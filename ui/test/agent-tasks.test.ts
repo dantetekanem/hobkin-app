@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import { progressOf, tasksOf, type AgentTask } from '../src/features/agent-activity/tasks.ts'
+import { progressOf, taskLine, tasksOf, type AgentTask } from '../src/features/agent-activity/tasks.ts'
 
 // Entries as hobkin keeps them (src/cli/job-activity.mjs): the arguments as indented JSON, the result's text only.
 const call = (id: string, name: string, args: object, output: string, state: ActivityEntry['state'] = 'completed'): ActivityEntry => ({
@@ -216,4 +216,35 @@ test('tasks in a group carry its title, and the group itself is not a task', () 
 test('an empty list from the tool leaves only what was finished', () => {
   const empty = call('l2', 'task_list', {}, 'No tasks found')
   assert.deepEqual(brief(tasksOf([...run, empty])), ['1 done Read the protocol specs'])
+})
+
+test('each task keeps the description it was given, and a later one replaces it', () => {
+  const described = (tasks: readonly AgentTask[]) => Object.fromEntries(tasks.map((task) => [task.id, task.description]))
+  assert.deepEqual(described(tasksOf(run)), {
+    '1': 'Read public specifications.\nReturn dates and licenses.',
+    '2': 'Integrate the evidence into protocols.md.',
+    '4': 'Run the post-processing skills on the changed files.',
+    '3': 'Read the finished report.\n#9 [pending] is how a list line looks, not a task.',
+  })
+  const created = call('c1', 'task_create', { subject: 'Write the failing test', description: 'A test that fails first.' }, 'Task #1 created successfully: Write the failing test')
+  const changed = call('u1', 'task_update', { taskId: '1', description: 'A test that fails for the right reason.' }, 'Updated task #1 description')
+  assert.equal(tasksOf([created, changed])[0]!.description, 'A test that fails for the right reason.')
+  // Known only by what task_get printed, or by the next task a finish handed over.
+  const update = call('u2', 'task_update', { taskId: '7', status: 'in_progress' }, 'Updated task #7 status')
+  const got = call('g1', 'task_get', { taskId: '7' }, 'Task #7: Redesign Balance history\nStatus: in_progress\nOwner: lead\nDescription: Keep the totals.\nAnd the dates.\nBlocks: #8')
+  assert.equal(tasksOf([update, got])[0]!.description, 'Keep the totals.\nAnd the dates.')
+  const next = call('d1', 'task_done', { taskId: '1' }, handoff('1', 'ready', { nextTask: { id: '2', subject: 'Make it pass', description: 'Only what the test needs.', status: 'pending' } }))
+  assert.equal(tasksOf([created, next]).find((task) => task.id === '2')!.description, 'Only what the test needs.')
+})
+
+test('the tasks read as one line: how many are done, then the one in progress, the next one, or that all are done', () => {
+  assert.equal(taskLine(progressOf(tasksOf(run))).text, '1 of 4 tasks · in progress: Write the landscape report')
+  assert.equal(taskLine(progressOf(tasksOf([plan]))).text, '0 of 3 tasks · next: Read the protocol specs')
+  const done = tasksOf([plan, ...['1', '2', '3'].map((id) => call(`f${id}`, 'task_update', { taskId: id, status: 'completed' }, `Updated task #${id} status`))])
+  assert.equal(taskLine(progressOf(done)).text, '3 of 3 tasks · all done')
+  // One task is a task, two in progress name the first and count the other, and a task known by its number is named by it.
+  const one = call('u1', 'task_update', { taskId: '7', status: 'in_progress' }, 'Updated task #7 status')
+  assert.equal(taskLine(progressOf(tasksOf([one]))).text, '0 of 1 task · in progress: Task 7')
+  const both = tasksOf([plan, start('u1', '1'), start('u2', '2')])
+  assert.deepEqual(taskLine(progressOf(both)), { count: '0 of 3 tasks', lead: 'in progress', title: 'Read the protocol specs', more: 1, text: '0 of 3 tasks · in progress: Read the protocol specs +1' })
 })

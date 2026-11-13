@@ -1,3 +1,4 @@
+import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import { remembered } from '@/app/location.ts'
 import { useView } from '@/app/view-store.ts'
 import { openGitHubPage } from '@/features/github/open.ts'
@@ -32,6 +33,11 @@ export function openTarget(target: HomeTarget): void {
     case 'routine':
       useRoutines.getState().open(target.id, `routine-${target.id}`)
       return openScreen('routines')
+    case 'pull': {
+      const pull = targetOfReviewId(target.url)
+      if (pull?.kind === 'pull') openReviewFor(reviewIdOf(pull))
+      return
+    }
     case 'url':
       if (
         /^https:\/\/github\.com\//.test(target.url)

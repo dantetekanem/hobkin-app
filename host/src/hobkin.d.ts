@@ -5,9 +5,34 @@
 
 declare module 'hobkin/src/cli/application.mjs' {
   import type { ExecutionTarget, StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+  import type { HobkinConversation, HobkinEngine, HobkinReach, HobkinSummary } from '#shared/protocol/hobkins.ts'
   import type { StopControlTarget } from '#shared/protocol/snapshot.ts'
 
+  /** The durable hobkins (034-durable-hobkins). A refusal is a thrown Error with a plain sentence. */
+  export interface DurableHobkins {
+    /** With no `text` it starts waiting, and `run` is null: its first turn is the first message sent to it. */
+    start(args: { cwd: string; engine: HobkinEngine; text?: string; title?: string }): Promise<{ id: string; run: string | null }>
+    say(id: string, args: { text: string; noteId?: string }): Promise<{ started: boolean; queued: boolean; run: string }>
+    end(id: string): Promise<{ ok: true }>
+    rename(id: string, title: string): Promise<HobkinSummary>
+    /** The hobkins named only by their first message, each with the words a better title is made from. */
+    toTitle(): Promise<{ id: string; words: string[] }[]>
+    /** A title made for it, taken once and never over a name the user gave. Answers with the hobkin as it is now. */
+    retitle(id: string, title: string): Promise<HobkinSummary>
+    seen(id: string): Promise<{ ok: true }>
+    read(id: string): Promise<HobkinConversation>
+    /**
+     * The main hobkin's message to one, never the user's words. While it waits they start its next turn, recorded as
+     * from the main hobkin; while it works they wait for that turn to end (`queued`, and no `run` yet). Absent in a
+     * runtime from before messages between hobkins.
+     */
+    tell?(id: string, args: { text: string }): Promise<{ started: boolean; queued: boolean; run: string | null }>
+    /** Every durable hobkin the main hobkin can message, newest first. */
+    reach?(): Promise<{ hobkins: HobkinReach[] }>
+  }
+
   export interface HobkinSnapshot {
+    hobkins?: HobkinSummary[]
     messages?: unknown[]
     reports?: unknown[]
     presentation?: { hiddenMessageIds?: string[] }
@@ -140,6 +165,8 @@ declare module 'hobkin/src/cli/application.mjs' {
   export class HobkinApplication {
     static open(root: string, options?: OpenOptions): Promise<HobkinApplication>
     snapshot: HobkinSnapshot
+    /** Absent in a runtime from before durable hobkins. */
+    hobkins?: DurableHobkins
     /** The configuration hobkin opened with. Its runtime holds the same object, and reconnects with it. */
     config: HobkinConfig
     runtime: {
@@ -149,7 +176,7 @@ declare module 'hobkin/src/cli/application.mjs' {
       /** The main Pi session: in this process, or a child process behind a launcher. */
       main: unknown
       /** Read-only persisted run metadata, including native Pi job ownership. */
-      state(): Promise<{ runs: Record<string, { kind?: string; harness?: string; harnessId?: string; legacy?: boolean; result?: { sessionId?: string | null } }> }>
+      state(): Promise<{ runs: Record<string, { kind?: string; harness?: string; harnessId?: string; scheduleId?: string; title?: string; status?: string; legacy?: boolean; result?: { sessionId?: string | null } }> }>
       /** Resolves once no turn and no run is under way. */
       idle(): Promise<void>
       /** Gives the main session a message as it is, with none of hobkin's notes ahead of it. */
@@ -224,6 +251,23 @@ declare module 'hobkin/src/cli/checks.mjs' {
 declare module 'hobkin/src/cli/view.mjs' {
   /** Hides messages from the conversation for good, as `/clear` does. hobkin's own conversation keeps them. */
   export function savePresentationState(root: string, messageIds: string[]): { version: 1; hiddenMessageIds: string[] }
+}
+
+declare module 'hobkin/src/cli/profile.mjs' {
+  /** What `profile.json` holds. A field is left out until the user says it. */
+  export interface SavedProfile {
+    name?: string
+    callMe?: string
+    email?: string
+    computer?: 'personal' | 'work'
+  }
+
+  /** Who the user said they are. A broken file reads as empty. */
+  export function readProfile(root: string): SavedProfile
+  /** One field, by its word in `hobkin profile`. Throws with a plain sentence when the value is refused. */
+  export function setProfile(root: string, field: 'name' | 'call' | 'email' | 'computer', value: string): SavedProfile
+  /** Several fields in one write, or none when one is refused. */
+  export function updateProfile(root: string, change: Partial<Record<'name' | 'call' | 'email' | 'computer', string>>): SavedProfile
 }
 
 declare module 'hobkin/src/cli/paste-image.mjs' {
@@ -316,7 +360,7 @@ declare module 'hobkin/src/cli/settings.mjs' {
 
   /** A tier for delegated work, one of hobkin's four (`src/cli/tiers.mjs`). */
   type TierName = 'fast' | 'mid' | 'high' | 'max'
-  type TierEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+  type TierEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
   /** The chat's model, every tier as it runs now (its own model and effort, or whose it follows), and the tier of each review role. */
   export interface TierSettings {

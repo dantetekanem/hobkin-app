@@ -7,6 +7,16 @@ import type { Place } from '../features/main-agent/mind.ts'
 
 /** Width of the chat, in pixels. */
 export const CONVERSATION_WIDTH = { min: 360, initial: 460, max: 720 } as const
+/** How much of the chat stays in view beside a review that has the user's attention, in pixels. */
+export const REVIEW_KEEPS = 112
+
+/**
+ * How far the canvas slides over the chat, in pixels. A review that has the user's attention takes almost the whole
+ * window. Every other screen, an agent's however it was opened, leaves the chat its room.
+ */
+export function canvasGrowth({ screen, canvasEngaged, conversationWidth }: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'>): number {
+  return screen === 'review' && canvasEngaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : 0
+}
 
 /** How the canvas moves to its next screen: along the menu (x) or along the agents list (y), and which way. */
 export interface ScreenMotion {
@@ -14,7 +24,7 @@ export interface ScreenMotion {
   direction: 1 | -1
 }
 
-type ReviewReturn = Pick<ViewState, 'screen' | 'settingsReturn' | 'githubReturn' | 'openAgent' | 'previewReturn' | 'agentTalk'>
+type ReviewReturn = Pick<ViewState, 'screen' | 'settingsReturn' | 'githubReturn' | 'openAgent' | 'previewReturn'>
 
 interface ViewState {
   screen: ScreenId
@@ -36,8 +46,6 @@ interface ViewState {
   previewReturn: ScreenId | null
   /** The screen under an agent, kept when its preview becomes a canvas. */
   agentReturn: ScreenId | null
-  /** True while the user has stepped into an agent to talk to it: the canvas grows over the chat and gets its own input. */
-  agentTalk: boolean
   /** While Settings or Integrations is open: the screen under both, which closing returns to. */
   settingsReturn: ScreenId | null
   /** While GitHub is open: the screen it was opened over. Closing a GitHub the menu leaves out returns there. */
@@ -65,9 +73,6 @@ interface ViewState {
   /** Shows an agent's canvas while the agents list has the keyboard. Leaving the list undoes it. */
   previewAgent: (agentId: string, direction: 1 | -1) => void
   endAgentPreview: () => void
-  /** Steps into an agent, to talk to it. Leaving steps back out to the agents list, with the canvas as it was. */
-  enterAgentTalk: (agentId: string) => void
-  leaveAgentTalk: () => void
   /** Opens an agent's canvas to stay. */
   openAgentCanvas: (agentId: string) => void
   closeAgentCanvas: () => void
@@ -90,7 +95,7 @@ function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewSta
   const before: Over = { screen: state.screen, settingsReturn: state.settingsReturn }
   const after = step(before)
   // Going deeper comes down over the canvas. Stepping back lifts away.
-  return { ...after, previewReturn: null, agentTalk: false, screenMotion: { axis: 'y', direction: depth(after) > depth(before) ? -1 : 1 } }
+  return { ...after, previewReturn: null, screenMotion: { axis: 'y', direction: depth(after) > depth(before) ? -1 : 1 } }
 }
 
 /**
@@ -121,7 +126,6 @@ export const useView = create<ViewState>()(
       openAgent: null,
       previewReturn: null,
       agentReturn: null,
-      agentTalk: false,
       settingsReturn: null,
       githubReturn: null,
       mindReturn: null,
@@ -134,10 +138,9 @@ export const useView = create<ViewState>()(
           screen,
           ...(screen === 'review' ? { reviewReturn: ground(current) === 'review' ? current.reviewReturn : {
             screen: current.screen, settingsReturn: current.settingsReturn, githubReturn: current.githubReturn,
-            openAgent: current.openAgent, previewReturn: current.previewReturn, agentTalk: current.agentTalk,
+            openAgent: current.openAgent, previewReturn: current.previewReturn,
           } } : {}),
           previewReturn: null,
-          agentTalk: false,
           settingsReturn: null,
           githubReturn: screen === 'github' ? backFromGitHub(current) : null,
           screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current.screen) ? 1 : -1 },
@@ -184,24 +187,10 @@ export const useView = create<ViewState>()(
         })
       },
       endAgentPreview: () => {
-        const { previewReturn, agentTalk } = get()
-        // Stepping into an agent takes the keyboard out of the list without ending the preview.
-        if (previewReturn === null || agentTalk) return
+        const { previewReturn } = get()
+        if (previewReturn === null) return
         set({ screen: previewReturn, openAgent: null, previewReturn: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
       },
-      enterAgentTalk: (agentId) => {
-        const { screen, openAgent, previewReturn, agentReturn } = get()
-        const same = screen === 'agent' && openAgent === agentId
-        set({
-          openAgent: agentId,
-          screen: 'agent',
-          agentTalk: true,
-          agentReturn: screen === 'agent' ? (agentReturn ?? previewReturn) : screen,
-          previewReturn: previewReturn ?? (screen === 'agent' ? null : screen),
-          ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }),
-        })
-      },
-      leaveAgentTalk: () => set({ agentTalk: false }),
       openAgentCanvas: (agentId) => {
         const { screen, openAgent, previewReturn, agentReturn } = get()
         const same = screen === 'agent' && openAgent === agentId
@@ -210,7 +199,7 @@ export const useView = create<ViewState>()(
       closeAgentCanvas: () => {
         const { screen, agentReturn, previewReturn } = get()
         if (screen !== 'agent') return
-        set({ screen: agentReturn ?? previewReturn ?? 'work', openAgent: null, previewReturn: null, agentReturn: null, agentTalk: false, screenMotion: { axis: 'y', direction: -1 } })
+        set({ screen: agentReturn ?? previewReturn ?? 'work', openAgent: null, previewReturn: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
       },
       // Settings and Integrations come down over whatever is showing, and lift away again when they are left.
       // The way back is in overlays.ts.

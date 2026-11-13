@@ -8,11 +8,11 @@ mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 after(() => mock.timers.reset())
 
 const KEY = 'hobkin-client-location-1'
-const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, agentTalk: false, ...more })
+const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...more })
 // What the window showed before Command+R, with a real home: a report and a routine of that home were open.
 sessionStorage.setItem(KEY, JSON.stringify({
   screen: 'mind', settingsReturn: null, githubReturn: null, openAgent: 'a1', openReview: 'pr:o/r#1', reviewReturn: place('github'),
-  mindReturn: place('agent', { openAgent: 'a1' }), report: 'local:recap:1', routine: 'disk-space', action: 'decision:7', githubTab: 'issues', home: '/hobkin',
+  mindReturn: place('agent', { openAgent: 'a1' }), report: 'local:recap:1', routine: 'disk-space', action: 'decision:7', githubTab: 'issues', githubProject: 'storefront', home: '/hobkin',
 }))
 
 const { motionBetween, moveKey, readSpot, remembered, travel } = await import('../src/app/location.ts')
@@ -30,7 +30,7 @@ test('a reload comes back to the same screen and its way back, and to the detail
   assert.deepEqual([view.screen, view.openAgent, view.openReview], ['mind', 'a1', 'pr:o/r#1'])
   assert.deepEqual(view.mindReturn, place('agent', { openAgent: 'a1' }), "the mind's way back")
   assert.deepEqual(view.reviewReturn, place('github'))
-  assert.deepEqual(remembered.getState(), { action: 'decision:7', githubTab: 'issues' })
+  assert.deepEqual(remembered.getState(), { action: 'decision:7', githubTab: 'issues', githubProject: 'storefront' })
   assert.equal(useRoutines.getState().openId, null, 'a sample routine of the same name is not the one that was open')
 
   hostStore.setState({ home: '/hobkin', link: 'open' })
@@ -50,19 +50,20 @@ test('command left and right walk back and forward through the moves, with the s
   await settled()
   view().openScreen('github')
   assert.equal(remembered.getState().githubTab, 'pulls', 'a visit starts on the first tab, as before')
+  assert.equal(remembered.getState().githubProject, null, 'and on All')
   await settled()
   // Walking the agents list only looks at each agent: it is not a move.
   view().previewAgent('a3', 1)
   await settled()
   view().endAgentPreview()
   await settled()
-  remembered.setState({ githubTab: 'issues' })
+  remembered.setState({ githubTab: 'issues', githubProject: 'docs-site' })
   await settled()
   view().openAgentCanvas('a2')
   await settled()
 
   assert.equal(travel(-1), true)
-  assert.deepEqual([view().screen, remembered.getState().githubTab, view().screenMotion], ['github', 'issues', { axis: 'y', direction: -1 }])
+  assert.deepEqual([view().screen, remembered.getState().githubTab, remembered.getState().githubProject, view().screenMotion], ['github', 'issues', 'docs-site', { axis: 'y', direction: -1 }])
   travel(-1)
   assert.deepEqual([view().screen, view().screenMotion], ['work', { axis: 'x', direction: -1 }])
   travel(-1)

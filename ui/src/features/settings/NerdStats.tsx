@@ -1,16 +1,24 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { useEffect, useState, type ReactNode } from 'react'
-import type { ParentPerformance } from '#shared/protocol/snapshot.ts'
+import { useEffect, useMemo, useState } from 'react'
+import type { BackupState } from '#shared/backup/types.ts'
+import type { SystemMetrics, UsageFacts } from '#shared/protocol/system.ts'
+import type { HostTiers } from '#shared/tiers/tiers.ts'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useTheme } from '@/app/theme.ts'
 import { useHost } from '@/lib/host/hooks.ts'
-import { performanceStats, projectTelemetry } from './nerd-stats-data.ts'
+import { runCommand } from '@/lib/host/client.ts'
+import { useHasHost } from '@/lib/host/index.ts'
+import { formatBytes } from './backup.ts'
+import {
+  backupSummary, countOf, daysSince, engineOf, formatCount, formatDate, formatDuration, formatPercent, formatUsd, refreshRate, tokenTotals,
+} from './nerd-stats-data.ts'
+import { useNerdStats } from './nerd-stats-store.ts'
 import { useSettings } from './store.ts'
 
-/** Frames drawn in the last second, and the slowest one. Measured only while this is on screen. */
-function useFrames(): { fps: number; slowest: number } {
-  const [frames, setFrames] = useState({ fps: 0, slowest: 0 })
+/** Frames drawn in the last second, the slowest one, and the refresh rate the gaps between frames suggest. Measured only while this is on screen. */
+function useFrames(): { fps: number; slowest: number; hz: number | null } {
+  const [frames, setFrames] = useState<{ fps: number; slowest: number; hz: number | null }>({ fps: 0, slowest: 0, hz: null })
 
   useEffect(() => {
     let count = 0
@@ -18,12 +26,16 @@ function useFrames(): { fps: number; slowest: number } {
     let last = performance.now()
     let since = last
     let request = 0
+    const gaps: number[] = []
     const loop = (now: number) => {
-      slowest = Math.max(slowest, now - last)
+      const gap = now - last
+      slowest = Math.max(slowest, gap)
+      gaps.push(gap)
+      if (gaps.length > 120) gaps.shift()
       last = now
       count += 1
       if (now - since >= 1000) {
-        setFrames({ fps: Math.round((count * 1000) / (now - since)), slowest: Math.round(slowest * 10) / 10 })
+        setFrames({ fps: Math.round((count * 1000) / (now - since)), slowest: Math.round(slowest * 10) / 10, hz: refreshRate(gaps) })
         count = 0
         slowest = 0
         since = now
@@ -49,31 +61,44 @@ function useEverySecond(): number {
 const openedAt = Date.now()
 const inMacWindow = '__TAURI_INTERNALS__' in window
 
-function duration(ms: number): string {
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  return hours ? `${hours}h ${String(minutes % 60).padStart(2, '0')}m` : `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`
+/** The graphics card the window draws with, as the browser names it. */
+function graphicsCard(): string {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl')
+    const info = gl?.getExtension('WEBGL_debug_renderer_info')
+    return info && gl ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '—'
+  } catch {
+    return '—'
+  }
 }
 
-/** Only the mounted, open content subscribes to telemetry and measures the window. */
+const media = (query: string): boolean => matchMedia(query).matches
+
+/** The button in Settings. It only opens the panel, which the frame mounts once. */
 export function NerdStats() {
-  const [open, setOpen] = useState(false)
+  return <Button variant="ghost" size="sm" data-stop="" onClick={() => useNerdStats.getState().setOpen(true)}>Nerd stats</Button>
+}
+
+/**
+ * The panel, mounted once with the app's other overlays. Solid, so nothing behind it shows through, 80% of the window
+ * wide and 60% tall. Only the open content reads the machine and measures the window.
+ */
+export function NerdStatsPanel() {
+  const open = useNerdStats((state) => state.open)
+  const setOpen = useNerdStats((state) => state.setOpen)
   const still = useStill()
   const fade = still ? '' : 'transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0'
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger render={<Button variant="ghost" size="sm" />} data-stop="">Nerd stats</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className={`fixed inset-0 z-50 bg-scrim ${fade}`} />
-        <Dialog.Popup className={`fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-32px)] w-[min(800px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-3xl bg-background shadow-float outline-none ${fade}`}>
+        <Dialog.Popup
+          className={`fixed top-1/2 left-1/2 z-50 flex h-[60vh] w-[80vw] -translate-x-1/2 -translate-y-1/2 flex-col rounded-3xl bg-popover text-popover-foreground shadow-float outline-none ${fade}`}
+        >
           <header className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5 pb-3">
             <Dialog.Title className="text-lg font-semibold">Nerd stats</Dialog.Title>
             <Dialog.Close render={<Button variant="ghost" size="sm" />}>Close</Dialog.Close>
           </header>
-          <Dialog.Description className="px-6 pb-3 text-xs text-muted-foreground">
-            Last-reported own-run usage, not billed cost or daily totals. First output is observer-side delay, not provider-wire TTFT.
-          </Dialog.Description>
           {open ? <StatsContent /> : null}
         </Dialog.Popup>
       </Dialog.Portal>
@@ -81,81 +106,155 @@ export function NerdStats() {
   )
 }
 
+/** The host answers; a missing answer shows as a dash rather than a guess. */
+function useHostReading<T>(read: () => Promise<T>, everyMs: number | null): T | null {
+  const hasHost = useHasHost()
+  const [value, setValue] = useState<T | null>(null)
+  useEffect(() => {
+    if (!hasHost) return
+    let live = true
+    const refresh = () => void read().then((next) => live && setValue(next), () => {})
+    refresh()
+    const timer = everyMs ? setInterval(refresh, everyMs) : null
+    return () => {
+      live = false
+      if (timer) clearInterval(timer)
+    }
+    // `read` is a stable module-level call per use.
+  }, [hasHost, everyMs]) // eslint-disable-line react-hooks/exhaustive-deps
+  return value
+}
+
+const readMetrics = (): Promise<SystemMetrics> => runCommand('system.metrics')
+const readFacts = (): Promise<UsageFacts> => runCommand('usage.facts')
+const readBackups = (): Promise<BackupState> => runCommand('backup.list')
+const readTiers = (): Promise<HostTiers> => runCommand('tiers.read')
+
+type Row = [label: string, value: string, note?: string]
+const DASH = '—'
+const when = (at: number | null) => (at === null ? DASH : new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))
+const maybe = <T,>(value: T | null | undefined, show: (value: T) => string): string => (value === null || value === undefined ? DASH : show(value))
+const count = (value: number | null) => maybe(value, String)
+
 function StatsContent() {
   const frames = useFrames()
   const now = useEverySecond()
   const theme = useTheme()
   const typeFace = useSettings((state) => state.typeFace)
   const movement = useSettings((state) => state.movement)
-  const link = useHost((state) => state.link)
   const snapshot = useHost((state) => state.snapshot)
-  const view = projectTelemetry({ link, snapshot })
-  const telemetry = view.telemetry
-  const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory
+  const work = useHost((state) => state.work)
+  const integrations = useHost((state) => state.integrations)
+  const metrics = useHostReading(readMetrics, 2000)
+  const facts = useHostReading(readFacts, null)
+  const backups = useHostReading(readBackups, 15_000)
+  const tiers = useHostReading(readTiers, null)
+  const card = useMemo(graphicsCard, [])
+  const tokens = tokenTotals(snapshot.telemetry)
+  const saved = backups ? backupSummary(backups.backups) : null
+  const runs = snapshot.runs ?? []
+  const connection = (navigator as Navigator & { connection?: { effectiveType?: string; downlink?: number } }).connection
+  const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory
+
+  const groups: { title: string; rows: Row[] }[] = [
+    {
+      title: 'hobkin',
+      rows: [
+        ['Memory (hobkin)', maybe(metrics, (m) => formatBytes(m.host.rssBytes)), 'host process resident memory'],
+        ['Disk (hobkin data)', maybe(facts?.homeBytes, formatBytes), 'size of the hobkin home'],
+        ['Disk (backups)', maybe(facts?.backupsBytes, formatBytes), 'size of the backups folder'],
+        ['Host process', maybe(metrics, (m) => `pid ${m.host.pid} · up ${formatDuration(m.host.uptimeSeconds)}`)],
+        ['Node', maybe(metrics, (m) => m.host.node)],
+        ['First login', formatDate(facts?.firstLoginAt ?? null)],
+        ['Days since first login', count(daysSince(facts?.firstLoginAt ?? null, now))],
+        ['Conversations started', count(facts?.conversations ?? null), 'all-time, including reset ones'],
+        ['Reports', count(countOf(snapshot.reports))],
+        ['Routines', count(countOf(snapshot.schedules))],
+        ['Work projects', count(work ? work.projects.length : null)],
+        ['Work queue', count(work ? work.queued : null)],
+        ['Integrations', count(integrations ? integrations.servers.length : null), 'MCP servers'],
+        ['Agents running now', String(runs.filter((run) => run.state === 'running').length)],
+        ['Open decisions', count(countOf(snapshot.decisions))],
+        ['Model', snapshot.main ? `${snapshot.main.model} · ${snapshot.main.effort}` : DASH],
+        ['Tiers', tiers ? Object.entries(tiers.tiers).map(([id, tier]) => `${id} ${tier.model ?? 'default'}`).join(' · ') : DASH],
+      ],
+    },
+    {
+      title: 'Tokens and cost (recent runs, up to the last 100)',
+      rows: [
+        ['Total tokens', maybe(tokens, (t) => formatCount(t.total))],
+        ['Input', maybe(tokens, (t) => formatCount(t.input))],
+        ['Output', maybe(tokens, (t) => formatCount(t.output))],
+        ['Cache read', maybe(tokens, (t) => formatCount(t.cacheRead))],
+        ['Cache write', maybe(tokens, (t) => formatCount(t.cacheWrite))],
+        ['Estimated cost', maybe(tokens, (t) => formatUsd(t.costUsd)), 'estimate, not an invoice'],
+        ['Runs', maybe(tokens, (t) => String(t.runs))],
+        ['Responses', maybe(tokens, (t) => formatCount(t.responses))],
+      ],
+    },
+    {
+      title: 'Backups',
+      rows: [
+        ['Backups', maybe(saved, (s) => String(s.count))],
+        ['Total size', maybe(saved, (s) => formatBytes(s.bytes))],
+        ['Last backup', maybe(saved, (s) => when(s.newest))],
+        ['Oldest backup', maybe(saved, (s) => when(s.oldest))],
+        ['Schedule', maybe(backups, (b) => (b.config.enabled ? `${b.config.cadence}, keeps ${b.config.limit}` : `off, keeps ${b.config.limit}`))],
+      ],
+    },
+    {
+      title: 'System',
+      rows: [
+        ['CPU temperature', DASH, 'unavailable on macOS without extra tooling'],
+        ['CPU usage', formatPercent(metrics?.cpuPercent ?? null)],
+        ['CPU', maybe(metrics, (m) => `${m.cpu.model} · ${m.cpu.cores} cores · ${m.cpu.arch}`)],
+        ['Load average', maybe(metrics, (m) => m.loadAverage.map((n) => n.toFixed(2)).join('  ')), '1, 5 and 15 minutes'],
+        ['Memory (system)', maybe(metrics, (m) => `${formatBytes(m.memory.usedBytes)} of ${formatBytes(m.memory.totalBytes)}`)],
+        ['Swap', maybe(metrics?.swap, (s) => `${formatBytes(s.usedBytes)} of ${formatBytes(s.totalBytes)}`)],
+        ['Disk (volume)', maybe(metrics?.disk, (d) => `${formatBytes(d.totalBytes - d.usedBytes)} free of ${formatBytes(d.totalBytes)}`)],
+        ['Battery', metrics ? maybe(metrics.battery, (b) => `${b.percent}%${b.charging ? ' · plugged in' : ''}`) : DASH],
+        ['System', maybe(metrics, (m) => m.os)],
+        ['System uptime', maybe(metrics, (m) => formatDuration(m.uptimeSeconds))],
+      ],
+    },
+    {
+      title: 'This window',
+      rows: [
+        ['hobkin', `${__HOBKIN_VERSION__} · core ${__HOBKIN_CORE_VERSION__}`, `${import.meta.env.DEV ? 'development' : 'release'}, ${inMacWindow ? 'Mac window' : 'browser tab'}`],
+        ['Frames per second', frames.fps ? String(frames.fps) : DASH, frames.fps ? `slowest frame ${frames.slowest} ms` : undefined],
+        ['Refresh rate', maybe(frames.hz, (hz) => `${hz} Hz`), 'estimated'],
+        ['Viewport', `${innerWidth} × ${innerHeight}`],
+        ['Screen', `${screen.width} × ${screen.height}`, `${devicePixelRatio}x · ${screen.colorDepth}-bit`],
+        ['Graphics', card],
+        ['Engine', engineOf(navigator.userAgent)],
+        ['Script heap', maybe(heap, (h) => `${Math.round(h.usedJSHeapSize / 1_048_576)} MB`)],
+        ['Open for', formatDuration((now - openedAt) / 1000)],
+        ['Look', `${theme} · ${typeFace} · movement ${movement}`],
+        ['System appearance', `${media('(prefers-color-scheme: dark)') ? 'dark' : 'light'}${media('(prefers-reduced-motion: reduce)') ? ' · reduced motion' : ''}`],
+        ['Network', `${navigator.onLine ? 'online' : 'offline'}`, connection?.effectiveType ? `${connection.effectiveType}${connection.downlink ? ` · ${connection.downlink} Mbit/s` : ''}` : undefined],
+        ['Locale', `${navigator.language} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`],
+      ],
+    },
+  ]
+
   return (
-    <div className="min-h-0 overflow-y-auto px-6 pb-6 text-xs [overflow-wrap:anywhere]">
-      <dl className="space-y-2 font-mono">
-        <Stat name="Link">{view.link} · telemetry always {view.freshness}, as of {view.asOf}</Stat>
-        <Stat name="Provenance">Home/epoch association unavailable; retained facts may precede the current connection.</Stat>
-        {telemetry ? <>
-          <Stat name="Reported state">{telemetry.connection} · {telemetry.stale ? 'stale' : 'not marked stale'} · scope {telemetry.scope}</Stat>
-          <Stat name="Helpers">{telemetry.helpers === 'unavailable' ? 'capability unavailable' : 'owned helper records'}</Stat>
-          <Stat name="Retention">
-            Bounded history: up to {telemetry.retention.maxRuns} runs, {telemetry.retention.maxHelpersPerRun ?? 'unknown'} helpers/run,
-            {' '}{telemetry.retention.maxEventKeys ?? 'unknown'} event keys, {telemetry.retention.eventMonthFiles} month files,
-            {' '}{telemetry.retention.eventTailBytesPerFile} bytes/file. Events {telemetry.retention.eventReadState};
-            {' '}{telemetry.retention.eventTailTruncated ? 'tail truncated' : 'tail not marked truncated'}.
-          </Stat>
-        </> : <Stat name="Telemetry">unavailable · no report from this host</Stat>}
-      </dl>
-      {telemetry?.runs.length === 0 ? <p className="mt-4">No retained run records; not a zero-usage total.</p> : null}
-      {telemetry?.runs.map((run) => (
-        <section key={run.runId} className="mt-4 rounded-2xl bg-surface p-4">
-          <h3 className="font-semibold">{run.kind} · {run.runId}</h3>
-          <p className="mt-1 text-muted-foreground">Session {run.sessionId ?? 'unavailable'} · {run.status} · {run.source}</p>
-          <OwnPerformance value={run.performance} />
-          {telemetry.helpers === 'owned' && !run.helpers?.length ? <p className="mt-2">No retained helpers for this run.</p> : null}
-          {run.helpers?.map((helper) => (
-            <section key={helper.id} className="mt-3 border-l border-border pl-3">
-              <h4 className="font-semibold">Helper · {helper.id}</h4>
-              <p className="text-muted-foreground">Parent {helper.parentId} · root {helper.rootId} · depth {helper.depth}</p>
-              <p className="text-muted-foreground">Session {helper.sessionId ?? 'unavailable'} · {helper.status} · {helper.source}</p>
-              <OwnPerformance value={helper.performance} />
-            </section>
-          ))}
+    <div className="grid min-h-0 flex-1 auto-cols-[minmax(240px,1fr)] grid-flow-col gap-x-6 overflow-auto px-6 pb-6">
+      {groups.map((group) => (
+        <section key={group.title} className="min-w-0">
+          <h3 className="mb-2 text-xs font-medium text-muted-foreground">{group.title}</h3>
+          <dl className="text-[13px] leading-5">
+            {group.rows.map(([label, value, note]) => (
+              <div key={label} className="py-1">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="font-mono tabular-nums [overflow-wrap:anywhere]">
+                  {value}
+                  {note ? <span className="ml-2 font-sans text-xs text-muted-foreground">{note}</span> : null}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </section>
       ))}
-      <h3 className="mt-5 mb-2 font-semibold">Window-local measurements</h3>
-      <dl className="space-y-2 font-mono">
-        <Stat name="About">hobkin {__HOBKIN_VERSION__}, core {__HOBKIN_CORE_VERSION__}, {import.meta.env.DEV ? 'development' : 'release'}, {inMacWindow ? 'Mac window' : 'browser tab'}</Stat>
-        <Stat name="Frames">{frames.fps ? `${frames.fps} fps, slowest ${frames.slowest} ms` : 'measuring'}</Stat>
-        <Stat name="Window">{innerWidth} x {innerHeight} at {devicePixelRatio}x</Stat>
-        <Stat name="Looks">{theme}, {typeFace}, movement {movement}</Stat>
-        <Stat name="Open for">{duration(now - openedAt)}</Stat>
-        <Stat name="Script heap">{memory ? `${Math.round(memory.usedJSHeapSize / 1_048_576)} MB` : 'unavailable'}</Stat>
-      </dl>
-    </div>
-  )
-}
-
-function OwnPerformance({ value }: { value: ParentPerformance | null }) {
-  const stats = performanceStats(value)
-  if (!stats) return <p className="mt-2">Own performance unavailable.</p>
-  return (
-    <>
-      <p className="mt-2 text-muted-foreground">Own observed responses only · {value?.incomplete ? 'incomplete' : 'not marked incomplete'}</p>
-      <dl className="mt-2 grid gap-x-6 gap-y-1 font-mono sm:grid-cols-2">
-        {stats.map(([name, text]) => <Stat key={name} name={name}>{text}</Stat>)}
-      </dl>
-    </>
-  )
-}
-
-function Stat({ name, children }: { name: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <dt className="text-muted-foreground">{name}</dt>
-      <dd className="min-w-0">{children}</dd>
     </div>
   )
 }

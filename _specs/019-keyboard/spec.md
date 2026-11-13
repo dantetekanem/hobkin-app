@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["001-foundation"],
-  "updated": "2026-11-10"
+  "updated": "2026-11-13"
 }
 ---
 # Everything from the keyboard
@@ -26,6 +26,7 @@ The whole app can be used without touching the mouse. The message input is home.
   | Message input, empty | Down | Into the agents list, as in pi-extended-teams |
   | Message input, empty | Up | Earlier messages the user sent |
   | Message input | Ctrl+Option+P | Full prompt focus, as in pi-prompt |
+  | Anywhere | Ctrl+Option+S | Nerd stats, over any screen. The same key closes it |
   | Message input, after a slash | Tab, Up, Down, Enter, Escape | Complete the command, move through the list, run it, close the list. Tab does not change the screen while this list is open |
   | Anywhere | Cmd+1 to Cmd+9 | Open that screen and move the keyboard into the canvas |
   | Anywhere | Cmd+J | Move the keyboard into the canvas |
@@ -33,10 +34,14 @@ The whole app can be used without touching the mouse. The message input is home.
   | Anywhere | Cmd+P, Cmd+Y | Projects, History |
   | Anywhere | Cmd+comma, Cmd+I | Settings, Integrations. The same key closes them |
   | Anywhere | Cmd+K | The command list: every command by name, with its keys |
+  | Anywhere, no dialog open | Cmd+N | The New hobkin sheet: a durable hobkin the user talks to directly (`034-durable-hobkins`) |
   | Anywhere | Escape | One step back toward the message input |
   | Agents list | Down, Up | Move. The canvas follows the selection |
-  | Agents list | Enter | Step into the agent to talk to it |
-  | Agent's input | Enter, Escape | Send to the agent, step back out onto it in the list |
+  | Agents list | Enter | Open the agent with the keyboard in its input |
+  | Agent's input | Enter, Escape | Send to the agent, go back onto it in the list |
+  | An agent's screen, Hobkin's mind | Control+O | Open every block of the steps, and close them all again |
+  | A durable hobkin's page, its talk box, or its row in the agents list | Control+X | End the hobkin: the first press asks, as End does, and a second ends it (`034-durable-hobkins`) |
+  | Any other agent's page, its talk box, or its row in the agents list | Control+X | Force Stop the run: the first press opens the page's Force Stop question, and a second while it asks force stops it |
   | Agents list | `i`, `x` | Interrupt the agent's running tool command, stop the agent |
   | Agents list | Escape, or Up from the first | Back to the input. The canvas returns to what it showed |
   | Veil open | Down, Up, Left, Right | Move through the list, switch between the two lists, wherever the keyboard is |
@@ -51,6 +56,7 @@ The whole app can be used without touching the mouse. The message input is home.
 - A line under the chat names the keys that matter where the keyboard is now.
 - The keyboard position is always visible: a filled row, a ring, or the caret.
 - Keys are commands from the registry of `013-hobkin-access`, so hobkin can press them too and the command list can show them.
+- Control+X is the way out of an agent's page, and it always asks first: End on a durable hobkin's page, Force Stop on any other agent's (the user, 2026-11-13). Force Stop by key opens the same question the button opens, so the key and the button confirm each other. hobkin records the stop as the user's, Chat shows it in one line, and the main agent reads it with the user's next message. Only a job started with a wake gets a turn of its own for it. A durable hobkin's turn is not told, as before.
 
 ## Out of scope
 
@@ -77,6 +83,12 @@ The whole app can be used without touching the mouse. The message input is home.
 - A16. Cmd+G opens the question of the next agent that waits for the user in the question sheet (022), the same sheet Action Items uses: its choices, the one it recommends, and room to type. With nobody waiting the key is left alone. Cmd+U stays the message input's (attach).
 - A17. An Escape that nothing used leaves a screen that is open only for now, even from the message input: a review returns to the screen that opened it, with the keyboard there; Integrations returns to Settings, and Settings to the screen under it. Editors, completion lists and overlays get Escape first. On a menu screen Escape takes the keyboard home.
 - A18. Cmd+R reloads the window from anywhere, also from a dialog, and the app reopens on the screen it showed.
+- A19. Cmd+N opens the New hobkin sheet from any screen and any zone, and does nothing while a dialog or a screen's own panel has the keyboard.
+- A20. While a durable hobkin's page is on screen, with the keyboard in the page, its talk box or the agents list, Control+X asks in place to end it, as a click on End does, and a second press ends it. The key and End share one ask, so either confirms the other, and Escape takes it back. It does nothing while a dialog is open, from the message input, or on any other screen. On any other agent's page it is Force Stop (A23).
+- A21. Control+Option+S opens Nerd stats from any screen and any zone, matched by where S sits whatever character it types, and with the same guard as Control+Option+P: a dialog over the window keeps it. While the panel is open the same key closes it.
+- A22. A key that opens something closes it again, putting the keyboard back where it was: Command+Y closes History, Command+K closes the spotlight, Command+N the New hobkin sheet, Control+Option+P the prompt editor with its draft kept, and Control+Option+S Nerd stats. Command+J, Command+comma and Command+I already did. Every other key inside a dialog stays the dialog's own.
+- A23. While any agent's page other than a durable hobkin's is on screen (a work agent, a delegated job, a routine run), with the keyboard in the page, its talk box or the agents list, Control+X opens the page's Force Stop question, as a click on Force Stop does, and a second press while it asks force stops the run. The key and the button share the question, so either confirms the other, and Escape takes it back. It does nothing once the run has finished or can no longer be forced, while it is being forced, from the message input, or while another dialog is open. A durable hobkin's page keeps End (A20).
+- A24. ⌃X shows where the app lists its keys: on the Force Stop control of an agent's page and on its Confirm Force Stop, as End shows it on a durable hobkin's page, and in the keys list. A durable hobkin's page does not show it on Force Stop, because there the key is End.
 
 ## Proof
 
@@ -97,6 +109,12 @@ The whole app can be used without touching the mouse. The message input is home.
 - A16. `ui/test/keys.test.ts` › "command g goes to an agent that is waiting for the user, and is left alone when none is"; `ui/test/asking.test.ts`
 - A17. `ui/test/keys.test.ts` › "escape that nothing used leaves a screen that is open only for now"; `ui/test/overlays.test.ts` covers review origins and nested return paths. One-shot Lightpanda verified Escape from chat returning Review to Action Items with canvas focus.
 - A18. `ui/test/keys.test.ts` › "command r reloads the window from anywhere, also from a dialog"
+- A19. `ui/test/keys.test.ts` › "Command+N opens the New hobkin sheet"
+- A20. `ui/test/keys.test.ts` › "Control+X asks to end a durable hobkin, and again ends it"
+- A21. `ui/test/keys.test.ts` › "Control+Option+S opens Nerd stats from anywhere"; check: press it from Home, from Settings and from an agent, then press it again inside the panel.
+- A22. `ui/test/keys.test.ts` › "a key that opens something closes it again"; check: press each key twice and see where the keyboard lands.
+- A23. `ui/test/keys.test.ts` › "Control+X force stops any other agent's run, asking first"; check: on a running agent's page press Control+X from the page and from its talk box, see the Force Stop question, press Escape, then press Control+X twice and see the run end.
+- A24. `ui/test/key-list.test.ts` › "each frame key in the list resolves in the key map"; check: an agent's page shows ⌃X on Force Stop and on Confirm Force Stop, and a durable hobkin's page shows it on End only.
 
 ## Steps
 
@@ -107,6 +125,7 @@ The whole app can be used without touching the mouse. The message input is home.
 - [ ] S4 (A10). Visible keyboard position everywhere.
 - [ ] S5 (A9, A11). The command list on Cmd+K, fed by the command registry.
 - [x] S7 (A15, A16, A17, A18). Agents outside the Tab walk, the jump to a waiting agent, Escape one step out of an open-for-now screen, and reload.
+- [ ] S8 (A23, A24). Control+X as Force Stop on any other agent's page: the key map entry, the two-press rule as a pure function (`forceStopStep` in `ui/src/features/work/actions.ts`), the key on Force Stop and Confirm Force Stop, and the keys list. Left: the live checks.
 
 ## Open questions
 

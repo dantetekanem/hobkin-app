@@ -19,6 +19,9 @@ import { cn } from '@/lib/utils.ts'
 import { rowsOf } from '@/features/work/ai-reviews.ts'
 import { PageTabs, TabCount } from '@/features/work/PageTabs.tsx'
 import { useReviewList } from '@/features/work/use-review-list.ts'
+import { useWorkView } from '@/features/work/store.ts'
+import { chosenTab, pageIn, projectTabs } from './project-filter.ts'
+import { ProjectTabs } from './ProjectTabs.tsx'
 import { pullSections, type PullSections } from './pull-reviews.ts'
 import { GroupHeading, IssueRow, NoteRow, PullCard } from './rows.tsx'
 
@@ -81,13 +84,15 @@ function useLanding(root: RefObject<HTMLDivElement | null>): void {
   }, [root])
 }
 
-function titleOf({ connection, reviews }: GitHubState): string {
+/** How gh stands, or how many pull requests wait for the user's review: in all, or in the project the page is narrowed to. */
+function titleOf({ connection }: GitHubState, waiting: number, project: string | null): string {
   if (connection === 'missing') return 'gh is not installed'
   if (connection === 'signed-out') return 'gh is not signed in'
   if (connection === 'unknown') return 'Looking at GitHub'
-  if (reviews.length === 0) return 'Nothing waits for your review'
-  if (reviews.length === 1) return '1 pull request waits for your review'
-  return `${reviews.length} pull requests wait for your review`
+  const where = project ? ` in ${project}` : ''
+  if (waiting === 0) return `Nothing${where} waits for your review`
+  if (waiting === 1) return `1 pull request${where} waits for your review`
+  return `${waiting} pull requests${where} wait for your review`
 }
 
 /**
@@ -109,9 +114,17 @@ export function GitHubScreen() {
   const still = useStill()
   const now = useNow(true, 30_000)
   const [tab, setTab] = useRemembered('githubTab')
+  const [project, setProject] = useRemembered('githubProject')
+  const { work } = useWorkView()
   // Each pull request's AI review, from the host's list of reviews, or the sample's without a host.
   const reviews = useReviewList(hasHost)
-  const sections = pullSections(github, rowsOf(reviews.list))
+  // Every other pull request the AI reviewed: the project's tab lists the most recent of its own (`pageIn`).
+  const all = { sections: pullSections(github, rowsOf(reviews.list), Number.POSITIVE_INFINITY), issues: github.issues }
+  // The quick filter: All, then each project hobkin works on. A project that is no longer one falls back to All.
+  const projects = projectTabs(work?.projects ?? [], all)
+  const inProject = chosenTab(projects, project)
+  const shown = pageIn(all, inProject)
+  const narrowed = inProject?.slug ? { name: inProject.label, count: inProject.count } : null
 
   // Where the keyboard is in the screen: whether the screen holds it, and the place of the last row it was on.
   const keyboard = useRef({ held: false, row: 0 })
@@ -158,19 +171,25 @@ export function GitHubScreen() {
         <Hero>
           <header className="px-1">
             <h1 className="eyebrow">GitHub</h1>
-            <p className="mt-1 font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]">{titleOf(github)}</p>
+            <p className="mt-1 font-heading text-[26px] leading-tight font-semibold tracking-[-0.025em]">{titleOf(github, shown.sections.requested.length, narrowed?.name ?? null)}</p>
             <Status github={github} hasHost={hasHost} still={still} now={now} />
           </header>
         </Hero>
         <div className="flex flex-col gap-6">
+          {/* The project filter scopes the whole page, so it sits above the page's tabs, a little closer to them than to the lists. */}
+          {connected && inProject ? (
+            <div className="-mb-2">
+              <ProjectTabs tabs={projects} chosen={inProject} onChoose={setProject} />
+            </div>
+          ) : null}
           <PageTabs
             id="github"
             label="GitHub lists"
             value={tab}
             onChoose={setTab}
             tabs={[
-              { value: 'pulls', label: 'Pull requests', extra: connected && github.reviews.length ? <TabCount tone="live">{github.reviews.length} to review</TabCount> : null },
-              { value: 'issues', label: 'Issues', extra: connected && github.issues.length ? <TabCount>{github.issues.length}</TabCount> : null },
+              { value: 'pulls', label: 'Pull requests', extra: connected && shown.sections.requested.length ? <TabCount tone="live">{shown.sections.requested.length} to review</TabCount> : null },
+              { value: 'issues', label: 'Issues', extra: connected && shown.issues.length ? <TabCount>{shown.issues.length}</TabCount> : null },
             ]}
           />
           {reviews.error && connected ? (
@@ -180,7 +199,9 @@ export function GitHubScreen() {
           ) : null}
           {(['pulls', 'issues'] as const).map((key) => (
             <section key={key} id={`github-panel-${key}`} role="tabpanel" aria-labelledby={`github-tab-${key}`} hidden={tab !== key}>
-              {connected && tab === key ? <Lists tab={key} github={github} sections={sections} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} /> : null}
+              {connected && tab === key ? (
+                <Lists tab={key} github={{ ...github, issues: shown.issues }} sections={shown.sections} project={narrowed} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} />
+              ) : null}
             </section>
           ))}
         </div>
@@ -260,11 +281,37 @@ interface Group<Item> {
   more: boolean
 }
 
+/** The project the page is narrowed to: its name, and how many open pull requests and issues it holds. */
+interface Narrowed {
+  name: string
+  count: number
+}
+
 /**
  * The selected tab's groups as one list, so its pieces land one after another as the screen arrives, and a row a refresh
- * brings rises in on its own. `onRowsLeft` runs once the rows that left have gone.
+ * brings rises in on its own. `github` and `sections` hold what the project tab leaves, and `project` is that tab: under it
+ * the empty lines name the project, and a tab with nothing of the project's says so once. `onRowsLeft` runs once the rows
+ * that left have gone.
  */
-function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: 'pulls' | 'issues'; github: GitHubState; sections: PullSections; live: boolean; still: boolean; now: number; onRowsLeft: () => void }) {
+function Lists({
+  tab,
+  github,
+  sections,
+  project = null,
+  live,
+  still,
+  now,
+  onRowsLeft,
+}: {
+  tab: 'pulls' | 'issues'
+  github: GitHubState
+  sections: PullSections
+  project?: Narrowed | null
+  live: boolean
+  still: boolean
+  now: number
+  onRowsLeft: () => void
+}) {
   const variants = useMemo(() => (still ? STILL_ROWS : rowVariants(false)), [still])
   const arriving = useArriving()
 
@@ -294,14 +341,33 @@ function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: '
     }
   }
 
-  if (tab === 'pulls') {
+  const where = project ? ` in ${project.name}` : ''
+  const nothingHere = tab === 'pulls' ? sections.requested.length + sections.mine.length + sections.reviewed.length === 0 : github.issues.length === 0
+  const emptyProject = project && nothingHere ? project : null
+
+  if (emptyProject) {
+    // A project with nothing under this tab says so once, instead of a line under each empty group.
+    const more = tab === 'pulls' ? github.more.reviews || github.more.pulls : github.more.issues
+    pieces.push(
+      <NoteRow key={`${tab}:nothing`} variants={variants} order={turn()}>
+        {emptyProject.count === 0 ? `Nothing open in ${emptyProject.name}.` : `No ${tab === 'pulls' ? 'pull requests' : 'issues'} in ${emptyProject.name}.`}
+      </NoteRow>,
+    )
+    if (more) {
+      pieces.push(
+        <NoteRow key={`${tab}:more`} variants={variants} order={turn()}>
+          The {GITHUB_LIMIT} most recently updated. GitHub has more.
+        </NoteRow>,
+      )
+    }
+  } else if (tab === 'pulls') {
     addGroup({
       key: 'reviews',
       label: 'Review requested',
       about: 'Open pull requests that ask for your review.',
       items: sections.requested,
       row: (entry, order) => <PullCard key={`reviews:${entry.pull?.url ?? entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
-      empty: 'Nothing waits for your review.',
+      empty: `Nothing${where} waits for your review.`,
       more: github.more.reviews,
     })
     addGroup({
@@ -310,7 +376,7 @@ function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: '
       about: 'Your open pull requests, with where their review and checks stand.',
       items: sections.mine,
       row: (entry, order) => <PullCard key={`pulls:${entry.pull?.url ?? entry.id}`} entry={entry} mine live={live} now={now} variants={variants} order={order} />,
-      empty: 'You have no open pull requests.',
+      empty: `You have no open pull requests${where}.`,
       more: github.more.pulls,
     })
     addGroup({
@@ -319,7 +385,7 @@ function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: '
       about: 'Other pull requests the AI reviewed: merged or closed since, or opened from a link. Work’s AI Reviews tab lists every review.',
       items: sections.reviewed,
       row: (entry, order) => <PullCard key={`ai:${entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
-      empty: 'No other pull request has an AI review yet.',
+      empty: `No other pull request${where} has an AI review yet.`,
       more: false,
     })
   } else {
@@ -328,7 +394,7 @@ function Lists({ tab, github, sections, live, still, now, onRowsLeft }: { tab: '
       label: 'Your issues',
       items: github.issues,
       row: (issue, order) => <IssueRow key={`issues:${issue.url}`} issue={issue} live={live} now={now} variants={variants} order={order} />,
-      empty: 'No open issue is assigned to you or was opened by you.',
+      empty: `No open issue${where} is assigned to you or was opened by you.`,
       more: github.more.issues,
     })
   }

@@ -11,6 +11,7 @@ import { timeOf, waited } from '@/features/reports/time.ts'
 import { useRoutines } from '@/features/routines/store.ts'
 import type { Routine } from '@/features/routines/types.ts'
 import { howOften } from '@/features/routines/words.ts'
+import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useGitHub, type GitHubState } from '@/lib/host/index.ts'
 import { activeCanvasScreen, requestCanvasFocus } from './focus.ts'
@@ -74,7 +75,6 @@ const SETTINGS: readonly { name: string; words: string[] }[] = [
   { name: 'What leaves this Mac', words: ['privacy', 'usage events', 'feedback', 'telemetry'] },
   { name: 'Keys', words: ['keyboard', 'shortcuts'] },
   { name: 'Setup', words: ['first run', 'walkthrough', 'set up again'] },
-  { name: 'Nerd stats', words: ['numbers', 'stats'] },
 ]
 
 /** How long the spotlight waits for a screen that loads on demand to draw what it goes to: about a second. */
@@ -189,6 +189,18 @@ const SETTING_TARGETS: SpotlightTarget[] = SETTINGS.map(({ name, words }) => ({
   go: () => goToSetting(name),
 }))
 
+/** The Nerd stats panel opens over any screen, so it is found by what it shows and opens where the user is. */
+const NERD_STATS_TARGET: SpotlightTarget = {
+  id: 'setting:Nerd stats',
+  kind: 'setting',
+  title: 'Nerd stats',
+  detail: 'Memory, tokens, cost and system',
+  keywords: ['stats', 'numbers', 'memory', 'tokens', 'cost', 'system'],
+  mark: { icon: SlidersHorizontal },
+  keys: '⌃⌥S',
+  go: () => useNerdStats.getState().setOpen(true),
+}
+
 function agentTarget(agent: RunningAgent): SpotlightTarget {
   return {
     id: `agent:${agent.id}`,
@@ -294,6 +306,7 @@ export function useSpotlightTargets(): SpotlightTarget[] {
     return [
       ...screenTargets(githubInMenu),
       ...SETTING_TARGETS,
+      NERD_STATS_TARGET,
       ...agents.map(agentTarget),
       ...newestFirst(reports).map((report) => reportTarget(report, now)),
       ...routines.map(routineTarget),

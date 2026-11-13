@@ -1,7 +1,6 @@
-import { type AppearanceRequest, type Palette, borderColors, contrast, luminance, readablePalette } from '#shared/protocol/appearance.ts'
-import type { ThemeOperation } from '#shared/commands/registry.ts'
+import { type AppearanceRequest, type Palette, adjustedPalette, asBackground, borderColors, contrast, luminance } from '#shared/protocol/appearance.ts'
 
-export { PALETTE_KEYS, contrast, paletteProblems, readablePalette, type Palette } from '#shared/protocol/appearance.ts'
+export { PALETTE_KEYS, adjustedPalette, asBackground, backgroundImageCss, contrast, paletteProblems, readablePalette, type Background, type Palette } from '#shared/protocol/appearance.ts'
 
 /** The rules behind the Settings tiles, apart from the page so they can be tested alone. See _specs/020-settings. */
 
@@ -27,6 +26,23 @@ export function formatTokens(tokens: number): string {
   if (tokens >= 1_000) return `${Number((tokens / 1_000).toFixed(1))}K`
   return String(tokens)
 }
+
+/**
+ * How much of hobkin's day is used, from the work status (`tokensToday` of `dailyTokens`). Null while hobkin has not
+ * reported both, which is unknown and never zero. The bar stops at full; `reached` is when the day is used up.
+ */
+export function budgetUse(used: number | null, limit: number | null): { share: number; reached: boolean; line: string } | null {
+  if (used === null || limit === null || !(limit > 0)) return null
+  const reached = used >= limit
+  const tail = reached ? 'Work mode starts nothing new until tomorrow.' : 'Work mode stops starting new work when the day is used up.'
+  return { share: Math.min(1, Math.max(0, used / limit)), reached, line: `${formatTokens(used)} of ${formatTokens(limit)} used today. ${tail}` }
+}
+
+/** The kinds of tool block an agent's steps are drawn in (021-agent-rendering): code changes, commands, reads and searches, and every other tool. */
+export type BlockKind = 'change' | 'shell' | 'looks' | 'other'
+
+/** Which kinds of block are open when they arrive, until the user opens or closes one. Code changes are, the rest show their one-line header. */
+export const OPEN_BY_DEFAULT: Readonly<Record<BlockKind, boolean>> = { change: true, shell: false, looks: false, other: false }
 
 /** How much of the window's backgrounds and cards shows (#20). Text, icons and the focus ring always stay solid. */
 export const OPACITY = { min: 0.1, max: 1, step: 0.05, initial: 1 } as const
@@ -55,79 +71,72 @@ export function onAccent(accent: string): string {
 /** What main hobkin gets in its chat when Custom asks for a theme: the user's words, prefixed so it knows what they are for. */
 export const themeRequestText = (text: string) => `Build a theme: ${text.trim()}`
 
-/** The user's request for a custom theme, kept in Settings so the ask can be followed (#50). */
-export interface ThemeAsk {
-  text: string
-  askedAt: number
-  home: string | null
-  phase: 'pending' | 'known' | 'unknown'
-  /** Only an acknowledged operation can identify this ask's canonical save. */
-  operation: ThemeOperation | null
-}
+/** The theme the app shows, for the choices Settings offers. `custom` carries the active custom theme's name. */
+export type ActiveTheme =
+  | { kind: 'light' | 'dark' | 'system' }
+  | { kind: 'custom'; name: string | null }
 
-export function themeAsk(text: string, at: number): ThemeAsk | null {
-  const request = text.trim()
-  if (!request || request.length > 4000) return null
-  return {
-    text: request,
-    askedAt: at,
-    home: null,
-    phase: 'pending',
-    operation: null,
+/**
+ * The name Settings shows for the theme in use: the custom theme's title (or "Custom" when it has none), or the base
+ * theme's own name. `system` says which way the Mac is leaning right now so the label is never ambiguous.
+ */
+export function activeThemeLabel(active: ActiveTheme, systemTheme: 'light' | 'dark'): string {
+  switch (active.kind) {
+    case 'custom':
+      return active.name ?? 'Custom'
+    case 'light':
+      return 'Light'
+    case 'dark':
+      return 'Dark'
+    case 'system':
+      return `Following the Mac, ${systemTheme} now`
   }
 }
 
-export function askLine(ask: ThemeAsk): string {
-  const operation = ask.operation
-  const saved = operation?.appearanceId != null ? `Saved theme #${operation.appearanceId}. ` : 'No saved theme confirmed. '
-  if (ask.phase === 'pending') return 'Requesting a theme…'
-  if (ask.phase === 'unknown' || !operation) {
-    const next = operation ? 'Refresh to check this operation.' : 'No acknowledgement received; do not resend automatically.'
-    return `${saved}Operation status unknown. ${next}`
-  }
-  const completed = operation.status === 'completed'
-    && operation.appearanceId !== null
-    && operation.cleanup === 'confirmed'
-  const status = operation.status === 'completed' && !completed ? 'unknown' : operation.status
-  return `${saved}Last receipt: theme child ${status}; cleanup ${operation.cleanup}.${operation.error ? ` ${operation.error}` : ''}`
-}
+/**
+ * The settings a base theme (Light, Dark or Follow the Mac) leaves behind. Choosing one drops the custom palette, its
+ * backdrop and its name, so a restart keeps the base theme the user picked instead of bringing the custom one back.
+ */
+export const BASE_THEME_SETTINGS = { palette: null, background: null, themeName: null, border: undefined, borderStrong: undefined, customTheme: false } as const
 
-/** Canonical publications apply colors, but never establish which helper ask saved them. */
-export function receiveAppearance(
-  state: { request: ThemeAsk | null; appearanceId: number },
-  { id, palette, border, borderStrong, use }: AppearanceRequest,
-  _now?: number,
-) {
+/**
+ * What changes when hobkin's theme arrives: the palette to show (its text nudged until it reads, its vibe kept), the
+ * backdrop, and the id so the same theme is not applied twice. Null when it was applied already or it is not a palette.
+ */
+export function receiveAppearance(state: { appearanceId: number }, { id, name, palette, border, borderStrong, background, use }: AppearanceRequest) {
   // A built-in theme keeps the saved custom colors, so choosing Custom again brings them back.
   if (use) return id <= state.appearanceId ? null : { customTheme: false, appearanceId: id, requestedTheme: use }
-  const readable = readablePalette(palette)
+  const adjusted = adjustedPalette(palette)
   const borders = borderColors({ border, borderStrong })
-  if (id <= state.appearanceId || !readable || !borders) return null
-  const { request } = state
-  return { palette: readable, border: borders.border, borderStrong: borders.borderStrong, customTheme: true, appearanceId: id, request }
+  if (id <= state.appearanceId || !adjusted || !borders) return null
+
+  return {
+    palette: adjusted,
+    border: borders.border,
+    borderStrong: borders.borderStrong,
+    background: asBackground(background),
+    themeName: name?.trim() || null,
+    customTheme: true,
+    appearanceId: id,
+  }
 }
 
-/** Legacy chat asks have no operation identity. Interrupted submissions must not be replayed. */
-function migrateThemeAsk(value: unknown): ThemeAsk | null {
-  if (!value || typeof value !== 'object' || !('text' in value) || typeof value.text !== 'string') return null
-  const ask = themeAsk(value.text, 'askedAt' in value && typeof value.askedAt === 'number' ? value.askedAt : 0)
-  return ask ? { ...ask, phase: 'unknown' } : null
-}
-
-/** Older settings retain their usable colors and opacity, without inventing operation authority. */
+/** Settings saved before version 2 gain background opacity and the custom theme (what cannot be used is dropped). The theme ask older versions kept is dropped. A saved palette is nudged to read; an unusable backdrop is dropped. */
 export function migrateSettings(saved: unknown): Record<string, unknown> {
   const state = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>) : {}
-  const palette = readablePalette(state.palette)
+  const palette = adjustedPalette(state.palette)
   const opacity = typeof state.backgroundOpacity === 'number' && state.backgroundOpacity <= OPACITY.max ? state.backgroundOpacity : OPACITY.initial
   const borders = palette ? { ...borderColors({ border: state.border as string }), ...borderColors({ borderStrong: state.borderStrong as string }) } : {}
-  const { border: _border, borderStrong: _strong, ...rest } = state
+  const { border: _border, borderStrong: _strong, request: _request, background: _background, ...rest } = state
+  const { themeName: _themeName, ...carried } = rest
   return {
-    ...rest,
+    ...carried,
     ...borders,
     backgroundOpacity: stepOpacity(opacity, 0),
     palette,
+    background: palette ? asBackground(state.background) : null,
+    themeName: palette && typeof state.themeName === 'string' ? state.themeName : null,
     customTheme: state.customTheme === true && palette !== null,
-    request: migrateThemeAsk(state.request),
     appearanceId: typeof state.appearanceId === 'number' ? state.appearanceId : 0,
   }
 }

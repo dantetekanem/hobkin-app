@@ -1,6 +1,6 @@
 import { Minus, Plus, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
 import { KEY_LIST } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
@@ -15,13 +15,20 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
+import { BackupTile } from './BackupTile.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
+import { ClaudeCodeTile } from './ClaudeCodeTile.tsx'
+import { SubscriptionsTile } from './SubscriptionsTile.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { AboutLine } from './AboutLine.tsx'
+import { NotificationsLine } from '@/features/notifications/NotificationsLine.tsx'
 import { NerdStats } from './NerdStats.tsx'
 import { SetupAgainTile } from './SetupAgainTile.tsx'
-import { hostStore, runCommand } from '@/lib/host/client.ts'
-import { AGENTS, BUDGET, OPACITY, askLine, formatTokens } from './rules.ts'
+import { useChat } from '@/features/chat/chat-store.ts'
+import { hostStore } from '@/lib/host/client.ts'
+import { runWork, useWorkUi, useWorkView } from '@/features/work/store.ts'
+import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, activeThemeLabel, budgetUse, formatTokens, stepBudget, type ActiveTheme, type BlockKind } from './rules.ts'
 import { useSettings, type Movement, type TypeFace } from './store.ts'
 
 /**
@@ -44,14 +51,20 @@ export function SettingsScreen() {
         <Models />
         <ReviewTile />
         <IntegrationsTile />
+        <SubscriptionsTile />
+        <ClaudeCodeTile />
         <TypeTile />
         <OpacityTile />
         <DailyBudget />
         <MovementTile />
+        <OpenBlocksTile />
         <WhatLeaves />
         <Keys />
+        <BackupTile />
         <SetupAgainTile />
       </div>
+      <NotificationsLine className="mx-auto mt-6 max-w-[60ch] text-center text-[13px] text-muted-foreground" />
+      <AboutLine />
       <section aria-label="Nerd stats" className="absolute top-5 right-16 z-10">
         <NerdStats />
       </section>
@@ -63,7 +76,7 @@ export function SettingsScreen() {
   )
 }
 
-function Tile({ name, value, className, children }: { name: string; value: ReactNode; className?: string; children: ReactNode }) {
+export function Tile({ name, value, className, children }: { name: string; value: ReactNode; className?: string; children: ReactNode }) {
   return (
     <Rise className={className}>
       <section aria-label={name} className="flex h-full flex-col gap-3 rounded-3xl bg-background p-5">
@@ -78,7 +91,7 @@ function Tile({ name, value, className, children }: { name: string; value: React
 }
 
 /** A row of choices. Left and Right move between them, as in any radio group. */
-function Choice<Value extends string>({
+export function Choice<Value extends string>({
   label,
   value,
   options,
@@ -143,12 +156,14 @@ const THEMES: readonly { value: ThemeChoice; label: string }[] = [
 function DayAndNight() {
   const choice = useThemeChoice()
   const theme = useTheme()
+  const themeName = useSettings((state) => state.themeName)
   const dark = theme === 'dark'
+  const active: ActiveTheme = choice === 'custom' ? { kind: 'custom', name: themeName } : { kind: choice }
 
   return (
     <Tile
       name="Day and night"
-      value={choice === 'system' ? `Following the Mac, ${theme} now` : choice === 'custom' ? 'Custom colors' : dark ? 'Dark' : 'Light'}
+      value={activeThemeLabel(active, theme)}
       className="col-span-4 row-span-2 @max-[820px]:col-span-2"
     >
       <div className="relative min-h-[150px] flex-1 overflow-hidden rounded-2xl bg-tone-2">
@@ -183,20 +198,19 @@ function DayAndNight() {
   )
 }
 
-/** Only the host's confined theme child receives this request; main chat and its draft stay untouched. */
+/** The request goes to main hobkin as a chat message the user sent. The composer's draft stays as it is. */
 function CustomColors() {
-  const request = useSettings((state) => state.request)
-  const sending = useSettings((state) => state.themeBusy)
-  const problem = useSettings((state) => state.themeProblem)
-  const source = useSyncExternalStore(hostStore.subscribe, hostStore.getState)
-  const link = source.link
-  const [text, setText] = useState(request?.text ?? '')
-  const host = {
-    getState: hostStore.getState,
-    customize: (request: string) => runCommand('appearance.customize', { request }),
-    status: (id: string) => runCommand('appearance.status', { id }),
+  const sending = useSettings((state) => state.themeSending)
+  const note = useSettings((state) => state.themeNote)
+  const [text, setText] = useState('')
+
+  const send = async () => {
+    const asked = text
+    const sent = await useSettings.getState().ask(asked, useChat, hostStore)
+
+    // Once hobkin has it the field empties, unless something new was typed meanwhile.
+    if (sent) setText((current) => (current === asked ? '' : current))
   }
-  const send = () => useSettings.getState().ask(text, host)
 
   return (
     <form
@@ -217,19 +231,11 @@ function CustomColors() {
           placeholder="A quiet forest at night"
           className="min-w-0 flex-1 rounded-xl border border-border-strong bg-tone-1 px-3 py-2 text-[13px]"
         />
-        <Button type="submit" disabled={sending || !text.trim() || text.trim().length > 4000 || link !== 'open'}>{sending ? 'Checking…' : 'Send'}</Button>
+        <Button type="submit" disabled={sending || !text.trim()}>{sending ? 'Sending…' : 'Send'}</Button>
       </div>
       <p id="custom-theme-status" role="status" className="text-[12px] text-muted-foreground">
-        {request && request.home !== source.home ? 'Request from another hobkin home. ' : ''}
-        {link !== 'open' ? 'Disconnected. The current operation status is unknown. ' : ''}
-        {request ? askLine(request) : 'Describe the theme. A separate theme child will choose readable colors.'}
-        {problem ? ` ${problem}` : ''}
+        {note ?? 'Describe the theme. hobkin will choose readable colors.'}
       </p>
-      {request?.operation ? (
-        <Button type="button" disabled={sending || link !== 'open'} onClick={() => void useSettings.getState().refreshTheme(host)}>
-          Refresh status
-        </Button>
-      ) : null}
     </form>
   )
 }
@@ -399,18 +405,29 @@ function Models() {
   )
 }
 
+/**
+ * Work mode's day, from hobkin's own status: the limit it keeps, what it has spent, and the stop when the day is used up.
+ * Moving the bar saves the limit where work mode reads it, as `hobkin work tokens` does.
+ */
 function DailyBudget() {
-  const dailyTokens = useSettings((state) => state.dailyTokens)
-  const usedToday = useSettings((state) => state.usedToday)
-  const setDailyTokens = useSettings((state) => state.setDailyTokens)
-  const changeDailyTokens = useSettings((state) => state.changeDailyTokens)
+  const { work, live } = useWorkView()
+  const localTokens = useSettings((state) => state.dailyTokens)
+  const setLocalTokens = useSettings((state) => state.setDailyTokens)
+  const [draft, setDraft] = useState<number | null>(null)
   const track = useRef<HTMLDivElement | null>(null)
-  const share = (tokens: number) => Math.min(1, Math.max(0, (tokens - BUDGET.min) / (BUDGET.max - BUDGET.min)))
+  const said = useWorkUi((state) => state.said['tokens'])
+  const dailyTokens = draft ?? work?.dailyTokens ?? localTokens
+  const use = budgetUse(work?.tokensToday ?? null, dailyTokens)
+  const onScale = (tokens: number) => `${Math.min(100, Math.max(0, (tokens / BUDGET.max) * 100))}%`
 
-  const setFromPointer = (clientX: number) => {
+  const save = (tokens: number) => {
+    setLocalTokens(tokens)
+    if (!work) return setDraft(null)
+    void runWork({ do: 'tokens', tokens }, { live, place: 'tokens' }).finally(() => setDraft(null))
+  }
+  const fromPointer = (clientX: number) => {
     const box = track.current?.getBoundingClientRect()
-    if (!box) return
-    setDailyTokens(BUDGET.min + ((clientX - box.left) / box.width) * (BUDGET.max - BUDGET.min))
+    return box ? stepBudget(((clientX - box.left) / box.width) * BUDGET.max, 0) : null
   }
 
   return (
@@ -428,38 +445,40 @@ function DailyBudget() {
         className="relative mt-auto h-9 cursor-ew-resize touch-none rounded-full bg-tone-1 outline-offset-2"
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
-          setFromPointer(event.clientX)
+          setDraft(fromPointer(event.clientX))
         }}
         onPointerMove={(event) => {
-          if (event.buttons === 1) setFromPointer(event.clientX)
+          if (event.buttons === 1) setDraft(fromPointer(event.clientX))
+        }}
+        onPointerUp={(event) => {
+          const tokens = fromPointer(event.clientX)
+          if (tokens !== null) save(tokens)
         }}
         onKeyDown={(event) => {
-          if (event.key === 'ArrowRight') changeDailyTokens(1)
-          else if (event.key === 'ArrowLeft') changeDailyTokens(-1)
+          if (event.key === 'ArrowRight') save(stepBudget(dailyTokens, 1))
+          else if (event.key === 'ArrowLeft') save(stepBudget(dailyTokens, -1))
           else return
           event.preventDefault()
         }}
       >
         <div className="absolute inset-0 overflow-hidden rounded-full">
-          {/* The measured usage overlay appears only when the host provides it. */}
+          {/* The budget, and over it what the day has used on the same scale: where they meet, the day is used up. */}
           <motion.div
             className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-primary"
             initial={false}
-            animate={{ transform: `scaleX(${0.06 + share(dailyTokens) * 0.94})` }}
+            animate={{ transform: `scaleX(${Math.min(1, dailyTokens / BUDGET.max)})` }}
             transition={spring.follow}
           />
-          {usedToday !== null && (
+          {use && (
             <div
-              className="absolute inset-y-0 left-0 origin-left rounded-full bg-foreground/25"
-              style={{ width: `${Math.min(100, (usedToday / BUDGET.max) * 100)}%` }}
+              className={cn('absolute inset-y-0 left-0 rounded-full', use.reached ? 'bg-destructive/60' : 'bg-foreground/25')}
+              style={{ width: onScale(Math.min(work?.tokensToday ?? 0, dailyTokens)) }}
             />
           )}
         </div>
       </div>
-      <p className="text-[12px] text-muted-foreground">
-        {usedToday === null ? 'Usage unavailable.' : `${formatTokens(usedToday)} used today.`}{' '}
-        This local budget does not change Work mode.
-      </p>
+      <p className="text-[12px] text-muted-foreground">{use ? use.line : 'Usage unavailable: hobkin has not reported today yet.'}</p>
+      {said?.tone === 'refused' ? <p className="text-[12px] text-destructive">{said.text}</p> : null}
     </Tile>
   )
 }
@@ -472,7 +491,7 @@ function IntegrationsTile() {
     <Tile name="Integrations" value="What hobkin can reach" className="col-span-6 @max-[820px]:col-span-2">
       <div className="flex flex-1 items-center justify-between gap-4">
         <p className="max-w-[60ch] text-[13px] text-muted-foreground">
-          Slack, GitHub, Gmail, Calendar and more, plus any MCP server of your own. Routines and agents use them through Pi.
+          GitHub, plus Linear, Sentry, Home Assistant and more, and any MCP server of your own. Routines and agents use them through Pi.
         </p>
         <Button variant="outline" className="shrink-0" data-stop="" data-opens="integrations" onClick={toggleIntegrations}>
           Open integrations
@@ -537,6 +556,42 @@ function MovementTile() {
   )
 }
 
+const BLOCK_KINDS: readonly { value: BlockKind; label: string; says: string }[] = [
+  { value: 'change', label: 'Code changes', says: 'The diff of each file an agent changes.' },
+  { value: 'shell', label: 'Commands', says: 'What each command printed.' },
+  { value: 'looks', label: 'Reads and searches', says: 'What a read gave back, and the list of what was looked for.' },
+  { value: 'other', label: 'Other tools', says: 'What any other tool gave back.' },
+]
+
+/** The kinds that arrive open, in a few words: "Code changes", "Code changes and commands", "Every kind". */
+function kindsOpen(on: readonly { label: string }[]): string {
+  if (on.length === 0) return 'Headers only'
+  if (on.length === BLOCK_KINDS.length) return 'Every kind'
+  if (on.length === 1) return on[0]!.label
+  if (on.length === 2) return `${on[0]!.label} and ${on[1]!.label.toLowerCase()}`
+  return `${on.length} kinds`
+}
+
+/** Which kinds of an agent's blocks arrive open. Blocks not opened or closed by hand follow a change at once (blocks.ts). */
+function OpenBlocksTile() {
+  const openByDefault = useSettings((state) => state.openByDefault) ?? OPEN_BY_DEFAULT
+  const setOpenByDefault = useSettings((state) => state.setOpenByDefault)
+  const on = BLOCK_KINDS.filter((kind) => openByDefault[kind.value])
+
+  return (
+    <Tile name="Open by default" value={kindsOpen(on)} className="col-span-6 @max-[820px]:col-span-2">
+      <div className="grid flex-1 grid-cols-2 items-start gap-x-8 gap-y-3 @max-[820px]:grid-cols-1">
+        {BLOCK_KINDS.map((kind) => (
+          <SwitchRow key={kind.value} label={kind.label} says={kind.says} checked={openByDefault[kind.value]} onChange={(open) => setOpenByDefault(kind.value, open)} />
+        ))}
+      </div>
+      <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
+        The rest show their one-line header. A block opened or closed by hand stays that way, and <Kbd>⌃O</Kbd> opens or closes every one.
+      </p>
+    </Tile>
+  )
+}
+
 function WhatLeaves() {
   const usageEvents = useSettings((state) => state.usageEvents)
   const feedback = useSettings((state) => state.feedback)
@@ -545,8 +600,8 @@ function WhatLeaves() {
   const count = Number(usageEvents) + Number(feedback)
 
   return (
-    <Tile name="What leaves this Mac" value={count === 0 ? 'Nothing' : count === 1 ? 'One thing' : 'Two things'} className="col-span-3 @max-[820px]:col-span-2">
-      <div className="flex flex-1 flex-col gap-3">
+    <Tile name="What leaves this Mac" value={count === 0 ? 'Nothing' : count === 1 ? 'One thing' : 'Two things'} className="col-span-6 @max-[820px]:col-span-2">
+      <div className="grid flex-1 grid-cols-2 items-start gap-x-8 gap-y-3 @max-[820px]:grid-cols-1">
         <SwitchRow
           label="Usage events"
           checked={usageEvents}
@@ -579,8 +634,8 @@ function SwitchRow({ label, says, checked, onChange }: { label: string; says: st
 
 function Keys() {
   return (
-    <Tile name="Keys" value="Everything from the keyboard" className="col-span-3 @max-[820px]:col-span-2">
-      <ul className="grid flex-1 grid-cols-1 gap-x-4 gap-y-1.5 text-[12px]">
+    <Tile name="Keys" value="Everything from the keyboard" className="col-span-6 @max-[820px]:col-span-2">
+      <ul className="grid flex-1 grid-cols-2 content-start gap-x-8 gap-y-1.5 text-[12px] @max-[820px]:grid-cols-1">
         {KEY_LIST.map(({ keys, does }) => (
           <li key={keys} className="flex items-center gap-2">
             <Kbd className="shrink-0">{keys}</Kbd>

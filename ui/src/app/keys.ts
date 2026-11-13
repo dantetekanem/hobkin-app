@@ -1,7 +1,13 @@
 import { useEffect } from 'react'
+import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
+import { useBlocks } from '@/features/agent-activity/blocks.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
+import { pressEndOf } from '@/features/hobkins/end.ts'
+import { useNewHobkin } from '@/features/hobkins/store.ts'
 import { toggleMind } from '@/features/main-agent/route.ts'
+import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
 import { useSettings } from '@/features/settings/store.ts'
+import { pressForceStopOf } from '@/features/work/force-stop.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { answerNext, runningAgents } from './running-agents.ts'
 import { resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
@@ -56,7 +62,7 @@ function safely<T>(read: () => T, otherwise: T): T {
 const typingIn = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'))
 
 function contextOf(target: EventTarget | null): KeyContext {
-  const { screen, veil } = useView.getState()
+  const { screen, veil, openAgent } = useView.getState()
   return {
     zone: zoneOf(target),
     messageEmpty: (messageInput()?.value.length ?? 0) === 0,
@@ -64,9 +70,12 @@ function contextOf(target: EventTarget | null): KeyContext {
     screen,
     inOverlay: safely(() => inOverlay(target, document), false),
     veilOpen: veil !== null,
+    veilSection: veil,
+    dialog: useNewHobkin.getState().open ? 'new-hobkin' : useNerdStats.getState().open ? 'nerd-stats' : useChat.getState().draft.place === 'editor' ? 'prompt' : undefined,
     asking: safely(() => runningAgents().some((agent) => agent.asks), false),
     githubInMenu: useSettings.getState().showGitHubInMenu,
     typing: typingIn(target),
+    hobkinPage: screen === 'agent' && hobkinOfAgent(openAgent) !== null,
   }
 }
 
@@ -108,12 +117,24 @@ function perform(action: KeyAction): boolean {
       // It takes the keyboard itself as it opens, and gives it back when it closes.
       view.openSpotlight()
       return true
+    case 'new-hobkin':
+      // The New hobkin sheet takes the keyboard as it opens, as the spotlight does.
+      view.closeVeil()
+      useNewHobkin.getState().openSheet()
+      return true
+    case 'close-new-hobkin':
+      useNewHobkin.getState().closeSheet()
+      return true
     case 'open-prompt': {
       // The editor takes the keyboard as it opens and gives it back to whatever had it when it closes.
       const chat = useChat.getState()
-      if (chat.draft.place !== 'editor') chat.change({ type: 'editor-toggled' })
+      // The same key closes it; the toggle returns to the small input with the same draft, so nothing is lost.
+      chat.change({ type: 'editor-toggled' })
       return true
     }
+    case 'toggle-nerd-stats':
+      useNerdStats.getState().toggle()
+      return true
     case 'open-integrations':
       view.closeVeil()
       view.toggleIntegrations()
@@ -134,10 +155,14 @@ function perform(action: KeyAction): boolean {
       else if (view.screen === 'review') view.closeReview()
       else if (view.screen === 'integrations') view.toggleIntegrations()
       else if (view.screen === 'github') view.closeGitHub()
+      else if (view.screen === 'world') view.openScreen('work')
       else view.closeSettings()
       // Leaving a review returns the keyboard to its opener; other temporary screens keep their existing trail.
       if (view.screen === 'review') {
         requestCanvasFocus()
+      } else if (view.screen === 'world') {
+        // As the World's own Back to Work does: onto the control that opened it.
+        requestCanvasFocus('[data-opens="world"]')
       } else if (useView.getState().screen === 'settings') {
         requestCanvasFocus('[data-opens="integrations"]')
       } else {
@@ -148,6 +173,17 @@ function perform(action: KeyAction): boolean {
     case 'toggle-mind':
       toggleMind()
       return true
+    case 'toggle-blocks':
+      useBlocks.getState().toggleAll()
+      return true
+    case 'end-hobkin': {
+      // The same press as End on the page: the first asks, the next ends it.
+      const id = hobkinOfAgent(view.openAgent)
+      return id ? pressEndOf(id) : false
+    }
+    case 'force-stop':
+      // The same press as Force Stop on the page: the first asks, the next force stops the run.
+      return pressForceStopOf(view.openAgent)
     case 'reload':
       location.reload()
       return true
@@ -171,7 +207,7 @@ function onKeyDown(event: KeyboardEvent) {
   )
   if (!action || !perform(action)) return
   event.preventDefault()
-  // Command+Enter has done its work. A control that reads any Enter, as the agents list steps in with it, must not see it too.
+  // Command+Enter has done its work. A control that reads any Enter, as the agents list opens an agent with it, must not see it too.
   if (event.key === 'Enter' && event.metaKey) event.stopPropagation()
 }
 

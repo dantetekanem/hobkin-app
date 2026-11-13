@@ -20,10 +20,9 @@ export interface Place {
   githubReturn: ScreenId | null
   openAgent: string | null
   previewReturn: ScreenId | null
-  agentTalk: boolean
 }
 
-const placeOf = ({ screen, settingsReturn, githubReturn, openAgent, previewReturn, agentTalk }: Place): Place => ({ screen, settingsReturn, githubReturn, openAgent, previewReturn, agentTalk })
+const placeOf = ({ screen, settingsReturn, githubReturn, openAgent, previewReturn }: Place): Place => ({ screen, settingsReturn, githubReturn, openAgent, previewReturn })
 
 /** The first screen of the menu, for a mind with no way back, as after a reload. */
 const FALLBACK: ScreenId = 'reports'
@@ -35,12 +34,12 @@ const FALLBACK: ScreenId = 'reports'
 export function intoMind(view: Place, back: Place | null) {
   const over = [view.settingsReturn, view.previewReturn, view.githubReturn].includes('mind')
   return {
-    view: { screen: 'mind', settingsReturn: null, previewReturn: null, agentTalk: false, screenMotion: { axis: 'x', direction: -1 } } as const,
+    view: { screen: 'mind', settingsReturn: null, previewReturn: null, screenMotion: { axis: 'x', direction: -1 } } as const,
     back: over && back ? back : placeOf(view),
   }
 }
 
 /** Leaving the mind: the canvas as it was, coming back from the other side. */
 export function outOfMind(back: Place | null) {
-  return { ...(back ?? { screen: FALLBACK, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, agentTalk: false }), screenMotion: { axis: 'x', direction: 1 } as const }
+  return { ...(back ?? { screen: FALLBACK, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null }), screenMotion: { axis: 'x', direction: 1 } as const }
 }

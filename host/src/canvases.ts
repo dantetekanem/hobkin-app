@@ -1,0 +1,242 @@
+import { timingSafeEqual } from 'node:crypto'
+import { mkdirSync, readFileSync, watch, type FSWatcher } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join } from 'node:path'
+import type { CanvasEntry } from 'hobkin/src/cli/canvas.mjs'
+import { CANVAS_CLOSED, canvasUrl, MAIN_CANVAS, type CanvasContent, type CanvasSaved, type CanvasState } from '#shared/protocol/canvas.ts'
+import { Unavailable, type HostHandlers } from './commands.ts'
+
+/** The parts of hobkin's canvas store the host calls. The runtime's module fits; a test passes a copy over a folder. */
+export interface CanvasStore {
+  readCanvases(root: string): Record<string, CanvasEntry>
+  showPage(root: string, owner: string, page: { url: string; title?: string | null }): CanvasEntry
+  drawCanvas(root: string, owner: string, drawing: { html: string; title?: string | null }): CanvasEntry
+  closeCanvas(root: string, owner: string): CanvasEntry
+  readCanvas(root: string, owner: string): { state: CanvasEntry; file: string | null }
+  saveCanvas(root: string, owner: string, options?: { path?: string; downloads?: string; home?: string }): { path: string }
+  drawingFile(root: string, owner: string): string
+}
+
+export interface CanvasesOptions {
+  store: CanvasStore
+  /** hobkin's home folder. Throws with the reason while hobkin is not open. */
+  root: () => string
+  /** The host server's port. */
+  port: () => number
+  /** What the window would be told changed. */
+  onChange: () => void
+  home?: string
+  downloads?: string
+}
+
+interface Published {
+  main: CanvasState
+  others: Record<string, CanvasState>
+}
+
+const DEBOUNCE_MS = 60
+const KEYED_PATH = /^\/canvas\/([0-9a-f]{32})$/
+const SANDBOX = 'sandbox allow-scripts allow-forms allow-popups allow-modals'
+
+/**
+ * Every hobkin's canvas as the window sees it (`035-canvas-drawings`). hobkin's store on disk is the truth, and
+ * the `hobkin canvas` command writes it from other processes, so this follows the folder and tells the window
+ * when what it would show has changed. It also serves each drawing at its keyed address.
+ */
+export class Canvases {
+  private readonly options: CanvasesOptions
+  private published: Published
+  private watcher: FSWatcher | null = null
+  private timer: NodeJS.Timeout | null = null
+  private watching = false
+
+  constructor(options: CanvasesOptions) {
+    this.options = options
+    this.published = this.compute()
+  }
+
+  /** The main hobkin's canvas, as last published. */
+  get main(): CanvasState {
+    return this.published.main
+  }
+
+  /** Every other hobkin's canvas by its id, as last published. */
+  others(): Record<string, CanvasState> {
+    return this.published.others
+  }
+
+  /** One owner's canvas now, read from the store. */
+  state(owner: string): CanvasState {
+    return this.stateOf(this.entries()[owner])
+  }
+
+  show(owner: string, address: string, title?: string): CanvasState {
+    return this.change((root) => this.options.store.showPage(root, owner, { url: canvasUrl(address).href, title: title?.trim() || null }))
+  }
+
+  draw(owner: string, html: string, title?: string): CanvasState {
+    return this.change((root) => this.options.store.drawCanvas(root, owner, { html, title: title?.trim() || null }))
+  }
+
+  close(owner: string): CanvasState {
+    return this.change((root) => this.options.store.closeCanvas(root, owner))
+  }
+
+  read(owner: string): CanvasContent {
+    const { state, file } = this.refused((root) => this.options.store.readCanvas(root, owner))
+    return { state: this.stateOf(state), file }
+  }
+
+  save(owner: string, path?: string): CanvasSaved {
+    const { home, downloads } = this.options
+    return this.refused((root) =>
+      this.options.store.saveCanvas(root, owner, {
+        ...(path ? { path } : {}),
+        ...(downloads ? { downloads } : {}),
+        ...(home ? { home } : {}),
+      }),
+    )
+  }
+
+  /** Reads the store again and tells the window when what it shows changed. The host may call this any time. */
+  refresh(): void {
+    if (this.watching && !this.watcher) this.attach()
+    const next = this.compute()
+    if (JSON.stringify(next) === JSON.stringify(this.published)) return
+    this.published = next
+    this.options.onChange()
+  }
+
+  /** Follows the canvas folder, so a change made by the shell command reaches the window. Never throws. */
+  watch(): void {
+    this.watching = true
+    this.attach()
+  }
+
+  stop(): void {
+    this.watching = false
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.watcher?.close()
+    this.watcher = null
+  }
+
+  /**
+   * Answers `GET /canvas/<key>` for a key that belongs to a drawing now. Returns false and writes nothing for
+   * anything else, so the server's own 404 stands. The file is found through the store, never from the request.
+   */
+  serve(request: IncomingMessage, response: ServerResponse): boolean {
+    if (request.method !== 'GET') return false
+    const key = KEYED_PATH.exec(new URL(request.url ?? '/', 'http://127.0.0.1').pathname)?.[1]
+    if (!key) return false
+    try {
+      const root = this.options.root()
+      const entries = Object.entries(this.options.store.readCanvases(root))
+      const owner = entries.find(([, entry]) => entry.open && entry.kind === 'drawing' && sameKey(entry.key, key))?.[0]
+      if (!owner) return false
+      const body = readFileSync(this.options.store.drawingFile(root, owner))
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-length': body.length,
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+        'content-security-policy': SANDBOX,
+      })
+      response.end(body)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private attach(): void {
+    if (this.watcher) return
+    try {
+      const folder = join(this.options.root(), 'canvas')
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      this.watcher = watch(folder, () => this.soon())
+      this.watcher.on('error', () => {
+        this.watcher?.close()
+        this.watcher = null
+      })
+    } catch {
+      this.watcher = null
+    }
+  }
+
+  private soon(): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.timer = null
+      try {
+        this.refresh()
+      } catch {
+        // The host's own tick calls refresh again.
+      }
+    }, DEBOUNCE_MS)
+  }
+
+  private change(write: (root: string) => CanvasEntry): CanvasState {
+    const entry = this.refused(write)
+    this.refresh()
+    return this.stateOf(entry)
+  }
+
+  private refused<T>(run: (root: string) => T): T {
+    try {
+      return run(this.options.root())
+    } catch (error) {
+      throw new Unavailable(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  private entries(): Record<string, CanvasEntry> {
+    try {
+      return this.options.store.readCanvases(this.options.root())
+    } catch {
+      return {}
+    }
+  }
+
+  private compute(): Published {
+    const { [MAIN_CANVAS]: main, ...rest } = this.entries()
+    return {
+      main: this.stateOf(main),
+      others: Object.fromEntries(Object.entries(rest).map(([owner, entry]) => [owner, this.stateOf(entry)])),
+    }
+  }
+
+  private stateOf(entry: CanvasEntry | undefined): CanvasState {
+    if (!entry?.open) return CANVAS_CLOSED
+    const title = entry.title?.trim() || null
+    if (entry.kind === 'drawing') {
+      if (!entry.key) return CANVAS_CLOSED
+      const url = `http://127.0.0.1:${this.options.port()}/canvas/${entry.key}?r=${entry.revision}`
+      return { open: true, url, title, kind: 'drawing', revision: entry.revision }
+    }
+    try {
+      return { open: true, url: canvasUrl(entry.url ?? '').href, title, kind: 'page', revision: entry.revision }
+    } catch {
+      return CANVAS_CLOSED
+    }
+  }
+}
+
+function sameKey(have: string | null, given: string): boolean {
+  if (!have) return false
+  const a = Buffer.from(have)
+  const b = Buffer.from(given)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/** The five canvas commands, for the host's handlers. An owner left out is the main hobkin's. */
+export function canvasHandlers(canvases: Canvases): Pick<HostHandlers, 'canvas.show' | 'canvas.draw' | 'canvas.read' | 'canvas.save' | 'canvas.close'> {
+  return {
+    'canvas.show': ({ url, title, hobkin }) => canvases.show(hobkin ?? MAIN_CANVAS, url, title),
+    'canvas.draw': ({ html, title, hobkin }) => canvases.draw(hobkin ?? MAIN_CANVAS, html, title),
+    'canvas.read': ({ hobkin }) => canvases.read(hobkin ?? MAIN_CANVAS),
+    'canvas.save': ({ path, hobkin }) => canvases.save(hobkin ?? MAIN_CANVAS, path),
+    'canvas.close': ({ hobkin }) => canvases.close(hobkin ?? MAIN_CANVAS),
+  }
+}

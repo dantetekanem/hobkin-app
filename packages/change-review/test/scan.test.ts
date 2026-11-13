@@ -47,7 +47,8 @@ test('a real pack reads into anchors, nodes, edges, test groups, files and cover
     },
   ])
   assert.equal(scan.files.length, 8)
-  assert.deepEqual(scan.files[4], { path: 'ui/test/home-input.test.ts', kind: 'test', status: 'added' })
+  assert.deepEqual(scan.files[4], { path: 'ui/test/home-input.test.ts', kind: 'test', status: 'added', language: 'javascript' })
+  assert.deepEqual(scan.files[7], { path: 'work-in-progress.md', kind: 'other', status: 'modified' }, 'a file the scan has no parser for says no language')
   assert.deepEqual(scan.dangling, [])
   assert.deepEqual(scan.coverage, {
     truncated: false,

@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { CatalogEntry, ConfiguredServer } from '#shared/integrations/types.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
-import { shownServers } from './source.ts'
+import { shouldLookAtServers, shownServers } from './source.ts'
 import { useIntegrations } from './store.ts'
 
 /** What the screen draws, and where it came from. */
@@ -75,3 +75,21 @@ const hostActions: IntegrationActions = {
 }
 
 export const actionsFor = (live: boolean): IntegrationActions => (live ? hostActions : sampleActions)
+
+/**
+ * Looks at Pi's servers once per connection when nothing has been read, for a screen that shows them without being
+ * the Integrations screen. The host reads Pi only when asked, so until someone asks its state is empty and a
+ * dashboard built from it is incomplete.
+ */
+export function useLookAtServers(): void {
+  const connected = useHost((state) => state.home !== null && state.link === 'open')
+  const pi = useHost((state) => state.integrations)
+  const looked = useRef(false)
+  useEffect(() => {
+    if (!connected) looked.current = false
+    else if (shouldLookAtServers({ connected, asked: looked.current, pi, now: Date.now() })) {
+      looked.current = true
+      void runCommand('integrations.refresh').catch(() => {})
+    }
+  }, [connected, pi])
+}

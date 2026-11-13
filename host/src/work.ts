@@ -1,7 +1,7 @@
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle, type GroupName } from 'hobkin/src/cli/work/groups.mjs'
 import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
-import { byPriority, byRank, grades, MAX_AGENTS, readMode, setAgents } from 'hobkin/src/cli/work/store.mjs'
+import { byPriority, byRank, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens } from 'hobkin/src/cli/work/store.mjs'
 import {
   GRADES,
   ISSUE_PICKUPS,
@@ -94,6 +94,7 @@ interface ProjectStatus {
   branches?: number
   left?: number
   unmerged?: number
+  merged?: number
   nextLookAt?: string | null
   lookError?: string | null
 }
@@ -105,6 +106,9 @@ interface WorkStatus {
   autoPick?: boolean
   agents?: number
   agentsAllowed?: number
+  /** The day's limit, and what has been spent of it so far, in fresh tokens. */
+  dailyTokens?: number
+  tokensToday?: number
   pause?: { line?: string } | null
   waitingOn?: string | null
   forecast?: { line?: string } | null
@@ -268,6 +272,7 @@ const projectOf = (project: ProjectStatus): WorkProject => ({
   branches: project.branches ?? 0,
   left: project.left ?? 0,
   unmerged: project.unmerged ?? 0,
+  merged: project.merged ?? 0,
   nextLookAt: project.nextLookAt ?? null,
   lookError: project.lookError ?? null,
 })
@@ -304,6 +309,8 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     agents: work.agents ?? 0,
     agentsAllowed: work.agentsAllowed ?? work.agents ?? 0,
     maxAgents: MAX_AGENTS,
+    dailyTokens: typeof work.dailyTokens === 'number' ? work.dailyTokens : null,
+    tokensToday: typeof work.tokensToday === 'number' ? work.tokensToday : null,
     queue: (work.plan ?? []).map(queueRowOf),
     queued: work.queued ?? 0,
     projects: projectsFrom(work.projects ?? []),
@@ -318,14 +325,14 @@ export interface WorkSeat {
   root: () => string
 }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.change' | 'work.group'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.change' | 'work.group'
 
 /** y and n on a proposal in the terminal: take it, or leave it alone. */
 const PROPOSAL_ANSWERS = { take: 'choose', skip: 'skip' } as const
 
 /** The terminal's keys on a queue row: Enter runs it next, s skips it, and s on a skipped row puts it back. Start now has no key there. */
 const QUEUE_ACTIONS = { run: 'run', now: 'now', skip: 'later', back: 'back' } as const
-const CHANGE_ACTIONS = { merge: 'merge', 'merge-pr': 'mergePr', 'refresh-merge': 'refreshMerge', review: 'review', ask: 'ask', decline: 'decline' } as const
+const CHANGE_ACTIONS = { merge: 'merge', 'merge-pr': 'mergePr', 'refresh-merge': 'refreshMerge', review: 'review', ask: 'ask', decline: 'decline', done: 'done' } as const
 
 interface Reply {
   message?: unknown
@@ -369,6 +376,12 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       const mode = setAgents(root(), agents)
       await app().refresh()
       return { agents: mode.agents }
+    },
+    'work.tokens': async ({ tokens }) => {
+      // Also not a work action: `hobkin work tokens` writes work mode's own file, and the plan reads the limit from it at its next tick.
+      const mode = setDailyTokens(root(), tokens)
+      await app().refresh()
+      return { tokens: mode.dailyTokens }
     },
     'work.change': async ({ slug, item, action, head, note }) => {
       const named = CHANGE_ACTIONS[action]

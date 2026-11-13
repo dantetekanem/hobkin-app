@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils.ts'
 import type { AskCommand } from './panel/ask.ts'
 import { NoteInput } from './panel/notes.tsx'
 import { useReduced, useReviewMemory, useRig, useSession, useSessionStore } from './state/context.tsx'
+import { MODE_KEYS, type ReviewMode } from './story/mode.ts'
 import { Rail } from './story/Rail.tsx'
 
 /** Where the dock rises from. Under reduced motion it only fades in, where it rests. */
@@ -28,10 +29,53 @@ function RoundButton({ label, keys, onClick, children, className }: { label: str
   )
 }
 
+const MODES: { mode: ReviewMode; label: string; tip: string }[] = [
+  { mode: 'roam', label: 'Free Roam', tip: 'Move between nodes as you like, with nothing leading. Starts on the whole graph' },
+  { mode: 'story', label: 'Story', tip: 'Walk the story step by step. Starts at its first step' },
+]
+
+/**
+ * "Free Roam | Story" (spec 032): how the review is walked, beside the pager, with each mode's key on it. A click on
+ * either, the one on or the other, starts it from the beginning, and the keyboard goes back to the review.
+ */
+function ModeSwitch() {
+  const store = useSessionStore()
+  const mode = useSession((session) => session.mode)
+  return (
+    <div role="group" aria-label="How to walk the review" className="rv-float pointer-events-auto flex h-9 shrink-0 items-center gap-0.5 rounded-full p-1">
+      {MODES.map((choice) => (
+        <Tooltip key={choice.mode}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-pressed={mode === choice.mode}
+                onClick={(event) => {
+                  store.getState().setMode(choice.mode)
+                  event.currentTarget.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
+                }}
+                className={cn(
+                  'flex h-7 items-center gap-1.5 rounded-full px-2.5 font-heading text-[13px] font-semibold whitespace-nowrap transition-[background-color,color] duration-[160ms] ease-[var(--ease-out)]',
+                  mode === choice.mode ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              />
+            }
+          >
+            {choice.label}
+            <Kbd>{MODE_KEYS[choice.mode]}</Kbd>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={8}>{choice.tip}</TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  )
+}
+
 /**
  * The bottom of the screen: the rail in the middle, the whole-graph button at its side, and under them the review's
- * input, where a comment is written and hobkin asked (`NoteInput`). It rides up on the code panel, and keeps to the
- * middle of what the steps panel leaves uncovered.
+ * input, where a comment is written and hobkin asked (`NoteInput`). "Free Roam | Story" leads the row; in Free Roam no
+ * step leads, so the rail is not shown. It rides up on the code panel, and keeps to the middle of what the steps panel
+ * leaves uncovered.
  *
  * It is drawn once the review has loaded, after the screen's own entrance has played, so it rises on its own initial
  * and animate. A `Rise` here would wait for that entrance and stay hidden (Reveal.tsx), which hid the step pager.
@@ -42,6 +86,7 @@ export function Dock({ room, ask, units }: { room: number; ask: AskCommand | nul
   const reduced = useReduced()
   const review = useSession((session) => session.review)
   const moved = useReviewMemory((memory) => Object.keys(memory.of(review).positions).length > 0)
+  const story = useSession((session) => session.mode === 'story')
   // One transform on one element carries everything here above the code panel and clear of the steps panel.
   const lift = useTransform(() => `translateX(${rig.side.get() / 2}px) translateY(${-rig.panel.get()}px)`)
 
@@ -55,10 +100,11 @@ export function Dock({ room, ask, units }: { room: number; ask: AskCommand | nul
         animate={{ opacity: 1, transform: RESTING, transition: { transform: spring.rise, opacity: tween.enter } }}
       >
         <div className="flex items-center justify-center gap-2">
+          <ModeSwitch />
           <RoundButton label="The whole graph" keys="G" onClick={() => store.getState().leave() || store.getState().refit()}>
             <Maximize />
           </RoundButton>
-          <Rail />
+          {story ? <Rail /> : null}
           {moved ? (
             <RoundButton label="Put the nodes back" onClick={() => store.getState().resetLayout()}>
               <RotateCcw />

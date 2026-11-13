@@ -6,8 +6,7 @@ import type { CatalogEntry, ConfiguredServer } from '#shared/integrations/types.
 import { useSettings } from '@/features/settings/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { ghLine } from './gh.ts'
-import type { GhLink, Item } from './items.ts'
+import type { Item } from './items.ts'
 import { ownMark, serviceMark } from './marks.ts'
 import { sampleRoutines } from './sample-data.ts'
 import { ServiceMark } from './ServiceMark.tsx'
@@ -147,43 +146,6 @@ function Now({ server, using, live, routinesOf }: { server: ConfiguredServer; us
   )
 }
 
-/** GitHub connected through gh, as a small pill, when no MCP server of its own says more. */
-export function GhChip() {
-  return (
-    <span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-ok/15 px-2.5 font-heading text-[12px] font-medium whitespace-nowrap text-ok-fg">
-      <span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />
-      Connected
-    </span>
-  )
-}
-
-/** GitHub's line under its name: how gh stands. It keeps its height, like the line of any configured tile. */
-function GhNow({ gh }: { gh: GhLink }) {
-  const text = ghLine(gh)
-  return (
-    <span className="relative mt-1.5 block h-[18px] overflow-hidden">
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={text}
-          initial={{ opacity: 0, transform: 'translateY(8px)' }}
-          animate={{ opacity: 1, transform: 'translateY(0px)', transition: tween.enter }}
-          exit={{ opacity: 0, transform: 'translateY(-8px)', transition: tween.exit }}
-          className={cn('block truncate text-[12px] leading-[18px]', gh.connection === 'connected' || gh.connection === 'unknown' ? 'text-muted-foreground' : 'text-warn-fg')}
-        >
-          {text}
-        </motion.span>
-      </AnimatePresence>
-    </span>
-  )
-}
-
-/** How GitHub connects while it waits in the catalog: through gh, once gh is there and signed in. */
-function ghHint(gh: GhLink): { icon: LucideIcon; text: string } {
-  if (gh.connection === 'missing') return { icon: SquareTerminal, text: 'Needs gh, GitHub\'s command line tool' }
-  if (gh.connection === 'signed-out') return { icon: SquareTerminal, text: 'Sign gh in to connect' }
-  return { icon: SquareTerminal, text: 'Connects through gh' }
-}
-
 /** How a service in the catalog connects, in a few words. */
 export function hintOf(entry: CatalogEntry): { icon: LucideIcon; text: string } {
   if (!entry.usable) return { icon: Ban, text: 'Pi cannot use it yet' }
@@ -226,12 +188,10 @@ interface TileProps<Of> {
 
 /** A catalog service: compact while it waits in the catalog, fuller once it is configured. */
 export function ServiceTile({ item, live, still, onOpen }: TileProps<ServiceItem>) {
-  const { key, entry, server, gh } = item
+  const { key, entry, server } = item
   // The pulse of a tool in use is sample life, so a live tile stays quiet until the host reports real calls.
   const using = useBusy(server, still || live)
-  const hint = gh ? ghHint(gh) : hintOf(entry)
-  // GitHub counts as configured once gh is signed in, with or without its MCP server.
-  const configured = server !== null || gh?.connection === 'connected'
+  const hint = hintOf(entry)
 
   return (
     <TileBody itemKey={key}>
@@ -239,20 +199,20 @@ export function ServiceTile({ item, live, still, onOpen }: TileProps<ServiceItem
         type="button"
         data-key-stop=""
         data-tile={key}
-        aria-label={`${entry.name}, ${gh ? ghLine(gh) : server ? stateText(server) : `not connected. ${hint.text}`}`}
+        aria-label={`${entry.name}, ${server ? stateText(server) : `not connected. ${hint.text}`}`}
         onClick={() => onOpen(key)}
-        className={cn(TILE_BUTTON, configured ? 'items-start p-4' : 'items-center p-3')}
+        className={cn(TILE_BUTTON, server ? 'items-start p-4' : 'items-center p-3')}
       >
-        <ServiceMark look={serviceMark(entry.id)} size={configured ? 44 : 36} layoutId={`mark-${key}`} busy={using !== null} />
+        <ServiceMark look={serviceMark(entry.id)} size={server ? 44 : 36} layoutId={`mark-${key}`} busy={using !== null} />
         <motion.span layout="position" transition={spring.screen} className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate font-heading text-[15px] leading-tight font-semibold tracking-[-0.015em]">{entry.name}</span>
-            {server ? <StateChip server={server} /> : configured ? <GhChip /> : null}
+            {server ? <StateChip server={server} /> : null}
           </span>
-          {configured ? (
+          {server ? (
             <>
               <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">{entry.line}</span>
-              {gh ? <GhNow gh={gh} /> : server ? <Now server={server} using={using} live={live} routinesOf={entry.id} /> : null}
+              <Now server={server} using={using} live={live} routinesOf={entry.id} />
             </>
           ) : (
             <span className={cn('mt-0.5 flex items-center gap-1 text-[12px]', entry.usable ? 'text-muted-foreground' : 'text-warn-fg')}>

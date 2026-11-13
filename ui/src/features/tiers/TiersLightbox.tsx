@@ -1,7 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { ArrowLeft, Check, ChevronRight, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { focusInput } from '@/app/keys.ts'
 import {
   EFFORTS,
@@ -28,6 +28,7 @@ import { applyTiers as applyHostTiers, readTiers } from '@/lib/host/client.ts'
 import { isLive, selectMainModel, useHasHost, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { followsWords, modelName, ownSetting, shownTier, tiersChange, type Follows, type ShownTier } from './host-tiers.ts'
+import { scrollToShow } from './list-scroll.ts'
 import { useModelChoices } from './models.ts'
 import { useTiers, type TierTarget } from './store.ts'
 
@@ -68,7 +69,8 @@ export function TiersLightbox() {
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim backdrop-blur-md transition-opacity duration-[320ms] ease-[ease] data-[ending-style]:opacity-0 data-[ending-style]:duration-[200ms] data-[starting-style]:opacity-0" />
         <Dialog.Popup
           className={cn(
-            'fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-48px)] w-[min(1080px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] bg-background shadow-float outline-none',
+            'fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-48px)] w-[min(1080px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-clip rounded-[28px] bg-background shadow-float outline-none',
+            // Clipped, never scrolled: overflow hidden still scrolls from script and on focus, which moved the whole lightbox.
             // It rises into place with weight, and leaves quicker than it came.
             'transition-[translate,scale,opacity] duration-[440ms] ease-[var(--ease-drawer)]',
             'data-[starting-style]:-translate-y-[42%] data-[starting-style]:scale-[0.9] data-[starting-style]:opacity-0',
@@ -220,9 +222,11 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
         </Dialog.Description>
       </header>
 
-      <div className="relative min-h-0 flex-1">
+      {/* The room between the title and the footer. The cards shrink into it and scroll there, never over the footer:
+          a height in percent of this box does not resolve in WebKit, so they are a flex item instead. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
         <motion.div
-          className="scroll-quiet grid max-h-full grid-cols-2 gap-3 overflow-y-auto px-8 pb-2 lg:grid-cols-5"
+          className="scroll-quiet grid min-h-0 grid-cols-2 gap-3 overflow-y-auto px-8 pb-2 lg:grid-cols-5"
           initial="enter"
           animate="center"
           variants={{ enter: {}, center: { transition: { staggerChildren: stagger, delayChildren: 0.14 } } }}
@@ -322,7 +326,9 @@ function TierCard({ target, depth, setting, whom, model, name, movedFrom, autoFo
   const following = setting.follows !== null
   const words = whom ? followsWords(whom) : null
   const running = useRunningAgents()
-  const inUse = lead ? 0 : running.filter((agent) => agent.tier === target).length
+  // A durable hobkin counts only while a turn of its runs on this tier: not while it waits, and not on Claude Code or a custom model.
+  const onThisTier = (agent: (typeof running)[number]) => agent.tier === target && (!agent.durable || (agent.durable.state === 'working' && agent.durable.engine.kind === 'tier'))
+  const inUse = lead ? 0 : running.filter(onThisTier).length
   const efforts = EFFORTS.filter((effort) => model?.efforts.includes(effort))
   const modelButton = useRef<HTMLButtonElement | null>(null)
 
@@ -486,8 +492,13 @@ function ModelList({ target, models, current, onChoose, onBack }: ModelListProps
   const providers = [...new Set(found.map((model) => model.provider))]
   const list = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  // Only the list moves to show the active row, before the frame is drawn. scrollIntoView would also scroll the
+  // lightbox, which can scroll from script, while the list still sits below its place as it slides up.
+  useLayoutEffect(() => {
+    const box = list.current
+    const row = box?.querySelector<HTMLElement>('[data-active="true"]')
+    if (!box || !row) return
+    box.scrollTop = scrollToShow({ top: row.offsetTop, height: row.offsetHeight }, { top: box.scrollTop, height: box.clientHeight })
   }, [at])
 
   return (
@@ -529,7 +540,7 @@ function ModelList({ target, models, current, onChoose, onBack }: ModelListProps
         </label>
       </div>
 
-      <div ref={list} role="listbox" aria-label={`Models for ${label}`} className="scroll-quiet min-h-0 flex-1 overflow-y-auto px-8 pb-4">
+      <div ref={list} role="listbox" aria-label={`Models for ${label}`} className="scroll-quiet relative min-h-0 flex-1 overflow-y-auto px-8 pb-4">
         {found.length === 0 ? <p className="px-3 py-6 text-[14px] text-muted-foreground">No model matches that.</p> : null}
         {providers.map((provider) => (
           <div key={provider}>

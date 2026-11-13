@@ -1,70 +1,127 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createRequestNotifications, type RequestFacts } from '../src/features/notifications/request.ts'
+import type { Destination, Need } from '../src/features/notifications/rules.ts'
 
-function fixture() {
-  let state: RequestFacts = { home: 'home', generation: 1, ready: true, question: { id: 'ask' } as RequestFacts['question'], decisions: [] }
-  const saved = new Map<string, string>(), sent: string[] = [], visits: string[] = []
-  let click: (id: string) => Promise<void> = async () => {}, removed = 0
+const need = (id: string, kind: Need['kind'] = 'question'): Need =>
+  ({ id, kind, title: `${kind} title`, body: `About ${id}`, opens: kind === 'question' ? { to: 'question' } : { to: 'item', id } })
+
+const TOLD = 'hobkin:told:home'
+
+/** A window that has seen this home before (`known`), with one question up and the window away (`front` false). */
+function fixture({ known = true } = {}) {
+  let state: RequestFacts = { home: 'home', generation: 1, ready: true, needs: [need('ask')] }
+  const saved = new Map<string, string>(), sent: string[] = [], words: { title: string; body: string }[] = [], visits: Destination[] = []
+  if (known) saved.set(TOLD, '[]')
+  let click: (id: string) => Promise<void> = async () => {}, removed = 0, inFront = false
   const adapter = {
     available: () => true,
     permission: async () => true,
     listen: async (handler: typeof click) => { click = handler; return () => { removed++ } },
     send: async (notice: { id: string; title: string; body: string }) => {
-      assert.equal(notice.title, 'hobkin'); assert.equal(notice.body, 'Your input is needed.')
-      sent.push(notice.id); return true
+      sent.push(notice.id); words.push({ title: notice.title, body: notice.body }); return true
     },
   }
   const options = { facts: () => state, adapter, storage: { getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => { saved.set(key, value) } },
-    show: async () => { visits.push('show') }, focus: async () => { visits.push('focus') }, reveal: (id: string) => { visits.push(id) } }
-  return { options, sent, visits, saved, click: (id: string) => click(id), removed: () => removed, state: () => state, change: (patch: Partial<RequestFacts>) => { state = { ...state, ...patch } } }
+    front: async () => inFront, reveal: (opens: Destination) => { visits.push(opens) } }
+  return {
+    options, sent, words, visits, saved, click: (id: string) => click(id), removed: () => removed, state: () => state,
+    told: () => JSON.parse(saved.get(TOLD) ?? 'null') as string[] | null,
+    change: (patch: Partial<RequestFacts>) => { state = { ...state, ...patch } },
+    front: (value: boolean) => { inFront = value },
+  }
 }
 
-test('foreground live asks and answerable decisions share persistent per-home dedupe', async () => {
+test('each thing that needs the user is told once, across a reload and a reconnect, and in each home', async () => {
   const f = fixture(), c = createRequestNotifications(f.options)
-  f.change({ decisions: [{ id: 'ask', answers: { by: 'decision', id: 'ask' } }, { id: 'other', answers: { by: 'decision', id: 'other' } }, { id: 'summary' }, { id: 'learning', answers: { by: 'learning', id: 'learning' } }] as RequestFacts['decisions'] })
+  f.change({ needs: [need('ask'), need('item-1', 'item')] })
   await Promise.all([c.refresh(), c.refresh()]); assert.equal(f.sent.length, 2)
   c.dispose(); const reloaded = createRequestNotifications(f.options)
   await reloaded.refresh(); assert.equal(f.sent.length, 2)
+  f.change({ generation: 2 }); await reloaded.refresh(); assert.equal(f.sent.length, 2)
+  f.saved.set('hobkin:told:another', '[]')
   f.change({ home: 'another' }); await reloaded.refresh(); assert.equal(f.sent.length, 4)
   reloaded.dispose()
 })
 
-test('denied, unavailable and refused dispatches are not recorded', async () => {
+test('a notification says what needs the user in its own words', async () => {
+  const f = fixture(), c = createRequestNotifications(f.options)
+  await c.refresh()
+  assert.deepEqual(f.words, [{ title: 'question title', body: 'About ask' }])
+  c.dispose()
+})
+
+test('a home this window never saw is taken as it is: what already waits is not told, what comes after is', async () => {
+  const f = fixture({ known: false }), c = createRequestNotifications(f.options)
+  await c.refresh()
+  assert.deepEqual(f.sent, []); assert.deepEqual(f.told(), ['ask'])
+  f.change({ needs: [need('ask'), need('item-1', 'item')] }); await c.refresh()
+  assert.deepEqual(f.sent, ['["home","item-1","item"]'])
+  c.dispose()
+})
+
+test('nothing is told while the window is in front, and what was seen there is not told later', async () => {
+  const f = fixture(), c = createRequestNotifications(f.options)
+  f.front(true); await c.refresh()
+  assert.deepEqual(f.sent, []); assert.deepEqual(f.told(), ['ask'])
+  f.front(false); await c.refresh(); assert.deepEqual(f.sent, [])
+  c.dispose(); const reloaded = createRequestNotifications(f.options)
+  await reloaded.refresh(); assert.deepEqual(f.sent, [])
+  f.change({ needs: [need('ask'), need('item-1', 'item')] }); await reloaded.refresh()
+  assert.equal(f.sent.length, 1)
+  reloaded.dispose()
+})
+
+test('a refusal is respected, while an unavailable shell or a dispatch that failed is tried again', async () => {
   const f = fixture(), c = createRequestNotifications(f.options)
   f.options.adapter.available = () => false; await c.refresh()
-  f.options.adapter.available = () => true; f.options.adapter.permission = async () => false; await c.refresh()
-  f.options.adapter.permission = async () => true; f.options.adapter.send = async () => false; await c.refresh()
-  assert.equal(f.saved.size, 0); assert.equal(f.sent.length, 0); c.dispose()
+  f.options.adapter.available = () => true; f.options.adapter.send = async () => false; await c.refresh()
+  assert.deepEqual(f.told(), []); assert.equal(f.sent.length, 0)
+  f.options.adapter.permission = async () => false; await c.refresh()
+  assert.deepEqual(f.told(), ['ask'])
+  f.options.adapter.permission = async () => true; f.options.adapter.send = async (notice) => { f.sent.push(notice.id); return true }
+  await c.refresh(); assert.equal(f.sent.length, 0)
+  c.dispose()
 })
 
 test('home, generation, reset and closed requests invalidate pending permission checks', async () => {
-  for (const patch of [{ home: 'away' }, { generation: 2 }, { ready: false }, { question: null }]) {
+  for (const patch of [{ home: 'away' }, { generation: 2 }, { ready: false }, { needs: [] }]) {
     const f = fixture(); let release!: (allowed: boolean) => void
     f.options.adapter.permission = () => new Promise<boolean>((resolve) => { release = resolve })
     const c = createRequestNotifications(f.options), pending = c.refresh()
+    await new Promise((resolve) => setImmediate(resolve))
     f.change(patch); release(true); await pending
-    assert.equal(f.sent.length, 0); assert.equal(f.saved.size, 0); c.dispose()
+    assert.equal(f.sent.length, 0); assert.deepEqual(f.told(), []); c.dispose()
   }
 })
 
-test('listener precedes dispatch; clicks only reveal still-current requests and dispose cleans up', async () => {
+test('the listener comes before the first notification; a click opens only what still waits, and dispose removes it', async () => {
   const f = fixture(), c = createRequestNotifications(f.options)
+  f.change({ needs: [need('ask'), need('item-1', 'item')] })
   const send = f.options.adapter.send
   f.options.adapter.send = async (notice) => { await f.click(notice.id); return send(notice) }
-  await c.refresh(); assert.deepEqual(f.visits, ['show', 'focus', 'ask'])
-  f.visits.length = 0; f.change({ question: null }); await f.click(f.sent[0]!)
-  assert.deepEqual(f.visits, []); c.dispose(); await Promise.resolve(); assert.equal(f.removed(), 1)
+  await c.refresh()
+  assert.deepEqual(f.visits, [{ to: 'question' }, { to: 'item', id: 'item-1' }])
+  f.visits.length = 0
+  // The question left the sheet: it waits under Action Items now. The item was answered and is gone.
+  f.change({ needs: [] })
+  for (const key of f.sent) await f.click(key)
+  assert.deepEqual(f.visits, [{ to: 'actions' }])
+  // Another home's notification, and a key that is not one of ours, open nothing.
+  f.visits.length = 0
+  await f.click('["elsewhere","ask","question"]'); await f.click('not json'); await f.click('["home",7,"question"]')
+  assert.deepEqual(f.visits, [])
+  c.dispose(); await Promise.resolve(); assert.equal(f.removed(), 1)
 })
 
-test('async listener, send and window steps recheck freshness; failures remain retryable', async () => {
-  for (const step of ['listen', 'send', 'show', 'focus'] as const) {
+test('async listener, window and send steps recheck freshness; failures remain retryable', async () => {
+  for (const step of ['listen', 'front', 'send'] as const) {
     const f = fixture(), c = createRequestNotifications(f.options)
     if (step === 'listen') f.options.adapter.listen = async () => { f.change({ generation: 2 }); return () => {} }
-    if (step === 'send') f.options.adapter.send = async () => { f.change({ question: null }); return true }
-    if (step === 'show' || step === 'focus') f.options[step] = async () => { f.change({ question: null }) }
+    if (step === 'front') f.options.front = async () => { f.change({ needs: [] }); return false }
+    if (step === 'send') f.options.adapter.send = async () => { f.change({ needs: [] }); return true }
     await c.refresh(); if (f.sent[0]) await f.click(f.sent[0])
-    assert.ok(!f.visits.includes('ask')); if (step === 'listen' || step === 'send') assert.equal(f.saved.size, 0)
+    assert.deepEqual(f.visits, []); if (step !== 'front') assert.deepEqual(f.told(), [])
     c.dispose()
   }
   const f = fixture(), c = createRequestNotifications(f.options), permission = f.options.adapter.permission
@@ -73,26 +130,29 @@ test('async listener, send and window steps recheck freshness; failures remain r
 })
 
 test('dispose during listener registration removes it and prevents dispatch', async () => {
-  const f = fixture(); let register!: () => void
+  const f = fixture(); let register!: () => void, removed = 0
   const started = new Promise<void>((resolve) => {
-    f.options.adapter.listen = () => { resolve(); return new Promise((done) => { register = () => done(() => { f.visits.push('removed') }) }) }
+    f.options.adapter.listen = () => { resolve(); return new Promise((done) => { register = () => done(() => { removed++ }) }) }
   })
   const c = createRequestNotifications(f.options), pending = c.refresh()
   await started; c.dispose(); register(); await pending
-  assert.deepEqual(f.visits, ['removed']); assert.equal(f.sent.length, 0)
+  assert.equal(removed, 1); assert.equal(f.sent.length, 0)
 })
 
-test('storage read failures do not suppress authorized dispatch', async () => {
+test('when storage cannot be read, what already waits counts as told and what comes after is told once', async () => {
   const f = fixture()
-  const c = createRequestNotifications(f.options)
   f.options.storage.getItem = () => { throw new Error('storage unavailable') }
+  const c = createRequestNotifications(f.options)
 
   await c.refresh()
+  assert.deepEqual(f.sent, [])
 
-  assert.deepEqual(f.sent, ['["home","ask"]'])
+  f.change({ needs: [need('ask'), need('item-1', 'item')] })
+  await c.refresh(); await c.refresh()
+  assert.deepEqual(f.sent, ['["home","item-1","item"]'])
 
   await f.click(f.sent[0]!)
-  assert.deepEqual(f.visits, ['show', 'focus', 'ask'])
+  assert.deepEqual(f.visits, [{ to: 'item', id: 'item-1' }])
   c.dispose()
 })
 
@@ -109,7 +169,7 @@ for (const mode of ['reload', 'reconnect'] as const) {
     await c.refresh()
     assert.equal(f.sent.length, 1)
     await f.click(f.sent[0]!)
-    assert.deepEqual(f.visits, ['show', 'focus', 'ask'])
+    assert.deepEqual(f.visits, [{ to: 'question' }])
     c.dispose()
   })
 }
@@ -122,9 +182,22 @@ test('storage write failures preserve click routing and in-memory dedupe', async
   await c.refresh()
   await c.refresh()
 
-  assert.deepEqual(f.sent, ['["home","ask"]'])
+  assert.deepEqual(f.sent, ['["home","ask","question"]'])
 
   await f.click(f.sent[0]!)
-  assert.deepEqual(f.visits, ['show', 'focus', 'ask'])
+  assert.deepEqual(f.visits, [{ to: 'question' }])
+  c.dispose()
+})
+
+test('the told list of a home keeps its newest entries and stays bounded', async () => {
+  const f = fixture(), c = createRequestNotifications(f.options)
+  for (let round = 0; round < 6; round++) {
+    f.change({ needs: Array.from({ length: 100 }, (_, index) => need(`item-${round}-${index}`, 'item')) })
+    await c.refresh()
+  }
+  const told = f.told()!
+  assert.equal(told.length, 500)
+  assert.equal(told.at(-1), 'item-5-99')
+  assert.ok(!told.includes('item-0-0'))
   c.dispose()
 })

@@ -77,6 +77,8 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 - A8. Changing a tier while an agent is running does not change that agent. The next agent of that tier uses the new values.
 - A9. Each agent in the sidebar and on the Work map shows its tier.
 - A10. hobkin can read the tiers and open the lightbox through commands, and cannot change a tier without the user confirming in the lightbox.
+- A11. Wherever a thinking level is chosen (a tier's card, the first-run setup, a durable hobkin on a model of its own), the choices are exactly the levels Pi lists for that model, in Pi's order, `max` among them when the model has it. A level the model does not have is never offered. hobkin's host takes `max` for its own model, for a tier and for a durable hobkin, and a tier at `max` on Claude Code runs at Claude Code's `max`.
+- A12. With the model list open, the lightbox's title and the search stay at the top and its footer at the bottom, at every window size the app allows (1100 by 640 and up). The list takes the room between them and is the only thing that scrolls. When it opens, the chosen model is in view and nothing else moves. The tier cards scroll in the same room and never cover the footer.
 
 ## Proof
 
@@ -90,6 +92,8 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 - A8. `host/test/tiers.test.ts` › "a change applies to later runs only"
 - A9. check: start two scripted agents of different tiers and read their labels.
 - A10. `host/test/tiers.test.ts` › "a tier change from hobkin needs the user's confirmation"
+- A11. `shared/test/tiers.test.ts` › "the thinking levels are Pi's seven, weakest first, and the ones the host accepts for hobkin", "a model that thinks at max keeps max, and one that stops at xhigh moves down to it" and "the host takes max for a tier, for hobkin's own model and for a durable hobkin on a model of its own"; `shared/test/tiers-from-pi.test.ts` › "every level Pi lists for a model is kept in Pi's order, max included"; `shared/test/tiers-presets.test.ts` › "a model that thinks at max gives the max tier max, and the others their usual levels"; `host/test/claude-code-harness.test.ts` › "starts claude headless with the run's settings" (a tier at max runs at Claude Code's own max). Seen 2026-11-13 in a still render: a card on a model with `max` offers off to max, one on a model that stops at xhigh offers no max.
+- A12. `ui/test/tiers-list-scroll.test.ts` (the list scrolls itself, and only itself, to show the chosen model). Seen 2026-11-13 in still renders at 1100 by 640 and 1440 by 900 with 43 models: title and search at the top, footer at the bottom, list and cards clipped between them. A still does not scroll, so the opening scroll is proved by the rule and the code, not seen.
 
 ## Steps
 

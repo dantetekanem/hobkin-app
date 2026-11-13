@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
+import { registerHooks } from 'node:module'
 import { GITHUB_UNKNOWN, sampleGitHub } from '../../shared/protocol/github.ts'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
 import type { WireSnapshot } from '../../shared/protocol/snapshot.ts'
@@ -9,6 +10,8 @@ import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/s
 Object.defineProperty(globalThis, 'window', { configurable: true, value: {
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
 } })
+// The app's `@/` imports point at ui/src, as Vite resolves them.
+registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context) })
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
@@ -70,6 +73,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
       readState: 'read',
     }],
     reportAttention: { lastLookAt: '2026-01-01T00:00:00Z' },
+    reminderOccurrences: { home: '/fake/A', entries: [] },
     wins: { today: { merged: 1, decided: 0 }, streak: 1 },
   }, github })
   const before = gather()
@@ -77,6 +81,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
   assert.equal(before.reports[0]?.id, 'A-report')
   assert.equal(before.github.login, 'actual')
   assert.equal(before.read.has('A-report'), true)
+  assert.deepEqual(before.reminders, { home: '/fake/A', entries: [] })
   const question = {
     id: 'ask',
     from: 'hobkin',
@@ -102,6 +107,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
   assert.deepEqual(after.reports, [])
   assert.equal(after.work, null)
   assert.equal(after.attention, undefined)
+  assert.equal(after.reminders, undefined)
   assert.equal(after.wins, undefined)
   assert.deepEqual(after.github, GITHUB_UNKNOWN)
 })
@@ -146,7 +152,7 @@ test('accepted publications gather only actual runs, work and local source facts
   }
 
   send({ type: 'state', rev: 1, reset: true, work, set: {
-    waiting: { asks: [{ id: 'actual-ask', question: 'Pick a path' }] },
+    waiting: { asks: [{ slug: 'app', item: 'prop', kind: 'proposal', question: 'Pick a path' }] },
     runs: [
       { id: 'worker', kind: 'background', state: 'running', title: 'Working' },
       { id: 'ended', kind: 'background', state: 'completed', title: 'Done' },
@@ -172,13 +178,13 @@ test('accepted publications gather only actual runs, work and local source facts
   const input = gather()
   assert.equal(input.work, work)
   assert.deepEqual(input.agents.map(({ id }) => id), ['worker'])
-  assert.deepEqual(input.waiting.map(({ id }) => id), ['waiting:asks:actual-ask'])
+  assert.deepEqual(input.waiting.map(({ id }) => id), ['waiting:asks:app:prop'])
   assert.deepEqual(input.routines.map(({ routine }) => routine.id), ['check'])
   assert.equal(useReports.getState().inbox.read, read)
   useActionItems.setState({ sample: true })
   useRoutines.setState({ sample: 'full' })
   assert.deepEqual(gather().waiting, [])
   assert.deepEqual(gather().routines, [])
-  useActionItems.setState({ sample: false, answering: ['waiting:asks:actual-ask'] })
+  useActionItems.setState({ sample: false, answering: ['waiting:asks:app:prop'] })
   assert.deepEqual(gather().waiting, [])
 })

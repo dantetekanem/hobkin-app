@@ -5,7 +5,6 @@ import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { useActionCount } from '@/features/actions/store.ts'
 import { useSettings } from '@/features/settings/store.ts'
-import { useActionItemCount, useHasHost } from '@/lib/host/index.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { requestCanvasFocus } from './focus.ts'
@@ -72,10 +71,9 @@ export function ScreenMenu() {
   const openScreen = useView((view) => view.openScreen)
   const githubInMenu = useSettings((settings) => settings.showGitHubInMenu)
   const main = SCREENS.filter((tab) => inMenu(tab.id, githubInMenu))
-  // With a host, hobkin's own count: open decisions plus waiting rows, as the terminal counts them.
-  const sampleCount = useActionCount()
-  const hostCount = useActionItemCount()
-  const badges: Partial<Record<ScreenId, number>> = { actions: useHasHost() ? hostCount : sampleCount }
+  // The badge matches the Action Items screen exactly: the same filtered rows it lists, so it never reads "2" over an
+  // empty list. Only genuine decisions wait on the user, both in the count and on the screen.
+  const badges: Partial<Record<ScreenId, number>> = { actions: useActionCount() }
   const second = secondFor(screen, githubInMenu)
 
   return (

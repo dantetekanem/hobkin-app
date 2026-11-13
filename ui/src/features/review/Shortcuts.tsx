@@ -12,6 +12,8 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['home', 'end'], 'First and last step'],
       [['B'], 'Back to the step'],
       [['G'], 'The whole graph'],
+      [['P'], 'Story: from its first step, the steps leading'],
+      [['O'], 'Free Roam: the whole graph, nothing leading. Every arrow moves between nodes'],
     ],
   },
   {
@@ -23,7 +25,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['W'], 'Walk the wires of the focus'],
       [['Y', 'R'], 'Confirm or remove the open wire'],
       [[',', '.'], 'Back and forward through where you jumped'],
-      [['↵'], 'Open the code of the focus, with what the change review says about it'],
+      [['↵'], 'Open the code of the focus, with what the change review says about it. Again to close it'],
     ],
   },
   {

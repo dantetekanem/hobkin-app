@@ -5,7 +5,7 @@ import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useHost } from '@/lib/host/index.ts'
-import { executionKey, executionTargets, latestMainExecutionResult } from '../work/actions.ts'
+import { executionKey, executionTargets } from '../work/actions.ts'
 import { useExecution } from '../work/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -68,7 +68,6 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const host = useHost(state => state)
   const main = executionTargets(host).find(target => target.kind === 'main')
   const execution = useExecution()
-  const mainResult = latestMainExecutionResult(main, execution.results)
   const canSend = ready && canSendDraft({ text, attachments })
   const list = ready ? slashList(text, commands, slash) : null
   // The report the next message is about, chosen with r on a report.
@@ -194,7 +193,6 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     <div className="shrink-0 px-3 pt-1 pb-2">
       <div className="mx-auto max-w-[640px]">
         <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} stopArmed={stopArmed} />
-        {mainResult ? <p role="status" className="text-xs text-muted-foreground">{mainResult.text}</p> : null}
         <div className="flex items-end gap-2">
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">
@@ -227,7 +225,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                   aria-disabled={!ready}
                   aria-label="Message hobkin"
                   // One line always. Why nothing can be sent is said once, in the status line above.
-                  placeholder={dropping ? 'Drop the image to attach it' : report ? (report.kind === 'routine' ? 'Ask about this routine' : 'Ask about this report') : 'Message hobkin'}
+                  placeholder={dropping ? 'Drop the image to attach it' : report ? (report.kind === 'routine' ? 'Ask about this routine' : report.kind === 'item' ? 'Ask about this item' : 'Ask about this report') : 'Message hobkin'}
                   // While the list of commands is open the input is its combobox, which is also how the frame
                   // knows to leave Tab to the list.
                   {...(list ? { role: 'combobox', 'aria-expanded': true, 'aria-controls': listId, 'aria-autocomplete': 'list' as const } : {})}

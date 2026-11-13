@@ -15,12 +15,12 @@ import {
 } from '../src/features/settings/rules.ts'
 
 test('canonical receipts validate optional borders', () => {
-  const state = { request: null, appearanceId: 0 }
+  const state = { appearanceId: 0 }
   const receipt = { id: 2, name: null, palette: DARK_PALETTE, border: '#ABCDEF', borderStrong: '#123456' }
-  const applied = receiveAppearance(state, receipt, 3)!
+  const applied = receiveAppearance(state, receipt)!
   assert.deepEqual([applied.border, applied.borderStrong], ['#abcdef', '#123456'])
-  assert.equal(receiveAppearance(state, { ...receipt, border: 'url(https://invalid.test)' }, 3), null)
-  assert.equal(receiveAppearance(state, { ...receipt, borderStrong: 'red' }, 3), null)
+  assert.equal(receiveAppearance(state, { ...receipt, border: 'url(https://invalid.test)' }), null)
+  assert.equal(receiveAppearance(state, { ...receipt, borderStrong: 'red' }), null)
   const migrated = migrateSettings({ palette: DARK_PALETTE, border: '#ABCDEF', borderStrong: 'red' })
   assert.deepEqual([migrated.border, migrated.borderStrong], ['#abcdef', undefined])
 })
@@ -85,15 +85,22 @@ test('a custom theme sits on dark when its text is lighter than its background',
 
 test('settings saved before opacity and custom themes keep their values and gain the defaults', () => {
   const saved = { movement: 'still', typeFace: 'inter', agents: 5, dailyTokens: 50_000_000, usageEvents: false, feedback: true, showGitHubInMenu: false }
-  assert.deepEqual(migrateSettings(saved), { ...saved, backgroundOpacity: 1, palette: null, customTheme: false, request: null, appearanceId: 0 })
+  assert.deepEqual(migrateSettings(saved), { ...saved, backgroundOpacity: 1, palette: null, background: null, themeName: null, customTheme: false, appearanceId: 0 })
 })
 
-test('saved appearance that cannot be used is dropped, and custom with it', () => {
-  const dropped = migrateSettings({ backgroundOpacity: 7, palette: { ...DARK_PALETTE, text: '#111111' }, customTheme: true, request: null, appearanceId: 0 })
-  assert.deepEqual(dropped, { backgroundOpacity: 1, palette: null, customTheme: false, request: null, appearanceId: 0 })
-  const kept = migrateSettings({ backgroundOpacity: 0.4, palette: { ...LIGHT_PALETTE, accent: '#FF0000', extra: '#000000' }, customTheme: true, request: null, appearanceId: 0 })
-  assert.deepEqual(kept, { backgroundOpacity: 0.4, palette: { ...LIGHT_PALETTE, accent: '#ff0000' }, customTheme: true, request: null, appearanceId: 0 })
-  assert.deepEqual(migrateSettings(undefined), { backgroundOpacity: 1, palette: null, customTheme: false, request: null, appearanceId: 0 })
+test('a saved palette whose text would not read is nudged until it reads, keeping its vibe', () => {
+  const nudged = migrateSettings({ backgroundOpacity: 7, palette: { ...DARK_PALETTE, text: '#111111' }, customTheme: true, appearanceId: 0 })
+  const palette = nudged.palette as Record<string, string>
+  assert.equal(palette.background, DARK_PALETTE.background, 'the background is kept exactly')
+  assert.equal(palette.accent, DARK_PALETTE.accent, 'the accent is kept exactly')
+  assert.notEqual(palette.text, '#111111', 'the unreadable text is moved')
+  assert.deepEqual(paletteProblems(palette), [], 'and now it reads')
+  assert.deepEqual([nudged.customTheme, nudged.background, nudged.backgroundOpacity], [true, null, 1])
+  const kept = migrateSettings({ backgroundOpacity: 0.4, palette: { ...LIGHT_PALETTE, accent: '#FF0000', extra: '#000000' }, themeName: 'Sunrise', customTheme: true, appearanceId: 0 })
+  assert.deepEqual(kept, { backgroundOpacity: 0.4, palette: { ...LIGHT_PALETTE, accent: '#ff0000' }, background: null, themeName: 'Sunrise', customTheme: true, appearanceId: 0 })
+  const notAPalette = migrateSettings({ palette: { foo: 'bar' }, themeName: 'Sunrise', customTheme: true })
+  assert.deepEqual(notAPalette, { backgroundOpacity: 1, palette: null, background: null, themeName: null, customTheme: false, appearanceId: 0 })
+  assert.deepEqual(migrateSettings(undefined), { backgroundOpacity: 1, palette: null, background: null, themeName: null, customTheme: false, appearanceId: 0 })
 })
 
 test('the store loads settings saved at version 1 without losing them', async () => {
@@ -116,55 +123,34 @@ test('the store loads settings saved at version 1 without losing them', async ()
     const state = useSettings.getState()
     assert.deepEqual([state.movement, state.typeFace, state.agents, state.showGitHubInMenu], ['still', 'geist', 6, false])
     assert.deepEqual([state.backgroundOpacity, state.palette, state.customTheme], [1, null, false])
+    assert.deepEqual(state.openByDefault, { change: true, shell: false, looks: false, other: false }, 'code changes open by default, every other kind of block closed')
     assert.equal(JSON.parse(values.get('hobkin-client-settings')!).version, 4, 'saved again at the new version')
+    state.setOpenByDefault('shell', true)
+    assert.deepEqual(JSON.parse(values.get('hobkin-client-settings')!).state.openByDefault, { change: true, shell: true, looks: false, other: false }, 'kept with the window\'s other settings')
+    state.setOpenByDefault('shell', false)
 
-    assert.deepEqual([state.request, state.appearanceId], [null, 0])
+    assert.equal(state.appearanceId, 0)
     state.receive({ id: 10, name: 'Night', palette: DARK_PALETTE })
     assert.equal(useSettings.getState().appearanceId, 10)
     state.setCustomTheme(false)
     state.receive({ id: 10, name: 'Night', palette: DARK_PALETTE })
     assert.equal(useSettings.getState().customTheme, false, 'reconnecting cannot override a built-in choice')
-    state.receive({ id: 11, name: 'Unreadable', palette: { ...DARK_PALETTE, text: '#111111' } })
-    assert.equal(useSettings.getState().appearanceId, 10)
+    state.receive({ id: 11, name: 'Vivid', palette: { ...DARK_PALETTE, text: '#111111' } })
+    assert.equal(useSettings.getState().appearanceId, 11, 'a vivid palette applies, its text nudged to read')
+    assert.equal(useSettings.getState().palette!.background, DARK_PALETTE.background, 'its background is kept exactly')
+    assert.notEqual(useSettings.getState().palette!.text, '#111111', 'its text is nudged until it reads')
     state.setPalette({ ...LIGHT_PALETTE, text: '#eeeeee' })
-    assert.deepEqual(useSettings.getState().palette, DARK_PALETTE, 'an unreadable palette keeps the previous colors')
+    assert.deepEqual(paletteProblems(useSettings.getState().palette), [], 'a hand-set palette is nudged until it reads too')
     state.setPalette(DARK_PALETTE)
     state.setCustomTheme(true)
     state.changeBackgroundOpacity(-1)
     const saved = JSON.parse(values.get('hobkin-client-settings')!).state
     assert.deepEqual([saved.palette, saved.customTheme, saved.backgroundOpacity], [DARK_PALETTE, true, 0.95])
-    assert.equal(saved.appearanceId, 10)
-    values.set('hobkin-client-settings', JSON.stringify({ version: 2, state: { ...saved, request: undefined, appearanceId: undefined } }))
+    assert.equal(saved.appearanceId, 11)
+    values.set('hobkin-client-settings', JSON.stringify({ version: 2, state: { ...saved, appearanceId: undefined } }))
     await useSettings.persist.rehydrate()
     assert.deepEqual([useSettings.getState().palette, useSettings.getState().backgroundOpacity], [DARK_PALETTE, 0.95])
-    assert.deepEqual([useSettings.getState().request, useSettings.getState().appearanceId], [null, 0], 'version 2 colors survive and tracking gets defaults')
-    const operation = {
-      id: 'saved-operation',
-      request: 'forest',
-      status: 'completed' as const,
-      appearanceId: 12,
-      error: null,
-      cleanup: 'confirmed' as const,
-      child: 'theme-child',
-    }
-    const themeHost = {
-      getState: () => ({ home: '/fake/theme', epoch: 1, link: 'open' as const }),
-      customize: async () => operation,
-      status: async () => operation,
-    }
-    await useSettings.getState().ask('forest', themeHost)
-    await useSettings.persist.rehydrate()
-    assert.deepEqual(useSettings.getState().request?.operation, operation, 'the acknowledged exact save survives reload')
-    assert.equal(useSettings.getState().themeBusy, false)
-    let reject!: (error: Error) => void
-    const pendingAsk = useSettings.getState().ask('another forest', {
-      ...themeHost,
-      customize: () => new Promise((_, failed) => { reject = failed }),
-    })
-    assert.equal(JSON.parse(values.get('hobkin-client-settings')!).state.request.phase, 'unknown', 'reload cannot replay a submission awaiting acknowledgement')
-    reject(Object.assign(Error('Refused'), { code: 'unavailable' }))
-    await pendingAsk
-    assert.deepEqual(useSettings.getState().request?.operation, operation, 'definite refusal restores the durable previous receipt')
+    assert.equal(useSettings.getState().appearanceId, 0, 'version 2 colors survive and tracking gets defaults')
     const { createStore } = await import('zustand/vanilla')
     const { initialHostState } = await import('../src/lib/host/state.ts')
     useSettings.setState({ appearanceId: 999999, border: '#111111', customTheme: false })
@@ -185,7 +171,7 @@ test('the store loads settings saved at version 1 without losing them', async ()
 
     const { registerHooks } = await import('node:module')
     const hooks = registerHooks({ resolve(specifier, context, next) {
-      if (specifier === '@/lib/host/client.ts') return { url: 'data:text/javascript,export const hostStore = {getState:()=>({home:null,epoch:0,appearance:null}),subscribe:()=>()=>{}}', shortCircuit: true }
+      if (specifier === '@/lib/host/client.ts') return { url: 'data:text/javascript,export const hostStore = {getState:()=>({home:null,epoch:0,appearance:null}),subscribe:()=>()=>{}};export const runCommand = async () => ({ok:true})', shortCircuit: true }
       if (specifier.startsWith('@/')) return next(new URL(`../src/${specifier.slice(2)}`, import.meta.url).href, context)
       return next(specifier, context)
     } })
@@ -233,8 +219,10 @@ test('the store loads settings saved at version 1 without losing them', async ()
         assert.deepEqual(appliedAppearance(), [LIGHT_PALETTE.background, '#fedcba', '#654321'], 'B low-id receipt applies')
         setThemeChoice('light')
         assert.deepEqual([properties.get('--hb-border'), properties.get('--hb-border-strong')], [undefined, undefined])
+        assert.deepEqual([useSettings.getState().palette, useSettings.getState().customTheme], [null, false], 'choosing a base theme drops the custom theme')
         setThemeChoice('custom')
-        assert.deepEqual([properties.get('--hb-border'), properties.get('--hb-border-strong')], ['#fedcba', '#654321'])
+        // The dropped theme does not come back: Custom now starts from a fresh default palette with no borders.
+        assert.deepEqual([properties.get('--hb-border'), properties.get('--hb-border-strong')], [undefined, undefined])
       } finally {
         stopThemeAppearance()
       }

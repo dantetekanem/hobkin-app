@@ -16,9 +16,6 @@ function catalogTools(id: string): ServerTool[] {
   return toolsOf(catalogEntry(id))
 }
 
-/** A client ID that is plainly not a real one. */
-const SAMPLE_GOOGLE_CLIENT = 'sample-client.apps.googleusercontent.com'
-
 const HOME_TOOLS: ServerTool[] = [
   { name: 'GetLiveContext', does: 'Reads the state of the exposed devices', effect: 'reads' },
   { name: 'GetDateTime', does: 'Reads the date and time', effect: 'reads' },
@@ -29,7 +26,6 @@ const HOME_TOOLS: ServerTool[] = [
 ]
 
 export const SAMPLE_SERVERS: readonly ConfiguredServer[] = [
-  { name: 'github', entry: fromCatalog('github'), state: 'connected', tools: catalogTools('github'), error: null },
   {
     name: 'docs',
     entry: { url: 'https://example.com/mcp', headers: { Authorization: 'Bearer ${DOCS_TOKEN}' }, description: 'Search and read the product documentation' },
@@ -40,14 +36,8 @@ export const SAMPLE_SERVERS: readonly ConfiguredServer[] = [
     ],
     error: null,
   },
-  { name: 'gmail', entry: fromCatalog('gmail', { 'google-client-id': SAMPLE_GOOGLE_CLIENT }), state: 'connected', tools: catalogTools('gmail'), error: null },
-  {
-    name: 'google-calendar',
-    entry: fromCatalog('google-calendar', { 'google-client-id': SAMPLE_GOOGLE_CLIENT }),
-    state: 'connected',
-    tools: catalogTools('google-calendar'),
-    error: null,
-  },
+  { name: 'atlassian', entry: fromCatalog('atlassian'), state: 'connected', tools: catalogTools('atlassian'), error: null },
+  { name: 'sentry', entry: fromCatalog('sentry'), state: 'connected', tools: catalogTools('sentry'), error: null },
   { name: 'linear', entry: fromCatalog('linear'), state: 'sign-in', tools: [], error: null },
   {
     name: 'home-assistant',
@@ -76,9 +66,8 @@ export const SAMPLE_SERVERS: readonly ConfiguredServer[] = [
 
 /** Routines that use each service, by the service's catalog id or the server's name. */
 const SAMPLE_ROUTINES: Record<string, string[]> = {
-  github: ['Morning recap', 'Dependency watch'],
-  gmail: ['Morning recap', 'Inbox sweep'],
-  'google-calendar': ['Morning recap', 'Week ahead'],
+  atlassian: ['Standup notes', 'Sprint review'],
+  sentry: ['Morning recap', 'Error watch'],
   'home-assistant': ['Leaving home'],
   linear: ['Standup notes'],
   notion: ['Weekly review'],

@@ -51,6 +51,25 @@ export function modelChoiceOf(model: PiModel, thinking: string[]): ModelChoice {
   }
 }
 
+/**
+ * How Pi reaches a connected provider, from where its status says the credential comes from. Pi's `source` is one of
+ * stored, runtime, environment, fallback, models_json_key and models_json_command. A stored credential reads as a
+ * sign-in or a key by its kind. A key given for this run only, or by an extension, is left out: Pi does not say more.
+ */
+export function connectedByOf(
+  runtime: Pick<PiModelRuntime, 'getProviderAuthStatus'>,
+  credentials: readonly { providerId: string; type: string }[],
+  provider: string,
+): ProviderAccess['connectedBy'] {
+  const { configured, source } = runtime.getProviderAuthStatus(provider)
+  if (!configured) return undefined
+  if (source === 'environment') return CLOUD_ROUTES[provider] ? 'cloud' : 'environment'
+  if (source === 'models_json_key' || source === 'models_json_command') return 'key'
+  if (source !== 'stored') return undefined
+  const kind = credentials.find(({ providerId }) => providerId === provider)?.type
+  return kind === 'oauth' ? 'sign-in' : kind === 'api_key' ? 'key' : undefined
+}
+
 /** A provider Pi's catalog has no way in for: no sign-in, no key and no cloud route. It is not listed. */
 const reachable = (provider: ProviderAccess) => Boolean(provider.signIn || provider.apiKey || provider.cloud)
 
@@ -101,11 +120,15 @@ export async function piModelAccess(options: Record<string, unknown> = {}): Prom
     list: async () => {
       // The store and the environment may have changed in a terminal since the last look.
       await runtime.refresh({ allowNetwork: false }).catch(() => {})
+      // How each one connects is a detail. A credential store Pi cannot list must not take the providers with it.
+      const credentials = await Promise.resolve(runtime.listCredentials()).catch(() => [])
       const providers = runtime
         .getProviders()
-        .map((provider) =>
-          providerAccessOf(provider, keyVariables(provider.id), runtime.getProviderAuthStatus(provider.id).configured, defaultModelOf(defaults, runtime, provider.id)),
-        )
+        .map((provider) => {
+          const access = providerAccessOf(provider, keyVariables(provider.id), runtime.getProviderAuthStatus(provider.id).configured, defaultModelOf(defaults, runtime, provider.id))
+          const connectedBy = access.connected ? connectedByOf(runtime, credentials, provider.id) : undefined
+          return connectedBy ? { ...access, connectedBy } : access
+        })
         .filter(reachable)
       const models = (await runtime.getAvailable()).map((model) => modelChoiceOf(model, ai.getSupportedThinkingLevels(model)))
       return { providers, models }

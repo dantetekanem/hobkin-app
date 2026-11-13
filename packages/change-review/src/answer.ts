@@ -55,5 +55,5 @@ export function deployAnswer(units: readonly (Pick<Unit, 'level' | 'title' | 'cr
     others ? `${others} other change${others === 1 ? ' is' : 's are'} worth a look.` : '',
   ].filter(Boolean)
   if (look.length) return { deploy, why: `Nothing found that breaks. ${worth.join(' ')}` }
-  return { deploy, why: units.length ? 'Every part is shown to work, or cannot break anything.' : 'Nothing in it runs.' }
+  return { deploy, why: units.length ? 'Every part is shown to work, or cannot break anything.' : 'Nothing that runs changed.' }
 }

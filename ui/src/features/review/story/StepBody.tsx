@@ -26,8 +26,8 @@ interface BodyProps {
   content: CardContent
   /** The unit the step tells, or the node's, from the change review. */
   unit: Unit | undefined
-  /** Whether a change review has rated this change at all. */
-  rated: boolean
+  /** What to say in place of a rating (`ratingGap`), or null when the change review has units. */
+  gap: string | null
   graph: CardGraph
   /** Sends words to hobkin. Null where hobkin is not connected, as in a sample review. */
   ask: ((text: string) => Promise<boolean>) | null
@@ -47,7 +47,7 @@ const MOST = 3
  * how it is proven, who it reaches, what to watch and what it holds. Open code is always at the bottom. A node the
  * reviewer went to off the path is told the same way, with the way back. Drawn twice: once unseen, to measure it.
  */
-export function StepBody({ content, unit, rated, graph, ask, actions, canOpenCode, brief }: BodyProps) {
+export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode, brief }: BodyProps) {
   const [more, setMore] = useState(false)
   const node = content.kind === 'node' ? content.node : undefined
   const focus = content.kind === 'step' ? content.step.focus : [content.node.id]
@@ -65,7 +65,7 @@ export function StepBody({ content, unit, rated, graph, ask, actions, canOpenCod
       {brief ? null : (
         <>
           {tldr ? <p className="rv-step-text">{tldr}</p> : null}
-          {rated ? null : <p className="rv-step-quiet">No change review yet.</p>}
+          {gap ? <p className="rv-step-quiet">{gap}</p> : null}
           {details.length > 0 ? (
             <>
               <button type="button" className="rv-step-more" aria-expanded={more} onClick={() => setMore((open) => !open)}>
@@ -84,7 +84,7 @@ export function StepBody({ content, unit, rated, graph, ask, actions, canOpenCod
                 </Kbd>
               </button>
             ) : null}
-            {content.kind === 'node' ? (
+            {content.kind === 'node' && content.backTo != null ? (
               <button type="button" className="rv-step-action" onClick={actions.back}>
                 <ArrowLeft aria-hidden="true" />
                 Back to step {content.backTo + 1}

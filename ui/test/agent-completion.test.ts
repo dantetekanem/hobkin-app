@@ -27,7 +27,7 @@ function manualTimers() {
 }
 
 function fixture() {
-  useView.setState({ screen: 'agent', openAgent: 'run', previewReturn: null, agentTalk: true, veil: null, spotlight: false })
+  useView.setState({ screen: 'agent', openAgent: 'run', previewReturn: null, veil: null, spotlight: false })
   useReports.setState({ inbox: createInbox([]), openId: null })
   const host = createStore<HostState>(() => ({ ...initialHostState, link: 'open', home: '/fixture', snapshot: {} }))
   const notices: string[] = []

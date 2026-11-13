@@ -10,29 +10,24 @@ export interface MarkLook {
   hue: number
 }
 
+/** GitHub is a full integration, outside the MCP catalog, so its mark is set here and keeps the hue it has always had. */
+const GITHUB: MarkLook = { symbol: 'Gh', hue: 162 }
+
 const SYMBOLS: Record<string, string> = {
-  slack: 'Sl',
-  github: 'Gh',
-  gmail: 'Gm',
-  'google-calendar': 'Ca',
-  'google-drive': 'Dr',
   linear: 'Li',
   notion: 'No',
   atlassian: 'Ji',
   sentry: 'Se',
-  figma: 'Fi',
   'home-assistant': 'Ha',
   stripe: 'St',
-  vercel: 'Ve',
   cloudflare: 'Cf',
   supabase: 'Su',
   gitlab: 'Gl',
   intercom: 'In',
-  asana: 'As',
   todoist: 'To',
 }
 
-/** Neighbors in the catalog sit a golden angle apart on the wheel, so no two next to each other look alike. */
+/** Neighbors sit a golden angle apart on the wheel, so no two next to each other look alike. GitHub comes first, then the catalog. */
 const GOLDEN_ANGLE = 137.508
 
 function symbolOf(name: string): string {
@@ -41,8 +36,9 @@ function symbolOf(name: string): string {
 }
 
 export function serviceMark(id: string): MarkLook {
-  const at = Math.max(0, CATALOG.findIndex((entry) => entry.id === id))
-  return { symbol: SYMBOLS[id] ?? symbolOf(id), hue: Math.round((24 + at * GOLDEN_ANGLE) % 360) }
+  if (id === 'github') return GITHUB
+  const place = Math.max(0, CATALOG.findIndex((entry) => entry.id === id)) + 1
+  return { symbol: SYMBOLS[id] ?? symbolOf(id), hue: Math.round((GITHUB.hue + place * GOLDEN_ANGLE) % 360) }
 }
 
 /** A server of the person's own: its first two letters, on a hue taken from its name, so it keeps the same one. */

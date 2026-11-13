@@ -114,6 +114,15 @@ export function plainSentences(text: string): string[] {
 }
 
 /** The most a step's TL;DR says, and the most sentences it takes. */
+/**
+ * What a step says in place of a rating: that the change has none yet, or that it was rated and nothing that runs
+ * changed (only comments or blank lines, say). Null once the review has units to tell.
+ */
+export function ratingGap(units: readonly unknown[] | null | undefined): string | null {
+  if (units == null) return 'No change review yet.'
+  return units.length === 0 ? 'Nothing that runs changed.' : null
+}
+
 export const TLDR = { characters: 300, sentences: 3 } as const
 const LINE_COUNT = /^(?:(?:New|Removed) in this change\. )?(?:[\d,]+ lines? (?:added|removed)(?: and [\d,]+ lines? removed)?|No lines changed)\.$/
 

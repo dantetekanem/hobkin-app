@@ -15,6 +15,11 @@ export interface ProviderAccess {
   cloud?: { label: string }
   /** Pi can reach the provider now. Nothing else about its credential is ever sent. */
   connected: boolean
+  /**
+   * How Pi reaches it, when connected and Pi can tell: a sign-in it keeps, an API key it keeps, a key from the
+   * environment, or the cloud's own credentials. Never the credential itself.
+   */
+  connectedBy?: 'sign-in' | 'key' | 'environment' | 'cloud'
   /** The model id Pi starts on for this provider when nothing is saved, from Pi's own table. Only a model Pi's catalog has. */
   defaultModel?: string
 }

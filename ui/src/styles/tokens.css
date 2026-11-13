@@ -124,19 +124,28 @@
   --hb-accent: var(--hb-custom-accent);
   --hb-on-accent: var(--hb-custom-on-accent);
   --hb-gap: color-mix(in oklab, var(--hb-bg) 88%, black);
-  --hb-tone-1: color-mix(in oklab, var(--hb-bg) 94%, var(--hb-text));
-  --hb-tone-2: color-mix(in oklab, var(--hb-bg) 50%, var(--hb-surface));
-  --hb-tone-3: color-mix(in oklab, var(--hb-bg) 90%, var(--hb-text));
-  --hb-surface-2: color-mix(in oklab, var(--hb-surface) 88%, var(--hb-text));
-  --hb-border: color-mix(in oklab, var(--hb-bg) 84%, var(--hb-text));
-  --hb-border-strong: color-mix(in oklab, var(--hb-bg) 45%, var(--hb-text));
+  /* Tones carry text, so they stay close to the background with only a trace of the accent's hue. */
+  --hb-tone-1: color-mix(in oklab, color-mix(in oklab, var(--hb-bg) 94%, var(--hb-text)) 97%, var(--hb-accent));
+  --hb-tone-2: color-mix(in oklab, color-mix(in oklab, var(--hb-bg) 50%, var(--hb-surface)) 92%, var(--hb-accent));
+  --hb-tone-3: color-mix(in oklab, color-mix(in oklab, var(--hb-bg) 90%, var(--hb-text)) 97%, var(--hb-accent));
+  /* Chips and secondary controls lean a little harder on the accent, so the theme reads across the whole app. */
+  --hb-surface-2: color-mix(in oklab, color-mix(in oklab, var(--hb-surface) 88%, var(--hb-text)) 88%, var(--hb-accent));
+  --hb-border: color-mix(in oklab, color-mix(in oklab, var(--hb-bg) 84%, var(--hb-text)) 92%, var(--hb-accent));
+  --hb-border-strong: color-mix(in oklab, color-mix(in oklab, var(--hb-bg) 45%, var(--hb-text)) 85%, var(--hb-accent));
   --hb-focus: var(--hb-text);
   --hb-mark: var(--hb-text);
   --hb-mark-eye: var(--hb-accent);
   --hb-sun: var(--hb-accent);
-  --hb-wire: var(--hb-border-strong);
-  --hb-wire-active: var(--hb-text);
+  --hb-wire: color-mix(in oklab, var(--hb-border-strong) 70%, var(--hb-accent));
+  --hb-wire-active: var(--hb-accent);
   --hb-wire-pulse: var(--hb-accent);
+  /* The work map's hills and the graph's node hue take the accent over the background, so they change with the theme. */
+  --hb-ridge-0: color-mix(in oklab, var(--hb-bg) 88%, var(--hb-accent));
+  --hb-ridge-1: color-mix(in oklab, var(--hb-bg) 80%, var(--hb-accent));
+  --hb-ridge-2: color-mix(in oklab, var(--hb-bg) 72%, var(--hb-accent));
+  --hb-ridge-3: color-mix(in oklab, var(--hb-bg) 64%, var(--hb-accent));
+  --hb-code: color-mix(in oklab, var(--hb-accent) 62%, var(--hb-text));
+  --hb-code-fg: color-mix(in oklab, var(--hb-accent) 44%, var(--hb-text));
 }
 
 /*

@@ -6,6 +6,7 @@ import type { GitHubState } from '#shared/protocol/github.ts'
 import { applyMessageOps } from '#shared/protocol/message-ops.ts'
 import type { HostMessage, OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
+import type { Nudge } from '#shared/protocol/nudge.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import type { ChatMessage, WireSnapshot } from '#shared/protocol/snapshot.ts'
@@ -39,6 +40,10 @@ export interface HostState {
   work: WorkState | null
   /** The canvas panel hobkin opened. Null until the host says, and always from a host that has none. */
   canvas: CanvasState | null
+  /** Each durable hobkin's canvas, by its id. Null until the host says, and always from a host that has none. */
+  canvases: Record<string, CanvasState> | null
+  /** The latest one-shot instruction hobkin gave the window (a move or a draft). The window carries out each id once. */
+  nudge: Nudge | null
   appearance: AppearanceRequest | null
   /** hobkin's snapshot, by top-level key. */
   snapshot: WireSnapshot
@@ -64,6 +69,8 @@ export const initialHostState: HostState = {
   integrations: null,
   work: null,
   canvas: null,
+  canvases: null,
+  nudge: null,
   appearance: null,
   snapshot: {},
   messages: [],
@@ -102,6 +109,9 @@ function applyState(state: HostState, message: StateMessage): HostState {
     // Work mode comes whole with every reset that has it, and null once hobkin's snapshot has none.
     work: message.work !== undefined ? message.work : message.reset ? null : state.work,
     canvas: message.canvas ?? (message.reset ? null : state.canvas),
+    canvases: message.canvases ?? (message.reset ? null : state.canvases),
+    // A one-shot instruction arrives only when it is new. A reset clears it, so a reconnect never replays a move or draft.
+    nudge: message.nudge ?? (message.reset ? null : state.nudge),
     appearance: message.appearance !== undefined ? message.appearance : message.reset ? null : state.appearance,
     live: settleLive(message.reset ? null : state.live, messages, snapshot.busy),
     epoch: message.reset ? state.epoch + 1 : state.epoch,

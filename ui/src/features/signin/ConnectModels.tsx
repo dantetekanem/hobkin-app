@@ -266,7 +266,8 @@ interface SigningInProps {
   onCancel: () => void
 }
 
-function SigningIn({ signIn, onAnswer, onCancel }: SigningInProps) {
+/** A sign-in under way: what Pi says, the way back to its page, and what it asks. Any page that starts a sign-in can show it. */
+export function SigningIn({ signIn, onAnswer, onCancel }: SigningInProps) {
   const { authUrl, instructions, prompt, lines } = signIn
   return (
     <motion.div variants={piece} className="flex flex-col gap-4 rounded-2xl bg-surface-2 p-5">

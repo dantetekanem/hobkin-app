@@ -1,13 +1,16 @@
+import { execFileSync } from 'node:child_process'
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { shownTitle } from 'hobkin/src/cli/work/groups.mjs'
+import { githubRepoOf } from 'hobkin/src/cli/work/issues.mjs'
 import { readItems } from 'hobkin/src/cli/work/store.mjs'
 import type { FinishedChange, FinishedGroup, MergingRow, QueueRow, WorkIssue, WorkState } from '#shared/protocol/work.ts'
 import { changeOf, workFrom } from './work.ts'
 
 /**
  * Work mode as the Work screen draws it (`workFrom`), with what hobkin keeps and its snapshot's groups leave out: the
- * GitHub issue each piece of work was filed from, the finished branches whose run left the user a note, which hobkin
- * lists apart from its groups (`waiting.yours`), and what the user said yes to that is still being brought up to date
+ * repository on GitHub of each project it works on, the GitHub issue each piece of work was filed from, the finished
+ * branches whose run left the user a note, which hobkin lists apart from its groups (`waiting.yours`), and what the
+ * user said yes to that is still being brought up to date
  * before it merges. Nothing here decides anything hobkin does not. Spec: 011-work.
  */
 
@@ -72,6 +75,43 @@ function itemsReader(root: () => string): ItemOf {
   return (slug, id) => itemsOf(slug).find((item) => item.id === id)
 }
 
+/** A folder's origin, as `git remote get-url origin` prints it, or null when it has none. */
+export type OriginOf = (folder: string) => string | null
+
+const ORIGIN_TIMEOUT_MS = 2000
+
+/** git, only reading, as hobkin's `repoOfProject` asks it. A folder git cannot answer for has no origin. */
+function gitOrigin(folder: string): string | null {
+  try {
+    return execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: ORIGIN_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Each project's repository on GitHub, by its slug, as hobkin's `repoOfProject` finds it: its folder's origin, or the remote hobkin
+ * clones. Only for the projects hobkin works on, as a look for projects can propose many folders. Each folder's origin is asked once
+ * for the host's life, so a refresh runs no git.
+ */
+function reposReader(originOf: OriginOf): (projects: unknown) => Map<string, string | null> {
+  const origins = new Map<string, string | null>()
+  const originIn = (folder: string) => {
+    if (!origins.has(folder)) origins.set(folder, originOf(folder))
+    return origins.get(folder) ?? null
+  }
+  return (projects) => {
+    const repos = new Map<string, string | null>()
+    for (const project of Array.isArray(projects) ? (projects as Record<string, unknown>[]) : []) {
+      const slug = text(project.slug)
+      if (!slug || project.state !== 'chosen') continue
+      const folder = text(project.path)
+      repos.set(slug, githubRepoOf(folder ? originIn(folder) : project.remote))
+    }
+    return repos
+  }
+}
+
 const LEFT_HEADING = 'Left for you'
 
 function leftWhy(count: number): string {
@@ -79,14 +119,15 @@ function leftWhy(count: number): string {
   return 'Their runs left you a note: something each could not do or decide alone.'
 }
 
-/** A finished branch whose run left a note: its note, and Review. No merge is offered. */
+/** A finished branch whose run left a note: its note, Review, and Close without merging, which is hobkin's own done. No merge is offered. */
 function leftCard(row: ReadyRow, note: string, item: Item | undefined): FinishedChange {
+  const keeps = row.pr ? 'its branch and its PR stay as they are' : 'its branch stays as it is'
   const opensPr: FinishedChange['choices'] = row.pr ? [{ value: 'open', label: 'Open the PR in the browser' }] : []
   return {
     ...changeOf(row, 'needs'),
     reason: 'Its run left you a note, so no group merges it until you answer.',
-    yes: 'Nothing merges from here. Ask for changes sends an agent back to it with your words.',
-    choices: [{ value: 'diff', label: 'Show the diff' }, ...opensPr],
+    yes: `Close without merging marks it done: nothing merges, and ${keeps}.`,
+    choices: [{ value: 'diff', label: 'Show the diff' }, ...opensPr, { value: 'done', label: 'Close without merging' }],
     issue: issueOf(item),
     left: note,
   }
@@ -138,12 +179,14 @@ function mergingRows(closing: unknown, itemOf: ItemOf): MergingRow[] {
   })
 }
 
-function withItems(snapshot: HobkinSnapshot, root: () => string): WorkState | null {
+function withItems(snapshot: HobkinSnapshot, root: () => string, reposOf: ReturnType<typeof reposReader>): WorkState | null {
   const work = workFrom(snapshot)
   if (!work) return null
   const itemOf = itemsReader(root)
   const waiting = snapshot.waiting as { yours?: unknown } | null | undefined
   const closing = (snapshot.work as { closing?: unknown }).closing
+  const repos = reposOf((snapshot.work as { projects?: unknown }).projects)
+  const projects = work.projects.map((project) => (repos.has(project.slug) ? { ...project, repo: repos.get(project.slug) ?? null } : project))
 
   const finished = work.finished.map((group) => ({
     ...group,
@@ -160,6 +203,7 @@ function withItems(snapshot: HobkinSnapshot, root: () => string): WorkState | nu
   return {
     ...work,
     queue,
+    projects,
     finished: left ? [...finished, left] : finished,
     merging: mergingRows(closing, itemOf),
   }
@@ -178,11 +222,12 @@ export function preparedByItself(work: WorkState | null): WorkState | null {
  * change (a refresh replaces both), and not again while neither does. A home that cannot be read gives the work as
  * hobkin's snapshot has it, with nothing it would have read from the items.
  */
-export function workReader(root: () => string): (snapshot: HobkinSnapshot) => WorkState | null {
+export function workReader(root: () => string, originOf: OriginOf = gitOrigin): (snapshot: HobkinSnapshot) => WorkState | null {
   let last: { work: unknown; waiting: unknown; read: WorkState | null } | null = null
+  const reposOf = reposReader(originOf)
   return (snapshot) => {
     if (last && last.work === snapshot.work && last.waiting === snapshot.waiting) return last.read
-    const read = withItems(snapshot, root)
+    const read = withItems(snapshot, root, reposOf)
     last = { work: snapshot.work, waiting: snapshot.waiting, read }
     return read
   }

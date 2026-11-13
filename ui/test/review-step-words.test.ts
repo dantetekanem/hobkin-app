@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { pullAssessment, pullReview } from '../src/features/review/sample/pull.ts'
-import { isBlindNote, plainSentences, proofWords, testsOf, testsWords, tldrOf, watchWords } from '../src/features/review/story/words.ts'
+import { isBlindNote, plainSentences, proofWords, ratingGap, testsOf, testsWords, tldrOf, watchWords } from '../src/features/review/story/words.ts'
 
 const pull = pullReview('pr:hobkin-sample/storefront/482')
 const shape = arrange(pull)
@@ -57,4 +57,12 @@ test("the blind check's notes are told apart from the reviewer's questions", () 
   const blind = { text: 'The blind check could not decide from the story alone: "who calls show". Can you settle it?', why: 'The blind check reads only the story and the units, and this was not in them.' }
   assert.equal(isBlindNote(blind), true)
   assert.equal(isBlindNote({ text: 'Should a tag in a code block link?', why: 'No test covers it.' }), false)
+})
+
+test('a change review that found nothing that runs is not a missing review', () => {
+  // No units yet: the change has not been rated. No units at all: it was rated, and nothing that runs changed.
+  assert.ok(ratingGap(undefined), 'not rated yet')
+  assert.ok(ratingGap([]), 'rated, with nothing to tell')
+  assert.notEqual(ratingGap([]), ratingGap(undefined), 'the two never read the same')
+  assert.equal(ratingGap(units), null, 'a rated change with units needs no such line')
 })

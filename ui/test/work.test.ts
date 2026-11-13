@@ -50,6 +50,7 @@ test("each action of the screen is one of hobkin's work actions, at the commit i
     [{ do: 'prs', slug: 'storefront', prs: 'draft' }, { name: 'work.project', args: { slug: 'storefront', prs: 'draft' } }],
     [{ do: 'proposal', slug: 'design-kit', answer: 'take' }, { name: 'work.proposal', args: { slug: 'design-kit', answer: 'take' } }],
     [{ do: 'agents', agents: 3 }, { name: 'work.agents', args: { agents: 3 } }],
+    [{ do: 'tokens', tokens: 40_000_000 }, { name: 'work.tokens', args: { tokens: 40_000_000 } }],
     [{ do: 'change', change, choice: 'merge' }, { name: 'work.change', args: { slug: change.slug, item: change.item, action: 'merge', head: change.head! } }],
     [{ do: 'change', change, choice: 'rebase' }, { name: 'work.change', args: { slug: change.slug, item: change.item, action: 'ask', note: '' } }],
     [{ do: 'change', change, choice: 'changes', note: 'Keep the old cart.' }, { name: 'work.change', args: { slug: change.slug, item: change.item, action: 'ask', note: 'Keep the old cart.' } }],

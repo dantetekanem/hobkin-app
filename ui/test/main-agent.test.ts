@@ -4,7 +4,7 @@ import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { walkScreens } from '../src/app/screens.ts'
 import { intoMind, mainActivityOf, outOfMind, type Place } from '../src/features/main-agent/mind.ts'
 
-const place = (overrides: Partial<Place> = {}): Place => ({ screen: 'reports', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, agentTalk: false, ...overrides })
+const place = (overrides: Partial<Place> = {}): Place => ({ screen: 'reports', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...overrides })
 
 test("the main agent's steps come from the snapshot, and a host that sends none at all is older than the view", () => {
   const entries: ActivityEntry[] = [{ id: 'message:1:0', kind: 'assistant', text: 'Looking.' }]
@@ -14,11 +14,11 @@ test("the main agent's steps come from the snapshot, and a host that sends none 
 })
 
 test('the mind comes in from the chat side, and leaving it goes back to where the canvas was', () => {
-  const talking = place({ screen: 'agent', openAgent: 'a1', previewReturn: 'routines', agentTalk: true })
-  const opened = intoMind(talking, null)
-  assert.deepEqual(opened.view, { screen: 'mind', settingsReturn: null, previewReturn: null, agentTalk: false, screenMotion: { axis: 'x', direction: -1 } })
-  assert.deepEqual(opened.back, talking)
-  assert.deepEqual(outOfMind(opened.back), { ...talking, screenMotion: { axis: 'x', direction: 1 } })
+  const onAgent = place({ screen: 'agent', openAgent: 'a1', previewReturn: 'routines' })
+  const opened = intoMind(onAgent, null)
+  assert.deepEqual(opened.view, { screen: 'mind', settingsReturn: null, previewReturn: null, screenMotion: { axis: 'x', direction: -1 } })
+  assert.deepEqual(opened.back, onAgent)
+  assert.deepEqual(outOfMind(opened.back), { ...onAgent, screenMotion: { axis: 'x', direction: 1 } })
   assert.equal(outOfMind(null).screen, 'reports', 'with no way back, as after a reload, the first screen')
 })
 

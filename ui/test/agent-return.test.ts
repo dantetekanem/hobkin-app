@@ -1,13 +1,28 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { useView } from '../src/app/view-store.ts'
+import { canvasGrowth, useView } from '../src/app/view-store.ts'
 import { resolveEscape, type KeyContext } from '../src/app/key-map.ts'
 
 const view = () => useView.getState()
 
+test('a click on an agent in the list shows its canvas to stay as it is, and the chat keeps its room', () => {
+  view().openScreen('routines')
+  view().previewAgent('a1', 1)
+  view().openAgentCanvas('a1') // What a click on its row does.
+  assert.equal(view().screen, 'agent')
+  assert.equal(view().openAgent, 'a1')
+  assert.equal(view().previewReturn, null, 'it stays when the list is left')
+  assert.equal(canvasGrowth(view()), 0, 'the canvas does not grow over the chat')
+  view().closeAgentCanvas()
+  assert.equal(view().screen, 'routines')
+  useView.setState({ screen: 'review', canvasEngaged: true, conversationWidth: 460 })
+  assert.ok(canvasGrowth(view()) > 0, 'a review that has the user attention still takes the room')
+  useView.setState({ screen: 'routines', canvasEngaged: false })
+})
+
 for (const screen of ['reports', 'routines', 'actions', 'github', 'work', 'mind'] as const) {
   test(`promoting a dock preview returns to ${screen}, even after switching agents`, () => {
-    useView.setState({ screen, openAgent: null, previewReturn: null, agentReturn: null, agentTalk: false })
+    useView.setState({ screen, openAgent: null, previewReturn: null, agentReturn: null })
     view().previewAgent('a1', 1)
     view().previewAgent('a2', 1)
     view().openAgentCanvas('a2')
@@ -23,26 +38,24 @@ for (const screen of ['reports', 'routines', 'actions', 'github', 'work', 'mind'
   })
 }
 
-test('a plain preview still ends when the list is left, and agent talk keeps its way back', () => {
+test('a plain preview still ends when the list is left, and an agent opened from the list keeps its way back', () => {
   view().openScreen('routines')
   view().previewAgent('a1', 1)
   view().endAgentPreview()
   assert.equal(view().screen, 'routines')
-  view().enterAgentTalk('a2')
+  view().previewAgent('a2', 1)
+  view().openAgentCanvas('a2') // Enter on it, which also puts the keyboard in its input.
   view().endAgentPreview()
-  assert.equal(view().screen, 'agent', 'focusing the agent talk input does not leave')
+  assert.equal(view().screen, 'agent', 'the keyboard leaving the list for the input does not leave')
   view().closeAgentCanvas()
   assert.equal(view().screen, 'routines')
-  assert.equal(view().agentTalk, false)
 })
 
-test('rapid entry, talk return and a second agent keep the original opener without waiting for motion', () => {
+test('rapid entry, opening and a second agent keep the original opener without waiting for motion', () => {
   view().openScreen('routines')
   view().previewAgent('a1', 1)
-  view().enterAgentTalk('a1')
-  view().leaveAgentTalk()
+  view().openAgentCanvas('a1')
   assert.equal(view().openAgent, 'a1')
-  assert.equal(view().agentTalk, false)
   view().previewAgent('a2', 1)
   view().openAgentCanvas('a2')
   view().endAgentPreview()

@@ -27,6 +27,27 @@
   padding: 0;
 }
 
+/*
+ * Between two places one file changed, inside the one box its change is drawn in: the lines left out between them,
+ * as a quiet band in the code's own colors, its mark under the column of + and −.
+ */
+.aa-skip {
+  display: flex;
+  align-items: center;
+  height: 1.5em;
+  margin: 0.2em 0;
+  background: color-mix(in oklab, var(--hb-code-text) 5%, var(--hb-code-bg));
+  color: color-mix(in oklab, var(--hb-code-text) 45%, var(--hb-code-bg));
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+}
+.aa-skip span {
+  width: 1.6em;
+  text-align: center;
+}
+
 /* Something still running: a dot that breathes. Only its opacity moves. */
 .aa-running {
   animation: aa-breathe 1.4s ease-in-out infinite;

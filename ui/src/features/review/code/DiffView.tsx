@@ -324,3 +324,6 @@ function Gap({ item, whole, onMore, onWhole }: { item: Extract<DiffItem, { type:
     </div>
   )
 }
+
+/** A diff's line and its band of held-back lines as `DiffView` draws them, for a page that draws a diff's rows in colors it already holds. */
+export { Line as DiffLineRow, Gap as DiffGapRow }

@@ -2,10 +2,17 @@ use std::fs::{self, File};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem, Submenu};
+use tauri::webview::PageLoadEvent;
+use tauri::{AppHandle, Manager, RunEvent, Wry, WindowEvent};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+
+mod browser;
+mod notices;
 
 /// The port a host started with `--dev` listens on. The development UI asks it for the host's address.
 const DEV_PORT: u16 = 5188;
@@ -164,31 +171,191 @@ fn stop_host(child: &mut Child) {
     let _ = child.wait();
 }
 
+/// How far the desktop behind the transparent window is blurred, like Ghostty's background-blur.
+#[cfg(target_os = "macos")]
+const BACKGROUND_BLUR_RADIUS: i32 = 20;
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    // Undocumented CoreGraphics calls, the ones Ghostty and Terminal.app use for a blurred translucent window.
+    fn CGSDefaultConnectionForThread() -> *mut std::ffi::c_void;
+    fn CGSSetWindowBackgroundBlurRadius(connection: *mut std::ffi::c_void, window: usize, radius: i32) -> i32;
+}
+
+/// Blurs what is behind the window. The window stays transparent, so the app's own background opacity decides how much shows.
+#[cfg(target_os = "macos")]
+fn blur_behind(window: &tauri::WebviewWindow) {
+    let Ok(ns_window) = window.ns_window() else { return };
+    // SAFETY: ns_window is the live NSWindow of this window; windowNumber takes no arguments and returns an NSInteger.
+    unsafe {
+        let ns_window = &*(ns_window as *const objc2::runtime::AnyObject);
+        let number: isize = objc2::msg_send![ns_window, windowNumber];
+        CGSSetWindowBackgroundBlurRadius(CGSDefaultConnectionForThread(), number as usize, BACKGROUND_BLUR_RADIUS);
+    }
+}
+
+/// The menu bar: the standard Mac menus as Tauri's default gives them, with an About item that says what hobkin is,
+/// who made it and where it lives, and carries the app's icon. The Mac's panel shows the name, version, copyright,
+/// credits and icon; the other fields are for platforms that show them.
+#[cfg(target_os = "macos")]
+fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let description = "Your next level Harness.";
+    let about = AboutMetadata {
+        name: Some("hobkin".into()),
+        version: Some(app.package_info().version.to_string()),
+        authors: Some(vec!["Leonardo Pereira".into()]),
+        comments: Some(description.into()),
+        copyright: Some("© 2026 Leonardo Pereira".into()),
+        website: Some("https://hobkin.dev".into()),
+        website_label: Some("hobkin.dev".into()),
+        credits: Some(format!("{description}\n\nhttps://hobkin.dev\nCreated by Leonardo Pereira")),
+        icon: Some(tauri::include_image!("icons/icon.png")),
+        ..Default::default()
+    };
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                "hobkin",
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, None, Some(about))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "File", true, &[&PredefinedMenuItem::close_window(app, None)?])?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "View", true, &[&PredefinedMenuItem::fullscreen(app, None)?])?,
+            &Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "Help", true, &[])?,
+        ],
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    Menu::default(app)
+}
+
+/// Goes up with every move or resize of the window, so a drag is written once, when it rests.
+static WINDOW_CHANGES: AtomicU64 = AtomicU64::new(0);
+/// Whether a write of the window's place is already waiting for it to rest.
+static WINDOW_SAVING: AtomicBool = AtomicBool::new(false);
+
+/// Writes the window's size, position and maximized state once it has rested for a moment. The window-state plugin
+/// writes them only when the app quits by itself, so a window that is killed (a development rebuild, Control+C in the
+/// terminal, a crash) opened at its first size every time.
+fn keep_window_place(app: &AppHandle) {
+    WINDOW_CHANGES.fetch_add(1, Ordering::SeqCst);
+    if WINDOW_SAVING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            let seen = WINDOW_CHANGES.load(Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(400));
+            if WINDOW_CHANGES.load(Ordering::SeqCst) == seen {
+                break;
+            }
+        }
+        // Cleared first: a change that lands now starts a write of its own, and this one reads the window as it is.
+        WINDOW_SAVING.store(false, Ordering::SeqCst);
+        let _ = app.save_window_state(StateFlags::all());
+    });
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
+        .menu(|app| app_menu(app))
+        // Reopens the window at the size, position and maximized state it was last left in.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // The Mac's notifications for what needs the user (037-notifications).
+        .plugin(tauri_plugin_notification::init())
         .manage(Host(Mutex::new(None)))
+        .manage(browser::Browser::default())
+        // The window's own commands: what this shell offers, notifications, and the canvas's browser (036-canvas-browser).
+        // Each answers the main window's webview only.
+        .invoke_handler(tauri::generate_handler![
+            browser::shell_features,
+            browser::browser_open,
+            browser::browser_place,
+            browser::browser_navigate,
+            browser::browser_back,
+            browser::browser_forward,
+            browser::browser_reload,
+            browser::browser_shown,
+            browser::browser_close,
+            notices::notice_permission,
+            notices::notice_send,
+        ])
+        // A window that loads its page again no longer drives the browser it opened, so that browser goes.
+        .on_page_load(|webview, payload| {
+            if webview.label() == browser::MAIN && payload.event() == PageLoadEvent::Started {
+                let app = webview.app_handle().clone();
+                tauri::async_runtime::spawn(async move { browser::close(&app) });
+            }
+        })
         .setup(|app| {
             // Opening the app starts hobkin and its background work, as opening the terminal app does.
             let child = start_host(app.path().app_log_dir().ok());
             *app.state::<Host>().0.lock().unwrap() = child;
             keep_host(app.handle().clone());
+            notices::open_on_click(app.handle());
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                blur_behind(&window);
+            }
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match event {
             // Closing the window keeps hobkin working in the background. Quitting the app stops it.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            WindowEvent::CloseRequested { api, .. } => {
                 let _ = window.hide();
                 api.prevent_close();
             }
+            // Where the window is and how big is written as it changes, not only when the app quits.
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => keep_window_place(window.app_handle()),
+            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("hobkin could not start");
 
     app.run(|app, event| match event {
-        // The Dock icon brings the window back.
+        // The Dock icon brings the window back. It is a window, not a webview window, while the canvas's browser is open in it.
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
             }

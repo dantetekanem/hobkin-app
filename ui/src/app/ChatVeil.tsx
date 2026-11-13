@@ -12,6 +12,8 @@ import { useView } from './view-store.ts'
 /** How far the blur goes, and how much of the chat's own color lies over it. */
 const BLUR = 'blur(14px)'
 const TINT = 0.72
+/** How often History lists again while it still waits for titles, in milliseconds. */
+const TITLING_EVERY = 3000
 
 // One transition drives the blur, the tint and the list, so the veil thickens exactly as the list slides in.
 // Opacity on a parent would not do: a blurred backdrop does not fade with its parent, it pops.
@@ -119,13 +121,24 @@ function Conversations({ onClose }: { onClose: () => void }) {
     setListed(null)
     if (!live) return
     let gone = false
+    let timer: ReturnType<typeof setTimeout> | undefined
     const when = (at: number, current: boolean) => (current ? 'Now' : `${dayLabel(at, Date.now())}, ${clockTime(at)}`)
-    runCommand('history.list').then(
-      ({ conversations }) => gone || setListed(conversations.map(({ id, title, at, messages, current }) => ({ id, title, messages, when: when(at, current) }))),
-      (error: unknown) => gone || setListed(listingRefusal(error)),
-    )
+    // While titles are being made, list again: a title that arrives replaces the first line in place.
+    const load = (first: boolean) =>
+      runCommand('history.list').then(
+        ({ conversations, titling }) => {
+          if (gone) return
+          setListed(conversations.map(({ id, title, at, messages, current }) => ({ id, title, messages, when: when(at, current) })))
+          if (titling && titling > 0) timer = setTimeout(() => load(false), TITLING_EVERY)
+        },
+        (error: unknown) => {
+          if (!gone && first) setListed(listingRefusal(error))
+        },
+      )
+    load(true)
     return () => {
       gone = true
+      clearTimeout(timer)
     }
   }, [live, home, epoch])
 

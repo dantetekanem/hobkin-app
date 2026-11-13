@@ -48,6 +48,16 @@ export class Appearance {
     return { ok: true }
   }
 
+  /** Selects an application-owned raster, never a path or URL; the palette-only child cannot call this. */
+  photo(id: 'milky-way' | null): { ok: true } {
+    if (id !== null && id !== 'milky-way') throw new Error('Only the bundled Milky Way photo or null is accepted.')
+    if (!this.style || this.state?.use) throw new Error('Choose a custom theme before selecting its photo.')
+    if (!this.file) throw new Error('Canonical appearance file is not configured.')
+    this.file.replacePhoto(id)
+    this.publish(this.style, this.state?.name ?? undefined)
+    return { ok: true }
+  }
+
   /** Puts the app back on a built-in theme and forgets the saved custom one. The palette sent along is ignored by the window. */
   use(theme: BuiltInTheme): { ok: true } {
     const palette = this.style?.palette ?? NEUTRAL
@@ -59,11 +69,13 @@ export class Appearance {
   }
 
   private publish(style: AppearanceStyle, name?: string): number {
+    const photo = this.file?.readPhoto()
     this.style = style
     this.state = {
       id: Math.max(Date.now(), (this.state?.id ?? 0) + 1),
       name: name?.trim() || null,
       palette: style.palette,
+      ...(photo ? { background: { kind: 'photo', id: photo } as const } : {}),
     }
     const id = this.state.id
     this.onChange()

@@ -8,8 +8,8 @@
  * first model it lists (`findInitialModel` in the same resolver). The host sends that default with each provider.
  *
  * hobkin and the four tiers all start on that model. The tiers differ in how hard it thinks: fast low, mid medium,
- * high high, max the most the model allows (xhigh at most, the strongest level hobkin takes), each moved to the
- * nearest level the model has. A model that cannot think runs every tier with thinking off. Pure rules only.
+ * high high, max the most the model allows (max for a model Pi lets think at max), each moved to the nearest level
+ * the model has. A model that cannot think runs every tier with thinking off. Pure rules only.
  */
 import { EFFORTS, clampEffort, type Effort, type ModelChoice, type TierSetting, type TiersConfig } from './tiers.ts'
 

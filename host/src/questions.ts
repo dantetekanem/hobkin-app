@@ -3,6 +3,12 @@ import type { QuestionAnswer, QuestionRequest } from 'hobkin/src/cli/application
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import { Unavailable } from './commands.ts'
 
+/** A question to ask. One that another agent asks names who asks and gives its summary line, as a filed question does. */
+export type AskRequest = QuestionRequest & { from?: string; tldr?: string }
+
+/** Asks on the sheet: a choice's value, the user's own words, null when put off or expired, undefined when it could not be asked. */
+export type Ask = (request: AskRequest, signal?: AbortSignal) => Promise<QuestionAnswer>
+
 export interface QuestionsOptions {
   /** The question on screen changed: a new one, or null when it left. */
   onChange: (question: PendingQuestion | null) => void
@@ -43,7 +49,7 @@ export class Questions {
     return this.open?.question ?? null
   }
 
-  ask = (request: QuestionRequest, signal?: AbortSignal): Promise<QuestionAnswer> => {
+  ask: Ask = (request, signal) => {
     // Someone is waiting on this one, and what it replaces can wait under Action items.
     if (this.open?.whenQuiet && !request.whenQuiet) this.open.finish(null)
     if (this.open || !this.options.canShow()) return Promise.resolve(undefined)
@@ -56,13 +62,15 @@ export class Questions {
       const open: Open = {
         question: {
           id: request.requestId ?? randomUUID(),
-          from: 'hobkin',
+          from: request.from ?? 'hobkin',
           question: request.question,
+          ...(request.tldr ? { tldr: request.tldr } : {}),
           choices: request.choices.map(({ value, label }) => ({ value, label })),
           other: request.other === true,
           askedAt,
           expiresAt: waitMs === null ? null : askedAt + waitMs,
-          ...this.options.describe?.(request),
+          // One that names its sender is an agent's own question, so a decision filed with the same words does not speak for it.
+          ...(request.from ? {} : this.options.describe?.(request)),
         },
         whenQuiet: request.whenQuiet === true,
         finish: (answer) => {

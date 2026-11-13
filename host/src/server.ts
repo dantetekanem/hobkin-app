@@ -14,6 +14,8 @@ export interface ServerOptions {
   /** Answer the development UI's handshake with the token. */
   dev: boolean
   onConnection: (socket: WebSocket) => void
+  /** Answers a request that nothing else here does, and returns true when it did. Left false, the 404 stands. */
+  serve?: (request: IncomingMessage, response: ServerResponse) => boolean
 }
 
 export interface HostServer {
@@ -45,7 +47,7 @@ function answerHandshake(request: IncomingMessage, response: ServerResponse, { p
 }
 
 /** Listens on this machine only. A connection opens only with the token and from an allowed origin. */
-export function listen({ port, token, origins, dev, onConnection }: ServerOptions): Promise<HostServer> {
+export function listen({ port, token, origins, dev, onConnection, serve }: ServerOptions): Promise<HostServer> {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
   const http = createServer((request, response) => {
     const { pathname } = new URL(request.url ?? '/', `http://${LOOPBACK}`)
@@ -53,6 +55,7 @@ export function listen({ port, token, origins, dev, onConnection }: ServerOption
       answerHandshake(request, response, { port: (http.address() as AddressInfo).port, token })
       return
     }
+    if (serve?.(request, response)) return
     response.writeHead(404).end()
   })
 

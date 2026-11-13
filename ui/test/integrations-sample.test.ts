@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { catalogEntry } from '#shared/integrations/catalog.ts'
 import { splitServers } from '#shared/integrations/servers.ts'
-import type { ConfiguredServer } from '#shared/integrations/types.ts'
+import type { CatalogEntry, ConfiguredServer } from '#shared/integrations/types.ts'
 import { begin, fillProblems, outcomeOf, remove, retry, settle, signIn, toolsOf, turnOff, turnOn } from '../src/features/integrations/changes.ts'
 import { itemsOf } from '../src/features/integrations/items.ts'
 import { SAMPLE_SERVERS } from '../src/features/integrations/sample-data.ts'
 
 const linear = catalogEntry('linear')!
-const github = catalogEntry('github')!
+const sentry = catalogEntry('sentry')!
 const homeAssistant = catalogEntry('home-assistant')!
 
 function only(servers: readonly ConfiguredServer[], name: string): ConfiguredServer {
@@ -38,18 +38,20 @@ test('what a person fills in is written into the entry, and a missing or wrong v
 })
 
 test('a service Pi cannot use is not connected', () => {
-  assert.equal(begin([], catalogEntry('figma')!, {}), null)
+  const blocked: CatalogEntry = { ...linear, usable: false, blocked: 'Pi cannot reach it.' }
+  assert.equal(begin([], blocked, {}), null)
 })
 
 test('a service that signs in through the browser asks for sign-in once it connects, and one with a key is connected', () => {
+  const keyed: CatalogEntry = { ...linear, connect: { ...linear.connect, kind: 'header' } }
   assert.equal(outcomeOf(linear), 'sign-in')
-  assert.equal(outcomeOf(github), 'connected')
+  assert.equal(outcomeOf(keyed), 'connected')
 
   const connecting = begin([], linear, {})!.servers
   assert.deepEqual(only(settle(connecting, 'linear', 'sign-in', toolsOf(linear)), 'linear').state, 'sign-in')
-  const connected = only(settle(connecting, 'linear', 'connected', toolsOf(github)), 'linear')
+  const connected = only(settle(connecting, 'linear', 'connected', toolsOf(sentry)), 'linear')
   assert.equal(connected.state, 'connected')
-  assert.equal(connected.tools.length, github.tools.length, 'it brings its tools')
+  assert.equal(connected.tools.length, sentry.tools.length, 'it brings its tools')
 })
 
 test('settling leaves alone a server that is no longer connecting', () => {
@@ -73,12 +75,12 @@ test('signing in and trying again go back to connecting, and only from their own
 })
 
 test('turning off keeps the entry with enabled false, and turning on takes it away and connects again', () => {
-  const connected = settle(begin([], github, {})!.servers, 'github', 'connected', toolsOf(github))
-  const off = only(turnOff(connected, 'github'), 'github')
+  const connected = settle(begin([], sentry, {})!.servers, 'sentry', 'connected', toolsOf(sentry))
+  const off = only(turnOff(connected, 'sentry'), 'sentry')
   assert.equal(off.state, 'off')
   assert.equal(off.entry.enabled, false)
 
-  const on = only(turnOn(turnOff(connected, 'github'), 'github'), 'github')
+  const on = only(turnOn(turnOff(connected, 'sentry'), 'sentry'), 'sentry')
   assert.equal(on.state, 'connecting')
   assert.ok(!('enabled' in on.entry), 'the entry reads as it did before')
 })
@@ -93,10 +95,10 @@ test('removing a service puts it back in the catalog, and removing one of the pe
   assert.equal(splitServers(remove(SAMPLE_SERVERS, 'docs')).own.length, before.own.length - 1)
 })
 
-test('the sample splits into four connected, one each needing sign-in, failed and off, and two of the person\'s own', () => {
+test('the sample splits into three connected, one each needing sign-in, failed and off, and two of the person\'s own', () => {
   const split = splitServers(SAMPLE_SERVERS)
   const stateOf = (id: string) => split.connected.find((item) => item.entry.id === id)?.server.state
-  for (const id of ['github', 'gmail', 'google-calendar', 'home-assistant']) assert.equal(stateOf(id), 'connected', id)
+  for (const id of ['atlassian', 'sentry', 'home-assistant']) assert.equal(stateOf(id), 'connected', id)
   assert.deepEqual(
     split.connected.filter((item) => item.server.state !== 'connected').map((item) => item.server.state).sort(),
     ['failed', 'off', 'sign-in'],
@@ -122,4 +124,14 @@ test('a service keeps its key when it moves between the catalog and the connecte
   assert.deepEqual(renamed.own, ['own~house'], 'a server the catalog does not know is keyed apart from catalog services')
   const twice = begin(begin([], linear, {})!.servers, linear, {})!.servers
   assert.deepEqual(keysOf(twice).connected, ['linear', 'linear~linear-2'], 'two servers for one service have keys of their own')
+})
+
+test('GitHub has a page of its own, so it is no MCP item: a GitHub MCP server the person configured is one of their own', () => {
+  const githubServer: ConfiguredServer = { name: 'github', entry: { url: 'https://api.githubcopilot.com/mcp/' }, state: 'connected', tools: [], error: null }
+
+  const items = itemsOf(splitServers([githubServer]))
+
+  assert.equal(catalogEntry('github'), null, 'GitHub connects through gh, so the MCP catalog has no entry for it')
+  assert.deepEqual(items.own.map((item) => item.key), ['own~github'])
+  assert.deepEqual(items.connected, [], 'and no catalog service is connected')
 })

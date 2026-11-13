@@ -1,90 +1,157 @@
-import type { PendingQuestion } from '../../../../shared/protocol/question.ts'
-import type { WaitingRow } from '../actions/items.ts'
+import type { Destination, Need, NeedKind } from './rules.ts'
 
-/** Only current authoritative host facts; decisions are already-filtered open rows. */
+/** Only current authoritative host facts: the home, its connection's generation, and what needs the user there now. */
 export interface RequestFacts {
   home: string
   generation: number
   ready: boolean
-  question: PendingQuestion | null
-  decisions: readonly Pick<WaitingRow, 'id' | 'answers' | 'opens'>[]
+  /** From `needsOf`, each by its own identity. */
+  needs: readonly Need[]
 }
 interface Options {
   facts(): RequestFacts
   storage: Pick<Storage, 'getItem' | 'setItem'>
   adapter: {
     available(): boolean
+    /** Whether hobkin may notify. It may show the Mac's own prompt, the first time there is something to tell. */
     permission(): Promise<boolean>
     listen(click: (id: string) => Promise<void>): Promise<() => void>
     /** True means dispatch accepted, never confirmed OS delivery. Must not request permission. */
     send(notice: { id: string; title: string; body: string }): Promise<boolean>
   }
-  show(): Promise<void>
-  focus(): Promise<void>
-  reveal(id: string): void
+  /** Whether the window is in front: shown, not minimized, and hobkin the active app. */
+  front(): Promise<boolean>
+  /** Opens where a need is answered, through the app's own navigation. The shell has brought the window up already. */
+  reveal(opens: Destination): void
 }
 
+/** How many told ids a home keeps, newest last. Anything still waiting is far fewer than this. */
+const KEPT = 500
+const toldKey = (home: string) => `hobkin:told:${home}`
+
+/** A notification's id names the home, the need and its kind. A click hands it back, and nothing else in it is trusted. */
+function parseKey(key: string): { home: string; id: string; kind: NeedKind } | null {
+  try {
+    const value: unknown = JSON.parse(key)
+    if (!Array.isArray(value) || value.length !== 3 || !value.every((part) => typeof part === 'string')) return null
+    const [home, id, kind] = value as [string, string, string]
+    return kind === 'question' || kind === 'item' || kind === 'hobkin' || kind === 'review' ? { home, id, kind } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The Mac's notifications for what needs the user (_specs/037-notifications). Each need is told once in its home: what
+ * was told, and what the user already saw with the window in front, is kept per home and survives reconnects and
+ * reloads. A home this window never saw is taken as it is, so opening hobkin does not tell what was already waiting.
+ * A refusal is respected: nothing is told, then or later. A click opens the need's place while it still waits.
+ */
 export function createRequestNotifications(options: Options) {
-  const inflight = new Set<string>(), dispatched = new Set<string>()
-  const targets = new Map<string, { home: string; generation: number; id: string }>()
+  const inflight = new Set<string>()
+  const told = new Map<string, Set<string>>()
   let disposed = false, listener: Promise<() => void> | undefined
-  const ids = (facts: RequestFacts) => new Set([
-    ...(facts.question ? [facts.question.id] : []),
-    ...facts.decisions.filter((row) => row.answers?.by === 'decision' && !row.opens).map((row) => row.answers!.id),
-  ])
+
+  /** What this home has told, read once. Unreadable storage counts as a home never seen, so nothing is told twice. */
+  const toldIn = (home: string): Set<string> => {
+    let known = told.get(home)
+    if (known) return known
+    let saved: unknown = null
+    try {
+      saved = JSON.parse(options.storage.getItem(toldKey(home)) ?? 'null')
+    } catch {
+      saved = null
+    }
+    known = new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : [])
+    told.set(home, known)
+    if (!Array.isArray(saved)) mark(home, options.facts().home === home ? options.facts().needs.map(({ id }) => id) : [])
+    return known
+  }
+  function mark(home: string, ids: readonly string[]) {
+    const known = told.get(home)!
+    for (const id of ids) {
+      known.delete(id)
+      known.add(id)
+    }
+    while (known.size > KEPT) known.delete(known.values().next().value!)
+    try {
+      options.storage.setItem(toldKey(home), JSON.stringify([...known]))
+    } catch {
+      // What was told stays known in memory when storage is unavailable.
+    }
+  }
+
   const current = (target: { home: string; generation: number; id: string }) => {
     const facts = options.facts()
-    return !disposed && facts.ready && facts.home === target.home && facts.generation === target.generation && ids(facts).has(target.id)
+    return !disposed && facts.ready && facts.home === target.home && facts.generation === target.generation && facts.needs.some(({ id }) => id === target.id)
   }
   const click = async (key: string) => {
-    const target = targets.get(key)
-    if (!target || !current(target)) return
+    const named = parseKey(key)
+    const facts = options.facts()
+    if (!named || disposed || !facts.ready || facts.home !== named.home) return
+    const need = facts.needs.find(({ id }) => id === named.id)
+    // A question that left the sheet waits under Action Items.
+    const opens: Destination | null = need?.opens ?? (named.kind === 'question' ? { to: 'actions' } : null)
     try {
-      await options.show(); if (!current(target)) return
-      await options.focus(); if (!current(target)) return
-      options.reveal(target.id)
-    } catch { /* An unavailable window cannot open a request. */ }
+      if (opens) options.reveal(opens)
+    } catch {
+      // A window that cannot navigate now stays where it is.
+    }
   }
-  const notify = async (facts: RequestFacts, id: string) => {
-    const key = JSON.stringify([facts.home, id]), saved = `hobkin:request:${key}`
-    const target = { home: facts.home, generation: facts.generation, id }
-    if (inflight.has(key) || !current(target)) return
-    inflight.add(key)
-    try {
-      let persisted = false
-      try {
-        persisted = !!options.storage.getItem(saved)
-      } catch {
-        // Storage failures must not block an otherwise authorized notification.
-      }
-      if (!options.adapter.available()) return
-      const alreadyDispatched = dispatched.has(key) || persisted
-      if ((!alreadyDispatched && !await options.adapter.permission()) || !current(target)) return
-      listener ??= options.adapter.listen(click).catch((error) => { listener = undefined; throw error })
-      await listener; if (!current(target)) return
-      targets.set(key, target)
-      if (alreadyDispatched) return
-      if (!await options.adapter.send({ id: key, title: 'hobkin', body: 'Your input is needed.' }) || !current(target)) {
-        targets.delete(key); return
-      }
-      dispatched.add(key)
-      try {
-        options.storage.setItem(saved, 'dispatched')
-      } catch {
-        // Do not undo an accepted notification when optional storage is unavailable.
-      }
-    } catch { targets.delete(key) }
-    finally { inflight.delete(key) }
+  const listen = () => {
+    listener ??= options.adapter.listen(click).catch((error) => {
+      listener = undefined
+      throw error
+    })
+    return listener
   }
+
+  async function tell(facts: RequestFacts, fresh: readonly Need[]) {
+    const targets = fresh.map((need) => ({ need, target: { home: facts.home, generation: facts.generation, id: need.id } }))
+    await listen()
+    if (await options.front()) {
+      const seen = targets.filter(({ target }) => current(target)).map(({ need }) => need.id)
+      if (seen.length) mark(facts.home, seen)
+      return
+    }
+    if (!targets.some(({ target }) => current(target))) return
+    if (!(await options.adapter.permission())) {
+      mark(facts.home, targets.filter(({ target }) => current(target)).map(({ need }) => need.id))
+      return
+    }
+    for (const { need, target } of targets) {
+      if (!current(target)) continue
+      const key = JSON.stringify([facts.home, need.id, need.kind])
+      if ((await options.adapter.send({ id: key, title: need.title, body: need.body })) && current(target)) mark(facts.home, [need.id])
+    }
+  }
+
   return {
     async refresh() {
       const facts = options.facts()
       if (!facts.ready || disposed) return
-      await Promise.all([...ids(facts)].map((id) => notify(facts, id)))
+      const known = toldIn(facts.home)
+      if (!options.adapter.available()) return
+      const fresh = facts.needs.filter(({ id }) => !known.has(id) && !inflight.has(JSON.stringify([facts.home, id])))
+      try {
+        // Clicks on what an earlier window told still open their place.
+        if (!fresh.length) return void (await listen())
+      } catch {
+        return
+      }
+      const keys = fresh.map(({ id }) => JSON.stringify([facts.home, id]))
+      keys.forEach((key) => inflight.add(key))
+      try {
+        await tell(facts, fresh)
+      } catch {
+        // Nothing is marked, so the next refresh tries again.
+      } finally {
+        keys.forEach((key) => inflight.delete(key))
+      }
     },
     dispose() {
       if (disposed) return
-      disposed = true; targets.clear()
+      disposed = true
       if (listener) void listener.then((remove) => remove()).catch(() => {})
     },
   }

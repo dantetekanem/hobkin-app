@@ -8,9 +8,32 @@ export interface CanvasState {
   url: string | null
   /** What hobkin calls the page, or null. The panel falls back to the page's host. */
   title: string | null
+  /** A web page, or a drawing a hobkin wrote, which the host serves at `url`. A host from before drawings sends none: a page. */
+  kind?: CanvasKind
+  /** Goes up each time the drawing is replaced, so the frame loads it again. */
+  revision?: number
 }
 
+/** What a canvas shows. See _specs/035-canvas-drawings. */
+export type CanvasKind = 'page' | 'drawing'
+
 export const CANVAS_CLOSED: CanvasState = { open: false, url: null, title: null }
+
+/** Whose canvas it is: the main hobkin's, or a durable hobkin's by its id. */
+export const MAIN_CANVAS = 'main'
+/** The largest drawing, as UTF-8 bytes. */
+export const DRAWING_MAX_BYTES = 2 * 1024 * 1024
+
+/** What `canvas.read` gives: the canvas, and the file that holds its drawing, when it has one. */
+export interface CanvasContent {
+  state: CanvasState
+  file: string | null
+}
+
+/** Where `canvas.save` wrote the drawing. */
+export interface CanvasSaved {
+  path: string
+}
 
 /** The page address as a URL, or an error in plain words. Only http and https, with a host and no sign-in in it. */
 export function canvasUrl(address: string): URL {

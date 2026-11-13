@@ -255,8 +255,8 @@ export interface Scan {
   dangling: Dangling[]
   /** Changed test files and the test definitions in them. */
   tests: { path: string; entries: { symbol: string; startLine: number; endLine: number }[] }[]
-  /** Files the scan classified, with its class: code, test, generated, other, and newer classes. */
-  files: { path: string; kind: string; status: string }[]
+  /** Files the scan classified, with its class: code, test, generated, other, and newer classes; `language` is absent where it has no parser. */
+  files: { path: string; kind: string; status: string; language?: string }[]
   coverage: { truncated: boolean; truncatedBy: string; skippedAnchors: number; unresolved: number; notes: string[] }
 }
 

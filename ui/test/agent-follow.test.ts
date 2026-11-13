@@ -118,8 +118,8 @@ test('agent follow distinguishes reading from layout changes and opens at newest
       await until(() => document.querySelector('[data-agent-exchange]'));
       Date.now = () => realNow() + 120000;
       await until(() => document.querySelectorAll('[data-agent-exchange] [data-step]').length > 3);
-      window.checkCanvas = async (name, code) => {
-        await until(() => { const list = document.querySelector('[data-canvas-screen] ol'); return list && (!code || list.querySelector('[aria-label^="Parameters of"]')) });
+      window.checkCanvas = async (name) => {
+        await until(() => document.querySelector('[data-canvas-screen] ol'));
         const start = performance.now(); await until(() => performance.now() - start > 1000);
         const list = document.querySelector('[data-canvas-screen] ol'); if (!list) throw Error(name + ': canvas disappeared, screen=' + sampleView.getState().screen); const scroll = list.parentElement;
         const nearEnd = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
@@ -131,23 +131,19 @@ test('agent follow distinguishes reading from layout changes and opens at newest
         if (wide.length) throw Error(name + ': clipped step width');
         followProbe.checks.push(name + ': newest, contained, no inner scroll');
       };
-      await checkCanvas('agent transcript', false);
+      await checkCanvas('agent transcript');
     })()`)
     writeFileSync(out + '/agent-transcript.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
-    await evaluate(`(async () => { const button = [...document.querySelectorAll('[data-canvas-screen] button')].find(x => x.textContent.trim() === 'Code'); button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); button.click(); await checkCanvas('agent Code', true) })()`)
-    writeFileSync(out + '/agent-code.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
     await evaluate(`(async () => {
       sampleView.getState().openAgentCanvas('a1'); await until(() => document.querySelector('[data-canvas-screen="agent:a1"] ol'));
-      Date.now = () => realNow() + 240000; await checkCanvas('switched agent Code', true);
+      Date.now = () => realNow() + 240000; await checkCanvas('switched agent transcript');
       sampleView.getState().openScreen('mind'); await until(() => document.querySelector('[data-canvas-screen="mind"] ol'));
-      Date.now = () => realNow() + 360000; await checkCanvas('mind transcript', false);
-      [...document.querySelectorAll('[data-canvas-screen="mind"] button')].find(x => x.textContent.trim() === 'Code').click();
-      await checkCanvas('mind Code', true); Date.now = realNow;
+      Date.now = () => realNow() + 360000; await checkCanvas('mind transcript'); Date.now = realNow;
     })()`)
-    writeFileSync(out + '/mind-code.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
+    writeFileSync(out + '/mind-transcript.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
     const mounted = await evaluate('followProbe.checks')
     writeFileSync(out + '/mounted-result.json', JSON.stringify({ checks: mounted, blocked }, null, 2))
-    assert.equal(mounted.length, checks.length + 6)
+    assert.equal(mounted.length, checks.length + 4)
   } catch (error) {
     writeFileSync(out + '/failure.png', Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
     writeFileSync(out + '/failure.txt', await evaluate(`JSON.stringify({ text: document.body.innerText, pinned: window.follow?.pinned, top: window.follow?.scroller.current?.scrollTop, active: document.activeElement?.outerHTML })`))

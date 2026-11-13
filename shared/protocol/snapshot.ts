@@ -1,5 +1,6 @@
 import type { ActivityEntry } from './activity.ts'
 import type { ExecutionTarget } from '../commands/registry.ts'
+import type { HobkinSummary } from './hobkins.ts'
 
 /**
  * hobkin's snapshot as it travels to the UI. hobkin builds it in `src/cli/application.mjs` (`project`).
@@ -192,6 +193,8 @@ export interface WireSnapshot {
   mood?: MoodReaction | null
   main?: { harness: string; model: string; effort: string }
   runs?: RunSummary[]
+  /** The durable hobkins the user started and has not ended, newest first (`034-durable-hobkins`). Missing on an older hobkin. */
+  hobkins?: HobkinSummary[]
   /** Settled background reports by exact run. Explicit null means no report is available; omission is unknown. */
   completedJobReports?: Record<string, { id: string; title: string; body: string; outcome: string; scheduleId?: string; at?: string } | null>
   /** Bounded note receipts by exact run: Pi admitted the marked user message into a turn. No message bodies. */

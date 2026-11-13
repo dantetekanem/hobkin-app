@@ -14,7 +14,8 @@ export interface StepContent {
 }
 
 /** What is told on the canvas: a step of the story, or a node the reviewer stepped aside to. */
-export type CardContent = StepContent | { kind: 'node'; key: string; node: ReviewNode; backTo: number }
+/** A node looked at off the story, with the step to go back to: null in Free Roam, where no step leads. */
+export type CardContent = StepContent | { kind: 'node'; key: string; node: ReviewNode; backTo: number | null }
 
 const MOOD: Record<StoryStep['kind'], Mood> = { outcome: 'hello', walk: 'focused', closing: 'happy' }
 

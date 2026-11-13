@@ -311,8 +311,9 @@ async function attempt<T>(call: () => Promise<T>): Promise<{ value: T } | { fail
 
 /**
  * Reviews the change from `base` to `head`. Throws when the review cannot be made at all: the checkout cannot be
- * read, or a code change gave the scan nothing to map (a wrong root or an unsupported language, never "nothing to
- * review"); and when `signal` stops it, with an `AbortError` that says so. Anything less is said in the story and in
+ * read, or lines that run changed in code and the scan mapped none of them (it names the files, and those it has no
+ * parser for; never "nothing to review"); and when `signal` stops it, with an `AbortError` that says so. A change of
+ * only comments or blank lines is no such failure. Anything less is said in the story and in
  * `problems`.
  */
 export async function reviewChange(options: ReviewChangeOptions): Promise<ReviewChangeResult> {
@@ -600,12 +601,16 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
 
   // Units as they stand, for the careful pass to read and name.
   const texts = new Map<string, string | null>()
-  for (const path of new Set([...nodes.map((node) => node.path), ...Object.values(scan.nodes).map((node) => node.path)])) {
+  // Every file mapped is read too, with no node in it, so a change of only comments or blank lines can be told apart.
+  const mappedPaths = diffs.filter((file) => mapped.has(file.path)).flatMap((file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])])
+  for (const path of new Set([...nodes.map((node) => node.path), ...Object.values(scan.nodes).map((node) => node.path), ...mappedPaths])) {
     texts.set(`head:${path}`, (await linesAt(head, path))?.join('\n') ?? null)
     texts.set(`base:${path}`, (await linesAt(base, path))?.join('\n') ?? null)
   }
   const source = (path: string, side: 'head' | 'base') => texts.get(`${side}:${path}`) ?? null
-  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], runsInRequest: (path) => !isNotRequestPath(path, config) })
+  // A file the scan listed with no language is one it has no parser for; a file it did not list is not said to be.
+  const unparsed = [...mapped].filter((path) => scanned.ok && scan.files.some((file) => file.path === path && !file.language))
+  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], unparsed, runsInRequest: (path) => !isNotRequestPath(path, config) })
   let units = shape(applied.nodes)
 
   // 5. One careful pass: levels, questions, what to watch, claims, and the story's words.

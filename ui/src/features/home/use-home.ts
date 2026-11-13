@@ -3,6 +3,7 @@ import { useActionItems } from '@/features/actions/store.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
 import { useHost } from '@/lib/host/hooks.ts'
+import { useDismissals } from './dismissals.ts'
 import { gatherHomeInput } from './input.ts'
 import { homeModel } from './model.ts'
 import type { HomeModel } from './types.ts'
@@ -26,8 +27,9 @@ export function useHomeModel(): HomeModel {
   const reports = useReports()
   const actions = useActionItems()
   const routines = useRoutines()
+  const dismissed = useDismissals((state) => state.ids)
   return useMemo(
-    () => homeModel(gatherHomeInput(now, host, reports, actions, routines)),
-    [now, host, reports, actions, routines],
+    () => homeModel(gatherHomeInput(now, host, reports, actions, routines, dismissed)),
+    [now, host, reports, actions, routines, dismissed],
   )
 }

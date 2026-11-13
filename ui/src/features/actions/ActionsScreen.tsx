@@ -19,12 +19,13 @@ import { reveal, slideTo } from '@/features/routines/aside.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { OpenItem } from './Decision.tsx'
 import { ItemCard } from './ItemCard.tsx'
-import { stepInRow, type WaitingRow } from './items.ts'
+import { answerCommand, stepInRow, type WaitingRow } from './items.ts'
 import { PileTile } from './Pile.tsx'
 import { sampleReviewFor } from './sample.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { answerSample, startAnswering, stopAnswering, useActionItems, useWaitingRows } from './store.ts'
-import { readsHere, replyToItem } from './read.ts'
+import { readsHere } from './read.ts'
+import { discussesKey, discussItem } from './discuss.ts'
 import { useWorkView } from '@/features/work/store.ts'
 
 /**
@@ -69,10 +70,10 @@ export function ActionsScreen() {
       row?.focus({ preventScroll: true })
     })
 
-  /** One line at the foot of the screen with what hobkin said, for a few seconds. */
+  /** One line at the foot of the screen with what hobkin said, or what goes with the next message, for a few seconds. */
   const say = (text: string, refused = false) => setLine({ key: lineKey.current++, kind: 'said', text, refused })
   useEffect(() => {
-    if (line?.kind !== 'said') return
+    if (line?.kind !== 'said' && line?.kind !== 'replying') return
     const timer = setTimeout(() => setLine((now) => (now?.key === line.key ? null : now)), REPLY_LINE_MS)
     return () => clearTimeout(timer)
   }, [line])
@@ -84,19 +85,21 @@ export function ActionsScreen() {
   const giveToHobkin = (row: WaitingRow, given: Answer) => {
     const answers = row.answers
     if (!answers) return
-    if (answers.by === 'learning' && 'typed' in given) {
-      say('A learning proposal takes one of its three choices.', true)
-      return
-    }
+    const plan = answerCommand(answers, given)
+    if ('refused' in plan) return say(plan.refused, true)
     startAnswering(row.id)
     const sent =
-      answers.by === 'learning'
-        ? runCommand('learning.answer', { id: answers.id, value: (given as { value: string }).value as 'yes' | 'later' | 'no' })
-        : runCommand('decision.answer', 'typed' in given ? { id: answers.id, typed: given.typed } : { id: answers.id, value: given.value })
+      plan.name === 'work.change'
+        ? runCommand('work.change', plan.args)
+        : plan.name === 'work.proposal'
+          ? runCommand('work.proposal', plan.args)
+          : plan.name === 'learning.answer'
+            ? runCommand('learning.answer', plan.args)
+            : runCommand('decision.answer', plan.args)
     sent.then(
       (result) => {
         stopAnswering(row.id)
-        say(result.message || 'Answered.')
+        say(('message' in result ? result.message : '') || 'Answered.')
       },
       (error: unknown) => {
         stopAnswering(row.id)
@@ -162,9 +165,12 @@ export function ActionsScreen() {
     close((list[at + 1] ?? list[at - 1])?.id ?? null)
   }
 
-  /** The item goes with the next message to the main agent, as a report does, and the keyboard goes to the message. */
-  const replyInChat = (row: WaitingRow) => {
-    replyToItem(row)
+  /**
+   * The item goes with the next message to hobkin, as a report does, beside whatever is written there, and the keyboard
+   * goes to the message. Nothing is sent or answered, and the item stays open here.
+   */
+  const discuss = (row: WaitingRow) => {
+    discussItem(row)
     setLine({ key: lineKey.current++, kind: 'replying', title: row.summary })
     focusInput()
   }
@@ -199,6 +205,13 @@ export function ActionsScreen() {
     }
     const card = event.target.closest<HTMLElement>('[data-item]')
     if (!card) return
+    // As r replies to a report on Reports: the item on this card goes with the next message.
+    if (discussesKey({ key: event.key, shift: event.shiftKey }, false)) {
+      const row = shown.current.find((each) => each.id === card.dataset.item)
+      if (row) discuss(row)
+      event.preventDefault()
+      return
+    }
     const main = card.querySelector<HTMLElement>('[data-item-row]')
     const controls = [...card.querySelectorAll<HTMLElement>('[data-row-control]')]
     const at = controls.indexOf(event.target)
@@ -242,6 +255,7 @@ export function ActionsScreen() {
                   onAsk={openItem}
                   onReview={review}
                   onOpenElsewhere={openElsewhere}
+                  onDiscuss={discuss}
                 />
               ))}
             </AnimatePresence>
@@ -251,7 +265,7 @@ export function ActionsScreen() {
             <p className="text-[12px] text-muted-foreground">
               {sample
                 ? "Sample data. hobkin's own items show here once the host is connected."
-                : 'Enter opens an item to answer, or opens it where it is handled. Right reaches the links.'}
+                : 'Enter opens an item to answer, or opens it where it is handled. r talks it over with hobkin. Right reaches its buttons and links.'}
             </p>
             {sample ? (
               <Button variant="ghost" size="sm" data-stop="" data-sample-question="" onClick={askSample}>
@@ -277,8 +291,8 @@ export function ActionsScreen() {
             onAnswer={answer}
             onReview={review}
             reads={readsHere(open, workOn)}
-            onReply={replyInChat}
             onOpenElsewhere={openElsewhere}
+            onDiscuss={discuss}
           />
         ) : null}
       </AnimatePresence>

@@ -1,10 +1,12 @@
 import { ExternalLink, GitMerge, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useStore } from 'zustand'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
+import { CLOSE_CONFIRM_MS, createIssueClose } from '@/features/github/issue-close.ts'
 import { openOnGitHub } from '@/features/github/open.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
@@ -30,8 +32,9 @@ import { useChangeReview } from './use-change-review.ts'
  * change review once more instead of hobkin's agent review, and a change on GitHub links to its pull request. A group's
  * one yes first lists every title it acts on, in the order they go, and then says how each went.
  *
- * A "Left for you" card shows the note its run left, whole, and offers no merge: Review and Ask for changes. Under the
- * groups, what the user said yes to that is still being brought up to date before it merges.
+ * A "Left for you" card shows the note its run left, whole, and offers no merge: Review, Ask for changes, and Close
+ * without merging, which takes a second click. Under the groups, what the user said yes to that is still being
+ * brought up to date before it merges.
  */
 
 interface Shared {
@@ -357,7 +360,8 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
 
   const choose = async (choice: Exclude<HobkinChoice, 'review'>, note?: string) => {
     setChosen(choice)
-    onLeaving(choice === 'decline' ? 'deleted' : 'answered')
+    // What merges goes on to the right; what is set aside, said no to or closed unmerged, goes to the left.
+    onLeaving(choice === 'decline' || choice === 'done' ? 'deleted' : 'answered')
     const result = await runWork({ do: 'change', change, choice, ...(note === undefined ? {} : { note }) }, { live, place: change.key })
     setChosen(null)
     if (result.tone !== 'done') return
@@ -467,6 +471,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
                 </Button>
               )
             }
+            if (value === 'done') return <CloseWithoutMerging key={value} label={label} busy={busy} onClose={() => choose('done')} />
             return (
               <Button key={value} {...control} variant={variantOf(value, risky)} className={cn(value === 'decline' && 'text-bad-fg')} onClick={() => void choose(value)}>
                 {busy && chosen === value ? (UNDER_WAY[value] ?? `${label}…`) : label}
@@ -527,6 +532,66 @@ function ClampedLine({ text, label, className }: { text: string; label?: ReactNo
         </button>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * Close without merging, hobkin's own done, confirmed in place with the same two clicks as Close issue on the GitHub
+ * page (`issue-close.ts`): the first turns it into "Click again to close" for ten seconds, a line along its foot running
+ * out over them, and the second closes it. Escape, moving away from it or the ten seconds take the first click back.
+ */
+function CloseWithoutMerging({ label, busy, onClose }: { label: string; busy: boolean; onClose: () => Promise<void> }) {
+  const still = useStill()
+  const latest = useRef(onClose)
+  useEffect(() => {
+    latest.current = onClose
+  })
+  const [flow] = useState(() =>
+    createIssueClose({
+      close: async () => {
+        await latest.current()
+        return ''
+      },
+    }),
+  )
+  useEffect(() => () => flow.dispose(), [flow])
+  const { armed, busy: closing } = useStore(flow)
+
+  // Focus that moves to another control takes the first click back. A click that focuses nothing names nowhere, and the ten seconds see to it.
+  const onBlur = (event: FocusEvent<HTMLButtonElement>) => {
+    if (armed && event.relatedTarget instanceof Node) flow.cancel()
+  }
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'Escape' || !armed) return
+    // Escape takes the first click back; the screen then steps back onto the card.
+    flow.cancel()
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      tabIndex={-1}
+      data-row-control=""
+      size="sm"
+      disabled={busy}
+      focusableWhenDisabled
+      aria-pressed={armed}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
+      onClick={() => void flow.press()}
+      className={cn('relative overflow-hidden', armed ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-bad-fg')}
+    >
+      {closing ? 'Closing…' : armed ? 'Click again to close' : label}
+      {armed && !still ? (
+        <motion.span
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-current opacity-55"
+          initial={{ scaleX: 1 }}
+          animate={{ scaleX: 0 }}
+          transition={{ duration: CLOSE_CONFIRM_MS / 1000, ease: 'linear' }}
+        />
+      ) : null}
+    </Button>
   )
 }
 

@@ -24,6 +24,8 @@ export interface ReviewMeta {
   storyBy: 'agent' | 'host'
   /** How the host drew its graph, so a graph drawn by older rules is drawn again when someone asks for its review. */
   graph?: number
+  /** Client version captured when this summary was generated. Missing on older reviews; never inferred later. */
+  producerVersion?: string | null
 }
 
 export interface Prepared {

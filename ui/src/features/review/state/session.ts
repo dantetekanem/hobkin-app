@@ -11,6 +11,7 @@ import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
 import { goBack, goForward, NO_HISTORY, recordFocus, type FocusEntry, type FocusHistory } from '../story/history.ts'
 import type { PendingAsk } from '../panel/ask.ts'
 import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
+import { modeStart, type ReviewMode } from '../story/mode.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
 import type { NotesShown } from './quick-notes.ts'
@@ -69,6 +70,8 @@ export interface Session {
   notesShown: NotesShown | null
   /** The card of folded tests whose tests are listed under it. Null when none is. */
   opened: string | null
+  /** Story, where the steps lead, or Free Roam, where nothing does (`story/mode.ts`). The window remembers the last chosen. */
+  mode: ReviewMode
 
   step(delta: number): void
   goTo(index: number): void
@@ -83,6 +86,11 @@ export interface Session {
   /** Opens the code of a node, or of the focus when none is given. False when there is no code to open. */
   openCode(nodeId?: string): boolean
   closeCode(): void
+  /**
+   * Enter's: opens the code of the focus, or closes the open code and puts the review back as it was before it opened,
+   * with the wire it closed open again when nothing moved meanwhile. False when there is no code to open.
+   */
+  toggleCode(): boolean
   /** Shows another node's code in the open panel, without moving the focus. */
   showCode(nodeId: string): void
   /** A digit toward a step number: 1 to 9 are steps 1 to 9, 0 is step 10, and two quick digits make one number. */
@@ -119,6 +127,11 @@ export interface Session {
   showNotes(target: { node?: string; step?: number } | null): void
   /** Lists the tests of a card under it, or closes the list. A card that is not one closes it. */
   openTests(groupId: string | null): void
+  /**
+   * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
+   * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
+   */
+  setMode(mode: ReviewMode): void
 }
 
 /** The node whose code a focus opens: the first that points at lines. */
@@ -154,11 +167,16 @@ export const drawnAs = (view: Pick<ReviewView, 'groupOf'>, nodeId: string): stri
 export function createSession(review: Review, memory: StoreApi<MemoryState>): SessionStore {
   const viewNow = () => applyMemory(review, memory.getState().of(review))
   const firstView = viewNow()
-  const firstStory = startStory({ ...review, ...firstView }, memory.getState().of(review).progress)
+  // A review opens in the mode chosen last, at that mode's start.
+  const firstMode = memory.getState().reviewMode
+  const opening = startStory({ ...review, ...firstView }, memory.getState().of(review).progress)
+  const firstStory = firstMode === 'roam' ? modeStart({ ...review, ...firstView }, opening, 'roam').state : opening
 
   let digits = NO_DIGITS
   let digitTimer: ReturnType<typeof setTimeout> | undefined
   let asked = 0
+  /** What Enter found when it opened the code: the wire it closed, and the move the review was on. */
+  let beforeCode: { wire: string | null; move: number } | null = null
 
   const store = createStore<Session>()((set, get) => {
     /** Everything that follows from the story and the view. */
@@ -226,6 +244,7 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       asks: [],
       notesShown: null,
       opened: null,
+      mode: firstMode,
 
       step: (delta) => {
         const { story } = get()
@@ -241,16 +260,17 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         apply(goToStep(graph(), story, index), Math.abs(index - story.step) === 1 ? 'step' : 'jump')
       },
       focusOn: (nodeId) => {
-        const { story, focus } = get()
+        const { story, focus, mode } = get()
         // A folded test is focused on its card.
         const drawn = drawnAs(get().view, nodeId)
-        if (!(focus.length === 1 && focus[0] === drawn)) apply(focusNode(graph(), story, drawn), 'detour')
+        // In Free Roam a node of a step is focused alone, as any other: no step takes the focus back.
+        if (!(focus.length === 1 && focus[0] === drawn)) apply(focusNode(graph(), story, drawn, { alone: mode === 'roam' }), 'detour')
         if (get().nodeOf.has(drawn)) set({ pointed: drawn })
       },
       back: () => {
-        const { story } = get()
-        // Going back to the step is going to a step: it is framed again.
-        if (offPath(graph(), story)) apply(backToStep(graph(), story), 'jump')
+        const { story, mode } = get()
+        // Going back to the step is going to a step: it is framed again. In Free Roam there is no step to go back to.
+        if (mode === 'story' && offPath(graph(), story)) apply(backToStep(graph(), story), 'jump')
       },
       leave: () => {
         const { story, focus } = get()
@@ -269,13 +289,30 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       openCode: (nodeId) => {
         const { view, focus } = get()
         const target = nodeId ?? codeTarget(view, focus)
+        beforeCode = null
         if (!target) return false
         // A folded test shows its own code, with its card in focus.
         if (nodeId && !focus.includes(drawnAs(view, nodeId))) get().focusOn(nodeId)
         set({ code: target, wire: null })
         return true
       },
-      closeCode: () => set({ code: null, selection: null }),
+      closeCode: () => {
+        beforeCode = null
+        set({ code: null, selection: null })
+      },
+      toggleCode: () => {
+        const { code, wire, move } = get()
+        if (code == null) {
+          if (!get().openCode()) return false
+          beforeCode = { wire, move: move.key }
+          return true
+        }
+        // A move since takes the reviewer elsewhere: they stay there, and the wire that was open belongs to where they were.
+        const back = beforeCode?.move === get().move.key ? beforeCode.wire : null
+        get().closeCode()
+        if (back != null && get().edgeOf.has(back)) set({ wire: back })
+        return true
+      },
       typeDigit: (digit) => {
         const total = get().view.story.length
         clearTimeout(digitTimer)
@@ -412,6 +449,13 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       openTests: (groupId) => {
         const opened = groupId != null && get().view.groups[groupId] ? groupId : null
         if (opened !== get().opened) set({ opened })
+      },
+      setMode: (mode) => {
+        memory.getState().setReviewMode(mode)
+        beforeCode = null
+        set({ mode, code: null, selection: null, finder: false })
+        // Its start, as a fresh one: nothing to go back to from before it.
+        apply(modeStart(graph(), get().story, mode), mode === 'roam' ? 'whole' : 'jump', undefined, NO_HISTORY)
       },
     }
   })

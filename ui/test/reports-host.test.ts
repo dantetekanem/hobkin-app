@@ -3,6 +3,7 @@ import { afterEach, test } from 'node:test'
 import { useReports, watchFirstReport, watchReportRead } from '../src/features/reports/store.ts'
 import { useView } from '../src/app/view-store.ts'
 import { HostConnection } from '../src/lib/host/connection.ts'
+import { UNDO_MS } from '../src/features/reports/inbox.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 
@@ -229,17 +230,71 @@ test('a different home clears the old reports and selections until its snapshot 
   assert.equal(useReports.getState().inbox.read.has(report.id), false)
 })
 
-test('sample deletion cannot carry over to the host, and real reports cannot be deleted locally', () => {
+test('sample deletion cannot carry over to the host', () => {
   const sampleId = ids()[0]!
   useReports.getState().remove(sampleId)
   assert.ok(useReports.getState().inbox.removed)
   hello()
   snapshot([report])
   assert.equal(useReports.getState().inbox.removed, null)
-  useReports.getState().undo()
+})
+
+test('a real report is deleted in hobkin once its undo time passes, and stays gone through snapshots that still list it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const calls: unknown[] = []
+  t.mock.method(HostConnection.prototype, 'command', async (name: Parameters<HostConnection['command']>[0], args: Parameters<HostConnection['command']>[1]) => { calls.push([name, args]); return { ok: true } })
+  const other = { ...report, id: 'local:recap:2' }
+  hello()
+  snapshot([report, other])
   useReports.getState().remove(report.id)
-  assert.deepEqual(ids(), [report.id])
+  assert.deepEqual(ids(), [other.id])
+  assert.deepEqual(calls, [], 'hobkin cannot undo a delete, so it is not told while the undo line shows')
+  snapshot([report, other], false)
+  assert.deepEqual(ids(), [other.id], 'a snapshot during the undo time does not bring it back')
+  assert.ok(useReports.getState().inbox.removed)
+  t.mock.timers.tick(UNDO_MS)
+  await Promise.resolve()
+  assert.deepEqual(calls, [['report.delete', { id: report.id }]])
   assert.equal(useReports.getState().inbox.removed, null)
+  snapshot([report, other], false)
+  assert.deepEqual(ids(), [other.id], 'hobkin has not refreshed yet, the report still stays gone')
+  snapshot([other], false)
+  snapshot([report, other], false)
+  assert.deepEqual(ids(), [report.id, other.id], 'once hobkin dropped it, a report with that id is a new one')
+})
+
+test('undoing a real delete tells hobkin nothing, and a second delete settles the first', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const calls: unknown[] = []
+  t.mock.method(HostConnection.prototype, 'command', async (name: Parameters<HostConnection['command']>[0], args: Parameters<HostConnection['command']>[1]) => { calls.push([name, args]); return { ok: true } })
+  const other = { ...report, id: 'local:recap:2' }
+  hello()
+  snapshot([report, other])
+  useReports.getState().remove(report.id)
+  useReports.getState().undo()
+  t.mock.timers.tick(UNDO_MS)
+  await Promise.resolve()
+  assert.deepEqual(calls, [])
+  assert.deepEqual(ids(), [report.id, other.id])
+  useReports.getState().remove(report.id)
+  useReports.getState().remove(other.id)
+  await Promise.resolve()
+  assert.deepEqual(calls, [['report.delete', { id: report.id }]])
+  t.mock.timers.tick(UNDO_MS)
+  await Promise.resolve()
+  assert.deepEqual(calls.at(-1), ['report.delete', { id: other.id }])
+})
+
+test('a delete hobkin refuses brings the report back', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  t.mock.method(HostConnection.prototype, 'command', async () => { throw new Error('refused') })
+  hello()
+  snapshot([report])
+  useReports.getState().remove(report.id)
+  t.mock.timers.tick(UNDO_MS)
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  snapshot([report], false)
+  assert.deepEqual(ids(), [report.id])
 })
 
 test('only valid report rows reach the reader and imported read state is preserved', () => {

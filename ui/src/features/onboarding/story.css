@@ -1,0 +1,52 @@
+/*
+ * The motion of the setup's story that is the same every time it plays: a bubble's words arriving, the choices
+ * floating, the nudge to go on. CSS animations, so they stay smooth while the window is busy loading.
+ * Everything a person can interrupt or steer is in the components, on springs. See _specs/025-onboarding.
+ */
+
+/*
+ * A bubble's words arrive one after another, each rising a little out of a blur. Each word sets its own --at, and
+ * its own display, since a word is a block of its own and a key keeps the key's.
+ */
+.tale-word {
+  opacity: 0;
+  animation: tale-word 420ms var(--ease-out) forwards;
+  animation-delay: calc(var(--at) * 45ms + 90ms);
+}
+@keyframes tale-word {
+  from { opacity: 0; transform: translateY(0.36em); filter: blur(6px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+/* Gone on before the words were all up: they are simply there. */
+.tale-said .tale-word { animation: none; opacity: 1; }
+
+/* The mark that the bubble is said and the story waits to go on. */
+.tale-nudge { animation: tale-nudge 1.4s ease-in-out infinite; }
+@keyframes tale-nudge {
+  0%, 100% { transform: translateY(0); opacity: 0.55; }
+  50% { transform: translateY(3px); opacity: 1; }
+}
+
+/* The two choices float, each at its own pace, so they never move as one. */
+.tale-float { animation: tale-float 5.2s ease-in-out infinite; }
+.tale-float[data-side="right"] { animation-duration: 6.1s; animation-delay: -2.3s; }
+@keyframes tale-float {
+  0%, 100% { transform: translateY(-6px) rotate(-1.4deg); }
+  50% { transform: translateY(6px) rotate(1.4deg); }
+}
+
+/* A step of an install that is running. */
+.tale-spin { animation: tale-spin 0.8s linear infinite; }
+@keyframes tale-spin { to { transform: rotate(360deg); } }
+
+/* Movement off: the words are there, nothing floats, and a running step only shows its mark. */
+:root[data-motion="still"] .tale-word { animation: none; opacity: 1; }
+:root[data-motion="still"] .tale-nudge,
+:root[data-motion="still"] .tale-float,
+:root[data-motion="still"] .tale-spin { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="lively"]) .tale-word { animation: none; opacity: 1; }
+  :root:not([data-motion="lively"]) .tale-nudge,
+  :root:not([data-motion="lively"]) .tale-float,
+  :root:not([data-motion="lively"]) .tale-spin { animation: none; }
+}

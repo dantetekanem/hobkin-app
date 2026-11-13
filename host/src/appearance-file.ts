@@ -40,27 +40,46 @@ export class AppearanceFile {
 
   read(args: unknown): string | null {
     argumentsFor(args, [])
+    const content = this.readArtifact(this.path, 4096)
+    return content === null ? null : encodeAppearanceStyle(decodeAppearanceStyle(content))
+  }
+
+  readPhoto(): 'milky-way' | null {
+    const content = this.readArtifact(join(this.directory, 'custom-photo'), 64)
+    if (content === null || content === 'none\n') return null
+    if (content !== 'milky-way\n') throw new Error('Unknown bundled photo selection.')
+    return 'milky-way'
+  }
+
+  replacePhoto(id: 'milky-way' | null): void {
+    if (id !== null && id !== 'milky-way') throw new Error('Only the bundled Milky Way photo or null is accepted.')
+    this.replaceArtifact(join(this.directory, 'custom-photo'), `${id ?? 'none'}\n`)
+  }
+
+  private readArtifact(path: string, maxBytes: number): string | null {
     if (!this.checkDirectory()) return null
     let fd: number
     try {
-      if (!lstatSync(this.path).isFile()) throw new Error('Custom style must be a regular file.')
-      fd = openSync(this.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+      if (!lstatSync(path).isFile()) throw new Error('Theme artifact must be a regular file.')
+      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     } catch (error) {
       if (missing(error)) return null
       throw error
     }
     try {
       const stat = fstatSync(fd)
-      if (!stat.isFile() || stat.size > 4096) throw new Error('Custom style must be a regular file of at most 4096 bytes.')
-      const bytes = Buffer.alloc(4097)
+      if (!stat.isFile() || stat.size > maxBytes || stat.uid !== process.getuid?.()) {
+        throw new Error(`Theme artifact must be an owned regular file of at most ${maxBytes} bytes.`)
+      }
+      const bytes = Buffer.alloc(maxBytes + 1)
       let size = 0
       while (size < bytes.length) {
         const count = readSync(fd, bytes, size, bytes.length - size, null)
         if (!count) break
         size += count
       }
-      if (size > 4096) throw new Error('Custom style exceeds 4096 bytes.')
-      return encodeAppearanceStyle(decodeAppearanceStyle(bytes.subarray(0, size).toString('utf8')))
+      if (size > maxBytes) throw new Error(`Theme artifact exceeds ${maxBytes} bytes.`)
+      return bytes.subarray(0, size).toString('utf8')
     } finally { closeSync(fd) }
   }
 
@@ -74,14 +93,20 @@ export class AppearanceFile {
   replace(args: unknown): string {
     const { content } = argumentsFor(args, ['content'])
     const canonical = encodeAppearanceStyle(decodeAppearanceStyle(content))
+    this.replaceArtifact(this.path, canonical)
+    return canonical
+  }
+
+  private replaceArtifact(path: string, content: string): void {
     this.checkDirectory(true)
     try {
-      if (!lstatSync(this.path).isFile()) throw new Error('Custom style must be a regular file.')
+      const stat = lstatSync(path)
+      if (!stat.isFile() || stat.uid !== process.getuid?.()) throw new Error('Theme artifact must be an owned regular file.')
     } catch (error) { if (!missing(error)) throw error }
     const temporary = join(this.directory, `.custom-${randomUUID()}.tmp`)
     const fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
     try {
-      writeFileSync(fd, canonical, 'utf8')
+      writeFileSync(fd, content, 'utf8')
       fsyncSync(fd)
       closeSync(fd)
     } catch (error) {
@@ -89,8 +114,7 @@ export class AppearanceFile {
       unlinkSync(temporary)
       throw error
     }
-    try { renameSync(temporary, this.path) }
+    try { renameSync(temporary, path) }
     catch (error) { unlinkSync(temporary); throw error }
-    return canonical
   }
 }

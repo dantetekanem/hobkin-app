@@ -224,7 +224,6 @@ export function ReportsScreen() {
   }
 
   const deleteReport = (id: string) => {
-    if (!sample) return
     const report = inbox.reports.find((entry) => entry.id === id)
     if (!report) return
     const after = successor(list, id)
@@ -322,7 +321,7 @@ export function ReportsScreen() {
                   onStep={step}
                   onClose={closeReader}
                   onReply={() => reply(openReport.id)}
-                  onDelete={sample ? () => deleteReport(openReport.id) : undefined}
+                  onDelete={() => deleteReport(openReport.id)}
                 />
               ) : (
                 <Overview list={list} read={inbox.read} now={now} onOpen={openFrom} quiet={direction !== 0} />
@@ -383,7 +382,7 @@ export function ReportsScreen() {
               ) : null}
             </AnimatePresence>
             <p className="px-3 pt-6 text-[12px] text-muted-foreground">
-              {sample ? "Sample data. hobkin's own reports show here once the host is connected." : 'Reports from your hobkin. Read marks stay in this window. Deleting reports is not connected yet.'}
+              {sample ? "Sample data. hobkin's own reports show here once the host is connected." : 'Reports from your hobkin. Read marks stay in this window. A deleted report can be brought back for a few seconds; after that hobkin deletes it.'}
             </p>
           </motion.div>
           {/* At the foot of the list, under the rows it is about. */}

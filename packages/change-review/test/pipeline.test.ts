@@ -303,6 +303,24 @@ test('a removed definition is decided by what still refers to it: nothing is saf
   assert.deepEqual([of('x1').level?.current, of('x1').level?.rule, of('x1').critical], ['high', 1, true])
 })
 
+test('a comment edited inside a function or outside any, with no node for either, builds a review where nothing that runs changed', async (t) => {
+  const total = '// Totals.\n\nexport function total(items) {\n  // Adds them up.\n  return items.length\n}\n'
+  for (const [where, from, to] of [['inside a function', '  // Adds them up.', '  // Counts them.'], ['outside any function', '// Totals.', '// Totals of a cart.']] as const) {
+    const { repo, base, head, out } = repoOf(t, { 'src/total.js': total }, { 'src/total.js': total.replace(from, to) })
+    const scan: Scan = { ...scanWith([]), files: [{ path: 'src/total.js', kind: 'code', status: 'modified', language: 'javascript' }] }
+    const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan) })
+    assert.deepEqual([result.units.units, result.answer], [[], { deploy: 'safe', why: 'Nothing that runs changed.' }], where)
+  }
+})
+
+test('a code file the search tool has no parser for stops the review with that reason, naming the file', async (t) => {
+  const { repo, base, head, out } = repoOf(t, { 'tools/report.py': 'def total(items):\n    return len(items)\n' }, { 'tools/report.py': 'def total(items):\n    return len(items) * 1\n' })
+  const scan: Scan = { ...scanWith([]), files: [{ path: 'tools/report.py', kind: 'code', status: 'modified' }] }
+  await assert.rejects(reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan) }), {
+    message: 'scan failure: agentic-search has no parser for `tools/report.py`, so what changed in it could not be mapped',
+  })
+})
+
 test('a test failing at head is a finding only on the nodes it is a candidate of, matched by its exact path', async (t) => {
   const { repo, base, head, out } = project(t)
   const failing = (path: string) => ({ rule: 'failing-test', text: `${path} fails at head, before anything is changed.`, by: 'proof' })

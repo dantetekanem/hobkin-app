@@ -97,8 +97,8 @@ function matches(server: Pick<ConfiguredServer, 'name' | 'entry'>, entry: Catalo
 
 /**
  * The catalog service a configured server is, or null when it is the person's own.
- * A server is matched by where it connects, never by its name alone: a local command called `gmail`
- * is not Google's Gmail server, and what the catalog says about that one would be false for it.
+ * A server is matched by where it connects, never by its name alone: a local command called `linear`
+ * is not Linear's server, and what the catalog says about that one would be false for it.
  */
 export function catalogMatch(server: Pick<ConfiguredServer, 'name' | 'entry'>, catalog: readonly CatalogEntry[] = CATALOG): CatalogEntry | null {
   return catalog.find((entry) => matches(server, entry)) ?? null

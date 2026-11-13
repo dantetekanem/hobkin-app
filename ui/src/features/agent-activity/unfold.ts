@@ -1,11 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useStill } from '@/app/still.ts'
 import { ease } from '@/lib/motion.ts'
-
-/** Sent from a box the user opens or closes, so the transcript around it holds still (use-follow.ts). */
-export const UNFOLD = 'hb-unfold'
-/** How long a box takes to reach its new height. */
-export const UNFOLD_MS = 300
+import { UNFOLD, UNFOLD_MS } from './follow.ts'
 
 /**
  * A box the user opens to all of its lines and closes again. Its height glides from what it was to what it is (at once

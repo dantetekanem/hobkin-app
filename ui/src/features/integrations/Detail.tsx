@@ -5,20 +5,16 @@ import { entryText, fillEntry, fillValue } from '#shared/integrations/entry.ts'
 import { HIDDEN } from '#shared/integrations/redact.ts'
 import { freeName, targetOf } from '#shared/integrations/servers.ts'
 import type { CatalogEntry, ConfiguredServer, PiServerEntry, ServerTool } from '#shared/integrations/types.ts'
-import type { GitHubConnection } from '#shared/protocol/github.ts'
 import { Button } from '@/components/ui/button.tsx'
-import { Switch } from '@/components/ui/switch.tsx'
-import { useSettings } from '@/features/settings/store.ts'
 import { spring, staggerDelay, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { fillProblems, toolsOf } from './changes.ts'
-import { ghLine } from './gh.ts'
-import type { GhLink, Item } from './items.ts'
+import type { Item } from './items.ts'
 import type { IntegrationActions } from './live.ts'
 import { ownMark, serviceMark } from './marks.ts'
 import { sampleRoutines } from './sample-data.ts'
 import { ServiceMark } from './ServiceMark.tsx'
-import { GhChip, StateChip } from './tiles.tsx'
+import { StateChip } from './tiles.tsx'
 
 /** How far the screen behind the detail blurs, and how much of the canvas's own color settles over it. */
 const BLUR = 'blur(10px)'
@@ -52,8 +48,6 @@ interface DetailProps {
   onClose: () => void
   onConnect: (values: Record<string, string>) => void
   onRemove: () => void
-  /** Opens the GitHub page. GitHub's detail only. */
-  onOpenPage?: () => void
 }
 
 /** Puts the keyboard on the first action of the panel, or on the panel itself when there is none. */
@@ -67,7 +61,7 @@ function landIn(panel: HTMLElement) {
  * entry it adds to Pi's configuration, the page it came from, and its actions. It grows out of the tile that
  * was chosen and goes back into it. A key is never typed here: the detail names the variable to set instead.
  */
-export function Detail({ item, servers, still, live, path, actions, onClose, onConnect, onRemove, onOpenPage }: DetailProps) {
+export function Detail({ item, servers, still, live, path, actions, onClose, onConnect, onRemove }: DetailProps) {
   const panel = useRef<HTMLElement | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [tried, setTried] = useState(false)
@@ -112,7 +106,6 @@ export function Detail({ item, servers, still, live, path, actions, onClose, onC
         <motion.div variants={contents} className="scroll-quiet min-h-0 flex-1 overflow-y-auto px-7 pt-6 pb-8">
           <div className="flex flex-col gap-7">
             <Head item={item} name={name} onClose={onClose} />
-            {item.kind === 'service' && item.gh ? <ThroughGh gh={item.gh} onOpenPage={onOpenPage} /> : null}
             <Actions entry={entry} server={server} live={live} actions={actions} run={run} onConnect={connect} onRemove={onRemove} />
             {failure ? <p className="rounded-2xl bg-bad/10 px-4 py-3 text-[13px] text-bad-fg">{failure}</p> : null}
             <Notice entry={entry} server={server} live={live} />
@@ -172,8 +165,6 @@ function Head({ item, name, onClose }: { item: Item; name: string; onClose: () =
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-muted-foreground">
           {server ? (
             <StateChip server={server} long />
-          ) : item.kind === 'service' && item.gh?.connection === 'connected' ? (
-            <GhChip />
           ) : (
             <span className="inline-flex h-6 items-center rounded-full bg-surface-2 px-2.5 font-heading font-medium">Not connected</span>
           )}
@@ -193,41 +184,6 @@ function Head({ item, name, onClose }: { item: Item; name: string; onClose: () =
         <X />
       </Button>
     </header>
-  )
-}
-
-/** What GitHub's detail says about gh, for each way gh can stand. */
-const THROUGH_GH: Record<GitHubConnection, string> = {
-  connected:
-    'The GitHub page lists the pull requests waiting for your review, your own pull requests and your issues. It reads them with the login gh already has, and changes nothing on GitHub.',
-  missing: "gh is GitHub's command line tool. Install it with brew install gh, then run gh auth login in Terminal. hobkin never asks for a token.",
-  'signed-out': 'Run gh auth login in Terminal. hobkin uses the sign-in gh keeps, and never asks for a token.',
-  unknown: 'hobkin is asking gh whether it is signed in.',
-}
-
-/**
- * GitHub connects through gh, with the login gh already has, and the GitHub page reads it (024-github). Its MCP
- * server below is another way in, for the tools agents use.
- */
-function ThroughGh({ gh, onOpenPage }: { gh: GhLink; onOpenPage?: () => void }) {
-  const showGitHubInMenu = useSettings((settings) => settings.showGitHubInMenu)
-  const setShowGitHubInMenu = useSettings((settings) => settings.setShowGitHubInMenu)
-
-  return (
-    <Block label="Through gh">
-      <p className="font-heading text-[15px] font-medium">{ghLine(gh)}</p>
-      <p className="max-w-[64ch] text-[13px] text-muted-foreground">{THROUGH_GH[gh.connection]}</p>
-      {onOpenPage ? (
-        <Button className="w-fit" data-key-stop="" data-primary="" data-action="" onClick={onOpenPage}>
-          <ArrowUpRight aria-hidden="true" />
-          Open the GitHub page
-        </Button>
-      ) : null}
-      <label className="flex items-center justify-between gap-3">
-        <span className="font-heading text-[13px] font-medium">Show GitHub in the menu</span>
-        <Switch checked={showGitHubInMenu} onCheckedChange={setShowGitHubInMenu} data-key-stop="" data-action="" />
-      </label>
-    </Block>
   )
 }
 
@@ -414,7 +370,7 @@ function Tools({ entry, server }: { entry: CatalogEntry | null; server: Configur
   )
 }
 
-/** "The Asana developer console" reads as "the Asana developer console" in the middle of a sentence. */
+/** "The developer console" reads as "the developer console" in the middle of a sentence. */
 function inSentence(text: string): string {
   return text.startsWith('The ') ? `the ${text.slice(4)}` : text
 }

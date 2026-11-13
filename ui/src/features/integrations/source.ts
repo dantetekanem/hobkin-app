@@ -17,3 +17,8 @@ export function needsLook(pi: IntegrationsState | null, now: number): boolean {
   if (!pi || pi.checking) return false
   return pi.checkedAt === null || now - Date.parse(pi.checkedAt) > FRESH_MS
 }
+
+/** Whether a screen that only shows the servers should ask the host to look: connected, not yet asked on this connection, and none read lately. */
+export function shouldLookAtServers({ connected, asked, pi, now }: { connected: boolean; asked: boolean; pi: IntegrationsState | null; now: number }): boolean {
+  return connected && !asked && needsLook(pi, now)
+}

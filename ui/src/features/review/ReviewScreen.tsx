@@ -303,6 +303,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
       const inSteps = steps?.contains(target) ?? false
       // Inside the panel, Up and Down are its own.
       if (inSteps && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey) return
+      // A key pressed in the code that closes it, as Enter does, gives the keyboard back to the review, where it was before.
+      const inCode = target.closest('[data-rv-panel]') != null
       const used = pressKey(session.getState(), { key: event.key, shift: event.shiftKey, alt: event.altKey }, {
         panelKey,
         // S hides the panel, or brings it back. The panel does it, and keeps the keyboard where it belongs.
@@ -318,6 +320,7 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
         },
       })
       if (used) event.preventDefault()
+      if (inCode && session.getState().code == null) element.focus({ preventScroll: true })
     }
     element.addEventListener('keydown', onKeyDown)
     return () => {

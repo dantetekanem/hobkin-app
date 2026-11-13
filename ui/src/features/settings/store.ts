@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AppearanceRequest, BuiltInTheme, BorderColors } from '#shared/protocol/appearance.ts'
+import type { AppearanceRequest, Background, BorderColors, BuiltInTheme } from '#shared/protocol/appearance.ts'
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
-import { AGENTS, BUDGET, OPACITY, migrateSettings, readablePalette, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type Palette } from './rules.ts'
+import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
 
 /** Lively plays movement even when the Mac asks for less. Still never moves. */
 export type Movement = 'lively' | 'system' | 'still'
@@ -22,16 +22,23 @@ interface SettingsState extends BorderColors {
   /** hobkin's own settings. Sample values until the host supplies hobkin's (020-settings, S5). */
   agents: number
   dailyTokens: number
-  /** Daily token usage when the host supplies it; null is unavailable, not zero. */
-  usedToday: number | null
   usageEvents: boolean
   feedback: boolean
   /** GitHub sits in the screen menu. The switch is in GitHub's detail in Integrations (024-github). */
   showGitHubInMenu: boolean
   /** How much of the backgrounds and cards shows, 0.1 to 1. Text, icons and the focus ring stay solid (app/theme.ts). */
   backgroundOpacity: number
+  /**
+   * Which kinds of an agent's tool blocks are open when they arrive (agent-activity/blocks.ts). Settings saved before
+   * this was kept load with the default, as the store fills in what a saved state lacks.
+   */
+  openByDefault: Record<BlockKind, boolean>
   /** The custom theme's colors. Kept while a built-in theme is chosen, so choosing Custom again brings them back. */
   palette: Palette | null
+  /** The custom theme's backdrop behind the window, or null for the flat palette background (app/theme.ts). */
+  background: Background | null
+  /** What the active custom theme is called (e.g. "Grand Line Sunshine"), or null for an unnamed one. */
+  themeName: string | null
   /** The custom theme is the one showing. `hobkin-theme` keeps the light or dark under it for the first paint. */
   customTheme: boolean
   appearanceId: number
@@ -56,6 +63,7 @@ interface SettingsState extends BorderColors {
   setShowGitHubInMenu: (on: boolean) => void
   setBackgroundOpacity: (opacity: number) => void
   changeBackgroundOpacity: (delta: -1 | 1) => void
+  setOpenByDefault: (kind: BlockKind, open: boolean) => void
   /** Refuses a palette whose text would not read, and keeps the last one that does. */
   setPalette: (palette: Palette) => void
   setCustomTheme: (on: boolean) => void
@@ -74,6 +82,8 @@ export function watchAppearance(host: Pick<StoreApi<HostState>, 'getState' | 'su
           appearanceHome: source.home,
           appearanceId: 0,
           palette: null,
+          background: null,
+          themeName: null,
           border: undefined,
           borderStrong: undefined,
           customTheme: false,
@@ -83,7 +93,7 @@ export function watchAppearance(host: Pick<StoreApi<HostState>, 'getState' | 'su
       return
     }
     const baseline = state.appearanceHome !== source.home || (epoch !== source.epoch && appearance.id !== state.appearanceId) ? 0 : state.appearanceId
-    const next = receiveAppearance({ ...state, appearanceId: baseline }, appearance, Date.now())
+    const next = receiveAppearance({ appearanceId: baseline }, appearance)
     if (next) useSettings.setState({ ...next, appearanceHome: source.home })
     if (next || appearance.id === state.appearanceId) epoch = source.epoch
   }
@@ -99,106 +109,38 @@ export const useSettings = create<SettingsState>()(
       typeFace: 'space-grotesk',
       agents: AGENTS.initial,
       dailyTokens: BUDGET.initial,
-      usedToday: null,
       usageEvents: true,
       feedback: true,
       showGitHubInMenu: true,
       backgroundOpacity: OPACITY.initial,
+      openByDefault: { ...OPEN_BY_DEFAULT },
       palette: null,
+      background: null,
+      themeName: null,
       customTheme: false,
-      request: null,
       appearanceId: 0,
       appearanceHome: null,
       requestedTheme: null,
-      themeBusy: false,
-      themeProblem: null,
-      ask: async (text, host) => {
-        if (get().themeBusy) return false
-        const ask = themeAsk(text, Date.now())
-        if (!ask) {
-          set({ themeProblem: 'Describe a theme in 1–4000 characters.' })
+      themeSending: false,
+      themeNote: null,
+      ask: async (text, chat, host) => {
+        if (get().themeSending || !text.trim()) return false
+        if (host.getState().link !== 'open') {
+          set({ themeNote: 'Not sent. Connect to hobkin first.' })
           return false
         }
-        const source = host.getState()
-        if (source.link !== 'open') {
-          set({ themeProblem: 'Not sent. Connect to hobkin first.' })
-          return false
-        }
-        const previous = get().request
-        const pending: ThemeAsk = { ...ask, home: source.home }
-        const current = () => host.getState().home === source.home && host.getState().epoch === source.epoch
-        set({ request: pending, themeBusy: true, themeProblem: null })
 
-        try {
-          const operation = await host.customize(pending.text)
-          if (get().request !== pending) return false
-          if (!current()) {
-            set({
-              request: { ...pending, phase: 'unknown' },
-              themeProblem: 'The host changed before acknowledgement. The outcome is unknown.',
-            })
-            return false
-          }
-          set({ request: { ...pending, phase: 'known', operation } })
-          return true
-        } catch (error) {
-          if (get().request === pending) {
-            set({
-              request: refused(error) ? previous : { ...pending, phase: 'unknown' },
-              themeProblem: reason(error),
-            })
-          }
-          return false
-        } finally {
-          set({ themeBusy: false })
-        }
-      },
-      refreshTheme: async (host) => {
-        const ask = get().request
-        if (get().themeBusy || !ask?.operation) return
-        const source = host.getState()
-        if (source.link !== 'open' || source.home !== ask.home) {
-          set({
-            request: { ...ask, phase: 'unknown' },
-            themeProblem: 'Connect to the same hobkin home to check this operation.',
-          })
-          return
-        }
-        set({ themeBusy: true, themeProblem: null })
+        set({ themeSending: true, themeNote: null })
+        const sent = await chat.getState().send(themeRequestText(text))
 
-        try {
-          const operation = await host.status(ask.operation.id)
-          if (get().request !== ask) return
-          const current = host.getState()
-          if (
-            current.home !== source.home
-            || current.epoch !== source.epoch
-            || !operation
-            || operation.id !== ask.operation.id
-          ) {
-            set({
-              request: { ...ask, phase: 'unknown' },
-              themeProblem: 'This operation receipt is unavailable. Its outcome is unknown.',
-            })
-            return
-          }
-          set({
-            request: {
-              ...ask,
-              phase: 'known',
-              operation: { ...operation, appearanceId: operation.appearanceId ?? ask.operation.appearanceId },
-            },
-          })
-        } catch (error) {
-          if (get().request === ask) {
-            set({ request: { ...ask, phase: 'unknown' }, themeProblem: reason(error) })
-          }
-        } finally {
-          set({ themeBusy: false })
-        }
+        set({
+          themeSending: false,
+          themeNote: sent ? 'Sent to hobkin.' : (chat.getState().problem ?? 'Not sent. Try again.'),
+        })
+        return sent
       },
       receive: (appearance) => {
-        const next = receiveAppearance(get(), appearance, Date.now())
+        const next = receiveAppearance(get(), appearance)
         if (next) set(next)
       },
 
@@ -212,15 +154,16 @@ export const useSettings = create<SettingsState>()(
       setShowGitHubInMenu: (showGitHubInMenu) => set({ showGitHubInMenu }),
       setBackgroundOpacity: (opacity) => set({ backgroundOpacity: stepOpacity(opacity, 0) }),
       changeBackgroundOpacity: (delta) => set({ backgroundOpacity: stepOpacity(get().backgroundOpacity, delta) }),
-      setPalette: (palette) => set({ palette: readablePalette(palette) ?? get().palette }),
+      setOpenByDefault: (kind, open) => set({ openByDefault: { ...OPEN_BY_DEFAULT, ...get().openByDefault, [kind]: open } }),
+      setPalette: (palette) => set({ palette: adjustedPalette(palette) ?? get().palette }),
       setCustomTheme: (on) => set({ customTheme: on && get().palette !== null }),
     }),
     {
       name: 'hobkin-client-settings',
-      // Version 4 replaces chat attribution with acknowledged operation receipts.
+      // Version 4 drops the tracked theme ask: Custom's request is a chat message to main hobkin.
       version: 4,
       migrate: (saved) => migrateSettings(saved),
-      partialize: ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, palette, border, borderStrong, customTheme, request, appearanceId, appearanceHome }) => ({
+      partialize: ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         typeFace,
         agents,
@@ -229,11 +172,13 @@ export const useSettings = create<SettingsState>()(
         feedback,
         showGitHubInMenu,
         backgroundOpacity,
+        openByDefault,
         palette,
+        background,
+        themeName,
         border,
         borderStrong,
         customTheme,
-        request: request?.phase === 'pending' ? { ...request, phase: 'unknown' as const } : request,
         appearanceId,
         appearanceHome,
       }),

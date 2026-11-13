@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { walkScreens } from '../src/app/screens.ts'
+import { pressEnd } from '../src/features/hobkins/conversation.ts'
+import { forceStopStep } from '../src/features/work/actions.ts'
 
 const MENU = ['home', 'reports', 'routines', 'actions', 'work', 'github'] as const
 
@@ -38,6 +40,39 @@ test('control option p opens the full prompt from every screen, known by the key
   }
 })
 
+test('Control+Option+S opens Nerd stats from anywhere', () => {
+  const press = { key: 'ß', code: 'KeyS', ctrl: true, alt: true }
+  for (const screen of ['reports', 'work', 'review', 'agent', 'settings'] as const) {
+    for (const zone of ['input', 'agents', 'veil', 'canvas', 'other'] as const) {
+      assert.deepEqual(resolveKey(press, context({ screen, zone, messageEmpty: false })), { do: 'toggle-nerd-stats' }, `${zone} on ${screen}`)
+    }
+  }
+  assert.deepEqual(resolveKey({ ...press, key: 's' }, context()), { do: 'toggle-nerd-stats' }, 'whatever character it types')
+  assert.deepEqual(resolveKey(press, context({ zone: 'canvas', inOverlay: true })), { do: 'toggle-nerd-stats' }, 'a panel of the screen')
+
+  assert.equal(resolveKey(press, context({ zone: 'other', inOverlay: true })), null, 'a dialog over the window keeps it')
+  for (const other of [{ ctrl: false }, { alt: false }, { meta: true }, { shift: true }, { code: 'KeyO' }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context()), null, JSON.stringify(other))
+  }
+})
+
+test('a key that opens something closes it again', () => {
+  const history = { key: 'y', code: 'KeyY', meta: true }
+  assert.deepEqual(resolveKey(history, context()), { do: 'open-veil', section: 'history' })
+  assert.deepEqual(resolveKey(history, context({ veilOpen: true, veilSection: 'history' })), { do: 'close-veil' }, 'History closes')
+
+  const sheet = { key: 'n', code: 'KeyN', meta: true }
+  assert.deepEqual(resolveKey(sheet, context({ zone: 'other', inOverlay: true, dialog: 'new-hobkin' })), { do: 'close-new-hobkin' }, 'the sheet closes, though it is a dialog')
+  assert.equal(resolveKey(sheet, context({ zone: 'other', inOverlay: true })), null, 'another dialog keeps the key')
+
+  const stats = { key: 'ß', code: 'KeyS', ctrl: true, alt: true }
+  assert.deepEqual(resolveKey(stats, context({ zone: 'other', inOverlay: true, dialog: 'nerd-stats' })), { do: 'toggle-nerd-stats' }, 'Nerd stats closes')
+
+  const prompt = { key: 'π', code: 'KeyP', ctrl: true, alt: true }
+  assert.deepEqual(resolveKey(prompt, context({ zone: 'other', inOverlay: true, dialog: 'prompt' })), { do: 'open-prompt' }, 'the editor closes, its draft kept')
+  assert.equal(resolveKey(stats, context({ zone: 'other', inOverlay: true, dialog: 'prompt' })), null, "another dialog's key is still the dialog's own")
+})
+
 test("command j opens and closes hobkin's mind from every screen, known by the key where J sits", () => {
   const press = { key: 'j', code: 'KeyJ', meta: true }
   for (const screen of ['reports', 'work', 'agent', 'review', 'settings', 'mind'] as const) {
@@ -50,6 +85,72 @@ test("command j opens and closes hobkin's mind from every screen, known by the k
   for (const other of [{ meta: false }, { ctrl: true }, { alt: true }, { shift: true }, { code: 'KeyK' }]) {
     assert.notDeepEqual(resolveKey({ ...press, ...other }, context()), { do: 'toggle-mind' }, JSON.stringify(other))
   }
+})
+
+test("control o opens or closes every block of the steps on an agent's screen and in hobkin's mind, typing included", () => {
+  const press = { key: 'o', code: 'KeyO', ctrl: true }
+  for (const screen of ['agent', 'mind'] as const) {
+    for (const zone of ['input', 'agents', 'veil', 'canvas', 'other'] as const) {
+      assert.deepEqual(resolveKey(press, context({ screen, zone, messageEmpty: false, typing: true })), { do: 'toggle-blocks' }, `${zone} on ${screen}`)
+    }
+  }
+  assert.deepEqual(resolveKey(press, context({ screen: 'agent', zone: 'canvas', inOverlay: true })), { do: 'toggle-blocks' }, 'a panel of the screen')
+  assert.equal(resolveKey(press, context({ screen: 'agent', zone: 'other', inOverlay: true })), null, 'a dialog over the window keeps it')
+  for (const screen of ['reports', 'work', 'review', 'settings'] as const) {
+    assert.equal(resolveKey(press, context({ screen })), null, `no steps to open on ${screen}`)
+  }
+  for (const other of [{ ctrl: false }, { meta: true }, { alt: true }, { shift: true }, { code: 'KeyP' }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context({ screen: 'agent' })), null, JSON.stringify(other))
+  }
+})
+
+test('Control+X asks to end a durable hobkin, and again ends it', () => {
+  const press = { key: 'x', code: 'KeyX', ctrl: true }
+  const page = { screen: 'agent', hobkinPage: true } as const
+  // From its page, its talk box or the agents list.
+  for (const zone of ['canvas', 'agents', 'other'] as const) {
+    assert.deepEqual(resolveKey(press, context({ ...page, zone, typing: zone === 'canvas' })), { do: 'end-hobkin' }, zone)
+  }
+  // One press and the same state as a click on End: the first asks, a second while it asks ends it, and none while it ends.
+  assert.equal(pressEnd('no'), 'ask')
+  assert.equal(pressEnd('asking'), 'end')
+  assert.equal(pressEnd('busy'), null)
+
+  // Never while a dialog is open, from the message input, or on another screen.
+  assert.equal(resolveKey(press, context({ ...page, zone: 'other', inOverlay: true })), null, 'a dialog over the window')
+  assert.equal(resolveKey(press, context({ ...page, zone: 'canvas', inOverlay: true })), null, 'a dialog or list in the page')
+  assert.equal(resolveKey(press, context({ ...page, zone: 'input' })), null, 'the main message input')
+  for (const screen of ['home', 'work', 'mind', 'settings'] as const) {
+    assert.equal(resolveKey(press, context({ screen, zone: 'canvas' })), null, screen)
+  }
+  for (const other of [{ ctrl: false }, { meta: true }, { alt: true }, { shift: true }, { code: 'KeyC' }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context({ ...page, zone: 'canvas' })), null, JSON.stringify(other))
+  }
+})
+
+test("Control+X force stops any other agent's run, asking first", () => {
+  const press = { key: 'x', code: 'KeyX', ctrl: true }
+  const page = { screen: 'agent' } as const
+  // From its page, its talk box or the agents list, as End on a durable hobkin's page.
+  for (const zone of ['canvas', 'agents', 'other'] as const) {
+    assert.deepEqual(resolveKey(press, context({ ...page, zone, typing: zone === 'canvas' })), { do: 'force-stop' }, zone)
+  }
+  assert.deepEqual(resolveKey(press, context({ ...page, hobkinPage: true, zone: 'canvas' })), { do: 'end-hobkin' }, "a durable hobkin's page keeps End")
+  assert.equal(resolveKey(press, context({ ...page, zone: 'canvas', inOverlay: true })), null, 'a dialog or list in the page')
+  assert.equal(resolveKey(press, context({ ...page, zone: 'input' })), null, 'the main message input')
+
+  // The same press as Force Stop: the first asks, and a second while the page asks about this run forces it.
+  const run = 'session:review'
+  const live = { runId: run, canForce: true, pending: false }
+  const question = (id: string, mode?: 'stop' | 'force') => ({ id, title: 'Review', project: 'storefront', kind: 'run', ...(mode ? { mode } : {}) })
+  assert.equal(forceStopStep({ ...live, asking: null }), 'ask')
+  assert.equal(forceStopStep({ ...live, asking: question(run, 'force') }), 'force')
+  assert.equal(forceStopStep({ ...live, asking: question(run) }), 'ask', 'a Stop question becomes the Force Stop one')
+  assert.notEqual(forceStopStep({ ...live, asking: question('work:other:1', 'force') }), 'force', "another run's question is not confirmed")
+  // Nothing while it is being forced, or once it cannot be forced, as a finished run cannot.
+  assert.equal(forceStopStep({ ...live, pending: true, asking: question(run, 'force') }), null)
+  assert.equal(forceStopStep({ ...live, canForce: false, asking: null }), null)
+  assert.equal(forceStopStep({ ...live, canForce: false, asking: question(run, 'force') }), null)
 })
 
 test('command enter goes to the message input from anywhere, and leaves the key to the input and to overlays', () => {
@@ -114,6 +215,20 @@ test('command k opens the spotlight from anywhere, and a dialog keeps it', () =>
   assert.deepEqual(resolveKey({ key: 'k', meta: true }, context({ veilOpen: true })), { do: 'open-spotlight' }, 'over the veil')
   assert.equal(resolveKey({ key: 'k', meta: true }, context({ inOverlay: true })), null, 'a dialog, the spotlight among them, keeps the key')
   assert.equal(resolveKey({ key: 'k', meta: true, shift: true }, context()), null)
+})
+
+test('Command+N opens the New hobkin sheet', () => {
+  for (const screen of ['home', 'work', 'agent', 'review', 'settings', 'mind'] as const) {
+    for (const zone of ['input', 'agents', 'veil', 'canvas', 'other'] as const) {
+      assert.deepEqual(resolveKey({ key: 'n', code: 'KeyN', meta: true }, context({ screen, zone, messageEmpty: false, typing: zone === 'input' })), { do: 'new-hobkin' }, `${zone} on ${screen}`)
+    }
+  }
+  assert.deepEqual(resolveKey({ key: 'n', meta: true }, context({ veilOpen: true })), { do: 'new-hobkin' }, 'over the veil')
+  assert.equal(resolveKey({ key: 'n', meta: true }, context({ inOverlay: true })), null, 'a dialog open, the sheet itself among them, keeps it')
+  assert.equal(resolveKey({ key: 'n', meta: true }, context({ zone: 'canvas', inOverlay: true })), null, 'a panel of the screen keeps it too')
+  for (const other of [{ shift: true }, { alt: true }, { ctrl: true }, { meta: false }]) {
+    assert.equal(resolveKey({ key: 'n', meta: true, ...other }, context()), null, JSON.stringify(other))
+  }
 })
 
 test('command comma opens settings from anywhere', () => {
@@ -210,7 +325,7 @@ test('command left and right go back and forward, and stay text editing in any t
 })
 
 test('escape that nothing used leaves a screen that is open only for now', () => {
-  for (const screen of ['review', 'settings', 'integrations'] as const) {
+  for (const screen of ['review', 'settings', 'integrations', 'world'] as const) {
     assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen }), false), { do: 'leave-screen' }, screen)
     assert.deepEqual(resolveEscape(context({ zone: 'other', screen }), false), { do: 'leave-screen' }, `${screen}, with the keyboard nowhere`)
     assert.equal(resolveEscape(context({ zone: 'canvas', screen }), true), null, `${screen}, when the screen used the key`)

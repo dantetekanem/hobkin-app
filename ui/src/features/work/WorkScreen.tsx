@@ -49,7 +49,9 @@ export function WorkScreen() {
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
   // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
-  const agents = useRunningAgents()
+  // A durable hobkin is the user's own and no work of hobkin's, so it is left out here (034-durable-hobkins).
+  const listed = useRunningAgents()
+  const agents = useMemo(() => listed.filter((agent) => !agent.durable), [listed])
   const still = useStill()
   const now = useNow(true, 30_000)
   const arriving = useArriving()
@@ -94,10 +96,11 @@ export function WorkScreen() {
     const target = event.target
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !(target instanceof HTMLElement)) return
     if (target.matches('input, textarea, [contenteditable="true"]')) return
-    // Enter presses whatever has the keyboard, taken here rather than left to the browser.
+    // Enter presses whatever has the keyboard, taken here rather than left to the browser. A key held down presses it
+    // once: its repeats never give a second click, such as the one that confirms Close without merging.
     if (event.key === 'Enter' && target.matches('button, a[href]')) {
       event.preventDefault()
-      target.click()
+      if (!event.repeat) target.click()
       return
     }
     const item = target.closest<HTMLElement>('[data-work-item]')

@@ -1,4 +1,5 @@
 import { sameEntry, type ActivityEntry } from '#shared/protocol/activity.ts'
+import { isTaskTool } from './tasks.ts'
 
 /**
  * A job's activity as the agent's canvas draws it (_specs/021-agent-rendering). hobkin keeps the agent's words and
@@ -93,6 +94,8 @@ export interface ReadOptions {
   ended?: boolean
   /** The agent's folder. Paths inside it are shown from there. */
   cwd?: string
+  /** The page shows the agent's tasks in their own line (TaskList.tsx), so a task call is a step only when it failed. */
+  tasksOnLine?: boolean
 }
 
 const SHELL = /^(bash|sh|zsh|shell|powershell|pwsh|exec|terminal|run_?command)$/i
@@ -291,6 +294,7 @@ export function stepsOf(entries: readonly ActivityEntry[], options: ReadOptions 
       steps.push({ kind: 'codemode', key: entry.id, entries: [entry], state: stateOf(entry, ended) })
       continue
     }
+    if (options.tasksOnLine && isTaskTool(entry.name) && entry.state !== 'failed') continue
     const family = familyOf(entry.name)
     if (family === 'shell') {
       const command = commandOf(entry, ended)

@@ -16,14 +16,13 @@ test('the shared entry is quick and continuous: one spring with no bounce, faste
 
 test('existing and newly delivered content is readable synchronously, with no fabricated empty exchange', () => {
   const fixture = { entries: [] as { id: string }[] }
-  const readable = () => agentReading(true, fixture.entries.length > 0, false)
+  const readable = () => agentReading(true, fixture.entries.length > 0)
   assert.equal(readable(), false)
   fixture.entries.push({ id: 'existing-step' })
   assert.equal(readable(), true)
   fixture.entries.push({ id: 'next-step' })
   assert.equal(readable(), true)
-  assert.equal(agentReading(false, true, true), false)
-  assert.equal(agentReading(true, false, true), true, 'talk retains its empty input room')
+  assert.equal(agentReading(false, true), false)
 })
 
 test('snapshot presence initializes explicit nested entrances at their readable target', () => {

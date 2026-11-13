@@ -324,7 +324,7 @@ export function readPack(pack: unknown): Scan {
     edges,
     dangling,
     tests,
-    files: files.map(({ path, kind, status }) => ({ path, kind, status })),
+    files: files.map(({ path, kind, status, language }) => ({ path, kind, status, ...(language ? { language } : {}) })),
     coverage: {
       truncated: truncatedBy !== 'none' || skippedAnchors > 0 || tally.get('dangling entry') > 0,
       truncatedBy,

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the main window may do: the defaults, plus dragging the window by the top bar.",
-  "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "description": "What the main window's own webview may do: the defaults, dragging the window by the top bar, and the notification plugin's permission check. Only the webview labelled main: the canvas's browser is a child webview of the same window (canvas-browser-1, -2 and so on), and no capability grants a page in it anything.",
+  "webviews": ["main"],
+  "permissions": ["core:default", "core:window:allow-start-dragging", "notification:allow-is-permission-granted"]
 }

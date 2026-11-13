@@ -170,6 +170,13 @@ test('queue actions call hobkin\'s work actions', async () => {
   assert.equal(calls.length, 3, 'nothing else reached hobkin')
 })
 
+test('done clears a work item through hobkin\'s own done action', async () => {
+  const { app, calls } = fakeHobkin({ done: () => ({ ok: true, message: '"Refresh jsdom" is done.' }) })
+  const result = await runCommand(handlersOf(app), 'work.change', { slug: 'rpsleague', item: 'b94256', action: 'done' })
+  assert.deepEqual(result, { ok: true, value: { message: '"Refresh jsdom" is done.' } })
+  assert.deepEqual(calls, [['done', 'rpsleague', 'b94256']])
+})
+
 test('merge passes hobkin\'s refusal through', async () => {
   const refusal = '"Move the cart into one module" conflicts with main, so nothing changed. Send an agent back to rebase it.'
   const { app, calls } = fakeHobkin({
@@ -291,6 +298,9 @@ test('projects show their state, and a proposal is answered as in the terminal',
     work.projects.map(({ state, slug }) => `${state} ${slug}`),
     ['chosen storefront', 'chosen docs-site', 'proposed billing-api', 'proposed design-kit', 'skipped labs', 'dropped old-site'],
   )
+  // How much of a project's work has merged is hobkin's own count, and a project that says none has none.
+  const counted = workFrom({ work: status({ projects: [{ ...projects[3]!, merged: 7 }, projects[1]!] }), waiting: null })!
+  assert.deepEqual(counted.projects.map(({ slug, merged }) => [slug, merged]), [['storefront', 7], ['docs-site', 0]])
 
   const { app, calls } = fakeHobkin()
   const handlers = handlersOf(app)
@@ -326,6 +336,26 @@ test('agents at once round trip', async (t) => {
   const tooMany = await runCommand(handlers, 'work.agents', { agents: 9 })
   assert.equal(!tooMany.ok && tooMany.error.code, 'invalid-arguments')
   assert.equal(await reported(), 4)
+})
+
+test("the daily budget is hobkin's own, and a change of it is saved where work mode reads it", async (t) => {
+  const root = temporaryDirectory(t)
+  const { app, calls } = fakeHobkin()
+  const handlers = handlersOf(app, root)
+  const reported = async () => workFrom({ work: await runWorkCommand(root, []), waiting: null })!
+
+  assert.deepEqual([(await reported()).dailyTokens, (await reported()).tokensToday], [100_000_000, 0], "hobkin's default and nothing used")
+  assert.deepEqual([workFrom({ work: status(), waiting: null })!.dailyTokens, workFrom({ work: status(), waiting: null })!.tokensToday], [null, null], 'a host that reports none is unknown')
+
+  const set = await runCommand(handlers, 'work.tokens', { tokens: 40_000_000 })
+
+  assert.deepEqual(set, { ok: true, value: { tokens: 40_000_000 } })
+  assert.equal((await reported()).dailyTokens, 40_000_000)
+  assert.deepEqual(calls, [['refresh']])
+
+  const none = await runCommand(handlers, 'work.tokens', { tokens: 0 })
+  assert.equal(!none.ok && none.error.code, 'invalid-arguments')
+  assert.equal((await reported()).dailyTokens, 40_000_000)
 })
 
 /** hobkin's runs as its snapshot lists them: its own conversation, a work agent, a routine, and one that has finished. */

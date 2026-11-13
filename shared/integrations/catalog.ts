@@ -1,9 +1,11 @@
-import type { CatalogEntry, Connect, EnvVar, Fill } from './types.ts'
+import type { CatalogEntry, Connect } from './types.ts'
 
 /**
- * The services hobkin can connect, each with the MCP server its maker documents. Every entry was read
+ * The services hobkin can connect as MCP servers, each with the server its maker documents. Every entry was read
  * against the page in `source` on the day in `checked`: the address, how it signs in, what it reads and
- * what it changes. Nothing here is guessed. A service whose server could not be confirmed is left out.
+ * what it changes. Nothing here is guessed. A service whose server could not be confirmed, that Pi cannot connect
+ * to today, or that needs an OAuth app the person registers themselves, is left out. GitHub is not here: it is a
+ * full integration, through gh (024-github).
  * See _specs/023-integrations and hobkin's setup rule, "Connect what they use".
  *
  * No entry holds a key. A secret is only ever named, as `${NAME}`, and the person keeps it in their shell profile.
@@ -15,220 +17,7 @@ export const CHECKED = '2026-11-09'
 /** A sign-in that needs nothing but the browser: the server lets a client register itself, or knows Pi's. */
 const BROWSER: Connect = { kind: 'oauth', says: 'Signs in through the browser.', env: [], fills: [], before: [] }
 
-// Google's servers sign in through an OAuth client in the person's own Google Cloud project. One client serves all of them.
-const GOOGLE_CALLBACK = 'http://127.0.0.1:8765/callback'
-const GOOGLE_SECRET: EnvVar = {
-  name: 'GOOGLE_OAUTH_CLIENT_SECRET',
-  holds: 'The client secret of the OAuth client in your Google Cloud project',
-  where: 'Google Cloud console, under Google Auth Platform, Clients',
-}
-const GOOGLE_CLIENT: Fill = { key: 'google-client-id', label: 'Client ID of your Google OAuth client', example: 'your-client-id.apps.googleusercontent.com' }
-
-function googleConnect(product: string, api: string): Connect {
-  return {
-    kind: 'oauth',
-    says: 'Signs in through the browser, with an OAuth client in your own Google Cloud project.',
-    env: [GOOGLE_SECRET],
-    fills: [GOOGLE_CLIENT],
-    before: [
-      'Join the Google Workspace Developer Preview Program.',
-      `In a Google Cloud project, turn on the ${product} API and ${api}.`,
-      `Create an OAuth client of the Web application type, tick "Use this client for an AI-powered agent", and add the redirect URI ${GOOGLE_CALLBACK}.`,
-      'On the consent screen, add the scopes the entry asks for.',
-    ],
-  }
-}
-
-const GOOGLE_PREVIEW = 'A Developer Preview: it needs membership in the Google Workspace Developer Preview Program.'
-const GOOGLE_ONE_CLIENT = 'One OAuth client serves Gmail, Google Calendar and Google Drive.'
-const GOOGLE_PAGES = ['https://developers.google.com/workspace/guides/configure-mcp-servers', 'https://developers.google.com/identity/protocols/oauth2/web-server']
-
-const SLACK_CALLBACK = 'http://localhost:8766/callback'
-const ASANA_CALLBACK = 'http://127.0.0.1:8767/callback'
-
 export const CATALOG: readonly CatalogEntry[] = [
-  {
-    id: 'slack',
-    name: 'Slack',
-    line: 'Messages, channels and canvases in your workspace.',
-    reads: ['Messages and files, by search', 'Channels and threads, and who is in them', 'Canvases and lists'],
-    changes: ['Sends, schedules and drafts messages', 'Creates channels and canvases, and adds reactions', 'Uploads files and updates lists'],
-    tools: [],
-    maker: 'Slack',
-    server: 'Slack MCP server',
-    fromVendor: true,
-    transport: 'http',
-    connect: {
-      kind: 'oauth',
-      says: 'Signs in through the browser, with a Slack app of your own.',
-      env: [{ name: 'SLACK_CLIENT_SECRET', holds: 'The client secret of your Slack app', where: 'The Basic Information page of your app at api.slack.com/apps' }],
-      fills: [{ key: 'slack-client-id', label: 'Client ID of your Slack app', example: '1234567890.1234567890' }],
-      before: [
-        'Create an app for your workspace at api.slack.com/apps. Only internal apps and apps in the Slack Marketplace may use MCP.',
-        'In the app\'s Agents section, turn on the Slack Model Context Protocol (MCP) Server feature.',
-        `Under OAuth & Permissions, add the redirect URL ${SLACK_CALLBACK} and the user scopes hobkin should have, such as search:read.public and chat:write.`,
-        'A workspace admin may need to approve the app.',
-      ],
-    },
-    entry: { url: 'https://mcp.slack.com/mcp', oauth: { clientId: '<slack-client-id>', clientSecret: '${SLACK_CLIENT_SECRET}', callbackUrl: SLACK_CALLBACK } },
-    usable: true,
-    notes: ['Slack does not let a client register itself, so the sign-in goes through an app of your own.'],
-    source: 'https://docs.slack.dev/ai/slack-mcp-server/',
-    also: ['https://docs.slack.dev/ai/slack-mcp-server/developing', 'https://docs.slack.dev/authentication/using-pkce'],
-    checked: CHECKED,
-  },
-  {
-    id: 'github',
-    name: 'GitHub',
-    line: 'Code, issues and pull requests.',
-    reads: ['Repositories, files and commits', 'Issues, pull requests and reviews', 'Actions runs and their logs, and notifications'],
-    changes: ['Opens and updates issues and pull requests, and comments on them', 'Creates branches, writes files and merges pull requests', 'Starts Actions workflows'],
-    tools: [
-      { name: 'get_file_contents', does: 'Gets a file or a directory', effect: 'reads' },
-      { name: 'search_code', does: 'Searches code', effect: 'reads' },
-      { name: 'list_issues', does: 'Lists issues', effect: 'reads' },
-      { name: 'pull_request_read', does: 'Gets a pull request', effect: 'reads' },
-      { name: 'get_job_logs', does: 'Gets the logs of a workflow job', effect: 'reads' },
-      { name: 'list_notifications', does: 'Lists notifications', effect: 'reads' },
-      { name: 'issue_write', does: 'Creates or updates an issue', effect: 'changes' },
-      { name: 'add_issue_comment', does: 'Comments on an issue or a pull request', effect: 'changes' },
-      { name: 'create_pull_request', does: 'Opens a pull request', effect: 'changes' },
-      { name: 'merge_pull_request', does: 'Merges a pull request', effect: 'changes' },
-      { name: 'create_or_update_file', does: 'Creates or updates a file', effect: 'changes' },
-      { name: 'actions_run_trigger', does: 'Starts a workflow', effect: 'changes' },
-    ],
-    maker: 'GitHub',
-    server: 'GitHub MCP Server',
-    fromVendor: true,
-    transport: 'http',
-    connect: {
-      kind: 'header',
-      says: 'Sends a personal access token from your shell profile.',
-      env: [{ name: 'GITHUB_PERSONAL_ACCESS_TOKEN', holds: 'A GitHub personal access token', where: 'GitHub, under Settings, Developer settings, Personal access tokens' }],
-      fills: [],
-      before: [],
-    },
-    entry: { url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}' } },
-    usable: true,
-    notes: [
-      'Signing in through the browser needs each client to bring a GitHub App of its own, so this entry sends a token instead.',
-      'Add /readonly to the end of the address to keep it to reading.',
-      'Tokens are off by default for Enterprise Managed Users.',
-    ],
-    source: 'https://github.com/github/github-mcp-server',
-    also: ['https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md', 'https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/set-up-the-github-mcp-server'],
-    checked: CHECKED,
-  },
-  {
-    id: 'gmail',
-    name: 'Gmail',
-    line: 'Your mail.',
-    reads: ['Mail, by search, and whole threads', 'Labels and drafts'],
-    changes: ['Writes drafts. It has no tool that sends mail', 'Adds and removes labels on messages and threads'],
-    tools: [
-      { name: 'search_threads', does: 'Searches threads', effect: 'reads' },
-      { name: 'get_thread', does: 'Reads a thread', effect: 'reads' },
-      { name: 'list_labels', does: 'Lists labels', effect: 'reads' },
-      { name: 'list_drafts', does: 'Lists drafts', effect: 'reads' },
-      { name: 'create_draft', does: 'Writes a draft', effect: 'changes' },
-      { name: 'label_thread', does: 'Puts a label on a thread', effect: 'changes' },
-      { name: 'unlabel_thread', does: 'Takes a label off a thread', effect: 'changes' },
-      { name: 'label_message', does: 'Puts a label on a message', effect: 'changes' },
-      { name: 'unlabel_message', does: 'Takes a label off a message', effect: 'changes' },
-    ],
-    maker: 'Google',
-    server: 'Gmail MCP server',
-    fromVendor: true,
-    transport: 'http',
-    connect: googleConnect('Gmail', 'the Gmail MCP API (gmailmcp.googleapis.com)'),
-    entry: {
-      url: 'https://gmailmcp.googleapis.com/mcp/v1',
-      oauth: {
-        clientId: '<google-client-id>',
-        clientSecret: '${GOOGLE_OAUTH_CLIENT_SECRET}',
-        callbackPort: 8765,
-        scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose',
-      },
-    },
-    usable: true,
-    notes: [GOOGLE_PREVIEW, GOOGLE_ONE_CLIENT],
-    source: 'https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server',
-    also: GOOGLE_PAGES,
-    checked: CHECKED,
-  },
-  {
-    id: 'google-calendar',
-    name: 'Google Calendar',
-    line: 'Your calendars and events.',
-    reads: ['Your calendars and their events', 'When people are free, to suggest a time'],
-    changes: ['Creates, updates and deletes events', 'Answers invitations'],
-    tools: [
-      { name: 'list_calendars', does: 'Lists calendars', effect: 'reads' },
-      { name: 'list_events', does: 'Lists events', effect: 'reads' },
-      { name: 'get_event', does: 'Gets an event', effect: 'reads' },
-      { name: 'suggest_time', does: 'Suggests a time to meet', effect: 'reads' },
-      { name: 'create_event', does: 'Creates an event', effect: 'changes' },
-      { name: 'update_event', does: 'Changes an event', effect: 'changes' },
-      { name: 'delete_event', does: 'Deletes an event', effect: 'changes' },
-      { name: 'respond_to_event', does: 'Answers an invitation', effect: 'changes' },
-    ],
-    maker: 'Google',
-    server: 'Google Calendar MCP server',
-    fromVendor: true,
-    transport: 'http',
-    connect: googleConnect('Google Calendar', 'the Calendar MCP API (calendarmcp.googleapis.com)'),
-    entry: {
-      url: 'https://calendarmcp.googleapis.com/mcp/v1',
-      oauth: {
-        clientId: '<google-client-id>',
-        clientSecret: '${GOOGLE_OAUTH_CLIENT_SECRET}',
-        callbackPort: 8765,
-        scope:
-          'https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.freebusy https://www.googleapis.com/auth/calendar.events.readonly',
-      },
-    },
-    usable: true,
-    notes: [GOOGLE_PREVIEW, 'Google lists only reading scopes for this server, so a change to an event may be refused.', GOOGLE_ONE_CLIENT],
-    source: 'https://developers.google.com/workspace/calendar/api/guides/configure-mcp-server',
-    also: GOOGLE_PAGES,
-    checked: CHECKED,
-  },
-  {
-    id: 'google-drive',
-    name: 'Google Drive',
-    line: 'Files in your Drive.',
-    reads: ['Files, by search, and what is in them', 'Recent files, their details and who can open them'],
-    changes: ['Creates files and copies existing ones'],
-    tools: [
-      { name: 'search_files', does: 'Searches files', effect: 'reads' },
-      { name: 'list_recent_files', does: 'Lists recent files', effect: 'reads' },
-      { name: 'read_file_content', does: 'Reads what a file holds', effect: 'reads' },
-      { name: 'get_file_metadata', does: 'Gets a file\'s details', effect: 'reads' },
-      { name: 'get_file_permissions', does: 'Gets who can open a file', effect: 'reads' },
-      { name: 'download_file_content', does: 'Downloads a file', effect: 'reads' },
-      { name: 'create_file', does: 'Creates a file', effect: 'changes' },
-      { name: 'copy_file', does: 'Copies a file', effect: 'changes' },
-    ],
-    maker: 'Google',
-    server: 'Google Drive MCP server',
-    fromVendor: true,
-    transport: 'http',
-    connect: googleConnect('Google Drive', 'the Drive MCP API (drivemcp.googleapis.com)'),
-    entry: {
-      url: 'https://drivemcp.googleapis.com/mcp/v1',
-      oauth: {
-        clientId: '<google-client-id>',
-        clientSecret: '${GOOGLE_OAUTH_CLIENT_SECRET}',
-        callbackPort: 8765,
-        scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file',
-      },
-    },
-    usable: true,
-    notes: [GOOGLE_PREVIEW, GOOGLE_ONE_CLIENT],
-    source: 'https://developers.google.com/workspace/drive/api/guides/configure-mcp-server',
-    also: GOOGLE_PAGES,
-    checked: CHECKED,
-  },
   {
     id: 'linear',
     name: 'Linear',
@@ -329,36 +118,6 @@ export const CATALOG: readonly CatalogEntry[] = [
     checked: CHECKED,
   },
   {
-    id: 'figma',
-    name: 'Figma',
-    line: 'Design files, components and variables.',
-    reads: ['Design context and code for a selection', 'Screenshots, variables and styles', 'FigJam diagrams'],
-    changes: ['Creates, edits and deletes content in Figma files', 'Creates files and FigJam diagrams', 'Maps components to code with Code Connect'],
-    tools: [
-      { name: 'get_design_context', does: 'Gets design context and code for a selection', effect: 'reads' },
-      { name: 'get_variable_defs', does: 'Lists the variables and styles of a selection', effect: 'reads' },
-      { name: 'get_screenshot', does: 'Takes a picture of a selection', effect: 'reads' },
-      { name: 'get_metadata', does: 'Outlines a selection', effect: 'reads' },
-      { name: 'get_figjam', does: 'Reads a FigJam diagram', effect: 'reads' },
-      { name: 'use_figma', does: 'Creates, edits or deletes content in a file', effect: 'changes' },
-      { name: 'create_new_file', does: 'Creates a file', effect: 'changes' },
-      { name: 'generate_diagram', does: 'Draws a FigJam diagram', effect: 'changes' },
-      { name: 'add_code_connect_map', does: 'Maps a component to code', effect: 'changes' },
-    ],
-    maker: 'Figma',
-    server: 'Figma MCP server',
-    fromVendor: true,
-    transport: 'http',
-    connect: BROWSER,
-    entry: { url: 'https://mcp.figma.com/mcp' },
-    usable: false,
-    blocked: 'Figma lets only the clients in its MCP catalog connect, and Pi was not in it when this was checked.',
-    notes: ['The maker of a client can apply to Figma to join the catalog.'],
-    source: 'https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/',
-    also: ['https://www.figma.com/mcp-catalog/', 'https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/'],
-    checked: CHECKED,
-  },
-  {
     id: 'home-assistant',
     name: 'Home Assistant',
     line: 'Your home: lights, devices and their state.',
@@ -414,34 +173,6 @@ export const CATALOG: readonly CatalogEntry[] = [
     ],
     source: 'https://docs.stripe.com/mcp',
     also: [],
-    checked: CHECKED,
-  },
-  {
-    id: 'vercel',
-    name: 'Vercel',
-    line: 'Projects, deployments and their logs.',
-    reads: ['Teams, projects and deployments', 'Runtime logs and errors', 'Web Analytics', 'Vercel\'s documentation'],
-    changes: ['Manages projects and deployments, and deploys code', 'Can make purchases on your account'],
-    tools: [
-      { name: 'list_teams', does: 'Lists the teams you can reach', effect: 'reads' },
-      { name: 'list_projects', does: 'Lists the projects of a team', effect: 'reads' },
-      { name: 'get_project', does: 'Gets a project', effect: 'reads' },
-      { name: 'list_deployments', does: 'Lists the deployments of a project', effect: 'reads' },
-      { name: 'get_deployment', does: 'Gets a deployment', effect: 'reads' },
-      { name: 'get_runtime_logs', does: 'Reads runtime logs', effect: 'reads' },
-      { name: 'get_runtime_errors', does: 'Groups runtime errors', effect: 'reads' },
-      { name: 'web_fetch_vercel_url', does: 'Fetches a deployment\'s page', effect: 'reads' },
-    ],
-    maker: 'Vercel',
-    server: 'Vercel MCP',
-    fromVendor: true,
-    transport: 'http',
-    connect: BROWSER,
-    entry: { url: 'https://mcp.vercel.com' },
-    usable: true,
-    notes: ['When you sign in you choose the teams it can reach. Your Vercel permissions still apply.'],
-    source: 'https://vercel.com/docs/agent-resources/vercel-mcp',
-    also: ['https://vercel.com/docs/agent-resources/vercel-mcp/tools'],
     checked: CHECKED,
   },
   {
@@ -557,31 +288,6 @@ export const CATALOG: readonly CatalogEntry[] = [
     alsoAt: ['https://mcp.eu.intercom.com/mcp'],
     source: 'https://developers.intercom.com/docs/guides/mcp',
     also: [],
-    checked: CHECKED,
-  },
-  {
-    id: 'asana',
-    name: 'Asana',
-    line: 'Tasks, projects and the work around them.',
-    reads: ['Tasks and projects', 'Reports and summaries of project data'],
-    changes: ['Creates and manages tasks and projects'],
-    tools: [],
-    maker: 'Asana',
-    server: 'Asana MCP V2 server',
-    fromVendor: true,
-    transport: 'http',
-    connect: {
-      kind: 'oauth',
-      says: 'Signs in through the browser, with an Asana MCP app of your own.',
-      env: [{ name: 'ASANA_CLIENT_SECRET', holds: 'The client secret of your Asana MCP app', where: 'The Asana developer console' }],
-      fills: [{ key: 'asana-client-id', label: 'Client ID of your Asana MCP app', example: '1234567890123456' }],
-      before: ['In the Asana developer console, create an app and choose MCP app as its type.', `Add the redirect URL ${ASANA_CALLBACK}.`],
-    },
-    entry: { url: 'https://mcp.asana.com/v2/mcp', oauth: { clientId: '<asana-client-id>', clientSecret: '${ASANA_CLIENT_SECRET}', callbackPort: 8767 } },
-    usable: true,
-    notes: ['Asana does not let a client register itself, so the sign-in goes through an app of your own.'],
-    source: 'https://developers.asana.com/docs/using-asanas-mcp-server',
-    also: ['https://developers.asana.com/docs/integrating-with-asanas-mcp-server'],
     checked: CHECKED,
   },
   {

@@ -84,7 +84,7 @@ test('a finished card and a queue row carry the GitHub issue their item was file
   )
 })
 
-test('a finished branch whose run left a note is a Left for you card: the note whole and Review, and no merge', (t) => {
+test('a finished branch whose run left a note is a Left for you card: the note whole, Review and Close without merging, and no merge', (t) => {
   const { root, slug } = homeWithProject(t)
   const { fromIssue, byHand } = fileBoth(root, slug)
   const note = 'The assigned smoke proof remains unfinished. It needs your word for a disposable browser launch.'
@@ -109,9 +109,12 @@ test('a finished branch whose run left a note is a Left for you card: the note w
   assert.deepEqual(card!.issue, { repo: 'acme/web', number: 75, url: 'https://github.com/acme/web/issues/75' })
   assert.deepEqual(
     card!.choices.map(({ value, label }) => [value, label]),
-    [['diff', 'Show the diff']],
+    [
+      ['diff', 'Show the diff'],
+      ['done', 'Close without merging'],
+    ],
   )
-  assert.match(card!.yes, /nothing merges/i)
+  assert.match(card!.yes, /nothing merges/i, 'the card says what closing it does')
   assert.equal(card!.head, leftOne.head, 'Review opens it at the commit the card shows')
 
   // With a pull request, it can be opened there too. A branch hobkin already lists in a group is not shown twice.
@@ -125,7 +128,7 @@ test('a finished branch whose run left a note is a Left for you card: the note w
   const again = withPr!.finished.find(({ name }) => name === 'left')!
   assert.deepEqual(
     again.changes.map(({ item, choices }) => [item, choices.map(({ value }) => value)]),
-    [[fromIssue, ['diff', 'open']]],
+    [[fromIssue, ['diff', 'open', 'done']]],
   )
   assert.equal(cards(withPr).filter(({ item }) => item === byHand).length, 1)
 

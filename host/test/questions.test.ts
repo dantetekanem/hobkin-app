@@ -69,6 +69,17 @@ test('a host that closes takes its question away as no answer, and does not put 
   assert.equal(questions.current(), null)
 })
 
+test("an agent's question keeps its sender and summary and gets no recommendation from a filed decision", async () => {
+  // A decision filed with the same words, which `describe` finds by them.
+  const describe = () => ({ from: 'deploy session', tldr: 'Promote staging?', recommended: 'promote', why: 'Only you can approve a release.' })
+  const questions = new Questions({ onChange: () => {}, canShow: () => true, typing: () => false, describe })
+  const asked = questions.ask({ question: QUESTION, choices: CHOICES, other: true, from: 'Fix the flaky cache test', tldr: 'Deploy' })
+  const { id: _id, askedAt: _at, ...shown } = questions.current()!
+  assert.deepEqual(shown, { from: 'Fix the flaky cache test', question: QUESTION, tldr: 'Deploy', choices: CHOICES, other: true, expiresAt: null })
+  questions.close()
+  assert.equal(await asked, undefined)
+})
+
 test('a question times out to action items and an answer resolves it', async (t) => {
   // hobkin keeps a question up for 30 seconds. The test does not wait that long.
   const { client, asked, gone, file, waiting } = await questionHost(t, 400)

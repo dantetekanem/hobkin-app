@@ -22,7 +22,7 @@ test('a review answers one question for the whole change: is it risky or safe to
   })
   assert.equal(deployAnswer([unit('mid', 'A')]).why, 'Nothing found that breaks. 1 part was not shown working by a test that ran.')
   assert.deepEqual(deployAnswer([unit('safe', 'A')]), { deploy: 'safe', why: 'Every part is shown to work, or cannot break anything.' })
-  assert.deepEqual(deployAnswer([]), { deploy: 'safe', why: 'Nothing in it runs.' })
+  assert.deepEqual(deployAnswer([]), { deploy: 'safe', why: 'Nothing that runs changed.' }, 'no unit: only comments, blank lines or files nothing runs changed')
 })
 
 test("the Reviewer's own sentence is the reason only when it gives the same answer", () => {

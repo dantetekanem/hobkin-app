@@ -25,6 +25,8 @@ export interface Spot {
   routine: string | null
   action: string | null
   githubTab: GitHubTab
+  /** The project GitHub's lists are narrowed to, by its slug. Null for All. */
+  githubProject: string | null
 }
 
 export type GitHubTab = 'pulls' | 'issues'
@@ -39,7 +41,7 @@ const idOr = (value: unknown) => (typeof value === 'string' && value.length > 0 
 const placeOr = (value: unknown): Place | null => {
   const p = value as Record<string, unknown> | null
   if (!p || !isScreen(p.screen)) return null
-  return { screen: p.screen, settingsReturn: screenOr(p.settingsReturn), githubReturn: screenOr(p.githubReturn), openAgent: idOr(p.openAgent), previewReturn: screenOr(p.previewReturn), agentTalk: p.agentTalk === true }
+  return { screen: p.screen, settingsReturn: screenOr(p.settingsReturn), githubReturn: screenOr(p.githubReturn), openAgent: idOr(p.openAgent), previewReturn: screenOr(p.previewReturn) }
 }
 
 /** A saved place with the home it was saved in, or null for anything this window did not write. */
@@ -53,7 +55,7 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
     agentReturn: screenOr(raw.agentReturn),
     screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
     openReview: idOr(raw.openReview), reviewReturn: placeOr(raw.reviewReturn), mindReturn: placeOr(raw.mindReturn), report: idOr(raw.report),
-    routine: idOr(raw.routine), action: idOr(raw.action), githubTab: raw.githubTab === 'issues' ? 'issues' : 'pulls', home: idOr(raw.home),
+    routine: idOr(raw.routine), action: idOr(raw.action), githubTab: raw.githubTab === 'issues' ? 'issues' : 'pulls', githubProject: idOr(raw.githubProject), home: idOr(raw.home),
   }
 }
 
@@ -82,8 +84,15 @@ function storage(): Storage | null {
 
 const saved = readSpot(storage()?.getItem(KEY) ?? null)
 
-/** A screen's own open state: Action Items' open item and GitHub's tab. A reload and Command+Left bring it back; a new visit starts over. */
-export const remembered = create<{ action: string | null; githubTab: GitHubTab }>()(() => ({ action: saved?.action ?? null, githubTab: saved?.githubTab ?? 'pulls' }))
+/**
+ * A screen's own open state: Action Items' open item, and GitHub's tab and the project it is narrowed to (null for All). A reload and
+ * Command+Left bring it back; a new visit starts over.
+ */
+export const remembered = create<{ action: string | null; githubTab: GitHubTab; githubProject: string | null }>()(() => ({
+  action: saved?.action ?? null,
+  githubTab: saved?.githubTab ?? 'pulls',
+  githubProject: saved?.githubProject ?? null,
+}))
 type Remembered = ReturnType<typeof remembered.getState>
 
 export function useRemembered<K extends keyof Remembered>(key: K): [Remembered[K], (value: Remembered[K]) => void] {
@@ -97,9 +106,9 @@ function spotNow(): Spot {
 
 /** Puts the canvas on a spot. A report or routine that is gone leaves its screen on the list. */
 function show(spot: Spot, screenMotion?: ScreenMotion): void {
-  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, action, githubTab } = spot
-  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, previewReturn: null, agentTalk: false, ...(screenMotion ? { screenMotion } : {}) })
-  remembered.setState({ action, githubTab })
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, action, githubTab, githubProject } = spot
+  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, previewReturn: null, ...(screenMotion ? { screenMotion } : {}) })
+  remembered.setState({ action, githubTab, githubProject })
 }
 
 /** The report and routine a reload left open, until their home sends them, or has sent its lists without them. */
@@ -183,7 +192,7 @@ const unsubscribe = [
     const returningFromAgent = before.screen === 'agent' && (before.agentReturn ?? before.previewReturn) === view.screen
     if (!applying && !returningFromAgent && view.screen !== before.screen) {
       if (view.screen === 'actions') remembered.setState({ action: null })
-      if (view.screen === 'github') remembered.setState({ githubTab: 'pulls' })
+      if (view.screen === 'github') remembered.setState({ githubTab: 'pulls', githubProject: null })
     }
     changed()
   }),

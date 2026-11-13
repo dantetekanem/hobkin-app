@@ -9,12 +9,10 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { ActivityModeSwitch } from '@/features/agent-activity/ActivityModeSwitch.tsx'
-import { callsOf } from '@/features/agent-activity/calls.ts'
-import { CallItem } from '@/features/agent-activity/CodeMode.tsx'
 import { sampleAt, sampleLength } from '@/features/agent-activity/sample.ts'
 import { familyOf, pauseOf, stepCount, stepsOf } from '@/features/agent-activity/steps.ts'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import type { EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { doingNow as turnWord } from '@/features/chat/doing.ts'
@@ -27,9 +25,6 @@ import { spring, tween } from '@/lib/motion.ts'
 import { mainActivityOf } from './mind.ts'
 import { SAMPLE_MAIN } from './sample.ts'
 
-type Mode = 'transcript' | 'code'
-/** How the mind is read, kept while the window is open. */
-let lastMode: Mode = 'transcript'
 /** When the sample first played, so it plays on from there. */
 let sampleStart: number | undefined
 /** hobkin's hood, as its helpers' faces take their colors from it. */
@@ -80,12 +75,11 @@ function useMain() {
 
 /**
  * Hobkin's mind: its main agent, the one the chat talks to, as it works right now (Command+J). Its steps read as an
- * agent's do, as a transcript or as code, at the newest unless the user scrolls up. The chat stays usable beside it.
+ * agent's do, at the newest unless the user scrolls up. The chat stays usable beside it.
  */
 export function MainAgentScreen() {
   const still = useStill()
   const { live, entries, children, busy, word, cwd } = useMain()
-  const [mode, setMode] = useState<Mode>(lastMode)
   const steps = entries ? stepCount(entries) : 0
   const status = busy ? `${capital(word ?? 'thinking')}${steps ? ` · ${steps === 1 ? '1 step' : `${steps} steps`}` : ''}` : 'Waiting for your next message'
 
@@ -97,21 +91,26 @@ export function MainAgentScreen() {
           <h2 className="font-heading text-[20px] font-semibold tracking-[-0.022em]">Hobkin's mind</h2>
           <p className="truncate text-[13px] text-muted-foreground">{status}</p>
         </div>
-        <ModeSwitch
-          mode={mode}
-          onChange={(next) => {
-            lastMode = next
-            setMode(next)
-          }}
-        />
+        {entries?.length ? (
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+            <Kbd>⌃O</Kbd>
+            opens every block
+          </span>
+        ) : null}
       </Rise>
       {children.length ? <Helpers helpers={children} /> : null}
+      {/* Outside the steps' scroller, so it stays in sight as they scroll. Its list opens over them from this row. */}
+      {entries?.length ? (
+        <div className="relative z-10 flex justify-center px-[10%] pb-2 empty:hidden">
+          <TaskList entries={entries} hue={HUE} />
+        </div>
+      ) : null}
       {entries === null ? (
         <Blank>Hobkin's mind needs hobkin to restart once: the running hobkin is older than this view and does not send its main agent's steps.</Blank>
       ) : entries.length === 0 ? (
         <Blank>{busy ? `${capital(word ?? 'thinking')}. Its steps draw here as it works.` : 'No steps yet. They draw here as hobkin works on your next message.'}</Blank>
       ) : (
-        <Exchange key={mode} entries={entries} mode={mode} ended={!busy} cwd={cwd} word={busy && pauseOf(entries) === 'thinking' ? (word ?? 'thinking') : null} sample={!live} />
+        <Exchange entries={entries} ended={!busy} cwd={cwd} word={busy && pauseOf(entries) === 'thinking' ? (word ?? 'thinking') : null} sample={!live} />
       )}
     </div>
   )
@@ -132,23 +131,18 @@ function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
   )
 }
 
-function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
-  const still = useStill()
-  return <ActivityModeSwitch mode={mode} onChange={onChange} label="Show hobkin's work as" layoutId="mind-mode" transition={still ? { duration: 0 } : spring.pill} />
-}
-
 /**
  * The main agent's steps, top to bottom, drawn as an agent's canvas draws them. It opens at the newest and stays there as
  * steps arrive, unless the user scrolled up to read, and then offers the way back down. A keyboard handed to the mind
  * lands here, so the arrows, Page keys, Home and End read it.
  */
-function Exchange({ entries, mode, ended, cwd, word, sample }: { entries: readonly ActivityEntry[]; mode: Mode; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
+function Exchange({ entries, ended, cwd, word, sample }: { entries: readonly ActivityEntry[]; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
   const still = useStill()
   const scroll = useFollow(still)
-  const steps = useMemo(() => (mode === 'transcript' ? stepsOf(entries, { ended, cwd }) : []), [entries, ended, cwd, mode])
-  const rows = useMemo(() => (mode === 'code' ? callsOf(entries, { ended, cwd }) : []), [entries, ended, cwd, mode])
+  // The tasks line above the steps is where task calls show.
+  const steps = useMemo(() => stepsOf(entries, { ended, cwd, tasksOnLine: true }), [entries, ended, cwd])
   scroll.note()
-  useLayoutEffect(scroll.settle, [steps, rows, word, scroll.settle])
+  useLayoutEffect(scroll.settle, [steps, word, scroll.settle])
   useEffect(() => (scroll.scroller.current ? handOffCanvasFocus(scroll.scroller.current) : undefined), [scroll.scroller])
 
   return (
@@ -156,15 +150,15 @@ function Exchange({ entries, mode, ended, cwd, word, sample }: { entries: readon
       ref={scroll.scroller}
       onScroll={scroll.onScroll}
       tabIndex={-1}
-      className="scroll-quiet relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-[10%] outline-none [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] outline-none [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
     >
-      <motion.ol ref={scroll.content} style={{ y: scroll.y }} aria-label={mode === 'code' ? "hobkin's tool calls" : 'What hobkin has done'} className="flex min-h-full flex-col justify-end gap-3 pt-2 pb-10">
+      <motion.ol ref={scroll.content} style={{ y: scroll.y }} aria-label="What hobkin has done" className="mt-auto flex flex-col gap-3 pt-2 pb-10">
         <AnimatePresence initial={false}>
-          {mode === 'code'
-            ? rows.map((row) => <CallItem key={row.key} row={row} timeOf={timeOf} ended={ended} />)
-            : steps.map((step) => <StepItem key={step.key} step={step} timeOf={timeOf} ended={ended} />)}
+          {steps.map((step) => (
+            <StepItem key={step.key} step={step} timeOf={timeOf} ended={ended} />
+          ))}
         </AnimatePresence>
         {word ? (
           <li className="flex items-center gap-2 pl-2.5 text-[13px] text-muted-foreground">

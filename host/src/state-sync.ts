@@ -8,6 +8,7 @@ import type { GitHubState } from '#shared/protocol/github.ts'
 import { diffMessages } from '#shared/protocol/message-ops.ts'
 import type { OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
+import type { Nudge } from '#shared/protocol/nudge.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import { shellFields, type ChatMessage, type WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
@@ -66,6 +67,10 @@ export interface HostFacts {
   work?: WorkState | null
   /** The canvas panel. Left out by a host that has none. */
   canvas?: CanvasState
+  /** Each durable hobkin's canvas by its id. Left out by a host that has none. */
+  canvases?: Record<string, CanvasState>
+  /** The latest one-shot window instruction (a move or a draft), or null while there has been none. */
+  nudge?: Nudge | null
   appearance?: AppearanceRequest | null
   /** hobkin's snapshot, or null while there is none to show. */
   snapshot: HobkinSnapshot | null
@@ -88,11 +93,15 @@ export class StateSync {
   private integrations: IntegrationsState | null
   private work: WorkState | null = null
   private canvas: CanvasState | null = null
+  private canvases: Record<string, CanvasState> | null = null
+  /** The last one-shot window instruction sent. Kept only so a repeat of the same one is not sent twice. */
+  private nudge: Nudge | null = null
   private appearance: AppearanceRequest | null = null
   private readonly cleared = new Set<string>()
 
-  constructor({ owner, signIn, models, github, integrations, canvas, appearance }: Omit<HostFacts, 'snapshot'>) {
+  constructor({ owner, signIn, models, github, integrations, canvas, canvases, appearance }: Omit<HostFacts, 'snapshot'>) {
     this.canvas = canvas ?? null
+    this.canvases = canvases ?? null
     this.appearance = appearance ?? null
     this.owner = owner
     this.signIn = signIn
@@ -127,12 +136,13 @@ export class StateSync {
       ...(this.integrations ? { integrations: this.integrations } : {}),
       ...(this.work ? { work: this.work } : {}),
       ...(this.canvas ? { canvas: this.canvas } : {}),
+      ...(this.canvases ? { canvases: this.canvases } : {}),
       appearance: this.appearance,
     }
   }
 
   /** What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source. */
-  update({ owner, signIn, models, github, integrations, work = null, canvas, appearance, snapshot }: HostFacts): StateMessage | null {
+  update({ owner, signIn, models, github, integrations, work = null, canvas, canvases, nudge, appearance, snapshot }: HostFacts): StateMessage | null {
     const ownerChanged = JSON.stringify(owner) !== JSON.stringify(this.owner)
     const signInChanged = JSON.stringify(signIn) !== JSON.stringify(this.signIn)
     const modelsChanged = models !== null && JSON.stringify(models) !== JSON.stringify(this.models)
@@ -140,6 +150,10 @@ export class StateSync {
     const integrationsChanged = integrations !== undefined && JSON.stringify(integrations) !== JSON.stringify(this.integrations)
     const workChanged = JSON.stringify(work) !== JSON.stringify(this.work)
     const canvasChanged = canvas !== undefined && JSON.stringify(canvas) !== JSON.stringify(this.canvas)
+    const canvasesChanged = canvases !== undefined && JSON.stringify(canvases) !== JSON.stringify(this.canvases)
+    // A one-shot instruction is only ever sent when it is new, and never on a reset or in a full state, so the
+    // window never replays a move or a draft on a reconnect.
+    const nudgeChanged = nudge != null && JSON.stringify(nudge) !== JSON.stringify(this.nudge)
     const appearanceChanged = appearance !== undefined && JSON.stringify(appearance) !== JSON.stringify(this.appearance)
     const startOver = owner.state !== this.owner.state
     this.owner = owner
@@ -148,6 +162,8 @@ export class StateSync {
     if (github) this.github = github
     if (integrations) this.integrations = integrations
     if (canvas) this.canvas = canvas
+    if (canvases) this.canvases = canvases
+    if (nudge) this.nudge = nudge
     if (appearance !== undefined) this.appearance = appearance
     this.work = work
 
@@ -172,6 +188,8 @@ export class StateSync {
       !integrationsChanged &&
       !workChanged &&
       !canvasChanged &&
+      !canvasesChanged &&
+      !nudgeChanged &&
       !appearanceChanged &&
       !changed.length &&
       !unset.length &&
@@ -198,6 +216,9 @@ export class StateSync {
       // Work mode goes whole, and null once the snapshot has none, so a UI never keeps one that is gone.
       ...(workChanged || (startOver && this.work) ? { work: this.work } : {}),
       ...(this.canvas && (canvasChanged || startOver) ? { canvas: this.canvas } : {}),
+      ...(this.canvases && (canvasesChanged || startOver) ? { canvases: this.canvases } : {}),
+      // Only when new — never forced on a reset — so a reconnect never re-navigates the window or rewrites the draft.
+      ...(nudgeChanged ? { nudge } : {}),
       ...(appearanceChanged || startOver ? { appearance: this.appearance } : {}),
     }
   }

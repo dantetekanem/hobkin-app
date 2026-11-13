@@ -133,6 +133,53 @@
     overscroll-behavior: none;
   }
 
+  /*
+   * A custom theme's backdrop (app/theme.ts sets --hb-bg-image to a validated gradient or image, or leaves it unset).
+   * It sits behind everything, over the window's faded color on html, and fades with the same background opacity, so
+   * at a low opacity the desktop shows through it like the rest of the window. Cards and tones stay above it.
+   */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: var(--hb-bg-image, none);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: var(--hb-opacity, 1);
+  }
+
+  /* Keep cards and the photo scrim solid, independently of desktop transparency. */
+  html[data-photo] {
+    --hb-see: 100%;
+    background: var(--hb-bg);
+  }
+
+  html[data-photo] body::before {
+    opacity: 1;
+  }
+
+  .photo-credit {
+    position: fixed;
+    right: 12px;
+    bottom: 3px;
+    z-index: 20;
+    max-width: calc(100vw - 24px);
+    border-radius: 4px;
+    padding: 2px 6px;
+    background: var(--hb-surface);
+    color: var(--hb-text);
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .photo-credit a {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   #root {
     height: 100%;
   }

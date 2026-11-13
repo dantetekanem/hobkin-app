@@ -232,7 +232,6 @@ function OwnedExecutionControls() {
   const rows = executionFeedbackRows(targets, state.results)
   return <details className="rounded-xl border border-border p-3 text-sm">
     <summary>Owned execution controls ({targets.length})</summary>
-    {!targets.length ? <p>Live cancellation capability unknown.</p> : null}
     {rows.length ? (
       <ul>
         {rows.map(({ target, active, result }) => (
