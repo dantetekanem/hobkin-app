@@ -2204,14 +2204,24 @@ function compactingAt(app, percent) {
   held.compacted = app.tickCompaction();
   return held;
 }
-const goesWithin = (sent, ms) => Promise.race([sent.then(() => 'went'), new Promise(resolve => setTimeout(resolve, ms, 'still waiting'))]);
-const userSaid = (app, words) => app.runtime.messages().some(message => message.role === 'user' && JSON.stringify(message.content).includes(words));
+
+/** 'went' once hobkin took the message within `ms`, or 'still waiting'. */
+function goesWithin(sent, ms) {
+  const went = sent.then(() => 'went');
+  const waited = new Promise(resolve => setTimeout(resolve, ms, 'still waiting'));
+  return Promise.race([went, waited]);
+}
+
+const userSaid = (app, words) => app.runtime.messages()
+  .some(message => message.role === 'user' && JSON.stringify(message.content).includes(words));
 
 test('a message from the user stops a compaction hobkin began early, and goes at once', async t => {
   const h = fixture(t);
   const app = await h.openApp();
   const held = compactingAt(app, 85);
+
   const sent = app.send('go back to the default system theme');
+
   try {
     assert.equal(app.runtime.mainFree, false, 'the compaction holds the chat');
 
@@ -2231,7 +2241,9 @@ test('a chat too full to wait finishes compacting, and the message goes as soon 
   const h = fixture(t);
   const app = await h.openApp();
   const held = compactingAt(app, 96);
+
   const sent = app.send('go back to the default system theme');
+
   try {
     assert.equal(await goesWithin(sent, 300), 'still waiting');
     assert.equal(held.aborts, 0);

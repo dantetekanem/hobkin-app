@@ -405,12 +405,18 @@ export class HobkinRuntime {
     if (!this.mainFree || typeof this.main.compact !== 'function') return false;
 
     const release = this.reserveSession(this.main.sessionId);
-    const compaction = this.ownCompaction = { early, session: this.main, yielded: false };
+    const compaction = { early, session: this.main, yielded: false };
+    this.ownCompaction = compaction;
     try {
       await this.main.compact();
       return true;
     } catch (error) {
-      this.lastCompaction = { status: compaction.yielded ? 'cancelled' : 'failed', reason: 'hobkin', at: new Date().toISOString(), error: String(error.message ?? error) };
+      this.lastCompaction = {
+        status: compaction.yielded ? 'cancelled' : 'failed',
+        reason: 'hobkin',
+        at: new Date().toISOString(),
+        error: String(error.message ?? error),
+      };
       return false;
     } finally {
       if (this.ownCompaction === compaction) this.ownCompaction = null;
@@ -425,7 +431,9 @@ export class HobkinRuntime {
   yieldCompaction() {
     const compaction = this.ownCompaction;
     if (!compaction?.early || compaction.yielded || compaction.session !== this.main) return;
+
     compaction.yielded = true;
+    // Nothing waits on the abort: the message goes once the compaction ends, however it ends.
     void Promise.resolve().then(() => compaction.session.abort()).catch(() => {});
   }
 
