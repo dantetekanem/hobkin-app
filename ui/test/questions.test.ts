@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { WAIT_MS, advance, answer, current, defer, emptyQueue, raise, timeLeft, type Question } from '../src/features/questions/queue.ts'
+import { WAIT_MS, advance, answer, current, defer, emptyQueue, freshWait, onSheet, raise, timeLeft, type Question } from '../src/features/questions/queue.ts'
 
 const question = (id: string): Question => ({
   id,
@@ -76,4 +76,15 @@ test('left alone for the whole wait, the question moves to action items', () => 
   assert.deepEqual(queue.deferred.map((item) => item.id), ['a'])
   assert.equal(current(queue)?.id, 'b')
   assert.equal(timeLeft(queue), WAIT_MS, 'the next question gets its own full wait')
+})
+
+test('while the first-run setup or the tour covers the window the sheet shows nothing, and it comes back with a fresh wait', () => {
+  const waiting = advance(raise(emptyQueue, question('a')), 20_000, false)
+
+  assert.equal(onSheet(waiting, true), null, 'nobody is asked what they cannot reach')
+  assert.equal(onSheet(waiting, false)?.id, 'a', 'uncovered, it shows what waits')
+  assert.deepEqual(freshWait(waiting).waiting, waiting.waiting, 'stepping aside puts nothing off')
+  assert.deepEqual(freshWait(waiting).deferred, [])
+  assert.equal(timeLeft(freshWait(waiting)), WAIT_MS, 'the question gets its whole wait again')
+  assert.equal(freshWait(emptyQueue), emptyQueue, 'a wait that is whole is left as it is')
 })

@@ -81,7 +81,7 @@ export function AnswerField({ ask, label, initial, onAnswer, still }: AnswerFiel
                 }}
                 className={cn(
                   'h-7 rounded-full border px-3 font-heading text-[12.5px] font-medium whitespace-nowrap outline-offset-2 transition-[background-color,border-color,color,transform] duration-[160ms] ease-[ease] active:scale-[0.97]',
-                  on ? 'border-transparent bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:border-border-strong hover:text-foreground',
+                  on ? 'border-transparent bg-primary text-primary-foreground' : 'border-border bg-card/70 text-foreground/80 backdrop-blur-md hover:border-border-strong hover:text-foreground',
                 )}
               >
                 {suggestion}
@@ -91,7 +91,7 @@ export function AnswerField({ ask, label, initial, onAnswer, still }: AnswerFiel
         </div>
       ) : null}
 
-      <div className="flex h-[52px] w-full items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-5 shadow-panel transition-[border-color] duration-[160ms] ease-[ease] focus-within:border-border-strong">
+      <div className="tale-glassy tale-glass flex h-14 w-full items-center gap-2 rounded-full pr-2 pl-6">
         <label htmlFor={id} className="sr-only">
           {label}
         </label>

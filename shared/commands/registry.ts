@@ -13,7 +13,7 @@ import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
-import { COMPUTER_KINDS, PROFILE_TEXT_MAX, type PiSetup, type UserProfile } from '../protocol/setup.ts'
+import { COMPUTER_KINDS, PROFILE_TEXT_MAX, type PiSetup, type ProjectsFound, type UserProfile } from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
@@ -413,6 +413,11 @@ export const COMMANDS = {
     description: "Read whether Pi is installed on this Mac at the version hobkin runs on, whether npm is there to install it, and which of the Pi packages hobkin's agents use Pi has. It only reads.",
     runs: 'host',
     args: nothing,
+  },
+  'setup.projects': {
+    description: 'List the folders directly inside the folder the user says their projects live in, the ones changed most recently first, and whether each is a git repository. It reads names only, never a file.',
+    runs: 'host',
+    args: Type.Object({ folder: words(1024) }, { additionalProperties: false }),
   },
   'setup.install-pi': {
     description: 'Install the Pi version hobkin runs on, globally on this Mac, with npm. Answers with Pi as it is after.',
@@ -1024,6 +1029,7 @@ export interface CommandResults {
   /** Pi as it is once the install is done. */
   'setup.install-pi': PiSetup
   'setup.install-package': PiSetup
+  'setup.projects': ProjectsFound
   'github.refresh': GitHubState
   'github.open': { ok: true }
   /** What was done, in plain words: the issue closed on GitHub, and what hobkin said of its item, when it had one to decline. */

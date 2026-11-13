@@ -220,28 +220,36 @@ export interface Arrival {
 /** The character's art as shares of its square, from its middle (avatar/moods.tsx: the hood spans 22 to 188 and 40 to 160 of -28 to 228; the eyes sit at 138, radius 8). */
 const ART = { tip: 0.305, eyes: 0.148, eyeRadius: 8 / 256, hoodHalf: 60 / 256 }
 
-/** It hides behind ridge 1 at 72% across, as on hobkin.dev, just right of the summit it climbs first. */
-const HIDE = { ridge: 1, x: 0.72, scale: 0.35 } as const
+/**
+ * It hides behind the last ridge of mountains, on the right, smaller than it will be because it is still far. From
+ * there one hop takes it over the mountains to the ground, so it never stands on a peak.
+ */
+const HIDE = { ridge: 3, x: 0.74, scale: 0.5 } as const
 /** Pixels: hidden this far under the crest, and peeking with its eyes this far over it. */
 const HIDDEN_BY = 4
 const PEEK_BY = 2
 /** Pixels at scale 1: the foot settles a little into the top it lands on, so it reads as standing. */
 const SINK = 3
 
-/** Where it lands on the way in, far to near, growing as it nears. The hill comes only in wide windows, which have room for five hops. */
-const LANDINGS: readonly { shape: Shape; x: number; scale: number }[] = [
-  { shape: 1, x: 0.705, scale: 0.42 },
-  { shape: 2, x: 0.65, scale: 0.55 },
-  { shape: 3, x: 0.595, scale: 0.7 },
-  { shape: 'hill', x: 0.548, scale: 0.85 },
+/**
+ * Where it lands on the way in, growing as it nears. Never on a mountain: first behind the hill, which hides its
+ * foot, then along the hill itself, which is the ground. One of the hill's landings comes only in wide windows,
+ * which have room for five hops.
+ */
+const LANDINGS: readonly { x: number; scale: number; behindTheHill?: true; wideOnly?: true }[] = [
+  { x: 0.7, scale: 0.6, behindTheHill: true },
+  { x: 0.645, scale: 0.72 },
+  { x: 0.59, scale: 0.83, wideOnly: true },
+  { x: 0.545, scale: 0.92 },
 ]
 const WIDE = 1100
-
-/** In front of the shape it stands on and behind the next nearer one. On the hill, in front of everything. */
-function layerOn(shape: Shape): number {
-  if (shape === 'hill') return LAYER.front
-  return (LAYER.ridges[shape] + (shape === 3 ? LAYER.hill : LAYER.ridges[shape + 1]!)) / 2
-}
+/**
+ * Behind the hill, the hill's edge crosses the character this far below its middle, as a share of its size: under
+ * its eyes, which stay in view, and over its foot, which the hill hides.
+ */
+const BEHIND_THE_HILL = 0.22
+/** In front of the mountains and behind the hill. */
+const VALLEY_LAYER = (LAYER.ridges[3] + LAYER.hill) / 2
 
 /** A bigger character, nearer, hops higher and stays up longer, the way a thing falls: time grows with the root of the height. */
 const liftFor = (scale: number) => 8 + 0.2 * FACE * scale
@@ -259,11 +267,15 @@ export function arrivalFor(viewport: Viewport): Arrival {
   const lowest = Math.max(...crestsAcross)
 
   const stage = stageFor(viewport)
-  const landingsHere = LANDINGS.filter(({ shape }) => shape !== 'hill' || viewport.width >= WIDE)
-  const landings = landingsHere.map(({ shape, x: share, scale: landed }) => {
+  const landingsHere = LANDINGS.filter(({ wideOnly }) => !wideOnly || viewport.width >= WIDE)
+  const landings = landingsHere.map(({ x: share, scale: landed, behindTheHill }) => {
     const at = viewport.width * share
-    const foot = crestY(shape, at, viewport) + SINK * landed
-    return { to: { x: at, y: foot - footBelow(landed), scale: landed }, layer: layerOn(shape) }
+    const ground = crestY('hill', at, viewport)
+    if (behindTheHill) {
+      return { to: { x: at, y: ground - BEHIND_THE_HILL * FACE * landed, scale: landed }, layer: VALLEY_LAYER }
+    }
+    const foot = ground + SINK * landed
+    return { to: { x: at, y: foot - footBelow(landed), scale: landed }, layer: LAYER.front }
   })
   const steps = [...landings, { to: stage, layer: LAYER.front }]
   const hops = steps.map(({ to, layer }) => ({
@@ -275,7 +287,7 @@ export function arrivalFor(viewport: Viewport): Arrival {
 
   return {
     hidden: { x, y: lowest + HIDDEN_BY + size * ART.tip, scale },
-    hiddenLayer: (LAYER.ridges[0] + LAYER.ridges[1]) / 2,
+    hiddenLayer: (LAYER.ridges[HIDE.ridge - 1] + LAYER.ridges[HIDE.ridge]) / 2,
     peek: { x, y: crest - PEEK_BY - size * (ART.eyes + ART.eyeRadius), scale },
     hops,
     stage,

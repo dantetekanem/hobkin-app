@@ -21,14 +21,6 @@ const footHalf = (seat: Seat) => FACE * seat.scale * (52 / 256)
 
 const across = (x: number, half: number) => [-1, -0.5, 0, 0.5, 1].map((share) => x + share * half)
 const layerOf = (shape: Shape) => (shape === 'hill' ? LAYER.hill : LAYER.ridges[shape])
-const nearerThan = (shape: Shape): Shape[] => (shape === 'hill' ? [] : [...RIDGES.filter((ridge) => ridge > shape), 'hill'])
-
-/** The shape a layer stands in front of: the nearest one under it. */
-function standsOn(layer: number): Shape {
-  const under = SHAPES.filter((shape) => layerOf(shape) < layer)
-  assert.ok(under.length > 0, `layer ${layer} is behind everything`)
-  return under.at(-1)!
-}
 
 /** The quadratic curves of a drawn path, in its own 1000 by 1000 box. */
 function curvesOf(path: string): { from: [number, number]; control: [number, number]; to: [number, number] }[] {
@@ -104,16 +96,16 @@ test('the stage is the middle of the window, standing on the crest of the hill',
   }
 })
 
-test('it hides small behind a middle ridge at about 72% across, then peeks until its eyes are over the crest', () => {
+test('it hides behind the last ridge of mountains, on the right, then peeks until its eyes are over the crest', () => {
   for (const viewport of VIEWPORTS) {
     const { hidden, hiddenLayer, peek } = arrivalFor(viewport)
     const behind = RIDGES.find((ridge) => LAYER.ridges[ridge] > hiddenLayer)!
     const name = `${viewport.width}x${viewport.height}`
 
-    assert.ok(behind === 1 || behind === 2, `it hides behind a middle ridge, not ${behind}`)
-    assert.ok(hiddenLayer > LAYER.ridges[behind - 1]!, 'and in front of the ones farther away')
-    assert.ok(Math.abs(hidden.x / viewport.width - 0.72) <= 0.03, `about 72% across in ${name}`)
-    assert.ok(hidden.scale >= 0.3 && hidden.scale <= 0.4, 'small, because it is far away')
+    assert.equal(behind, 3, 'it hides behind the nearest mountains, so its first hop takes it to the ground')
+    assert.ok(hiddenLayer > LAYER.ridges[2], 'and in front of the ones farther away')
+    assert.ok(hidden.x / viewport.width >= 0.68 && hidden.x / viewport.width <= 0.8, `on the right in ${name}`)
+    assert.ok(hidden.scale >= 0.4 && hidden.scale <= 0.6, 'smaller than it will be, because it is still far')
     for (const x of across(hidden.x, hoodHalf(hidden))) assert.ok(tipOf(hidden) > crestY(behind, x, viewport), `the whole hood is below the crest at ${x.toFixed(1)} in ${name}`)
 
     const crest = crestY(behind, peek.x, viewport)
@@ -121,39 +113,45 @@ test('it hides small behind a middle ridge at about 72% across, then peeks until
     assert.equal(peek.scale, hidden.scale)
     assert.ok(crest - eyesBottomOf(peek) >= 0.5 && crest - eyesBottomOf(peek) <= 6, `the eyes are just over the crest in ${name}: ${crest - eyesBottomOf(peek)}`)
     assert.ok(footOf(peek) > crest, 'its foot is still below the crest')
-    for (const nearer of nearerThan(behind)) assert.ok(crestY(nearer, peek.x, viewport) > eyesBottomOf(peek), `nothing nearer covers the eyes in ${name}`)
+    assert.ok(crestY('hill', peek.x, viewport) > eyesBottomOf(peek), `the hill does not cover the eyes in ${name}`)
   }
 })
 
-test('it hops toward the middle, landing on each nearer ridge and growing, and the last hop is the stage', () => {
+test('it comes over the mountains and hops along the ground to the middle, never landing on a mountain', () => {
   for (const viewport of VIEWPORTS) {
     const { hiddenLayer, peek, hops, stage } = arrivalFor(viewport)
     const name = `${viewport.width}x${viewport.height}`
+    const [overTheRidge, ...alongTheHill] = hops
 
     assert.equal(hops.length, viewport.width >= 1100 ? 5 : 4, `hops in ${name}`)
     assert.deepEqual(stage, stageFor(viewport))
     assert.deepEqual(hops.at(-1)!.to, stage, 'the last hop lands on the stage')
-    assert.equal(hops.at(-1)!.layer, LAYER.front)
     assert.equal(hops.at(-1)!.to.scale, 1)
     assert.ok(hops[0]!.lift < hops.at(-1)!.lift, 'a far, small hop rises less than the last big one')
+
+    // The first hop takes it over the ridge and down behind the hill, which hides its foot and not its eyes.
+    const hillThere = crestY('hill', overTheRidge!.to.x, viewport)
+    assert.ok(overTheRidge!.layer > LAYER.ridges[3] && overTheRidge!.layer < LAYER.hill, `the first hop lands between the mountains and the hill in ${name}`)
+    assert.ok(footOf(overTheRidge!.to) > hillThere, `the hill hides its foot in ${name}`)
+    assert.ok(eyesBottomOf(overTheRidge!.to) < hillThere, `its eyes show over the hill in ${name}`)
+
+    // Every hop after it lands on the hill itself, which is the ground, in front of everything.
+    for (const [index, hop] of alongTheHill.entries()) {
+      const foot = footOf(hop.to)
+      const ground = crestY('hill', hop.to.x, viewport)
+      assert.equal(hop.layer, LAYER.front, `hop ${index + 2} in ${name} is in front of everything`)
+      assert.ok(foot - ground >= -0.5 && foot - ground <= 4, `hop ${index + 2} in ${name} lands on the ground: ${foot - ground}`)
+    }
 
     let from: Seat = peek
     let layer = hiddenLayer
     let lift = 0
     for (const [index, hop] of hops.entries()) {
       const label = `hop ${index + 1} in ${name}`
-      const shape = standsOn(hop.layer)
-      const foot = footOf(hop.to)
-      const crest = crestY(shape, hop.to.x, viewport)
 
       assert.ok(hop.to.x < from.x && hop.to.x >= viewport.width / 2, `${label} moves toward the middle`)
       assert.ok(hop.to.scale >= from.scale, `${label} does not shrink`)
       assert.ok(hop.layer >= layer, `${label} does not go back a layer`)
-      assert.ok(foot - crest >= -0.5 && foot - crest <= 4, `${label} lands on the crest of ${shape}: ${foot - crest}`)
-      for (const nearer of nearerThan(shape)) {
-        assert.ok(hop.layer < layerOf(nearer), `${label} stays behind ${nearer}`)
-        for (const x of across(hop.to.x, footHalf(hop.to))) assert.ok(crestY(nearer, x, viewport) >= foot - 0.5, `${label} is in plain view over ${nearer}`)
-      }
       assert.ok(hop.lift >= lift && hop.lift > 0, `${label} rises at least as high as the one before`)
       assert.ok(hop.time >= 0.4 && hop.time <= 0.65, `${label} takes ${hop.time}s`)
       assertClears(hop, from, layer, viewport, label)

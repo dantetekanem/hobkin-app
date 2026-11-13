@@ -1,9 +1,10 @@
-import { ArrowRight, BriefcaseBusiness, House, MessageCircleQuestion, type LucideIcon } from 'lucide-react'
+import { ArrowRight, BriefcaseBusiness, Check, Clock, House, MessageCircleQuestion, ShieldCheck, Volume2, VolumeX, X, type LucideIcon } from 'lucide-react'
 import { motion, useMotionValue, useSpring, useTransform, type MotionValue } from 'motion/react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { play } from '@/features/sound/index.ts'
 import { ease, spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { lean, sizesFor } from './balance.ts'
+import { lean, shadesFor, sizesFor } from './balance.ts'
 import type { Option } from './story.ts'
 import './story.css'
 
@@ -13,6 +14,13 @@ const ICONS: Partial<Record<string, LucideIcon>> = {
   work: BriefcaseBusiness,
   yes: MessageCircleQuestion,
   no: ArrowRight,
+  'sound-on': Volume2,
+  'sound-off': VolumeX,
+  // The questions' own two words.
+  Yes: Check,
+  No: X,
+  'Set it up': ShieldCheck,
+  Later: Clock,
 }
 
 type Side = 'left' | 'right'
@@ -27,6 +35,11 @@ const ARRIVE_STEP = 0.07
 const AT_REST = 'translate(-50%, -50%) translateX(0px) scale(1)'
 const LET_GO = 'translate(-50%, -50%) translateX(0px) scale(0.92)'
 
+/** How big a bubble is: it grows with the window, within what reads well. */
+const ORB_SIZE = 'size-[clamp(132px,9.6vw,164px)]'
+/** The ring that spreads from the picked bubble, from its edge outward. */
+const RING = { from: 'translate(-50%, -50%) scale(0.92)', to: 'translate(-50%, -50%) scale(1.5)' }
+
 interface ChoicesProps {
   label: string
   options: readonly [Option, Option]
@@ -35,6 +48,8 @@ interface ChoicesProps {
   /** How far each one sits from the middle. */
   apart: number
   onChoose: (value: string) => void
+  /** Told the moment a bubble is picked, before its sound and its flight, for a choice that changes either. */
+  onPicked?: (value: string) => void
   still: boolean
   /** Filled with the way to hand the keyboard to a side, for the story's Left and Right. */
   reach: RefObject<((side: Side) => void) | null>
@@ -45,7 +60,7 @@ interface ChoicesProps {
  * a little and the other gives up the same, on a spring, since the pointer never stops asking. The keyboard does
  * the same as it lands on one. The picked one flies into hobkin, and the other lets go.
  */
-export function Choices({ label, options, around, apart, onChoose, still, reach }: ChoicesProps) {
+export function Choices({ label, options, around, apart, onChoose, onPicked, still, reach }: ChoicesProps) {
   const [picked, setPicked] = useState<string | null>(null)
   const buttons = useRef<Record<Side, HTMLButtonElement | null>>({ left: null, right: null })
   const middles = { left: { x: around.x - apart, y: around.y }, right: { x: around.x + apart, y: around.y } }
@@ -56,6 +71,11 @@ export function Choices({ label, options, around, apart, onChoose, still, reach 
   const sizes: Record<Side, MotionValue<string>> = {
     left: useTransform(eased, (value) => `scale(${sizesFor(value)[0]})`),
     right: useTransform(eased, (value) => `scale(${sizesFor(value)[1]})`),
+  }
+  // The one leaned to also gets lighter, and the other darker.
+  const lights: Record<Side, MotionValue<string>> = {
+    left: useTransform(eased, (value) => `brightness(${shadesFor(value)[0]})`),
+    right: useTransform(eased, (value) => `brightness(${shadesFor(value)[1]})`),
   }
 
   useEffect(() => {
@@ -81,6 +101,8 @@ export function Choices({ label, options, around, apart, onChoose, still, reach 
 
   const choose = (value: string) => {
     if (picked !== null) return
+    onPicked?.(value)
+    play('pick')
     setPicked(value)
     // The pick is seen before the story goes on. Held still there is nothing to wait for.
     setTimeout(() => onChoose(value), still ? 0 : PICK * 1000)
@@ -116,29 +138,39 @@ export function Choices({ label, options, around, apart, onChoose, still, reach 
               initial={{ opacity: 0, transform: still ? AT_REST : fromHobkin }}
               animate={picked === null ? arrive : afterThePick}
             >
-              <div className="tale-float" data-side={side}>
+              <div className="tale-float relative" data-side={side}>
+                <span className="tale-bead" data-n="1" />
+                <span className="tale-bead" data-n="2" />
                 <motion.button
                   ref={(element) => {
                     buttons.current[side] = element
                   }}
                   type="button"
                   disabled={picked !== null}
-                  style={{ transform: sizes[side] }}
+                  style={{ transform: sizes[side], filter: lights[side] }}
                   onClick={() => choose(option.value)}
                   // The keyboard landing on one leans to it, as the pointer nearing it does.
                   onFocus={(event) => {
                     if (!still && event.currentTarget.matches(':focus-visible')) pull.set(toward)
                   }}
-                  className={cn(
-                    'flex size-[136px] flex-col items-center justify-center gap-2 rounded-full border border-border bg-card font-heading text-[16px] font-semibold tracking-[-0.01em] text-foreground shadow-panel',
-                    'outline-offset-4 transition-[border-color,background-color] duration-[160ms] ease-[ease] hover:border-border-strong focus-visible:outline-2 focus-visible:outline-ring',
-                  )}
+                  className={cn('tale-glassy tale-glass tale-orb grid place-items-center rounded-full font-heading text-[16px] font-semibold tracking-[-0.01em] text-foreground outline-none', ORB_SIZE)}
                 >
-                  {Icon ? <Icon className="size-6" aria-hidden="true" /> : null}
-                  {option.label}
+                  <span className="tale-orb-face flex flex-col items-center gap-2.5">
+                    {Icon ? <Icon className="size-6" aria-hidden="true" /> : null}
+                    {option.label}
+                  </span>
                 </motion.button>
               </div>
             </motion.div>
+            {picked === option.value && !still ? (
+              <motion.span
+                aria-hidden="true"
+                className={cn('pointer-events-none absolute top-0 left-0 rounded-full border-2 border-sun', ORB_SIZE)}
+                initial={{ opacity: 0.8, transform: RING.from }}
+                animate={{ opacity: 0, transform: RING.to }}
+                transition={{ duration: 0.45, ease: ease.out }}
+              />
+            ) : null}
           </div>
         )
       })}

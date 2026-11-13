@@ -2,6 +2,7 @@ import { useAnimate, type Transition } from 'motion/react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Hob, useHobReactions } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
+import { play as sound } from '@/features/sound/index.ts'
 import { ease } from '@/lib/motion.ts'
 import { FACE, type Seat } from './face-size.ts'
 import { LAYER, type Arrival, type Hop } from './world-geometry.ts'
@@ -20,8 +21,6 @@ interface ActorProps {
   seat: Seat
   /** Its place by the message input, to fly to as the setup leaves. Null when the frame has none. */
   home: Seat | null
-  /** The user would not wait for the hops: it comes to its seat at once. */
-  rushed: boolean
   mood: Mood
   /** Changes with each beat of the story, and it hops a little when it does. */
   beat: string
@@ -56,10 +55,6 @@ const REBOUND = 'scale(0.97, 1.04)'
 
 /** Moving between seats, on a spring that a new seat retargets. */
 const SETTLE = { type: 'spring', duration: 0.7, bounce: 0.16 } as const
-/** Coming straight to the seat when the hops were skipped. A little more spring, since it is one big jump. */
-const JUMP_IN = { type: 'spring', duration: 0.62, bounce: 0.22 } as const
-/** How long after the jump starts the character counts as arrived, in milliseconds: before the spring's last wobble. */
-const JUMPED_IN_MS = 460
 const AT_ONCE = { duration: 0 } as const
 /** The flight at the end: it travels sideways on a spring while it rises a little, then dives into its seat. */
 const FLY_X = { type: 'spring', duration: 0.74, bounce: 0 } as const
@@ -113,6 +108,7 @@ async function hop({ play, stopped }: Performance, { outer, middle, inner }: Box
   await play(inner, { transform: [UPRIGHT, GATHERED] }, { duration: GATHER, ease: 'easeOut' })
   if (stopped()) return
 
+  sound('hop')
   void play(outer, { transform: [across(from), across(to)] }, { duration: time, ease: 'linear' })
   void play(inner, { transform: [GATHERED, STRETCHED, AT_THE_TOP] }, { duration: up, ease: 'easeOut' })
   // Up against its weight and down with it. A falling thing speeds up, which is the one honest use of ease-in.
@@ -124,6 +120,7 @@ async function hop({ play, stopped }: Performance, { outer, middle, inner }: Box
   await play(middle, { transform: [down(top), down(to)] }, { duration: fall, ease: 'easeIn' })
   if (stopped()) return
 
+  sound('land')
   await play(inner, { transform: [SQUASHED, REBOUND, UPRIGHT] }, { duration: RECOVER, times: [0, 0.55, 1], ease: 'easeOut' })
 }
 
@@ -171,7 +168,7 @@ async function comeIn(performance: Performance, boxes: Boxes, { hidden, hiddenLa
  * middle of the window in four or five hops, passing in front of a ridge at the top of each hop. Then it stays on
  * its seat for the whole story, and flies to its place by the message input at the end.
  */
-export function Actor({ act, arrival, seat, home, rushed, mood, beat, still, followWithin, onArrived }: ActorProps) {
+export function Actor({ act, arrival, seat, home, mood, beat, still, followWithin, onArrived }: ActorProps) {
   const [layer, animate] = useAnimate<HTMLDivElement>()
   const riser = useRef<HTMLDivElement | null>(null)
   const body = useRef<HTMLDivElement | null>(null)
@@ -200,9 +197,9 @@ export function Actor({ act, arrival, seat, home, rushed, mood, beat, still, fol
     land.current()
   }
 
-  // The way in. A user who would not wait already has it on its way to the seat.
+  // The way in. It always plays to the end: nothing the user does cuts the hops short.
   useEffect(() => {
-    if (act !== 'arriving' || arrived.current || rushed) return
+    if (act !== 'arriving' || arrived.current) return
     const boxes = boxesNow()
     if (!boxes) return
 
@@ -217,40 +214,21 @@ export function Actor({ act, arrival, seat, home, rushed, mood, beat, still, fol
     // Once, as it starts to arrive, with the way in as it was then.
   }, [act])
 
-  // No hops: held still it is simply there, and a user who would not wait gets it at once, in one jump.
+  // Held still there are no hops: it is simply there.
   useEffect(() => {
-    if (arrived.current || act === 'leaving') return
-    if (!still && !rushed) return
+    if (!still || arrived.current || act === 'leaving') return
     const boxes = boxesNow()
     if (!boxes) return
-    const { outer, middle, inner } = boxes
 
     stopArriving.current?.()
-    outer.style.zIndex = String(LAYER.front)
-
-    if (still) {
-      outer.style.transform = across(seat)
-      middle.style.transform = down(seat)
-      inner.style.transform = UPRIGHT
-      setSeen(true)
-      finish()
-      return
-    }
-
-    // From out of sight it comes up from under the window. Mid-hop, it goes on from where it is.
-    if (!seen) {
-      outer.style.transform = across(seat)
-      middle.style.transform = down({ y: innerHeight + FACE, scale: seat.scale })
-      setSeen(true)
-    }
-    void animate(outer, { transform: across(seat) }, JUMP_IN)
-    void animate(middle, { transform: down(seat) }, JUMP_IN)
-    void animate(inner, { transform: UPRIGHT }, { duration: 0.2, ease: 'easeOut' })
-
-    const timer = setTimeout(finish, JUMPED_IN_MS)
-    return () => clearTimeout(timer)
-    // When the user rushes it or movement is turned off, from wherever it is then.
-  }, [rushed, still, act])
+    boxes.outer.style.zIndex = String(LAYER.front)
+    boxes.outer.style.transform = across(seat)
+    boxes.middle.style.transform = down(seat)
+    boxes.inner.style.transform = UPRIGHT
+    setSeen(true)
+    finish()
+    // When movement is off, as the setup opens or once it is turned off.
+  }, [still, act])
 
   // On its seat it follows the seat, as the window is resized.
   useEffect(() => {
@@ -270,6 +248,7 @@ export function Actor({ act, arrival, seat, home, rushed, mood, beat, still, fol
     hoppedFor.current = beat
     if (still || act !== 'talking' || !body.current) return
 
+    sound('hop')
     void animate(
       body.current,
       { transform: [UPRIGHT, 'translateY(-26px) scale(0.95, 1.07)', 'translateY(0px) scale(1.08, 0.92)', 'translateY(0px) scale(1, 1)'] },

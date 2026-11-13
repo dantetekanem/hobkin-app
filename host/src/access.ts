@@ -6,6 +6,19 @@ export const DEV_UI_ORIGIN = 'http://127.0.0.1:5187'
 export const APP_ORIGIN = 'tauri://localhost'
 export const DEV_PORT = 5188
 
+/**
+ * A page served on this Mac over http, named exactly as a browser names it: `http://localhost:<port>` or
+ * `http://127.0.0.1:<port>`. Only such a page may be handed the token, since nothing else can reach this host.
+ */
+export function isLoopbackPage(origin: string): boolean {
+  try {
+    const url = new URL(origin)
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname) && Number(url.port) > 0 && url.origin === origin
+  } catch {
+    return false
+  }
+}
+
 /** Made once at launch. Whoever connects must present it. */
 export const createToken = () => randomBytes(32).toString('base64url')
 

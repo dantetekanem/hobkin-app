@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["001-foundation", "019-keyboard"],
-  "updated": "2026-11-12"
+  "updated": "2026-11-13"
 }
 ---
 # Questions from hobkin
@@ -22,6 +22,7 @@ When hobkin needs an answer, for itself or on behalf of a routine or an agent, t
 - Keys: a number picks that choice at once. Up and Down move through the choices and into the field. Enter picks the selected choice, or sends the field's text when it has any. Typing a letter anywhere goes to the field. Escape puts the question off.
 - A question put off, or left for 30 seconds, moves to Action Items, as in hobkin's terminal app. A thin line at the top of the sheet shows the time left. While the user is choosing or typing, the time does not run.
 - That holds for hobkin's main agent too (2026-11-12, replacing a put-off question that the main agent was told was cancelled and that nothing kept). hobkin files it as an item of kind `chat`, from hobkin, with its words and choices. It never rises on the sheet again, and an answer there, a choice or the user's own words, reaches the main agent in Chat with the question. Asked again and answered on the sheet, the waiting item closes too. A stopped turn or a quit puts nothing off.
+- While the first-run setup or its tour is open the sheet steps aside (2026-11-13, `025-onboarding`): the frame under them is out of reach, so the sheet shows nothing and its 30 seconds do not run. Once both are closed it shows what waits, with its whole wait.
 - With several questions waiting, one shows at a time, with "1 of 3".
 - An answer drops the sheet away. hobkin records it in the conversation in one line, as it does today.
 - The question's data and the answer travel through the host: hobkin's `askQuestion(request, signal)` on one side, the UI's sheet on the other. Until the host supplies questions, a sample question can be raised from the Action Items screen.
@@ -41,6 +42,7 @@ When hobkin needs an answer, for itself or on behalf of a routine or an agent, t
 - A6. With two questions waiting, the sheet shows "1 of 2", and answering the first brings up the second.
 - A7. While the sheet is open, the frame's own keys (Tab, Cmd keys, Down into the agents) do nothing, and they work again when it closes.
 - A8. With reduced motion, the sheet and the blur appear and leave with a fade and no travel.
+- A9. While the first-run setup or its tour is open, the sheet shows nothing and its 30 seconds do not run. Once both are closed it shows what waits, with its whole wait.
 
 ## Proof
 
@@ -52,6 +54,7 @@ When hobkin needs an answer, for itself or on behalf of a routine or an agent, t
 - A6. `ui/test/questions.test.ts` › "questions show one at a time, in order"
 - A7. `ui/test/keys.test.ts` › "a dialog or menu that owns the keyboard keeps every key"
 - A8. check: reduced motion on, raise the sample question.
+- A9. `ui/test/questions.test.ts` › "while the first-run setup or the tour covers the window the sheet shows nothing, and it comes back with a fresh wait". That the clock does not run behind them: check, with `025-onboarding` A60. Not seen.
 
 ## Steps
 

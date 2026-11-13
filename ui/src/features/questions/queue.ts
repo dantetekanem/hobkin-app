@@ -78,6 +78,19 @@ export function timeLeft(queue: QuestionQueue): number {
   return Math.max(0, WAIT_MS - queue.idleMs)
 }
 
+/**
+ * The question the sheet shows. While something covers the window (`covered`), such as the first-run setup or its
+ * tour, the sheet under it could not be reached, so it shows nothing and its wait does not run. What waits stays.
+ */
+export function onSheet(queue: QuestionQueue, covered: boolean): Question | null {
+  return covered ? null : current(queue)
+}
+
+/** The question on screen gets its whole wait again, as when the sheet comes back from behind the setup or the tour. */
+export function freshWait(queue: QuestionQueue): QuestionQueue {
+  return queue.idleMs === 0 ? queue : { ...queue, idleMs: 0 }
+}
+
 /** Lets time pass. While the user is choosing or typing (`engaged`) the wait does not run. */
 export function advance(queue: QuestionQueue, ms: number, engaged: boolean): QuestionQueue {
   const question = current(queue)

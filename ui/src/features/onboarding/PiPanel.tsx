@@ -152,7 +152,7 @@ export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
       initial={{ opacity: 0, transform: still ? LANDED : 'translateX(-50%) translateY(28px) scale(0.96)' }}
       animate={{ opacity: 1, transform: LANDED, transition: { transform: spring.rise, opacity: tween.enter } }}
       exit={{ opacity: 0, transform: still ? LANDED : 'translateX(-50%) translateY(14px) scale(0.98)', transition: tween.exit }}
-      className="absolute bottom-[5vh] left-1/2 z-[80] flex w-[min(520px,calc(100vw-48px))] flex-col gap-3 rounded-3xl border border-border bg-card p-4 shadow-panel"
+      className="tale-glassy tale-glass absolute bottom-[5vh] left-1/2 z-[80] flex w-[min(520px,calc(100vw-48px))] flex-col gap-3 rounded-3xl p-4"
     >
       <ul className="flex flex-col gap-0.5">
         {steps.map((step, index) => {

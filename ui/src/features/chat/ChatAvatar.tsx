@@ -1,6 +1,9 @@
-import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { sampleStatus } from '@/app/sample.ts'
+import { useStill } from '@/app/still.ts'
 import { Hob, useHobReactions } from '@/avatar/Hob.tsx'
+import { hopCue } from '@/features/sound/cues.ts'
+import { play } from '@/features/sound/index.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { canUseModel } from '@/lib/host/state.ts'
 import { turnStartedAt } from './doing.ts'
@@ -50,6 +53,15 @@ export function ChatAvatar({ followWithin, typing }: ChatAvatarProps) {
     if (typing && !wasTyping.current && asleep) wake()
     wasTyping.current = typing
   })
+
+  // hobkin chirps as it starts to hop. The ref outlives a hot update, so an update does not chirp again.
+  const still = useStill()
+  const heardMood = useRef(mood)
+  useEffect(() => {
+    const cue = hopCue(heardMood.current, mood, still)
+    heardMood.current = mood
+    if (cue) play(cue.name)
+  }, [mood, still])
 
   return (
     // Out of the keyboard's way: poking the face is play, and typing wakes it.

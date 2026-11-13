@@ -71,7 +71,7 @@ export function ConnectPanel({ onDone, still }: ConnectPanelProps) {
       ) : null}
 
       {signingIn ? (
-        <div className="w-full rounded-3xl border border-border bg-card p-1 shadow-panel">
+        <div className="tale-glassy tale-glass w-full rounded-3xl p-1">
           <SigningIn signIn={signIn} onAnswer={(prompt, value) => run(runCommand('signin.answer', { prompt, value }))} onCancel={() => run(runCommand('signin.cancel'))} />
         </div>
       ) : (

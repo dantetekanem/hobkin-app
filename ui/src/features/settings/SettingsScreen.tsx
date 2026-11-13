@@ -28,6 +28,7 @@ import { SetupAgainTile } from './SetupAgainTile.tsx'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { hostStore } from '@/lib/host/client.ts'
 import { runWork, useWorkUi, useWorkView } from '@/features/work/store.ts'
+import { play } from '@/features/sound/index.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, activeThemeLabel, budgetUse, formatTokens, stepBudget, type ActiveTheme, type BlockKind } from './rules.ts'
 import { useSettings, type Movement, type TypeFace } from './store.ts'
 
@@ -57,6 +58,7 @@ export function SettingsScreen() {
         <OpacityTile />
         <DailyBudget />
         <MovementTile />
+        <SoundTile />
         <OpenBlocksTile />
         <WhatLeaves />
         <Keys />
@@ -431,7 +433,7 @@ function DailyBudget() {
   }
 
   return (
-    <Tile name="Daily budget" value={`${formatTokens(dailyTokens)} tokens a day`} className="col-span-3 @max-[820px]:col-span-2">
+    <Tile name="Daily budget" value={`${formatTokens(dailyTokens)} tokens a day`} className="col-span-6 @max-[820px]:col-span-2">
       <div
         ref={track}
         role="slider"
@@ -552,6 +554,31 @@ function MovementTile() {
         <Hob mood={movement === 'lively' ? 'happy' : 'idle'} size={72} still={movement === 'still'} />
       </div>
       <Choice label="Movement" value={movement} options={MOVEMENTS} onChoose={(value) => setMovement(value)} />
+    </Tile>
+  )
+}
+
+const SOUND_CHOICES: readonly { value: 'on' | 'off'; label: string }[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+]
+
+/** hobkin's little sounds (features/sound). Choosing On plays one, so the user hears what they chose. */
+function SoundTile() {
+  const sound = useSettings((state) => state.sound)
+  const setSound = useSettings((state) => state.setSound)
+  const choose = (value: 'on' | 'off') => {
+    setSound(value === 'on')
+    if (value === 'on') play('cheer')
+  }
+
+  return (
+    <Tile name="Sound" value={sound ? 'On' : 'Off'} className="col-span-3 @max-[820px]:col-span-2">
+      <div className="flex flex-1 items-end justify-between gap-3">
+        <p className="max-w-[26ch] text-[12px] text-muted-foreground">{sound ? 'Soft sounds as hobkin talks and hops, and a chime for notifications.' : 'hobkin makes no sound.'}</p>
+        <Hob mood={sound ? 'listening' : 'idle'} size={72} />
+      </div>
+      <Choice label="Sound" value={sound ? 'on' : 'off'} options={SOUND_CHOICES} onChoose={choose} />
     </Tile>
   )
 }

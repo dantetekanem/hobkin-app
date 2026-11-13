@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ProviderAccess } from '../../shared/protocol/models.ts'
+import type { PendingQuestion } from '../../shared/protocol/question.ts'
 import type { PiSetup } from '../../shared/protocol/setup.ts'
 import { codexProvider, connectedNames } from '../src/features/onboarding/accounts.ts'
-import { balance, GROW } from '../src/features/onboarding/balance.ts'
-import { pickedSuggestions, QUESTIONS, routinesRequest, toggleSuggestion } from '../src/features/onboarding/questions.ts'
-import { beatAfter, beatOf, checkAnswer, piecesOf, piNeeds, spokenText, startTale, tellOn, type Answers, type BeatId, type Facts, type Tale, type TaleEvent } from '../src/features/onboarding/story.ts'
+import { balance, GLOW, GROW, shadesFor } from '../src/features/onboarding/balance.ts'
+import { matching, ownOption, pickedAnswer, picksOf, PICKS_SHOWN, shownOf, togglePick } from '../src/features/onboarding/picks.ts'
+import { FOLLOW_UPS_MAX, FOLLOW_UPS_WAIT, followUpRequest, followUpsOver, pickedSuggestions, QUESTIONS, routinesRequest, toggleSuggestion, type FollowUps } from '../src/features/onboarding/questions.ts'
+import { beatAfter, beatOf, checkAnswer, followUpOf, piecesOf, piNeeds, spokenText, startTale, tellOn, type Answers, type BeatId, type Facts, type Tale, type TaleEvent } from '../src/features/onboarding/story.ts'
 import { resolveTaleKey, type TaleKeyContext, type TalePress } from '../src/features/onboarding/tale-keys.ts'
 
 const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
@@ -20,8 +22,25 @@ const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
 })
 
 /** A Mac hobkin knows nothing about yet: the host has not said what Pi is here, and no account is connected. */
-const bare: Facts = { pi: null, connected: [], claude: false }
+const bare: Facts = { pi: null, connected: [], claude: false, smart: false, asked: null }
 const none: Answers = { replies: {} }
+/** Connected to a real model, so main hobkin can ask questions of its own, and has none open yet. */
+const smart: Facts = { ...bare, connected: ['OpenAI'], smart: true }
+
+/** A question main hobkin has open, as the host hands it to the window. */
+const pending = (over: Partial<PendingQuestion> = {}): PendingQuestion => ({
+  id: 'ask-1',
+  from: 'hobkin',
+  question: 'Which of these should I check first each morning?',
+  choices: [
+    { value: 'mail', label: 'Mail' },
+    { value: 'prs', label: 'Pull requests' },
+  ],
+  other: true,
+  askedAt: 0,
+  expiresAt: null,
+  ...over,
+})
 
 /** The beats from one to the end, answering as `answers` says. */
 function walk(answers: Answers, facts: Facts, from: BeatId = 'hello'): BeatId[] {
@@ -40,15 +59,15 @@ test('the story opens on the hello and is told one bubble at a time', () => {
   assert.deepEqual(startTale(), { at: 'hello', line: 0, trail: [], ended: null })
   assert.equal(hello.lines.length, 2)
   assert.deepEqual(second, { at: 'hello', line: 1, trail: [], ended: null })
-  assert.equal(tell(['on', 'on']).at, 'computer', 'past its last bubble the next beat starts')
+  assert.equal(tell(['on', 'on']).at, 'sound', 'past its last bubble the next beat starts')
   assert.deepEqual(tell(['on', 'on']).trail, ['hello'])
 })
 
 test('a question holds the story until it is answered', () => {
-  const asking = tell(['on', 'on', 'on'])
+  const asking: Tale = { at: 'computer', line: 1, trail: ['hello', 'sound'], ended: null }
 
-  assert.equal(asking.at, 'computer')
-  assert.equal(asking.line, 1, 'the question is asked with the last bubble')
+  assert.equal(beatOf('computer', none, bare).lines.length, 2, 'the question is asked with the last bubble')
+  assert.deepEqual(tellOn({ ...asking, line: 0 }, 'on', none, bare), asking)
   assert.deepEqual(tell(['on', 'on'], none, bare, asking), asking, 'going on does not pass a question')
   assert.equal(tellOn(asking, 'answered', { ...none, computer: 'work' }, bare).at, 'computer-thanks')
 })
@@ -62,10 +81,11 @@ test('a bubble that only asks to go on is passed by going on', () => {
 
 test('a new Mac: who the user is, Pi, a sign-in, then the app', () => {
   const answers: Answers = { ...none, computer: 'personal', name: 'Ada', pi: 'installed', account: 'connected', more: false }
-  const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: [], claude: false }
+  const facts: Facts = { ...bare, pi: pi({ installed: false, version: null, matches: false }) }
 
   assert.deepEqual(walk(answers, facts), [
     'hello',
+    'sound',
     'computer',
     'computer-thanks',
     'name',
@@ -138,23 +158,81 @@ test('putting the sign-in off skips the questions, which need a model to hand th
 test('five more questions when asked for, and none when not', () => {
   const yes: Answers = { ...none, computer: 'work', more: true }
 
-  assert.deepEqual(walk(yes, bare, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'questions-thanks', 'settings', 'tour'])
+  assert.deepEqual(walk(yes, bare, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'questions-thanks', 'settings', 'tour'], 'a work computer: its projects, then how the team works')
+  assert.deepEqual(walk({ ...yes, computer: 'personal' }, bare, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'questions-thanks', 'settings', 'tour'])
   assert.deepEqual(walk({ ...none, more: false }, bare, 'more'), ['more', 'settings', 'tour'])
 })
 
-test('the questions are five for each kind of computer, and they differ', () => {
+test('with a real model, main hobkin asks its own questions after the fixed ones, and without one the thanks come next', () => {
+  const yes: Answers = { ...none, computer: 'personal', more: true }
+
+  assert.deepEqual(walk(yes, smart, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'follow-ups', 'questions-thanks', 'settings', 'tour'])
+  assert.deepEqual(walk({ ...yes, computer: 'work' }, smart, 'q6'), ['q6', 'follow-ups', 'questions-thanks', 'settings', 'tour'])
+  assert.deepEqual(walk(yes, { ...smart, smart: false }, 'q5'), ['q5', 'questions-thanks', 'settings', 'tour'], 'the scripted host, or a browser tab, has no hobkin that asks')
+})
+
+test('while main hobkin thinks the story waits, and the question it opens is asked in its own words', () => {
+  const at: Tale = { at: 'follow-ups', line: 0, trail: [], ended: null }
+  const asked = followUpOf(pending())
+  const thinking = beatOf('follow-ups', none, smart)
+  const asking = beatOf('follow-ups', none, { ...smart, asked })
+
+  assert.equal(thinking.lines.length, 1, 'one line while it thinks')
+  assert.deepEqual(thinking.ask, { kind: 'wait' })
+  assert.deepEqual(asking.lines, ['Which of these should I check first each morning?'])
+  assert.deepEqual(asking.ask, { kind: 'follow-up', question: 'ask-1', options: pending().choices, typed: true })
+  assert.deepEqual(tellOn(at, 'on', none, smart), at, 'waiting holds the story')
+  assert.deepEqual(tellOn(at, 'on', none, { ...smart, asked }), at, 'and so does a question')
+  assert.equal(tellOn(at, 'answered', none, { ...smart, asked }).at, 'questions-thanks', 'once they are over, the thanks')
+})
+
+test("only main hobkin's own question is asked in the story, and a choice without a label is said by its value", () => {
+  const unlabeled = pending({ question: '  Which one?  ', choices: [{ value: 'a', label: '' }, { value: 'b', label: 'Bee' }], other: false })
+
+  assert.deepEqual(followUpOf(unlabeled), { id: 'ask-1', words: 'Which one?', choices: [{ value: 'a', label: 'a' }, { value: 'b', label: 'Bee' }], typed: false })
+  assert.equal(followUpOf(pending({ from: 'Routine inbox-sweep' })), null, "a routine's question is left to the question sheet")
+  assert.equal(followUpOf(null), null)
+})
+
+test('the follow-ups happen once, so neither they nor what came before them can be gone back to', () => {
+  const answers: Answers = { ...none, computer: 'personal', more: true }
+  const last: Tale = { at: 'q5', line: 0, trail: ['more', 'q1', 'q2', 'q3', 'q4'], ended: null }
+  const following = tellOn(last, 'answered', answers, smart)
+  const thanks = tellOn(following, 'answered', answers, smart)
+
+  assert.equal(following.at, 'follow-ups')
+  assert.deepEqual(tellOn(following, 'back', answers, smart), following, 'the answers already went to hobkin')
+  assert.equal(thanks.at, 'questions-thanks')
+  assert.deepEqual(tellOn(thanks, 'back', answers, smart), thanks)
+})
+
+test('the questions differ by whose computer this is, and each has its own way of being answered', () => {
+  assert.equal(QUESTIONS.personal.length, 5)
+  assert.equal(QUESTIONS.work.length, 6, 'the folder and its projects, then four about the team')
   for (const kind of ['personal', 'work'] as const) {
-    assert.equal(QUESTIONS[kind].length, 5)
-    assert.equal(new Set(QUESTIONS[kind].map(({ id }) => id)).size, 5, 'each has its own id')
+    assert.equal(new Set(QUESTIONS[kind].map(({ id }) => id)).size, QUESTIONS[kind].length, 'each has its own id')
   }
   assert.notDeepEqual(QUESTIONS.personal.map(({ ask }) => ask), QUESTIONS.work.map(({ ask }) => ask))
 
-  const personal = beatOf('q1', { ...none, computer: 'personal' }, bare)
-  const work = beatOf('q1', { ...none, computer: 'work' }, bare)
-  assert.equal(personal.lines.at(-1), QUESTIONS.personal[0]!.ask)
-  assert.equal(work.lines.at(-1), QUESTIONS.work[0]!.ask)
-  assert.equal(personal.ask?.kind === 'input' && personal.ask.optional, true, 'any of them can be skipped')
+  const personal: Answers = { ...none, computer: 'personal', replies: { 'projects-folder': ' ~/Code ' } }
+  const [folder, projects, validation, check] = (['q1', 'q2', 'q3', 'q4'] as const).map((id) => beatOf(id, personal, bare).ask)
+
+  assert.equal(folder?.kind === 'input' && folder.optional, true, 'the folder is typed, and can be skipped')
+  assert.deepEqual(projects, { kind: 'pick', question: 'projects', from: { projectsIn: '~/Code' } }, 'the projects are the folders found in the folder that was named')
+  assert.equal(validation?.kind === 'choice' && typeof validation.field === 'object' && validation.field.reply, 'validation', 'a yes or a no is two bubbles')
+  assert.equal(check?.kind === 'pick' && 'options' in check.from && check.from.options.includes('Email'), true, 'a list is a cloud of bubbles to pick from')
+
+  const unnamed = beatOf('q2', { ...none, computer: 'personal' }, bare).ask
+  assert.deepEqual(unnamed?.kind === 'pick' && unnamed.from, { projectsIn: '~/Projects' }, 'with no folder named, the usual one is looked in')
   assert.equal(beatOf('q1', none, bare).lines.at(-1), QUESTIONS.personal[0]!.ask, 'personal when the kind was never said')
+})
+
+test('hobkin asks about sound right after the hello, before anything else', () => {
+  const sound = beatOf('sound', none, bare)
+
+  assert.equal(beatAfter('hello', none, bare), 'sound')
+  assert.equal(beatAfter('sound', none, bare), 'computer')
+  assert.equal(sound.ask?.kind === 'choice' && sound.ask.field, 'sound')
 })
 
 test('the name is said back', () => {
@@ -163,7 +241,7 @@ test('the name is said back', () => {
 
 test('back goes one bubble back, then to the beat before', () => {
   const second = tell(['on'])
-  const asking = tell(['on', 'on', 'on'])
+  const asking: Tale = { at: 'computer', line: 1, trail: ['hello'], ended: null }
 
   assert.deepEqual(tellOn(second, 'back', none, bare), startTale())
   assert.deepEqual(tellOn(startTale(), 'back', none, bare), startTale(), 'nothing is behind the first bubble')
@@ -198,15 +276,21 @@ test('skip ends the story from anywhere, the last bubble ends it as done, and th
 
 test('every beat has words, and only the last bubble of a beat asks', () => {
   const answers: Answers = { ...none, computer: 'work', name: 'Ada', more: true }
-  const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true }
-  const ids: BeatId[] = ['hello', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'q3', 'q4', 'q5', 'questions-thanks', 'settings', 'tour']
+  const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true, smart: true, asked: null }
+  const long = followUpOf(pending({ question: `${'Which of your projects should I watch first, and how often, '.repeat(3)}and why?` }))
+  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour']
 
-  for (const id of ids) {
-    const beat = beatOf(id, answers, facts)
-    assert.equal(beat.id, id)
-    assert.ok(beat.lines.length > 0, `${id} says something`)
-    for (const line of beat.lines) assert.ok(line.trim().length > 0 && line.length <= 110, `${id}: a bubble is short enough to read at a glance`)
+  for (const asked of [null, long]) {
+    for (const id of ids) {
+      const beat = beatOf(id, answers, { ...facts, asked })
+      assert.equal(beat.id, id)
+      assert.ok(beat.lines.length > 0, `${id} says something`)
+      // Main hobkin's own question is said whole, as long as it made it.
+      if (id === 'follow-ups' && asked) continue
+      for (const line of beat.lines) assert.ok(line.trim().length > 0 && line.length <= 110, `${id}: a bubble is short enough to read at a glance`)
+    }
   }
+  assert.ok(long!.words.length > 110, 'the long question is longer than any of the story own bubbles')
 })
 
 test('a name is needed and an email can be left out, each held to what hobkin keeps', () => {
@@ -231,6 +315,46 @@ test('the answers are handed to hobkin as one message, with only what was answer
   assert.match(request, /ask before/i, 'nothing is made without a yes')
   assert.equal(routinesRequest({ ...none, computer: 'work', more: true, replies: {} }), null, 'nothing answered, nothing sent')
   assert.equal(routinesRequest({ ...none, more: false, replies: { [first!.id]: 'x' } }), null)
+})
+
+test('the follow-ups start with one message that hands hobkin the answers and asks for the rest one question at a time', () => {
+  const [folder, projects] = QUESTIONS.personal
+  const seed = followUpRequest({ ...none, computer: 'personal', more: true, replies: { [folder!.id]: ' ~/Code ', [projects!.id]: '  ' } })
+
+  assert.equal(FOLLOW_UPS_MAX, 5)
+  assert.match(seed, /personal computer/)
+  assert.ok(seed.includes(`- ${folder!.ask}\n  ~/Code`), 'each answer goes with its question, as the routines message writes them')
+  assert.ok(!seed.includes(projects!.ask), 'a question left empty is left out')
+  assert.match(seed, /one question at a time/i)
+  assert.match(seed, /ask_question/)
+  assert.match(seed, /choices/)
+  assert.ok(seed.includes(`at most ${FOLLOW_UPS_MAX} questions`))
+  assert.match(seed, /two or three first routines/)
+  assert.match(seed, /ask before you create or connect anything/i, 'nothing is made without a yes')
+
+  const skipped = followUpRequest({ ...none, computer: 'work', more: true, replies: {} })
+  assert.match(skipped, /work computer/)
+  assert.match(skipped, /skipped/i, 'with nothing answered hobkin still asks, and knows why it has nothing')
+})
+
+test('the follow-ups are over when hobkin is done asking, five were answered, the user says enough, the message did not go, or nothing was asked for two minutes', () => {
+  const at = 1_000_000
+  const { startMs, quietMs } = FOLLOW_UPS_WAIT
+  const working: FollowUps = { takenAt: at, failed: false, busy: true, open: false, answered: 0, enough: false, stirredAt: at }
+  const over = (change: Partial<FollowUps>, after: number) => followUpsOver({ ...working, ...change }, at + after)
+
+  assert.equal(over({}, 1000), false, 'hobkin is working on it')
+  assert.equal(over({ busy: false }, startMs - 1), false, 'it gets a few seconds to start')
+  assert.equal(over({ busy: false }, startMs), true, 'then idle with nothing open, it is done asking')
+  assert.equal(over({ busy: false, open: true }, quietMs * 3), false, 'an open question waits for the user, however long they take')
+  assert.equal(over({ answered: FOLLOW_UPS_MAX - 1 }, 1000), false)
+  assert.equal(over({ answered: FOLLOW_UPS_MAX, open: true }, 1000), true, 'five answered is enough, even with a sixth open')
+  assert.equal(over({ enough: true, open: true }, 0), true, 'the user can say it is enough at any time')
+  assert.equal(over({ takenAt: null, failed: true }, 0), true, 'the message could not be sent')
+  assert.equal(over({ takenAt: null }, quietMs - 1), false, 'the message is on its way')
+  assert.equal(over({ takenAt: null }, quietMs), true)
+  assert.equal(over({}, quietMs), true, 'working for two minutes with nothing asked')
+  assert.equal(over({ stirredAt: at + quietMs - 1000 }, quietMs), false, 'a question that came or went starts the two minutes over')
 })
 
 test('the two choices balance: the one the pointer nears grows as the other shrinks', () => {
@@ -326,4 +450,50 @@ test('a bubble is split into words, and a key between backticks stays one piece'
     { text: 'Ada!', key: false },
   ])
   assert.equal(spokenText('just press `⌘,`'), 'just press ⌘,', 'a screen reader hears it without the marks')
+})
+
+test('the bubble the pointer nears gets lighter as the other gets darker, by the same amount', () => {
+  const [restLeft, restRight] = shadesFor(0)
+  const [litLeft, dimRight] = shadesFor(1)
+  const [dimLeft, litRight] = shadesFor(-0.5)
+
+  assert.deepEqual([restLeft, restRight], [1, 1], 'at rest both have their own light')
+  assert.equal(litLeft, 1 + GLOW)
+  assert.equal(dimRight, 1 - GLOW)
+  assert.ok(dimLeft < 1 && litRight > 1, 'it follows which way the pointer leans')
+  assert.ok(Math.abs(dimLeft + litRight - 2) < 1e-9)
+})
+
+test('typing narrows the bubbles to what holds it, the ones that start with it first', () => {
+  const options = ['api-gateway', 'my-blog', 'blog-theme', 'notes']
+
+  assert.deepEqual(matching(options, ''), options, 'nothing typed, everything in its own order')
+  assert.deepEqual(matching(options, ' BLOG '), ['blog-theme', 'my-blog'])
+  assert.deepEqual(matching(options, 'zzz'), [])
+})
+
+test('at most fifty bubbles show at once, and the rest are counted', () => {
+  const many = Array.from({ length: 64 }, (_, index) => `project-${index}`)
+
+  assert.equal(PICKS_SHOWN, 50)
+  assert.equal(shownOf(many).shown.length, 50)
+  assert.equal(shownOf(many).more, 14)
+  assert.deepEqual(shownOf(['a', 'b']), { shown: ['a', 'b'], more: 0 })
+})
+
+test('many bubbles can be picked, a picked one can be let go, and the answer keeps their order', () => {
+  const picked = ['notes', 'my-blog'].reduce(togglePick, [] as string[])
+
+  assert.deepEqual(picked, ['notes', 'my-blog'])
+  assert.deepEqual(togglePick(picked, 'notes'), ['my-blog'])
+  assert.equal(pickedAnswer(picked), 'notes, my-blog')
+  assert.deepEqual(picksOf('notes, my-blog, gone', ['my-blog', 'notes'], false), ['notes', 'my-blog'], 'coming back, only what is still there')
+  assert.deepEqual(picksOf('Email, My bank', ['Email'], true), ['Email', 'My bank'], 'an own one is kept where own ones are taken')
+  assert.deepEqual(picksOf(undefined, ['a'], true), [])
+})
+
+test('typed words become a bubble of their own only where there is none by that name', () => {
+  assert.equal(ownOption(['Email', 'Bills'], ' My bank '), 'My bank')
+  assert.equal(ownOption(['Email', 'Bills'], 'email'), null)
+  assert.equal(ownOption(['Email'], '   '), null)
 })

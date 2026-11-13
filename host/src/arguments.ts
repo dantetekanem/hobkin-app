@@ -1,3 +1,5 @@
+import { APP_ORIGIN, DEV_UI_ORIGIN, isLoopbackPage } from './access.ts'
+
 export interface HostArguments {
   /** The home named with `--home`, or null for the default. */
   home: string | null
@@ -12,11 +14,13 @@ export interface HostArguments {
   port: number | null
   /** The process that started this host. The host stops once it is gone. Set only when given. */
   parent?: number
+  /** One more page the host talks to, such as a demo tab at http://localhost:5187. Set only when given. */
+  origin?: string
   help: boolean
 }
 
 export const USAGE = [
-  'Usage: node host/src/main.ts [--home <folder>] [--live] [--dev] [--signed-out] [--github] [--port <number>]',
+  'Usage: node host/src/main.ts [--home <folder>] [--live] [--dev] [--signed-out] [--github] [--port <number>] [--origin <url>]',
   '  --home <folder>  the hobkin home to open. Default: .dev-home in this repository, never ~/.hobkin',
   '  --live           use the real model. Default: a scripted model that spends nothing',
   '  --dev            serve the development UI at http://127.0.0.1:5187 on port 5188',
@@ -24,6 +28,7 @@ export const USAGE = [
   '  --github         with the scripted model, read the real GitHub through gh, read only. Default: sample GitHub data',
   '  --port <number>  listen on this port. Default: a free port, or 5188 with --dev',
   '  --parent <pid>   stop once this process has gone, as the app passes its own',
+  '  --origin <url>   with the scripted model, also talk to this page: http://localhost:<port> or http://127.0.0.1:<port>',
 ].join('\n')
 
 export function parseArguments(args: readonly string[]): HostArguments {
@@ -45,6 +50,10 @@ export function parseArguments(args: readonly string[]): HostArguments {
       const parent = Number(value())
       if (!Number.isInteger(parent) || parent < 1) throw Error(`--parent needs a process id.\n${USAGE}`)
       options.parent = parent
+    } else if (flag === '--origin') {
+      const origin = value()
+      if (!isLoopbackPage(origin)) throw Error(`--origin takes a page on this Mac with its port, such as http://localhost:5187, not ${origin}.\n${USAGE}`)
+      options.origin = origin
     } else if (flag === '--live') options.live = true
     else if (flag === '--dev') options.dev = true
     else if (flag === '--signed-out') options.signedOut = true
@@ -54,5 +63,12 @@ export function parseArguments(args: readonly string[]): HostArguments {
   }
   // A real sign-in is Pi's. Only the scripted model has a scripted one.
   if (options.live && options.signedOut) throw Error(`--signed-out is for the scripted model. With --live, Pi decides who is signed in.\n${USAGE}`)
+  // A host on the real model may be on the real home, so it never talks to a page beyond the app and its own.
+  if (options.live && options.origin) throw Error(`--origin is for the scripted model. A host started with --live talks only to the app and the development UI.\n${USAGE}`)
   return options
+}
+
+/** The pages a host started this way talks to: its usual ones and the one `--origin` adds. Without it, undefined, so the host keeps its own list. */
+export function originsFor({ dev, origin }: HostArguments): string[] | undefined {
+  return origin ? [APP_ORIGIN, ...(dev ? [DEV_UI_ORIGIN] : []), origin] : undefined
 }

@@ -3,6 +3,7 @@ import { remembered } from '@/app/location.ts'
 import { useView } from '@/app/view-store.ts'
 import { hostStore } from '@/lib/host/client.ts'
 import { shell, windowInFront, type NoticeShell } from '@/lib/native.ts'
+import { play } from '@/features/sound/index.ts'
 import { useActionItems } from '../actions/store.ts'
 import { useNoticePermission } from './permission.ts'
 import { createRequestNotifications, type RequestFacts } from './request.ts'
@@ -81,6 +82,8 @@ function adapterOf(notices: NoticeShell) {
     },
     listen: (click: (id: string) => Promise<void>) => notices.onOpen((key) => void click(key)),
     send: async ({ id, title, body }: { id: string; title: string; body: string }) => {
+      // hobkin's chime goes with each notice it raises, whether or not the Mac shows its banner. Several at once chime once.
+      play('chime')
       await notices.send({ key: id, title, body })
       return true
     },

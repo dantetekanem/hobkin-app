@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { useSettings, type Movement } from '@/features/settings/store.ts'
+import { play } from '@/features/sound/index.ts'
 import { useTour } from '@/features/tour/store.ts'
-import { runCommand, useHasHost, useHost, useModels } from '@/lib/host/index.ts'
+import { answerQuestion, isLive, runCommand, useHasHost, useHost, useModels, usePendingQuestion, type QuestionReply } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ComputerKind } from '#shared/protocol/setup.ts'
@@ -18,14 +19,17 @@ import { AnswerField } from './AnswerField.tsx'
 import { Bubble, saidAfter } from './Bubble.tsx'
 import { Choices } from './Choices.tsx'
 import { ConnectPanel } from './ConnectPanel.tsx'
-import { FACE, type Seat, type Viewport } from './face-size.ts'
+import { FACE, footBelow, type Seat, type Viewport } from './face-size.ts'
+import { FollowUps } from './FollowUps.tsx'
+import { PickCloud } from './PickCloud.tsx'
+import { pickedAnswer, picksOf } from './picks.ts'
 import { PiPanel } from './PiPanel.tsx'
-import { routinesRequest } from './questions.ts'
-import { beatOf, checkAnswer, spokenText, type Ask, type Facts } from './story.ts'
+import { followUpRequest, followUpsOver, routinesRequest, SAMPLE_PROJECTS } from './questions.ts'
+import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts } from './story.ts'
 import { useSetup } from './store.ts'
 import { resolveTaleKey, type TaleKey, type TaleKeyContext } from './tale-keys.ts'
 import { WORLD_TIMES, World, type WorldPhase } from './World.tsx'
-import { arrivalFor, stageFor } from './world-geometry.ts'
+import { LAYER, arrivalFor, stageFor, type Arrival } from './world-geometry.ts'
 
 /**
  * How the story opens, in seconds. The window holds empty for a moment, so the world does not start the instant
@@ -41,6 +45,25 @@ const HAND_OFF_MS = { flight: 840, fade: 280 }
 /** How far the tip of the hood is above the middle of the character's square, as a share of the square. */
 const HOOD_TIP = 0.305
 
+/**
+ * How far into the hill the character stands, in pixels. Its faces lean and bob from a point below its foot, which
+ * lifts a corner of the hood, so standing exactly on the crest it looks like it floats.
+ */
+const SUNK = 7
+const onTheGround = (seat: Seat): Seat => ({ ...seat, y: seat.y + SUNK })
+
+/** The way in, with its last hop landing on the ground where the character then stands. */
+function grounded(arrival: Arrival): Arrival {
+  const hops = arrival.hops.map((hop, index) => (index === arrival.hops.length - 1 ? { ...hop, to: onTheGround(hop.to) } : hop))
+  return { ...arrival, hops, stage: onTheGround(arrival.stage) }
+}
+
+/**
+ * Where the two choices float, in pixels: how far above the tip of the hood, never nearer the top of the window
+ * than `top`, between `nearest` and `farthest` from the middle, and at least `edge` from the window's side.
+ */
+const CHOICES = { above: 96, top: 116, nearest: 344, farthest: 400, edge: 106 }
+
 /** The Movement setting, as Motion's own rule for the things it does reduce. */
 const REDUCED_MOTION: Record<Movement, 'always' | 'never' | 'user'> = {
   still: 'always',
@@ -50,6 +73,7 @@ const REDUCED_MOTION: Record<Movement, 'always' | 'never' | 'user'> = {
 
 type InputAsk = Extract<Ask, { kind: 'input' }>
 type ChoiceAsk = Extract<Ask, { kind: 'choice' }>
+type PickAsk = Extract<Ask, { kind: 'pick' }>
 type ProfileChange = { name?: string; email?: string; computer?: ComputerKind }
 
 const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -118,12 +142,11 @@ function coverFade(leaving: boolean, still: boolean): Transition {
 
 /**
  * The opening and what the character does through it. The world builds itself, phase by phase, then the character
- * comes. A user who would not wait rushes it: the world is there at once and the character jumps to its seat.
+ * comes. It always plays through: a click or a key before the character has landed does nothing.
  */
 function useOpening(still: boolean, origin: 'first-run' | 'again') {
   const [phase, setPhase] = useState<WorldPhase>(still ? 'ready' : 'void')
   const [act, setAct] = useState<Act>('waiting')
-  const [rushed, setRushed] = useState(false)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
   useEffect(() => {
@@ -144,19 +167,13 @@ function useOpening(still: boolean, origin: 'first-run' | 'again') {
     // Once, as the setup opens.
   }, [])
 
-  const rush = () => {
-    if (act === 'talking' || rushed) return
-    timers.current.forEach(clearTimeout)
-    setPhase('ready')
-    setRushed(true)
-  }
   const arrived = () => {
     setPhase('ready')
     setAct('talking')
   }
   const leave = () => setAct('leaving')
 
-  return { phase, act, rushed, rush, arrived, leave }
+  return { phase, act, arrived, leave }
 }
 
 /** Asks the host what is on this Mac, once it answers: Pi and its packages, and whether Claude Code is signed in. */
@@ -189,6 +206,22 @@ function useThisMac(): void {
   }, [hasHost, link, setPi, setClaude])
 }
 
+/**
+ * A setup always starts with sound, whatever was chosen before, so hobkin is heard as it arrives and says hello.
+ * Then it asks, and Quiet mutes it. Left before the question is answered, the setting goes back to what it was.
+ */
+function useSoundUntilAsked(): void {
+  useEffect(() => {
+    const before = useSettings.getState().sound
+    useSettings.getState().setSound(true)
+
+    return () => {
+      const neverAsked = useSetup.getState().answers.sound === undefined
+      if (neverAsked) useSettings.getState().setSound(before)
+    }
+  }, [])
+}
+
 /** The frame stays behind the setup, out of reach, until the setup hands over. Then the keyboard goes home. */
 function useFrameOutOfReach(root: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {
@@ -217,6 +250,138 @@ function useSaid(bubble: string, line: string, talking: boolean, still: boolean)
   }, [bubble, talking, still, line])
 
   return [still || saidBubble === bubble, () => setSaidBubble(bubble)]
+}
+
+/** The bubbles of a pick: the list it was given, or the folders found where the user's projects live. */
+interface Bubbles {
+  state: 'loading' | 'ready' | 'none'
+  options: readonly string[]
+  /** Why there are none, when there are none. */
+  note?: string
+}
+
+const LOOKING: Bubbles = { state: 'loading', options: [] }
+
+/**
+ * What there is to pick from for a question. A list is there at once. Projects are asked of the host, which reads
+ * the names of the folders in the folder the user named. A browser tab on sample data has no folder, and shows
+ * made-up ones.
+ */
+function useBubbles(ask: PickAsk | null, hasHost: boolean): Bubbles {
+  const folder = ask && 'projectsIn' in ask.from ? ask.from.projectsIn : null
+  const [found, setFound] = useState<Bubbles>(LOOKING)
+
+  useEffect(() => {
+    if (folder === null || !hasHost) return
+    let current = true
+    setFound(LOOKING)
+
+    runCommand('setup.projects', { folder }).then(
+      ({ projects }) => {
+        if (!current) return
+        const names = projects.map(({ name }) => name)
+        if (names.length) {
+          setFound({ state: 'ready', options: names })
+          return
+        }
+        setFound({ state: 'none', options: [], note: `I found no folders in ${folder}. Go back to name another one, or skip.` })
+      },
+      (error: unknown) => {
+        if (current) setFound({ state: 'none', options: [], note: reasonOf(error) })
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [folder, hasHost])
+
+  if (!ask) return LOOKING
+  if ('options' in ask.from) return { state: 'ready', options: ask.from.options }
+  return hasHost ? found : { state: 'ready', options: SAMPLE_PROJECTS }
+}
+
+/** What the story needs of main hobkin's own questions. */
+interface FollowingUp {
+  /** Whether the host took the message that starts them, once it was sent. Null while it never was. */
+  seeded: RefObject<Promise<boolean> | null>
+  /** Gives main hobkin the answer to its question. It answers with what went wrong, or null once hobkin has it. */
+  answer: (id: string, reply: QuestionReply) => Promise<string | null>
+  /** The user has told hobkin enough. */
+  enough: () => void
+}
+
+interface FollowUpsAt {
+  /** The story is at the follow-ups, and not leaving. */
+  here: boolean
+  answers: Answers
+  /** The id of the question main hobkin has open, or null. */
+  open: string | null
+  onOver: () => void
+  onTrouble: (words: string) => void
+}
+
+/**
+ * Main hobkin's own questions, after the fixed ones. Reaching them sends hobkin the answers, once, as one message in
+ * the chat, and it asks what else it needs with its `ask_question` tool. The story goes on when they are over
+ * (`followUpsOver`). A question still open then is left open, and the question sheet takes it after the setup.
+ */
+function useFollowUps({ here, answers, open, onOver, onTrouble }: FollowUpsAt): FollowingUp {
+  const busy = useHost((state) => state.snapshot.busy === true)
+  const seeded = useRef<Promise<boolean> | null>(null)
+  const stirredAt = useRef(0)
+  const [takenAt, setTakenAt] = useState<number | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [answered, setAnswered] = useState(0)
+  const [enough, setEnough] = useState(false)
+
+  // Once, on reaching them. Through the chat, so the message shows there. The story never comes back to them.
+  useEffect(() => {
+    if (!here || seeded.current) return
+    stirredAt.current = Date.now()
+    seeded.current = useChat
+      .getState()
+      .send(followUpRequest(answers))
+      .catch(() => false)
+      .then((taken) => {
+        if (taken) setTakenAt(Date.now())
+        else {
+          setFailed(true)
+          onTrouble('I could not reach our chat just now, so I will not ask more here.')
+        }
+        return taken
+      })
+    // Once, with what was answered by then.
+  }, [here])
+
+  // A question that comes or goes is hobkin still asking, so its two minutes start over.
+  useEffect(() => {
+    stirredAt.current = Date.now()
+  }, [open])
+
+  useEffect(() => {
+    if (!here || !seeded.current) return
+    const check = () => {
+      if (followUpsOver({ takenAt, failed, busy, open: open !== null, answered, enough, stirredAt: stirredAt.current }, Date.now())) onOver()
+    }
+    check()
+    // Time alone can end them too: a few quiet seconds after the message, or two minutes with nothing asked.
+    const timer = setInterval(check, 1000)
+    return () => clearInterval(timer)
+  }, [here, takenAt, failed, busy, open, answered, enough])
+
+  const answer = async (id: string, reply: QuestionReply): Promise<string | null> => {
+    const wrong = 'typed' in reply ? checkAnswer('reply', reply.typed) : null
+    if (wrong) return wrong
+    try {
+      await answerQuestion(id, reply)
+      setAnswered((count) => count + 1)
+      return null
+    } catch (error) {
+      return reasonOf(error)
+    }
+  }
+
+  return { seeded, answer, enough: () => setEnough(true) }
 }
 
 /**
@@ -249,18 +414,23 @@ export function Storyteller() {
   useFrameOutOfReach(root)
   useKeyboardKept(root)
   useThisMac()
+  useSoundUntilAsked()
 
-  const facts: Facts = useMemo(() => ({ pi, connected: connectedNames(providers), claude }), [pi, providers, claude])
+  // Main hobkin can ask questions of its own only on a real model. The scripted host's hobkin has no `ask_question`.
+  const smart = useHost((state) => isLive(state) && state.model === 'live')
+  const pending = usePendingQuestion()
+  const facts: Facts = useMemo(() => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending) }), [pi, providers, claude, smart, pending])
   const beat = beatOf(tale.at, answers, facts)
   const lastLine = tale.line >= beat.lines.length - 1
   const line = beat.lines[Math.min(tale.line, beat.lines.length - 1)]!
   const leaving = tale.ended !== null
 
-  const { phase, act, rushed, rush, arrived, leave } = useOpening(still, origin)
-  const [arrival] = useState(() => arrivalFor({ width: innerWidth, height: innerHeight }))
+  const { phase, act, arrived, leave } = useOpening(still, origin)
+  const [arrival] = useState(() => grounded(arrivalFor({ width: innerWidth, height: innerHeight })))
   const talking = act === 'talking'
 
-  const bubble = `${tale.at}:${tale.line}`
+  // Each question main hobkin asks is a bubble of its own, so its words arrive anew.
+  const bubble = tale.at === 'follow-ups' ? `${tale.at}:${facts.asked?.id ?? 'thinking'}` : `${tale.at}:${tale.line}`
   const [said, sayAll] = useSaid(bubble, line, talking, still)
   // The question comes with the last bubble, once that bubble is said.
   const asking: Ask | null = talking && !leaving && lastLine && said ? (beat.ask ?? null) : null
@@ -272,9 +442,21 @@ export function Storyteller() {
   // Something that was meant to be kept and was not. Said once, quietly, at the bottom.
   const [trouble, setTrouble] = useState<string | null>(null)
 
+  // Main hobkin's own questions after the fixed ones. The story goes on by itself once they are over.
+  const followUps = useFollowUps({
+    here: tale.at === 'follow-ups' && !leaving,
+    answers,
+    open: facts.asked?.id ?? null,
+    onOver: () => {
+      // The story may have moved on since the last look, by "That's enough" or Skip setup.
+      if (useSetup.getState().tale.at === 'follow-ups') tell('answered', facts)
+    },
+    onTrouble: setTrouble,
+  })
+
   const on = () => {
-    if (leaving) return
-    if (!talking) return rush()
+    // Nothing goes on until the character has landed and talks.
+    if (leaving || !talking) return
     if (!said) return sayAll()
     tell('on', facts)
   }
@@ -321,6 +503,15 @@ export function Storyteller() {
 
   const chosen = (ask: ChoiceAsk, value: string) => {
     if (ask.field === 'more') return answer({ more: value === 'yes' }, facts)
+    if (ask.field === 'sound') {
+      const heard = value === 'sound-on'
+      // Kept as the app's own setting, which Settings shows too. The cheer is what was chosen, heard.
+      useSettings.getState().setSound(heard)
+      if (heard) play('cheer')
+      return answer({ sound: heard }, facts)
+    }
+    // One of the questions, answered with one of its two words.
+    if (typeof ask.field === 'object') return answer({ replies: { ...answers.replies, [ask.field.reply]: value } }, facts)
 
     const computer = value as ComputerKind
     // The story goes on at once. If hobkin could not keep it, that is said, since the questions still follow it.
@@ -329,6 +520,11 @@ export function Storyteller() {
     })
     answer({ computer }, facts)
   }
+
+  const picking = asking?.kind === 'pick' ? asking : null
+  const bubbles = useBubbles(picking, hasHost)
+  // A list that is given takes bubbles of the user's own. Projects are only the ones that are there.
+  const ownAllowed = picking !== null && 'options' in picking.from
 
   /** What was typed for a question before, when the user comes back to it. */
   const typedBefore = (ask: InputAsk): string => {
@@ -386,8 +582,11 @@ export function Storyteller() {
       close()
       if (!toldToTheEnd) return
 
+      // Main hobkin already has the answers when the follow-ups' message went. Otherwise they go now, as one message.
       const request = routinesRequest(answers)
-      if (request && hasHost) void useChat.getState().send(request)
+      void (followUps.seeded.current ?? Promise.resolve(false)).then((taken) => {
+        if (!taken && request && hasHost) void useChat.getState().send(request)
+      })
       useTour.getState().start()
     }
     const timer = setTimeout(handOver, still ? HAND_OFF_MS.fade : HAND_OFF_MS.flight)
@@ -395,8 +594,17 @@ export function Storyteller() {
     // Once, as the story ends, with what was answered by then.
   }, [leaving])
 
-  const stage = stageFor(viewport)
+  // Good news is cheered: an account found or connected, Pi ready.
+  const cheering = beat.mood === 'celebrating' && talking && !leaving
+  useEffect(() => {
+    if (cheering) play('cheer')
+  }, [cheering, tale.at])
+
+  const stage = onTheGround(stageFor(viewport))
   const hoodTip = { x: stage.x, y: stage.y - FACE * stage.scale * HOOD_TIP }
+  // The two choices float in the sky, either side of what hobkin says, clear of it and inside the window.
+  const choicesAt = { x: stage.x, y: Math.max(hoodTip.y - CHOICES.above, CHOICES.top) }
+  const choicesApart = Math.min(clamp(viewport.width * 0.27, CHOICES.nearest, CHOICES.farthest), viewport.width / 2 - CHOICES.edge)
   const mood = faceFor(beat.mood, { leaving, signingIn, busy })
   const storyShows = talking && !leaving
 
@@ -422,12 +630,16 @@ export function Storyteller() {
         />
 
         <World phase={phase} leaving={leaving} still={still}>
+          {/* Its shadow on the hill, so it stands on the ground. In front of the hill, behind the character. */}
+          <div
+            className={cn('absolute h-4 w-[128px] rounded-[50%] bg-black/30 blur-[6px] transition-opacity duration-300 ease-out', storyShows ? 'opacity-100' : 'opacity-0')}
+            style={{ left: stage.x - 64, top: stage.y + footBelow(stage.scale) - 9, zIndex: LAYER.hill + 1 }}
+          />
           <Actor
             act={act}
             arrival={arrival}
             seat={stage}
             home={home}
-            rushed={rushed}
             mood={mood}
             beat={tale.at}
             still={still}
@@ -443,9 +655,11 @@ export function Storyteller() {
             key={tale.at}
             label={spokenText(line)}
             options={asking.options}
-            around={{ x: stage.x, y: stage.y + 8 }}
-            apart={clamp(viewport.width * 0.22, 190, 320)}
+            around={choicesAt}
+            apart={choicesApart}
             onChoose={(value) => chosen(asking, value)}
+            // Quiet is quiet from the pick itself: the setting changes before the pick's own sound would play.
+            onPicked={asking.field === 'sound' ? (value) => useSettings.getState().setSound(value === 'sound-on') : undefined}
             still={still}
             reach={reach}
           />
@@ -459,6 +673,31 @@ export function Storyteller() {
               label={spokenText(line)}
               initial={typedBefore(asking)}
               onAnswer={(text) => typed(asking, text)}
+              still={still}
+            />
+          ) : null}
+          {picking ? (
+            <PickCloud
+              key={`${tale.at}:${bubbles.state}`}
+              label={spokenText(line)}
+              options={bubbles.options}
+              state={bubbles.state}
+              note={bubbles.note}
+              initial={picksOf(answers.replies[picking.question], bubbles.options, ownAllowed)}
+              allowOwn={ownAllowed}
+              top={stage.y + footBelow(stage.scale) + 28}
+              onAnswer={(picked) => answer({ replies: { ...answers.replies, [picking.question]: pickedAnswer(picked) } }, facts)}
+              still={still}
+            />
+          ) : null}
+          {tale.at === 'follow-ups' && storyShows ? (
+            <FollowUps
+              key="follow-ups"
+              label={spokenText(line)}
+              ask={asking?.kind === 'follow-up' ? asking : null}
+              top={stage.y + footBelow(stage.scale) + 28}
+              onAnswer={followUps.answer}
+              onEnough={followUps.enough}
               still={still}
             />
           ) : null}

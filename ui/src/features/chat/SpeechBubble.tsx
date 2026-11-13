@@ -1,5 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react'
+import { useEffect, useRef } from 'react'
 import { holdStill, useStill } from '@/app/still.ts'
+import { bubbleCue } from '@/features/sound/cues.ts'
+import { play } from '@/features/sound/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { Bubble } from './bubble.ts'
@@ -16,6 +19,13 @@ const move = { default: spring.alive, opacity: tween.enter }
 export function SpeechBubble({ bubble, onInspect }: { bubble: Bubble | null; onInspect?: (inspecting: boolean) => void }) {
   const still = useStill()
   const thought = bubble?.kind === 'tip' || bubble?.kind === 'reminder'
+  // A new line hobkin says babbles once. The ref outlives a hot update, so an update does not say the line again.
+  const heard = useRef(bubble)
+  useEffect(() => {
+    const cue = bubbleCue(heard.current, bubble)
+    heard.current = bubble
+    if (cue) play(cue.name, cue.detail)
+  }, [bubble])
   return (
     <AnimatePresence initial={false}>
       {bubble ? (

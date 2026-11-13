@@ -43,3 +43,28 @@ export interface PiSetup {
   /** The packages hobkin's agents use. All `installed: false` while Pi itself is missing. */
   packages: PiPackageState[]
 }
+
+/** A folder inside the user's projects folder. */
+export interface ProjectFolder {
+  /** The folder's own name, such as `my-blog`. */
+  name: string
+  /** Where it is, written out in full. */
+  path: string
+  /** It is a git repository. */
+  git: boolean
+}
+
+/** The most project folders the host sends for one folder. The setup shows fewer at once and filters the rest. */
+export const PROJECTS_MAX = 300
+
+/** What the host found in a folder the user named as where their projects live. It reads names only, never a file. */
+export interface ProjectsFound {
+  /** The folder that was looked in, written out in full, with `~` as the home it stands for. */
+  folder: string
+  /** The folder is there and can be read. */
+  found: boolean
+  /** The folders in it, the ones changed most recently first, at most `PROJECTS_MAX`. */
+  projects: ProjectFolder[]
+  /** How many more there are than were sent. */
+  more: number
+}

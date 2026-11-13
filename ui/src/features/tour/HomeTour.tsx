@@ -6,6 +6,7 @@ import { useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { play } from '@/features/sound/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { resolveTourKey } from './keys.ts'
@@ -24,7 +25,7 @@ export function HomeTour() {
   return createPortal(<AnimatePresence>{open ? <TourLayer key={run} /> : null}</AnimatePresence>, document.body)
 }
 
-const CARD_WIDTH = 320
+const CARD_WIDTH = 340
 
 function useWindowSize(): Size {
   const [size, setSize] = useState<Size>(() => ({ width: innerWidth, height: innerHeight }))
@@ -109,6 +110,11 @@ function TourLayer() {
   useLayoutEffect(() => {
     if (card.current) setCardHeight(card.current.offsetHeight)
   }, [flow.at, win.width])
+
+  // With sound on, hobkin says a syllable as each stop arrives.
+  useEffect(() => {
+    play('talk', { word: step.title })
+  }, [flow.at])
 
   // Next takes the keyboard as each stop arrives.
   useLayoutEffect(() => {
@@ -195,20 +201,23 @@ function TourLayer() {
           </div>
         </motion.div>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
+        {/* The dots on a line of their own, so ten stops and three buttons never crowd each other out of the card. */}
+        <div className="mt-4 flex flex-col gap-3">
           <Dots at={flow.at} still={still} />
-          <div className="flex items-center gap-1.5">
-            <Button variant="ghost" size="sm" onClick={() => go('end')}>
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="ghost" size="sm" className="-ml-2" onClick={() => go('end')}>
               Skip tour
             </Button>
-            {flow.at > 0 ? (
-              <Button variant="outline" size="sm" onClick={() => go('back')}>
-                Back
+            <div className="flex items-center gap-1.5">
+              {flow.at > 0 ? (
+                <Button variant="outline" size="sm" onClick={() => go('back')}>
+                  Back
+                </Button>
+              ) : null}
+              <Button ref={next} size="sm" onClick={() => go('next')}>
+                {last ? 'Done' : 'Next'}
               </Button>
-            ) : null}
-            <Button ref={next} size="sm" onClick={() => go('next')}>
-              {last ? 'Done' : 'Next'}
-            </Button>
+            </div>
           </div>
         </div>
       </motion.div>

@@ -18,6 +18,11 @@ interface MainChat {
 
 interface SettingsState extends BorderColors {
   movement: Movement
+  /**
+   * hobkin's little sounds as it talks and hops, and its chime for a notification (features/sound). Off until the user
+   * turns it on. Settings saved before this was kept load with it off, as the store fills in what a saved state lacks.
+   */
+  sound: boolean
   typeFace: TypeFace
   /** hobkin's own settings. Sample values until the host supplies hobkin's (020-settings, S5). */
   agents: number
@@ -54,6 +59,7 @@ interface SettingsState extends BorderColors {
   receive: (appearance: AppearanceRequest) => void
 
   setMovement: (movement: Movement) => void
+  setSound: (on: boolean) => void
   setTypeFace: (typeFace: TypeFace) => void
   changeAgents: (delta: -1 | 1) => void
   setDailyTokens: (tokens: number) => void
@@ -106,6 +112,7 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set, get) => ({
       movement: 'system',
+      sound: false,
       typeFace: 'space-grotesk',
       agents: AGENTS.initial,
       dailyTokens: BUDGET.initial,
@@ -145,6 +152,7 @@ export const useSettings = create<SettingsState>()(
       },
 
       setMovement: (movement) => set({ movement }),
+      setSound: (sound) => set({ sound }),
       setTypeFace: (typeFace) => set({ typeFace }),
       changeAgents: (delta) => set({ agents: stepAgents(get().agents, delta) }),
       setDailyTokens: (tokens) => set({ dailyTokens: stepBudget(tokens, 0) }),
@@ -163,8 +171,9 @@ export const useSettings = create<SettingsState>()(
       // Version 4 drops the tracked theme ask: Custom's request is a chat message to main hobkin.
       version: 4,
       migrate: (saved) => migrateSettings(saved),
-      partialize: ({ movement, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
+      partialize: ({ movement, sound, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
+        sound,
         typeFace,
         agents,
         dailyTokens,

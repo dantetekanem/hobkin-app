@@ -1,5 +1,5 @@
 import { DEV_PORT } from './access.ts'
-import { parseArguments, USAGE } from './arguments.ts'
+import { originsFor, parseArguments, USAGE } from './arguments.ts'
 import { ghSource } from './github-gh.ts'
 import { resolveHome } from './home.ts'
 import { startHost } from './host.ts'
@@ -35,6 +35,8 @@ async function main(args: readonly string[]): Promise<void> {
     live: options.live,
     dev: options.dev,
     port: options.port ?? (options.dev ? DEV_PORT : 0),
+    // Only --origin changes the pages a host talks to. Without it the host keeps its usual ones.
+    origins: originsFor(options),
     log: (line) => console.log(line),
     // A GitHub row the user chose opens in the browser, in the scripted host too: the user asked for it.
     openGitHub: openGitHubPage,
@@ -49,6 +51,7 @@ async function main(args: readonly string[]): Promise<void> {
     ...(options.live || options.github ? { github: ghSource(), reviewGh: spawnGh() } : {}),
   })
   if (options.github && !options.live) console.log('The GitHub page reads the real GitHub through gh, read only.')
+  if (options.origin) console.log(`It also talks to the page at ${options.origin}.`)
   // The token is never printed. It is in the home, readable by the user only.
   console.log(`hobkin host listening on 127.0.0.1:${host.port} for ${home.root} with the ${options.live ? 'live' : 'scripted'} model`)
 

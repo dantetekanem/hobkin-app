@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { DEV_UI_ORIGIN, refusalFor } from './access.ts'
+import { isLoopbackPage, refusalFor } from './access.ts'
 
 const LOOPBACK = '127.0.0.1'
 /** Room for the largest image hobkin takes (64 MB), which arrives in base64 inside one command. */
@@ -28,18 +28,20 @@ export interface HostServer {
 export const socketUrl = (port: number) => `ws://${LOOPBACK}:${port}`
 
 /**
- * A plain browser has no shell to hand it the token, so in development the host gives it to the one page it trusts.
+ * A plain browser has no shell to hand it the token, so in development the host gives it to the pages it trusts that
+ * are served on this Mac: the development UI, and a page `--origin` added. The app's own page is handed the token.
  * The origin check on the socket still applies to whoever uses the token.
  */
-function answerHandshake(request: IncomingMessage, response: ServerResponse, { port, token }: { port: number; token: string }) {
-  if (request.headers.origin !== DEV_UI_ORIGIN) {
+function answerHandshake(request: IncomingMessage, response: ServerResponse, { port, token, origins }: { port: number; token: string; origins: readonly string[] }) {
+  const origin = request.headers.origin
+  if (!origin || !origins.includes(origin) || !isLoopbackPage(origin)) {
     response.writeHead(403).end()
     return
   }
   response
     .writeHead(200, {
       'content-type': 'application/json',
-      'access-control-allow-origin': DEV_UI_ORIGIN,
+      'access-control-allow-origin': origin,
       vary: 'origin',
       'cache-control': 'no-store',
     })
@@ -52,7 +54,7 @@ export function listen({ port, token, origins, dev, onConnection, serve }: Serve
   const http = createServer((request, response) => {
     const { pathname } = new URL(request.url ?? '/', `http://${LOOPBACK}`)
     if (dev && request.method === 'GET' && pathname === '/dev/handshake') {
-      answerHandshake(request, response, { port: (http.address() as AddressInfo).port, token })
+      answerHandshake(request, response, { port: (http.address() as AddressInfo).port, token, origins })
       return
     }
     if (serve?.(request, response)) return

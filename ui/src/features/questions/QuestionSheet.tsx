@@ -4,9 +4,11 @@ import { focusInput } from '@/app/keys.ts'
 import { stillVariants, useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { useSetup } from '@/features/onboarding/store.ts'
+import { useTour } from '@/features/tour/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { WAIT_MS, current, timeLeft, type Question } from './queue.ts'
+import { WAIT_MS, onSheet, timeLeft, type Question } from './queue.ts'
 import { useQuestions } from './store.ts'
 // hobkin's own questions rise on this sheet, and the answers go back to it (022 S4).
 import './host-bridge.ts'
@@ -21,7 +23,18 @@ const ENGAGED_MS = 4000
  */
 export function QuestionSheet() {
   const queue = useQuestions((state) => state.queue)
-  const question = current(queue)
+  const freshWait = useQuestions((state) => state.freshWait)
+  // The first-run setup and its tour cover the window, and the frame under them is out of reach. The sheet steps
+  // aside until both are gone, so a question nobody can see never runs out its wait into Action Items.
+  const setupOpen = useSetup((state) => state.open)
+  const touring = useTour((state) => state.open)
+  const covered = setupOpen || touring
+  const question = onSheet(queue, covered)
+
+  // Stepping aside and coming back, the question gets its whole wait.
+  useEffect(() => {
+    freshWait()
+  }, [covered, freshWait])
 
   return (
     <AnimatePresence>

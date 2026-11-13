@@ -31,8 +31,8 @@
 .tale-float { animation: tale-float 5.2s ease-in-out infinite; }
 .tale-float[data-side="right"] { animation-duration: 6.1s; animation-delay: -2.3s; }
 @keyframes tale-float {
-  0%, 100% { transform: translateY(-6px) rotate(-1.4deg); }
-  50% { transform: translateY(6px) rotate(1.4deg); }
+  0%, 100% { transform: translate(-2px, -9px) rotate(-1.6deg); }
+  50% { transform: translate(3px, 9px) rotate(1.6deg); }
 }
 
 /* A step of an install that is running. */
@@ -49,4 +49,199 @@
   :root:not([data-motion="lively"]) .tale-nudge,
   :root:not([data-motion="lively"]) .tale-float,
   :root:not([data-motion="lively"]) .tale-spin { animation: none; }
+}
+
+/*
+ * Glass. What hobkin says and offers sits on frosted glass, so the world shows through a little: a see-through
+ * fill over a blur of what is behind, a hairline edge, a line of light along the top, a soft shadow below and a
+ * faint glow in the sun's color. `tale-glassy` only names the look, for a box whose parts paint it themselves.
+ */
+.tale-glassy {
+  --glass-fill: color-mix(in oklab, var(--card) 60%, transparent);
+  --glass-edge: color-mix(in oklab, var(--foreground) 15%, transparent);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0) 64%);
+  --glass-shine: rgb(255 255 255 / 0.7);
+  --glass-shade: 0 22px 44px -20px rgb(74 46 8 / 0.42), 0 4px 12px -5px rgb(74 46 8 / 0.2);
+  --glass-glow: color-mix(in oklab, var(--hb-sun) 30%, transparent);
+}
+.dark .tale-glassy {
+  --glass-fill: color-mix(in oklab, var(--card) 48%, transparent);
+  --glass-edge: color-mix(in oklab, var(--foreground) 17%, transparent);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0) 64%);
+  --glass-shine: rgb(255 255 255 / 0.2);
+  --glass-shade: 0 26px 52px -20px rgb(0 0 0 / 0.7), 0 5px 14px -5px rgb(0 0 0 / 0.45);
+  --glass-glow: color-mix(in oklab, var(--hb-sun) 22%, transparent);
+}
+.tale-glass {
+  background-color: var(--glass-fill);
+  background-image: var(--glass-sheen);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-shine), var(--glass-shade), 0 0 56px -16px var(--glass-glow);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+}
+
+/* The speech bubble drifts a little, so it is never quite still while hobkin waits. */
+.tale-drift { animation: tale-drift 5.4s ease-in-out infinite; }
+@keyframes tale-drift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/*
+ * The bubble's body draws its edge on a layer of its own, with a gap at the bottom middle where the tail joins, so
+ * body and tail read as one piece of glass with no line between them.
+ */
+.tale-bubble-body { position: relative; border: 0; }
+.tale-bubble-body::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--glass-edge);
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 50% 100% / 19px 2px no-repeat;
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 50% 100% / 19px 2px no-repeat;
+  mask-composite: exclude;
+}
+/* The tail: the lower half of a square turned on its corner, so it is a point, down at hobkin. */
+.tale-bubble-tail {
+  position: absolute;
+  left: 50%;
+  bottom: -8.5px;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%) rotate(45deg);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  background-color: var(--glass-fill);
+  border-right: 1px solid var(--glass-edge);
+  border-bottom: 1px solid var(--glass-edge);
+  border-bottom-right-radius: 4px;
+}
+
+/* A band of light crosses a bubble once, as it appears. */
+.tale-sheen { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
+.tale-sheen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  background: linear-gradient(100deg, rgb(255 255 255 / 0), rgb(255 255 255 / 0.3), rgb(255 255 255 / 0));
+  transform: translateX(-130%) skewX(-14deg);
+  animation: tale-sheen 950ms var(--ease-out) 220ms 1 both;
+}
+.dark .tale-sheen::after { background: linear-gradient(100deg, rgb(255 255 255 / 0), rgb(255 255 255 / 0.14), rgb(255 255 255 / 0)); }
+@keyframes tale-sheen { to { transform: translateX(340%) skewX(-14deg); } }
+
+/* The mark that the story waits: a small point in the sun's color, as a game shows there is more to read. */
+.tale-next {
+  position: absolute;
+  right: 16px;
+  bottom: 9px;
+  width: 10px;
+  height: 7px;
+  background: var(--hb-sun);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transition: opacity 220ms var(--ease-out);
+}
+
+/*
+ * A choice: a bubble, as blown from soap. It is mostly air: a thin fill, a bright rim, light caught at the top left
+ * and the sun's color bounced at the bottom right, and a small glint. A ring in the sun's color comes up as the
+ * pointer or the keyboard reaches it, and its face gives a little under a press.
+ */
+.tale-orb {
+  --glass-fill: color-mix(in oklab, var(--card) 26%, transparent);
+  position: relative;
+  border-color: rgb(255 255 255 / 0.55);
+  background-image:
+    radial-gradient(58% 48% at 30% 22%, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0) 72%),
+    radial-gradient(72% 62% at 76% 86%, color-mix(in oklab, var(--hb-sun) 34%, transparent), transparent 72%);
+  box-shadow:
+    inset 0 -20px 30px -20px rgb(255 255 255 / 0.6),
+    inset 0 16px 28px -16px rgb(255 255 255 / 0.7),
+    0 18px 36px -20px rgb(74 46 8 / 0.4);
+}
+.dark .tale-orb {
+  --glass-fill: color-mix(in oklab, var(--card) 20%, transparent);
+  border-color: rgb(255 255 255 / 0.24);
+  background-image:
+    radial-gradient(58% 48% at 30% 22%, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0) 72%),
+    radial-gradient(72% 62% at 76% 86%, color-mix(in oklab, var(--hb-sun) 24%, transparent), transparent 72%);
+  box-shadow:
+    inset 0 -20px 30px -20px rgb(255 255 255 / 0.22),
+    inset 0 16px 28px -16px rgb(255 255 255 / 0.26),
+    0 22px 40px -20px rgb(0 0 0 / 0.6);
+}
+/* The glint: a small bright spot where the light lands. */
+.tale-orb::before {
+  content: '';
+  position: absolute;
+  left: 21%;
+  top: 14%;
+  width: 21%;
+  height: 11%;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.85);
+  transform: rotate(-32deg);
+  filter: blur(1.5px);
+  pointer-events: none;
+}
+.dark .tale-orb::before { background: rgb(255 255 255 / 0.5); }
+
+/* Two small bubbles keep each choice company, so they read as bubbles and not as buttons. */
+.tale-bead {
+  position: absolute;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--card) 24%, transparent);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.5), inset 0 4px 7px -3px rgb(255 255 255 / 0.8);
+  pointer-events: none;
+  animation: tale-float 4.3s ease-in-out infinite;
+}
+.dark .tale-bead { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.24), inset 0 4px 7px -3px rgb(255 255 255 / 0.36); }
+.tale-float[data-side="left"] .tale-bead[data-n="1"] { width: 24px; height: 24px; left: -24px; top: 6px; animation-delay: -1.1s; }
+.tale-float[data-side="left"] .tale-bead[data-n="2"] { width: 13px; height: 13px; left: 4px; top: -20px; animation-delay: -2.6s; }
+.tale-float[data-side="right"] .tale-bead[data-n="1"] { width: 24px; height: 24px; right: -24px; top: 6px; animation-delay: -0.4s; }
+.tale-float[data-side="right"] .tale-bead[data-n="2"] { width: 13px; height: 13px; right: 4px; top: -20px; animation-delay: -3.1s; }
+.tale-orb::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--hb-sun) 78%, transparent), 0 0 36px -2px color-mix(in oklab, var(--hb-sun) 46%, transparent);
+  opacity: 0;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+.tale-orb:focus-visible::after { opacity: 1; }
+.tale-orb-face { transition: transform 160ms var(--ease-out); }
+.tale-orb:active .tale-orb-face { transform: scale(0.95); }
+@media (hover: hover) and (pointer: fine) {
+  .tale-orb:hover::after { opacity: 1; }
+  .tale-orb:hover .tale-orb-face { transform: translateY(-2px); }
+  .tale-orb:hover:active .tale-orb-face { transform: scale(0.95); }
+}
+
+/* Movement off: nothing drifts and no light passes. */
+:root[data-motion="still"] .tale-drift,
+:root[data-motion="still"] .tale-bead { animation: none; }
+:root[data-motion="still"] .tale-sheen::after { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="lively"]) .tale-drift,
+  :root:not([data-motion="lively"]) .tale-bead { animation: none; }
+  :root:not([data-motion="lively"]) .tale-sheen::after { animation: none; }
+}
+
+/* A small bubble of the cloud bobs a little, each at its own pace. */
+.tale-bob { animation: tale-bob 4.6s ease-in-out infinite; }
+@keyframes tale-bob {
+  0%, 100% { transform: translateY(-3px); }
+  50% { transform: translateY(3px); }
+}
+:root[data-motion="still"] .tale-bob { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="lively"]) .tale-bob { animation: none; }
 }

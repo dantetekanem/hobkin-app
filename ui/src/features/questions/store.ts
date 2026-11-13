@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { advance, answer, defer, emptyQueue, raise, type Answer, type Question, type QuestionQueue } from './queue.ts'
+import { advance, answer, defer, emptyQueue, freshWait, raise, type Answer, type Question, type QuestionQueue } from './queue.ts'
 
 interface QuestionsState {
   queue: QuestionQueue
@@ -8,6 +8,8 @@ interface QuestionsState {
   defer: (id: string) => void
   /** Lets time pass for the question on screen. It does not run while the user is choosing or typing. */
   tick: (ms: number, engaged: boolean) => void
+  /** The question on screen gets its whole wait again. */
+  freshWait: () => void
   raiseSample: () => void
 }
 
@@ -39,6 +41,10 @@ export const useQuestions = create<QuestionsState>()((set, get) => ({
   defer: (id) => set({ queue: defer(get().queue, id) }),
   tick: (ms, engaged) => {
     const next = advance(get().queue, ms, engaged)
+    if (next !== get().queue) set({ queue: next })
+  },
+  freshWait: () => {
+    const next = freshWait(get().queue)
     if (next !== get().queue) set({ queue: next })
   },
   raiseSample: () => set({ queue: raise(get().queue, sampleQuestion()) }),

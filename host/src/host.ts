@@ -16,6 +16,7 @@ import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { PiSetup } from '#shared/protocol/setup.ts'
 import { piSetup, piSetupHandlers, refuseInstall } from './pi/install.ts'
 import { profileHandlers } from './profile.ts'
+import { projectsHandlers } from './projects-folder.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { execFileSync } from 'node:child_process'
@@ -515,6 +516,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       installPi: options.installPi ?? refuseInstall,
       installPackage: options.installPiPackage ?? refuseInstall,
     }),
+    ...projectsHandlers(),
     // Whether this host runs older code than what is on disk, and the way to load it: the host closes as it does on
     // a signal, and the app that started it starts another. Answered first, so the window hears it went.
     'system.metrics': () => systemMetrics(root),
