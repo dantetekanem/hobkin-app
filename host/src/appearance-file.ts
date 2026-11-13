@@ -64,6 +64,13 @@ export class AppearanceFile {
     } finally { closeSync(fd) }
   }
 
+  /** Removes the saved custom style, so a restart does not bring it back. Nothing to do when there is none. */
+  remove(): void {
+    if (!this.checkDirectory()) return
+    try { unlinkSync(this.path) }
+    catch (error) { if (!missing(error)) throw error }
+  }
+
   replace(args: unknown): string {
     const { content } = argumentsFor(args, ['content'])
     const canonical = encodeAppearanceStyle(decodeAppearanceStyle(content))

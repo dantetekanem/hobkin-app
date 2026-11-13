@@ -13,8 +13,14 @@ export interface BorderColors {
   borderStrong?: string
 }
 
+/** The themes the app has of its own: follow the Mac's light or dark setting, or stay light, or stay dark. */
+export const BUILT_IN_THEMES = ['system', 'light', 'dark'] as const
+export type BuiltInTheme = (typeof BUILT_IN_THEMES)[number]
+
 export interface AppearanceRequest extends BorderColors {
   id: number
+  /** Set when hobkin put the app back on a built-in theme. The window then ignores the palette and the backdrop. */
+  use?: BuiltInTheme
   /** What hobkin calls the theme, or null. */
   name: string | null
   palette: Palette

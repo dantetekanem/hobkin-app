@@ -25,6 +25,13 @@ test('canonical receipts validate optional borders', () => {
   assert.deepEqual([migrated.border, migrated.borderStrong], ['#abcdef', undefined])
 })
 
+test('a built-in theme request from hobkin turns the custom theme off and keeps the saved colors', () => {
+  const request = { id: 5, name: null, palette: DARK_PALETTE, use: 'light' as const }
+  const applied = receiveAppearance({ appearanceId: 4 }, request)!
+  assert.deepEqual(applied, { customTheme: false, appearanceId: 5, requestedTheme: 'light' })
+  assert.equal(receiveAppearance({ appearanceId: 5 }, request), null, 'applied once')
+})
+
 test('background opacity moves in steps between a tenth and solid', () => {
   assert.equal(stepOpacity(1, -1), 0.95)
   assert.equal(stepOpacity(0.5, 1), 0.55)

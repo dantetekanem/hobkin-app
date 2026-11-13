@@ -1,7 +1,7 @@
 import { Type, type Static, type TSchema } from 'typebox'
 import { Check, Errors } from 'typebox/value'
 import type { IntegrationsState } from '../integrations/wire.ts'
-import { paletteProblems } from '../protocol/appearance.ts'
+import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
 import type { CanvasState } from '../protocol/canvas.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
@@ -433,6 +433,16 @@ export const COMMANDS = {
     rule: ({ palette }) => paletteProblems(palette).join(' ') || null,
     hobkin: true,
   },
+  'appearance.use': {
+    description:
+      "Put the app on one of its own themes. `theme` is `system` (the default: follows the Mac, light by day and dark at night, and the way back from any custom theme), `light`, or `dark`. Use it when the user asks to go back to the default theme, to use dark mode or light mode, or to stop using a custom theme. It changes the window at once.",
+    runs: 'host',
+    args: Type.Object(
+      { theme: Type.Union(BUILT_IN_THEMES.map((theme) => Type.Literal(theme))) },
+      { additionalProperties: false },
+    ),
+    hobkin: true,
+  },
   'file.read': {
     description: 'Read a file for the viewer: text only, up to 2 MB, a regular file only (links are followed). `path` is a full path or starts with ~/. Refused with a plain reason for anything else.',
     runs: 'host',
@@ -748,6 +758,7 @@ export interface CommandResults {
   'canvas.show': CanvasState
   'canvas.close': CanvasState
   'appearance.set': { ok: true }
+  'appearance.use': { ok: true }
   'appearance.customize': ThemeOperation
   'appearance.status': ThemeOperation | null
   'file.read': FileContent

@@ -95,9 +95,11 @@ export function askLine(ask: ThemeAsk): string {
 /** Canonical publications apply colors, but never establish which helper ask saved them. */
 export function receiveAppearance(
   state: { request: ThemeAsk | null; appearanceId: number },
-  { id, palette, border, borderStrong }: AppearanceRequest,
+  { id, palette, border, borderStrong, use }: AppearanceRequest,
   _now?: number,
 ) {
+  // A built-in theme keeps the saved custom colors, so choosing Custom again brings them back.
+  if (use) return id <= state.appearanceId ? null : { customTheme: false, appearanceId: id, requestedTheme: use }
   const readable = readablePalette(palette)
   const borders = borderColors({ border, borderStrong })
   if (id <= state.appearanceId || !readable || !borders) return null

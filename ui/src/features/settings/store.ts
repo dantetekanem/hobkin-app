@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AppearanceRequest, BorderColors } from '#shared/protocol/appearance.ts'
+import type { AppearanceRequest, BuiltInTheme, BorderColors } from '#shared/protocol/appearance.ts'
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
 import { AGENTS, BUDGET, OPACITY, migrateSettings, readablePalette, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type Palette } from './rules.ts'
@@ -36,6 +36,8 @@ interface SettingsState extends BorderColors {
   customTheme: boolean
   appearanceId: number
   appearanceHome: string | null
+  /** A built-in theme hobkin asked for, until the theme code has shown it. Not kept across reloads. */
+  requestedTheme: BuiltInTheme | null
   /** A Custom request is on its way to main hobkin. */
   themeSending: boolean
   /** What happened to the last Custom request: sent, or why not. Not kept across reloads. */
@@ -107,6 +109,7 @@ export const useSettings = create<SettingsState>()(
       request: null,
       appearanceId: 0,
       appearanceHome: null,
+      requestedTheme: null,
       themeBusy: false,
       themeProblem: null,
       ask: async (text, host) => {

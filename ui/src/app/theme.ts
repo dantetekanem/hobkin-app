@@ -157,6 +157,13 @@ system.addEventListener('change', (event) => {
 // Opacity and the custom colors apply as they change, without the reveal: they move in small steps.
 useSettings.subscribe((state, before) => {
   if (state.backgroundOpacity !== before.backgroundOpacity) showOpacity(state.backgroundOpacity)
+  // hobkin put the app on a built-in theme: show it as a click on that choice would.
+  if (state.requestedTheme && state.requestedTheme !== before.requestedTheme) {
+    const requested = state.requestedTheme
+    useSettings.setState({ requestedTheme: null })
+    setThemeChoice(requested)
+    return
+  }
   const palette = state.customTheme && (state.palette !== before.palette || state.border !== before.border || state.borderStrong !== before.borderStrong) ? customPalette() : null
   if (palette) {
     remember(baseOf(palette))

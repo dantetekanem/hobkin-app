@@ -75,3 +75,29 @@ test('a palette the window would refuse is refused with the reason, so hobkin ca
   await assert.rejects(tool.execute('2', { action: 'run', name: 'appearance.set', args: { palette: { ...MATRIX, accent: 'green' } } }), Error)
   assert.equal(appearance.state, null)
 })
+
+test('hobkin puts the app back on a built-in theme, and a restart does not bring the custom one back', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'theme-use-'))
+  try {
+    const data = join(root, 'admitted')
+    mkdirSync(data)
+    const changes: number[] = []
+    const appearance = await loadHostAppearance(root, () => changes.push(1), () => {}, async () => data)
+    const handlers = { 'appearance.set': ({ palette, name }: { palette: typeof MATRIX; name?: string }) => appearance.set(palette, name), 'appearance.use': ({ theme }: { theme: 'system' | 'light' | 'dark' }) => appearance.use(theme) }
+    const tool = createClientTool({ run: (name, args) => runCommand(handlers as never, name, args) })
+    const listed = JSON.parse((await tool.execute('1', { action: 'list' })).content[0]!.text) as { name: string }[]
+    assert.ok(listed.some(({ name }) => name === 'appearance.use'))
+
+    await tool.execute('2', { action: 'run', name: 'appearance.set', args: { palette: MATRIX } })
+    const custom = appearance.state!.id
+    await tool.execute('3', { action: 'run', name: 'appearance.use', args: { theme: 'system' } })
+    assert.equal(appearanceRequest(appearance)?.use, 'system')
+    assert.ok(appearance.state!.id > custom, 'a new request, so the window applies it once')
+    assert.equal(changes.length, 2)
+    const reloaded = await loadHostAppearance(root, () => {}, () => {}, async () => data)
+    assert.equal(reloaded.state, null, 'the saved custom theme is gone')
+    await tool.execute('4', { action: 'run', name: 'appearance.use', args: { theme: 'dark' } })
+    assert.equal(appearance.state?.use, 'dark')
+    await assert.rejects(tool.execute('5', { action: 'run', name: 'appearance.use', args: { theme: 'matrix' } }), Error)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

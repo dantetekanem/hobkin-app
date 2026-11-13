@@ -451,6 +451,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return done
     },
     'appearance.set': ({ palette, name }) => appearance.set(palette, name),
+    'appearance.use': ({ theme }) => appearance.use(theme),
     'appearance.customize': ({ request }) => customTheme.start(request),
     'appearance.status': ({ id }) => customTheme.status(id),
     'file.read': ({ path }) => readTextFile(path),
