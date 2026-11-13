@@ -8,6 +8,12 @@ import { TierChoice } from '@/features/tiers/TiersLightbox.tsx'
 import { applyTiers, readTiers } from '@/lib/host/client.ts'
 import { useHasHost } from '@/lib/host/index.ts'
 
+/** Said under a tier that has no model of its own, with where to give it one. */
+const FOLLOWED = {
+  main: 'This tier has no model of its own, so it uses the chat model. Set one in Change models.',
+  background: 'This tier has no model of its own, so it uses the checks model. Set one in Change models.',
+} as const
+
 /**
  * The two tiers an AI review runs on, set here in Settings (017-model-tiers): the Reviewer, which builds the review,
  * and Quick, which checks it once. A choice is saved at once, in hobkin's own settings through the host, and the next
@@ -69,9 +75,11 @@ export function ReviewTile() {
                   <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{info.meantFor}</p>
                 </div>
                 <TierChoice label={`Tier for ${info.label}`} value={review[role]} onChoose={(tier) => void choose(role, tier)} />
-                <p className="w-52 truncate text-[12px]" title={runs.effort ? `${name}, ${runs.effort}` : name}>
+                {/* What the chosen tier runs on. A tier with no model of its own says whose it uses, so "Max" is never taken for a model it does not have. */}
+                <p className="w-60 text-[12px] leading-snug">
                   <span className="font-medium">{saving === role ? 'Saving…' : name}</span>
                   {runs.effort && saving !== role ? <span className="text-muted-foreground"> {runs.effort}</span> : null}
+                  {runs.follows && saving !== role ? <span className="block text-muted-foreground">{FOLLOWED[runs.follows]}</span> : null}
                 </p>
               </div>
             )
