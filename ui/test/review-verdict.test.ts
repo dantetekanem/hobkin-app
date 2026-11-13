@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createVerdict, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { createVerdict, handOver, type VerdictCommands } from '../src/features/review/verdict.ts'
 import { finishedReviewId, escapeReview, reviewTakesEscape } from '../src/features/review/entry.ts'
 
 const token = 'aB  exact token\n'
@@ -120,4 +120,42 @@ test('finished identity names the actual change; explicit sample stays sample-on
   assert.equal(finishedReviewId({ slug: 'project', item: 'other' }, true), 'change:project:other')
   assert.equal(finishedReviewId({ slug: 'project', item: 'item' }, false), 'sample')
   assert.equal(finishedReviewId({ slug: '../bad', item: 'item' }, true), null)
+})
+
+test('a verdict the host could not do is handed to hobkin to sort out, with the host\'s reason, and the panel says so', async () => {
+  const asked: [string, string][] = []
+  const command = (async (name: string) => {
+    if (name === 'review.preview') return { verdict: 'approve-merge', lines: ['Merge it.'], confirm: 'a'.repeat(64) }
+    throw new Error('"Round the total" moved since it was offered, so nothing merged. It needs reading again.')
+  }) as VerdictCommands
+  const flow = createVerdict({
+    id: 'change:shop:4c9e21',
+    head: 'c'.repeat(40),
+    command,
+    saveNotes: async () => {},
+    current: () => true,
+    failed: async (verdict, reason) => {
+      asked.push([verdict, reason])
+      return true
+    },
+  })
+  await flow.preview('approve-merge')
+  await flow.confirm()
+  assert.deepEqual(asked, [['approve-merge', '"Round the total" moved since it was offered, so nothing merged. It needs reading again.']])
+  const { error, message } = flow.getState()
+  assert.equal(error, null, 'it is not left as a dead end')
+  assert.equal(message, 'It could not be done by itself, so hobkin was asked to sort it out: "Round the total" moved since it was offered, so nothing merged. It needs reading again.')
+
+  // With nobody to hand it to, or when the message did not go, the reason stays as the error it is.
+  const alone = createVerdict({ id: 'change:shop:4c9e21', head: 'c'.repeat(40), command, saveNotes: async () => {}, current: () => true, failed: async () => false })
+  await alone.preview('approve-merge')
+  await alone.confirm()
+  assert.match(alone.getState().error ?? '', /moved since it was offered/)
+})
+
+test('the words that hand a failed verdict to hobkin say what was tried, why it failed, and what is wanted', () => {
+  assert.equal(
+    handOver('change', 'approve-merge', 'It moved since it was offered, so nothing merged.'),
+    'I chose "Approve and merge" on this change and it could not be done: It moved since it was offered, so nothing merged. Fix what stops it and do it, or tell me exactly what you need from me first.',
+  )
 })

@@ -16,7 +16,7 @@ import { findGh } from '../github-gh.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
 import { piModelRunner } from './agent.ts'
-import { Assessments } from './assessment.ts'
+import { Assessments, gitIn } from './assessment.ts'
 import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { chatTeller } from './notify.ts'
@@ -113,7 +113,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
           const result = await reviewChange({ ...request, model })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
-          return { units: result.units, storyBy: result.storyBy }
+          return { units: result.units, storyBy: result.storyBy, answer: result.answer }
         },
         // Told once for each run that finishes, with the review to open.
         onReady: ({ target, head, summary, request }) => {
@@ -135,7 +135,11 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     merging: async (target, { reviewed, current, pr }) => {
       const repo = repoOf(target.slug)
       if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
-      return mergePlan({ repo, into: await intoOf(repo), reviewed, current, pr })
+      // Where the branch is now is asked of git, as hobkin's own merge asks it. What hobkin last published of the
+      // change can be a commit behind, as right after an agent reworked it, and a yes pinned to that is refused.
+      const branch = find(target.slug, target.item)?.branch
+      const tip = branch ? await gitIn(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).then((sha) => sha.trim() || null, () => null) : null
+      return mergePlan({ repo, into: await intoOf(repo), reviewed, current: tip ?? current, pr })
     },
     onReady: ({ target, review, at }) => void tell?.({ id: reviewIdOf(target), kind: target.kind, title: review.change.title, project: review.change.project, head: review.change.head, at }),
     store,

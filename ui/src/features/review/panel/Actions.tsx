@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import '../preparing/preparing.css'
 import { reviewMemory } from '../state/context.tsx'
-import { CONFIRM_MS, createVerdictChoices, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../verdict.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
 const needsComment = (verdict: Verdict) => verdict === 'request-changes' || verdict === 'comment'
@@ -58,7 +58,7 @@ function mergedWords({ into, sha, at }: ReviewLanding): string {
  * size whatever they say, the line that takes their place keeps their room, and the box keeps its height whatever it
  * holds, scrolling what does not fit.
  */
-export function Actions({ review, notes, live, verdict, saveNotes, landed, status }: {
+export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, status }: {
   review: Review
   notes: readonly Note[]
   live: boolean
@@ -68,6 +68,8 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, statu
   saveNotes?: () => Promise<void>
   /** Hears of a verdict the host did, with its words. */
   landed?: (verdict: Verdict, message: string) => void | Promise<void>
+  /** Sends hobkin a message about this review, or null where hobkin is not connected. A verdict the host could not do goes to it. */
+  ask?: ((text: string) => Promise<boolean>) | null
   /** How the host says the review stands: how its change lands, and the commit the change is at now. */
   status?: ReviewStatus | null
 }) {
@@ -87,6 +89,8 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, statu
   // Read when a verdict lands, so a new one given later is the one that runs.
   const onLanded = useRef(landed)
   onLanded.current = landed
+  const onAsk = useRef(ask)
+  onAsk.current = ask
 
   const choices = useMemo(
     () =>
@@ -99,12 +103,15 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, statu
         comments: () => unsentComments(reviewMemory.getState().notesOf(review)),
         markSent: (ids) => reviewMemory.getState().markSent(review, ids, Date.now()),
         landed: (done, message) => onLanded.current?.(done, message),
+        failed: async (failedVerdict, reason) => (onAsk.current ? onAsk.current(handOver(verdictKind(review.id), failedVerdict, reason)) : false),
       }),
     [review, verdict, saveNotes],
   )
   useEffect(() => choices.connect(), [choices])
   const flow = useStore(choices)
   const armed = flow.preview?.verdict ?? null
+  // The box under the choices is there only while it has something to say.
+  const says = Boolean(landing) || flow.busy || flow.error != null || flow.preview != null || flow.message != null || !live
 
   // What a shown verdict sends is the notes as they stood. When they change, it is taken back, to be shown again.
   useEffect(() => {
@@ -226,10 +233,12 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, statu
         ) : null}
       </div>
 
-      {/* Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
-      <div ref={box} role="status" tabIndex={-1} className="rv-scroll mt-1 h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
-        <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} />
-      </div>
+      {/* Only when there is something to say. Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
+      {says ? (
+        <div ref={box} role="status" tabIndex={-1} className="rv-scroll mt-1 max-h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
+          <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} />
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -238,7 +247,8 @@ const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[k
 
 /**
  * What the box under the choices says: how the change lands, the host at work, what a choice will do while it waits for
- * its second click, the host's reason when it will not do it, its words when it did, or the sample notice.
+ * its second click, the host's reason when it will not do it, its words when it did, or the sample notice. Nothing
+ * when there is nothing to say.
  */
 function Said({ kind, live, flow, doing, landing }: {
   kind: 'change' | 'pull'
@@ -269,13 +279,7 @@ function Said({ kind, live, flow, doing, landing }: {
   if (flow.preview) return <Preview kind={kind} preview={flow.preview} />
   if (flow.message) return <Markdown text={flow.message} />
   if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
-  return (
-    <p className="text-pretty text-muted-foreground">
-      {kind === 'change'
-        ? 'Each choice first says what it will do, and waits for a second click. Nothing happens before it.'
-        : 'Each choice first shows what GitHub will get, and waits for a second click. Nothing is posted before it.'}
-    </p>
-  )
+  return null
 }
 
 /** What a choice will do, as the host says it, while the choice waits for its second click. */

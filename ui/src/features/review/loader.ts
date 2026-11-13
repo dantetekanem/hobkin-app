@@ -144,12 +144,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     return { startedAt: Math.min(startOf(status) ?? kept ?? now(), kept ?? Infinity) }
   }
   /**
-   * A pull request opens once its first change review is ready, or has stopped: its graph alone is a walk node by node,
-   * not a review. A finished change opens on its graph while its change review runs.
+   * A review opens once its change review is ready, or has stopped: its graph alone is a walk node by node, not a
+   * review, and a review that is still being made is never shown as if it were done. Until then its progress shows.
    */
   const waits = (status: ReviewStatus): boolean => {
     const run = status.assessment?.state
-    return !startsByItself(id) && !store.getState().review && (run === 'queued' || run === 'running')
+    return !store.getState().review && (run === 'queued' || run === 'running')
   }
   const opens = (status: ReviewStatus) => status.state === 'ready' && !waits(status)
   const executeLoad = async (refresh: boolean) => {

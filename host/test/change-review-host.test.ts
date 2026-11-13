@@ -467,7 +467,7 @@ test('review.list has every review the host knows, newest first, with when each 
   const [change] = reviews.list().reviews
   assert.deepEqual([change!.id, change!.state, change!.phase, change!.startedAt, change!.head], [id, 'ready', null, undefined, head])
   const request = { kind: 'change', project: 'shop', title: 'Round the total', base, head, files: 1, added: 1, removed: 1 }
-  assert.deepEqual(change!.assessment, { state: 'running', head, percent: 40, now: 'map-proof: running the tests of total', eta: 30, startedAt: '2026-11-12T15:00:00.000Z', request }, 'the list says what it reviews, and leaves the steps and the log out')
+  assert.deepEqual(change!.assessment, { state: 'running', head, percent: 40, now: 'Running the tests of total.', eta: 30, startedAt: '2026-11-12T15:00:00.000Z', request }, 'the list says what it reviews, and leaves the steps and the log out')
   assert.equal(reviews.status(id).assessment?.startedAt, '2026-11-12T15:00:00.000Z', 'the status keeps it across every update')
   assert.equal(reviews.status(id).assessment?.steps?.length, 1)
 

@@ -273,13 +273,14 @@ const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
  * showed, and a step that ended says how.
  */
 export function progressWords(now: string): string {
-  const ran = /^map-proof: (baseline|revert|probe) run for (.+): (\d+) test files?, exit (\d+)$/.exec(now)
+  const ran = /^map-proof: (baseline|revert|probe|reach) run for (.+): (\d+) test files?, exit (\d+)$/.exec(now)
   if (ran) {
     const [, kind, who, files, exit] = ran
     const tests = count(Number(files), 'test file')
     const failed = exit !== '0'
     if (kind === 'baseline' && who === 'every candidate test') return `Ran ${tests} at the change's commit: ${failed ? 'some fail' : 'they pass'}.`
     if (kind === 'baseline') return `Ran ${tests} of ${who} again, on their own: ${failed ? 'they still fail' : 'they pass'}.`
+    if (kind === 'reach') return `Made ${who} fail and ran ${tests} that go through a request: ${failed ? 'they run through it' : 'they do not run through it'}.`
     if (kind === 'revert') return `Put ${who} back as it was and ran ${tests}: ${failed ? 'they fail, so they prove it' : 'they still pass, so they do not prove it'}.`
     return `Made ${who} fail and ran ${tests}: ${failed ? 'they notice, so they prove it' : 'they do not notice'}.`
   }
@@ -614,7 +615,8 @@ export class Assessments {
             }
             running({
               percent: progress.percent,
-              now: progress.now,
+              // In plain words: the engine's own line leads with the name of its step.
+              now: progressWords(progress.now),
               eta: progress.eta_seconds,
               steps: progress.steps.map(({ id, status, done, total, seconds, note }) => ({ id, status, done, total, seconds, ...(note ? { note } : {}) })),
             })

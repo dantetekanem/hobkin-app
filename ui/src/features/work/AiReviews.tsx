@@ -1,10 +1,9 @@
-import { GitBranch, GitPullRequest, RotateCcw } from 'lucide-react'
+import { GitBranch, GitPullRequest, RotateCcw, Square } from 'lucide-react'
 import { useState } from 'react'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { waited } from '@/features/reports/time.ts'
-import { cn } from '@/lib/utils.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { canReviewAgain, groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
@@ -17,6 +16,7 @@ import type { ReviewListView } from './use-review-list.ts'
  * now and how long it has taken; a ready one its answer for the whole change (risky or safe to deploy), why, and when
  * it finished. A click opens it.
  * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
+ * One that is waiting or running can be stopped from its row, alone: several run at a time.
  */
 export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
   const groups = groupReviews(reviews.list)
@@ -117,6 +117,40 @@ function ReviewAgain({ id, live, onAgain }: { id: string; live: boolean; onAgain
   )
 }
 
+/** "Stop" on a row that is waiting or running: the host stops that review alone, where it is, tests included. */
+function StopReview({ id, live, onStopped }: { id: string; live: boolean; onStopped: () => void }) {
+  const [asking, setAsking] = useState(false)
+  const [refused, setRefused] = useState<string | null>(null)
+
+  const stop = async () => {
+    if (!live) return setRefused('This is sample data, so no review runs here.')
+    setAsking(true)
+    setRefused(null)
+    try {
+      await runCommand('review.stop', { id })
+      onStopped()
+    } catch (error) {
+      setRefused(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAsking(false)
+    }
+  }
+
+  return (
+    <span className="ml-auto flex min-w-0 items-center gap-3">
+      {refused ? (
+        <span role="alert" className="min-w-0 text-[13px] leading-snug text-bad-fg">
+          {refused}
+        </span>
+      ) : null}
+      <Button variant="outline" size="sm" data-stop="" disabled={asking} title="Stops this review where it is. Others keep running." onClick={() => void stop()} className="shrink-0">
+        <Square aria-hidden="true" className="fill-current" />
+        {asking ? 'Stopping…' : 'Stop'}
+      </Button>
+    </span>
+  )
+}
+
 function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: boolean; onAgain: () => void }) {
   const { item } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
@@ -129,7 +163,7 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
         data-stop=""
         data-review-id={item.id}
         onClick={() => useView.getState().openReviewFor(reviewToOpen(item, live))}
-        className={cn('flex w-full scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl p-5 text-left outline-offset-[-2px]', again && 'pb-2.5')}
+        className="flex w-full scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl p-5 pb-2.5 text-left outline-offset-[-2px]"
       >
         <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
           <Kind aria-hidden="true" className="size-4 shrink-0" />
@@ -159,13 +193,11 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
           </span>
         ) : null}
       </button>
-      {again ? (
-        <div className="flex min-h-8 items-center gap-3 px-5 pb-4">
-          {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
-          {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
-          <ReviewAgain id={item.id} live={live} onAgain={onAgain} />
-        </div>
-      ) : null}
+      <div className="flex min-h-8 items-center gap-3 px-5 pb-4">
+        {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
+        {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
+        {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} /> : <StopReview id={item.id} live={live} onStopped={onAgain} />}
+      </div>
     </li>
   )
 }

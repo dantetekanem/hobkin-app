@@ -350,7 +350,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     tracker.fail(step, 'the review was stopped')
     throw stopped()
   }
-  tracker.start('triage', 1, `triage: ${triage.totals.files} files sorted into ${triage.buckets.length} buckets; checking what replaces reading them`)
+  tracker.start('triage', 1, `triage: sorting ${triage.totals.files} changed files by kind, to see which need reading line by line`)
   triage = await checkBuckets(triage, repo, meta)
   save('triage.json', triage)
   tracker.end('triage')
@@ -358,7 +358,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   // 2. The map, by search.
   halt('map-search')
   const mapped = filesToMap(triage)
-  tracker.start('map-search', 1, `map-search: asking agentic-search for every changed definition in ${mapped.size} files`)
+  tracker.start('map-search', 1, `map-search: finding every changed function in ${mapped.size} files, and what calls it`)
   const scanned = await (options.scan ?? runScan)({ cwd, base, head, signal })
   halt('map-search')
   const scan: Scan = scanned.ok ? scanned.scan : failedScan()
@@ -592,7 +592,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   save('graph.json', graphOf(nodes))
 
   // 4. The floor: a table over the four facts.
-  tracker.start('risk-floor', nodes.length, `risk-floor: the floor table over ${nodes.length} nodes`)
+  tracker.start('risk-floor', nodes.length, `risk-floor: rating ${nodes.length} changed parts from what the tests showed`)
   const before = structuredClone(nodes)
   let events: RiskEvent[] = []
   let applied = applyRiskEvents(before, events)
@@ -613,7 +613,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   let storyBy: 'model' | 'host' = 'host'
   const assessed = applied.nodes.filter((node) => node.level?.current !== 'safe' || node.hosts_condition).length
   halt('risk-model')
-  tracker.start('risk-model', model ? 1 : 0, model ? `risk-model: one careful pass over ${assessed} nodes that are mid, high or hold a new check` : 'risk-model: no model')
+  tracker.start('risk-model', model ? 1 : 0, model ? `risk-model: the Reviewer is reading ${assessed} changed part${assessed === 1 ? '' : 's'} to see whether anything breaks` : 'risk-model: no model')
   if (!model) tracker.skip('risk-model', 'no model to ask: levels stay at their floors and the story is written from the facts')
   else {
     const code = Object.fromEntries(nodes.map((node) => [node.id, changedExcerpt(diffs, node)]))
@@ -646,12 +646,12 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   save('triage.json', triage)
 
   // 6. The units, in the same shape at every level.
-  tracker.start('shape', 1, `shape: ${units.units.length} units, the same shape at every level`)
+  tracker.start('shape', 1, `shape: grouping the changed parts into ${units.units.length} to read`)
   save('units.json', units)
   tracker.end('shape')
 
   // 7. The story.
-  tracker.start('story', 1, 'story: writing the story from the units')
+  tracker.start('story', 1, 'story: writing what you will read')
   let story = renderStory({ triage, graph: graphOf(applied.nodes), units, words })
   save('story.md', story)
   save('story-words.json', words)
@@ -664,7 +664,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     blind.note = 'no model to ask'
     tracker.skip('blind-check', 'no model to ask')
   } else {
-    tracker.start('blind-check', 1, 'blind-check: a fresh, cheap model reads only the story and the units')
+    tracker.start('blind-check', 1, 'blind-check: a second model reads the finished review as someone who knows nothing else')
     const asked = await attempt(() => runBlindCheck(model, { story, units: units.units }, signal))
     halt('blind-check')
     const checked = 'value' in asked ? asked.value : null

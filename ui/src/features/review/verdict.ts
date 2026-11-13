@@ -27,7 +27,9 @@ function refusal(error: unknown): Pick<State, 'error' | 'message'> {
  * One explicit confirmation, bound to this mounted target, the commit of the review on screen (`head`) and its saved
  * notes. Both yeses name that commit, so the host refuses them, and says why, once the review it holds is for another.
  * `done` hears of a verdict the host did, with the host's words, even when the panel that asked for it has gone since.
- * The verdict is under way until what `done` does next has started.
+ * The verdict is under way until what `done` does next has started. `failed` hears of a verdict the host could not do
+ * once the user had confirmed it, with the host's reason, and hands it to hobkin: a yes the user gave is never left as
+ * a dead end. It answers whether hobkin has it.
  */
 interface VerdictOptions {
   id: string
@@ -36,9 +38,13 @@ interface VerdictOptions {
   saveNotes: () => Promise<void>
   current: () => boolean
   done?: (verdict: Verdict, message: string) => void | Promise<void>
+  failed?: (verdict: Verdict, reason: string) => Promise<boolean>
 }
 
-export function createVerdict({ id, head, command, saveNotes, current, done }: VerdictOptions) {
+/** What the panel says once a verdict that could not be done is with hobkin. */
+const HANDED_OVER = 'It could not be done by itself, so hobkin was asked to sort it out:'
+
+export function createVerdict({ id, head, command, saveNotes, current, done, failed }: VerdictOptions) {
   const store = createStore<State>(() => ({ busy: false, preview: null, error: null, message: null }))
   let generation = 0
   let disposed = false
@@ -79,7 +85,10 @@ export function createVerdict({ id, head, command, saveNotes, current, done }: V
       if (active(turn)) store.setState({ message: result.message })
       await done?.(verdict, result.message)
     } catch (error) {
-      if (active(turn)) store.setState(refusal(error))
+      const said = refusal(error)
+      // The user said yes and it did not happen: hobkin gets it, with the reason, to fix what stops it.
+      const handed = said.error && failed ? await failed(verdict, said.error).catch(() => false) : false
+      if (active(turn)) store.setState(handed ? { error: null, message: `${HANDED_OVER} ${said.error}` } : said)
     } finally {
       if (active(turn)) store.setState({ busy: false })
     }
@@ -111,6 +120,12 @@ export function sendsComments(id: string, verdict: Verdict): boolean {
  */
 export function heldDown({ key, repeat }: { key: string; repeat: boolean }): boolean {
   return repeat && (key === 'Enter' || key === ' ')
+}
+
+/** The message that hands hobkin a verdict the host could not do: what was chosen, why it failed, and what is wanted. */
+export function handOver(kind: 'change' | 'pull', verdict: Verdict, reason: string): string {
+  const label = VERDICT_CHOICES[kind].find((choice) => choice.verdict === verdict)?.label ?? verdict
+  return `I chose "${label}" on this ${kind === 'pull' ? 'pull request' : 'change'} and it could not be done: ${reason} Fix what stops it and do it, or tell me exactly what you need from me first.`
 }
 
 /** How long a choice waits for its second click, in milliseconds. */

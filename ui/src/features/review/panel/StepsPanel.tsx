@@ -165,9 +165,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
               <NoteButton intent="question" keys="D" onClick={() => store.getState().startNote('question')} />
             </div>
             <div ref={noteList} className="rv-scroll max-h-[320px] overflow-y-auto" aria-label="Notes">
-              {listed.length === 0 ? (
-                <p className="text-[14px] leading-snug text-pretty text-muted-foreground">Your comments and questions, and hobkin's notes, show here. Comments go with the verdict. Choose one to read it beside its node.</p>
-              ) : (
+              {listed.length === 0 ? null : (
                 <ol className="flex flex-col gap-1.5">
                   {listed.map((note) => (
                     <NoteRow key={note.id} note={note} review={review} />
@@ -179,7 +177,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
 
           <div className="flex flex-col gap-2.5 border-t border-border px-4 pt-3.5 pb-4">
             <h3 className={HEADING}>Verdict</h3>
-            <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} status={chrome.preparation} {...(chrome.landed ? { landed: chrome.landed } : {})} />
+            <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} status={chrome.preparation} ask={ask} {...(chrome.landed ? { landed: chrome.landed } : {})} />
           </div>
 
           <footer className="flex flex-col gap-1.5 border-t border-border px-4 py-3 text-[12.5px] text-muted-foreground">
