@@ -1,17 +1,20 @@
-import { ExternalLink, Waypoints } from 'lucide-react'
+import { ExternalLink, GitMerge, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
+import { useNow } from '@/features/chat/use-now.ts'
 import { openOnGitHub } from '@/features/github/open.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
+import { clockTime, dayLabel, timeOf } from '@/features/reports/time.ts'
 import { useGitHub, type FinishedChange, type FinishedGroup, type GitHubPull, type WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
+import type { MergingRow } from '#shared/protocol/work.ts'
 import type { HobkinChoice } from './actions.ts'
 import { endAtWord, needsFirst } from './finished-cards.ts'
-import { GradeChip, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
+import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
 import { saysHigh } from './review-badge.ts'
 import { underWay } from './review-follow.ts'
 import { sampleAssessmentOf } from './sample-reviews.ts'
@@ -19,12 +22,16 @@ import { runWork, useWorkUi, type Said } from './store.ts'
 import { useChangeReview } from './use-change-review.ts'
 
 /**
- * Finished changes in hobkin's three groups, the one that needs the user first, then ready to merge and refresh then
- * merge. Each card leads with the level its change review found (spec 032) beside its title, then says what the change
- * is, its proof, its grade, why it is in its group and what a yes does, and offers hobkin's choices in hobkin's order.
- * A long proof shows two lines, ended at a word, and all of it on "Show all". "Review" opens it in Change Review,
- * "Review again" runs the change review once more instead of hobkin's agent review, and a change on GitHub links to its
- * pull request. A group's one yes first lists every title it acts on, in the order they go, and then says how each went.
+ * Finished changes in hobkin's three groups, the one that needs the user first, then what runs left for the user,
+ * then ready to merge and refresh then merge. Each card leads with the level its change review found (spec 032) beside
+ * its title, and the GitHub issue it came from beside its project, then says what the change is, its proof, its grade,
+ * why it is in its group and what a yes does, and offers hobkin's choices in hobkin's order. A long proof shows two
+ * lines, ended at a word, and all of it on "Show all". "Review" opens it in Change Review, "Review again" runs the
+ * change review once more instead of hobkin's agent review, and a change on GitHub links to its pull request. A group's
+ * one yes first lists every title it acts on, in the order they go, and then says how each went.
+ *
+ * A "Left for you" card shows the note its run left, whole, and offers no merge: Review and Ask for changes. Under the
+ * groups, what the user said yes to that is still being brought up to date before it merges.
  */
 
 interface Shared {
@@ -50,7 +57,78 @@ export function FinishedSection({ work, ...shared }: { work: WorkState } & Share
         <Group key={group.name} group={group} leaving={leaving} onLeaving={setLeaving} {...shared} />
       ))}
       {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">Nothing finished waits for you.</p> : null}
+      {work.merging?.length ? <MergingGroup rows={work.merging} variants={shared.variants} turn={shared.turn} /> : null}
     </section>
+  )
+}
+
+/** When the user said yes, in the conversation's clock, with the day when it was not today. */
+function saidYesAt(since: string | null, now: number): string {
+  const at = timeOf(since)
+  if (at === null) return 'You said yes'
+  const day = dayLabel(at, now)
+  return `You said yes ${day === 'Today' ? '' : `${day} `}at ${clockTime(at)}`
+}
+
+/**
+ * What the user said yes to that has not merged yet: an agent brings each up to date and runs its proof again, and
+ * hobkin merges it once that run ends well. Nothing here waits on the user, so a row offers nothing but its links.
+ */
+function MergingGroup({ rows, variants, turn }: { rows: MergingRow[]; variants: Variants; turn: () => number }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="px-1 pt-1">
+        <h3 className="flex items-baseline gap-2 font-heading text-[16px] leading-tight font-semibold tracking-[-0.015em]">
+          You said yes, merging
+          <span className="text-[13px] font-medium text-muted-foreground tabular-nums">{rows.length}</span>
+        </h3>
+        <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">Nothing waits on you. One that cannot merge after its refresh says why in Chat.</p>
+      </div>
+      <ul className="relative flex flex-col">
+        <AnimatePresence mode="popLayout">
+          {rows.map((row) => (
+            <MergingItem key={row.key} row={row} variants={variants} order={turn()} />
+          ))}
+        </AnimatePresence>
+      </ul>
+    </div>
+  )
+}
+
+function MergingItem({ row, variants, order }: { row: MergingRow; variants: Variants; order: number }) {
+  const still = useStill()
+  const now = useNow(true, 30_000)
+  const doing = row.handedOff
+    ? "The main agent's session brings it up to date and runs its proof again, then merges it."
+    : 'An agent brings it up to date and runs its proof again, then hobkin merges it.'
+  const line = `${saidYesAt(row.since, now)}. ${doing}`
+  return (
+    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
+      <div
+        data-work-item=""
+        data-work-main=""
+        data-stop=""
+        data-merging={row.key}
+        tabIndex={-1}
+        role="group"
+        aria-label={`${row.project}: ${row.title}. ${line}`}
+        className="flex min-h-12 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-2xl px-3 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 focus-visible:bg-surface-2"
+      >
+        <span className="flex w-7 shrink-0 justify-center text-muted-foreground">
+          <GitMerge aria-hidden="true" className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-[13.5px] leading-snug font-medium">
+              <span className="text-muted-foreground">{row.project}:</span> {row.title}
+            </span>
+            <IssueLink issue={row.issue} />
+            <PullLink url={row.pr} />
+          </span>
+          <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">{line}</span>
+        </span>
+      </div>
+    </motion.li>
   )
 }
 
@@ -320,7 +398,10 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
             {/* The level its AI review found leads the card, beside the title. */}
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
-                <p className="eyebrow">{change.project}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="eyebrow">{change.project}</p>
+                  <IssueLink issue={change.issue} />
+                </div>
                 <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
               </div>
               <ReviewBadge status={assessment} size="md" />
@@ -329,6 +410,13 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
               <p title={change.about} className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">
                 {endAtWord(change.about)}
               </p>
+            ) : null}
+            {/* What the run left for the user is why the card is here, so it is shown whole. */}
+            {change.left ? (
+              <div className="mt-2.5 rounded-2xl bg-warn/10 px-3.5 py-2.5">
+                <p className="eyebrow text-warn-fg">Its note to you</p>
+                <p className="mt-1 text-[13px] leading-relaxed break-words">{change.left}</p>
+              </div>
             ) : null}
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground empty:hidden">
               {change.size ? (
@@ -340,7 +428,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
               <PullStatus pull={pull} />
             </div>
             <ClampedLine className="mt-2" label={<span className="text-muted-foreground">Proof: </span>} text={change.proof ? endAtWord(change.proof) : 'No proof: nothing recorded shows it works.'} />
-            <p className={cn('mt-1 text-[12.5px] leading-snug', group.name === 'needs' ? 'text-warn-fg' : 'text-muted-foreground')}>{change.reason}</p>
+            <p className={cn('mt-1 text-[12.5px] leading-snug', group.name === 'needs' || group.name === 'left' ? 'text-warn-fg' : 'text-muted-foreground')}>{change.reason}</p>
             <p className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">{change.yes}</p>
           </div>
         </div>

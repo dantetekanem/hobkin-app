@@ -1,4 +1,4 @@
-import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, WorkProject, WorkState } from '#shared/protocol/work.ts'
+import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, MergingRow, WorkIssue, WorkProject, WorkState } from '#shared/protocol/work.ts'
 
 /**
  * Work mode for a window with no host, in the shape the host sends (`shared/protocol/work.ts`), with the words
@@ -47,6 +47,11 @@ function planOf(name: 'merge' | 'refresh', changes: readonly FinishedChange[]): 
 /** A group of the sample, with hobkin's words for however many changes it holds. */
 export function groupOf(name: FinishedGroupName, changes: FinishedChange[]): FinishedGroup {
   if (name === 'needs') return { name, heading: 'Needs you', why: null, action: null, changes }
+  // The host's words for what runs left for the user (`host/src/work-items.ts`).
+  if (name === 'left') {
+    const why = changes.length === 1 ? 'Its run left you a note: something it could not do or decide alone.' : 'Their runs left you a note: something each could not do or decide alone.'
+    return { name, heading: 'Left for you', why, action: null, changes }
+  }
   const words = GROUP_WORDS[name]
   return {
     name,
@@ -58,6 +63,9 @@ export function groupOf(name: FinishedGroupName, changes: FinishedChange[]): Fin
 }
 
 const sha = (seed: string) => seed.padEnd(40, '0')
+
+/** An issue of the sample GitHub's (`sampleGitHub` in `shared/protocol/github.ts`), which a sample item was filed from. */
+const sampleIssue = (repo: string, number: number): WorkIssue => ({ repo: `hobkin-sample/${repo}`, number, url: `https://github.com/hobkin-sample/${repo}/issues/${number}` })
 
 const merging = (rest: Omit<FinishedChange, 'key' | 'review' | 'behind' | 'conflict' | 'landing'> & Partial<FinishedChange>): FinishedChange => ({
   key: `${rest.slug}:${rest.item}`,
@@ -80,6 +88,7 @@ const READY: FinishedChange[] = [
     pr: null,
     about: 'A failed webhook is tried again three times with a growing wait, instead of being dropped after the first error.',
     proof: 'node --test test/webhooks.test.ts: 14 pass, including a delivery that fails twice and then lands.',
+    issue: sampleIssue('api', 1168),
     yes: 'Merge it puts hobkin/5e7c21-patch-the-webhook-retry (18 lines) into the default branch on this machine. Nothing is pushed.',
     reason: 'With proof, no conflict and no grade against it.',
     safety: { grade: 'safe', rating: 'A', stale: false },
@@ -124,6 +133,7 @@ const READY: FinishedChange[] = [
     pr: 'https://github.com/hobkin-sample/storefront/pull/479',
     about: 'After a password reset the login page sent a signed-in user back to itself. It now goes on to the page they asked for.',
     proof: 'pnpm test auth: 31 pass, with the redirect after a reset covered.',
+    issue: sampleIssue('storefront', 476),
     yes: 'It is the PR https://github.com/hobkin-sample/storefront/pull/479, and merging it merges it on GitHub.',
     reason: 'With proof, no conflict and no grade against it.',
     safety: { grade: 'safe', rating: 'A', stale: false },
@@ -216,6 +226,47 @@ const NEEDS: FinishedChange[] = [
   }),
 ]
 
+/** Finished work whose run left the user a note, which no group's yes takes: Review, and no merge (`host/src/work-items.ts`). */
+const LEFT: FinishedChange[] = [
+  merging({
+    slug: 'storefront',
+    project: 'storefront',
+    item: 'f41c07',
+    title: 'Keep the cart when a guest signs in',
+    grade: 'P1',
+    branch: 'hobkin/f41c07-keep-the-cart-when-a-guest-signs-in',
+    head: sha('a61f03d2'),
+    pr: null,
+    issue: sampleIssue('storefront', 463),
+    about: "A guest's cart moves to their account when they sign in, instead of being replaced by the account's older cart.",
+    proof: 'pnpm test cart: 58 pass, with a guest cart and an account cart that both hold lines.',
+    left: "The check that a guest's cart survives a real sign-in needs a browser session, and this run had no permission to start one. Say if it may, or try it by hand once.",
+    yes: 'Nothing merges from here. Ask for changes sends an agent back to it with your words.',
+    reason: 'Its run left you a note, so no group merges it until you answer.',
+    safety: null,
+    size: { lines: 48, files: 3 },
+    behind: 3,
+    landing: 'refreshMerge',
+    choices: [{ value: 'diff', label: 'Show the diff' }],
+  }),
+]
+
+/** What the user said yes to that an agent is bringing up to date before hobkin merges it. */
+const MERGING = (now: number): MergingRow[] => [
+  {
+    key: 'billing-api:b71d42',
+    slug: 'billing-api',
+    project: 'billing-api',
+    item: 'b71d42',
+    title: 'Retry a failed export once',
+    branch: 'hobkin/b71d42-retry-a-failed-export-once',
+    issue: null,
+    pr: null,
+    since: new Date(now - 40 * 60_000).toISOString(),
+    handedOff: false,
+  },
+]
+
 function projects(now: number): WorkProject[] {
   const at = (hours: number) => new Date(now + hours * HOUR_MS).toISOString()
   const project = (rest: Partial<WorkProject> & Pick<WorkProject, 'slug' | 'priority' | 'prMode' | 'level'>): WorkProject => ({
@@ -256,12 +307,13 @@ export function sampleWork(now = Date.now()): WorkState {
       { key: 'item:storefront:7a31c2', kind: 'item', slug: 'storefront', project: 'storefront', item: '7a31c2', title: 'Tighten the checkout tests', grade: 'P0', why: 'urgent, critical, high impact, small', waiting: null, skipped: false, picked: true, tokens: 180_000 },
       { key: 'look:billing-api', kind: 'look', slug: 'billing-api', project: 'billing-api', item: null, title: 'security look', grade: 'P1', why: 'important, due', waiting: 'a free worker', skipped: false, picked: false, tokens: 90_000 },
       { key: 'item:billing-api:e09b44', kind: 'item', slug: 'billing-api', project: 'billing-api', item: 'e09b44', title: 'Plan the rate limiter', grade: 'P1', why: 'important, high impact, large', waiting: null, skipped: false, picked: false, tokens: 420_000 },
-      { key: 'item:docs-site:52d0f8', kind: 'item', slug: 'docs-site', project: 'docs-site', item: '52d0f8', title: 'Refresh the install guide', grade: 'P2', why: 'casual, medium impact, small', waiting: null, skipped: false, picked: false, tokens: 60_000 },
+      { key: 'item:docs-site:52d0f8', kind: 'item', slug: 'docs-site', project: 'docs-site', item: '52d0f8', title: 'Refresh the install guide', grade: 'P2', why: 'casual, medium impact, small', waiting: null, skipped: false, picked: false, tokens: 60_000, issue: sampleIssue('docs', 64) },
       { key: 'ideas:docs-site', kind: 'ideas', slug: 'docs-site', project: 'docs-site', item: null, title: 'new ideas', grade: 'P3', why: 'due', waiting: null, skipped: false, picked: false, tokens: 40_000 },
       { key: 'item:storefront:91f0aa', kind: 'item', slug: 'storefront', project: 'storefront', item: '91f0aa', title: 'Try a lighter product grid', grade: 'P3', why: 'casual, low impact, medium', waiting: null, skipped: true, picked: false, tokens: 150_000 },
     ],
     queued: 7,
     projects: projects(now),
-    finished: [groupOf('merge', READY), groupOf('refresh', REFRESH), groupOf('needs', NEEDS)],
+    finished: [groupOf('merge', READY), groupOf('refresh', REFRESH), groupOf('needs', NEEDS), groupOf('left', LEFT)],
+    merging: MERGING(now),
   }
 }

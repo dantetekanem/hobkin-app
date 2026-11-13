@@ -39,8 +39,9 @@ import { Canvas } from './canvas.ts'
 import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
-import { workFrom, workHandlers } from './work.ts'
+import { workHandlers } from './work.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
+import { preparedByItself, workReader } from './work-items.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
 import { hostReviews, reviewHandlers, toPrepare } from './review/seat.ts'
@@ -167,7 +168,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const message = sync.update(now)
     if (message) broadcast(message)
     // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
-    reviews.watch(toPrepare(now.work, now.github))
+    // What a run left for the user is reviewed only once the user asks.
+    reviews.watch(toPrepare(preparedByItself(now.work), now.github))
   }
   const connected = () => [...(server?.sockets() ?? [])].some((socket) => socket.readyState === socket.OPEN)
 
@@ -246,12 +248,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const nudge = new Nudges({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
+  // Work mode for the Work screen and Change Review, from the snapshot with hobkin's own rules and hobkin's items (011-work).
+  const workOf = workReader(() => hobkin().runtime.directory)
   // Change Review: reviews prepared in the background and kept in the home, and verdicts only on the user's word.
   const reviews = hostReviews({
     root,
     live,
     data: () => hobkin().runtime.directory,
-    work: () => (owner.snapshot ? workFrom(owner.snapshot) : null),
+    work: () => (owner.snapshot ? workOf(owner.snapshot) : null),
     app: () => hobkin(),
     runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
     gh: options.reviewGh,
@@ -271,7 +275,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     nudge: nudge.state,
     appearance: appearanceRequest(appearance),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
-    work: owner.snapshot ? workFrom(owner.snapshot) : null,
+    work: owner.snapshot ? workOf(owner.snapshot) : null,
     snapshot: owner.snapshot && activity.keep(owner.wireSnapshot()!),
   })
   // hobkin's main conversations, only read, from the home (014-continuity A8). The one its session has open is current.

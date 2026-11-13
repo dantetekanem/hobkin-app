@@ -6,14 +6,17 @@ import {
   CircleDot,
   Clock,
   ExternalLink,
+  GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
   ListPlus,
   LoaderCircle,
+  MessageSquareText,
   Minus,
   PenLine,
   Sparkles,
   UserRound,
+  Waypoints,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,12 +34,12 @@ import { waited } from '@/features/reports/time.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { DeployWhy, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
-import { runWork, useWorkUi } from '@/features/work/store.ts'
+import { runWork, useWorkUi, useWorkView } from '@/features/work/store.ts'
 import { openOnWork } from '@/features/work/work-target.ts'
 import { runCommand, type ChecksState, type GitHubIssue, type ReviewState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand } from './issue-close.ts'
-import { issueChip, JUST_ADDED, type ChipTone } from './issue-work.ts'
+import { issueChip, JUST_ADDED, placeOnWork, type ChipTone } from './issue-work.ts'
 import { openGitHubPage, openOnGitHub, openPullRequestReview } from './open.ts'
 import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
 
@@ -338,7 +341,11 @@ const CHIP_ICON: Record<string, LucideIcon> = {
   'Added to queue': Check,
   'In queue': Clock,
   Working: LoaderCircle,
-  'Waiting for you': UserRound,
+  'Read its note': MessageSquareText,
+  'Review its change': Waypoints,
+  'Approve its change': GitMerge,
+  'Merging after your yes': LoaderCircle,
+  Finished: CircleDashed,
   'PR open': GitPullRequest,
   Done: CircleCheck,
   Declined: Ban,
@@ -364,19 +371,21 @@ function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
 }
 
 /**
- * Where an issue's work stands: Add to queue while hobkin has nothing filed for it, and then a chip. Right after Add
- * to queue the chip says so, with hobkin's whole answer in its tooltip. A chip whose item the Work screen shows opens
- * it there, and a PR's chip comes with the PR's link. A refusal says why, in a line or two.
+ * Where an issue's work stands: Add to queue while hobkin has nothing filed for it, and then a chip that says what it
+ * waits on. Right after Add to queue the chip says so, with hobkin's whole answer in its tooltip. A chip whose item the
+ * Work screen shows opens it there, where the user can act on it, and a PR's chip comes with the PR's link. A refusal
+ * says why, in a line or two.
  */
 function IssueWorkStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
   const place = `issue:${issue.url}`
   const busy = useWorkUi((state) => Boolean(state.busy[place]))
   const said = useWorkUi((state) => state.said[place])
+  const { work: shown } = useWorkView()
   const added = said?.tone === 'done'
   const { work } = issue
 
   if (work || added) {
-    const chip = work ? issueChip(work, added) : JUST_ADDED
+    const chip = work ? issueChip(work, placeOnWork(shown, work.slug, work.item), added) : JUST_ADDED
     const why = added ? (said?.text ?? '') : filedWords(work!)
     const Icon = CHIP_ICON[chip.label] ?? CircleDot
     const face = (

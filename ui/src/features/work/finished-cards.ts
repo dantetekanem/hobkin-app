@@ -2,9 +2,13 @@ import type { FinishedGroup } from '#shared/protocol/work.ts'
 
 /** The finished changes' order on the Work page, and their cards' lines. Pure, so it is tested without a window. Spec: 011-work. */
 
-/** The group that needs the user comes first, so it is never a long scroll away. The others keep hobkin's order. */
+/**
+ * The group that needs the user comes first, so it is never a long scroll away, and what runs left for the user comes
+ * next, since no yes carries it. The others keep hobkin's order.
+ */
 export function needsFirst(groups: readonly FinishedGroup[]): FinishedGroup[] {
-  return [...groups.filter(({ name }) => name === 'needs'), ...groups.filter(({ name }) => name !== 'needs')]
+  const first = ['needs', 'left']
+  return [...first.flatMap((name) => groups.filter((group) => group.name === name)), ...groups.filter(({ name }) => !first.includes(name))]
 }
 
 /**

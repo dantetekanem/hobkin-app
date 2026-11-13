@@ -16,6 +16,14 @@ export const GRADES: readonly Grade[] = ['P0', 'P1', 'P2', 'P3']
 export const PR_MODES: readonly PrMode[] = ['off', 'draft', 'published']
 export const ISSUE_PICKUPS: readonly IssuePickup[] = ['off', 'labeled', 'all']
 
+/** The GitHub issue a piece of work was filed from, as hobkin keeps it on the item (`issue` in its `src/cli/work/store.mjs`). */
+export interface WorkIssue {
+  /** `owner/name` */
+  repo: string
+  number: number
+  url: string
+}
+
 /** One row of hobkin's queue, in hobkin's order (`plan` in its `workStatus`). */
 export interface QueueRow {
   /** hobkin's key for the row, such as `item:storefront:3fa9c1`, `look:storefront` or `discover`. Actions name the row by it. */
@@ -37,6 +45,9 @@ export interface QueueRow {
   picked: boolean
   /** About how many fresh tokens it takes, when hobkin can say. */
   tokens: number | null
+  /** The GitHub issue its item was filed from, and its pull request once it has one. A host older than these does not send them. */
+  issue?: WorkIssue | null
+  pr?: string | null
 }
 
 /**
@@ -69,8 +80,11 @@ export interface WorkProject {
   lookError: string | null
 }
 
-/** hobkin's three groups of finished work: it merges as it is, it refreshes and then merges, or it needs the user. */
-export type FinishedGroupName = 'merge' | 'refresh' | 'needs'
+/**
+ * hobkin's three groups of finished work: it merges as it is, it refreshes and then merges, or it needs the user. And
+ * `left`: finished work whose run left the user a note, which hobkin lists apart from its groups, so no yes carries it.
+ */
+export type FinishedGroupName = 'merge' | 'refresh' | 'needs' | 'left'
 
 /** How a change lands: merged on this machine, merged on GitHub as a PR, or brought up to date by an agent and then merged. */
 export type Landing = 'merge' | 'mergePr' | 'refreshMerge'
@@ -114,6 +128,27 @@ export interface FinishedChange {
   /** How the group's one yes lands it. */
   landing: Landing
   choices: { value: ChangeChoice; label: string }[]
+  /** The GitHub issue its item was filed from. A host older than this does not send it. */
+  issue?: WorkIssue | null
+  /** On a "Left for you" card, the note its run left for the user, whole. */
+  left?: string | null
+}
+
+/** What the user said yes to that has not merged yet: an agent brings it up to date first, and hobkin merges it once that run ends well. */
+export interface MergingRow {
+  /** `slug:item` */
+  key: string
+  slug: string
+  project: string
+  item: string
+  title: string
+  branch: string | null
+  issue: WorkIssue | null
+  pr: string | null
+  /** When the user said yes, as an ISO time, when hobkin recorded it. */
+  since: string | null
+  /** The main agent's session does it, because work mode was off or paused when the user said yes. */
+  handedOff: boolean
 }
 
 /** Every row a group's yes carries out, numbered in the order they go, under their projects (`groupPlan` in hobkin). */
@@ -125,11 +160,11 @@ export interface GroupPlan {
 
 export interface FinishedGroup {
   name: FinishedGroupName
-  /** "Ready to merge", "Refresh then merge" or "Needs you". */
+  /** "Ready to merge", "Refresh then merge", "Needs you" or "Left for you". */
   heading: string
   /** Why its changes are together. Null for "Needs you", where each card says why. */
   why: string | null
-  /** The one yes for the whole group, its question, the plan it asks about, and what it says while it is carried out. Null for "Needs you". */
+  /** The one yes for the whole group, its question, the plan it asks about, and what it says while it is carried out. Null for "Needs you" and "Left for you". */
   action: { label: string; question: string; plan: GroupPlan; underWay: string } | null
   changes: FinishedChange[]
 }
@@ -155,6 +190,8 @@ export interface WorkState {
   /** Every project work mode knows: the ones taken, by priority, then the proposals, then the ones left alone. */
   projects: WorkProject[]
   finished: FinishedGroup[]
+  /** What the user said yes to that is still being brought up to date before it merges. A host older than this does not send it. */
+  merging?: MergingRow[]
 }
 
 /** One row of a group's yes, as hobkin's `mergeGroup` takes it. */

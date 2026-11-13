@@ -1,8 +1,10 @@
-import { CircleDashed, CircleX, Clock, LoaderCircle, OctagonAlert, ShieldAlert, ShieldCheck, type LucideIcon } from 'lucide-react'
+import { CircleDashed, CircleDot, CircleX, Clock, GitPullRequest, LoaderCircle, OctagonAlert, ShieldAlert, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
+import { openOnGitHub } from '@/features/github/open.ts'
 import type { Grade } from '@/lib/host/index.ts'
+import type { WorkIssue } from '#shared/protocol/work.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { deployOf, deployWhy, sinceLastReview, type AssessmentStatus, type AssessmentSummary, type Deploy } from '#shared/review/assessment.ts'
@@ -21,6 +23,53 @@ const GRADE_TONE: Record<Grade, string> = {
 export function GradeChip({ grade }: { grade: Grade | null }) {
   if (!grade) return null
   return <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-1.5 font-heading text-[11px] font-semibold tabular-nums', GRADE_TONE[grade])}>{grade}</span>
+}
+
+const LINK_CHIP =
+  'inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 font-heading text-[11px] font-medium whitespace-nowrap text-muted-foreground tabular-nums outline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:text-foreground'
+
+/**
+ * The GitHub issue a piece of work was filed from, as `#75`, linked to the issue; its title says which repository.
+ * It is one of its row's own choices, so Right reaches it.
+ */
+export function IssueLink({ issue }: { issue: WorkIssue | null | undefined }) {
+  if (!issue) return null
+  return (
+    <a
+      href={issue.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      tabIndex={-1}
+      data-row-control=""
+      title={`${issue.repo}#${issue.number}, on GitHub`}
+      onClick={(event) => openOnGitHub(event, issue.url)}
+      className={LINK_CHIP}
+    >
+      <CircleDot aria-hidden="true" className="size-3" />
+      <span className="sr-only">Issue </span>#{issue.number}
+    </a>
+  )
+}
+
+/** A pull request, as `PR #78`, linked to it on GitHub. */
+export function PullLink({ url }: { url: string | null | undefined }) {
+  const number = url ? /\/pull\/(\d+)/.exec(url)?.[1] : undefined
+  if (!url || !number) return null
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      tabIndex={-1}
+      data-row-control=""
+      title={`${url}, on GitHub`}
+      onClick={(event) => openOnGitHub(event, url)}
+      className={LINK_CHIP}
+    >
+      <GitPullRequest aria-hidden="true" className="size-3" />
+      PR #{number}
+    </a>
+  )
 }
 
 const BADGE_TONE: Record<BadgeTone, string> = {

@@ -3,11 +3,11 @@ import { test } from 'node:test'
 import { endAtWord, needsFirst } from '../src/features/work/finished-cards.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
 
-test('the finished changes that need the user come first, and the other groups keep hobkin order', () => {
+test('the finished changes that need the user come first, then what runs left for them, and the other groups keep hobkin order', () => {
   const groups = sampleWork().finished
-  assert.deepEqual(groups.map(({ name }) => name), ['merge', 'refresh', 'needs'], 'hobkin sends them in this order')
-  assert.deepEqual(needsFirst(groups).map(({ name }) => name), ['needs', 'merge', 'refresh'])
-  assert.deepEqual(needsFirst(groups.filter(({ name }) => name !== 'needs')).map(({ name }) => name), ['merge', 'refresh'])
+  assert.deepEqual(groups.map(({ name }) => name), ['merge', 'refresh', 'needs', 'left'], 'the host sends them in this order')
+  assert.deepEqual(needsFirst(groups).map(({ name }) => name), ['needs', 'left', 'merge', 'refresh'])
+  assert.deepEqual(needsFirst(groups.filter(({ name }) => name !== 'needs')).map(({ name }) => name), ['left', 'merge', 'refresh'])
 })
 
 // A proof as a hobkin from before it sent proofs whole sent one to a card on 2026-11-12: its first 260 characters, cut inside "required".

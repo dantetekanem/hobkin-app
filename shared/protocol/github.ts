@@ -166,6 +166,8 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
     issues: [
       issue('storefront', 468, 'The checkout button stays disabled in Safari', 40, { labels: ['bug', 'checkout'], assigned: true, ...filed('storefront', 'b8d1f0', 'doing') }),
       issue('storefront', 476, 'The login redirect forgets the page you were on', 95, { labels: ['bug'], authored: true, ...filed('storefront', '8d2f60', 'pr', at('storefront', 'pull', 479)) }),
+      // Its run left the user a note, so its card is under Left for you.
+      issue('storefront', 463, 'A guest loses their cart on signing in', 300, { labels: ['bug', 'checkout'], assigned: true, ...filed('storefront', 'f41c07', 'branch') }),
       issue('api', 1168, 'Webhook deliveries are retried forever', 600, { labels: ['bug'], assigned: true, ...filed('billing-api', '5e7c21', 'branch') }),
       issue('api', 1172, 'Rate limit headers are missing from 429 answers', 1450, { labels: ['bug'], assigned: true, authored: true, ...filed('billing-api', 'c41a77', 'merged') }),
       issue('docs', 64, 'The quick start skips the install step', 4300, { labels: ['docs'], authored: true, ...filed('docs-site', '52d0f8', 'open') }),

@@ -9,7 +9,7 @@ import type { IssuePickup } from '#shared/protocol/work.ts'
 import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { discoverableProjects, trackedProjects } from './projects.ts'
-import { GradeChip, SaidLine, SectionHeading, Segmented } from './parts.tsx'
+import { GradeChip, IssueLink, PullLink, SaidLine, SectionHeading, Segmented } from './parts.tsx'
 import { queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
 
@@ -143,6 +143,8 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
             <span className="truncate text-[13.5px] leading-snug font-medium">
               <span className="text-muted-foreground">{row.project}:</span> {row.title}
             </span>
+            <IssueLink issue={row.issue} />
+            <PullLink url={row.pr} />
             {row.picked && !row.skipped ? <span className="eyebrow shrink-0 text-sun-fg">Picked</span> : null}
           </span>
           <span className={cn('mt-0.5 block truncate text-[12px]', row.waiting && !row.skipped ? 'text-warn-fg' : 'text-muted-foreground')}>

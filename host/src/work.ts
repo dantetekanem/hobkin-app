@@ -189,7 +189,7 @@ function reasonOf(entry: ReadyRow, group: GroupName): string {
   return 'It needs you to open it.'
 }
 
-function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
+export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
   const size = entry.size ? { lines: entry.size.additions + entry.size.deletions, files: entry.size.files } : null
   return {
     key: `${entry.slug}:${entry.item}`,
