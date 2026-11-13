@@ -36,7 +36,6 @@ import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
 import { appearanceSession } from './appearance-session.ts'
 import { Canvas } from './canvas.ts'
-import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
 import { workHandlers } from './work.ts'
@@ -244,8 +243,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // The canvas panel: the page hobkin shows beside the screens. The window draws it (030-canvas-panel).
   const canvas = new Canvas({ onChange: publish })
-  // The window moves and the composer draft hobkin drives for the user (013-hobkin-access). The window carries each out.
-  const nudge = new Nudges({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
   // Work mode for the Work screen and Change Review, from the snapshot with hobkin's own rules and hobkin's items (011-work).
@@ -272,7 +269,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
     canvas: canvas.state,
-    nudge: nudge.state,
     appearance: appearanceRequest(appearance),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workOf(owner.snapshot) : null,
@@ -437,23 +433,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     'canvas.show': ({ url, title }) => canvas.show(url, title),
     'canvas.close': () => canvas.close(),
-    // Driving the window for the user: the host records the move or draft and tells the window, which carries it out.
-    'view.open': ({ screen }) => {
-      nudge.open(screen)
-      return done
-    },
-    'view.spotlight': () => {
-      nudge.spotlight()
-      return done
-    },
-    'view.back': () => {
-      nudge.back()
-      return done
-    },
-    'conversation.draft': ({ text }) => {
-      nudge.draft(text)
-      return done
-    },
     'appearance.set': ({ palette, name }) => appearance.set(palette, name),
     'appearance.use': ({ theme }) => appearance.use(theme),
     'appearance.customize': ({ request }) => customTheme.start(request),
