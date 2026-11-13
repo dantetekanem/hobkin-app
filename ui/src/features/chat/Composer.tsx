@@ -18,6 +18,7 @@ import { useReportReply } from '@/features/reports/reply.ts'
 import { slashList, type SlashKey } from './slash.ts'
 import { SlashPanel, slashRowId } from './SlashPanel.tsx'
 import { StatusLine } from './StatusLine.tsx'
+import { STOP_ARMED_MS, stopKey } from './stop-key.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
 
 /** The input stops growing here and scrolls instead. */
@@ -40,7 +41,8 @@ export interface ComposerProps {
  * The message input, with the avatar beside it, the line above it that says what hobkin is doing, the images
  * attached to the draft, and the list of commands for a message that starts with a slash.
  *
- * Keys: Enter sends and Shift+Enter adds a line. Escape stops a running turn, or else drops the report the message
+ * Keys: Enter sends and Shift+Enter adds a line. Escape twice, or Control+C, stops a running turn: the first Escape
+ * only asks, since one press is too easy to make by mistake. With no turn running, Escape drops the report the message
  * is about. Up in an empty message brings
  * back earlier messages. Command+U attaches an image and Backspace at the start removes the last one.
  * Control+Option+P opens the full prompt editor. Page Up, Page Down and Command+Down move the conversation.
@@ -77,6 +79,17 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const picker = useRef<HTMLInputElement | null>(null)
   const listId = useId()
   const [dropping, setDropping] = useState(false)
+  // When the first Escape of a stop was pressed, while the second is waited for.
+  const [stopArmedAt, setStopArmedAt] = useState<number | null>(null)
+  const stopArmed = stopArmedAt !== null && turnRunning
+
+  // The first Escape waits only so long for the second, and a turn that ended has nothing left to stop.
+  useEffect(() => {
+    if (stopArmedAt === null) return
+    if (!turnRunning) return setStopArmedAt(null)
+    const timer = setTimeout(() => setStopArmedAt(null), STOP_ARMED_MS)
+    return () => clearTimeout(timer)
+  }, [stopArmedAt, turnRunning])
 
   // The input is as tall as its text, up to a limit. The height is set, never animated.
   useLayoutEffect(() => {
@@ -131,6 +144,14 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
       if (canSend) send()
       used()
     } else if (event.key === 'Escape' && turnRunning) {
+      // One Escape never stops hobkin: the first asks, a second soon after stops.
+      const pressed = stopKey(stopArmedAt, Date.now())
+      if (pressed.stop) stop()
+      setStopArmedAt(pressed.armedAt)
+      used()
+    } else if (event.key === 'c' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && turnRunning) {
+      // As in a terminal: Control+C stops at once.
+      setStopArmedAt(null)
       stop()
       used()
     } else if (event.key === 'Escape' && plain && report) {
@@ -172,7 +193,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   return (
     <div className="shrink-0 px-3 pt-1 pb-2">
       <div className="mx-auto max-w-[640px]">
-        <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} />
+        <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} stopArmed={stopArmed} />
         {mainResult ? <p role="status" className="text-xs text-muted-foreground">{mainResult.text}</p> : null}
         <div className="flex items-end gap-2">
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
@@ -240,7 +261,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                           <Square className="size-3 fill-current" aria-hidden="true" />
                         </TooltipTrigger>
                         <TooltipContent>
-                          Stop <Kbd>esc</Kbd>
+                          Stop <Kbd>esc</Kbd> <Kbd>esc</Kbd>
                         </TooltipContent>
                       </Tooltip>
                     </motion.div>

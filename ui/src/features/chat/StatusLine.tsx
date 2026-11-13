@@ -21,6 +21,8 @@ export interface StatusLineProps {
   turnRunning: boolean
   /** The message input holds text, so greetings and tips wait. */
   typing: boolean
+  /** The first Escape of a stop was pressed, and the second is waited for. */
+  stopArmed?: boolean
 }
 
 /** The clock the greeting and the tips follow. It moves only when one of them starts or ends. */
@@ -38,7 +40,7 @@ function useBubbleClock(openedAt: number): number {
  * how to stop it, or, while it waits, the terminal app's greeting and tips. A problem, what a command said, or why
  * nothing can be sent show there as a plain line.
  */
-export function StatusLine({ reason, problem, said, turnRunning, typing }: StatusLineProps) {
+export function StatusLine({ reason, problem, said, turnRunning, typing, stopArmed = false }: StatusLineProps) {
   const doing = useHost((state) => doingNow(state.snapshot))
   const startedAt = useHost((state) => turnStartedAt(state.snapshot))
   const userName = useHost((state) => (typeof state.snapshot.userName === 'string' && state.snapshot.userName.trim() ? state.snapshot.userName.trim() : null))
@@ -69,12 +71,21 @@ export function StatusLine({ reason, problem, said, turnRunning, typing }: Statu
     // The row's room is always there, so the input does not move when the bubble or a line comes and goes.
     <div className="relative flex h-6 items-center gap-2 pl-[112px]">
       <SpeechBubble bubble={shown} onInspect={setInspecting} />
-      {bubble?.kind === 'doing' ? (
+      {bubble?.kind === 'doing' || stopArmed ? (
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
-          <span className="tabular-nums">{elapsed(startedAt ?? seenAt.current ?? now, now)}</span>
-          <span className="flex items-center gap-1">
-            <Kbd>esc</Kbd> stops
-          </span>
+          {bubble?.kind === 'doing' && !stopArmed ? <span className="tabular-nums">{elapsed(startedAt ?? seenAt.current ?? now, now)}</span> : null}
+          {/* One Escape never stops hobkin: the first asks, and this says how to go on. */}
+          {stopArmed ? (
+            <span role="status" className="flex items-center gap-1 text-foreground">
+              <Kbd>esc</Kbd> again to stop, or <Kbd>ctrl</Kbd>
+              <Kbd>c</Kbd>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1">
+              <Kbd>esc</Kbd>
+              <Kbd>esc</Kbd> stops
+            </span>
+          )}
         </span>
       ) : null}
       <AnimatePresence mode="wait" initial={false}>
