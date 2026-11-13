@@ -219,13 +219,13 @@ function pullSeat(
   const store = reviewStore(temporaryDirectory(t))
   store.write(targetOfReviewId(id)!, sample, files)
   const calls: { args: readonly string[]; input?: string }[] = []
-  const github = { settings }
+  const github = { settings, state: 'open' }
   const gh = async (args: readonly string[], input?: string): Promise<GhOutcome> => {
     calls.push({ args, input })
     const path = args.find((arg) => arg === 'user' || arg.startsWith('repos/'))
     if (path === 'user') return { kind: 'done', stdout: JSON.stringify({ login: viewer }) }
     if (path === 'repos/acme/shop') return { kind: 'done', stdout: JSON.stringify(github.settings) }
-    if (path === 'repos/acme/shop/pulls/482') return { kind: 'done', stdout: JSON.stringify({ user: { login: author }, base: { ref: 'main' }, head: { sha: current } }) }
+    if (path === 'repos/acme/shop/pulls/482') return { kind: 'done', stdout: JSON.stringify({ state: github.state, user: { login: author }, base: { ref: 'main' }, head: { sha: current } }) }
     if (path === 'repos/acme/shop/pulls/482/reviews') return { kind: 'done', stdout: JSON.stringify({ html_url: 'https://github.com/acme/shop/pull/482#pullrequestreview-1' }) }
     if (path === 'repos/acme/shop/pulls/482/merge') {
       return refuseMerge ? { kind: 'failed', code: 1, stdout: '', stderr: refuseMerge } : { kind: 'done', stdout: JSON.stringify({ merged: true, sha: 'e'.repeat(40) }) }
@@ -347,4 +347,16 @@ test('a pull request that moved since its review is merged where it is now: the 
   assert.equal((await rebased.reviews.preview(rebased.id, 'approve-merge', '')).lines[2], 'Since this review it was rebased onto main: the same change, now at fffffff.')
   const unread = pullSeat(t, { current: NEWER })
   assert.equal((await unread.reviews.preview(unread.id, 'approve-merge', '')).lines[2], 'Since this review it moved to fffffff.')
+})
+
+test('a reviewed pull request that GitHub says is no longer open leaves the list, whoever merged or closed it', async (t) => {
+  const { id, reviews, github } = pullSeat(t)
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), true)
+  // Still open: it stays.
+  await reviews.sweepPulls()
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), true)
+  // Merged on github.com, outside the app.
+  github.state = 'closed'
+  await reviews.sweepPulls({ force: true })
+  assert.equal(reviews.list().reviews.some((item) => item.id === id), false)
 })

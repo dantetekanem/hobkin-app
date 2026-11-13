@@ -23,6 +23,9 @@ import type { MergePlan, Moved } from './landing.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
 
+/** How often reviewed pull requests are asked of GitHub, to see which are no longer open. */
+const SWEEP_EVERY_MS = 2 * 60_000
+
 /** Something to prepare in the background, with what says it changed: a change's commit, or when a pull request last changed on GitHub. */
 export interface Watched {
   id: string
@@ -250,6 +253,8 @@ export class Reviews {
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
   private written = 0
   /** The reviews someone asked for, by the window or by hobkin, as against what the background prepares by itself. */
+  private sweeping = false
+  private sweptAt = Number.NEGATIVE_INFINITY
   private readonly asked = new Set<string>()
   /** Reviews the user stopped while their map was being prepared: the change review after it does not start. */
   private readonly halted = new Set<string>()
@@ -623,6 +628,31 @@ export class Reviews {
   }
 
   /**
+   * Reviewed pull requests that GitHub says are no longer open leave the list: merged or closed, here or on
+   * github.com, by anyone. Each is asked of GitHub, at most every two minutes. One GitHub does not answer for stays,
+   * and is asked again next time.
+   */
+  async sweepPulls({ force = false }: { force?: boolean } = {}): Promise<void> {
+    const now = this.now()
+    if (this.sweeping || (!force && now - this.sweptAt < SWEEP_EVERY_MS)) return
+    this.sweeping = true
+    this.sweptAt = now
+    let gone = false
+    try {
+      for (const { target } of this.options.store.list()) {
+        if (target.kind !== 'pull' || this.options.store.landedAt(target) || this.preparing(reviewIdOf(target))) continue
+        const head = await this.options.sources.pull.head(target).catch(() => undefined)
+        if (head !== null) continue
+        this.options.store.saveLanded(target, new Date(this.now()).toISOString())
+        gone = true
+      }
+    } finally {
+      this.sweeping = false
+    }
+    if (gone) this.options.onChange?.()
+  }
+
+  /**
    * Stops a review that is waiting or under way, on the user's word: a preparation still waiting leaves the queue,
    * one under way finishes its map and starts no change review, and a change review is stopped where it is, its tests
    * with it. Whatever was ready before stays as it was. Refused when nothing of it is running.
@@ -971,6 +1001,8 @@ export class Reviews {
    */
   watch(wanted: readonly Watched[], limit = 3): void {
     const { store } = this.options
+    // The host calls this as it publishes its state: the moment to see which reviewed pull requests have closed.
+    void this.sweepPulls().catch((error: unknown) => this.options.log?.(`Reviews: asking GitHub which pull requests closed failed: ${messageOf(error)}`))
     for (const { id, head = null, updatedAt = null } of wanted) {
       if (this.queue.length + this.running.size >= limit) return
       const version = `${head ?? ''}@${updatedAt ?? ''}`
