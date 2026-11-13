@@ -131,6 +131,24 @@ fn start_host(log_dir: Option<PathBuf>) -> Option<Child> {
     command.spawn().ok()
 }
 
+/// Starts the host again when the one this app started has ended by itself, as it does when the window asks it to
+/// restart so it loads the code on disk (`host.restart`). The window stays open and connects to the new one. A host
+/// the app stops when it quits has already been taken out of the state, so nothing is started then.
+fn keep_host(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(500));
+        let state = app.state::<Host>();
+        let mut host = state.0.lock().unwrap();
+        let ended = match host.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+            None => false,
+        };
+        if ended {
+            *host = start_host(app.path().app_log_dir().ok());
+        }
+    });
+}
+
 /// Stops the host the way it expects, with SIGTERM, so hobkin closes cleanly and frees its home.
 /// One that has not stopped after a few seconds is stopped outright.
 fn stop_host(child: &mut Child) {
@@ -153,6 +171,7 @@ pub fn run() {
             // Opening the app starts hobkin and its background work, as opening the terminal app does.
             let child = start_host(app.path().app_log_dir().ok());
             *app.state::<Host>().0.lock().unwrap() = child;
+            keep_host(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
