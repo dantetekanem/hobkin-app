@@ -217,6 +217,7 @@ function AgentsAtOnce({ work, live }: { work: WorkState; live: boolean }) {
 function ReviewCounts({ counts }: { counts: Record<ReviewGroup, number> }) {
   return (
     <>
+      {counts.unmerged ? <TabCount tone="live">{counts.unmerged} not merged</TabCount> : null}
       {counts.running ? <TabCount tone="live">{counts.running} running</TabCount> : null}
       {counts.ready ? <TabCount tone="ok">{counts.ready} ready</TabCount> : null}
     </>

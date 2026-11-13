@@ -22,7 +22,7 @@ export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewLis
   const groups = groupReviews(reviews.list)
   // A running review's clock counts seconds; otherwise "finished 3 minutes ago" is enough.
   const now = useNow(true, groups.running.length ? 1_000 : 30_000)
-  const none = groups.running.length + groups.ready.length + groups.failed.length === 0
+  const none = groups.unmerged.length + groups.running.length + groups.ready.length + groups.failed.length === 0
 
   return (
     <div className="flex flex-col gap-10">
@@ -37,6 +37,8 @@ export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewLis
         </p>
       ) : null}
       {reviews.list && none ? <NoReviews /> : null}
+      {/* What the user said yes to and has not merged: first, so a yes that did not land is never out of sight. */}
+      <Group label="Asked to merge, not merged" rows={groups.unmerged} now={now} live={live} onAgain={reviews.refresh} />
       <Group label="Running" rows={groups.running} now={now} live={live} onAgain={reviews.refresh} />
       <Group label="Ready" rows={groups.ready} now={now} live={live} onAgain={reviews.refresh} />
       <Group label="Failed" rows={groups.failed} now={now} live={live} onAgain={reviews.refresh} />
@@ -77,6 +79,7 @@ function Group({ label, rows, now, live, onAgain }: { label: string; rows: Revie
 function whenOf({ group, startedAt, at }: ReviewRow, now: number): string {
   if (group === 'running') return startedAt === null ? '' : `${clockWords((now - startedAt) / 1000)} so far`
   if (at === null) return ''
+  if (group === 'unmerged') return `asked ${waited(at, now)} ago`
   return `${group === 'ready' ? 'finished' : 'stopped'} ${waited(at, now)} ago`
 }
 
@@ -196,6 +199,7 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
       <div className="flex min-h-8 items-center gap-3 px-5 pb-4">
         {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
         {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
+        {row.group === 'unmerged' ? <span className={row.item.mergeAsked?.state === 'failed' ? 'min-w-0 text-[14px] leading-snug text-bad-fg' : 'min-w-0 text-[14px] leading-snug text-muted-foreground'}>{row.line}</span> : null}
         {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} /> : <StopReview id={item.id} live={live} onStopped={onAgain} />}
       </div>
     </li>

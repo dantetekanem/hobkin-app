@@ -2,13 +2,14 @@ import type { ReviewList } from '#shared/review/status.ts'
 import { groupOf } from './ai-reviews.ts'
 
 /**
- * Following the host's list of AI reviews (`review.list`) while a screen shows it: asked at once, again every two
- * seconds while a review runs, so its percent moves, and every ten otherwise, so one that starts shows up. Without
+ * Following the host's list of AI reviews (`review.list`) while a screen shows it: asked at once, again every second
+ * while a review runs, so its percent moves, and every three otherwise, so what changed elsewhere (a review that
+ * started, a merge that landed) shows without a wait. Without
  * React, so it is tested alone; the screens' hook around it is `use-review-list.ts`.
  */
 
-const ASK_WHILE_RUNNING_MS = 2_000
-const ASK_OTHERWISE_MS = 10_000
+const ASK_WHILE_RUNNING_MS = 1_000
+const ASK_OTHERWISE_MS = 3_000
 
 export interface ReviewListFollow {
   /** Asks the host now, in place of the turn that was waiting: for when the user has just started a review. */

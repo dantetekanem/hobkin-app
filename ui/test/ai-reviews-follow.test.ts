@@ -28,7 +28,7 @@ function hostWith(reviews: ReviewListItem[]) {
 /** Lets the host's answers in. */
 const answered = () => new Promise((resolve) => setImmediate(resolve))
 
-test('the list is asked for at once, every two seconds while a review runs, and every ten once none does', async (t) => {
+test('the list is asked for at once, every second while a review runs, and every three once none does', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = hostWith([RUNNING])
   const shown: string[] = []
@@ -36,15 +36,15 @@ test('the list is asked for at once, every two seconds while a review runs, and 
   await answered()
   assert.equal(host.asked, 1, 'asked once, when the screen opens')
 
-  t.mock.timers.tick(1_999)
+  t.mock.timers.tick(999)
   await answered()
-  assert.equal(host.asked, 1, 'not before two seconds')
+  assert.equal(host.asked, 1, 'not before a second')
   host.reviews = [READY]
   t.mock.timers.tick(1)
   await answered()
   assert.equal(host.asked, 2)
 
-  t.mock.timers.tick(2_000)
+  t.mock.timers.tick(1_000)
   await answered()
   assert.equal(host.asked, 2, 'nothing runs now, so it waits longer')
   t.mock.timers.tick(8_000)
@@ -69,7 +69,7 @@ test('a failed ask says why, keeps asking, and an answer that comes back after s
   assert.deepEqual(errors, ['The host is not answering.'])
   assert.deepEqual(lists, [])
 
-  t.mock.timers.tick(10_000)
+  t.mock.timers.tick(3_000)
   await answered()
   assert.deepEqual(lists, [0], 'the next ask answers')
 
@@ -97,7 +97,7 @@ test('asked to look now, the list is read at once and not ten seconds later, so 
   assert.deepEqual(shown, ['ready', 'running'])
   assert.equal(host.asked, 2)
   // The turn that was waiting is not asked a second time on top of it.
-  t.mock.timers.tick(1_999)
+  t.mock.timers.tick(999)
   await answered()
   assert.equal(host.asked, 2)
   follow.stop()

@@ -12,7 +12,7 @@ import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import type { AssessmentLogLine, AssessmentRequest, AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
-import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { askForChanges, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
@@ -339,7 +339,8 @@ export class Reviews {
     const landing = this.landingOf(target)
     // A branch being brought up to date on the user's word moves as it should: that is no newer change to review.
     const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
-    return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}) }
+    const mergeAsked = this.mergeAskedOf(target, landing)
+    return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}), ...(mergeAsked ? { mergeAsked } : {}) }
   }
 
   /** Where a finished change stands after a yes, as hobkin's records say. Null for a pull request, or when nothing was said yet. */
@@ -383,6 +384,7 @@ export class Reviews {
         ...(status.startedAt ? { startedAt: status.startedAt } : {}),
         error: status.error,
         ...(known ? { assessment: forList(known) } : {}),
+        ...(status.mergeAsked ? { mergeAsked: status.mergeAsked } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]
@@ -845,6 +847,36 @@ export class Reviews {
    * approve and merge merges it too; a finished change gets one of hobkin's own work actions.
    */
   async verdict(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
+    if (verdict !== 'approve-merge') return this.give(id, verdict, summary, confirm, head)
+    // A merge the user asked for is kept until it happens: one that is refused, or that waits for something first,
+    // stays in the list with why, so a yes that did not land is never lost from sight.
+    const target = this.target(id)
+    const at = new Date(this.now()).toISOString()
+    try {
+      const done = await this.give(id, verdict, summary, confirm, head)
+      this.options.store.saveMergeAsked(target, this.landingOf(target)?.state === 'refreshing' ? { at, state: 'waiting' } : null)
+      this.options.onChange?.()
+      return done
+    } catch (error) {
+      // What was never sent, because it was not what the user was shown, is no merge they asked for.
+      if (!(error instanceof Unavailable && /has changed since it was shown/.test(error.message))) {
+        this.options.store.saveMergeAsked(target, { at, state: 'failed', why: messageOf(error) })
+        this.options.onChange?.()
+      }
+      throw error
+    }
+  }
+
+  /** The merge the user asked for that has not happened, or undefined: one that waited is done once the change has merged. */
+  private mergeAskedOf(target: ReviewTarget, landing: ReviewLanding | null): MergeAsked | undefined {
+    const asked = this.options.store.mergeAsked(target)
+    if (!asked) return undefined
+    if (landing?.state !== 'merged') return asked
+    this.options.store.saveMergeAsked(target, null)
+    return undefined
+  }
+
+  private async give(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
     // Done with what the token was checked against: a review prepared again meanwhile is never the one acted on.
     const { preview, review, card, publication, merge, plan, done } = await this.planned(id, verdict, summary, head)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')

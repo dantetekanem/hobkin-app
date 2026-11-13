@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { join } from 'node:path'
 import { reviewFolder, targetOfReviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
 import type { NoteEntry } from '#shared/review/notes.ts'
+import type { MergeAsked } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 
 /** The reviewer's notes, sent and not, and the note they were writing. */
@@ -57,6 +58,9 @@ export interface ReviewStore {
   saveNotes(target: ReviewTarget, notes: NotesFile): void
   /** Takes everything of a target out of the home: every review built for it, its change reviews and its notes. */
   remove(target: ReviewTarget): void
+  /** The merge the user asked for that has not happened, kept in the home so it outlives a restart. Null when there is none. */
+  mergeAsked(target: ReviewTarget): MergeAsked | null
+  saveMergeAsked(target: ReviewTarget, asked: MergeAsked | null): void
 }
 
 const short = (head: string) => head.slice(0, 12)
@@ -149,6 +153,16 @@ export function reviewStore(root: string): ReviewStore {
       const folder = folderOf(target)
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       writeWhole(join(folder, 'notes.json'), JSON.stringify(notes))
+    },
+    mergeAsked(target) {
+      const saved = readJson<Partial<MergeAsked>>(join(folderOf(target), 'merge-asked.json'))
+      return saved?.at && (saved.state === 'waiting' || saved.state === 'failed') ? { at: saved.at, state: saved.state, ...(saved.why ? { why: saved.why } : {}) } : null
+    },
+    saveMergeAsked(target, asked) {
+      const folder = folderOf(target)
+      if (!asked) return rmSync(join(folder, 'merge-asked.json'), { force: true })
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      writeWhole(join(folder, 'merge-asked.json'), JSON.stringify(asked))
     },
     remove(target) {
       const folder = folderOf(target)

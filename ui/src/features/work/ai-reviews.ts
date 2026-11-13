@@ -10,7 +10,8 @@ import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 
 export type { ReviewList, ReviewListItem }
 
-export type ReviewGroup = 'running' | 'ready' | 'failed'
+/** `unmerged`: the user said merge and it has not merged. It comes before everything else. */
+export type ReviewGroup = 'unmerged' | 'running' | 'ready' | 'failed'
 
 export interface ReviewRow {
   item: ReviewListItem
@@ -30,6 +31,7 @@ export interface ReviewRow {
 }
 
 export interface ReviewGroups {
+  unmerged: ReviewRow[]
   running: ReviewRow[]
   ready: ReviewRow[]
   failed: ReviewRow[]
@@ -42,8 +44,12 @@ const timeOf = (iso: string | null | undefined): number | null => {
   return Number.isFinite(at) ? at : null
 }
 
-/** Running beats failed, so a review asked for again after it stopped shows as running. One that never ran has no group. */
+/**
+ * A merge the user asked for that has not happened comes before all else: it is the one row they are waiting on.
+ * Running beats failed, so a review asked for again after it stopped shows as running. One that never ran has no group.
+ */
 export function groupOf(item: ReviewListItem): ReviewGroup | null {
+  if (item.mergeAsked) return 'unmerged'
   const assessment = item.assessment?.state
   if (item.state === 'preparing' || assessment === 'queued' || assessment === 'running') return 'running'
   if (item.state === 'failed' || assessment === 'failed') return 'failed'
@@ -64,7 +70,12 @@ function rowOf(item: ReviewListItem): ReviewRow | null {
   const { assessment } = item
   const running = assessment?.state === 'running'
   const row: ReviewRow = { item, group, where: whereOf(item), line: '', percent: null, startedAt: null, at: null, summary: null }
-  if (group === 'running') {
+  if (group === 'unmerged') {
+    const { state, why, at } = item.mergeAsked!
+    row.line = state === 'waiting' ? 'You said merge. hobkin is bringing it up to date, and merges it after that.' : `You said merge, and it did not merge: ${why ?? 'no reason was given.'}`
+    row.at = timeOf(at)
+    row.summary = assessment?.state === 'ready' ? (assessment.summary ?? null) : null
+  } else if (group === 'running') {
     const waiting = assessment?.state === 'queued' ? 'Waiting its turn' : 'Starting'
     row.line = (running ? assessment.now : undefined) ?? (item.phase ? PHASES[item.phase] : undefined) ?? waiting
     row.percent = running && assessment.percent != null ? Math.min(100, Math.max(0, Math.round(assessment.percent))) : null
@@ -91,18 +102,18 @@ export function rowsOf(list: ReviewList | null): ReviewRow[] {
 
 /** Running first, then ready, then failed, each newest first. Of the running ones, those under way come before those still waiting. */
 export function groupReviews(list: ReviewList | null): ReviewGroups {
-  const groups: ReviewGroups = { running: [], ready: [], failed: [] }
+  const groups: ReviewGroups = { unmerged: [], running: [], ready: [], failed: [] }
   for (const row of rowsOf(list)) groups[row.group].push(row)
   groups.running = [...groups.running.filter(({ startedAt }) => startedAt !== null), ...groups.running.filter(({ startedAt }) => startedAt === null)]
   return groups
 }
 
 export function reviewCounts(groups: ReviewGroups): Record<ReviewGroup, number> {
-  return { running: groups.running.length, ready: groups.ready.length, failed: groups.failed.length }
+  return { unmerged: groups.unmerged.length, running: groups.running.length, ready: groups.ready.length, failed: groups.failed.length }
 }
 
 /** A review that ran can be run again: one that is ready, or one that stopped. One under way is already being built. */
-export const canReviewAgain = (row: ReviewRow) => row.group !== 'running'
+export const canReviewAgain = (row: ReviewRow) => row.group !== 'running' && !(row.group === 'unmerged' && ['queued', 'running'].includes(row.item.assessment?.state ?? ''))
 
 /** The review a row opens. Without a host a finished change opens the sample review, as its Work card does. */
 export function reviewToOpen(item: ReviewListItem, live: boolean): string {

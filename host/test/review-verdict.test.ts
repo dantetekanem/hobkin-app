@@ -71,11 +71,22 @@ test("approve and merge calls the card's action and passes its refusal through",
   assert.deepEqual(await reviews.verdict(id, 'approve-merge', '', preview.confirm), { message: 'hobkin did merge.' })
   assert.deepEqual(actions, [['merge', 'hobkin', '7d02c9', { head: sample.change.head }]])
 
+  const asked = () => reviews.list().reviews.find((item) => item.id === id)?.mergeAsked
+  assert.equal(asked(), undefined, 'a merge that went through leaves nothing to track')
+
   // hobkin's own refusal, such as a branch that moved, comes back as it is.
   refuse('The branch moved since the card was shown.')
   await assert.rejects(reviews.verdict(id, 'approve-merge', '', preview.confirm), /The branch moved since the card was shown\./)
-  // A verdict that was not shown first does not go.
+  // The user said merge and it did not merge: the list keeps that, with why, and so does the review's own status.
+  assert.deepEqual(asked(), { at: new Date(1000).toISOString(), state: 'failed', why: 'The branch moved since the card was shown.' })
+  assert.equal(reviews.status(id).mergeAsked?.state, 'failed')
+  // A yes that goes through after that clears it.
+  refuse(null)
+  await reviews.verdict(id, 'approve-merge', '', preview.confirm)
+  assert.equal(asked(), undefined)
+  // A verdict that was not shown first does not go, and is no merge the user asked for.
   await assert.rejects(reviews.verdict(id, 'approve-merge', '', 'not-the-token'), /has changed since it was shown/)
+  assert.equal(asked(), undefined)
   // A finished change has nobody to comment to.
   await assert.rejects(reviews.preview(id, 'comment', ''), /nobody to comment to/)
 })

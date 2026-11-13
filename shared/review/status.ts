@@ -44,6 +44,19 @@ export interface ReviewStatus {
   assessment?: AssessmentStatus
   /** For a finished change the user said yes to: being brought up to date to merge, or merged. A state, never an error. */
   landing?: ReviewLanding
+  /** A merge the user asked for that has not happened: still on its way, or refused. Gone once it merges. */
+  mergeAsked?: MergeAsked
+}
+
+/**
+ * A merge the user asked for, kept until it happens, so a yes that did not land is never lost from sight. `waiting`:
+ * something runs first, as when its branch is brought up to date. `failed`: it was refused, and `why` is the reason given.
+ */
+export interface MergeAsked {
+  /** When the user said merge, as an ISO time. */
+  at: string
+  state: 'waiting' | 'failed'
+  why?: string
 }
 
 /**
@@ -135,6 +148,8 @@ export interface ReviewListItem {
   error: string | null
   /** For a finished change or a pull request: how its change review stands, without its steps. */
   assessment?: AssessmentStatus
+  /** A merge the user asked for that has not happened. */
+  mergeAsked?: MergeAsked
   /** When any of it last changed, as an ISO time. */
   updatedAt: string
 }
