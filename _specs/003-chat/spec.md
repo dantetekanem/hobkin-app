@@ -41,7 +41,7 @@ The conversation column is the real, persistent hobkin conversation. The user re
 
 - A1. The conversation shows hobkin's stored messages grouped by day. It opens at the newest message.
 - A2. While a reply streams, text appears as it arrives. The view stays pinned to the bottom unless the user has scrolled up, and a control then offers to jump back down.
-- A3. The line above the input names what hobkin is doing (thinking, writing, working, researching, delegating, retrying, compacting) and the elapsed time. Esc stops the turn, and any text that was queued but not sent returns to the input.
+- A3. The line above the input names what hobkin is doing (thinking, writing, working, researching, delegating, retrying, compacting) and the elapsed time. Esc pressed twice stops the turn, and so does Control+C at once: the first Esc only asks, and the line says "esc again to stop, or ctrl c" (changed by the user on 2026-11-12, since one press stopped runs by mistake). Any text that was queued but not sent returns to the input.
 - A4. A message sent while a turn is running is shown as queued, steers the turn, and loses the queued mark once hobkin accepts it.
 - A5. Notices from background runs appear with their tone (critical, blocked, useful, quiet). Identical notices in a row collapse into one with a count.
 - A6. A question from hobkin shows its numbered choices and a field for another answer. A number key or a click answers it. After 30 seconds without an answer it leaves the conversation and appears under Action items.
