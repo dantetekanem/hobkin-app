@@ -60,6 +60,15 @@ test('trusted request identity stays with its open ask; independent asks stay di
   assert.equal(await second, 'wait')
 })
 
+test('a host that closes takes its question away as no answer, and does not put it off', async () => {
+  const questions = new Questions({ onChange: () => {}, canShow: () => true, typing: () => false })
+  const asked = questions.ask({ question: QUESTION, choices: CHOICES })
+  questions.close()
+  // Put off would leave it in Action Items while the next start asks it again. Undefined lets hobkin ask it again instead.
+  assert.equal(await asked, undefined)
+  assert.equal(questions.current(), null)
+})
+
 test('a question times out to action items and an answer resolves it', async (t) => {
   // hobkin keeps a question up for 30 seconds. The test does not wait that long.
   const { client, asked, gone, file, waiting } = await questionHost(t, 400)

@@ -27,8 +27,8 @@ const GONE = 'That question is no longer open.'
 /**
  * hobkin's `askQuestion`, answered through the UI. The rules are the terminal dashboard's (`askQuestion` in
  * hobkin's `src/cli/ui.mjs`): one question at a time, a question someone waits on takes the place of one nobody
- * waits on, and a question that times out or is put off resolves to null, which hobkin files under Action items.
- * Undefined means it could not be asked at all, and hobkin tries again later.
+ * waits on, and a question that times out or is put off resolves to null, which hobkin files under Action items,
+ * the main agent's own questions included. Undefined means it could not be asked at all, and hobkin tries again later.
  */
 export class Questions {
   private open: Open | null = null
@@ -106,8 +106,11 @@ export class Questions {
     this.opened(id).finish(null)
   }
 
-  /** The host is closing. A quit must not reach the asker as an answer. */
+  /**
+   * The host is closing. A quit must not reach the asker as an answer, nor as the user putting it off, which would leave it in
+   * Action items while the next start asks it again. It could not be asked, so hobkin asks again later.
+   */
   close(): void {
-    this.open?.finish(null)
+    this.open?.finish(undefined)
   }
 }
