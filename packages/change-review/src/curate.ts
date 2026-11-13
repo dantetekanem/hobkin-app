@@ -309,7 +309,19 @@ interface BucketVerdict {
   would: { text: string; level: Level }[]
 }
 
-/** What a bucket's checks say about it (floor rules 1 and 2). */
+/**
+ * Files that set up how the repository is checked or kept up to date on its host: CI workflows, Dependabot and other
+ * bots, and what git itself reads. They do not run in production, so a change to them cannot break what is deployed.
+ */
+const AUTOMATION = /^(\.github\/|\.circleci\/|\.buildkite\/|\.gitlab\/|\.gitlab-ci\.yml$|\.travis\.yml$|\.gitignore$|\.gitattributes$|\.editorconfig$)/
+
+/** Every file of the bucket is one of those. */
+const isAutomation = (bucket: Bucket) => bucket.paths.length > 0 && bucket.paths.every((path) => AUTOMATION.test(path))
+
+/**
+ * What a bucket's checks say about it (floor rules 1 and 2). Only a check that found a break makes it high. A check
+ * that could not run, or files nothing checked, are worth a look: not having checked is no sign that it breaks.
+ */
 function judgeBucket(bucket: Bucket): BucketVerdict {
   const checks = bucket.checks ?? []
   const outcomeOf = (check: NonNullable<Bucket['checks']>[number]) => {
@@ -325,11 +337,22 @@ function judgeBucket(bucket: Bucket): BucketVerdict {
       level: 'safe' as Level,
     }))
   if (breaking.length) return { level: 'high', critical: true, rule: 1, why: ['A check found something broken or missing.', ...why], would }
-  if (checks.some((check) => check.passed === null)) return { level: 'high', critical: false, rule: 3, why: ['A check could not run, so the bucket is treated as the worse case.', ...why], would }
+  if (checks.some((check) => check.passed === null)) return { level: 'mid', critical: false, rule: 5, why: ['A check could not run, so these files are worth a look. Nothing found says they break anything.', ...why], would }
   if (checks.some((check) => check.passed === false)) return { level: 'mid', critical: false, rule: 8, why: ['A check failed without breaking anything.', ...why], would }
   if (checks.length) return { level: 'safe', critical: false, rule: 2, why: ['Every check passed.', ...why], would }
-  const mild = bucket.kind === 'generated' || bucket.kind === 'docs' || bucket.kind === 'dependency' || bucket.change === 'renamed'
-  return { level: mild ? 'mid' : 'high', critical: false, rule: 3, why: ['No check ran for this bucket, so nothing shows it is complete.'], would }
+  if (isAutomation(bucket)) {
+    return {
+      level: 'mid',
+      critical: false,
+      rule: 11,
+      why: [
+        'It changes how the repository is checked or kept up to date on GitHub, not what runs in production: it cannot break what is deployed.',
+        'Nothing here could run it. Its first run on GitHub shows whether it works.',
+      ],
+      would,
+    }
+  }
+  return { level: 'mid', critical: false, rule: 5, why: ['Nothing checked these files, and nothing found says they break anything.'], would }
 }
 
 // ───────────────────────── Building units ─────────────────────────
@@ -568,7 +591,7 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
   const effect: Effect = removal ? 'interface' : (KIND_EFFECT[bucket.kind] ?? 'behaviour')
   const failed = (bucket.checks ?? []).filter((check) => check.passed === false).length
   let outcome = 'and every check passed'
-  if (!bucket.checks?.length) outcome = 'and no check ran'
+  if (!bucket.checks?.length) outcome = 'and nothing checked it'
   else if (failed) outcome = `and ${plural(failed, 'check')} failed`
   else if (bucket.checks.some((check) => check.passed === null)) outcome = 'and a check could not run'
   const readNote =
@@ -603,8 +626,12 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
         .join('\n'),
     })
   }
+  const automation = !sitesLevel && !bucket.checks?.length && isAutomation(bucket)
+  const title = automation
+    ? `\`${bucket.folder}\`: ${bucket.files === 1 ? '1 file that sets' : `${bucket.files} files that set`} up CI or a bot changed, and ${bucket.files === 1 ? 'it does' : 'they do'} not run in production`
+    : `\`${bucket.folder}\`: ${plural(bucket.files, bucket.kind === 'code' ? 'file' : `${bucket.kind} file`)} ${removal ? 'removed or moved' : 'changed'}, ${outcome}`
   const unit: Omit<Unit, 'id'> = {
-    title: `\`${bucket.folder}\`: ${plural(bucket.files, bucket.kind === 'code' ? 'file' : `${bucket.kind} file`)} ${removal ? 'removed or moved' : 'changed'}, ${outcome}`,
+    title,
     level: verdict.level,
     critical: verdict.critical,
     nodes: absorbed.map((node) => node.id),

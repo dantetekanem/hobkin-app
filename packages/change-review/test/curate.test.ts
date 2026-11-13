@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { checkMap, curate, markUnverified } from '../src/curate.ts'
+import { deployAnswer } from '../src/answer.ts'
 import type { Bucket, FileDiff, GraphEdge, Graph, Level, ReviewNode, Triage } from '../src/types.ts'
 
 /** A node that is safe by default; tests say only what differs. */
@@ -253,14 +254,14 @@ test('a translation bucket is one unit with its checks and counts', () => {
   assert.equal(result.map, 'node-level')
 })
 
-test('a failed breaking check makes the bucket high and critical, an unrun check makes it high', () => {
+test('a failed breaking check makes the bucket high and critical, and a check that could not run is worth a look, not a risk', () => {
   const make = (passed: boolean | null, breaks: boolean) => bucket('b4', { kind: 'translation', treatment: 'sample', paths: ['a.yml'], files: 1, checks: [{ name: 'keys', passed, detail: 'fr lacks 2 keys', breaks }] })
   const a = node('a')
   const run = (item: Bucket) => curate({ graph: graph([a]), triage: triage([bucket('b1', { paths: ['app/a.rb'] }), item]), diffs: [] }).units.find((u) => u.grouping === 'bucket')!
   const failed = run(make(false, true))
   assert.deepEqual([failed.level, failed.critical], ['high', true])
   const unrun = run(make(null, false))
-  assert.deepEqual([unrun.level, unrun.critical], ['high', false])
+  assert.deepEqual([unrun.level, unrun.critical], ['mid', false])
 })
 
 test('a new code file the scan found no definition in is a unit of its own that says nothing in it was checked, at mid: it cannot break what runs today', () => {
@@ -474,4 +475,32 @@ test('two definitions that call each other are not each the helper of the other'
   const { units } = curate({ graph: graph([a, b], edges), triage: triageFor([a, b]), diffs: [] })
   const seen = units.flatMap((unit) => unit.nodes)
   assert.deepEqual([...seen].sort(), [a.id, b.id].sort(), 'each node once')
+})
+
+test('a change to CI or to a bot is worth a look and never a risk: it does not run in production', () => {
+  const ci = bucket('b1', { folder: '.github', kind: 'config', paths: ['.github/dependabot.yml'], files: 1, added: 14, why: 'configuration' })
+  const [unit] = curate({ graph: graph([]), triage: triage([ci]), diffs: [] }).units
+  assert.deepEqual([unit!.level, unit!.critical], ['mid', false])
+  assert.equal(unit!.title, '`.github`: 1 file that sets up CI or a bot changed, and it does not run in production')
+  assert.deepEqual(unit!.why_level, [
+    'It changes how the repository is checked or kept up to date on GitHub, not what runs in production: it cannot break what is deployed.',
+    'Nothing here could run it. Its first run on GitHub shows whether it works.',
+  ])
+  assert.deepEqual(deployAnswer([unit!]), { deploy: 'safe', why: 'Nothing found that breaks. Worth a look: `.github`: 1 file that sets up CI or a bot changed, and it does not run in production.' })
+
+  // A workflow beside it is the same kind of file. A file that runs in production in the same folder is not.
+  const mixed = bucket('b2', { folder: '.github', kind: 'config', paths: ['.github/workflows/ci.yml', 'config/puma.rb'], files: 2, why: 'configuration' })
+  assert.doesNotMatch(curate({ graph: graph([]), triage: triage([mixed]), diffs: [] }).units[0]!.title, /CI or a bot/)
+})
+
+test('files nothing checked are worth a look, and a check that could not run is no risk either: only a check that found a break is', () => {
+  const config = bucket('b1', { folder: 'config', kind: 'config', paths: ['config/puma.rb'], files: 1, why: 'configuration' })
+  const unchecked = curate({ graph: graph([]), triage: triage([config]), diffs: [] }).units[0]!
+  assert.equal(unchecked.level, 'mid')
+  assert.equal(unchecked.why_level[0], 'Nothing checked these files, and nothing found says they break anything.')
+
+  const notRun = curate({ graph: graph([]), triage: triage([{ ...config, treatment: 'sample', checks: [{ name: 'locale pt-BR', passed: null, detail: 'the file could not be read' }] }]), diffs: [] }).units[0]!
+  assert.equal(notRun.level, 'mid')
+  const broken = curate({ graph: graph([]), triage: triage([{ ...config, treatment: 'sample', checks: [{ name: 'locale pt-BR', passed: false, breaks: true, detail: '2 keys are missing' }] }]), diffs: [] }).units[0]!
+  assert.deepEqual([broken.level, broken.critical], ['high', true])
 })

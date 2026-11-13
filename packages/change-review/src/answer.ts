@@ -34,7 +34,7 @@ function saidFor(deploy: Deploy, said: string | undefined): string | null {
  * The answer for a change, from its units. `said` is the Reviewer's own answer in words: it is used as the reason when
  * it opens with the same answer the levels give, and dropped when it does not, since a model's sentence never decides.
  */
-export function deployAnswer(units: readonly Pick<Unit, 'level' | 'title' | 'critical'>[], said?: string): DeployAnswer {
+export function deployAnswer(units: readonly (Pick<Unit, 'level' | 'title' | 'critical'> & Partial<Pick<Unit, 'nodes'>>)[], said?: string): DeployAnswer {
   const high = units.filter((unit) => unit.level === 'high')
   const deploy: Deploy = high.length ? 'risky' : 'safe'
   const own = saidFor(deploy, said)
@@ -44,7 +44,16 @@ export function deployAnswer(units: readonly Pick<Unit, 'level' | 'title' | 'cri
     const more = high.length - 1
     return { deploy, why: `${sentence(first.title)}${more ? ` ${more} more part${more === 1 ? '' : 's'} can break.` : ''}` }
   }
-  const unshown = units.filter((unit) => unit.level === 'mid').length
-  if (unshown) return { deploy, why: `Nothing found that breaks. ${unshown} part${unshown === 1 ? ' was' : 's were'} not shown working by a test that ran.` }
+  const look = units.filter((unit) => unit.level === 'mid')
+  // One thing worth a look is named. Several are counted: files a test does not apply to are among them, so the
+  // count says only that they are worth a look, and each says why in its own words.
+  if (look.length === 1 && look[0]!.nodes?.length === 0) return { deploy, why: `Nothing found that breaks. Worth a look: ${sentence(look[0]!.title)}` }
+  const untested = look.filter((unit) => unit.nodes === undefined || unit.nodes.length > 0).length
+  const others = look.length - untested
+  const worth = [
+    untested ? `${untested} part${untested === 1 ? ' was' : 's were'} not shown working by a test that ran.` : '',
+    others ? `${others} other change${others === 1 ? ' is' : 's are'} worth a look.` : '',
+  ].filter(Boolean)
+  if (look.length) return { deploy, why: `Nothing found that breaks. ${worth.join(' ')}` }
   return { deploy, why: units.length ? 'Every part is shown to work, or cannot break anything.' : 'Nothing in it runs.' }
 }

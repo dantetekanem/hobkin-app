@@ -205,6 +205,8 @@ Triage puts these in buckets. Each has checks that matter more than its lines.
 
 Collapsing these is safe and deliberate. The risk in them is a missing piece or a dangling reference, and both are found by the checks, not by reading.
 
+**Only a check that found a break makes a bucket `high`.** A check that could not run, and files nothing checked, are `mid`: worth a look, and said so. Files that set up how the repository is checked or kept up to date on its host (CI workflows, Dependabot and other bots, what git itself reads) do not run in production, so a change to them cannot break what is deployed: `mid`, with a note that their first run on the host shows whether they work. A review once rated a single `.github/dependabot.yml` "risky to deploy" because no check had run for it.
+
 ## 7. Units
 
 A unit is one thing the reviewer decides on. The map can fail a reviewer three ways, and shaping answers each:
