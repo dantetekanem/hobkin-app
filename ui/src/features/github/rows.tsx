@@ -5,6 +5,7 @@ import {
   CircleDashed,
   CircleDot,
   Clock,
+  ExternalLink,
   GitPullRequest,
   GitPullRequestDraft,
   ListPlus,
@@ -36,7 +37,7 @@ import { runCommand, type ChecksState, type GitHubIssue, type ReviewState } from
 import { cn } from '@/lib/utils.ts'
 import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand } from './issue-close.ts'
 import { issueChip, JUST_ADDED, type ChipTone } from './issue-work.ts'
-import { openOnGitHub, openPullRequestReview } from './open.ts'
+import { openGitHubPage, openOnGitHub, openPullRequestReview } from './open.ts'
 import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
 
 /**
@@ -194,6 +195,13 @@ export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry
             {entry.size ? <Size size={entry.size} /> : null}
             {pull ? <Labels labels={pull.labels} /> : null}
           </p>
+          {/* Its title opens the review here. This opens the pull request itself on github.com, to read it there, close it or change it. */}
+          {url ? (
+            <Button variant="ghost" size="sm" data-stop="" className="relative z-10 mt-2 -ml-2" title="Opens this pull request on github.com" onClick={() => openGitHubPage(url)}>
+              <ExternalLink aria-hidden="true" />
+              Open on GitHub
+            </Button>
+          ) : null}
         </div>
         {id ? <AiReview id={id} ai={entry.ai} live={live} title={entry.title} /> : null}
       </div>
