@@ -20,6 +20,9 @@ test('a message sent during a turn that began before it waits behind that turn',
 })
 
 test('nothing holds a message that started its own turn, or one sent while only a work agent runs', () => {
-  assert.equal(heldBy({ busy: true, runs: [turn('2026-11-13T03:34:41Z')] }, SENT_AT), null, 'its own turn')
-  assert.equal(heldBy({ busy: false, runs: [workAgent] }, SENT_AT), null, 'a work agent')
+  const ownTurn: WireSnapshot = { busy: true, runs: [turn('2026-11-13T03:34:41Z')] }
+  const onlyWork: WireSnapshot = { busy: false, runs: [workAgent] }
+
+  assert.equal(heldBy(ownTurn, SENT_AT), null, 'its own turn')
+  assert.equal(heldBy(onlyWork, SENT_AT), null, 'a work agent')
 })

@@ -13,14 +13,19 @@ export function turnStartedAt(snapshot: WireSnapshot): number | null {
   return Number.isFinite(at) ? at : null
 }
 
+/** What a message the user sent can wait behind. Each ends by itself, and the message goes then. */
+export type Holder = 'compacting' | 'turn'
+
 /**
  * What holds a message the user sent at `sentAt` until hobkin takes it: hobkin compacting the conversation, or a turn that began before
- * the message. Each ends by itself, and the message goes then. Null when nothing does and only the host's answer is on its way.
+ * the message. Null when nothing does and only the host's answer is on its way.
  */
-export function heldBy(snapshot: WireSnapshot, sentAt: number): 'compacting' | 'turn' | null {
+export function heldBy(snapshot: WireSnapshot, sentAt: number): Holder | null {
   if (snapshot.context?.compacting) return 'compacting'
+
   const startedAt = turnStartedAt(snapshot)
-  return snapshot.busy && startedAt !== null && startedAt <= sentAt ? 'turn' : null
+  const turnBeganBefore = startedAt !== null && startedAt <= sentAt
+  return snapshot.busy && turnBeganBefore ? 'turn' : null
 }
 
 /** `8s`, then `1m 05s`, as the terminal app counts a turn. */

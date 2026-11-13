@@ -9,7 +9,7 @@ import { useHost } from '@/lib/host/index.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.ts'
-import { heldBy } from './doing.ts'
+import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { nextReveal } from './stream-buffer.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
@@ -185,7 +185,7 @@ export function ShellTranscript({ message, at }: { message: unknown; at?: number
 
 const AUTHOR: Record<MessageEntry['role'], string> = { user: 'You', assistant: 'hobkin', note: 'Note' }
 
-const HELD: Record<NonNullable<ReturnType<typeof heldBy>>, string> = {
+const HELD: Record<Holder, string> = {
   compacting: 'hobkin is compacting the conversation. Your message goes as soon as that ends.',
   turn: 'hobkin is finishing its turn. Your message goes as soon as that ends.',
 }
