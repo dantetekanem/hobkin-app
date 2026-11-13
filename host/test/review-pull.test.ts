@@ -255,7 +255,7 @@ test('a pull request’s change review says what it reviews and logs what it did
     'Read 2 changed files: 4 lines added and 2 lines removed.',
     'Finding how this repository runs its tests.',
     'Put Cart#total back as it was and ran 1 test file: they fail, so they prove it.',
-    'Finished: High risk. 1 part needs you, 1 part is safe.',
+    'Finished: Risky to deploy. 1 part can break.',
   ]
   let at = -1
   for (const line of expected) {

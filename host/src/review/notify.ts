@@ -3,9 +3,8 @@
  * request the user started. The line is one of hobkin's own notices, posted with no model turn, and it names the review
  * so the window can open it from the chat.
  */
-import type { AssessmentSummary } from '#shared/review/assessment.ts'
+import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentSummary } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
-import { count } from '#shared/review/prose.ts'
 
 /** A review that became ready in this host. */
 export interface ReadyReview {
@@ -20,31 +19,15 @@ export interface ReadyReview {
   summary?: AssessmentSummary
 }
 
-const RISK = { high: 'high risk', mid: 'mid risk', safe: 'safe' } as const
-
-/** What the chat says: which review, its level when it has one, and where to open it. */
+/** What the chat says: which review, its answer for the whole change when it has one, why, and where to open it. */
 export function readyLine({ id, kind, title, project, summary }: ReadyReview): string {
-  const level = summary ? `: ${RISK[summary.level]}${summary.critical ? ', with something critical' : ''}` : ''
-  const parts = summary ? partsLine(summary) : ''
-  const said = `${level}.${parts ? ` ${parts.charAt(0).toUpperCase()}${parts.slice(1)}.` : ''}`
+  const said = summary ? `: ${DEPLOY_WORDS[deployOf(summary)].toLowerCase()}. ${deployWhy(summary)}` : '.'
   if (kind === 'pull') {
     const target = targetOfReviewId(id)
     const name = target?.kind === 'pull' ? `${target.owner}/${target.repo}#${target.number}` : project
     return `The AI review of ${name} "${title}" is ready${said} Open it from Work › AI Reviews.`
   }
   return `The change review of "${title}" in ${project} is ready${said} Open it from its card in Work, or from Work › AI Reviews.`
-}
-
-/** How many parts need the user and how many are worth a look, as one clause. Empty when neither. */
-function partsLine({ needsYou, worthALook }: AssessmentSummary): string {
-  const clauses: string[] = []
-  if (needsYou) clauses.push(`${count(needsYou, 'part')} ${needsYou === 1 ? 'needs' : 'need'} you`)
-  if (worthALook) {
-    // After a first clause the noun is already said, so only the number follows.
-    const subject = needsYou ? worthALook : count(worthALook, 'part')
-    clauses.push(`${subject} ${worthALook === 1 ? 'is' : 'are'} worth a look`)
-  }
-  return clauses.join(' and ')
 }
 
 type ClientNotices = typeof import('hobkin/src/cli/client-notices.mjs')

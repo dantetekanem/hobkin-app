@@ -10,24 +10,24 @@ const summary: AssessmentSummary = { level: 'high', critical: true, needsYou: 2,
 const change: ReadyReview = { id: 'change:shop:4c9e21', kind: 'change', title: 'Round the total', project: 'shop', head: '4c9e21aa4c9e21aa4c9e21aa', at: summary.at, summary }
 const pull: ReadyReview = { id: 'pr:acme/web/12', kind: 'pull', title: 'Tighten the login form', project: 'acme/web', head: 'def5678def5678def5678', at: '2026-11-12T15:01:00.000Z' }
 
-test('the chat line says which review is ready, its level when it has one, and how to open it', () => {
+test('the chat line says which review is ready, its one answer for the change and why, and how to open it', () => {
   assert.equal(
     readyLine(change),
-    'The change review of "Round the total" in shop is ready: high risk, with something critical. 2 parts need you and 1 is worth a look. Open it from its card in Work, or from Work › AI Reviews.',
+    'The change review of "Round the total" in shop is ready: risky to deploy. 2 parts can break. It needs a fix, not only a look. Open it from its card in Work, or from Work › AI Reviews.',
   )
   assert.equal(
     readyLine({ ...change, summary: { ...summary, level: 'mid', critical: false, needsYou: 0, worthALook: 1 } }),
-    'The change review of "Round the total" in shop is ready: mid risk. 1 part is worth a look. Open it from its card in Work, or from Work › AI Reviews.',
+    'The change review of "Round the total" in shop is ready: safe to deploy. Nothing found that breaks. 1 part was not shown working by a test that ran. Open it from its card in Work, or from Work › AI Reviews.',
   )
   assert.equal(
     readyLine({ ...change, summary: { ...summary, level: 'safe', critical: false, needsYou: 0, worthALook: 0 } }),
-    'The change review of "Round the total" in shop is ready: safe. Open it from its card in Work, or from Work › AI Reviews.',
+    'The change review of "Round the total" in shop is ready: safe to deploy. Every part is shown to work, or cannot break anything. Open it from its card in Work, or from Work › AI Reviews.',
   )
   assert.equal(readyLine(pull), 'The AI review of acme/web#12 "Tighten the login form" is ready. Open it from Work › AI Reviews.')
-  // A pull request's change review says its level too.
+  // A pull request's change review gives its answer too, with the review's own reason when it has one.
   assert.equal(
-    readyLine({ ...pull, summary: { ...summary, critical: false, needsYou: 1, worthALook: 0 } }),
-    'The AI review of acme/web#12 "Tighten the login form" is ready: high risk. 1 part needs you. Open it from Work › AI Reviews.',
+    readyLine({ ...pull, summary: { ...summary, critical: false, needsYou: 1, worthALook: 0, deploy: 'risky', why: 'A wrong password now signs the user in.' } }),
+    'The AI review of acme/web#12 "Tighten the login form" is ready: risky to deploy. A wrong password now signs the user in. Open it from Work › AI Reviews.',
   )
 })
 

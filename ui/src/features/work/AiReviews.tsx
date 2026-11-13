@@ -8,13 +8,14 @@ import { cn } from '@/lib/utils.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { canReviewAgain, groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
-import { LevelCounts, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
+import { DeployWhy, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
 import type { ReviewListView } from './use-review-list.ts'
 
 /**
  * The AI Reviews tab (spec 032): every review the host knows, finished changes and pull requests together, as what is
  * running, what is ready and what failed, each newest first. A running one says how far along it is, what it is doing
- * now and how long it has taken; a ready one its level, its units at each level and when it finished. A click opens it.
+ * now and how long it has taken; a ready one its answer for the whole change (risky or safe to deploy), why, and when
+ * it finished. A click opens it.
  * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
  */
 export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
@@ -160,7 +161,7 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
       </button>
       {again ? (
         <div className="flex min-h-8 items-center gap-3 px-5 pb-4">
-          {row.summary ? <LevelCounts summary={row.summary} /> : null}
+          {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
           {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
           <ReviewAgain id={item.id} live={live} onAgain={onAgain} />
         </div>

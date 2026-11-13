@@ -14,7 +14,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
-import { LEVEL_WORDS, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type ChangeAssessment, type Level, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
+import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type ChangeAssessment, type Level, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
 import type { Review } from '#shared/review/types.ts'
 import { STEP_IDS } from '../../../packages/change-review/src/types.ts'
@@ -38,6 +38,8 @@ export interface AssessRequest {
 /** The engine's answer, as far as the host needs it: the level of each unit, to sum up on the card. */
 export interface AssessResult {
   units: { units: { level: 'safe' | 'mid' | 'high'; critical: boolean }[] }
+  /** The one answer for the whole change, from the engine: risky or safe to deploy, and why. */
+  answer?: { deploy: 'risky' | 'safe'; why: string }
   /** Whether a model wrote the story's words and checked it, or the facts alone did. */
   storyBy: 'model' | 'host'
 }
@@ -233,6 +235,7 @@ export function summarize(result: AssessResult, at: string): AssessmentSummary {
     safe: countAt('safe'),
     storyBy: result.storyBy,
     at,
+    ...(result.answer ? { deploy: result.answer.deploy, why: result.answer.why } : {}),
   }
 }
 
@@ -290,14 +293,29 @@ export function progressWords(now: string): string {
   return sentence(capitalized(said!))
 }
 
-/** A finished run's levels in words: the worst, then how many parts sit at each. */
+/** A finished run in words: its one answer for the whole change, and why. */
 function finishedWords(summary: AssessmentSummary): string {
-  const parts = [
-    summary.needsYou ? `${count(summary.needsYou, 'part')} ${summary.needsYou === 1 ? 'needs' : 'need'} you` : '',
-    summary.worthALook ? `${count(summary.worthALook, 'part')} ${summary.worthALook === 1 ? 'is' : 'are'} worth a look` : '',
-    summary.safe ? `${count(summary.safe, 'part')} ${summary.safe === 1 ? 'is' : 'are'} safe` : '',
-  ].filter(Boolean)
-  return `${LEVEL_WORDS[summary.level]}${summary.critical ? ', with something critical' : ''}.${parts.length ? ` ${capitalized(parts.join(', '))}.` : ''}`
+  return `${DEPLOY_WORDS[deployOf(summary)]}. ${deployWhy(summary)}`
+}
+
+/**
+ * The newest finished review of a target, at whatever commit: its commit, its answer and when it finished. It is what a
+ * new review says it comes after. Undefined when the target was never reviewed to the end.
+ */
+function lastSummary(root: string, target: ReviewTarget): AssessmentSummary['before'] {
+  const folder = dirname(assessmentFolder(root, target, '0'.repeat(40)))
+  let newest: { head: string; summary: AssessmentSummary } | undefined
+  let heads: string[]
+  try {
+    heads = readdirSync(folder)
+  } catch {
+    return undefined
+  }
+  for (const head of heads) {
+    const summary = readJson<AssessmentSummary>(join(folder, head, 'summary.json'))
+    if (summary?.at && (!newest || summary.at > newest.summary.at)) newest = { head, summary }
+  }
+  return newest ? { head: newest.head, deploy: deployOf(newest.summary), at: newest.summary.at } : undefined
 }
 
 export interface AssessmentsOptions {
@@ -525,6 +543,8 @@ export class Assessments {
     running({ percent: 0, now: 'checking the change out in the review tree', eta: null, steps: pendingSteps() })
     const repo = await this.repoFor(target, head, say)
     if (signal.aborted) throw new Error(STOPPED)
+    // The review of this change before this one, read before this run takes its place, so the two can be told apart.
+    let previous: AssessmentSummary['before']
     const result = await this.inTree(
       target,
       repo,
@@ -534,6 +554,7 @@ export class Assessments {
         const out = assessmentFolder(root, target, head)
         mkdirSync(out, { recursive: true, mode: 0o700 })
         // The run rewrites the story and its units, so a summary of the last one never stands beside them.
+        previous = lastSummary(root, target)
         rmSync(join(out, 'summary.json'), { force: true })
         let said = ''
         return this.options.run({
@@ -561,7 +582,7 @@ export class Assessments {
     )
     // A run stopped on the way has not finished, whatever it answered, so no summary says it has.
     if (signal.aborted) throw new Error(STOPPED)
-    const summary = summarize(result, this.clockIso())
+    const summary: AssessmentSummary = { ...summarize(result, this.clockIso()), ...(previous ? { before: previous } : {}) }
     writeWhole(join(assessmentFolder(root, target, head), 'summary.json'), JSON.stringify(summary))
     say(`Finished: ${finishedWords(summary)}`)
     this.set(target, head, { state: 'ready', head, summary })

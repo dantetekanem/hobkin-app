@@ -1,4 +1,4 @@
-import type { AssessmentSummary, Level } from '#shared/review/assessment.ts'
+import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 
@@ -25,7 +25,7 @@ export interface ReviewRow {
   startedAt: number | null
   /** When a ready one finished, or a failed one stopped, in milliseconds. */
   at: number | null
-  /** A ready change review's summary: its level and its units at each level. Null when it has none. */
+  /** A ready change review's summary: its answer for the change, and why. Null when it has none. */
   summary: AssessmentSummary | null
 }
 
@@ -99,16 +99,6 @@ export function groupReviews(list: ReviewList | null): ReviewGroups {
 
 export function reviewCounts(groups: ReviewGroups): Record<ReviewGroup, number> {
   return { running: groups.running.length, ready: groups.ready.length, failed: groups.failed.length }
-}
-
-/** A ready review's units at each level, high first, leaving out a level with none. */
-export function levelCountsOf(summary: AssessmentSummary): { level: Level; count: number }[] {
-  const counts: { level: Level; count: number }[] = [
-    { level: 'high', count: summary.needsYou },
-    { level: 'mid', count: summary.worthALook },
-    { level: 'safe', count: summary.safe },
-  ]
-  return counts.filter(({ count }) => count > 0)
 }
 
 /** A review that ran can be run again: one that is ready, or one that stopped. One under way is already being built. */

@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { checkArguments } from '#shared/commands/registry.ts'
-import type { AssessmentStatus, AssessmentSummary } from '#shared/review/assessment.ts'
+import { sinceLastReview, type AssessmentStatus, type AssessmentSummary } from '#shared/review/assessment.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { assessmentFolder, Assessments, readyReviewTree, type AssessRequest, type AssessRun } from '../src/review/assessment.ts'
 import { Reviews } from '../src/review/reviews.ts'
@@ -228,6 +228,29 @@ test('reviewing a commit again takes its old summary away, so a rerun that fails
   assert.equal(assessments.status(target, head).state, 'failed')
   assert.equal(assessments.read(target, head), null, 'no old summary beside the new story')
   assert.equal(new Assessments({ root, run: engine, repoOf: () => repo }).status(target, head).state, 'failed', 'nor after a restart')
+})
+
+test('a review that comes after another says so: the commit and the answer of the one before it', async (t) => {
+  let level: 'high' | 'safe' = 'high'
+  const engine: AssessRun = async () => ({
+    units: { units: [{ level, critical: false }] },
+    storyBy: 'host',
+    answer: level === 'high' ? { deploy: 'risky', why: '`total` breaks a test that passes without this change.' } : { deploy: 'safe', why: 'Every part is shown to work, or cannot break anything.' },
+  })
+  const { assessments, job, head } = assessmentsFor(t, engine)
+  assessments.start(job)
+  await assessments.settled()
+  const first = assessments.status(target, head).summary!
+  assert.deepEqual([first.deploy, first.why, first.before], ['risky', '`total` breaks a test that passes without this change.', undefined], 'a first review comes after none')
+
+  // The same commit, reviewed again, with another answer.
+  level = 'safe'
+  assessments.start(job, { again: true })
+  await assessments.settled()
+  const second = assessments.status(target, head).summary!
+  assert.equal(second.deploy, 'safe')
+  assert.deepEqual(second.before, { head: head.slice(0, 12), deploy: 'risky', at: first.at })
+  assert.equal(sinceLastReview(second, head), `Reviewed again at the same commit, ${head.slice(0, 7)}: no code changed since the last review. The answer went from risky to deploy to safe to deploy.`)
 })
 
 test('a run that close() stops writes no summary, and says it was stopped', async (t) => {

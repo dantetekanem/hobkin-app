@@ -21,6 +21,44 @@ export interface AssessmentSummary {
   storyBy: 'model' | 'host'
   /** When it finished, as an ISO time. */
   at: string
+  /** The review's one answer for the whole change. A summary written before the answer existed has none: `deployOf` gives it. */
+  deploy?: Deploy
+  /** Why, in a sentence or two: what breaks, or what was and was not shown. */
+  why?: string
+  /** The review of this change before this one, when there was one: its commit, its answer and when it finished. */
+  before?: { head: string; deploy: Deploy; at: string }
+}
+
+/** The one question a review answers, for the whole change and never for a part of it: is it risky or safe to deploy? */
+export type Deploy = 'risky' | 'safe'
+
+/** The answer as the window says it. */
+export const DEPLOY_WORDS: Record<Deploy, string> = { risky: 'Risky to deploy', safe: 'Safe to deploy' }
+
+/** A review's answer: risky only when a part of the change can break. What no test showed is no risk. */
+export const deployOf = (summary: Pick<AssessmentSummary, 'level' | 'deploy'>): Deploy => summary.deploy ?? (summary.level === 'high' ? 'risky' : 'safe')
+
+/**
+ * What happened between the review before this one and this one, in a sentence, so two answers for one change can be
+ * told apart: whether the code moved, and whether the answer did. Null for a first review. `head` is this review's commit.
+ */
+export function sinceLastReview(summary: Pick<AssessmentSummary, 'level' | 'deploy' | 'before'>, head: string | null | undefined): string | null {
+  const { before } = summary
+  if (!before) return null
+  const now = deployOf(summary)
+  const sameCode = Boolean(head) && (head!.startsWith(before.head) || before.head.startsWith(head!))
+  const answer = now === before.deploy ? `The answer is the same: ${DEPLOY_WORDS[now].toLowerCase()}.` : `The answer went from ${DEPLOY_WORDS[before.deploy].toLowerCase()} to ${DEPLOY_WORDS[now].toLowerCase()}.`
+  if (sameCode) return `Reviewed again at the same commit, ${before.head.slice(0, 7)}: no code changed since the last review. ${answer}`
+  return `The last review was of ${before.head.slice(0, 7)}${head ? `, and this one is of ${head.slice(0, 7)}` : ''}: the code changed in between. ${answer}`
+}
+
+/** Why the answer is what it is: the review's own sentence, else what its counts say. */
+export function deployWhy(summary: Pick<AssessmentSummary, 'level' | 'deploy' | 'why' | 'needsYou' | 'worthALook' | 'safe' | 'critical'>): string {
+  if (summary.why) return summary.why
+  const parts = (count: number) => `${count} part${count === 1 ? '' : 's'}`
+  if (deployOf(summary) === 'risky') return `${parts(Math.max(1, summary.needsYou))} can break.${summary.critical ? ' It needs a fix, not only a look.' : ''}`
+  if (summary.worthALook > 0) return `Nothing found that breaks. ${parts(summary.worthALook)} ${summary.worthALook === 1 ? 'was' : 'were'} not shown working by a test that ran.`
+  return 'Every part is shown to work, or cannot break anything.'
 }
 
 /**

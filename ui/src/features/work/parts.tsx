@@ -1,12 +1,11 @@
-import { CircleDashed, CircleX, Clock, LoaderCircle, OctagonAlert, Shield, ShieldAlert, ShieldCheck, type LucideIcon } from 'lucide-react'
+import { CircleDashed, CircleX, Clock, LoaderCircle, OctagonAlert, ShieldAlert, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
 import type { Grade } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { LEVEL_WORDS, type AssessmentStatus, type AssessmentSummary, type Level } from '#shared/review/assessment.ts'
-import { levelCountsOf } from './ai-reviews.ts'
+import { deployOf, deployWhy, sinceLastReview, type AssessmentStatus, type AssessmentSummary, type Deploy } from '#shared/review/assessment.ts'
 import { reviewBadge, type BadgeTone } from './review-badge.ts'
 
 /** The small pieces the Work screen's sections share. */
@@ -31,10 +30,10 @@ const BADGE_TONE: Record<BadgeTone, string> = {
   quiet: 'bg-surface-2 text-muted-foreground',
 }
 
-const LEVEL_ICON: Record<Level, LucideIcon> = { high: ShieldAlert, mid: Shield, safe: ShieldCheck }
+const ANSWER_ICON: Record<Deploy, LucideIcon> = { risky: ShieldAlert, safe: ShieldCheck }
 
 function badgeIcon(status: AssessmentStatus | undefined): LucideIcon {
-  if (status?.state === 'ready' && status.summary) return LEVEL_ICON[status.summary.level]
+  if (status?.state === 'ready' && status.summary) return ANSWER_ICON[deployOf(status.summary)]
   if (status?.state === 'running') return LoaderCircle
   if (status?.state === 'queued') return Clock
   if (status?.state === 'failed') return CircleX
@@ -42,8 +41,8 @@ function badgeIcon(status: AssessmentStatus | undefined): LucideIcon {
 }
 
 /**
- * What the change review found at the change's commit, how far along it is, or why it stopped. A critical finding is
- * marked. `md` is the one a card or a row leads with: larger, with the level's own mark.
+ * What the change review answers for the change at its commit (risky or safe to deploy), how far along it is, or why
+ * it stopped. A critical finding is marked. `md` is the one a card or a row leads with: larger, with the answer's mark.
  */
 export function ReviewBadge({ status, size = 'sm' }: { status: AssessmentStatus | undefined; size?: 'sm' | 'md' }) {
   const { label, tone, title, critical } = reviewBadge(status)
@@ -65,18 +64,17 @@ export function ReviewBadge({ status, size = 'sm' }: { status: AssessmentStatus 
   )
 }
 
-const LEVEL_DOT: Record<Level, string> = { high: 'bg-bad', mid: 'bg-warn', safe: 'bg-ok' }
-
-/** A ready review's units at each level, in the Review page's words: "2 high risk · 3 mid risk · 5 safe". */
-export function LevelCounts({ summary, className }: { summary: AssessmentSummary; className?: string }) {
+/**
+ * Why a ready review answers as it does, in a sentence: what breaks, or what was and was not shown. One line for the
+ * whole change. When this review came after another, a second line says whether the code changed in between and
+ * whether the answer did, so two reviews of one change can be told apart. `head` is the commit this review is of.
+ */
+export function DeployWhy({ summary, head, className }: { summary: AssessmentSummary; head?: string | null; className?: string }) {
+  const since = sinceLastReview(summary, head)
   return (
-    <span className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground tabular-nums', className)}>
-      {levelCountsOf(summary).map(({ level, count }) => (
-        <span key={level} className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className={cn('size-2 rounded-full', LEVEL_DOT[level])} />
-          {count} {LEVEL_WORDS[level].toLowerCase()}
-        </span>
-      ))}
+    <span className={cn('flex min-w-0 flex-col gap-0.5 text-[13px] leading-snug text-muted-foreground', className)}>
+      <span>{deployWhy(summary)}</span>
+      {since ? <span>{since}</span> : null}
     </span>
   )
 }

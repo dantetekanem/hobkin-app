@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { ReviewListItem } from '#shared/review/status.ts'
-import { canReviewAgain, groupReviews, levelCountsOf, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
+import { canReviewAgain, groupReviews, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
 const at = (minutesAgo: number) => new Date(Date.parse('2026-11-12T12:00:00Z') - minutesAgo * 60_000).toISOString()
@@ -89,14 +89,6 @@ test('a pull request is named by its repository and number, and a finished chang
   })
   assert.equal(pull!.where, 'Acme/Web #12')
   assert.equal(change!.where, 'billing-api')
-})
-
-test('a finished review counts its units at each level, high first, and leaves out a level with none', () => {
-  assert.deepEqual(levelCountsOf(summary({ level: 'high', needsYou: 2, worthALook: 0, safe: 4 })), [
-    { level: 'high', count: 2 },
-    { level: 'safe', count: 4 },
-  ])
-  assert.deepEqual(levelCountsOf(summary({ level: 'mid', needsYou: 0, worthALook: 3, safe: 0 })), [{ level: 'mid', count: 3 }])
 })
 
 test('a row opens its own review; without a host a finished change opens the sample review, as its Work card does', () => {
