@@ -8,15 +8,19 @@ compatibility: Requires graph.json with facts from node-map and the scan pack. U
 
 Rules and the full table: `../change-review/FOUNDATION.md` section 5.
 
-`safe`: no human attention needed. `mid`: not critical, worth a look, can be patched in a fast follow. `high`: needs human attention or a fix.
+A level is the risk that the change breaks something: the code, or what runs in production. Nothing else. `safe`: shown to work, or unable to break anything. `mid`: nothing shows it breaks, and nothing shows it works through a request; worth a look. `high`: a break is shown or named.
+
+That code changes what it does is what a change is, and is never a reason for a level. That something could not be checked is said in words, and is never `high` on its own.
 
 ## 1. Floor
 
 Apply the table in section 5.1 to each node's four facts, first match wins. This is a lookup. Record the rule number in `level.why`.
 
-Remember what the order of the table means: a broken reference comes first, then missing proof. A flag is consulted only after both. A flagged change with no life cycle test that reaches it with the flag on is `high`.
+Remember what the order of the table means: a break comes first, then what cannot break, then an effect nothing undoes and a changed contract. Only then what the tests did or did not show, and that is `mid`, never `high`. A flag is consulted after all of these: a flagged change with no life cycle test that reaches it with the flag on is `mid`, and never `safe`.
 
-Rule 4 has three parts. Tests that call a definition directly, and fail without the change, show the change does what it says; they do not show how callers use it. Where that is new or changed (a new definition, a write, a changed signature, a condition in front of it, an undo that is not a rollback) the node is `high` (4a). Where the definition was only changed in place it is `mid` (4b). Code that runs outside a request is entered by calling it, so the rows below decide (4c).
+Rule 5 is a change no test that ran shows. Rule 6 is a change shown only by tests that call the definition directly: they show the change does what it says, and not how callers use it. Both are `mid`, with a finding that says what is missing. Code that runs outside a request is entered by calling it, so the rows below decide. Rule 9 is a change of behaviour that tests show through a request: `safe`.
+
+A test that fails with the change in place is run once more with the definition put back. Passing then, it is a break the change causes: rule 1. Still failing, it says nothing about the change.
 
 The floor alone is a usable result. Everything below improves it.
 
@@ -26,10 +30,11 @@ For `mid` and `high` nodes, and any node that hosts a new condition check. Worst
 
 Ask the questions in `../change-review/reference/checklist.md` for the node's exposure. Write each finding as one line of `.review/risk-events.jsonl` (`../change-review/schemas/risk-event.schema.json`).
 
-- **Raise** whenever the code supports it. State what the code does, with symbols and lines. No "may", "might", "consider".
+- **Raise to `high`** only by naming what breaks: the input or state, what the code does with it (symbols and lines), and the wrong result. A description of the change is not a break. Neither is "no test shows it". No "may", "might", "consider".
+- **Raise to `mid`** when something concrete could go wrong and nothing shows either way.
 - **Lower** only with `evidence_kind`: `equivalent`, `off-path-identical`, `unreferenced`, `additive-schema`, `dominance-proven`. Each must point at something checkable.
-- **Never lower a node below a floor that rule 3 or 4 set.** `high` for missing proof stays `high`, and the `mid` of rule 4b never becomes `safe`. Only a test that runs changes that; say which test would.
-- **Critical** means "needs a fix, not only a look", only on `high`: a definite break, an effect nothing undoes, or a changed behaviour on a money, auth or tenant path that no changed test observes.
+- **Never lower a node to `safe` when rule 5 or 6 set its floor**, and never lower a rule 1 break. Only a test that runs changes that; say which test would.
+- **Critical** means "needs a fix, not only a look", only on `high`: a definite break, an effect nothing undoes, or a named wrong result on a money, auth or tenant path.
 - **Suggest** what would move the level, with the level it would produce: a life cycle test, a flag, a restructure. Never a flag for something that takes effect at load.
 
 Events are the whole history. Applying the same file twice must give the same graph.

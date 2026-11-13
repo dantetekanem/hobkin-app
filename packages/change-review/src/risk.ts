@@ -76,10 +76,9 @@ function mergeWatch(into: Watch | null, from: Watch | undefined): Watch | null {
 /**
  * Applies the risk events to the nodes. Every node starts again from its floor, so applying the same events twice, or
  * to a graph that already has them, gives the same graph (FOUNDATION 14). A raise is always valid. A lowering needs an
- * evidence kind, nothing lowers a node below its floor while that floor is rule 3 or 4 (no proof, or direct tests
- * alone: high stays high, and the mid of rule 4b never becomes safe), nothing lowers a
- * break that search found (rule 1), and nothing lowers a level that a test failing or hanging at head set: an argument
- * is not a search result or a test run. Events that break a rule are returned in `rejected` with the reason and change
+ * evidence kind, nothing lowers a node below its floor while that floor is rule 5 or 6 (no test showed it, or direct
+ * tests alone: that mid never becomes safe on an argument), nothing lowers a break that search or a test run found
+ * (rule 1): an argument is not a search result or a test run. Events that break a rule are returned in `rejected` with the reason and change
  * nothing.
  */
 export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly RiskEvent[]): { nodes: ReviewNode[]; rejected: RejectedEvent[] } {
@@ -119,13 +118,13 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
         continue
       }
       if (f.rule === 1) {
-        rejected.push({ event, reason: 'floor rule 1 is a break that search found: only a new search result lowers it' })
+        rejected.push({ event, reason: 'floor rule 1 is a break that search or a test run found: only a new result lowers it' })
         continue
       }
-      // Rule 3 is no proof and rule 4 is direct tests alone: neither goes below its floor on an argument. A rule 4b
-      // node is mid at the floor, so it can come back to mid after a raise, and never reaches safe.
-      if ((f.rule === 3 || f.rule === 4) && RANK[event.level] < RANK[f.level]) {
-        const missing = f.rule === 3 ? 'missing proof' : 'proof by direct tests alone'
+      // Rule 5 is no test showing it and rule 6 is direct tests alone: neither becomes safe on an argument. Both are
+      // mid at the floor, so a node can come back to mid after a raise.
+      if ((f.rule === 5 || f.rule === 6) && RANK[event.level] < RANK[f.level]) {
+        const missing = f.rule === 5 ? 'no test showing the change' : 'proof by direct tests alone'
         rejected.push({ event, reason: `floor rule ${f.rule} is ${missing}: only a test that runs lowers it` })
         continue
       }

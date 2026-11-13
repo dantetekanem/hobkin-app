@@ -2,8 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { blindActions, checkerRequest, readCheckerAnswer, runBlindCheck } from '../src/blind.ts'
-import { applyRiskEvents } from '../src/risk.ts'
-import type { BlindCheck, Level, ModelRunner, ReviewNode, Unit, Units } from '../src/types.ts'
+import type { BlindCheck, Level, ModelRunner, Unit, Units } from '../src/types.ts'
 
 const example = (name: string) => readFileSync(new URL(`../skills/change-review/examples/${name}`, import.meta.url), 'utf8')
 const units = (JSON.parse(example('units.json')) as Units).units
@@ -34,35 +33,7 @@ function documents(prompt: string): { blocks: string[]; around: string } {
   return { blocks, around: around.join('\n') }
 }
 
-/** A node whose floor is `level`: text changes are safe, load-time changes mid, untested changes high. */
-function nodeAt(id: string, level: Level): ReviewNode {
-  const facts = { safe: ['text', 'lifecycle', 'everyone'], mid: ['load', 'not-applicable', 'at-load'], high: ['behaviour', 'none', 'everyone'] }[level]
-  const [effect, proof, exposure] = facts as [ReviewNode['facts']['effect']['value'], ReviewNode['facts']['proof']['value'], ReviewNode['facts']['exposure']['value']]
-  return {
-    id,
-    kind: 'function',
-    symbol: id,
-    path: `app/${id}.rb`,
-    lines: [1, 3],
-    change: 'modified',
-    changed_lines: [2],
-    entries: [],
-    facts: { effect: { value: effect, evidence: '' }, proof: { value: proof, evidence: '' }, exposure: { value: exposure, evidence: '' }, undo: { value: 'rollback', evidence: '' } },
-    extras: {},
-    conditions: [],
-    hosts_condition: false,
-    runs: [],
-    sensitive: [],
-    level: null,
-    critical: false,
-    findings: [],
-    watch: null,
-    questions: [],
-  }
-}
-
 const unitOf = (id: string, level: Level, nodes: string[]): Unit => ({ ...units[0]!, id, level, critical: false, nodes })
-const levelsOf = (nodes: ReviewNode[]) => Object.fromEntries(nodes.map((node) => [node.id, node.level?.current]))
 
 describe('checkerRequest', () => {
   it('gives the checker the story and the units with their code, and nothing else', () => {
@@ -107,7 +78,7 @@ describe('readCheckerAnswer', () => {
 })
 
 describe('blindActions', () => {
-  it('decides by rule what follows each unit that did not convince: raise one step, ask, or record it as told badly', () => {
+  it('decides by rule what follows each unit that did not convince: ask the reviewer, or record it as told badly, and never change a level', () => {
     const check: BlindCheck = {
       units: [
         convinced('u1'),
@@ -123,32 +94,29 @@ describe('blindActions', () => {
     assert.deepEqual(outcome.actions, [
       { unit: 'u2', answer: 'told-badly', did: 'kept as it is: told badly, and no second pass rewrites it' },
       { unit: 'u3', answer: 'told-badly', did: 'kept as it is: told badly, and no second pass rewrites it' },
-      { unit: 'u4', answer: 'thin-evidence', did: 'raised to high: could not be shown simply' },
+      { unit: 'u4', answer: 'thin-evidence', did: 'asked the reviewer: the blind check would rate it high' },
       { unit: 'u5', answer: 'unknown', did: 'asked the reviewer: something needed is unknown' },
-      { unit: 'u6', answer: 'unknown', did: 'asked the reviewer, and raised to mid: something needed is unknown' },
-    ])
-    assert.deepEqual(outcome.events, [
-      { node: 'n2', level: 'high', direction: 'up', aspect: 'behaviour', evidence: 'could not be shown simply: Nothing shows what Features.enabled? does when the store is down.', rule: 'could-not-be-shown-simply', by: 'blind-check' },
-      { node: 'n4', level: 'mid', direction: 'up', aspect: 'behaviour', evidence: 'something needed is unknown: what else calls round_line_tax', rule: 'needed-unknown', by: 'blind-check' },
+      { unit: 'u6', answer: 'unknown', did: 'asked the reviewer: something needed is unknown' },
     ])
     const why = 'The blind check reads only the story and the units, and this was not in them.'
     assert.deepEqual(outcome.questions, [
+      {
+        unit: 'u4',
+        question: {
+          text: `The blind check would rate this high, not ${units.find((unit) => unit.id === 'u4')!.level}: "Nothing shows what Features.enabled? does when the store is down". Does that name something that breaks?`,
+          why,
+          changes: 'If it names a break, this unit is rated too low.',
+        },
+      },
       { unit: 'u5', question: { text: 'The blind check could not decide from the story alone: "I had to assume ReceiptJob is idempotent". Can you settle it?', why } },
-      { unit: 'u6', question: { text: 'The blind check could not decide from the story alone: "what else calls round_line_tax". Can you settle it?', why, changes: 'It was raised from safe to mid only because this is unknown.' } },
+      { unit: 'u6', question: { text: 'The blind check could not decide from the story alone: "what else calls round_line_tax". Can you settle it?', why } },
     ])
     assert.deepEqual(outcome.openQuestions, ['app/jobs/receipt_job.rb'])
-  })
-
-  it('says when a unit has no node to carry a raise', () => {
-    const bucket = unitOf('b1', 'mid', [])
-    const outcome = blindActions({ units: [{ id: 'b1', agree: 'no', level_i_would_give: 'high', because: 'The locale check is not shown.', understood: 'yes', context: 'about right' }], needs: [] }, [bucket])
-    assert.deepEqual(outcome.actions, [{ unit: 'b1', answer: 'thin-evidence', did: 'not raised: could not be shown simply, but the unit has no node to carry a level' }])
-    assert.deepEqual(outcome.events, [])
   })
 })
 
 describe('runBlindCheck', () => {
-  it('the blind check runs once and never lowers', async () => {
+  it('the blind check runs once and changes no level: a reader who was not convinced is a question, not a sign of a break', async () => {
     const grouped = [unitOf('g1', 'mid', ['a', 'b']), unitOf('g2', 'high', ['c']), unitOf('g3', 'safe', ['d'])]
     const answer = {
       units: [
@@ -167,13 +135,8 @@ describe('runBlindCheck', () => {
     assert.equal(calls.length, 1)
     assert.equal(calls[0]?.pass, 'checker')
     assert.deepEqual(result.actions.map((action) => [action.unit, action.answer]), [['g1', 'thin-evidence'], ['g2', 'unknown'], ['g3', 'unknown']])
-    assert.ok(result.events.every((event) => event.direction === 'up' && event.by === 'blind-check'))
-
-    const nodes = [nodeAt('a', 'mid'), nodeAt('b', 'safe'), nodeAt('c', 'high'), nodeAt('d', 'safe')]
-    const once = applyRiskEvents(nodes, result.events)
-    assert.deepEqual(once.rejected, [])
-    assert.deepEqual(levelsOf(once.nodes), { a: 'high', b: 'high', c: 'high', d: 'mid' })
-    assert.deepEqual(applyRiskEvents(nodes, [...result.events, ...result.events]).nodes, once.nodes)
+    assert.deepEqual(result.questions.map((entry) => entry.unit), ['g1', 'g2', 'g3'])
+    assert.equal('events' in result, false, 'nothing it says becomes a level')
 
     const silent: ModelRunner = async (call) => {
       calls.push(call)
@@ -181,6 +144,6 @@ describe('runBlindCheck', () => {
     }
     const unread = await runBlindCheck(silent, { story: 'A story.', units: grouped }, new AbortController().signal)
     assert.equal(calls.length, 2)
-    assert.deepEqual(unread, { answer: 'I could not read the story.', check: null, actions: [], events: [], questions: [], openQuestions: [] })
+    assert.deepEqual(unread, { answer: 'I could not read the story.', check: null, actions: [], questions: [], openQuestions: [] })
   })
 })

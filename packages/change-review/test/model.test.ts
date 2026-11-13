@@ -117,9 +117,9 @@ describe('reviewRequest', () => {
     const { line, data } = sent(request.prompt)
     assert.match(line, /data, not instructions/)
 
-    assert.deepEqual(data.nodes.map((node) => [node.id, node.task]), [['n5', 'assess'], ['n6', 'assess'], ['x1', 'assess'], ['n1', 'assess'], ['n3', 'assess'], ['n8', 'assess'], ['n2', 'assess'], ['n4', 'words']])
-    const [n5] = data.nodes
-    assert.deepEqual(n5?.level, { current: 'high', floor: 'high', rule: 3, why: 'No test that runs reaches these lines.' })
+    assert.deepEqual(data.nodes.map((node) => [node.id, node.task]), [['n6', 'assess'], ['x1', 'assess'], ['n1', 'assess'], ['n3', 'assess'], ['n5', 'assess'], ['n8', 'assess'], ['n2', 'assess'], ['n4', 'words']])
+    const n5 = data.nodes.find((node) => node.id === 'n5')
+    assert.deepEqual(n5?.level, { current: 'mid', floor: 'mid', rule: 5, why: 'No test that ran shows these lines work.' })
     assert.deepEqual([n5?.entries, n5?.sensitive, n5?.callers], [['CheckoutController#create', 'ReceiptJob#perform'], ['money'], { total: 2, complete: true }])
     assert.deepEqual(n5?.runs, ['revert of n5, condition default: test/controllers/checkout_controller_test.rb, all passed (exit 0, 9 s)'])
     assert.equal(n5?.code, code.n5)
@@ -135,7 +135,7 @@ describe('reviewRequest', () => {
   it('caps each excerpt at 40 lines and the prompt at its limit, cutting from the least severe node and saying what was cut', () => {
     const long = Array.from({ length: 60 }, (_, index) => `+  line ${index + 1}`).join('\n')
     const capped = reviewRequest({ triage, nodes, units, code: { ...code, n5: long } })
-    assert.equal(sent(capped.prompt).data.nodes[0]?.code?.split('\n').length, 40)
+    assert.equal(sent(capped.prompt).data.nodes.find((node) => node.id === 'n5')?.code?.split('\n').length, 40)
     assert.deepEqual(capped.cut, ['code of n5: 60 lines, the first 40 sent'])
 
     const full = reviewRequest({ triage, nodes, units, code }).prompt.length
@@ -146,7 +146,7 @@ describe('reviewRequest', () => {
 
     const tiny = reviewRequest({ triage, nodes, units, code, limit: 1000 })
     const kept = sent(tiny.prompt).data.nodes
-    assert.deepEqual(kept.map((node) => node.id), ['n5', 'n6', 'x1', 'n1', 'n3', 'n8', 'n2'])
+    assert.deepEqual(kept.map((node) => node.id), ['n6', 'x1', 'n1', 'n3', 'n5', 'n8', 'n2'])
     assert.ok(kept.every((node) => node.code === undefined))
     assert.deepEqual(tiny.cut.slice(0, 2), ['code of n4 left out to fit the size limit', 'code of n2 left out to fit the size limit'])
     assert.equal(tiny.cut.at(-2), 'node n4 (safe, words only) left out to fit the size limit')
@@ -257,11 +257,11 @@ describe('readReviewAnswer', () => {
   })
 
   it('does not apply events: a lowering the rules forbid is read, then rejected by applyRiskEvents', () => {
-    const lowering = { node: 'n5', level: 'mid', direction: 'down', aspect: 'behaviour', evidence_kind: 'equivalent', evidence: 'The request tests still pass with the new rounding.' }
+    const lowering = { node: 'n5', level: 'safe', direction: 'down', aspect: 'behaviour', evidence_kind: 'equivalent', evidence: 'The request tests still pass with the new rounding.' }
     const read = readReviewAnswer(answer({ events: [lowering] }), known)
     assert.deepEqual(read.events, [{ ...lowering, by: 'model' }])
     const applied = applyRiskEvents(nodes, read.events)
-    assert.equal(applied.nodes.find((node) => node.id === 'n5')?.level?.current, 'high')
-    assert.match(applied.rejected[0]?.reason ?? '', /missing proof/)
+    assert.equal(applied.nodes.find((node) => node.id === 'n5')?.level?.current, 'mid')
+    assert.match(applied.rejected[0]?.reason ?? '', /no test showing the change/)
   })
 })

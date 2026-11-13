@@ -29,22 +29,32 @@ The message is one line saying the rest is data, then one JSON object:
   - `runs`: the test runs, one line each. `baseline` runs the tests at head. `revert` puts this node's changed lines back to base: when it passes, no test notices the change. `probe` makes the node fail: when it passes, no test executes it. `reach` makes a changed node fail for the life cycle tests that passed with and without its change: one that fails then runs through the node, and one that passes never gets to it.
   - `entries`: entry points above the node. `callers`: how many were found, and whether that list is complete. `sensitive`: money, auth or tenant words in its name or path.
   - `findings`, `questions`: what earlier steps found or asked. Do not repeat them.
-  - `unverified`: the map could not be checked for this node. It counts as `high`.
+  - `unverified`: the map could not be checked for this node. It is at least `mid`, and that alone is no reason for `high`.
   - `code`: its changed lines (`+` added, `-` removed, a space for context), at most 40 lines.
 - `units`: what the reviewer decides on: each with its node ids, grouping, level, and the template `title`, `where` and `what` you may replace.
 - `cut`: what was left out to keep the data short. Something missing from the data is not evidence that it is missing from the code.
 
 ## Levels
 
-- `safe`: evidence on all four questions says it needs no attention.
-- `mid`: not critical. Worth a look; can be patched in a fast follow.
-- `high`: needs human attention or a fix. `critical` marks a `high` node that needs a fix, not only a look.
+A level is the risk that the change breaks something: the code, or what runs in production. Nothing else.
 
-The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search found. Rule 3 is missing proof: no test that runs shows the change. Rule 4 is proof by direct tests alone: a test that calls the definition fails without the change, and no test goes through a request to it. Its floor is `high` where the way callers use the definition is new or changed, and `mid` where the definition was only changed in place. Rule 11 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
+- `safe`: shown to work, or unable to break anything.
+- `mid`: nothing shows it breaks, and nothing shows it works through a request. Worth a look.
+- `high`: a break is shown or named. `critical` marks a `high` node that needs a fix, not only a look.
+
+These are not reasons for a level, and never go in `evidence` as one:
+
+- "It changes behaviour." That is what a change is.
+- "No test shows it", "its tests could not run". The floor already said so, at `mid`. Not having checked is not a sign that it breaks.
+- The size of the change, or how central the code is.
+
+The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search or a test run found. Rule 3 is an effect nothing undoes. Rule 4 is data or an interface changed for everyone. Rule 5 is a change no test that ran shows; rule 6 is one shown only by tests that call it directly: both are `mid`. Rule 9 is a change of behaviour that tests show through a request: `safe`. Rule 10 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
 
 ## What you may change
 
-**Raise** whenever the code supports it, with evidence that states what the code does.
+**Raise to `high`** only when you can name what breaks. The evidence states all three: the input or state that triggers it, what the code does with it (symbols and lines), and the wrong result that follows: an error raised, a wrong value shown or stored, data lost, a caller that no longer works. If you cannot state the wrong result, it is not `high`. "X now does Y" describes the change; it is not a break.
+
+**Raise to `mid`** when something concrete could go wrong and nothing shows either way, with evidence that states what the code does.
 
 **Lower** only with an `evidence_kind`, and only when the data shows it:
 
@@ -56,9 +66,9 @@ The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a
 | `additive-schema` | The schema change adds without constraining, rewriting or locking, and old code does not read it |
 | `dominance-proven` | Every caller was found and each is behind the condition |
 
-An argument is not evidence. Never lower a node below its floor when its floor rule is 1, 3 or 4: only a new search result or a test that runs changes those. A rule 4 node whose floor is `mid` stays `mid`: it is never `safe`. Say in `suggest` which test would.
+An argument is not evidence. Never lower a rule 1 node. Never lower a node to `safe` when its floor rule is 5 or 6: only a test that runs does that. Say in `suggest` which test would.
 
-**Mark critical**, only with level `high`: a definite break, an effect nothing undoes, or a changed behaviour on a money, auth or tenant path that no changed test observes.
+**Mark critical**, only with level `high`: a definite break, an effect nothing undoes, or a named wrong result on a money, auth or tenant path.
 
 **Suggest** what would move the level, with the level it would produce: a life cycle test, a flag, a restructure. Never a flag for something that takes effect at load.
 
@@ -87,7 +97,9 @@ Ask only the rows for the node's exposure. Each "yes" is one event with that `di
 - Config or dependency: does it change the behaviour of code outside this diff?
 - Deploy skew: is there a window where code expects the change and it is not there yet, or the reverse?
 
-Do not ask about style, naming or structure. Do not ask what the facts already state: who calls it, which tests execute it, what dominates it. Do not argue about proof the floor says is missing: it is missing.
+Do not ask about style, naming or structure. Do not ask what the facts already state: who calls it, which tests execute it, what dominates it. Do not argue about proof the floor says is missing: it is missing, the unit says so, and it is not a reason to raise.
+
+A "yes" to a row below is an event at the node's current level unless it names a wrong result. Most changes get no raise.
 
 ## Questions for the reviewer
 
@@ -159,15 +171,15 @@ A node may have several events. Each states the level after it, so a later event
 Two nodes, two units and two claims of a change, shortened:
 
 ```json
-{"nodes":[{"id":"n5","task":"assess","symbol":"Checkout::TotalsCalculator#round_money","path":"app/services/checkout/totals_calculator.rb","lines":[34,36],"level":{"current":"high","floor":"high","rule":3,"why":"Floor rule 3: no test that runs shows the changed lines work."},"facts":{"effect":{"value":"behaviour","evidence":"one executable line changed, line 35"},"proof":{"value":"none","evidence":"ReceiptJob#perform has no life cycle test"},"exposure":{"value":"everyone","evidence":"called on the flag-off branch of compute_totals (line 15) and from ReceiptJob#perform (line 5); neither checks the flag"},"undo":{"value":"rollback","evidence":"reverting the deploy restores the old rounding"}},"runs":["revert of n5, condition default: test/controllers/checkout_controller_test.rb, all passed (exit 0, 9 s)"],"entries":["CheckoutController#create","ReceiptJob#perform"],"sensitive":["money"],"code":" def round_money(amount)\n-  amount.round(TAX_PRECISION)\n+  amount.round(2, half: :even)\n end"},{"id":"n1","task":"assess","symbol":"Checkout::TotalsCalculator::TAX_PRECISION","path":"app/services/checkout/totals_calculator.rb","lines":[3,3],"level":{"current":"mid","floor":"mid","rule":9,"why":"Floor rule 9: takes effect at load, or adds to the schema."},"facts":{"effect":{"value":"load","evidence":"a constant assignment"},"proof":{"value":"not-applicable","evidence":"no executable path reads it"},"exposure":{"value":"at-load","evidence":"evaluated when the file loads"},"undo":{"value":"rollback","evidence":"reverting restores the value"}},"runs":[],"entries":[],"callers":{"total":0,"complete":true},"sensitive":[],"code":"-TAX_PRECISION = 2\n+TAX_PRECISION = 4"}],
- "units":[{"id":"u1","nodes":["n5"],"grouping":"single","level":"high","title":"round_money changed","where":"Stop 4.","what":"round_money changed."},{"id":"u7","nodes":["n1"],"grouping":"single","level":"mid","title":"TAX_PRECISION changed","where":"Outside the request path: takes effect when the file loads.","what":"A constant changed."}],
+{"nodes":[{"id":"n5","task":"assess","symbol":"Checkout::TotalsCalculator#round_money","path":"app/services/checkout/totals_calculator.rb","lines":[34,36],"level":{"current":"mid","floor":"mid","rule":5,"why":"No test that ran shows these lines work."},"facts":{"effect":{"value":"behaviour","evidence":"one executable line changed, line 35"},"proof":{"value":"none","evidence":"ReceiptJob#perform has no life cycle test"},"exposure":{"value":"everyone","evidence":"called on the flag-off branch of compute_totals (line 15) and from ReceiptJob#perform (line 5); neither checks the flag"},"undo":{"value":"rollback","evidence":"reverting the deploy restores the old rounding"}},"runs":["revert of n5, condition default: test/controllers/checkout_controller_test.rb, all passed (exit 0, 9 s)"],"entries":["CheckoutController#create","ReceiptJob#perform"],"sensitive":["money"],"code":" def round_money(amount)\n-  amount.round(TAX_PRECISION)\n+  amount.round(2, half: :even)\n end"},{"id":"n1","task":"assess","symbol":"Checkout::TotalsCalculator::TAX_PRECISION","path":"app/services/checkout/totals_calculator.rb","lines":[3,3],"level":{"current":"mid","floor":"mid","rule":8,"why":"It takes effect at load, or adds to the schema."},"facts":{"effect":{"value":"load","evidence":"a constant assignment"},"proof":{"value":"not-applicable","evidence":"no executable path reads it"},"exposure":{"value":"at-load","evidence":"evaluated when the file loads"},"undo":{"value":"rollback","evidence":"reverting restores the value"}},"runs":[],"entries":[],"callers":{"total":0,"complete":true},"sensitive":[],"code":"-TAX_PRECISION = 2\n+TAX_PRECISION = 4"}],
+ "units":[{"id":"u1","nodes":["n5"],"grouping":"single","level":"mid","title":"round_money changed","where":"Stop 4.","what":"round_money changed."},{"id":"u7","nodes":["n1"],"grouping":"single","level":"mid","title":"TAX_PRECISION changed","where":"Outside the request path: takes effect when the file loads.","what":"A constant changed."}],
  "claims":[{"text":"No behaviour change with the flag off","source":"PR description"},{"text":"The legacy tax engine has had no callers since the 2024 migration","source":"commit 3f2a91c"}]}
 ```
 
 The answer:
 
 ```json
-{"events":[{"node":"n5","level":"high","direction":"up","aspect":"behaviour","critical":true,"lines":[35],"rule":"rounding-mode-changed","evidence":"`round_money` now calls `amount.round(2, half: :even)` instead of `amount.round(TAX_PRECISION)`. Every caller gets the new rounding, flag on or off, `ReceiptJob#perform` included, and the revert run passed: no test notices the change.","questions":[{"text":"Is half-even rounding meant for existing totals, or only for per-line tax?","why":"The description does not say, and this line runs outside the flag.","changes":"If only per-line tax, the old line belongs on the flag-off path, and with a job test this unit becomes safe."}],"suggest":{"kind":"add-test","text":"Add a `ReceiptJob` test, and a request assertion that tells the two rounding modes apart.","to":"mid"},"watch":{"signals":[],"gaps":["no metric, log or error report on the totals path in the code shown"],"undo":"revert the deploy"}},{"node":"n1","level":"safe","direction":"sideways","aspect":"behaviour","evidence_kind":"unreferenced","lines":[3],"evidence":"`TAX_PRECISION` changes from 2 to 4, and nothing reads it: its callers list is complete and empty, and `round_money` no longer names it."}],
+{"events":[{"node":"n5","level":"high","direction":"up","aspect":"behaviour","critical":true,"lines":[35],"rule":"rounding-mode-changed","evidence":"`round_money` now calls `amount.round(2, half: :even)` instead of `amount.round(TAX_PRECISION)` (line 35). Every caller gets it, flag on or off, `ReceiptJob#perform` included. An amount ending in half a cent now rounds to the even cent: 2.675 was charged as 2.68 and is charged as 2.67, so totals and receipts for existing orders change with the flag off.","questions":[{"text":"Is half-even rounding meant for existing totals, or only for per-line tax?","why":"The description does not say, and this line runs outside the flag.","changes":"If only per-line tax, the old line belongs on the flag-off path, and with a job test this unit becomes safe."}],"suggest":{"kind":"add-test","text":"Add a `ReceiptJob` test, and a request assertion that tells the two rounding modes apart.","to":"mid"},"watch":{"signals":[],"gaps":["no metric, log or error report on the totals path in the code shown"],"undo":"revert the deploy"}},{"node":"n1","level":"safe","direction":"sideways","aspect":"behaviour","evidence_kind":"unreferenced","lines":[3],"evidence":"`TAX_PRECISION` changes from 2 to 4, and nothing reads it: its callers list is complete and empty, and `round_money` no longer names it."}],
  "words":{"title":"Per-line tax rounding behind a flag","does":"Adds per-line tax rounding behind `:per_line_tax_rounding`, and changes `round_money` for every caller, flag on or off.","setting":["`CheckoutController#create` calls `compute_totals`. Life cycle test: `test/controllers/checkout_controller_test.rb`.","Flag off: the old body calls `round_money`, which changed and runs for everyone.","Later, outside the request: `ReceiptJob#perform` calls `round_money`. No life cycle test."],"units":{"u1":{"title":"round_money changes its rounding mode for every caller, flag on or off","what":"`round_money` went from `amount.round(TAX_PRECISION)` to `amount.round(2, half: :even)`. Checkout and `ReceiptJob` both call it, and neither checks the flag."},"u7":{"title":"TAX_PRECISION changes from 2 to 4, and nothing reads it","what":"The constant's value changed. `round_money` was its only reader and no longer uses it."}}},
  "claims":[{"text":"No behaviour change with the flag off","status":"contradicted","evidence":"`round_money` (line 35) rounds half to even for every caller, and the flag-off branch of `compute_totals` calls it."},{"text":"The legacy tax engine has had no callers since the 2024 migration","status":"unverifiable","evidence":"The data holds no search for callers of the removed tax engine."}]}
 ```

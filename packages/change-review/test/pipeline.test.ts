@@ -159,24 +159,24 @@ function fakeModel() {
 
 const levelsOf = (units: Units) => Object.fromEntries(units.units.map((unit) => [unit.nodes.join(','), unit.level])) as Record<string, Level>
 
-test('the blind check runs once and never lowers', async (t) => {
+test('the blind check runs once and changes no level', async (t) => {
   const { repo, base, head, out, git } = project(t)
   const { model, calls } = fakeModel()
   const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: async (): Promise<ScanOutcome> => ({ ok: true, scan: scanOf() }) })
 
   assert.deepEqual(calls, { review: 1, checker: 1 }, 'one careful pass and one blind check')
-  // total was changed in place and its direct test fails without the rounding: mid by rule 4b. No test goes through a
-  // request to it, so no argument makes it safe.
-  assert.ok(result.rejected.some((entry) => entry.event.node === 'n1' && /rule 4/.test(entry.reason)))
-  assert.deepEqual(levelsOf(result.units), { n1: 'mid', n2: 'high', n4: 'safe' }, 'the checker lowered nothing and raised the constant one step')
+  // total's direct test fails without the rounding: mid by rule 6. No test goes through a request to it, so no
+  // argument makes it safe.
+  assert.ok(result.rejected.some((entry) => entry.event.node === 'n1' && /rule 6/.test(entry.reason)))
+  assert.deepEqual(levelsOf(result.units), { n1: 'mid', n2: 'mid', n4: 'safe' }, 'the checker would rate the constant higher, and that is a question, not a level')
   assert.equal(result.graph.nodes.find((node) => node.id === 'n5')?.kind, 'test', 'a helper in a test file is a test, never a unit')
   assert.deepEqual(['n3', 'n5'].map((id) => [result.graph.nodes.find((node) => node.id === id)?.level?.current, result.graph.nodes.find((node) => node.id === id)?.level?.rule]), [['safe', 2], ['safe', 2]], 'a test carries no risk of its own')
   assert.match(result.units.units.find((unit) => unit.nodes.includes('n4'))?.title ?? '', /changes a type, erased before the code runs/)
   assert.equal(result.blind.ran, true)
-  // Raising PRECISION moved it ahead of total: each action names the unit that holds its nodes after the check.
   const unitOf = (node: string) => result.units.units.find((unit) => unit.nodes.includes(node))!
   assert.deepEqual(result.blind.actions.map((action) => [action.unit, action.answer]).sort(), [[unitOf('n1').id, 'told-badly'], [unitOf('n2').id, 'thin-evidence']].sort())
-  assert.match(result.story, new RegExp(`- Unit ${result.units.units.indexOf(unitOf('n2')) + 1}: raised to high: could not be shown simply`))
+  assert.match(result.story, new RegExp(`- Unit ${result.units.units.indexOf(unitOf('n2')) + 1}: asked the reviewer: the blind check would rate it high`))
+  assert.match(unitOf('n2').questions.at(-1)?.text ?? '', /^The blind check would rate this high, not mid: /)
   assert.equal(result.storyBy, 'model')
   assert.match(result.story, /^# Round the total/)
   assert.match(result.story, /`total` now rounds every sum to a whole number/)
@@ -185,7 +185,7 @@ test('the blind check runs once and never lowers', async (t) => {
   // again alone at head.
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.equal(total.facts.proof.value, 'isolated')
-  assert.deepEqual([total.level?.floor, total.level?.rule, total.extras.changedInPlace], ['mid', 4, true])
+  assert.deepEqual([total.level?.floor, total.level?.rule], ['mid', 6])
   assert.deepEqual(total.runs.map((run) => run.kind), ['baseline', 'revert', 'baseline'])
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 
@@ -219,7 +219,7 @@ test('progress names the step and measures every one', async (t) => {
   assert.deepEqual(JSON.parse(readFileSync(join(out, 'progress.json'), 'utf8')), result.progress)
 })
 
-test('rule 11 needs an unchanged life-cycle test that ran and still passed with the change undone, not one that never ran', async (t) => {
+test('rule 10 needs an unchanged life-cycle test that ran and still passed with the change undone, not one that never ran', async (t) => {
   const flags = 'const on = new Set()\n\nexport function setFlag(name, value) {\n  if (value) on.add(name)\n  else on.delete(name)\n}\n\nexport function isEnabled(name) {\n  return on.has(name)\n}\n'
   const total = (branch: string) => `import { isEnabled } from './flags.js'\n\nexport function total(a, b) {\n${branch}  return a + b\n}\n`
   const onTest = `${TEST_HEADER}import { setFlag } from '../../src/flags.js'\nimport { total } from '../../src/total.js'\n\ntest('with new-total on, the total is rounded', () => {\n  setFlag('new-total', true)\n  assert.equal(total(1.2, 1.4), 3)\n})\n`
@@ -244,7 +244,7 @@ test('rule 11 needs an unchanged life-cycle test that ran and still passed with 
     assert.deepEqual([node.facts.exposure.value, node.facts.undo.value, node.facts.proof.value, node.extras.conditionOnProven], ['nobody-yet', 'flag', 'lifecycle-observed', true], offPath)
     said.push(`${node.level?.current} by rule ${node.level?.rule}, off path proven: ${node.extras.offPathProven}`)
   }
-  assert.deepEqual(said, ['mid by rule 12, off path proven: false', 'safe by rule 11, off path proven: true'])
+  assert.deepEqual(said, ['mid by rule 11, off path proven: false', 'safe by rule 10, off path proven: true'])
 })
 
 test('a model that fails leaves every level at its floor, and the review finishes and says so', async (t) => {
@@ -478,7 +478,7 @@ const mentionsScan = (): Scan =>
 const mentionsEntries: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, [{ symbol: 'showTopic', path: 'src/handlers/topics.js', hops: 2 }]])), notes: [] })
 const mentionsEntryTests = async ({ symbol }: { symbol: string }) => ({ ok: true as const, tests: symbol === 'showTopic' ? [{ path: 'test/e2e/topics.test.js', found: 'route', detail: 'showTopic' }] : [], notes: [] })
 
-test('a helper its direct tests prove, with an older request test running through it, is mid; the new script nobody could read is said, at mid; the README is counted', async (t) => {
+test('a helper its direct tests prove, with an older request test running through it, is safe; the new script nobody could read is said, at mid; the README is counted', async (t) => {
   const { repo, base, head, out, git } = mentionsProject(t)
   const asked: { id: string; callers: readonly { path: string; line: number }[] }[] = []
   const entriesAbove: EntriesSearch = async (request) => {
@@ -497,8 +497,9 @@ test('a helper its direct tests prove, with an older request test running throug
     'test/helpers/posts.test.js fails when linkUserTags is put back to base; test/e2e/topics.test.js runs through linkUserTags and passes with the change (it fails when linkUserTags is made to throw): a life-cycle test this diff did not change.',
   )
   assert.deepEqual(helper.runs.map((run) => run.kind), ['baseline', 'revert', 'revert', 'revert', 'baseline', 'reach'])
-  // Rule 7: a test goes through a request to it. A test changed with it shows the change, so nothing says none did.
-  assert.deepEqual([helper.level?.current, helper.level?.rule, helper.extras.testChangedWithIt], ['mid', 7, true])
+  // Rule 9: tests fail without the change, and a test goes through a request to it. A test changed with it shows the
+  // change, so nothing says none did.
+  assert.deepEqual([helper.level?.current, helper.level?.rule, helper.extras.testChangedWithIt], ['safe', 9, true])
   assert.deepEqual(helper.findings, [])
   // Only the test that counts lookups failed with the change put back: the run says where.
   const reverted = helper.runs.find((run) => run.kind === 'revert' && run.tests.length === 1 && run.failed.length === 1)!
@@ -507,27 +508,27 @@ test('a helper its direct tests prove, with an older request test running throug
   assert.deepEqual(
     result.units.units.map((unit) => [unit.level, unit.title]),
     [
-      ['mid', '`linkUserTags` changes behaviour, and a test goes through a request to it'],
       ['mid', '`bin/production-errors` is new and was not checked: the search tool found no definition in it'],
+      ['safe', '`linkUserTags`: a test goes through a request to it'],
     ],
   )
-  assert.equal(result.units.units[0]!.where, 'Reached from showTopic.')
+  assert.equal(result.units.units[1]!.where, 'Reached from showTopic.')
   assert.equal(result.units.attention.files_skipped, 1, 'the README is counted, not read')
-  assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 1\. No test shows unit 2\./)
+  assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 2\. No test shows unit 1\./)
   assert.ok(result.progress.steps.every((step) => step.status === 'done' || step.status === 'skipped'))
   assert.equal(git('status', '--porcelain'), '')
 })
 
-test('with no request test above it, the same helper is mid by rule 4b and says what no test does', async (t) => {
+test('with no request test above it, the same helper is mid by rule 6 and says what no test does', async (t) => {
   const { repo, base, head, out } = mentionsProject(t)
   const none: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, []])), notes: ['The search for entry points stopped: agentic-search is not installed.'] })
   const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: none })
   const helper = result.graph.nodes.find((node) => node.id === 'n1')!
-  assert.deepEqual([helper.facts.proof.value, helper.level?.current, helper.level?.rule], ['isolated', 'mid', 4])
+  assert.deepEqual([helper.facts.proof.value, helper.level?.current, helper.level?.rule], ['isolated', 'mid', 6])
   assert.equal(helper.facts.proof.evidence, 'test/helpers/posts.test.js fails when linkUserTags is put back to base; no life-cycle test was found to try.')
   assert.deepEqual(helper.findings.map((finding) => finding.rule), ['direct-tests-only'])
   assert.ok(result.problems.includes('Entry points: The search for entry points stopped: agentic-search is not installed.'), result.problems.join('\n'))
-  assert.equal(result.units.units.find((unit) => unit.nodes.includes('n1'))!.title, '`linkUserTags` changes behaviour, and tests that call it directly fail without the change')
+  assert.equal(result.units.units.find((unit) => unit.nodes.includes('n1'))!.title, '`linkUserTags`: tests that call it directly fail without the change')
 })
 
 test('a scan handed in brings no walk of its own, and a walk that throws is a note', async (t) => {

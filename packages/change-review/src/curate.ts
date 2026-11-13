@@ -27,7 +27,14 @@ const FACT_VALUES: Record<keyof Facts, readonly string[]> = { effect: EFFECTS, p
 const FACT_NAMES = ['effect', 'proof', 'exposure', 'undo'] as const
 
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
-const levelOf = (node: ReviewNode): Level => (node.unverified ? 'high' : (node.level?.current ?? 'high'))
+/**
+ * A node's level. One whose map entry could not be checked, or that carries no level, is at least mid: it gets a
+ * look. It is not high for that alone, since a map the tool could not check is no sign that the code breaks.
+ */
+const levelOf = (node: ReviewNode): Level => {
+  const level = node.level?.current ?? 'mid'
+  return node.unverified && level === 'safe' ? 'mid' : level
+}
 const worst = (levels: Level[]): Level => levels.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), 'safe' as Level)
 
 /**
@@ -79,7 +86,7 @@ export function checkMap(graph: Graph, triage: Triage, scannedFiles: readonly st
   return problems
 }
 
-/** A node with a problem gets `unverified` (the reasons) and is treated as high. Nothing is dropped; the input is left alone. */
+/** A node with a problem gets `unverified` (the reasons) and is at least mid. Nothing is dropped; the input is left alone. */
 export function markUnverified(graph: Graph, problems: readonly MapProblem[]): Graph {
   const reasons = new Map<string, string[]>()
   for (const problem of problems) {
@@ -145,14 +152,19 @@ function plainLines(text: string, from: number, to: number): Excerpt {
 
 const walks = (edge: GraphEdge) => edge.relationship === 'calls' || edge.relationship === 'enqueues'
 
-/** [caller, callee] pairs, whichever way the edge was written. */
+/**
+ * [caller, callee] pairs, each once. Every edge of the map runs from the caller to the callee: the scan writes a
+ * `called_by` edge that way too (its `to` is the definition whose callers were looked for), often beside the `calls`
+ * edge for the same call.
+ */
 function callPairs(graph: Graph): { from: string; to: string; line?: number }[] {
-  const pairs: { from: string; to: string; line?: number }[] = []
+  const pairs = new Map<string, { from: string; to: string; line?: number }>()
   for (const edge of graph.edges) {
-    if (walks(edge)) pairs.push({ from: edge.from, to: edge.to, line: edge.line })
-    else if (edge.relationship === 'called_by') pairs.push({ from: edge.to, to: edge.from, line: edge.line })
+    if (edge.from === edge.to || !(walks(edge) || edge.relationship === 'called_by')) continue
+    const key = `${edge.from}>${edge.to}`
+    if (!pairs.has(key)) pairs.set(key, { from: edge.from, to: edge.to, line: edge.line })
   }
-  return pairs
+  return [...pairs.values()]
 }
 
 /** A node is on the request path when an entry point is above it or the graph links it to something that calls or is called. */
@@ -204,7 +216,7 @@ const PROVEN: Record<Proof, string> = {
   isolated: 'tests that call it directly fail without the change',
   mocked: 'its test mocks it',
   none: 'no test shows it',
-  unknown: 'its tests could not run',
+  unknown: 'its tests could not be run here',
   'not-applicable': '',
 }
 
@@ -213,7 +225,9 @@ const isBroken = (node: ReviewNode) => Boolean(node.extras?.broken) || node.find
 /** The title of a single node, a claim built from its facts. No model words. */
 function titleOf(node: ReviewNode): string {
   const name = `\`${short(node.symbol)}\``
-  if (node.unverified) return `${name} has an inconsistent map entry, so it is treated as high`
+  if (node.unverified) return `${name} has an inconsistent map entry, so read it yourself`
+  const brokenTest = node.findings.some((finding) => finding.rule === 'breaks-test')
+  if (brokenTest) return `${name} breaks a test that passes without this change`
   if (isBroken(node)) return `${name} leaves a broken reference: ${node.extras?.broken ?? 'something that remains refers to it'}`
   const condition = node.conditions.find((item) => item.added)
   if (node.hosts_condition) return `The new check on \`${condition?.name ?? 'a condition'}\` in ${name} runs for everyone`
@@ -224,12 +238,19 @@ function titleOf(node: ReviewNode): string {
   }
   const facts = normalizedFacts(node)
   const proof = PROVEN[facts.proof.value as Proof] ?? 'no test shows it'
-  let verb = BEHAVES[facts.effect.value as Effect] ?? 'changes'
-  if (node.change === 'removed') verb = 'is removed'
-  else if (node.change === 'added') verb = `is new and ${BEHAVES[facts.effect.value as Effect] ?? 'changes behaviour'}`
+  // That code changes what it does is what a change is, so a title does not say it: it says what is known about
+  // whether the change works. An effect other code or data relies on (interface, data, load) is said.
+  const plain = facts.effect.value === 'behaviour' || !BEHAVES[facts.effect.value as Effect]
   // "changes what runs at load" already says when; "at load" again would say it twice.
   const audience = facts.effect.value === 'load' && facts.exposure.value === 'at-load' ? '' : (AUDIENCE[facts.exposure.value as Exposure] ?? '')
-  return `${name} ${verb}${audience}${proof ? `, and ${proof}` : ''}`
+  let lead = name
+  if (node.change === 'removed') lead = `${name} is removed`
+  else if (plain) {
+    if (node.change === 'added') lead = `${name} is new${audience ? ` and runs${audience}` : ''}`
+    else if (audience) lead = `${name} runs${audience}`
+  } else lead = `${name} ${node.change === 'added' ? 'is new and ' : ''}${BEHAVES[facts.effect.value as Effect]}${audience}`
+  if (lead === name) return proof ? `${name}: ${proof}` : `${name} changed`
+  return `${lead}${proof ? `, and ${proof}` : ''}`
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -418,7 +439,7 @@ function mergeQuestions(nodes: ReviewNode[]): Question[] {
 function whyOf(nodes: ReviewNode[]): string[] {
   const owner = nodes[0]!
   const lines: string[] = []
-  if (owner.unverified) lines.push(`Unverified: ${owner.unverified}. Treated as high.`)
+  if (owner.unverified) lines.push(`Unverified: ${owner.unverified}. Its level could not be checked, so read it yourself.`)
   const base = owner.level?.why ?? []
   lines.push(...base)
   for (const finding of owner.findings) if (!lines.includes(finding.text)) lines.push(finding.text)
@@ -647,18 +668,17 @@ function changesCode(input: CurateInput, file: FileDiff): boolean {
  * A code file the scan was given and found no definition in, though lines that run changed in it: a script with no
  * file ending, a language the search tool does not read. Nothing in it was checked, so it is a unit of its own that
  * says so (FOUNDATION section 7: a failure to report, never "nothing to review"). That it was not checked is said in
- * its words. Its level is the risk that it breaks something: high only when it changes code that was already there,
- * where a request can run it. A new file, or one no request runs, cannot break what works today: mid, for a look.
+ * its words, and it is mid, for a look: not having read a file is no sign that it breaks anything.
  */
 function unreadDraft(bucket: Bucket, file: FileDiff, runsInRequest: boolean): Draft {
   const path = file.path
   const changed = file.hunks.flatMap((hunk) => hunk.lines)
   const [added, removed] = [changed.filter((line) => line[0] === '+').length, changed.filter((line) => line[0] === '-').length]
   const isNew = removed === 0 && file.hunks.every((hunk) => hunk.oldLines === 0)
-  let level: Level = 'high'
-  let risk = 'It changes code that was already there, where a request can run it, so it can break what works today.'
-  if (isNew) [level, risk] = ['mid', 'It is a new file, so nothing that runs today changes because of it.']
-  else if (!runsInRequest) [level, risk] = ['mid', 'It does not run in a request, a job or a consumer.']
+  const level: Level = 'mid'
+  let risk = 'It changes code that was already there, where a request can run it. Nothing found says it breaks; nothing was checked either.'
+  if (isNew) risk = 'It is a new file, so nothing that runs today changes because of it.'
+  else if (!runsInRequest) risk = 'It does not run in a request, a job or a consumer.'
   const hunk = file.hunks[0]!
   const excerpt: Excerpt = { lines: hunk.lines.slice(0, 12), range: [hunk.newStart, hunk.newStart + Math.max(hunk.newLines, 1) - 1], cut: Math.max(0, changed.length - 12) }
   const unit: Omit<Unit, 'id'> = {
@@ -680,7 +700,7 @@ function unreadDraft(bucket: Bucket, file: FileDiff, runsInRequest: boolean): Dr
       undo: { value: 'rollback', evidence: 'reverting the deploy restores the file' },
     },
     why_level: [risk, 'The search tool found no definition in this file, so nothing in it was checked: none of the four facts, and no test was run for it.'],
-    would_change: level === 'high' ? [{ text: 'Give the file a form the search tool reads, such as the file ending of its language, and review again', level: 'mid' }] : [],
+    would_change: [],
     watch: { signals: [], gaps: ['nothing in this file was assessed'] },
     questions: [],
     unverified: `the search tool found no definition in ${path}`,
@@ -702,16 +722,22 @@ function soleCaller(graph: Graph, node: ReviewNode): string | undefined {
 function helpersByOwner(input: CurateInput, nodes: ReviewNode[]): Map<string, ReviewNode[]> {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const parent = new Map<string, string>()
+  /** Whether `id` is already above `from`: two definitions that call each other have no owner between them. */
+  const above = (id: string, from: string): boolean => {
+    for (let up = parent.get(from); up; up = parent.get(up)) if (up === id) return true
+    return false
+  }
   for (const node of nodes) {
     const caller = soleCaller(input.graph, node)
     const owner = caller ? byId.get(caller) : undefined
-    if (!owner || owner.path !== node.path || node.kind !== 'function' || owner.kind !== 'function') continue
+    if (!owner || owner.id === node.id || owner.path !== node.path || node.kind !== 'function' || owner.kind !== 'function') continue
     if (standsAlone(node, bucketOfNode(input.triage, node)) || levelOf(owner) !== levelOf(node)) continue
+    if (above(node.id, owner.id)) continue
     parent.set(node.id, owner.id)
   }
-  const root = (id: string, seen = new Set<string>()): string => {
+  const root = (id: string): string => {
     const up = parent.get(id)
-    return up && !seen.has(up) ? root(up, seen.add(id)) : id
+    return up ? root(up) : id
   }
   const groups = new Map<string, ReviewNode[]>()
   for (const node of nodes) {

@@ -617,6 +617,8 @@ export interface NodeProof {
   stillPass: string[]
   /** The life-cycle tests among those that run through the definition: they fail once it is made to throw. */
   reachedBy: string[]
+  /** The test files that fail with the change in place and pass once it is put back: the change breaks them. */
+  brokenTests?: string[]
 }
 
 /** Which life-cycle tests run through a definition that direct tests prove: those tried, those that do, or why none could be tried. */
@@ -892,7 +894,7 @@ export interface ProofResult {
   nodes: Record<string, NodeProof>
   /** Every run that happened, in order. */
   runs: TestRun[]
-  /** Tests that fail or hang at head, before anything is changed. */
+  /** Tests that fail or hang with the change in place, before the proof alters anything. */
   findings: Finding[]
   /** Why no test ran at all. */
   refused?: string
@@ -982,8 +984,8 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
   let stopped: string | null = 'stopped' in baseline ? baseline.stopped : null
   const atHead = 'outcomes' in baseline ? baseline.outcomes : new Map<string, Outcome>()
   for (const [file, outcome] of atHead) {
-    if (outcome === 'failed') findings.push({ rule: 'failing-test', text: `${file} fails at head, before anything is changed.`, by: 'proof' })
-    if (outcome === 'timed-out') findings.push({ rule: 'test-timeout', text: `${file} did not finish within ${timeoutMs / 1000} seconds at head.`, by: 'proof' })
+    if (outcome === 'failed') findings.push({ rule: 'failing-test', text: `${file} fails here with the change in place.`, by: 'proof' })
+    if (outcome === 'timed-out') findings.push({ rule: 'test-timeout', text: `${file} did not finish within ${timeoutMs / 1000} seconds here, with the change in place.`, by: 'proof' })
   }
   if (!stopped && baselineFiles.length && !(await repo.clean({ untracked: false }))) {
     stopped = 'the tests at head changed tracked files, so later runs would not test the change.'
@@ -1004,10 +1006,30 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
     if (passing.length === 0) {
       const notRun = plan.tests.filter((test) => atHead.get(test.path) === 'not-run').map((test) => test.path)
       const failing = plan.tests.map((test) => test.path).filter((path) => !notRun.includes(path))
-      const said = [
-        failing.length ? `its tests fail or hang at head, before anything is changed: ${listed(failing)}` : '',
-        notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '',
-      ]
+      // A test that fails with the change in place is a break only when the change is why. So the failed files run
+      // once more with the definition put back: one that passes then is broken by the change, and one that still
+      // fails says nothing about it.
+      const failed = plan.tests.filter((test) => atHead.get(test.path) === 'failed')
+      let undone: Undone | null = null
+      if (node.change !== 'added' && failed.length) {
+        const ran = await runUndone({ runner, repo, head: checked.head, node, diffs, parses }, failed)
+        if ('stopped' in ran) {
+          stopped = ran.stopped
+          answers[node.id] = unknown(`tests were cut short: ${ran.stopped}`)
+          continue
+        }
+        undone = ran
+      }
+      if (undone?.passed.length) {
+        const files = listed(undone.passed)
+        const answer = unknown(`${files} ${undone.passed.length === 1 ? 'passes' : 'pass'} with ${node.symbol} put back as it was, and ${undone.passed.length === 1 ? 'fails' : 'fail'} with the change: the change breaks ${undone.passed.length === 1 ? 'it' : 'them'}.`)
+        answers[node.id] = { ...answer, brokenTests: undone.passed }
+        continue
+      }
+      let fails = ''
+      if (failing.length && undone && !undone.why) fails = `its tests fail here with the change and with it put back, so they say nothing about it: ${listed(failing)}`
+      else if (failing.length) fails = `its tests fail or hang here with the change in place, and this run could not tell whether the change is why: ${listed(failing)}`
+      const said = [fails, notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '']
       answers[node.id] = unknown(`${said.filter(Boolean).join('; ')}.`)
       continue
     }
@@ -1020,47 +1042,44 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
   return { nodes: answers, runs, findings, clean: await cleanNow() }
 }
 
-/** One node: change its file, run its passing tests, put the file back, and read what failed. */
-async function proveNode({
-  runner,
-  repo,
-  head,
-  node,
-  passing,
-  diffs,
-  doublePatterns,
-  parses,
-}: {
+interface Mutating {
   runner: Runner
   repo: GitRepo
   head: string
   node: ProofNode
-  passing: TestCandidate[]
   diffs: readonly FileDiff[]
-  doublePatterns: readonly string[]
   parses: ParseCheck
-}): Promise<{ answer: NodeProof } | { stopped: string }> {
-  const mutation = node.change === 'added' ? 'probe' : 'revert'
-  const cannot = (why: string) => ({ answer: unknown(`could not ${mutation === 'probe' ? 'make it throw' : 'put it back to base'}: ${why}`) })
+}
+
+interface Mutated {
+  /** The file as committed. */
+  text: string
+  /** The file with the mutation made. */
+  changed: string
+  /** The tests run with the file changed to `mutated`, and the file put back whatever happens. */
+  runWith: (mutated: string, tests: readonly TestCandidate[], kind: TestRun['kind']) => Promise<Ran>
+}
+
+/** A node's file ready to be changed and put back: read, mutated and checked to still parse. `why` when it cannot be. */
+async function mutate({ runner, repo, head, node, diffs, parses }: Mutating, mutation: 'probe' | 'revert'): Promise<Mutated | { why: string }> {
   const file = resolve(runner.cwd, node.path)
   try {
     // Written only where it is: a plain file, inside the checkout even once every link on the way is followed.
     if (!lstatSync(file).isFile() || !realpathSync(file).startsWith(realpathSync(runner.cwd) + sep)) {
-      return cannot(`${node.path} is not a plain file inside the checkout.`)
+      return { why: `${node.path} is not a plain file inside the checkout.` }
     }
   } catch {
-    return cannot(`${node.path} is not in the checkout.`)
+    return { why: `${node.path} is not in the checkout.` }
   }
   const original = readFileSync(file)
   const text = original.toString('utf8')
   // Decoding anything else would change more bytes than the mutation does.
-  if (!Buffer.from(text, 'utf8').equals(original)) return cannot(`${node.path} is not plain UTF-8 text, so it is not rewritten.`)
+  if (!Buffer.from(text, 'utf8').equals(original)) return { why: `${node.path} is not plain UTF-8 text, so it is not rewritten.` }
   const changed = mutation === 'probe' ? probeNode(text, node) : revertNode(text, node.lines, diffs.find((diff) => diff.path === node.path))
-  if ('why' in changed) return cannot(changed.why)
+  if ('why' in changed) return changed
   const unsafe = await parses(node.path, text, changed.text, node.language)
-  if (unsafe) return cannot(unsafe)
+  if (unsafe) return { why: unsafe }
 
-  /** The tests run with the file changed to `mutated`, and the file put back whatever happens. */
   const runWith = async (mutated: string, tests: readonly TestCandidate[], kind: TestRun['kind']): Promise<Ran> => {
     let ran: Ran
     try {
@@ -1073,7 +1092,43 @@ async function proveNode({
     const checkoutIsBack = fileIsBack && (await repo.clean({ untracked: false })) && (await repo.head()) === head
     return checkoutIsBack ? ran : { stopped: `${node.path} or the checkout did not come back exactly as it was.` }
   }
-  const ran = await runWith(changed.text, passing, mutation)
+  return { text, changed: changed.text, runWith }
+}
+
+/** What the failing tests of a definition do once it is put back as it was: those that pass, or why that was not tried. */
+interface Undone {
+  passed: string[]
+  why?: string
+}
+
+/** Runs test files that fail with the change in place once more with the definition put back to base. */
+async function runUndone(context: Mutating, failed: readonly TestCandidate[]): Promise<Undone | { stopped: string }> {
+  const made = await mutate(context, 'revert')
+  if ('why' in made) return { passed: [], why: made.why }
+  const ran = await made.runWith(made.changed, failed, 'revert')
+  if ('stopped' in ran) return ran
+  return { passed: failed.filter((test) => ran.outcomes.get(test.path) === 'passed').map((test) => test.path) }
+}
+
+/** One node: change its file, run its passing tests, put the file back, and read what failed. */
+async function proveNode({
+  runner,
+  repo,
+  head,
+  node,
+  passing,
+  diffs,
+  doublePatterns,
+  parses,
+}: Mutating & {
+  passing: TestCandidate[]
+  doublePatterns: readonly string[]
+}): Promise<{ answer: NodeProof } | { stopped: string }> {
+  const mutation = node.change === 'added' ? 'probe' : 'revert'
+  const made = await mutate({ runner, repo, head, node, diffs, parses }, mutation)
+  if ('why' in made) return { answer: unknown(`could not ${mutation === 'probe' ? 'make it throw' : 'put it back to base'}: ${made.why}`) }
+  const { text, runWith } = made
+  const ran = await runWith(made.changed, passing, mutation)
   if ('stopped' in ran) return ran
 
   // A file that failed with the change made observes it only if it passes again run alone at head: one that fails

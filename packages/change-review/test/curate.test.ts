@@ -138,7 +138,7 @@ test('a single node becomes a unit with every field, a claim title, and code tri
     source: (path, side) => (path === 'app/job.rb' && side === 'head' ? text : null),
   })
   const unit = result.units.find((item) => item.nodes.includes('round_money'))!
-  assert.equal(unit.title, '`round_money` changes behaviour, and no test shows it')
+  assert.equal(unit.title, '`round_money`: no test shows it')
   assert.equal(unit.level, 'high')
   assert.equal(unit.critical, true)
   assert.equal(unit.grouping, 'single')
@@ -154,13 +154,13 @@ test('a single node becomes a unit with every field, a claim title, and code tri
   assert.deepEqual(unit.questions, [{ text: 'Is it meant?', why: 'no description' }])
 })
 
-test('a node the map marked unverified is its own high unit with the reason', () => {
+test('a node the map marked unverified is its own unit with the reason, at least mid and never high for that alone', () => {
   const a = node('a')
   const odd = node('odd', { critical: true })
   const nodes = [a, odd]
   const result = curate({ graph: graph(nodes), triage: triageFor(nodes), diffs: diffsFor(nodes) })
   const unit = result.units.find((item) => item.nodes.includes('odd'))!
-  assert.equal(unit.level, 'high')
+  assert.equal(unit.level, 'mid')
   assert.match(unit.unverified ?? '', /critical/)
   assert.match(unit.why_level[0] ?? '', /Unverified/)
   assert.equal(result.units.find((item) => item.nodes.includes('a'))?.level, 'safe')
@@ -290,7 +290,7 @@ test('a new code file the scan found no definition in is a unit of its own that 
   assert.match(unit.code[0]?.diff ?? '', /puts Report\.new\.run/)
 })
 
-test('an unread file that changes code already there is high only where a request runs it', () => {
+test('an unread file is mid whatever it is: not having read it is no sign that it breaks, and its words say it was not checked', () => {
   const helper = node('link', { path: 'app/helpers/posts_helper.rb', ...withLevel('safe') })
   const changed = (path: string): FileDiff => ({ path, hunks: [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [' start', '-run_old', '+run_new'] }] })
   const run = (path: string, runsInRequest: boolean) => {
@@ -299,8 +299,8 @@ test('an unread file that changes code already there is high only where a reques
     return result.units.find((unit) => unit.nodes.length === 0)!
   }
   const inRequest = run('app/middleware/throttle', true)
-  assert.deepEqual([inRequest.level, inRequest.title], ['high', '`app/middleware/throttle` changed and was not checked: the search tool found no definition in it'])
-  assert.equal(inRequest.why_level[0], 'It changes code that was already there, where a request can run it, so it can break what works today.')
+  assert.deepEqual([inRequest.level, inRequest.title], ['mid', '`app/middleware/throttle` changed and was not checked: the search tool found no definition in it'])
+  assert.equal(inRequest.why_level[0], 'It changes code that was already there, where a request can run it. Nothing found says it breaks; nothing was checked either.')
   const script = run('bin/deploy-notes', false)
   assert.equal(script.level, 'mid')
   assert.equal(script.why_level[0], 'It does not run in a request, a job or a consumer.')
@@ -366,7 +366,7 @@ test('every node in one unit, worst level, same shape, parts past nine', () => {
   assert.equal(new Set(placed).size, placed.length)
 
   const rank = { safe: 0, mid: 1, high: 2 }
-  const effective = (id: string) => (id === 'bad' ? 'high' : all.find((item) => item.id === id)!.level!.current)
+  const effective = (id: string) => (id === 'bad' ? 'mid' : all.find((item) => item.id === id)!.level!.current)
   for (const unit of result.units) {
     const worst = unit.nodes.map(effective).reduce((a, b) => (rank[a as Level] >= rank[b as Level] ? a : b))
     assert.equal(unit.level, worst)
@@ -414,14 +414,14 @@ test('a unit says where it is reached from and what changed in short, plain sent
   assert.deepEqual([unitOf('count').where, unitOf('count').what], ['No route, job or command was found that leads to it.', 'Adds `count`, 2 lines.'])
 })
 
-test('a title says what proves the change in plain words, and who runs it only when a condition holds it back', () => {
+test('a title says what is known about whether the change works, and never that code changes behaviour: that is what a change is', () => {
   const titled = (proof: 'isolated' | 'lifecycle' | 'lifecycle-observed', exposure: 'everyone' | 'nobody-yet' = 'everyone') => {
     const a = node('link_user_tags', withLevel('mid', { facts: { ...node('x').facts, proof: { value: proof, evidence: '' }, exposure: { value: exposure, evidence: '' } } }))
     return curate({ graph: graph([a]), triage: triageFor([a]), diffs: [] }).units[0]!.title
   }
-  assert.equal(titled('isolated'), '`link_user_tags` changes behaviour, and tests that call it directly fail without the change')
-  assert.equal(titled('lifecycle'), '`link_user_tags` changes behaviour, and a test goes through a request to it')
-  assert.equal(titled('lifecycle-observed', 'nobody-yet'), '`link_user_tags` changes behaviour for nobody yet, and a test added with it goes through a request to it')
+  assert.equal(titled('isolated'), '`link_user_tags`: tests that call it directly fail without the change')
+  assert.equal(titled('lifecycle'), '`link_user_tags`: a test goes through a request to it')
+  assert.equal(titled('lifecycle-observed', 'nobody-yet'), '`link_user_tags` runs for nobody yet, and a test added with it goes through a request to it')
 })
 
 test('the lines of a new file that run as it loads are one unit, and its definitions stay their own', () => {
@@ -449,4 +449,29 @@ test('the lines of a new file that run as it loads are one unit, and its definit
   const changed: FileDiff = { path: 'bin/report', hunks: [{ oldStart: 2, oldLines: 2, newStart: 2, newLines: 3, lines: ['-require "yaml"', '+require "json"', '+require "time"', ' MAX_BYTES = 2'] }] }
   const existing = [loads('require json', 2), loads('require time', 3)].map((item) => ({ ...item, change: 'modified' as const }))
   assert.equal(curate({ graph: graph(existing), triage: triage([{ ...scripts, change: 'modified' }]), diffs: [changed], scannedFiles: ['bin/report'] }).units.length, 2)
+})
+
+test('a node is in one unit only: a helper folds into its only caller, and a call the scan wrote twice does not turn the caller into the helper', () => {
+  const load = node('loadOlderMessages', { path: 'app/javascript/controllers/irc_controller.js', lines: [236, 266], ...withLevel('mid') })
+  const prepend = node('prependOlderMessages', { path: load.path, lines: [268, 288], ...withLevel('mid') })
+  // The scan's two edges for one call, as stored for a real review: both run from the caller to the callee.
+  const edges: GraphEdge[] = [
+    { from: load.id, to: prepend.id, relationship: 'calls', resolution: 'exact', line: 256 },
+    { from: load.id, to: prepend.id, relationship: 'called_by', resolution: 'exact', line: 256 },
+  ]
+  const { units } = curate({ graph: graph([load, prepend], edges), triage: triageFor([load, prepend]), diffs: [] })
+  assert.deepEqual(units.map((unit) => [unit.grouping, unit.nodes]), [['definition-with-helpers', [load.id, prepend.id]]])
+  assert.deepEqual(units[0]!.members?.map((member) => member.what), ['the definition', 'a helper changed with it'])
+})
+
+test('two definitions that call each other are not each the helper of the other', () => {
+  const a = node('ping', { path: 'app/a.rb', lines: [1, 5], ...withLevel('mid') })
+  const b = node('pong', { path: 'app/a.rb', lines: [7, 11], ...withLevel('mid') })
+  const edges: GraphEdge[] = [
+    { from: a.id, to: b.id, relationship: 'calls', resolution: 'exact', line: 3 },
+    { from: b.id, to: a.id, relationship: 'calls', resolution: 'exact', line: 9 },
+  ]
+  const { units } = curate({ graph: graph([a, b], edges), triage: triageFor([a, b]), diffs: [] })
+  const seen = units.flatMap((unit) => unit.nodes)
+  assert.deepEqual([...seen].sort(), [a.id, b.id].sort(), 'each node once')
 })

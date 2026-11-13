@@ -31,10 +31,8 @@ import type {
   FileDiff,
   Graph,
   GraphEdge,
-  Level,
   ModelRunner,
   Progress,
-  Question,
   ReviewNode,
   RiskEvent,
   Scan,
@@ -299,13 +297,6 @@ function carryWords(words: StoryWords, from: readonly Unit[], to: readonly Unit[
   return { ...words, units }
 }
 
-/** The blind check's actions name units as it saw them; after reshaping, each names the unit that holds the same nodes. */
-function actionsOn(actions: readonly BlindAction[], seen: readonly Unit[], now: readonly Unit[]): BlindAction[] {
-  const keyOf = new Map(seen.map((unit) => [unit.id, unitKey(unit)]))
-  const idOf = new Map(now.map((unit) => [unitKey(unit), unit.id]))
-  return actions.map((action) => ({ ...action, unit: idOf.get(keyOf.get(action.unit) ?? '') ?? action.unit }))
-}
-
 /** What a call gave, or why it failed: a model that throws is a step not done, never a review that cannot be made. */
 async function attempt<T>(call: () => Promise<T>): Promise<{ value: T } | { failed: string }> {
   try {
@@ -314,8 +305,6 @@ async function attempt<T>(call: () => Promise<T>): Promise<{ value: T } | { fail
     return { failed: error instanceof Error ? error.message : String(error) }
   }
 }
-
-const STEP_UP: Record<Level, Level> = { safe: 'mid', mid: 'high', high: 'high' }
 
 /**
  * Reviews the change from `base` to `head`. Throws when the review cannot be made at all: the checkout cannot be
@@ -398,8 +387,6 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     })
     const bucket = bucketOf(anchor.path)
     const change = changeOf(anchor, atHead)
-    // A definition that was there at base and is still there keeps the callers it had (floor rule 4b).
-    if (change === 'modified') derived.extras.changedInPlace = true
     const kind = kindOf(anchor, testFiles.has(anchor.path))
     // A test is proof for the code it runs: what it writes or serializes is no change to rate (floor rule 2).
     if (kind === 'test') derived.extras.isTest = true
@@ -568,7 +555,6 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   halt('map-proof')
   if (proof.refused) problems.push(`Tests did not run: ${proof.refused}`)
   else if (!proof.clean) problems.push('The checkout was not clean after the test runs.')
-  const proofEvents: RiskEvent[] = []
   for (const node of nodes) {
     if (node.kind === 'test') node.facts.proof = { value: 'not-applicable', evidence: 'a test itself' }
     else if (node.kind === 'function' && node.facts.effect.value === 'text') {
@@ -579,20 +565,15 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     if (answer?.observedBy.some((path) => changedTests.includes(path))) node.extras.testChangedWithIt = true
     const mine = new Set((candidates[node.id] ?? []).map((candidate) => candidate.path))
     node.runs = proof.runs.filter((run) => run.node === node.id || (run.kind === 'baseline' && run.tests.some((test) => mine.has(test))))
-    // A test that fails at head, before anything is changed, is a finding at high. Its text starts with the test's path.
-    for (const finding of proof.findings.filter((item) => [...mine].some((path) => item.text.startsWith(`${path} `)))) {
-      node.findings.push(finding)
-      proofEvents.push({
-        node: node.id,
-        level: 'high',
-        direction: 'up',
-        aspect: 'failure',
-        evidence: finding.text,
-        rule: finding.rule,
-        by: 'proof',
-      })
+    // A test that fails with the change in place is said on the node. It is a break, and high, only when the proof
+    // showed the change is why: the test passes once the definition is put back.
+    for (const finding of proof.findings.filter((item) => [...mine].some((path) => item.text.startsWith(`${path} `)))) node.findings.push(finding)
+    if (answer?.brokenTests?.length) {
+      const files = answer.brokenTests.map((path) => `\`${path}\``).join(', ')
+      node.extras.broken = `It breaks ${files}: ${answer.brokenTests.length === 1 ? 'that test passes' : 'those tests pass'} without this change and ${answer.brokenTests.length === 1 ? 'fails' : 'fail'} with it`
+      node.findings.push({ rule: 'breaks-test', text: answer.evidence, by: 'proof' })
     }
-    // Rule 11 needs the condition on in a test that observes it, and the off path held by an unchanged life-cycle test
+    // Rule 10 needs the condition on in a test that observes it, and the off path held by an unchanged life-cycle test
     // that ran and still passed with the change undone: one never run, failing or cut short holds nothing.
     if (node.facts.exposure.value === 'nobody-yet' && answer) {
       const flags = node.conditions.map((condition) => condition.name)
@@ -610,7 +591,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   // 4. The floor: a table over the four facts.
   tracker.start('risk-floor', nodes.length, `risk-floor: the floor table over ${nodes.length} nodes`)
   const before = structuredClone(nodes)
-  let events: RiskEvent[] = [...proofEvents]
+  let events: RiskEvent[] = []
   let applied = applyRiskEvents(before, events)
   tracker.end('risk-floor')
 
@@ -673,7 +654,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   save('story-words.json', words)
   tracker.end('story')
 
-  // 8. One blind check, then rules: raise one step, ask, or note that it was told badly. Never lower, never loop.
+  // 8. One blind check, then rules: ask the reviewer, or note that it was told badly. It changes no level and never loops.
   const blind: BlindRecord = { ran: false, answer: null, check: null, actions: [], openQuestions: [] }
   halt('blind-check')
   if (!model) {
@@ -697,19 +678,11 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       blind.ran = true
       const outcome = blindActions(checked.check, units.units)
       blind.openQuestions = outcome.openQuestions
-      const old = units.units
-      events = [...events, ...outcome.events.map((event) => ({ ...event, by: 'blind-check' }))]
-      applied = applyRiskEvents(before, events)
-      const reshaped = shape(applied.nodes)
-      units = withBlindOutcome(reshaped, old, outcome)
-      // A raise can renumber the units: each action follows its nodes to the unit that holds them now.
-      blind.actions = actionsOn(outcome.actions, old, units.units)
-      words = carryWords(words, old, units.units)
+      blind.actions = outcome.actions
+      units = withBlindQuestions(units, outcome)
       story = renderStory({ triage, graph: graphOf(applied.nodes), units, words, blind: checked.check, actions: blind.actions })
       save('units.json', units)
       save('story.md', story)
-      save('story-words.json', words)
-      save('risk-events.jsonl', events.map((event) => JSON.stringify(event)).join('\n') + '\n')
       tracker.end('blind-check')
     }
   }
@@ -720,34 +693,11 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy }
 }
 
-/**
- * What the blind check leaves on the reshaped units: its questions on the unit they were asked of, and the raises it
- * decided for units that carry no node (a checked bucket), done here because no event can carry them.
- */
-function withBlindOutcome(units: Units, before: readonly Unit[], outcome: ReturnType<typeof blindActions>): Units {
-  const keyOf = new Map(before.map((unit) => [unit.id, unitKey(unit)]))
-  const answerOf = new Map(outcome.actions.map((action) => [action.unit, action.answer]))
+/** What the blind check leaves on the units: its questions, each on the unit it was asked of. It changes no level. */
+function withBlindQuestions(units: Units, outcome: ReturnType<typeof blindActions>): Units {
   const next = units.units.map((unit) => {
-    const asked = outcome.questions.filter((entry) => keyOf.get(entry.unit) === unitKey(unit)).map((entry) => entry.question)
-    const questions: Question[] = [...unit.questions, ...asked.filter((question) => !unit.questions.some((have) => have.text === question.text))]
-    const was = before.find((old) => unitKey(old) === unitKey(unit))
-    const answer = was && !unit.nodes.length ? answerOf.get(was.id) : undefined
-    // The same rules as for nodes: thin evidence raises one step; something unknown makes a safe unit mid.
-    let level = unit.level
-    if (answer === 'thin-evidence') level = STEP_UP[unit.level]
-    else if (answer === 'unknown' && unit.level === 'safe') level = 'mid'
-    if (level !== unit.level) {
-      const why = answer === 'thin-evidence' ? 'it could not be shown simply from the story' : 'something it needs is unknown'
-      return {
-        ...unit,
-        level,
-        questions,
-        reading_minutes: Math.max(unit.reading_minutes, level === 'high' ? 2 : 1),
-        why_level: [...unit.why_level, `Raised to ${level} by the blind check: ${why}.`],
-      }
-    }
-    return { ...unit, questions }
+    const asked = outcome.questions.filter((entry) => entry.unit === unit.id).map((entry) => entry.question)
+    return { ...unit, questions: [...unit.questions, ...asked.filter((question) => !unit.questions.some((have) => have.text === question.text))] }
   })
   return { ...units, units: next }
 }
-

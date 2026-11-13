@@ -30,7 +30,7 @@ Order by mode, set in triage:
 
 ## Four questions, in this order
 
-For every changed node: **what does it do, is it proven, who runs it, what undoes it.** A feature flag answers part of the last two. It is one input. A flagged change with no test through its request life cycle is `high`. A definition changed in place and proven only by tests that call it directly is `mid`.
+For every changed node: **what does it do, is it proven, who runs it, what undoes it.** A feature flag answers part of the last two. It is one input. A level is the risk that the change breaks something, and nothing else: a change no test shows, or one shown only by tests that call it directly, is `mid` and says so; `high` is for a break that is shown or named. A flag never stands in for a test.
 
 ## Track every step
 

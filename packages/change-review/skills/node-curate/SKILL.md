@@ -17,7 +17,7 @@ Counts and lookups, not judgment:
 - No node is `safe` with proof `none`, `mocked`, `isolated` or `unknown`. No node is `critical` without being `high`.
 - Scan coverage was not truncated.
 
-One failure: rebuild once. Still failing: the unit carries `unverified` with the reason and is `high`. Never drop a node to make the map tidy.
+One failure: rebuild once. Still failing: the unit carries `unverified` with the reason and is at least `mid`. Never drop a node to make the map tidy.
 
 ## No nodes
 

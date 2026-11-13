@@ -368,16 +368,11 @@ export interface FloorExtras {
   typeOnly?: boolean
   /** Rules 6 and 9: the schema change adds without constraining, rewriting or locking. */
   additiveSchema?: boolean
-  /** Rule 3 applies to code that runs in a request, job or consumer. False for test helpers, scripts and build tooling. Default true. */
+  /** Rules 5 and 6 apply to code that runs in a request, job or consumer. False for test helpers, scripts and build tooling. Default true. */
   runsInRequest?: boolean
-  /**
-   * Rule 4b: the definition was there at base and is still there, changed inside, so the way its callers use it is the
-   * way that already ran. False or absent for a new definition.
-   */
-  changedInPlace?: boolean
-  /** Rule 7: a test this diff added or changed fails without the change, so the finding "no test changed with it" does not hold. */
+  /** Rule 9: a test this diff added or changed fails without the change, so the finding "no test changed with it" does not hold. */
   testChangedWithIt?: boolean
-  /** Rule 11: a test reaches the change with the condition on. */
+  /** Rule 10: a test reaches the change with the condition on. */
   conditionOnProven?: boolean
   /** Rule 11: the off path is still proven by an unchanged test. */
   offPathProven?: boolean
@@ -398,7 +393,7 @@ export interface Floor {
   critical: boolean
   /** Why, in a plain sentence with no rule name: "No test that runs reaches these lines." The row is `rule`. */
   why: string
-  /** Rule 7 with `lifecycle` only: "behaviour changed, no test changed with it". Rule 4b: what direct tests leave unshown. */
+  /** What the row adds in words: rule 5, no test showed it; rule 6, what direct tests leave unshown; rule 9, no test changed with it. */
   finding?: Finding
 }
 
@@ -588,7 +583,7 @@ export interface BlindCheck {
 export interface BlindAction {
   unit: string
   answer: 'told-badly' | 'thin-evidence' | 'unknown'
-  /** In words: "raised to high: could not be shown simply". */
+  /** In words: "asked the reviewer: something needed is unknown". */
   did: string
 }
 

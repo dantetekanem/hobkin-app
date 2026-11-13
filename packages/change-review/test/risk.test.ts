@@ -55,14 +55,14 @@ const levelOf = (nodes: ReviewNode[], id: string) => nodes.find((n) => n.id === 
 describe('nodeLevelOf', () => {
   it('starts at the floor with its reason', () => {
     const level = nodeLevelOf(floor({ effect: 'behaviour', proof: 'none', exposure: 'everyone', undo: 'rollback' }))
-    assert.deepEqual([level.floor, level.current, level.if], ['high', 'high', []])
-    assert.equal(level.why[0], 'No test that runs reaches these lines.')
+    assert.deepEqual([level.floor, level.current, level.if], ['mid', 'mid', []])
+    assert.equal(level.why[0], 'No test that ran shows these lines work.')
   })
 })
 
 describe('applyRiskEvents', () => {
-  it('raises freely, lowers only with evidence, never below high for missing proof, and replays the same', () => {
-    const nodes = [node('a'), node('b', { proof: 'none' }), node('c', { effect: 'data' })]
+  it('raises freely, lowers only with evidence, never to safe where no test showed the change, and replays the same', () => {
+    const nodes = [node('a'), node('b', { proof: 'none' }), node('c', { effect: 'data', proof: 'none' })]
     const events: RiskEvent[] = [
       event({ node: 'a', level: 'high' }),
       event({ node: 'a', level: 'mid', direction: 'down' }),
@@ -73,21 +73,20 @@ describe('applyRiskEvents', () => {
     ]
     const first = apply(nodes, events)
     assert.equal(levelOf(first.nodes, 'a'), 'mid')
-    assert.equal(levelOf(first.nodes, 'b'), 'high')
+    assert.equal(levelOf(first.nodes, 'b'), 'mid')
     assert.equal(levelOf(first.nodes, 'c'), 'mid')
-    assert.deepEqual(first.rejected.map((r) => events.indexOf(r.event)), [1, 3, 4])
+    assert.deepEqual(first.rejected.map((r) => events.indexOf(r.event)), [1, 3])
     const second = apply(first.nodes, events)
     assert.deepEqual(second.nodes, first.nodes)
     assert.deepEqual(apply(nodes, events).nodes, first.nodes)
     assert.deepEqual(checkInvariants(first.nodes), [])
   })
 
-  it('a node that direct tests alone prove holds its floor: mid stays mid, and high stays high', () => {
-    const lower = (id: string, level: 'safe' | 'mid') => event({ node: id, level, direction: 'down', evidence_kind: 'equivalent', evidence: 'The existing request tests run the changed lines and pass.' })
-    const nodes = [node('inPlace', { proof: 'isolated', changedInPlace: true }), node('added', { proof: 'isolated' })]
-    const { nodes: after, rejected } = apply(nodes, [lower('inPlace', 'safe'), lower('added', 'mid'), event({ node: 'inPlace', level: 'high' }), lower('inPlace', 'mid')])
-    assert.deepEqual([after[0]?.level?.floor, after[0]?.level?.current, after[1]?.level?.current], ['mid', 'mid', 'high'])
-    assert.equal(rejected.length, 2)
+  it('a node that direct tests alone prove holds its floor: mid never becomes safe on an argument, and comes back to mid after a raise', () => {
+    const lower = (level: 'safe' | 'mid') => event({ node: 'direct', level, direction: 'down', evidence_kind: 'equivalent', evidence: 'The existing request tests run the changed lines and pass.' })
+    const { nodes: after, rejected } = apply([node('direct', { proof: 'isolated' })], [lower('safe'), event({ node: 'direct', level: 'high' }), lower('mid')])
+    assert.deepEqual([after[0]?.level?.floor, after[0]?.level?.current], ['mid', 'mid'])
+    assert.equal(rejected.length, 1)
     assert.match(rejected[0]?.reason ?? '', /only a test that runs lowers it/)
     assert.deepEqual(after[0]?.findings[0], { rule: 'direct-tests-only', text: 'direct tests fail without the change; no request test goes through it', by: 'floor' })
     assert.deepEqual(checkInvariants(after), [])
@@ -111,7 +110,7 @@ describe('applyRiskEvents', () => {
     ])
     assert.equal(rejected.length, 6)
     assert.match(rejected[0]?.reason ?? '', /unknown node/)
-    assert.equal(levelOf(nodes, 'a'), 'mid')
+    assert.equal(levelOf(nodes, 'a'), 'safe')
   })
 
   it('keeps critical only on high, and a node lowered from high loses it', () => {

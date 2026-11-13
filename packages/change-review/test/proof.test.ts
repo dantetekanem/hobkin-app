@@ -443,7 +443,7 @@ test('a test that fails on revert proves the definition, one that still passes d
   assert.match(answer('n4')?.evidence ?? '', /test\/shop\.test\.ts did not finish within 3 seconds when spin is put back to base/)
   assert.deepEqual(answer('n5'), { value: 'not-applicable', evidence: 'removed: there is nothing left to run.', observedBy: [], doubles: [], stillPass: [], reachedBy: [] })
 
-  assert.deepEqual(result.findings, [{ rule: 'failing-test', text: 'test/broken.test.ts fails at head, before anything is changed.', by: 'proof' }])
+  assert.deepEqual(result.findings, [{ rule: 'failing-test', text: 'test/broken.test.ts fails here with the change in place.', by: 'proof' }])
   // A run that failed says where: the places in its test files the runner named.
   const reverted = result.runs.find((run) => run.kind === 'revert' && run.node === 'n1' && run.tests.length === 1 && run.failed.length === 1)!
   assert.ok(reverted.failed_at?.length, 'the failing run names where it failed')
@@ -647,4 +647,48 @@ test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
   })
   assert.deepEqual(result.runs.map((run) => run.kind), ['baseline'])
   assert.ok(readFileSync(join(dir, 'src/latin.js')).equals(latin('2')))
+})
+
+test('a test that fails with the change is a break only when it passes with the change undone', async (t) => {
+  const dir = tempDir(t, 'proof-breaks')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  const source = (factor: number, sign: string) => `export function price(n: number): number {\n  return n * ${factor}\n}\n\nexport function label(n: number): string {\n  return \`${sign}\${n}\`\n}\n`
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'src/price.ts': source(2, '$'),
+    'test/price.test.ts': `${TEST_HEADER}import { price } from '../src/price.ts'\n\ntest('doubles', () => {\n  assert.equal(price(2), 4)\n})\n`,
+    'test/label.test.ts': `${TEST_HEADER}import { label } from '../src/price.ts'\n\ntest('was never right', () => {\n  assert.equal(label(2), 'two')\n})\n`,
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Start')
+  const base = git('rev-parse', 'HEAD')
+  writeIn(dir, { 'src/price.ts': source(3, 'USD ') })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Triple the price')
+  const head = git('rev-parse', 'HEAD')
+
+  const runbook = detectRunbook(dir)
+  assert.ok(runbook)
+  const result = await runProof({
+    cwd: dir,
+    head,
+    nodes: [
+      { id: 'n1', symbol: 'price', kind: 'function', path: 'src/price.ts', lines: [1, 3], change: 'modified' },
+      { id: 'n2', symbol: 'label', kind: 'function', path: 'src/price.ts', lines: [5, 7], change: 'modified' },
+    ],
+    candidates: { n1: [candidate('test/price.test.ts', false, false)], n2: [candidate('test/label.test.ts', false, false)] },
+    runbook,
+    diffs: await gitRepo(dir).diffs(base, head),
+    doublePatterns: DOUBLES,
+    timeoutMs: 10_000,
+  })
+
+  // The change is why price's test fails: it passes once price is put back.
+  assert.deepEqual(result.nodes.n1?.brokenTests, ['test/price.test.ts'])
+  assert.equal(result.nodes.n1?.evidence, 'test/price.test.ts passes with price put back as it was, and fails with the change: the change breaks it.')
+  // label's test fails either way, so it says nothing about the change, and is no break.
+  assert.equal(result.nodes.n2?.brokenTests, undefined)
+  assert.deepEqual([result.nodes.n2?.value, result.nodes.n2?.evidence], ['unknown', 'its tests fail here with the change and with it put back, so they say nothing about it: test/label.test.ts.'])
+  assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 })
