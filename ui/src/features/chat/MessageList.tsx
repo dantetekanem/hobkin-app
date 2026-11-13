@@ -5,9 +5,11 @@ import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { useHost } from '@/lib/host/index.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.ts'
+import { heldBy } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { nextReveal } from './stream-buffer.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
@@ -183,13 +185,21 @@ export function ShellTranscript({ message, at }: { message: unknown; at?: number
 
 const AUTHOR: Record<MessageEntry['role'], string> = { user: 'You', assistant: 'hobkin', note: 'Note' }
 
+const HELD: Record<NonNullable<ReturnType<typeof heldBy>>, string> = {
+  compacting: 'hobkin is compacting the conversation. Your message goes as soon as that ends.',
+  turn: 'hobkin is finishing its turn. Your message goes as soon as that ends.',
+}
+
 function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
   const queued = entry.state === 'queued'
+  // A message hobkin has not taken yet says what it waits behind, if anything. A message already taken never looks.
+  const sentAt = queued ? entry.at : null
+  const held = useHost((state) => (sentAt === null ? null : heldBy(state.snapshot, sentAt)))
   return (
     <>
       <div className="flex items-baseline gap-2">
         <span className="eyebrow">{AUTHOR[entry.role]}</span>
-        {queued ? <span className="eyebrow rounded-full bg-surface-2 px-1.5 py-px text-foreground">Queued</span> : null}
+        {queued ? <span className="eyebrow rounded-full bg-surface-2 px-1.5 py-px text-foreground">{held ? 'Waiting' : 'Sending'}</span> : null}
         {entry.at === null ? null : (
           <time dateTime={new Date(entry.at).toISOString()} className="text-[11px] text-muted-foreground tabular-nums">
             {clock.format(entry.at)}
@@ -216,6 +226,7 @@ function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
           {isLive(entry) ? <WritingText text={entry.text} /> : <MessageText text={entry.text} role={entry.role} />}
         </div>
       ) : null}
+      {held ? <p role="status" className="max-w-[92%] text-[12px] text-muted-foreground">{HELD[held]}</p> : null}
       {entry.images ? entry.key.startsWith('outbox:') ? <div className="text-[12px] text-muted-foreground">{entry.images === 1 ? '1 image' : `${entry.images} images`}</div> : <StoredImages messageId={entry.key} count={entry.images} /> : null}
     </>
   )

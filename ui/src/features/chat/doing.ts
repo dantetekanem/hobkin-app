@@ -13,6 +13,16 @@ export function turnStartedAt(snapshot: WireSnapshot): number | null {
   return Number.isFinite(at) ? at : null
 }
 
+/**
+ * What holds a message the user sent at `sentAt` until hobkin takes it: hobkin compacting the conversation, or a turn that began before
+ * the message. Each ends by itself, and the message goes then. Null when nothing does and only the host's answer is on its way.
+ */
+export function heldBy(snapshot: WireSnapshot, sentAt: number): 'compacting' | 'turn' | null {
+  if (snapshot.context?.compacting) return 'compacting'
+  const startedAt = turnStartedAt(snapshot)
+  return snapshot.busy && startedAt !== null && startedAt <= sentAt ? 'turn' : null
+}
+
 /** `8s`, then `1m 05s`, as the terminal app counts a turn. */
 export function elapsed(since: number, now: number): string {
   const seconds = Math.max(0, Math.floor((now - since) / 1000))
