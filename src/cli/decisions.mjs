@@ -222,6 +222,21 @@ const whereTo = ([kind, ...names], from) => {
 
 const keyOf = question => createHash('sha256').update(question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()).digest('hex').slice(0, 16);
 
+const putOffKey = question => `chat:${keyOf(question)}`;
+
+/**
+ * A question the main agent asked that the user put off, or left until its time on screen ran out. It waits in Action Items with its words and
+ * choices, and never takes the screen again. Their answer there goes to the main agent in Chat. The same words put off twice are one item.
+ */
+export const filePutOff = (root, { question, choices }, now = Date.now()) =>
+  fileRecord(root, { key: putOffKey(question), from: 'hobkin', question, choices, answerTo: { kind: 'chat' }, shown: true }, now);
+
+/** Asked again and answered when it was, the one waiting in Action Items is answered too, so it does not wait there as well. */
+export function answerPutOff(root, question, { value, typed }, now = Date.now()) {
+  const waiting = openDecisions(root).find(decision => decision.key === putOffKey(question));
+  if (waiting) answerDecision(root, waiting.id, typed ? 'typed' : value, now, { typed });
+}
+
 /** The same question twice is the worst call hobkin can make, so what was answered lately is answered. */
 function recentAnswer(root, key, now) {
   const isRemembered = ({ answeredAt }) => answeredAt && now - Date.parse(answeredAt) < REMEMBERED_MS;

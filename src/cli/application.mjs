@@ -1090,8 +1090,11 @@ export class HobkinApplication {
   /** The asker hears first, so an answer that cannot reach it stays open for another try. A merge that fails is the same: it throws, and the reason goes on screen. */
   async decide(id, value) {
     const root = this.runtime.directory;
-    const { decision: { answerTo } } = findDecision(root, id, value);
+    const { decision, choice } = findDecision(root, id, value);
+    const { answerTo } = decision;
     const result = await carryOutAnswer(root, id, { value }, this.now());
+    // A question the main agent asked and the user put off is answered here, and the main agent hears the choice in Chat, as if said there.
+    if (answerTo?.kind === 'chat') this.tellMain(decision, choice.label);
     // Doing it with hobkin hands the item to the main agent in Chat, and it stays in Action Items until it is done.
     if (result.handOff) {
       this.showRow?.({ tab: 'chat' });
@@ -1120,11 +1123,14 @@ export class HobkinApplication {
   async answerInWords(decision, words) {
     const root = this.runtime.directory;
     await carryOutAnswer(root, decision.id, { typed: words }, this.now());
-    if (!['work', 'routine', 'outside'].includes(decision.answerTo?.kind)) {
-      this.showRow?.({ tab: 'chat' });
-      void this.send(words, { ...aboutDecision(decision), id: `decision:${decision.id}`, kind: 'decision', at: decision.at }).catch(() => {});
-    }
+    if (!['work', 'routine', 'outside'].includes(decision.answerTo?.kind)) this.tellMain(decision, words);
     await this.refresh();
+  }
+
+  /** The user's answer goes to the main agent in Chat, with the question it answers. */
+  tellMain(decision, words) {
+    this.showRow?.({ tab: 'chat' });
+    void this.send(words, { ...aboutDecision(decision), id: `decision:${decision.id}`, kind: 'decision', at: decision.at }).catch(() => {});
   }
 
   /** Words typed under a question in Decisions answer that question. */

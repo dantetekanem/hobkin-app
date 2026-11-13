@@ -3,8 +3,10 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
+import { answerPutOff, filePutOff } from './decisions.mjs';
 
 const LONGEST_TYPED = 1000;
+const LATER = 'The user put this off. It waits in Action Items with its choices, and their answer comes to you in Chat. Change nothing for it until then, and do not ask it again.';
 
 const text = maxLength => Type.String({ minLength: 1, maxLength, pattern: '^[^\\x00-\\x1f\\x7f-\\x9f]+$' });
 const parameters = Type.Object({
@@ -47,12 +49,34 @@ export function readAnswers(root) {
   });
 }
 
-/** With a data root, each answer is kept there, so it outlasts the conversation that asked. */
+/** Put off, it waits in Action Items. A log that cannot be written leaves it a plain non-answer, as it was. */
+function putOff(root, request) {
+  if (!root) return { status: 'cancelled' };
+  try {
+    return { status: 'later', id: filePutOff(root, request).id, message: LATER };
+  } catch {
+    return { status: 'cancelled' };
+  }
+}
+
+/** Answered on the sheet, it leaves Action Items if it was waiting there from an earlier time it was put off. */
+function settleWaiting(root, request, { answer, typed }) {
+  try {
+    answerPutOff(root, request.question, { value: answer?.value, typed });
+  } catch {
+    // The answer still reaches the agent, and the item waits until it is answered there.
+  }
+}
+
+/**
+ * With a data root, each answer is kept there, so it outlasts the conversation that asked, and a question the user put off, or left until
+ * its time on screen ran out, waits in Action Items instead of being lost. A stopped turn is the user's own end to it, and files nothing.
+ */
 export function createQuestionTool(askQuestion, root = null) {
   return defineTool({
     name: 'ask_question',
     label: 'Ask a question',
-    description: 'Ask the user one question with selectable answers in the terminal. They can type their own answer instead, returned as `typed`, or press Esc to choose none.',
+    description: 'Ask the user one question with selectable answers. They can type their own answer instead, returned as `typed`, or put it off, returned as `later`: it then waits in Action Items, and their answer comes to you in Chat.',
     parameters,
     async execute(_id, request, signal) {
       if (!Check(parameters, request) || !request.question.trim()
@@ -63,14 +87,18 @@ export function createQuestionTool(askQuestion, root = null) {
       const selected = signal?.aborted ? null : await askQuestion?.({ ...structuredClone(request), other: true }, signal);
       let details;
       if (selected === undefined) details = { status: 'unavailable' };
-      else if (selected === null || signal?.aborted) details = { status: 'cancelled' };
+      else if (signal?.aborted) details = { status: 'cancelled' };
+      else if (selected === null) details = putOff(root, request);
       else if (selected.typed) details = { status: 'answered', typed: selected.typed };
       else {
         const answer = request.choices.find(choice => choice.value === selected);
         if (!answer) throw Error('Selected choice does not belong to this question.');
         details = { status: 'answered', answer: { ...answer } };
       }
-      if (root && details.status === 'answered') keepAnswer(root, request.question, details);
+      if (root && details.status === 'answered') {
+        keepAnswer(root, request.question, details);
+        settleWaiting(root, request, details);
+      }
       return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
     },
   });

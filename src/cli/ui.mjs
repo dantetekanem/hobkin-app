@@ -3027,7 +3027,8 @@ export function createDashboard(initial, handlers = {}, options = {}) {
       animate();
       images?.clear();
       images?.forgetPictures(attachments);
-      question?.finish(null, 'expired');
+      // A quit is no answer, and the user did not put the question off either, so whoever asked can ask again on the next start.
+      question?.finish(undefined, 'expired');
     },
     handleMouse(event) {
       if (['press', 'wheel'].includes(event.type)) sawUser();
