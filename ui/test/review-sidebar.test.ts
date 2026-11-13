@@ -29,14 +29,15 @@ const nodes = [
 test('the badge beside the title always says where the change review stands: its level, how far along it is, that it failed and why, or that there is none', () => {
   assert.deepEqual(headerBadge({ summary }, { state: 'ready', head: 'h', summary }), {
     kind: 'rated',
-    level: 'high',
-    label: 'High risk',
+    deploy: 'risky',
+    label: 'Risky to deploy',
+    why: '3 parts can break. It needs a fix, not only a look.',
+    since: null,
     critical: true,
-    counts: { high: 3, mid: 2, safe: 3 },
     again: null,
   })
   // The status carries the rating before the story is fetched.
-  assert.equal((headerBadge(null, { state: 'ready', head: 'h', summary: { ...summary, level: 'safe', critical: false } }) as { label: string }).label, 'Safe')
+  assert.equal((headerBadge(null, { state: 'ready', head: 'h', summary: { ...summary, level: 'safe', critical: false } }) as { label: string }).label, 'Safe to deploy')
   // Rated, and reviewed again at the same commit: the rating stays, and says it is being redone.
   assert.equal((headerBadge({ summary }, { state: 'running', head: 'h', percent: 41.6 }) as { again: string | null }).again, 'Reviewing again… 42%')
 
@@ -74,7 +75,7 @@ test("the panel says what the change does, the same on every step and short, the
     ],
   )
   assert.deepEqual(matters.units[0], { key: 'u1', text: unit('u1').title, level: 'high', critical: true, step: 1, node: 'n5', asks: unitAsk(unit('u1')) })
-  assert.match(unitAsk(unit('u1')), /^About "round_money changes its rounding mode for every caller, flag on or off": why is it high risk, and what should I check first\?$/)
+  assert.match(unitAsk(unit('u1')), /^About "round_money changes its rounding mode for every caller, flag on or off": what breaks here, and how would I see it\?$/)
   // The questions are read on their steps: the panel only says how many are open, and where the first one is.
   assert.deepEqual(matters.questions, { count: 3, step: 1 })
 
@@ -95,9 +96,9 @@ test("the panel says what the change does, the same on every step and short, the
 test("the box shows a concrete example of what to ask: the question of the step's unit, else why it has its level, else about its node", () => {
   assert.equal(askExample(steps[1], units.units, nodes, undefined), unit('u1').questions[0]!.text)
   // u3 has no question: why it has its level.
-  assert.equal(askExample({ ...steps[1]!, unit: 'u3' }, units.units, nodes, undefined), 'Why is this step high risk?')
+  assert.equal(askExample({ ...steps[1]!, unit: 'u3' }, units.units, nodes, undefined), 'What breaks in this step, and how would I see it?')
   // A step the host rated without a unit asks about its own level.
-  assert.equal(askExample({ ...steps[2]!, focus: [], level: 'safe' }, units.units, nodes, undefined), 'Why is this step safe?')
+  assert.equal(askExample({ ...steps[2]!, focus: [], level: 'safe' }, units.units, nodes, undefined), 'What does this step change, and is it tested?')
   assert.equal(askExample(steps[0], null, nodes, { title: 'doingAfter', kind: 'code' }), 'What does doingAfter do, and what calls it?')
   assert.equal(askExample(steps[0], null, nodes, { title: 'A test that names a very long behaviour in words', kind: 'test' }), 'What does this test prove, and what does it miss?')
   assert.equal(askExample(undefined, null, [], undefined), 'What does this step change, and how is it tested?')

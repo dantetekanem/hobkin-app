@@ -104,32 +104,27 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
 }
 
 /**
- * The change's overall risk, as one badge under the title, which is always there. Rated: High risk, Mid risk or Safe,
- * Critical beside it when something is, and how many units sit at each level, in small words under it. Under way: how
+ * The review's one answer for the whole change, as a badge under the title, which is always there. Rated: Risky to
+ * deploy or Safe to deploy, Critical beside it when something is, and why in a sentence under it. Under way: how
  * far along it is, the badge filling as it goes, and what it is doing. Failed: why, in plain words, and a way to try
  * again. None: "Not reviewed". A change that merged says "Merged" beside it, whatever it says.
  */
 function Risk({ badge, live, merged, rebuild }: { badge: HeaderBadge; live: boolean; merged: boolean; rebuild: () => void }) {
   const landed = merged ? <MergedChip /> : null
   if (badge.kind === 'rated') {
-    const { counts } = badge
     return (
       <div className="mt-2 flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="rv-risk" data-level={badge.level} title="The change review's rating of the whole change">
+          <span className="rv-risk" data-level={badge.deploy === 'risky' ? 'high' : 'safe'} title="The review's answer for the whole change">
             {badge.label}
           </span>
           {badge.critical ? <span className="rv-risk rv-risk-critical">Critical</span> : null}
           {landed}
         </div>
-        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-heading text-[12.5px] font-semibold text-muted-foreground tabular-nums" aria-label={`${counts.high} high, ${counts.mid} mid and ${counts.safe} safe units`}>
-          {(['high', 'mid', 'safe'] as const).map((level) => (
-            <span key={level} className="rv-count" data-level={level} data-none={counts[level] === 0}>
-              {counts[level]} {level}
-            </span>
-          ))}
-          {badge.again ? <span className="font-sans font-normal">{badge.again}</span> : null}
-        </p>
+        {/* Why, for the whole change. What a part is shows on the part; risk is said here only. */}
+        <p className="text-[13.5px] leading-snug text-pretty [overflow-wrap:anywhere]">{badge.why}</p>
+        {badge.since ? <p className="text-[12.5px] leading-snug text-pretty text-muted-foreground [overflow-wrap:anywhere]">{badge.since}</p> : null}
+        {badge.again ? <p className="text-[12.5px] text-muted-foreground">{badge.again}</p> : null}
       </div>
     )
   }

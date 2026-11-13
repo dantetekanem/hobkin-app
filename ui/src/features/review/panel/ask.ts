@@ -8,7 +8,7 @@ import type { StoreApi } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import type { Level, Unit } from '#shared/review/assessment.ts'
 import { useView } from '../../../app/view-store.ts'
-import { RISK_WORDS, type StepUnit } from '../reading/model.ts'
+import { PART_WORDS, type StepUnit } from '../reading/model.ts'
 import type { MemoryState } from '../state/memory.ts'
 import type { SessionStore } from '../state/session.ts'
 
@@ -41,12 +41,12 @@ export function questionAsk(unit: Pick<StepUnit, 'title'>, question: { text: str
 
 /** What would change a unit's level, asked of hobkin as a way to get there. */
 export function changeAsk(unit: Pick<StepUnit, 'title'>, change: { text: string; level: Level }): string {
-  return `${about(unit)}the change review says this would make it ${RISK_WORDS[change.level].toLowerCase()}: ${sentence(change.text)} How would we do it?`
+  return `${about(unit)}the change review says this would leave it ${PART_WORDS[change.level].toLowerCase()}: ${sentence(change.text)} How would we do it?`
 }
 
-/** A unit that needs a look, asked of hobkin: why it has its level, and where to look. */
+/** A unit that needs a look, asked of hobkin: what breaks, or what no test showed, and where to look. */
 export function unitAsk(unit: Pick<Unit, 'title' | 'level'>): string {
-  return `${about(unit)}why is it ${RISK_WORDS[unit.level].toLowerCase()}, and what should I check first?`
+  return unit.level === 'high' ? `${about(unit)}what breaks here, and how would I see it?` : `${about(unit)}what did the tests not show here, and what should I check first?`
 }
 
 /**

@@ -42,9 +42,9 @@ test("a quick Ask link sends the unit's question, or what would change its level
   const change = changeAsk(unit, unit.wouldChange[1]!)
   assert.equal(
     change,
-    'About "round_money changes its rounding mode for every caller, flag on or off": the change review says this would make it safe: Also branch on `:per_line_tax_rounding` at `round_money:35`, keeping the old line as the flag-off path. How would we do it?',
+    'About "round_money changes its rounding mode for every caller, flag on or off": the change review says this would leave it shown to work: Also branch on `:per_line_tax_rounding` at `round_money:35`, keeping the old line as the flag-off path. How would we do it?',
   )
-  assert.match(changeAsk(unit, unit.wouldChange[0]!), /would make it mid risk: Add a job test/)
+  assert.match(changeAsk(unit, unit.wouldChange[0]!), /would leave it not shown by a test: Add a job test/)
   // Words that end without a stop get one, and a unit with no claim is asked about as it is.
   assert.equal(questionAsk({}, { text: 'Who reads the old key' }), 'Who reads the old key.')
 

@@ -5,19 +5,20 @@
  * never again here (the user, 2026-11-12: "step is just duplicating side bar", "Sidebar should be a constant
  * explanation of what this does. not long."). Nothing here draws, so all of it can be tested without a screen.
  */
-import type { AssessmentStatus, ChangeAssessment, Level, Unit } from '#shared/review/assessment.ts'
+import type { AssessmentStatus, ChangeAssessment, Deploy, Level, Unit } from '#shared/review/assessment.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewLevel, ReviewNode, StoryStep } from '#shared/review/types.ts'
-import { changeDescription, RISK_WORDS, riskBadge, unitInFocus } from '../reading/model.ts'
+import { changeDescription, riskBadge, unitInFocus } from '../reading/model.ts'
 import { unitAsk } from './ask.ts'
 
 /**
- * The badge beside the title, which is always there. `rated`: the change review's level, whether anything is
- * critical, and how many units sit at each level, with `again` while it is reviewed once more. `reviewing`: none yet,
+ * The badge beside the title, which is always there. `rated`: the review's one answer for the whole change, risky or
+ * safe to deploy, why, what happened since the review before it, and whether anything is critical, with `again` while
+ * it is reviewed once more. `reviewing`: none yet,
  * how far along the first one is and what it is doing. `failed`: it stopped, and why. `none`: there is none.
  */
 export type HeaderBadge =
-  | { kind: 'rated'; level: Level; label: string; critical: boolean; counts: Record<Level, number>; again: string | null }
+  | { kind: 'rated'; deploy: Deploy; label: string; why: string; since: string | null; critical: boolean; again: string | null }
   | { kind: 'reviewing'; label: string; percent: number | null; now: string | null }
   | { kind: 'failed'; label: string; reason: string }
   | { kind: 'none'; label: string }
@@ -28,8 +29,8 @@ const percentOf = (status: AssessmentStatus | null | undefined) => (status?.stat
 export function headerBadge(assessment: Pick<ChangeAssessment, 'summary'> | null | undefined, status: AssessmentStatus | null | undefined): HeaderBadge {
   const badge = riskBadge(assessment, status)
   if (badge?.kind === 'rated') {
-    const { level, label, critical, counts } = badge
-    return { kind: 'rated', level, label, critical, counts, again: badge.again ? `Reviewing again…${percentOf(status)}` : null }
+    const { deploy, label, why, since, critical } = badge
+    return { kind: 'rated', deploy, label, why, since, critical, again: badge.again ? `Reviewing again…${percentOf(status)}` : null }
   }
   if (badge?.kind === 'rating') {
     const { percent } = badge
@@ -153,7 +154,7 @@ export function askExample(step: StoryStep | undefined, units: readonly Unit[] |
   const question = unit?.questions[0]?.text.trim()
   if (question && question.length <= 110) return question
   const level: ReviewLevel | undefined = unit?.level ?? step?.level
-  if (level) return `Why is this step ${RISK_WORDS[level].toLowerCase()}?`
+  if (level) return level === 'high' ? 'What breaks in this step, and how would I see it?' : 'What does this step change, and is it tested?'
   switch (on?.kind) {
     case 'test':
       return 'What does this test prove, and what does it miss?'

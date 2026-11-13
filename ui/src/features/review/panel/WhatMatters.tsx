@@ -1,6 +1,5 @@
 import { ChevronRight, CircleHelp } from 'lucide-react'
 import { useState } from 'react'
-import type { Level } from '#shared/review/assessment.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { useSessionStore } from '../state/context.tsx'
 import { AskLink } from './AskLink.tsx'
@@ -10,8 +9,6 @@ import type { UnitMatter, WhatMatters as Matters } from './sidebar.ts'
 const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
 /** How many units show before "more", so the panel stays short. */
 const SHOWN = 4
-/** A level in a line of the list, where the whole words do not fit. */
-const LEVEL: Record<Level, string> = { high: 'High', mid: 'Mid', safe: 'Safe' }
 
 /**
  * Under the panel's header, the same on every step (the user, 2026-11-12: "Sidebar should be a constant explanation
@@ -57,10 +54,13 @@ export function WhatMatters({ matters, ask }: { matters: Matters; ask: ((text: s
                     onClick={() => go(unit)}
                     className="rv-matter flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left"
                   >
-                    <span className="rv-level shrink-0" data-level={unit.level} data-critical={unit.critical}>
-                      {LEVEL[unit.level]}
-                      {unit.critical ? <span className="sr-only">, critical</span> : null}
-                    </span>
+                    {/* Only a part that can break is marked. The rest are worth a look, and say why in their own words. */}
+                    {unit.level === 'high' ? (
+                      <span className="rv-level shrink-0" data-level="high" data-critical={unit.critical}>
+                        Breaks
+                        {unit.critical ? <span className="sr-only">, and needs a fix</span> : null}
+                      </span>
+                    ) : null}
                     <span className="min-w-0 flex-1 truncate text-[14px]">
                       <InlineCode text={unit.text} />
                     </span>

@@ -1,5 +1,4 @@
 import { Braces, Check, CircleCheck, CircleDashed, FileText, FlaskConical, Minus, Plus, ShieldCheck, Target, Trash2, TriangleAlert, Wrench, X, type LucideIcon } from 'lucide-react'
-import { LEVEL_WORDS } from '#shared/review/assessment.ts'
 import type { NodeKind, ReviewLevel, ReviewNode } from '#shared/review/types.ts'
 
 /** Kinds are told apart by icon and word first, and by color second. */
@@ -43,12 +42,17 @@ export function needsALook(node: Pick<ReviewNode, 'status'>): boolean {
   return node.status === 'unproven' || node.status === 'failed'
 }
 
-/** The change review's level, as a word on its color (`.rv-level`): High risk, Mid risk or Safe. On a card it sits on the top edge. */
+/**
+ * The mark on a part of the change that can break: the one thing a reviewer must find. Risk itself is the whole
+ * change's and is said once, in the header, so a part that only was not shown by a test, or is shown to work, carries
+ * no mark at all. On a card it sits on the top edge (`.rv-level`).
+ */
 export function LevelBadge({ level, critical = false, size }: { level: ReviewLevel; critical?: boolean; size?: 'large' }) {
+  if (level !== 'high') return null
   return (
-    <span className="rv-level shrink-0" data-level={level} data-size={size} title={`The change review: ${LEVEL_WORDS[level].toLowerCase()}${critical ? ', and critical' : ''}`}>
-      {LEVEL_WORDS[level]}
-      {critical ? ' · critical' : ''}
+    <span className="rv-level shrink-0" data-level={level} data-size={size} title={critical ? 'The review found a break here that needs a fix' : 'The review found something here that can break'}>
+      Can break
+      {critical ? ' · needs a fix' : ''}
     </span>
   )
 }

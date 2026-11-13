@@ -34,11 +34,13 @@ test("the sidebar tells what the change does in one paragraph that never changes
   assert.equal(changeDescription({ ...sample, summary: ` ${sample.change.title} ` }, null), null)
 })
 
-test('the overall risk is one badge: High risk, Mid risk or Safe, whether it is critical, and how many units sit at each level', () => {
-  assert.deepEqual(riskBadge(finished(), { state: 'ready', head: 'h', summary }), { kind: 'rated', level: 'high', label: 'High risk', critical: true, counts: { high: 3, mid: 2, safe: 3 }, again: false })
+test('the review gives one answer for the whole change: risky or safe to deploy, why, and whether it is critical', () => {
+  assert.deepEqual(riskBadge(finished(), { state: 'ready', head: 'h', summary }), { kind: 'rated', deploy: 'risky', label: 'Risky to deploy', why: '3 parts can break. It needs a fix, not only a look.', since: null, critical: true, again: false })
   const mid = { ...summary, level: 'mid', critical: false, needsYou: 0 } as const
-  assert.deepEqual(riskBadge(null, { state: 'ready', head: 'h', summary: mid }), { kind: 'rated', level: 'mid', label: 'Mid risk', critical: false, counts: { high: 0, mid: 2, safe: 3 }, again: false }, 'the status carries it before the story is fetched')
-  assert.equal((riskBadge({ summary: { ...mid, level: 'safe', worthALook: 0 } }, null) as { label: string }).label, 'Safe')
+  assert.deepEqual(riskBadge(null, { state: 'ready', head: 'h', summary: mid }), { kind: 'rated', deploy: 'safe', label: 'Safe to deploy', why: 'Nothing found that breaks. 2 parts were not shown working by a test that ran.', since: null, critical: false, again: false }, 'what no test showed is no risk, and the status carries the answer before the story is fetched')
+  const after = riskBadge(null, { state: 'ready', head: 'abc1234def', summary: { ...mid, before: { head: 'abc1234def', deploy: 'risky', at: '2026-11-12T09:00:00.000Z' } } }) as { since: string | null }
+  assert.equal(after.since, 'Reviewed again at the same commit, abc1234: no code changed since the last review. The answer went from risky to deploy to safe to deploy.')
+  assert.equal((riskBadge({ summary: { ...mid, level: 'safe', worthALook: 0 } }, null) as { label: string }).label, 'Safe to deploy')
   // Reviewed again at the same commit: the last rating stays, marked as being redone.
   assert.equal((riskBadge(finished(), { state: 'running', head: 'h', percent: 30 }) as { again: boolean }).again, true)
   // Not rated yet: how far along it is, or why it stopped.
@@ -73,7 +75,7 @@ test('the code panel explains the unit of the node it shows, or else the most wo
   assert.equal(unitInFocus(null, nodes, null), undefined, 'a review with no change review has none')
 })
 
-test("a running change review's progress comes with the status the screen already asks for, and its story is fetched once it is ready", async () => {
+test('a review whose change review is still running shows its progress, and opens only once that is ready: never half made', async () => {
   const review = { ...sample, id: 'change:project:item' } as Review
   const ready = finished()
   let now: AssessmentStatus = { state: 'running', head: review.change.head, percent: 40, now: 'mapping the change' }
@@ -89,20 +91,21 @@ test("a running change review's progress comes with the status the screen alread
   const gets = () => calls.filter((name) => name === 'review.get').length
 
   await loader.load()
-  assert.equal(loader.getState().assessment, null)
+  assert.deepEqual([loader.getState().status, loader.getState().review], ['preparing', null], 'its map is drawn, and it is not a review yet')
   assert.equal(loader.getState().preparation?.assessment?.percent, 40)
 
   now = { ...now, percent: 80, now: 'running the tests' }
-  await loader.check()
+  await loader.load()
   assert.deepEqual([loader.getState().preparation?.assessment?.percent, loader.getState().preparation?.assessment?.now], [80, 'running the tests'])
-  assert.equal(gets(), 1, 'progress needs nothing but the status')
+  assert.equal(gets(), 0, 'progress needs nothing but the status')
 
   now = { state: 'ready', head: review.change.head, summary }
-  await loader.check()
+  await loader.load()
+  assert.equal(loader.getState().status, 'ready')
   assert.equal(loader.getState().assessment?.story, story)
   await loader.check()
   await loader.check()
-  assert.equal(gets(), 2, 'the story is fetched once, when it is ready, and not again')
+  assert.equal(gets(), 1, 'the finished review is fetched once, when it is ready, and not again')
   loader.dispose()
 })
 

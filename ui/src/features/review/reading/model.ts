@@ -3,11 +3,14 @@
  * and the unit of what is in focus, which the code panel explains beside its code. Nothing here draws, so all of it
  * can be tested without a screen.
  */
-import type { AssessmentStatus, ChangeAssessment, Level, Unit } from '#shared/review/assessment.ts'
+import { DEPLOY_WORDS, deployOf, deployWhy, sinceLastReview, type AssessmentStatus, type ChangeAssessment, type Deploy, type Level, type Unit } from '#shared/review/assessment.ts'
 import type { Review, ReviewLevel } from '#shared/review/types.ts'
 
-/** The overall risk of a change, as its badge says it. */
-export const RISK_WORDS: Record<Level, string> = { high: 'High risk', mid: 'Mid risk', safe: 'Safe' }
+/**
+ * What a part of the change is, said of the part and never as a risk of its own: risk is the whole change's, and the
+ * header says it once. A part can break, was not shown by a test, or is shown to work.
+ */
+export const PART_WORDS: Record<Level, string> = { high: 'Can break', mid: 'Not shown by a test', safe: 'Shown to work' }
 
 /** What the code panel says about a unit (`packages/change-review`, its `units.json`), in the screen's words. */
 export interface StepUnit {
@@ -44,12 +47,14 @@ export function changeDescription(review: Pick<Review, 'summary' | 'change'>, as
 }
 
 /**
- * The overall risk badge. `rated`: the change review's level, whether anything is critical, and how many units sit at
- * each level, `again` while it is reviewed once more. `rating`: none yet, and how far along the first one is.
- * `failed`: it stopped, and why. Null when no change review is coming, as for a pull request.
+ * The review's one answer for the whole change, as the badge under the title. `rated`: risky or safe to deploy, why,
+ * what happened since the review before this one when there was one, and whether anything is critical; `again` while
+ * it is reviewed once more. `rating`: none yet, and how far along the first one is. `failed`: it stopped, and why.
+ * Null when no change review is coming, as for a pull request nobody asked to review. Risk is said here, once, for the
+ * change: a node or a step has none of its own.
  */
 export type RiskBadge =
-  | { kind: 'rated'; level: Level; label: string; critical: boolean; counts: Record<Level, number>; again: boolean }
+  | { kind: 'rated'; deploy: Deploy; label: string; why: string; since: string | null; critical: boolean; again: boolean }
   | { kind: 'rating'; percent: number | null; now: string | null; queued: boolean }
   | { kind: 'failed'; error: string | null }
 
@@ -57,14 +62,8 @@ export function riskBadge(assessment: Pick<ChangeAssessment, 'summary'> | null |
   const summary = assessment?.summary ?? (status?.state === 'ready' ? status.summary : undefined)
   const underWay = status?.state === 'queued' || status?.state === 'running'
   if (summary) {
-    return {
-      kind: 'rated',
-      level: summary.level,
-      label: RISK_WORDS[summary.level],
-      critical: summary.critical,
-      counts: { high: summary.needsYou, mid: summary.worthALook, safe: summary.safe },
-      again: underWay,
-    }
+    const deploy = deployOf(summary)
+    return { kind: 'rated', deploy, label: DEPLOY_WORDS[deploy], why: deployWhy(summary), since: sinceLastReview(summary, status?.head), critical: summary.critical, again: underWay }
   }
   if (underWay) {
     return { kind: 'rating', percent: status.state === 'running' && status.percent != null ? Math.round(status.percent) : null, now: status.now ?? null, queued: status.state === 'queued' }

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils.ts'
 import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 import { changeAsk, questionAsk } from '../panel/ask.ts'
 import { AskLink } from '../panel/AskLink.tsx'
-import { RISK_WORDS, type StepUnit } from '../reading/model.ts'
+import { PART_WORDS, type StepUnit } from '../reading/model.ts'
 
 const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
 const TONE = { ok: 'text-ok-fg', bad: 'text-bad-fg', quiet: 'text-muted-foreground' } as const
@@ -51,7 +51,7 @@ export function Explanation({ unit, node, ask }: {
       />
       <Part
         title="What would change it"
-        items={unit.wouldChange.map((change, index) => ({ key: `change${index}`, text: change.text, after: `Then ${RISK_WORDS[change.level].toLowerCase()}`, asks: changeAsk(unit, change) }))}
+        items={unit.wouldChange.map((change, index) => ({ key: `change${index}`, text: change.text, after: `Then ${PART_WORDS[change.level].toLowerCase()}`, asks: changeAsk(unit, change) }))}
         ask={ask}
       />
       {unit.facts.length > 0 ? (
