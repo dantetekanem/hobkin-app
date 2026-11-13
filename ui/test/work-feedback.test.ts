@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict'
-import { afterEach, test } from 'node:test'
-import { runWork, useWorkUi } from '../src/features/work/store.ts'
-import { agentControls, useAgentControl } from '../src/app/running-agents.ts'
+import { registerHooks } from 'node:module'
+import { after, afterEach, test } from 'node:test'
 import { HostConnection } from '../src/lib/host/connection.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+
+const aliases = registerHooks({
+  resolve(specifier, context, next) {
+    return next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context)
+  },
+})
+after(() => aliases.deregister())
+const { runWork, useWorkUi } = await import('../src/features/work/store.ts')
+const { agentControls, useAgentControl } = await import('../src/app/running-agents.ts')
 
 function deferred<T>() {
   let resolve!: (value: T) => void
