@@ -85,8 +85,8 @@ export interface ReviewsOptions {
    * tells it once it is ready instead, and a review the background prepared on its own is not told at all.
    */
   onReady?: (ready: { target: ReviewTarget; review: Review; at: string }) => void
-  /** Hears that a verdict merged something, a pull request on GitHub or a finished change, so what the lists show of it is read again at once. */
-  onMerged?: () => void
+  /** Hears that a verdict merged something, a pull request on GitHub or a finished change, so it leaves what the lists show at once. */
+  onMerged?: (target: ReviewTarget) => void
   /** What a review is about before its file can say: a finished change's title and project, as the Work screen has them. */
   describe?: (target: ReviewTarget) => { title: string; project: string } | null
   /**
@@ -926,7 +926,7 @@ export class Reviews {
   /** Tells the host something merged. What it does next never undoes the merge. */
   private merged(id: string) {
     try {
-      this.options.onMerged?.()
+      this.options.onMerged?.(this.target(id))
     } catch (error) {
       this.options.log?.(`Review ${id}: what follows its merge failed: ${messageOf(error)}`)
     }

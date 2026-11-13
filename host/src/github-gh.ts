@@ -23,7 +23,7 @@ export const GH_QUERY = [
   search('authored', 'is:issue is:open author:@me', 'issue'),
   '}',
   'fragment pull on PullRequest {',
-  '  number title url updatedAt isDraft reviewDecision additions deletions changedFiles',
+  '  number title url updatedAt state isDraft reviewDecision additions deletions changedFiles',
   '  repository { nameWithOwner }',
   '  author { login }',
   '  labels(first: 10) { nodes { name } }',
@@ -32,7 +32,7 @@ export const GH_QUERY = [
   '  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }',
   '}',
   'fragment issue on Issue {',
-  '  number title url updatedAt',
+  '  number title url updatedAt state',
   '  repository { nameWithOwner }',
   '  labels(first: 10) { nodes { name } }',
   '}',
@@ -208,6 +208,9 @@ export function readAnswer(stdout: string): GitHubRead {
   const assigned = searchOf('assigned')
   const authored = searchOf('authored')
 
+  // GitHub's search can go on listing a pull request or an issue for a moment after it merged or closed. What it says
+  // of each one is believed over the list it came in. An answer with no state on it reads as open, as before.
+  const open = (nodes: unknown[]) => nodes.filter((node) => [undefined, null, 'OPEN'].includes(at(node, 'state') as string | undefined | null))
   const more = ({ nodes, count }: { nodes: unknown[]; count: unknown }) => typeof count === 'number' && count > nodes.length
   const pullsOf = (nodes: unknown[]) => newestFirst(nodes.map(pullOf).filter((pull): pull is GitHubPull => pull !== null))
 
@@ -215,9 +218,9 @@ export function readAnswer(stdout: string): GitHubRead {
     found: 'connected',
     login,
     lists: {
-      reviews: pullsOf(reviews.nodes),
-      pulls: pullsOf(pulls.nodes),
-      issues: issuesOf(assigned.nodes, authored.nodes),
+      reviews: pullsOf(open(reviews.nodes)),
+      pulls: pullsOf(open(pulls.nodes)),
+      issues: issuesOf(open(assigned.nodes), open(authored.nodes)),
       more: { reviews: more(reviews), pulls: more(pulls), issues: more(assigned) || more(authored) },
     },
     note: problem ? `GitHub left some results out: ${problem}` : null,

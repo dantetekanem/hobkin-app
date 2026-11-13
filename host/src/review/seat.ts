@@ -48,8 +48,8 @@ export interface ReviewSeat {
    * sample change, as the GitHub page shows sample data.
    */
   gh?: GhCall
-  /** Something merged on the user's word: GitHub's lists are read again at once, so a merged pull request and its issue leave them. */
-  merged?: () => void
+  /** Something merged on the user's word: its pull request leaves GitHub's lists at once, and they are read again, so the issue it fixed leaves too. */
+  merged?: (pull: { repo?: string; number?: number; url?: string }) => void
   log?: (line: string) => void
 }
 
@@ -144,7 +144,9 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       return mergePlan({ repo, into: await intoOf(repo), reviewed, current: tip ?? current, pr })
     },
     onReady: ({ target, review, at }) => void tell?.({ id: reviewIdOf(target), kind: target.kind, title: review.change.title, project: review.change.project, head: review.change.head, at }),
-    ...(seat.merged ? { onMerged: seat.merged } : {}),
+    ...(seat.merged
+      ? { onMerged: (target: ReviewTarget) => seat.merged!(target.kind === 'pull' ? { repo: `${target.owner}/${target.repo}`, number: target.number } : { url: find(target.slug, target.item)?.pr ?? undefined }) }
+      : {}),
     store,
     sources: {
       change: changeSource({

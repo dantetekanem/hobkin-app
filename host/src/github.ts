@@ -23,7 +23,11 @@ export interface GitHubSource {
 }
 
 /** How often it reads again by itself. */
-export const GITHUB_EVERY_MS = 5 * 60_000
+export const GITHUB_EVERY_MS = 60_000
+/** How long after something merged or closed GitHub is read once more: its search takes a moment to follow. */
+const READ_AGAIN_MS = 10_000
+/** How long what the host heard has merged or closed stays out of the lists, whatever GitHub's search still says. */
+const GONE_FOR_MS = 5 * 60_000
 
 export interface GitHubOptions {
   source: GitHubSource
@@ -83,7 +87,10 @@ export class GitHub {
   private current: GitHubState
   private running: Promise<GitHubState> | null = null
   private timer: ReturnType<typeof setInterval> | null = null
-  private closed = false
+  private isClosed = false
+  /** What the host heard has merged or closed, by address, and until when it stays out of the lists. */
+  private readonly gone = new Map<string, number>()
+  private readonly again = new Set<ReturnType<typeof setTimeout>>()
   private readonly options: GitHubOptions
 
   constructor(options: GitHubOptions) {
@@ -97,7 +104,7 @@ export class GitHub {
 
   /** Reads now, then again every few minutes while someone is looking. */
   start(): void {
-    if (this.closed || this.timer) return
+    if (this.isClosed || this.timer) return
     void this.refresh()
     this.timer = setInterval(() => {
       if (this.options.wanted?.() ?? true) void this.refresh()
@@ -108,7 +115,7 @@ export class GitHub {
 
   /** Reads GitHub again. A read already under way answers this one too, so there is never more than one at a time. */
   refresh(): Promise<GitHubState> {
-    if (this.closed) return Promise.resolve(this.current)
+    if (this.isClosed) return Promise.resolve(this.current)
     if (!this.running) {
       this.running = this.read().finally(() => {
         this.running = null
@@ -118,10 +125,46 @@ export class GitHub {
     return this.running
   }
 
+  /**
+   * A pull request or an issue has merged or closed, as the host itself just saw: it leaves the lists now, and stays
+   * out while GitHub's search catches up. GitHub is read again at once and once more a little later. It is named by
+   * its repository and number, or by its address.
+   */
+  closed(what: { repo?: string; number?: number; url?: string }): void {
+    if (this.isClosed) return
+    const matches = (row: { repo: string; number: number; url: string }) => (what.url ? row.url === what.url : row.repo.toLowerCase() === what.repo?.toLowerCase() && row.number === what.number)
+    for (const row of [...this.current.reviews, ...this.current.pulls, ...this.current.issues]) if (matches(row)) this.gone.set(row.url, Date.now() + GONE_FOR_MS)
+    if (what.url) this.gone.set(what.url, Date.now() + GONE_FOR_MS)
+    this.change(this.withoutGone(this.current))
+    this.readSoon()
+  }
+
+  /** Reads GitHub now and once more a little later, as after anything that may have merged or closed something. */
+  readSoon(): void {
+    if (this.isClosed) return
+    void this.refresh()
+    const timer = setTimeout(() => {
+      this.again.delete(timer)
+      void this.refresh()
+    }, READ_AGAIN_MS)
+    timer.unref?.()
+    this.again.add(timer)
+  }
+
+  /** The lists without what the host heard has merged or closed. */
+  private withoutGone<Lists extends Pick<GitHubState, 'reviews' | 'pulls' | 'issues'>>(lists: Lists): Pick<GitHubState, 'reviews' | 'pulls' | 'issues'> {
+    const now = Date.now()
+    for (const [url, until] of this.gone) if (until <= now) this.gone.delete(url)
+    const here = <Row extends { url: string }>(rows: Row[]) => (this.gone.size ? rows.filter((row) => !this.gone.has(row.url)) : rows)
+    return { reviews: here(lists.reviews), pulls: here(lists.pulls), issues: here(lists.issues) }
+  }
+
   close(): void {
-    this.closed = true
+    this.isClosed = true
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    for (const timer of this.again) clearTimeout(timer)
+    this.again.clear()
   }
 
   private async read(): Promise<GitHubState> {
@@ -132,10 +175,13 @@ export class GitHub {
       const said = error instanceof Error ? error.message : String(error)
       outcome = { found: 'failed', message: `Could not read GitHub: ${plainWords(said)}` }
     }
-    if (this.closed) return this.current
+    if (this.isClosed) return this.current
 
     if (outcome.found === 'failed') this.options.log?.(`GitHub: ${outcome.message}`)
-    this.change({ ...changesFrom(outcome, new Date().toISOString()), refreshing: false })
+    const read = changesFrom(outcome, new Date().toISOString())
+    // What the host heard has merged or closed stays out, even when GitHub's search still lists it.
+    const lists = read.pulls ? this.withoutGone({ reviews: read.reviews ?? [], pulls: read.pulls, issues: read.issues ?? [] }) : {}
+    this.change({ ...read, ...lists, refreshing: false })
     return this.current
   }
 

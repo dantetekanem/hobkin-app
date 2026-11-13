@@ -238,7 +238,7 @@ function pullSeat(
     gh,
     // What moved since the review, as a checkout of the pull request would say it.
     ...(moved ? { pullMoved: async () => moved } : {}),
-    onMerged: () => merges.push(calls.length),
+    onMerged: (target) => merges.push(target.kind === 'pull' ? target.number : 0),
     now: () => 1000,
   })
   /** What was sent: every call that was not a read. */

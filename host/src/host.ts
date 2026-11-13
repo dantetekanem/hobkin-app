@@ -34,6 +34,7 @@ import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
 import { appearanceSession } from './appearance-session.ts'
 import { Canvas } from './canvas.ts'
+import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
 import { workFrom, workHandlers } from './work.ts'
@@ -228,6 +229,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // The canvas panel: the page hobkin shows beside the screens. The window draws it (030-canvas-panel).
   const canvas = new Canvas({ onChange: publish })
+  // The window moves and the composer draft hobkin drives for the user (013-hobkin-access). The window carries each out.
+  const nudge = new Nudges({ onChange: publish })
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
   // Change Review: reviews prepared in the background and kept in the home, and verdicts only on the user's word.
@@ -240,7 +243,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
     gh: options.reviewGh,
     // A pull request that merged is closed on GitHub, and so is the issue it fixes: both leave the lists now, not at the next five-minute read.
-    merged: () => void github.refresh(),
+    merged: (pull) => (pull.url || pull.repo ? github.closed(pull) : github.readSoon()),
     log,
   })
   // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
@@ -252,6 +255,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
     canvas: canvas.state,
+    nudge: nudge.state,
     appearance: appearanceRequest(appearance),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workFrom(owner.snapshot) : null,
@@ -409,6 +413,23 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     'canvas.show': ({ url, title }) => canvas.show(url, title),
     'canvas.close': () => canvas.close(),
+    // Driving the window for the user: the host records the move or draft and tells the window, which carries it out.
+    'view.open': ({ screen }) => {
+      nudge.open(screen)
+      return done
+    },
+    'view.spotlight': () => {
+      nudge.spotlight()
+      return done
+    },
+    'view.back': () => {
+      nudge.back()
+      return done
+    },
+    'conversation.draft': ({ text }) => {
+      nudge.draft(text)
+      return done
+    },
     'appearance.set': ({ palette, name }) => appearance.set(palette, name),
     'appearance.customize': ({ request }) => customTheme.start(request),
     'appearance.status': ({ id }) => customTheme.status(id),
@@ -420,7 +441,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     // The Work screen's actions, each one of hobkin's own work actions. A yes on a card can merge a pull request on
     // GitHub, and hobkin then closes the issue it fixed, so GitHub is read again once the action is done.
-    ...thenReadGitHub(workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }), ['work.change', 'work.group'], () => void github.refresh()),
+    ...thenReadGitHub(workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }), ['work.change', 'work.group'], () => github.readSoon()),
     // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
     // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),

@@ -286,7 +286,7 @@ test('it reads again on a gentle timer, only while someone is looking', async (t
   t.mock.timers.tick(GITHUB_EVERY_MS - 1)
   assert.equal(reads, 1)
   t.mock.timers.tick(1)
-  assert.equal(reads, 2, 'five minutes later it reads again')
+  assert.equal(reads, 2, 'a minute later it reads again')
   await github.refresh()
   assert.equal(reads, 2, 'a refresh during that read waits for it')
 
@@ -357,4 +357,50 @@ test('gh is found on the PATH, or where Homebrew puts it when the PATH is short'
   const plain = join(empty, 'gh')
   writeFileSync(plain, 'not a program')
   assert.equal(findGh({ path: empty, places: [] }), null)
+})
+
+test('a pull request or an issue GitHub still lists but says is no longer open is left out', () => {
+  // GitHub's search can go on listing what just merged for a moment. What it says of each one is believed over the list it came in.
+  const read = connected(
+    readAnswer(
+      answer({
+        pulls: [pullNode(3, { state: 'OPEN' }), pullNode(4, { state: 'MERGED' }), pullNode(5, { state: 'CLOSED' }), pullNode(6)],
+        assigned: [issueNode(10, '2026-11-08T09:00:00Z', { state: 'CLOSED' }), issueNode(11, '2026-11-09T09:00:00Z', { state: 'OPEN' })],
+      }),
+    ),
+  )
+  assert.deepEqual(read.lists.pulls.map((pull) => pull.number), [3, 6], 'an older answer with no state reads as before')
+  assert.deepEqual(read.lists.issues.map((issue) => issue.number), [11])
+  assert.match(GH_QUERY, /fragment pull on PullRequest \{\n {2}number title url updatedAt state /)
+})
+
+test('what the host hears has merged leaves the lists at once, and GitHub is read again now and a little later', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  let reads = 0
+  const read = connected(readAnswer(answer({ pulls: [pullNode(3), pullNode(4)] }))).lists
+  const source: GitHubSource = {
+    sample: false,
+    read: async () => {
+      reads += 1
+      // GitHub's search still lists the merged one on the first read after it.
+      return { found: 'connected', login: 'octocat', lists: read, note: null }
+    },
+  }
+  const changes: number[] = []
+  const github = new GitHub({ source, onChange: () => changes.push(github.state.pulls.length) })
+  await github.refresh()
+  assert.equal(github.state.pulls.length, 2)
+
+  github.closed({ repo: 'octo/app', number: 4 })
+  assert.deepEqual(github.state.pulls.map((pull) => pull.number), [3], 'gone before GitHub is asked again')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(github.state.pulls.map((pull) => pull.number), [3], 'and it stays gone when GitHub still lists it a moment later')
+  const after = reads
+  t.mock.timers.tick(10_000)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(reads, after + 1, 'read once more a little later')
+  // By its address too, as a finished change knows its pull request.
+  github.closed({ url: 'https://github.com/octo/app/pull/3' })
+  assert.deepEqual(github.state.pulls, [])
+  github.close()
 })
