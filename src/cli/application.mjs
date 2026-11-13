@@ -758,6 +758,8 @@ export class HobkinApplication {
         return await this.runtime.send(message, undefined, images);
       } catch (error) {
         if (error.message !== MAIN_BUSY) throw error;
+        // Only a turn, or a chat too full to wait, holds what the user sent. A compaction hobkin began early gives way.
+        this.runtime.yieldCompaction();
         await wait(BUSY_RETRY_MS);
       }
     }
@@ -915,7 +917,7 @@ export class HobkinApplication {
       nextRunInMs: nextRunIn(this.snapshot.schedules, now),
       now,
     });
-    if (due && this.canStartHoldTurn()) return this.runtime.compactMain();
+    if (due && this.canStartHoldTurn()) return this.runtime.compactMain({ early: due === 'smart' });
     return false;
   }
 

@@ -93,6 +93,7 @@ export class HobkinRuntime {
     this.active = new Map();
     this.busySessions = new Set();
     this.mainTurn = null;
+    this.ownCompaction = null;
     this.resetting = false;
     this.closing = false;
     this.fault = null;
@@ -396,20 +397,36 @@ export class HobkinRuntime {
     return this.main.isCompacting || compactionDue(this.contextInfo()) === 'force';
   }
 
-  /** Hobkin's own compaction. Pi's aborts whatever is running, so this takes only a free session and holds it, so no turn can start under it. */
-  async compactMain() {
+  /**
+   * Hobkin's own compaction. Pi's aborts whatever is running, so this takes only a free session and holds it, so no turn can start under it.
+   * One begun `early`, before the chat is too full to wait, gives way to the user's next message (`yieldCompaction`).
+   */
+  async compactMain({ early = false } = {}) {
     if (!this.mainFree || typeof this.main.compact !== 'function') return false;
 
     const release = this.reserveSession(this.main.sessionId);
+    const compaction = this.ownCompaction = { early, session: this.main, yielded: false };
     try {
       await this.main.compact();
       return true;
     } catch (error) {
-      this.lastCompaction = { status: 'failed', reason: 'hobkin', at: new Date().toISOString(), error: String(error.message ?? error) };
+      this.lastCompaction = { status: compaction.yielded ? 'cancelled' : 'failed', reason: 'hobkin', at: new Date().toISOString(), error: String(error.message ?? error) };
       return false;
     } finally {
+      if (this.ownCompaction === compaction) this.ownCompaction = null;
       release();
     }
+  }
+
+  /**
+   * Stops a compaction begun early, so a message from the user goes at once instead of a minute or two later. Pi's abort leaves the chat as
+   * it was, and the next try waits as after a failed one. One begun because the chat is too full to wait goes on.
+   */
+  yieldCompaction() {
+    const compaction = this.ownCompaction;
+    if (!compaction?.early || compaction.yielded || compaction.session !== this.main) return;
+    compaction.yielded = true;
+    void Promise.resolve().then(() => compaction.session.abort()).catch(() => {});
   }
 
   reserveSession(sessionId) {

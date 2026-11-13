@@ -2190,6 +2190,64 @@ test('a full chat compacts itself when nothing needs it, and leaves it alone whe
   }
 });
 
+/** hobkin compacts the chat at `percent` full and holds it there. Pi's abort ends a compaction with nothing changed. */
+function compactingAt(app, percent) {
+  const main = app.runtime.main;
+  const compaction = Promise.withResolvers();
+  const held = { compaction, aborts: 0 };
+  main.getContextUsage = () => ({ percent, tokens: percent, contextWindow: 100 });
+  main.compact = () => compaction.promise;
+  main.abort = async () => {
+    held.aborts += 1;
+    compaction.reject(Error('Compaction cancelled'));
+  };
+  held.compacted = app.tickCompaction();
+  return held;
+}
+const goesWithin = (sent, ms) => Promise.race([sent.then(() => 'went'), new Promise(resolve => setTimeout(resolve, ms, 'still waiting'))]);
+const userSaid = (app, words) => app.runtime.messages().some(message => message.role === 'user' && JSON.stringify(message.content).includes(words));
+
+test('a message from the user stops a compaction hobkin began early, and goes at once', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const held = compactingAt(app, 85);
+  const sent = app.send('go back to the default system theme');
+  try {
+    assert.equal(app.runtime.mainFree, false, 'the compaction holds the chat');
+
+    assert.equal(await goesWithin(sent, 1000), 'went');
+
+    assert.equal(held.aborts, 1);
+    assert.equal(await held.compacted, false);
+    assert.equal(userSaid(app, 'go back to the default system theme'), true);
+  } finally {
+    held.compaction.resolve();
+    await sent.catch(() => {});
+    await app.close();
+  }
+});
+
+test('a chat too full to wait finishes compacting, and the message goes as soon as that ends', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  const held = compactingAt(app, 96);
+  const sent = app.send('go back to the default system theme');
+  try {
+    assert.equal(await goesWithin(sent, 300), 'still waiting');
+    assert.equal(held.aborts, 0);
+
+    held.compaction.resolve();
+
+    assert.equal(await goesWithin(sent, 1000), 'went');
+    assert.equal(await held.compacted, true);
+    assert.equal(userSaid(app, 'go back to the default system theme'), true);
+  } finally {
+    held.compaction.resolve();
+    await sent.catch(() => {});
+    await app.close();
+  }
+});
+
 test('opening the dashboard moves an old home\'s folder and leaves its old path working', async t => {
   const h = fixture(t);
   renameSync(join(h.root, 'routines'), join(h.root, 'schedules'));
