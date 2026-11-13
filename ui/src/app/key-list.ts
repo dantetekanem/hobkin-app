@@ -41,7 +41,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: '⌘U', does: 'Attach an image', where: 'the message input' },
   { keys: '↑', does: 'Bring back the last message you sent', where: 'the message input' },
   { keys: '⌘↓', does: 'Jump to the newest message', where: 'the message input' },
-  { keys: 'esc', does: 'One step back toward the message input. It also stops hobkin while it works', where: 'anywhere' },
+  { keys: 'esc', does: 'One step back toward the message input. Pressed twice in the message input, it stops hobkin while it works; Control+C stops at once', where: 'anywhere' },
   { keys: 'tab', does: 'Move between controls. It never switches screens', where: 'anywhere' },
 ]
 
