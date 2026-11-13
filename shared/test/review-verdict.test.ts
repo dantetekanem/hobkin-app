@@ -5,7 +5,7 @@ import { reviewFolder, reviewIdOf, targetOfReviewId } from '../review/ids.ts'
 import { hashLines } from '../review/lines.ts'
 import type { Note } from '../review/notes.ts'
 import type { Review } from '../review/types.ts'
-import { askForChanges, pullReviewPost } from '../review/verdict.ts'
+import { askForChanges, pullReviewPost, saysNothing } from '../review/verdict.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const step = (title: string) => sample.story.find((entry) => entry.title === title)!
@@ -46,25 +46,44 @@ test('approving or asking for changes on a pull request posts one GitHub review,
   assert.equal(post.event, 'REQUEST_CHANGES')
   assert.equal(post.commit_id, sample.change.head)
   assert.deepEqual(post.comments, [
-    { path: 'src/cli/runtime.mjs', side: 'RIGHT', start_line: 176, start_side: 'RIGHT', line: 178, body: 'These three lines read as one.' },
-    { path: 'src/cli/ui.mjs', side: 'LEFT', line: 9, body: 'Was this line used elsewhere?' },
+    { path: 'src/cli/runtime.mjs', side: 'RIGHT', start_line: 176, start_side: 'RIGHT', line: 178, body: '**hobkin automated review**\n\nThese three lines read as one.' },
+    { path: 'src/cli/ui.mjs', side: 'LEFT', line: 9, body: '**hobkin automated review**\n\nWas this line used elsewhere?' },
   ])
-  // A note with no lines goes in the body, with where it was taken written out.
+  // It says first that hobkin wrote it, then the summary in one paragraph. A note with no lines follows, folded
+  // away, with where it was taken written out.
   assert.equal(
     post.body,
-    ['Two small things before this lands.', '', `- About send, code in src/cli/runtime.mjs: Name the field after what it holds.`].join('\n'),
+    [
+      '**hobkin automated review**',
+      '',
+      'Two small things before this lands.',
+      '',
+      '<details>',
+      '<summary>See more</summary>',
+      '',
+      '- About send, code in src/cli/runtime.mjs: Name the field after what it holds.',
+      '',
+      '</details>',
+    ].join('\n'),
   )
   assert.equal(post.body.includes('Why here'), false)
 
+  // A summary of several paragraphs leads with its first as one paragraph, and folds the rest away.
+  const long = pullReviewPost(sample, [], 'comment', 'The retry\nloop is fine.\n\nOne thing to look at later:\nthe log line.')
+  assert.equal(long.body, ['**hobkin automated review**', '', 'The retry loop is fine.', '', '<details>', '<summary>See more</summary>', '', 'One thing to look at later:\nthe log line.', '', '</details>'].join('\n'))
+
   // An approval with nothing to say still says something, as GitHub asks of a review with a body.
-  assert.deepEqual(pullReviewPost(sample, [], 'approve', ''), { event: 'APPROVE', commit_id: sample.change.head, body: 'Approved.', comments: [] })
+  assert.deepEqual(pullReviewPost(sample, [], 'approve', ''), { event: 'APPROVE', commit_id: sample.change.head, body: '**hobkin automated review**\n\nApproved.', comments: [] })
+  assert.equal(saysNothing(pullReviewPost(sample, [], 'comment', '')), true)
+  assert.equal(saysNothing(pullReviewPost(sample, [], 'comment', 'Fine.')), false)
+  assert.equal(saysNothing(post), false)
   assert.equal(pullReviewPost(sample, [], 'comment', '').event, 'COMMENT')
   // A note that was handed over already, or detached from its lines, is not posted again or posted on the wrong lines.
   const handed = pullReviewPost(sample, [{ ...notes[0]!, sent: 5 }], 'comment', 'Looks fine.', new Set())
   assert.deepEqual(handed.comments, [])
   const loose = pullReviewPost(sample, [notes[0]!], 'comment', '', new Set(['n1']))
   assert.deepEqual(loose.comments, [])
-  assert.equal(loose.body, '- About src/cli/runtime.mjs, lines 176 to 178, as changed: These three lines read as one.')
+  assert.equal(loose.body, ['**hobkin automated review**', '', 'Commented.', '', '<details>', '<summary>See more</summary>', '', '- About src/cli/runtime.mjs, lines 176 to 178, as changed: These three lines read as one.', '', '</details>'].join('\n'))
 })
 
 test('ask for changes sends selected notes with their targets', () => {

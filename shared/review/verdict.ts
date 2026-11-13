@@ -28,6 +28,23 @@ export interface PullReviewPost {
 const EVENT = { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' } as const
 const PLAIN = { comment: 'Commented.', approve: 'Approved.', 'request-changes': 'Changes requested.' } as const
 
+/** The first line of everything posted to GitHub: the reader there sees the user's account, and this says who wrote it. */
+const WRITTEN_BY = '**hobkin automated review**'
+
+/**
+ * A text as it is posted to GitHub: that hobkin wrote it, then its first paragraph on one line, then anything more
+ * folded away under "See more", so a long review does not fill the pull request's page.
+ */
+function automated(text: string): string {
+  const [first = '', ...rest] = text.trim().split(/\n\s*\n/)
+  const more = rest.join('\n\n').trim()
+  const folded = more ? ['', '<details>', '<summary>See more</summary>', '', more, '', '</details>'] : []
+  return [WRITTEN_BY, '', first.replace(/\s*\n\s*/g, ' '), ...folded].join('\n')
+}
+
+/** Whether a review has no words of the reviewer's and no comment: only what GitHub asks every review to carry. */
+export const saysNothing = (post: PullReviewPost) => post.comments.length === 0 && (Object.values(PLAIN) as string[]).some((plain) => post.body === automated(plain))
+
 /** The comments a verdict can send: not questions, and not anything already handed over. */
 const comments = (notes: readonly Note[]) => notes.filter((note) => note.intent === 'comment' && note.sent == null)
 
@@ -45,7 +62,9 @@ const aboutOnly = (review: Review, note: Note) => whereInWords(review, note).rep
 
 /**
  * A pull request review: the comments on lines become line comments, and the rest go in its body with what each is
- * about written out. `detached` holds the notes whose lines have changed since, which go in the body instead.
+ * about written out. `detached` holds the notes whose lines have changed since, which go in the body instead. The
+ * body and every line comment say first that hobkin wrote them; the body then gives the summary in one paragraph and
+ * folds the rest away.
  */
 export function pullReviewPost(review: Review, notes: readonly Note[], verdict: PullVerdict, summary: string, detached: ReadonlySet<string> = new Set()): PullReviewPost {
   const lines: PullReviewPost['comments'] = []
@@ -55,14 +74,14 @@ export function pullReviewPost(review: Review, notes: readonly Note[], verdict: 
     if (target.kind === 'lines' && !detached.has(note.id)) {
       const path = review.files.find((file) => file.id === target.fileId)?.path ?? target.fileId
       const side = target.side === 'added' ? 'RIGHT' : 'LEFT'
-      lines.push({ path, side, ...(target.startLine < target.endLine ? { start_line: target.startLine, start_side: side } : {}), line: target.endLine, body: note.text })
+      lines.push({ path, side, ...(target.startLine < target.endLine ? { start_line: target.startLine, start_side: side } : {}), line: target.endLine, body: automated(note.text) })
       continue
     }
     const about = aboutOnly(review, note)
     loose.push(`- ${about ? `${about.replace(/\.$/, '')}: ` : ''}${note.text}`)
   }
   const said = summary.trim()
-  const body = [...(said ? [said] : []), ...(loose.length && said ? [''] : []), ...loose].join('\n') || PLAIN[verdict]
+  const body = automated([said || PLAIN[verdict], loose.join('\n')].filter(Boolean).join('\n\n'))
   return { event: EVENT[verdict], commit_id: review.change.head, body, comments: lines }
 }
 

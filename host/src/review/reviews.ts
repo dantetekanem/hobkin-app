@@ -15,7 +15,7 @@ import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
-import { askForChanges, pullReviewPost, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
+import { askForChanges, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
 import { LOG_LINES, pendingSteps, type Assessments } from './assessment.ts'
 import { ghText, type GhCall } from './gh.ts'
@@ -698,7 +698,7 @@ export class Reviews {
         const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
         // A review with no line to place goes on the commit it merges; lines stay on the commit they were written on.
         const post = movedOn && written.comments.length === 0 ? { ...written, commit_id: current } : written
-        const says = !mine || post.comments.length > 0 || post.body !== 'Commented.'
+        const says = !mine || !saysNothing(post)
         const at7 = current.slice(0, 7)
         const tail = said ? [said, `This merges ${at7}, the commit shown here. GitHub refuses if the pull request moves again before then.`] : [pinned]
         const lines = mine

@@ -173,7 +173,7 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   assert.equal(preview.post?.commit_id, sample.change.head)
   // n1's lines no longer hold what it was written on, so it goes in the body instead of on the wrong lines.
   assert.deepEqual(preview.post?.comments, [])
-  assert.match(preview.post!.body, /Two things\.\n\n- About src\/cli\/runtime\.mjs, lines 176 to 178, as changed: Read as one\.\n- About send/)
+  assert.match(preview.post!.body, /^\*\*hobkin automated review\*\*\n\nTwo things\.\n\n<details>\n<summary>See more<\/summary>\n\n- About src\/cli\/runtime\.mjs, lines 176 to 178, as changed: Read as one\.\n- About send/)
   assert.equal(preview.post!.body.includes('For hobkin only'), false)
 
   const done = await reviews.verdict(id, 'request-changes', 'Two things.', preview.confirm)
@@ -185,7 +185,7 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   // The comments went with it, so they are marked sent and are not posted again. The question stays for hobkin.
   const after = store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null))
   assert.deepEqual(after, [['n1', 1000], ['n2', 1000], ['n3', null]])
-  assert.match((await reviews.preview(id, 'comment', '')).post!.body, /^Commented\.$/)
+  assert.equal((await reviews.preview(id, 'comment', '')).post!.body, '**hobkin automated review**\n\nCommented.')
 })
 
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
