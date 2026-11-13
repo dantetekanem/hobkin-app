@@ -15,7 +15,6 @@ import { KeyHints } from './KeyHints.tsx'
 import { useFrameKeys } from './keys.ts'
 import { useView } from './view-store.ts'
 import { QuestionSheet } from '@/features/questions/QuestionSheet.tsx'
-import { StaleHost } from './StaleHost.tsx'
 import { TiersLightbox } from '@/features/tiers/TiersLightbox.tsx'
 import { FirstRunSetup } from '@/features/onboarding/FirstRunSetup.tsx'
 
@@ -62,7 +61,6 @@ export function Frame() {
       <TiersLightbox />
       <FirstRunSetup />
       <QuestionSheet />
-      <StaleHost />
     </div>
     </MotionConfig>
   )
