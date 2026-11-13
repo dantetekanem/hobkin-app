@@ -1,10 +1,13 @@
-import { GitBranch, GitPullRequest } from 'lucide-react'
+import { GitBranch, GitPullRequest, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { waited } from '@/features/reports/time.ts'
+import { cn } from '@/lib/utils.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
-import { groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
+import { runCommand } from '@/lib/host/index.ts'
+import { canReviewAgain, groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
 import { LevelCounts, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
 import type { ReviewListView } from './use-review-list.ts'
 
@@ -12,6 +15,7 @@ import type { ReviewListView } from './use-review-list.ts'
  * The AI Reviews tab (spec 032): every review the host knows, finished changes and pull requests together, as what is
  * running, what is ready and what failed, each newest first. A running one says how far along it is, what it is doing
  * now and how long it has taken; a ready one its level, its units at each level and when it finished. A click opens it.
+ * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
  */
 export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
   const groups = groupReviews(reviews.list)
@@ -32,9 +36,9 @@ export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewLis
         </p>
       ) : null}
       {reviews.list && none ? <NoReviews /> : null}
-      <Group label="Running" rows={groups.running} now={now} live={live} />
-      <Group label="Ready" rows={groups.ready} now={now} live={live} />
-      <Group label="Failed" rows={groups.failed} now={now} live={live} />
+      <Group label="Running" rows={groups.running} now={now} live={live} onAgain={reviews.refresh} />
+      <Group label="Ready" rows={groups.ready} now={now} live={live} onAgain={reviews.refresh} />
+      <Group label="Failed" rows={groups.failed} now={now} live={live} onAgain={reviews.refresh} />
     </div>
   )
 }
@@ -54,14 +58,14 @@ function NoReviews() {
   )
 }
 
-function Group({ label, rows, now, live }: { label: string; rows: ReviewRow[]; now: number; live: boolean }) {
+function Group({ label, rows, now, live, onAgain }: { label: string; rows: ReviewRow[]; now: number; live: boolean; onAgain: () => void }) {
   if (!rows.length) return null
   return (
     <section aria-label={label} className="flex flex-col gap-3">
       <SectionHeading label={label} count={rows.length} />
       <ul className="flex flex-col gap-2">
         {rows.map((row) => (
-          <Card key={row.item.id} row={row} now={now} live={live} />
+          <Card key={row.item.id} row={row} now={now} live={live} onAgain={onAgain} />
         ))}
       </ul>
     </section>
@@ -75,17 +79,56 @@ function whenOf({ group, startedAt, at }: ReviewRow, now: number): string {
   return `${group === 'ready' ? 'finished' : 'stopped'} ${waited(at, now)} ago`
 }
 
-function Card({ row, now, live }: { row: ReviewRow; now: number; live: boolean }) {
+/**
+ * "Review again" on a row: the host builds the review once more at the change's commit, tests and model pass
+ * included, and the row moves to Running. It says so while the host is asked, and says why when the host refuses.
+ */
+function ReviewAgain({ id, live, onAgain }: { id: string; live: boolean; onAgain: () => void }) {
+  const [asking, setAsking] = useState(false)
+  const [refused, setRefused] = useState<string | null>(null)
+
+  const again = async () => {
+    if (!live) return setRefused('This is sample data, so no review runs here.')
+    setAsking(true)
+    setRefused(null)
+    try {
+      await runCommand('review.prepare', { id, refresh: true })
+      onAgain()
+    } catch (error) {
+      setRefused(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAsking(false)
+    }
+  }
+
+  return (
+    <span className="ml-auto flex min-w-0 items-center gap-3">
+      {refused ? (
+        <span role="alert" className="min-w-0 text-[13px] leading-snug text-bad-fg">
+          {refused}
+        </span>
+      ) : null}
+      <Button variant="outline" size="sm" data-stop="" disabled={asking} title="Builds this review again at the change's commit: its tests and one model pass." onClick={() => void again()} className="shrink-0">
+        <RotateCcw aria-hidden="true" />
+        {asking ? 'Starting…' : 'Review again'}
+      </Button>
+    </span>
+  )
+}
+
+function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: boolean; onAgain: () => void }) {
   const { item } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
+  const again = canReviewAgain(row)
   return (
-    <li>
+    // The row is the card: opening it and running it again are two buttons, side by side, never one inside the other.
+    <li className="flex flex-col rounded-3xl bg-background transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 has-[[data-review-id]:focus-visible]:bg-tone-2">
       <button
         type="button"
         data-stop=""
         data-review-id={item.id}
         onClick={() => useView.getState().openReviewFor(reviewToOpen(item, live))}
-        className="flex w-full scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl bg-background p-5 text-left outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 focus-visible:bg-tone-2"
+        className={cn('flex w-full scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl p-5 text-left outline-offset-[-2px]', again && 'pb-2.5')}
       >
         <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
           <Kind aria-hidden="true" className="size-4 shrink-0" />
@@ -114,9 +157,14 @@ function Card({ row, now, live }: { row: ReviewRow; now: number; live: boolean }
             <span className="text-[14px] leading-snug">{row.line}</span>
           </span>
         ) : null}
-        {row.summary ? <LevelCounts summary={row.summary} /> : null}
-        {row.group === 'failed' ? <span className="text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
       </button>
+      {again ? (
+        <div className="flex min-h-8 items-center gap-3 px-5 pb-4">
+          {row.summary ? <LevelCounts summary={row.summary} /> : null}
+          {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
+          <ReviewAgain id={item.id} live={live} onAgain={onAgain} />
+        </div>
+      ) : null}
     </li>
   )
 }

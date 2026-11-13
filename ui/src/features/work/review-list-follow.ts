@@ -11,6 +11,8 @@ const ASK_WHILE_RUNNING_MS = 2_000
 const ASK_OTHERWISE_MS = 10_000
 
 export interface ReviewListFollow {
+  /** Asks the host now, in place of the turn that was waiting: for when the user has just started a review. */
+  askNow(): void
   /** Asks nothing more, and drops any answer still on its way. */
   stop(): void
 }
@@ -38,6 +40,11 @@ export function followReviewList({ run, onList, onError }: { run: () => Promise<
 
   void ask()
   return {
+    askNow() {
+      if (stopped) return
+      clearTimeout(timer)
+      void ask()
+    },
     stop() {
       stopped = true
       clearTimeout(timer)

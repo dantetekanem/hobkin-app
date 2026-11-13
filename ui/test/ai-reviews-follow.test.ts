@@ -82,3 +82,23 @@ test('a failed ask says why, keeps asking, and an answer that comes back after s
   assert.equal(shownLate.length, 0, 'a late answer is not shown')
   follow.stop()
 })
+
+test('asked to look now, the list is read at once and not ten seconds later, so a review started again shows as running', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = hostWith([READY])
+  const shown: string[] = []
+  const follow = followReviewList({ run: host.run, onList: (list) => shown.push(list.reviews[0]?.assessment?.state ?? 'none'), onError: () => {} })
+  await answered()
+  assert.deepEqual(shown, ['ready'])
+
+  host.reviews = [RUNNING]
+  follow.askNow()
+  await answered()
+  assert.deepEqual(shown, ['ready', 'running'])
+  assert.equal(host.asked, 2)
+  // The turn that was waiting is not asked a second time on top of it.
+  t.mock.timers.tick(1_999)
+  await answered()
+  assert.equal(host.asked, 2)
+  follow.stop()
+})

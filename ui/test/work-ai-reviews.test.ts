@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { ReviewListItem } from '#shared/review/status.ts'
-import { groupReviews, levelCountsOf, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
+import { canReviewAgain, groupReviews, levelCountsOf, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
 const at = (minutesAgo: number) => new Date(Date.parse('2026-11-12T12:00:00Z') - minutesAgo * 60_000).toISOString()
@@ -107,4 +107,15 @@ test('a row opens its own review; without a host a finished change opens the sam
   assert.equal(reviewToOpen(change, false), 'sample')
   assert.equal(reviewToOpen(pull, false), 'pr:hobkin-sample/storefront/482')
   assert.deepEqual(groupReviews(null), { running: [], ready: [], failed: [] })
+})
+
+test('a review that is ready or stopped can be run again, and one under way cannot be started twice', () => {
+  const rows = rowsOf({
+    reviews: [
+      item('change:storefront:a2', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(1) } }),
+      item('change:storefront:b1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(5) }) } }),
+      item('change:storefront:c1', { state: 'failed', error: 'gh is not signed in', updatedAt: at(7) }),
+    ],
+  })
+  assert.deepEqual(rows.map((row) => [row.group, canReviewAgain(row)]), [['running', false], ['ready', true], ['failed', true]])
 })

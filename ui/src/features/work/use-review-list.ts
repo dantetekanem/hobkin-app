@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReviewList } from '#shared/review/status.ts'
 import { runCommand, useHost } from '@/lib/host/index.ts'
-import { followReviewList } from './review-list-follow.ts'
+import { followReviewList, type ReviewListFollow } from './review-list-follow.ts'
 import { SAMPLE_REVIEW_LIST } from './sample-reviews.ts'
 
 export interface ReviewListView {
@@ -9,10 +9,14 @@ export interface ReviewListView {
   list: ReviewList | null
   /** Why the last ask failed. The list from before stays. */
   error: string | null
+  /** Reads the list now, as after a review was started again. Nothing to do without a host. */
+  refresh: () => void
 }
 
-const SAMPLE: ReviewListView = { list: SAMPLE_REVIEW_LIST, error: null }
-const WAITING: ReviewListView = { list: null, error: null }
+type Shown = Pick<ReviewListView, 'list' | 'error'>
+
+const SAMPLE: Shown = { list: SAMPLE_REVIEW_LIST, error: null }
+const WAITING: Shown = { list: null, error: null }
 
 /**
  * Every AI review the host knows, followed while the screen is open (`review-list-follow.ts`), and asked anew from
@@ -20,7 +24,9 @@ const WAITING: ReviewListView = { list: null, error: null }
  */
 export function useReviewList(live: boolean): ReviewListView {
   const home = useHost((state) => state.home)
-  const [view, setView] = useState<ReviewListView>(WAITING)
+  const [view, setView] = useState<Shown>(WAITING)
+  const following = useRef<ReviewListFollow | null>(null)
+  const refresh = useCallback(() => following.current?.askNow(), [])
 
   useEffect(() => {
     if (!live) return
@@ -30,8 +36,12 @@ export function useReviewList(live: boolean): ReviewListView {
       onList: (list) => setView({ list, error: null }),
       onError: (error) => setView((shown) => ({ ...shown, error })),
     })
-    return () => follow.stop()
+    following.current = follow
+    return () => {
+      follow.stop()
+      if (following.current === follow) following.current = null
+    }
   }, [live, home])
 
-  return live ? view : SAMPLE
+  return { ...(live ? view : SAMPLE), refresh }
 }

@@ -111,6 +111,9 @@ export function levelCountsOf(summary: AssessmentSummary): { level: Level; count
   return counts.filter(({ count }) => count > 0)
 }
 
+/** A review that ran can be run again: one that is ready, or one that stopped. One under way is already being built. */
+export const canReviewAgain = (row: ReviewRow) => row.group !== 'running'
+
 /** The review a row opens. Without a host a finished change opens the sample review, as its Work card does. */
 export function reviewToOpen(item: ReviewListItem, live: boolean): string {
   return live || item.kind === 'pull' ? item.id : 'sample'
