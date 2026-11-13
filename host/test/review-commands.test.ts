@@ -42,7 +42,7 @@ test('a pull request opens in Change Review through the host, its notes are kept
 
   // The preview shows what GitHub would get: GitHub has no steps, so a note on a step is just its words. A scripted host refuses to send it.
   const preview = await client.run<VerdictPreview>('review.preview', { id, verdict: 'approve', summary: 'Reads well.' })
-  assert.deepEqual([preview.post?.event, preview.post?.body], ['APPROVE', 'Reads well.\n\n- Say why it waits.'])
+  assert.deepEqual([preview.post?.event, preview.post?.body], ['APPROVE', '**hobkin automated review**\n\nReads well.\n\n<details>\n<summary>See more</summary>\n\n- Say why it waits.\n\n</details>'])
   const refused = await client.command('review.verdict', { id, verdict: 'approve', summary: 'Reads well.', confirm: preview.confirm })
   assert.match(!refused.ok ? refused.error.message : '', /posts nothing to GitHub/)
 })
