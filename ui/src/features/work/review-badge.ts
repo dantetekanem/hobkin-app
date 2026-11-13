@@ -29,7 +29,7 @@ export function reviewBadge(status: AssessmentStatus | undefined): ReviewBadge {
     const label = status.percent == null ? 'Reviewing' : `Reviewing · ${Math.round(status.percent)}%`
     return { label, tone: 'quiet', title: status.now ?? 'The change review is under way.', critical: false }
   }
-  if (status?.state === 'queued') return { label: 'Review queued', tone: 'quiet', title: 'Waiting its turn: one change review runs at a time.', critical: false }
+  if (status?.state === 'queued') return { label: 'Review queued', tone: 'quiet', title: 'Waiting its turn.', critical: false }
   if (status?.state === 'failed') return { label: 'Review failed', tone: 'quiet', title: status.error ?? 'The change review stopped before it finished.', critical: false }
   return { label: 'Not reviewed yet', tone: 'quiet', title: 'No change review has run at this commit yet.', critical: false }
 }

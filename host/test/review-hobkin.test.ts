@@ -118,3 +118,8 @@ test('hobkin removes a review: its stored map and notes go, it leaves the list, 
   assert.throws(() => reviews.get(ID), /./, 'there is nothing to open until it is prepared again')
   assert.throws(() => reviews.remove('nothing:like:this'), /no review named/)
 })
+
+test('a review that is not running has nothing to stop, and says so', (t) => {
+  const { reviews } = seated(t)
+  assert.throws(() => reviews.stop(ID), /is not running/)
+})

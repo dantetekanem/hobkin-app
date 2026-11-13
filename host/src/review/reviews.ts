@@ -249,6 +249,8 @@ export class Reviews {
   private written = 0
   /** The reviews someone asked for, by the window or by hobkin, as against what the background prepares by itself. */
   private readonly asked = new Set<string>()
+  /** Reviews the user stopped while their map was being prepared: the change review after it does not start. */
+  private readonly halted = new Set<string>()
   /** When each review's status last changed, in milliseconds by the host's clock. */
   private readonly changedAt = new Map<string, number>()
   /** What each review is about, as its change read when it was prepared. */
@@ -522,6 +524,8 @@ export class Reviews {
   private assess(target: ReviewTarget, review: Review, { again = false }: { again?: boolean } = {}) {
     const { assessments } = this.options
     if (!assessments) return
+    // The user stopped this review while its map was being prepared.
+    if (this.halted.delete(reviewIdOf(target))) return
     const { change } = review
     const run = this.runs.get(reviewIdOf(target))
     try {
@@ -609,6 +613,33 @@ export class Reviews {
     // Folded, so the file holds each note once however often it was changed.
     const merged = foldNotes([...saved, ...notes.entries])
     this.options.store.saveNotes(target, { entries: merged.map((note) => ({ op: 'put', note })), draft: notes.draft })
+  }
+
+  /**
+   * Stops a review that is waiting or under way, on the user's word: a preparation still waiting leaves the queue,
+   * one under way finishes its map and starts no change review, and a change review is stopped where it is, its tests
+   * with it. Whatever was ready before stays as it was. Refused when nothing of it is running.
+   */
+  stop(id: string): ReviewStatus {
+    const target = this.target(id)
+    let stopped = false
+    const waiting = this.queue.findIndex((job) => reviewIdOf(job.target) === id)
+    if (waiting >= 0) {
+      this.queue.splice(waiting, 1)
+      this.asked.delete(id)
+      this.say(id, 'Stopped before it started, as you asked.')
+      this.set(id, { state: this.options.store.newest(target) ? 'ready' : 'idle', phase: null })
+      stopped = true
+    }
+    if (this.running.has(id)) {
+      // Its map is quick to finish. The change review after it is the long part, and that one does not start.
+      this.halted.add(id)
+      stopped = true
+    }
+    if (this.options.assessments?.stop(target)) stopped = true
+    if (!stopped) throw new Unavailable('This review is not running, so there is nothing to stop.')
+    this.options.onChange?.()
+    return this.status(id)
   }
 
   /**

@@ -454,6 +454,13 @@ export const COMMANDS = {
     args: nothing,
     hobkin: true,
   },
+  'review.stop': {
+    description:
+      "Stop a review that is waiting or running, by its review id: its tests are stopped where they are and nothing more of it runs. What was ready before stays. Several reviews can run at once, and each is stopped alone. Refused when that review is not running. review.prepare with `refresh: true` starts it again.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+    hobkin: true,
+  },
   'review.remove': {
     description:
       "Remove a review from the app, only ever on the user's word: every map built for it, its change review and the notes on it are deleted, and it leaves the list of AI reviews. This cannot be undone. It is refused while the review is being prepared. review.prepare builds it again from nothing.",
@@ -739,6 +746,7 @@ export interface CommandResults {
   'review.status': ReviewStatus
   'review.list': ReviewList
   'review.remove': { id: string; removed: true }
+  'review.stop': ReviewStatus
   'review.get': OpenedReview
   'review.file': ReviewFileContents
   'review.notes': { ok: true }

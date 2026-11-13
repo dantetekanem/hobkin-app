@@ -417,8 +417,15 @@ const NOT_RUN = 'tests were not run: '
 
 /** Why a run that close() stopped failed. */
 const STOPPED = 'The review was stopped before it finished.'
+/** Why a run the user stopped did not finish. */
+const STOPPED_BY_USER = 'Stopped before it finished, as you asked.'
+/**
+ * How many change reviews run at once. Each runs its change's tests in a review checkout, so two that share one
+ * checkout (two changes of one project) still take turns there, while reviews of different projects run together.
+ */
+const AT_ONCE = 4
 
-/** Every change review this host has run or is running, one at a time, each commit once. */
+/** Every change review this host has run or is running, several at a time, each commit once. */
 export class Assessments {
   private readonly queue: AssessJob[] = []
   private readonly live = new Map<string, AssessmentStatus>()
@@ -426,7 +433,8 @@ export class Assessments {
   /** The last one waiting for each review tree, so a tree has one user at a time. */
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
-  private working: Promise<void> | null = null
+  /** The reviews under way, each with the way to stop that one alone. */
+  private readonly active = new Map<string, { run: Promise<void>; stop: AbortController }>()
   private readonly options: AssessmentsOptions
 
   constructor(options: AssessmentsOptions) {
@@ -477,27 +485,57 @@ export class Assessments {
     if (this.queue.some((entry) => this.key(entry.target, entry.head) === this.key(job.target, job.head))) return now
     const startedAt = job.startedAt ?? this.clockIso()
     this.records.set(this.key(job.target, job.head), { ...(job.request ? { request: job.request } : {}), log: (job.log ?? []).slice(-LOG_LINES), startedAt })
-    if (this.working) this.say(job.target, job.head, 'Waiting for the change review before it to finish.')
+    if (this.active.size >= AT_ONCE) this.say(job.target, job.head, `Waiting its turn: ${AT_ONCE} reviews are running.`)
     this.queue.push(job)
     this.set(job.target, job.head, { state: 'queued', head: job.head, startedAt, percent: 0, eta: null, now: 'waiting its turn', steps: pendingSteps() })
-    this.working ??= this.work().finally(() => {
-      this.working = null
-    })
+    // Nothing runs on the caller's turn: `start` only queues, and the host publishes its state first.
+    void Promise.resolve().then(() => this.pump())
     return this.status(job.target, job.head)
   }
 
-  private async work() {
-    // Nothing runs on the caller's turn: `start` only queues, and the host publishes its state first.
-    await Promise.resolve()
-    for (let job = this.queue.shift(); job; job = this.queue.shift()) {
-      if (this.controller.signal.aborted) return
-      await this.one(job).catch((error: unknown) => {
-        const message = messageOf(error)
-        this.options.log?.(`Change review of ${reviewIdOf(job.target)} at ${job.head.slice(0, 7)} failed: ${message}`)
-        this.say(job.target, job.head, `Stopped: ${message}`)
-        this.set(job.target, job.head, { state: 'failed', head: job.head, error: message })
-      })
+  /** Starts what waits, up to `AT_ONCE` at a time. Each run can be stopped alone, and all of them by `close`. */
+  private pump() {
+    while (this.active.size < AT_ONCE && this.queue.length && !this.controller.signal.aborted) {
+      const job = this.queue.shift()!
+      const key = this.key(job.target, job.head)
+      const stop = new AbortController()
+      const signal = AbortSignal.any([this.controller.signal, stop.signal])
+      const run = this.one(job, signal)
+        .catch((error: unknown) => {
+          const message = stop.signal.aborted ? STOPPED_BY_USER : messageOf(error)
+          this.options.log?.(`Change review of ${reviewIdOf(job.target)} at ${job.head.slice(0, 7)} failed: ${message}`)
+          this.say(job.target, job.head, `Stopped: ${message}`)
+          this.set(job.target, job.head, { state: 'failed', head: job.head, error: message })
+        })
+        .finally(() => {
+          this.active.delete(key)
+          this.pump()
+        })
+      this.active.set(key, { run, stop })
     }
+  }
+
+  /**
+   * Stops the change review of a target, waiting or under way, at whatever commit. Its tests are stopped where they
+   * are and its checkout is put back. Returns whether there was one to stop.
+   */
+  stop(target: ReviewTarget): boolean {
+    const mine = `${reviewIdOf(target)}@`
+    let stopped = false
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const job = this.queue[index]!
+      if (!this.key(job.target, job.head).startsWith(mine)) continue
+      this.queue.splice(index, 1)
+      this.say(job.target, job.head, `Stopped: ${STOPPED_BY_USER}`)
+      this.set(job.target, job.head, { state: 'failed', head: job.head, error: STOPPED_BY_USER })
+      stopped = true
+    }
+    for (const [key, { stop }] of this.active) {
+      if (!key.startsWith(mine)) continue
+      stop.abort()
+      stopped = true
+    }
+    return stopped
   }
 
   /** The repository a target's change is in on this Mac: a project's own folder, or a pull request's clone. */
@@ -515,7 +553,7 @@ export class Assessments {
    * Readies the review tree of the target's repository at `head` and lends it to `use`, one user at a time, so a run's
    * tests and a preparation's scan never share a checkout. The tree is the review's own, never the user's folder.
    */
-  async inTree<Value>(target: ReviewTarget, repo: string, head: string, use: (tree: string) => Promise<Value>, say?: (text: string) => void): Promise<Value> {
+  async inTree<Value>(target: ReviewTarget, repo: string | (() => Promise<string>), head: string, use: (tree: string) => Promise<Value>, say?: (text: string) => void): Promise<Value> {
     const tree = treeOf(this.options.root, target)
     const before = this.turns.get(tree) ?? Promise.resolve()
     let release = () => {}
@@ -524,8 +562,10 @@ export class Assessments {
     this.turns.set(tree, tail)
     try {
       await before
+      // The repository is found once the checkout is this run's: its turn was taken the moment it asked.
+      const from = typeof repo === 'string' ? repo : await repo()
       say?.(`Readying the review checkout at ${head.slice(0, 7)}.`)
-      await readyReviewTree({ repo, tree, head, git: this.options.git ?? gitIn, log: this.options.log })
+      await readyReviewTree({ repo: from, tree, head, git: this.options.git ?? gitIn, log: this.options.log })
       return await use(tree)
     } finally {
       release()
@@ -533,24 +573,27 @@ export class Assessments {
     }
   }
 
-  private async one({ target, head, base, description }: AssessJob) {
+  private async one({ target, head, base, description }: AssessJob, signal: AbortSignal) {
     const { root } = this.options
-    const { signal } = this.controller
     const say = (text: string, step?: string) => this.say(target, head, text, step)
     // Every update of a run says when it started, so a window that opens late still counts from the start.
     const startedAt = this.records.get(this.key(target, head))?.startedAt ?? this.clockIso()
     const running = (status: Omit<AssessmentStatus, 'state' | 'head' | 'startedAt'>) => this.set(target, head, { state: 'running', head, startedAt, ...status })
-    running({ percent: 0, now: 'checking the change out in the review tree', eta: null, steps: pendingSteps() })
-    const repo = await this.repoFor(target, head, say)
-    if (signal.aborted) throw new Error(STOPPED)
+    const opening = { percent: 0, now: 'checking the change out in the review tree', eta: null, steps: pendingSteps() }
+    // Another review that uses the same checkout goes first: this one waits, and says so, until the checkout is free.
+    if (this.turns.has(treeOf(root, target))) {
+      say('Waiting for another review of the same project, which is using its review checkout.')
+      this.set(target, head, { state: 'queued', head, startedAt, ...opening, now: 'waiting for another review of the same project' })
+    } else running(opening)
     // The review of this change before this one, read before this run takes its place, so the two can be told apart.
     let previous: AssessmentSummary['before']
     const result = await this.inTree(
       target,
-      repo,
+      () => this.repoFor(target, head, say),
       head,
       async (tree) => {
         if (signal.aborted) throw new Error(STOPPED)
+        running(opening)
         const out = assessmentFolder(root, target, head)
         mkdirSync(out, { recursive: true, mode: 0o700 })
         // The run rewrites the story and its units, so a summary of the last one never stands beside them.
@@ -660,7 +703,11 @@ export class Assessments {
 
   /** Waits for whatever is queued or under way. For tests and for closing. */
   async settled(): Promise<void> {
-    while (this.working) await this.working
+    for (;;) {
+      if (this.active.size) await Promise.allSettled([...this.active.values()].map(({ run }) => run))
+      else if (this.queue.length && !this.controller.signal.aborted) await new Promise((resolve) => setImmediate(resolve))
+      else return
+    }
   }
 
   /** A change review of this target is waiting or under way, at any commit. */

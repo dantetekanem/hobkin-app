@@ -253,6 +253,62 @@ test('a review that comes after another says so: the commit and the answer of th
   assert.equal(sinceLastReview(second, head), `Reviewed again at the same commit, ${head.slice(0, 7)}: no code changed since the last review. The answer went from risky to deploy to safe to deploy.`)
 })
 
+test('reviews of different projects run at the same time, two of one project take turns in its checkout, and each is stopped alone', async (t) => {
+  const { repo, base, head } = project(t)
+  const root = temporaryDirectory(t)
+  // An engine that waits until it is let go, or until it is stopped, and says which projects are inside it together.
+  const inside = new Set<string>()
+  const together: string[] = []
+  const gates = new Map<string, () => void>()
+  const engine: AssessRun = (request) =>
+    new Promise((resolve, reject) => {
+      const name = request.cwd.split('/').at(-1)!
+      inside.add(name)
+      together.push([...inside].sort().join('+'))
+      const done = () => {
+        inside.delete(name)
+        resolve({ units: { units: [{ level: 'safe', critical: false }] }, storyBy: 'host' })
+      }
+      gates.set(`${name}@${request.head}`, done)
+      request.signal.addEventListener('abort', () => {
+        inside.delete(name)
+        reject(new Error('aborted'))
+      })
+    })
+  const assessments = new Assessments({ root, run: engine, repoOf: () => repo })
+  t.after(() => assessments.close())
+  const shop = { kind: 'change' as const, slug: 'shop', item: 'a1' }
+  const shopToo = { kind: 'change' as const, slug: 'shop', item: 'a2' }
+  const blog = { kind: 'change' as const, slug: 'blog', item: 'b1' }
+  const job = (target: typeof shop) => ({ target, head, base, description: { source: 'commits' as const, title: 'Round the total' } })
+  const until = async (ready: () => boolean) => {
+    for (let turn = 0; turn < 400 && !ready(); turn += 1) await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.ok(ready(), 'it came to pass in time')
+  }
+
+  for (const target of [shop, shopToo, blog]) assessments.start(job(target))
+  // Two checkouts, so two run together. The second change of shop waits for shop's checkout, and says so.
+  await until(() => inside.size === 2)
+  assert.deepEqual([...inside].sort(), ['blog', 'shop'])
+  assert.deepEqual([assessments.status(shop, head).state, assessments.status(blog, head).state, assessments.status(shopToo, head).state], ['running', 'running', 'queued'])
+  assert.equal(assessments.status(shopToo, head).now, 'waiting for another review of the same project')
+
+  // Stopping one stops that one only.
+  assert.equal(assessments.stop(blog), true)
+  await until(() => assessments.status(blog, head).state === 'failed')
+  assert.equal(assessments.status(blog, head).error, 'Stopped before it finished, as you asked.')
+  assert.equal(assessments.status(shop, head).state, 'running')
+  assert.equal(assessments.stop(blog), false, 'nothing of it is left to stop')
+
+  // The first change of shop finishes, and the second takes the checkout.
+  gates.get(`shop@${head}`)!()
+  await until(() => assessments.status(shop, head).state === 'ready' && assessments.status(shopToo, head).state === 'running')
+  gates.get(`shop@${head}`)!()
+  await assessments.settled()
+  assert.equal(assessments.status(shopToo, head).state, 'ready')
+  assert.equal(together.includes('blog+shop'), true)
+})
+
 test('a run that close() stops writes no summary, and says it was stopped', async (t) => {
   let started = () => {}
   const running = new Promise<void>((resolve) => (started = resolve))
