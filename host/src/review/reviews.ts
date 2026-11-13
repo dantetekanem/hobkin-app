@@ -85,6 +85,8 @@ export interface ReviewsOptions {
    * tells it once it is ready instead, and a review the background prepared on its own is not told at all.
    */
   onReady?: (ready: { target: ReviewTarget; review: Review; at: string }) => void
+  /** Hears that a verdict merged something, a pull request on GitHub or a finished change, so what the lists show of it is read again at once. */
+  onMerged?: () => void
   /** What a review is about before its file can say: a finished change's title and project, as the Work screen has them. */
   describe?: (target: ReviewTarget) => { title: string; project: string } | null
   /**
@@ -869,6 +871,7 @@ export class Reviews {
           throw error
         }
         const before = merge.post ? (merge.mine ? ', after your comments' : ', after approving it') : ''
+        this.merged(id)
         return { message: `Merged ${name} into ${merge.base}${before}.${posted ? ` ${posted}` : ''}` }
       }
       const posted = await post(preview.post!)
@@ -884,7 +887,17 @@ export class Reviews {
         ? await this.options.work().workAction(plan?.route ?? card!.landing, target.slug, target.item, { head: plan?.head ?? review.change.head })
         : await this.options.work().workAction('ask', target.slug, target.item, preview.note ?? '')
     this.markSent(target, verdict)
+    if (verdict === 'approve-merge') this.merged(id)
     return { message: String((said as { message?: unknown } | null)?.message ?? 'Done.') }
+  }
+
+  /** Tells the host something merged. What it does next never undoes the merge. */
+  private merged(id: string) {
+    try {
+      this.options.onMerged?.()
+    } catch (error) {
+      this.options.log?.(`Review ${id}: what follows its merge failed: ${messageOf(error)}`)
+    }
   }
 
   /** Where a finished change's pull request would go, and what it would say. Refused, with the reason, when it cannot have one. */

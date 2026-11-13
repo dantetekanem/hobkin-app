@@ -119,6 +119,20 @@ const whyNotLive = (owner: OwnerState): string => {
  * The host: hobkin's application for one home, behind a WebSocket on this machine.
  * It sends hobkin's state as it changes and runs the commands a UI sends back.
  */
+/** The same handlers, with GitHub read again after each of `names` has done its work. What it answers is unchanged, and a refusal is passed on as it is. */
+function thenReadGitHub<Handlers extends object>(handlers: Handlers, names: readonly (keyof Handlers)[], read: () => void): Handlers {
+  const wrapped = { ...handlers }
+  for (const name of names) {
+    const run = handlers[name] as unknown as (...args: unknown[]) => unknown
+    wrapped[name] = (async (...args: unknown[]) => {
+      const said = await run(...args)
+      read()
+      return said
+    }) as unknown as Handlers[typeof name]
+  }
+  return wrapped
+}
+
 export async function startHost(options: HostOptions): Promise<RunningHost> {
   const { root, live = false, real = false, dev = false, port = 0, log = () => {} } = options
   const other = runningHost(root)
@@ -225,6 +239,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     app: () => hobkin(),
     runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
     gh: options.reviewGh,
+    // A pull request that merged is closed on GitHub, and so is the issue it fixes: both leave the lists now, not at the next five-minute read.
+    merged: () => void github.refresh(),
     log,
   })
   // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
@@ -402,8 +418,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       ;(options.openFile ?? (() => {}))(real)
       return done
     },
-    // The Work screen's actions, each one of hobkin's own work actions.
-    ...workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
+    // The Work screen's actions, each one of hobkin's own work actions. A yes on a card can merge a pull request on
+    // GitHub, and hobkin then closes the issue it fixed, so GitHub is read again once the action is done.
+    ...thenReadGitHub(workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }), ['work.change', 'work.group'], () => void github.refresh()),
     // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
     // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),

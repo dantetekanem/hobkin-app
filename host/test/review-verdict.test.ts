@@ -217,6 +217,8 @@ function pullSeat(
     }
     return { kind: 'failed', code: 1, stdout: '', stderr: `HTTP 404: ${args.join(' ')}` }
   }
+  /** Each time the host heard that something merged. */
+  const merges: number[] = []
   const reviews = new Reviews({
     store,
     sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('unused')) }, pull: pullSource({ gh }) },
@@ -225,14 +227,25 @@ function pullSeat(
     gh,
     // What moved since the review, as a checkout of the pull request would say it.
     ...(moved ? { pullMoved: async () => moved } : {}),
+    onMerged: () => merges.push(calls.length),
     now: () => 1000,
   })
   /** What was sent: every call that was not a read. */
   const sent = () => calls.filter((call) => call.args.includes('--method'))
-  return { id, reviews, store, calls, sent, github, target: targetOfReviewId(id)! }
+  return { id, reviews, store, calls, sent, merges, github, target: targetOfReviewId(id)! }
 }
 
 const PINNED = `At commit ${sample.change.head.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
+
+test('once a pull request has merged, the host is told, so what GitHub lists is read again at once and the merged one leaves', async (t) => {
+  const { id, reviews, merges } = pullSeat(t)
+  const approved = await reviews.preview(id, 'approve', 'Looks right.')
+  await reviews.verdict(id, 'approve', 'Looks right.', approved.confirm)
+  assert.deepEqual(merges, [], 'an approval alone merges nothing')
+  const preview = await reviews.preview(id, 'approve-merge', '')
+  await reviews.verdict(id, 'approve-merge', '', preview.confirm)
+  assert.equal(merges.length, 1)
+})
 
 test("approve and merge on someone else's pull request approves it, then merges the reviewed commit the way its repository allows", async (t) => {
   const { id, reviews, sent } = pullSeat(t)
