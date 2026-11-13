@@ -25,6 +25,43 @@ fn host_already_running() -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
 }
 
+/// The host an earlier run of the app left behind, by its process id: the one its home's `client/host.json` names,
+/// still running `host/src/main.ts`, with no parent any more. An app that is killed rather than quit never stops its
+/// host, and the next start used to keep that host, with whatever code it had loaded when it began: hours of changes
+/// to the host never took effect, however often the app was restarted. A host somebody runs by hand has its terminal
+/// for a parent, and is not one of these.
+fn leftover_host() -> Option<u32> {
+    let record = fs::read_to_string(home()?.join("client").join("host.json")).ok()?;
+    let digits: String = record.split("\"pid\":").nth(1)?.trim_start().chars().take_while(char::is_ascii_digit).collect();
+    let pid: u32 = digits.parse().ok()?;
+    let output = Command::new("ps").args(["-o", "ppid=,command=", "-p", &pid.to_string()]).output().ok()?;
+    let line = String::from_utf8(output.stdout).ok()?;
+    let (parent, command) = line.trim().split_once(char::is_whitespace)?;
+    (parent == "1" && command.contains("host/src/main.ts")).then_some(pid)
+}
+
+/// Stops a host this run did not start, as `stop_host` stops its own: SIGTERM, so hobkin closes cleanly and frees its
+/// home, and outright once it has had its time. It returns when the port is free, or after a last short wait.
+fn stop_leftover(pid: u32) {
+    let pid = pid.to_string();
+    let gone = |within: Duration| {
+        let deadline = Instant::now() + within;
+        while Instant::now() < deadline {
+            if !host_already_running() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
+    };
+    let _ = Command::new("kill").arg("-TERM").arg(&pid).status();
+    if gone(Duration::from_secs(10)) {
+        return;
+    }
+    let _ = Command::new("kill").arg("-KILL").arg(&pid).status();
+    gone(Duration::from_secs(3));
+}
+
 /// The oldest Node the host runs on (the user asked for a much newer Node). A version manager may put an older one first on the PATH.
 const NODE_MAJOR: u32 = 26;
 
@@ -64,7 +101,15 @@ fn home() -> Option<PathBuf> {
 /// What it prints goes to host.log in the app's log folder.
 fn start_host(log_dir: Option<PathBuf>) -> Option<Child> {
     if host_already_running() {
-        return None;
+        // A host an earlier run left behind is replaced, so starting the app always starts hobkin's host anew.
+        // One somebody runs by hand is used as it is.
+        match leftover_host() {
+            Some(pid) => stop_leftover(pid),
+            None => return None,
+        }
+        if host_already_running() {
+            return None;
+        }
     }
     let mut command = Command::new(node());
     command.current_dir(repo_root()).arg("host/src/main.ts").args(["--dev", "--live"]);
