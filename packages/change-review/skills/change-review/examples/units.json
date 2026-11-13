@@ -58,8 +58,8 @@
     }
    },
    "why_level": [
-    "Floor rule 3: an entry point above it, `ReceiptJob#perform`, has no life cycle test.",
-    "Critical: it is on a money path, and no test changed in this diff observes the new rounding."
+    "Floor rule 5: no test that ran shows the changed line, and an entry point above it, `ReceiptJob#perform`, has no life cycle test. Raised to high: with the flag off, every total now rounds half to even, so 2.675 was charged as 2.68 and is charged as 2.67.",
+    "Critical: the wrong amount is on a money path, for every caller."
    ],
    "would_change": [
     {
@@ -129,7 +129,7 @@
     }
    },
    "why_level": [
-    "Floor rule 3: no test executes the changed line."
+    "Floor rule 4: it changes the key everyone's totals are cached under, and no test goes through a request to it."
    ],
    "would_change": [
     {
@@ -255,7 +255,7 @@
     }
    },
    "why_level": [
-    "Floor rule 11: safe.",
+    "Floor rule 10: safe.",
     "Raised to mid: the check itself runs for everyone. It passes `@cart.shop`, so every checkout loads the shop before branching, and `Features.enabled?` calls `Store.fetch` with no rescue."
    ],
    "would_change": [
@@ -322,7 +322,7 @@
     }
    },
    "why_level": [
-    "Floor rule 8: what it writes outlives the flag.",
+    "Floor rule 7: what it writes outlives the flag.",
     "The queued job calls `round_money`, which is unit 1."
    ],
    "would_change": [],
@@ -378,7 +378,7 @@
     }
    },
    "why_level": [
-    "Floor rule 11."
+    "Floor rule 10."
    ],
    "would_change": [],
    "watch": "not assessed",
@@ -427,7 +427,7 @@
     }
    },
    "why_level": [
-    "Floor rule 9: mid.",
+    "Floor rule 8: mid.",
     "Lowered to safe with evidence `unreferenced`: no reference to `TAX_PRECISION` remains under the root."
    ],
    "would_change": [],
@@ -477,7 +477,7 @@
     }
    },
    "why_level": [
-    "Floor rule 9: mid.",
+    "Floor rule 8: mid.",
     "Lowered to safe with evidence `additive-schema`: no constraint, no rewrite, and old code never reads the column. It has to deploy before the flag is turned on."
    ],
    "would_change": [],

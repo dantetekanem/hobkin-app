@@ -65,7 +65,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **everyone**. Called on the flag-off branch of `compute_totals` (line 15) and from `ReceiptJob#perform` (line 5); neither checks the flag.
 - Undone by: **rollback**. Reverting the deploy restores the old rounding.
 
-**Why this level:** Floor rule 3: an entry point above it, `ReceiptJob#perform`, has no life cycle test. Critical: it is on a money path, and no test changed in this diff observes the new rounding.
+**Why this level:** Floor rule 5: no test that ran shows the changed line, and an entry point above it, `ReceiptJob#perform`, has no life cycle test. Raised to high: with the flag off, every total now rounds half to even, so 2.675 was charged as 2.68 and is charged as 2.67. Critical: the wrong amount is on a money path, for every caller.
 
 **Would change it:**
 - Add a job test for `ReceiptJob`, and one request assertion that tells the two rounding modes apart. Then: **mid**.
@@ -97,7 +97,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **everyone**. No caller was found, so no condition is proven in front of it.
 - Undone by: **rollback**. Entries under the old prefix are still there.
 
-**Why this level:** Floor rule 3: no test executes the changed line.
+**Why this level:** Floor rule 4: it changes the key everyone's totals are cached under, and no test goes through a request to it.
 
 **Would change it:**
 - Show its callers, and a life cycle test that executes it. Then: **mid**.
@@ -169,7 +169,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **the check: everyone; the new branch: nobody yet**. The flag-off branch is the removed code, re-indented.
 - Undone by: **flag**. Turning the flag off takes the old branch.
 
-**Why this level:** Floor rule 11: safe. Raised to mid: the check itself runs for everyone. It passes `@cart.shop`, so every checkout loads the shop before branching, and `Features.enabled?` calls `Store.fetch` with no rescue.
+**Why this level:** Floor rule 10: safe. Raised to mid: the check itself runs for everyone. It passes `@cart.shop`, so every checkout loads the shop before branching, and `Features.enabled?` calls `Store.fetch` with no rescue.
 
 **Would change it:**
 - Pass an already-loaded value to the check, and confirm the flag store fails closed. Then: **safe**.
@@ -202,7 +202,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **nobody yet**. Its one call site is on the flag-on branch of `compute_totals`.
 - Undone by: **flag-with-residue**. Turning the flag off leaves the written values and the queued jobs.
 
-**Why this level:** Floor rule 8: what it writes outlives the flag. The queued job calls `round_money`, which is unit 1.
+**Why this level:** Floor rule 7: what it writes outlives the flag. The queued job calls `round_money`, which is unit 1.
 
 **Would change it:** nothing proposed.
 
@@ -232,7 +232,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **nobody yet**. Its one call site is `per_line_totals:20`, behind the flag.
 - Undone by: **flag**. Nothing is written.
 
-**Why this level:** Floor rule 11.
+**Why this level:** Floor rule 10.
 
 **Would change it:** nothing proposed.
 
@@ -259,7 +259,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **at-load**. Evaluated when the file loads.
 - Undone by: **rollback**. Reverting restores the value.
 
-**Why this level:** Floor rule 9: mid. Lowered to safe with evidence `unreferenced`: no reference to `TAX_PRECISION` remains under the root.
+**Why this level:** Floor rule 8: mid. Lowered to safe with evidence `unreferenced`: no reference to `TAX_PRECISION` remains under the root.
 
 **Would change it:** nothing proposed.
 
@@ -287,7 +287,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 - Runs for: **at-load**. Applies to everyone at deploy.
 - Undone by: **rollback**. The column can be dropped.
 
-**Why this level:** Floor rule 9: mid. Lowered to safe with evidence `additive-schema`: no constraint, no rewrite, and old code never reads the column. It has to deploy before the flag is turned on.
+**Why this level:** Floor rule 8: mid. Lowered to safe with evidence `additive-schema`: no constraint, no rewrite, and old code never reads the column. It has to deploy before the flag is turned on.
 
 **Would change it:** nothing proposed.
 
