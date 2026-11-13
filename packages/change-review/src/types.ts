@@ -558,6 +558,8 @@ export interface StoryWords {
   title?: string
   /** One sentence on what the change does, beside what it claims. */
   does?: string
+  /** The Reviewer's answer to the last question, in words: is this change risky or safe to deploy, and why. */
+  answer?: string
   /** One line per stop of the setting, in execution order. */
   setting?: string[]
   /** Per unit id: a sharper title (a claim) and a plainer `what`. */

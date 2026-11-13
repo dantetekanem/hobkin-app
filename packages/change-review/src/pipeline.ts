@@ -9,6 +9,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { deployAnswer, type DeployAnswer } from './answer.ts'
 import { blindActions, runBlindCheck } from './blind.ts'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, isNotRequestPath, rx, type ReviewConfig } from './config.ts'
 import { curate } from './curate.ts'
@@ -104,6 +105,8 @@ export interface ReviewChangeResult {
   progress: Progress
   /** A model wrote the story's words, or the facts alone did. */
   storyBy: 'model' | 'host'
+  /** The one answer for the whole change: risky or safe to deploy, and why. */
+  answer: DeployAnswer
 }
 
 /** Lines of a test that put a double in place of a definition; `sym` stands for its name. */
@@ -690,7 +693,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const graph = graphOf(applied.nodes)
   save('graph.json', graph)
   if (applied.rejected.length) save('rejected-events.json', applied.rejected)
-  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy }
+  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer) }
 }
 
 /** What the blind check leaves on the units: its questions, each on the unit it was asked of. It changes no level. */

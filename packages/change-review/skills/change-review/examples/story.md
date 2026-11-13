@@ -10,6 +10,8 @@
 
 **Size:** 4 files, 45 lines added, 10 removed. 8 changed definitions, all read.
 
+**Risky to deploy.** round_money changes its rounding mode for every caller, flag on or off. 2 more parts can break.
+
 **Level: high.** Becomes **mid** if the changes suggested under units 1 to 3 are made. Reading time: about 9 minutes.
 
 **Needs you (3):**
@@ -297,7 +299,7 @@ Outside the path: a constant (takes effect when the file loads) and a migration 
 
 ## Conclusion
 
-**Verdict: high**, because of units 1 to 3. With their suggested changes made it is **mid**.
+**Verdict: risky to deploy** (high, because of units 1 to 3). With their suggested changes made it is **mid**.
 
 **Proof:** the request path through `CheckoutController#create` has a life cycle test in both flag states. `ReceiptJob#perform` has none, and nothing executes `totals_cache_key`. In this illustration no test was run.
 

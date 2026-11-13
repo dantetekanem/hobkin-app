@@ -256,7 +256,7 @@ const SIGNAL_KINDS = ['metric', 'log', 'trace', 'error-report'] as const
 const STATUSES = ['verified', 'contradicted', 'unverifiable'] as const satisfies readonly ClaimStatus[]
 /** The fields of schemas/risk-event.schema.json, and `watch` from types.ts. */
 const EVENT_FIELDS = ['node', 'level', 'direction', 'aspect', 'evidence', 'evidence_kind', 'lines', 'critical', 'confidence', 'rule', 'questions', 'suggest', 'watch', 'by']
-const WORD_FIELDS = ['title', 'does', 'setting', 'units']
+const WORD_FIELDS = ['title', 'does', 'answer', 'setting', 'units']
 const MIN_EVIDENCE = 20
 const MAX_EVENTS_PER_NODE = 10
 const MAX_QUESTIONS = 5
@@ -274,6 +274,7 @@ const LIMITS = {
   at: 160,
   undo: 200,
   title: 100,
+  answer: 320,
   does: 450,
   setting: 160,
   what: 400,
@@ -510,6 +511,8 @@ function wordsOf(value: unknown, units: ReadonlySet<string>, problems: Problems)
   if (title) words.title = title
   const does = problems.text(value.does, LIMITS.does, 'words.does')
   if (does) words.does = does
+  const answer = problems.text(value.answer, LIMITS.answer, 'words.answer')
+  if (answer) words.answer = answer
   const setting = settingOf(value.setting, problems)
   if (setting.length) words.setting = setting
   const perUnit = unitWordsOf(value.units, units, problems)

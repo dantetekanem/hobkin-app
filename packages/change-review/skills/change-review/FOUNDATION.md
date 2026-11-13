@@ -131,6 +131,8 @@ The flag check itself is always `everyone`: its arguments are evaluated and the 
 
 `critical` is a mark on a `high` unit meaning "needs a fix, not only a look".
 
+**One answer, for the whole change.** A review exists to answer one question: is this change risky or safe to deploy? The answer belongs to the change, never to a node. It is **risky to deploy** when a unit is `high`, and the reason given is what breaks. Otherwise it is **safe to deploy**, and what no test showed is said beside the answer in a sentence, not turned into a risk. The levels of units are how the answer is reached and how the reading is ordered; they are not themselves what the reviewer is told about the change. The Reviewer writes the reason in its own words (`words.answer`); its sentence is used only when it opens with the answer the levels give.
+
 ### 5.1 Floor rules
 
 Deterministic, first match wins. The floor is computed from the four facts; no model is involved.
@@ -219,7 +221,7 @@ A unit is one thing the reviewer decides on. The map can fail a reviewer three w
 
 Critical is visible first. But the reader is told where they are before being told what is wrong there.
 
-1. **Opening**: what the change claims, what it does, its size as metadata, the level, and the `high` units by name, critical first. Contradicted claims.
+1. **Opening**: what the change claims, what it does, its size as metadata, the answer (risky or safe to deploy, and why), the level, and the `high` units by name, critical first. Contradicted claims.
 2. **Setting**: the path in execution order, one line per stop.
 3. **Units**: `high`, then `mid`, then `safe`, each in path order, each in the same shape.
 4. **Conclusion**: verdict and what would change it; what was proven and what was not; what to watch after launch and what undoes it; fast-follow list; open questions; claims checked.

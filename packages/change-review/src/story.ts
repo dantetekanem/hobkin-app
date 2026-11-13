@@ -4,6 +4,7 @@
  * of the title, the setting and each unit's title and "what". Comments and strings from the code appear only inside
  * code blocks.
  */
+import { DEPLOY_WORDS, deployAnswer } from './answer.ts'
 import { isOnPath } from './curate.ts'
 import type { BlindAction, BlindCheck, CodeShown, Fact, Graph, Level, ReviewNode, StoryWords, Triage, Unit, Units, Watch } from './types.ts'
 
@@ -130,6 +131,8 @@ function opening(input: StoryInput, items: Numbered[], title: (unit: Unit) => st
     .filter((bucket) => ['sample', 'removal', 'skip', 'parity'].includes(bucket.treatment))
     .reduce((sum, bucket) => sum + bucket.files, 0)
   const minutes = Math.max(1, Math.round(units.attention.reading_minutes))
+  // The one answer the review gives, for the whole change, before any level of a part of it.
+  const answer = deployAnswer(units.units, words?.answer)
   const becomes = !after.units.length
     ? 'No suggestion would change it.'
     : after.level === after.now
@@ -141,6 +144,8 @@ function opening(input: StoryInput, items: Numbered[], title: (unit: Unit) => st
     `**Does:** ${words?.does ?? `${MODE_WORDS[triage.mode]}${kinds ? `, touching ${kinds}` : ''}, told below as ${plural(items.length, 'unit')}.`}`,
     '',
     `**Size:** ${plural(triage.totals.files, 'file')}, ${triage.totals.added} lines added, ${triage.totals.deleted} removed. ${plural(definitions, 'changed definition')}, each shown below; ${plural(countedOnly, 'file')} checked or counted without reading.`,
+    '',
+    `**${DEPLOY_WORDS[answer.deploy]}.** ${answer.why}`,
     '',
     `**Level: ${after.now}.** ${becomes} Reading time: about ${plural(minutes, 'minute')}.`,
   ]
@@ -256,7 +261,8 @@ function conclusion(input: StoryInput, items: Numbered[], title: (unit: Unit) =>
     const verb = after.level === after.now ? 'stays' : 'is'
     lowered = ` With their suggested changes made it ${verb} **${after.level}**.`
   }
-  const lines = ['## Conclusion', '', `**Verdict: ${after.now}**${because}.${lowered}`, '']
+  const answer = deployAnswer(input.units.units, input.words?.answer)
+  const lines = ['## Conclusion', '', `**Verdict: ${DEPLOY_WORDS[answer.deploy].toLowerCase()}** (${after.now}${because}).${lowered}`, '']
 
   const runs = new Map<string, string>()
   for (const node of graph.nodes) for (const run of node.runs) runs.set(run.command, `\`${run.command}\` (${run.kind}, exit ${run.exit_code})`)

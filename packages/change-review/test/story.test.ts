@@ -115,7 +115,8 @@ test('the opening names the high units by title with critical first, then the co
   assert.match(markdown, /\*\*Needs you \(3\):\*\*\n- \*\*Critical\.\*\* Unit 1: round_money changes its rounding mode/)
   assert.match(markdown, /- Unit 2: The totals cache key prefix changes/)
   assert.match(markdown, /Then 2 worth a look, and 3 that are safe\./)
-  assert.match(markdown, /\*\*Verdict: high\*\*/)
+  assert.match(markdown, /\*\*Risky to deploy\.\*\* round_money changes its rounding mode for every caller, flag on or off\. 2 more parts can break\./, 'the one answer for the whole change comes before any level')
+  assert.match(markdown, /\*\*Verdict: risky to deploy\*\* \(high, because of units 1 to 3\)/)
 })
 
 // ───────────────────────── Words and code ─────────────────────────
@@ -155,7 +156,7 @@ test('a story without high units says what it is, omits empty sections and repor
   assert.match(markdown, /\*\*Contradicted:\*\* .*No behaviour change/)
   assert.doesNotMatch(markdown, /## Needs you/)
   assert.doesNotMatch(markdown, /## Worth a look/)
-  assert.match(markdown, /\*\*Verdict: safe\*\*/)
+  assert.match(markdown, /\*\*Verdict: safe to deploy\*\* \(safe\)/)
 })
 
 test('the conclusion tells a unit only direct tests prove from one no test shows', () => {
