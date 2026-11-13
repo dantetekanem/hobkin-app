@@ -7,7 +7,7 @@ import { openCheck } from '../src/cli/checks.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { readDirections } from '../src/cli/directions.mjs';
 import { main } from '../src/cli/main.mjs';
-import { callName, readProfile, setProfile } from '../src/cli/profile.mjs';
+import { aboutUser, callName, readProfile, setProfile, updateProfile } from '../src/cli/profile.mjs';
 import { readLocalView } from '../src/cli/view.mjs';
 
 function dataRoot(t) {
@@ -75,6 +75,51 @@ test('a broken profile reads as empty, so it never stops a start or a check', t 
 
   writeFileSync(join(root, 'profile.json'), JSON.stringify({ name: 7, email: 'ada@example.com', other: 'x' }));
   assert.deepEqual(readProfile(root), { email: 'ada@example.com' });
+});
+
+test('hobkin profile keeps whose computer this is, personal or work and nothing else', async t => {
+  const root = dataRoot(t);
+  await run(root, 'name', 'Ada');
+
+  const { written } = await run(root, 'computer', 'work');
+  assert.deepEqual(JSON.parse(written), { name: 'Ada', computer: 'work' });
+
+  await assert.rejects(run(root, 'computer', 'laptop'), /personal or work/);
+  assert.deepEqual(readProfile(root), { name: 'Ada', computer: 'work' });
+
+  await run(root, 'clear', 'computer');
+  assert.deepEqual(readProfile(root), { name: 'Ada' });
+});
+
+test('several fields save in one write, or none of them when one is refused', t => {
+  const root = dataRoot(t);
+  setProfile(root, 'name', 'Ada');
+
+  assert.deepEqual(updateProfile(root, { email: 'ada@example.com', computer: 'work' }), { name: 'Ada', email: 'ada@example.com', computer: 'work' });
+
+  assert.throws(() => updateProfile(root, { name: 'Grace', email: 'not an email' }), /real email/);
+  assert.throws(() => updateProfile(root, { name: 'Grace', age: '36' }), /hobkin profile/);
+  assert.deepEqual(readProfile(root), { name: 'Ada', email: 'ada@example.com', computer: 'work' });
+});
+
+test('a computer the profile does not know reads as not said', t => {
+  const root = dataRoot(t);
+
+  writeFileSync(join(root, 'profile.json'), JSON.stringify({ name: 'Ada', computer: 'laptop' }));
+  assert.deepEqual(readProfile(root), { name: 'Ada' });
+
+  writeFileSync(join(root, 'profile.json'), JSON.stringify({ computer: 'personal' }));
+  assert.deepEqual(readProfile(root), { computer: 'personal' });
+});
+
+test('the usage line names the computer', async t => {
+  await assert.rejects(run(dataRoot(t), 'age', '36'), /computer personal\|work .*clear \[name \| call \| email \| computer\]/);
+});
+
+test('every agent learns whose computer this is', () => {
+  assert.equal(aboutUser({ name: 'Ada', computer: 'work' }), "The user's name is Ada. This is their work computer.");
+  assert.equal(aboutUser({ computer: 'personal' }), 'This is their personal computer.');
+  assert.equal(aboutUser({ name: 'Ada' }), "The user's name is Ada.");
 });
 
 test('the name to call someone is what they asked for, then their name', () => {

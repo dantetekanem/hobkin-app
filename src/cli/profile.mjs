@@ -5,10 +5,14 @@ import { resolveDataRoot } from './migration/admission.mjs';
 
 const MAX_LENGTH = 120;
 const MAX_FILE_BYTES = 4096;
-const USAGE = 'Usage: hobkin profile [name <text> | call <text> | email <text> | clear [name | call | email]]';
+const USAGE = 'Usage: hobkin profile [name <text> | call <text> | email <text> | computer personal|work | clear [name | call | email | computer]]';
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/;
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
-const fields = { name: 'name', call: 'callMe', email: 'email' };
+// Whose computer this is. hobkin asks different things on a work computer.
+const COMPUTERS = ['personal', 'work'];
+const fields = { name: 'name', call: 'callMe', email: 'email', computer: 'computer' };
+
+const keeps = (key, value) => typeof value === 'string' && (key !== 'computer' || COMPUTERS.includes(value));
 
 const profilePath = root => join(root, 'profile.json');
 
@@ -19,7 +23,7 @@ export function readProfile(root) {
     if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return {};
 
     const saved = JSON.parse(readFileSync(profilePath(root), 'utf8'));
-    const known = Object.values(fields).filter(key => typeof saved?.[key] === 'string');
+    const known = Object.values(fields).filter(key => keeps(key, saved?.[key]));
     return Object.fromEntries(known.map(key => [key, saved[key]]));
   } catch {
     return {};
@@ -28,6 +32,10 @@ export function readProfile(root) {
 
 function validated(field, value) {
   const text = value.trim();
+  if (field === 'computer') {
+    if (!COMPUTERS.includes(text)) throw Error('Use personal or work.');
+    return text;
+  }
   if (!text || text.length > MAX_LENGTH || CONTROL_CHARACTER.test(text)) {
     throw Error(`Use one line of at most ${MAX_LENGTH} characters.`);
   }
@@ -35,11 +43,18 @@ function validated(field, value) {
   return text;
 }
 
-export function setProfile(root, field, value) {
-  const profile = { ...readProfile(root), [fields[field]]: validated(field, value) };
+/** Saves several fields in one write, so a refused one leaves the others unsaved too. */
+export function updateProfile(root, change) {
+  const profile = { ...readProfile(root) };
+  for (const [field, value] of Object.entries(change)) {
+    if (!Object.hasOwn(fields, field)) throw Error(USAGE);
+    profile[fields[field]] = validated(field, value);
+  }
   atomicJson(profilePath(root), profile);
   return profile;
 }
+
+export const setProfile = (root, field, value) => updateProfile(root, { [field]: value });
 
 function clearProfile(root, field) {
   const profile = readProfile(root);
@@ -66,11 +81,12 @@ export function runProfileCommand(requestedRoot, [action, ...words]) {
 export const callName = ({ name, callMe }) => callMe ?? name ?? null;
 
 /** A line in front of the directions, so the main chat and every check know who they work for. */
-export function aboutUser({ name, callMe, email }) {
+export function aboutUser({ name, callMe, email, computer }) {
   const facts = [
     name ? `The user's name is ${name}.` : '',
     callMe ? `Call them ${callMe}.` : '',
     email ? `Their email is ${email}.` : '',
+    computer ? `This is their ${computer} computer.` : '',
   ];
   return facts.filter(Boolean).join(' ');
 }
