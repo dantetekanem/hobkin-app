@@ -7,9 +7,9 @@ const ICON = { idle: MessageCircleQuestion, sending: MessageCircleQuestion, aske
 const SAID: Record<Exclude<AskState, 'idle'>, string> = { sending: 'Asking…', asked: 'Asked', failed: 'Not sent' }
 
 /**
- * A quick way to ask hobkin about one thing: it sends its words at once, they show in the conversation under
- * "Ask hobkin", and it says so. Its name carries the words it sends. `compact` is the short form, and `iconOnly` the
- * shortest, for a list of one line each, where its name says it.
+ * A quick way to ask hobkin about one thing: it sends its words at once, hobkin's chat comes into view to answer, and
+ * it says so. Its name carries the words it sends. `compact` is the short form, and `iconOnly` the shortest, for a
+ * list of one line each, where its name says it.
  */
 export function AskLink({ words, ask, compact = false, iconOnly = false, className }: {
   words: string
@@ -21,7 +21,7 @@ export function AskLink({ words, ask, compact = false, iconOnly = false, classNa
 }) {
   const [state, setState] = useState<AskState>('idle')
   const Icon = ICON[state]
-  const name = !ask ? 'Hobkin is not connected to this sample review' : state === 'failed' ? 'It did not go. The conversation under Ask hobkin says why. Click to try again.' : `Ask hobkin: ${words}`
+  const name = !ask ? 'Hobkin is not connected to this sample review' : state === 'failed' ? 'It did not go. The line under the review’s input says why. Click to try again.' : `Ask hobkin: ${words}`
   return (
     <button
       type="button"

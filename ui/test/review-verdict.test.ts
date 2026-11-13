@@ -108,7 +108,7 @@ test('Escape dismisses a child editor, popover, line selection or open code firs
 test('Escape in a field leaves the field with its words, and never reaches the review to close it', () => {
   /** Where a key was pressed: inside the elements these selectors name. */
   const within = (...inside: string[]) => ({ closest: (selector: string) => (selector.split(',').some((part) => inside.includes(part.trim())) ? {} : null) })
-  assert.equal(reviewTakesEscape(within('textarea')), false, 'the box to ask hobkin, and the note editor')
+  assert.equal(reviewTakesEscape(within('textarea')), false, "the review's input")
   assert.equal(reviewTakesEscape(within('input')), false, 'the finder')
   assert.equal(reviewTakesEscape(within('[role="dialog"]')), false, 'the keys sheet')
   assert.equal(reviewTakesEscape(within('button')), true)

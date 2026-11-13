@@ -1,12 +1,17 @@
-import { CircleHelp, MessageSquare, Pencil, Trash2 } from 'lucide-react'
-import { useLayoutEffect, useRef } from 'react'
+import { ArrowUp, CircleHelp, MessageSquare, Pencil, Trash2, TriangleAlert } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { Unit } from '#shared/review/assessment.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { targetLabel, type Note, type NoteIntent } from '../notes/notes.ts'
+import { inputKey } from '../keys.ts'
+import { discussionMessage, targetLabel, type Note, type NoteIntent } from '../notes/notes.ts'
 import { reviewMemory, useReviewMemory, useSession, useSessionStore } from '../state/context.tsx'
 import type { SessionStore } from '../state/session.ts'
-import { noteShown } from './sidebar.ts'
+import { submitNote, type AskCommand, type PendingAsk } from './ask.ts'
+import { askExample, noteShown } from './sidebar.ts'
+import { useAskHobkin } from './use-ask.ts'
 
 /** How many comments and questions a step has, beside its title. */
 export function NoteMarks({ comments, questions }: { comments: number; questions: number }) {
@@ -106,97 +111,220 @@ export function NoteRow({ note, review }: { note: Note; review: Review }) {
   )
 }
 
+const SAYS: Partial<Record<PendingAsk['state'], string>> = { sending: 'Sending to hobkin…', queued: 'Hobkin reads it after what it is doing now.' }
+/** The tallest the review's input grows with its words, as the chat's does, in pixels. */
+const INPUT_HEIGHT = 200
+
 /**
- * Where a note is written. Enter keeps it, Shift with Enter starts a new line, and Escape leaves
- * without losing what was written: the words wait as a draft.
+ * The review's input, at the bottom of the canvas under the step pager, there for as long as the review is open: where
+ * a comment is written on what the reviewer is on, and where hobkin is asked about it. N or C starts a comment, D or H
+ * a question, a note's pencil in the panel opens it here to change, and a click starts what was chosen last.
+ *
+ * Enter keeps a comment for the verdict, and the keyboard goes back to the review. Enter sends a question to hobkin:
+ * hobkin's own chat comes into view beside the review to answer it, the keyboard stays here for the next one, and it
+ * never goes to the chat's input. Shift with Enter starts a new line. Escape gives the keyboard back to the review with
+ * the words kept as a draft, and goes no further, so it never reaches the chat, where it would stop hobkin. A click
+ * here leaves the chat where it is, so an answer being read stays in view.
  */
-export function NoteEditor({ review, target }: { review: Review; target: string }) {
+export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: readonly Unit[] | undefined }) {
   const store = useSessionStore()
+  const review = useSession((session) => session.review)
+  const editor = useSession((session) => session.editor)
+  const notes = useSession((session) => session.notes)
+  const step = useSession((session) => session.view.story[session.story.step])
+  const nodes = useSession((session) => session.view.nodes)
+  // The node the reviewer is on, for the example of what to ask.
+  const on = useSession((session) => {
+    const id = session.pointed ?? session.focus[0]
+    return id ? session.nodeOf.get(id) : undefined
+  })
+  const newest = useSession((session) => session.asks.at(-1))
+  const busy = useHost((state) => state.snapshot.busy === true)
   const draft = useReviewMemory((memory) => memory.of(review).draft)
+  const send = useAskHobkin(ask)
   const field = useRef<HTMLTextAreaElement>(null)
-  const intent = draft?.intent ?? 'comment'
+  // The choice holds from one note to the next.
+  const [chosen, setChosen] = useState<NoteIntent>(draft?.intent ?? 'comment')
+  const intent = draft?.intent ?? chosen
+  useEffect(() => {
+    if (draft?.intent) setChosen(draft.intent)
+  }, [draft?.intent])
+
+  const target = editor ? targetLabel(review, editor.target) : null
+  const text = draft?.text ?? ''
+  const asking = intent === 'question'
+  // Questions kept before they could go, such as one hobkin could not take, go as one message.
+  const waiting = notes.filter((note) => note.intent === 'question' && note.author === 'user' && note.sent == null)
+  const said = newest?.state === 'failed' ? `Not sent. ${newest.error ?? ''}` : newest && (newest.state !== 'queued' || busy) ? SAYS[newest.state] : undefined
+
   const set = (change: { text?: string; intent?: NoteIntent }) => {
-    reviewMemory.getState().setDraft(review, {
-      intent,
-      text: draft?.text ?? '',
-      ...(draft?.editing ? { editing: draft.editing } : {}),
-      ...change,
-    })
+    // Words typed with no note open, as after a question went, are about what the reviewer is on now.
+    if (!store.getState().editor) store.getState().startNote(change.intent ?? intent)
+    const now = reviewMemory.getState().of(review).draft
+    reviewMemory.getState().setDraft(review, { intent: now?.intent ?? intent, text: now?.text ?? '', ...(now?.editing ? { editing: now.editing } : {}), ...change })
+  }
+  const choose = (kind: NoteIntent) => {
+    setChosen(kind)
+    set({ intent: kind })
+    field.current?.focus({ preventScroll: true })
+  }
+  const backToReview = () => field.current?.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
+  const submit = async () => {
+    if ((await submitNote(store, reviewMemory, send)) === 'review') backToReview()
+  }
+  const askWaiting = async () => {
+    const message = discussionMessage(review, waiting)
+    if (!send || !message) return
+    if (await send(message)) reviewMemory.getState().markSent(review, waiting.map((note) => note.id), Date.now())
   }
 
-  // The keyboard goes to the words at once, with the caret after what is already there.
+  // A note started anywhere, by its key or from the panel, puts the keyboard here, the caret after what is there.
   useLayoutEffect(() => {
     const element = field.current
-    if (!element) return
+    if (!editor || !element || document.activeElement === element) return
     element.focus({ preventScroll: true })
     element.setSelectionRange(element.value.length, element.value.length)
-    element.scrollIntoView({ block: 'nearest' })
-  }, [])
-  // The field grows with its words, up to a point.
+  }, [editor])
+  // The field is as tall as its words, up to a limit, as the chat's is, and one line when empty: a placeholder never
+  // makes it taller. It is measured again when its width changes: the dock starts narrow, before the canvas is
+  // measured, and the chat sliding in beside the review narrows it.
+  const fit = () => {
+    const element = field.current
+    if (!element) return
+    element.style.height = ''
+    if (element.value) element.style.height = `${Math.min(element.scrollHeight, INPUT_HEIGHT)}px`
+  }
+  useLayoutEffect(fit, [text])
   useLayoutEffect(() => {
     const element = field.current
     if (!element) return
-    element.style.height = 'auto'
-    element.style.height = `${Math.min(220, element.scrollHeight)}px`
-  }, [draft?.text])
-
-  const leave = (save: boolean) => {
-    if (save) store.getState().saveNote()
-    else store.getState().closeEditor()
-    // The keyboard goes back to the graph, where it was.
-    field.current?.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
-  }
+    let width = element.offsetWidth
+    const observer = new ResizeObserver(() => {
+      if (element.offsetWidth === width) return
+      width = element.offsetWidth
+      fit()
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+    // The observer is made once; `fit` reads the field each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-background p-2.5 ring-1 ring-border-strong/50">
-      <div className="flex items-center gap-1.5">
-        {(['comment', 'question'] as const).map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            aria-pressed={intent === kind}
-            onClick={() => {
-              set({ intent: kind })
-              field.current?.focus()
+    <div
+      className="pointer-events-auto flex w-full max-w-[640px] flex-col gap-1"
+      // A click here is not a click on the graph, which would slide the canvas back over the chat.
+      onPointerDown={(event) => event.stopPropagation()}
+      onBlur={(event) => {
+        // Left with nothing written, the note closes, and the next one is about wherever the reviewer is then.
+        if (event.currentTarget.contains(event.relatedTarget)) return
+        if (store.getState().editor && !store.getState().editor?.editing && !reviewMemory.getState().of(review).draft?.text.trim()) store.getState().closeEditor()
+      }}
+    >
+      {/* The chat's own field (Composer.tsx): one pill, one row, the choice at its left and the send at its right. */}
+      <div className="rounded-[24px] border-[1.5px] border-input bg-card py-1.5 pr-1.5 pl-1.5 transition-colors duration-[160ms] ease-[ease] focus-within:border-ring">
+        <div className="flex items-end gap-1">
+          <div className="flex h-8 shrink-0 items-center">
+            <div className="flex h-7 items-center rounded-full bg-surface-2 p-0.5" role="group" aria-label="What this note is">
+              {(['comment', 'question'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={intent === kind}
+                  // The keyboard stays in the words.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(kind)}
+                  className={cn(
+                    'h-6 rounded-full px-2.5 text-[13px] leading-none font-medium whitespace-nowrap transition-[background-color,color] duration-[140ms] ease-out',
+                    intent === kind ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {kind === 'question' ? 'Ask hobkin' : 'Comment'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <textarea
+            ref={field}
+            value={text}
+            rows={1}
+            aria-label={asking ? `Ask hobkin about ${target ?? 'what you are on'}` : `A comment on ${target ?? 'what you are on'}`}
+            placeholder={
+              asking
+                ? send
+                  ? `e.g. ${askExample(step, units, nodes, on)}`
+                  : 'Hobkin is not connected to this sample review: the question is kept as a note'
+                : 'What should change, or be remembered?'
+            }
+            onFocus={() => {
+              if (!store.getState().editor) store.getState().startNote(intent)
             }}
-            className={cn('rounded-full px-2.5 py-0.5 font-heading text-[12.5px] font-semibold', intent === kind ? 'bg-secondary' : 'text-muted-foreground')}
+            onChange={(event) => set({ text: event.target.value })}
+            onKeyDown={(event) => {
+              // The words belong to the field: no key typed here walks the story, and none goes on to the chat.
+              event.stopPropagation()
+              const does = inputKey({ key: event.key, shift: event.shiftKey, composing: event.nativeEvent.isComposing })
+              if (does === 'type') return
+              event.preventDefault()
+              if (does === 'send') void submit()
+              else {
+                store.getState().closeEditor()
+                backToReview()
+              }
+            }}
+            className="scroll-quiet min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent py-1 pl-1 text-left text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
+            style={{ maxHeight: INPUT_HEIGHT }}
+          />
+          <button
+            type="button"
+            aria-label={asking && send ? 'Send to hobkin' : 'Keep this note'}
+            title={asking && send ? 'Send to hobkin (Enter)' : 'Keep this note (Enter)'}
+            disabled={!text.trim()}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void submit()}
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground outline-offset-2 transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40"
           >
-            {kind === 'question' ? 'Question' : 'Comment'}
+            <ArrowUp className="size-4" aria-hidden="true" />
           </button>
-        ))}
-        <span className="min-w-0 flex-1 truncate text-right text-[12.5px] text-muted-foreground">on {target}</span>
+        </div>
       </div>
-      <textarea
-        ref={field}
-        value={draft?.text ?? ''}
-        rows={2}
-        aria-label={intent === 'question' ? `A question on ${target}` : `A comment on ${target}`}
-        placeholder={intent === 'question' ? 'What do you want to ask?' : 'What should change, or be remembered?'}
-        onChange={(event) => set({ text: event.target.value })}
-        onKeyDown={(event) => {
-          // The words belong to the field: no key typed here walks the story.
-          event.stopPropagation()
-          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault()
-            leave(true)
-          } else if (event.key === 'Escape') {
-            event.preventDefault()
-            leave(false)
-          }
-        }}
-        className="rv-scroll w-full resize-none bg-transparent text-[14px] leading-[1.5] outline-none placeholder:text-muted-foreground"
-      />
-      <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <Kbd>↵</Kbd> keep
-        </span>
-        <span className="flex items-center gap-1">
-          <Kbd>⇧↵</Kbd> new line
-        </span>
-        <span className="flex items-center gap-1">
-          <Kbd>esc</Kbd> leave, the words stay
-        </span>
-      </p>
+      <div className="flex h-5 items-center gap-x-2.5 overflow-hidden px-3 text-[12px] whitespace-nowrap text-muted-foreground">
+        {target ? (
+          <>
+            <span className="min-w-0 truncate">on {target}</span>
+            <span className="flex shrink-0 items-center gap-1">
+              <Kbd>↵</Kbd> {asking && send ? 'ask' : 'keep'}
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <Kbd>⇧↵</Kbd> new line
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <Kbd>esc</Kbd> back to the review
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="flex shrink-0 items-center gap-1">
+              <Kbd>N</Kbd> a comment
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <Kbd>D</Kbd> ask hobkin
+            </span>
+          </>
+        )}
+        <span className="flex-1" />
+        {said ? (
+          <span role={newest?.state === 'failed' ? 'alert' : 'status'} className={cn('flex min-w-0 items-center gap-1', newest?.state === 'failed' && 'text-bad-fg')}>
+            {newest?.state === 'failed' ? <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+            <span className="min-w-0 truncate">{said}</span>
+          </span>
+        ) : null}
+        {send && waiting.length > 0 ? (
+          <button type="button" onClick={() => void askWaiting()} className="font-heading font-semibold text-foreground underline-offset-2 hover:underline">
+            Ask your {waiting.length === 1 ? 'question' : `${waiting.length} questions`}
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }

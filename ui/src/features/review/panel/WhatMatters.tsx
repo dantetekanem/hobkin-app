@@ -8,7 +8,7 @@ import { InlineCode } from './InlineCode.tsx'
 import type { UnitMatter, WhatMatters as Matters } from './sidebar.ts'
 
 const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
-/** How many units show before "more", so the panel stays short and hobkin's band stays near. */
+/** How many units show before "more", so the panel stays short. */
 const SHOWN = 4
 /** A level in a line of the list, where the whole words do not fit. */
 const LEVEL: Record<Level, string> = { high: 'High', mid: 'Mid', safe: 'Safe' }

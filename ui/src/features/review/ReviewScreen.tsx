@@ -46,13 +46,12 @@ import { afterVerdict, verdictKind, type VerdictCommands } from './verdict.ts'
 
 /**
  * What floats over the canvas, which the focus is never framed under: the frame's two menus at the top
- * (the main one, and under it the pill of the screen that is open for now), and the rail at the bottom.
+ * (the main one, and under it the pill of the screen that is open for now), and at the bottom the rail with the
+ * review's input under it.
  */
-const COVER = { top: 112, bottom: 68 }
+const COVER = { top: 112, bottom: 148 }
 /** Below this zoom a card shows only its name, large. */
 const FAR = 0.6
-/** The keys that keep the reviewer talking to hobkin: the box, notes and the verdict all live in the panel. */
-const TALK_KEYS = new Set(['h', 'n', 'c', 'd', 'a', 'm', 'x'])
 
 /** The places hobkin pointed to (`review.show`) that this window has shown, so each is shown once. */
 const shown = shownPlaces(storageOrNull())
@@ -285,8 +284,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing) return
       const target = event.target as HTMLElement
       if (event.key === 'Escape') {
-        // A field leaves itself and keeps its words (the note editor, the finder, the box to ask hobkin), and a dialog,
-        // a menu or a list closes itself. Neither ever closes the review.
+        // A field leaves itself and keeps its words (the review's input, the finder), and a dialog, a menu or a list
+        // closes itself. Neither ever closes the review.
         if (!reviewTakesEscape(target)) return
         let left = false
         escapeReview(session.getState(), () => { left = true; useView.getState().closeReview() })
@@ -308,7 +307,6 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
         panelKey,
         // S hides the panel, or brings it back. The panel does it, and keeps the keyboard where it belongs.
         toggleSteps: () => steps?.dispatchEvent(new Event('rv-toggle')),
-        talk: () => steps?.dispatchEvent(new Event('rv-talk')),
         verdict: (kind: Verdict) => {
           // A key held down only repeats: it never gives the second click that confirms.
           if (event.repeat) return
@@ -319,21 +317,12 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
           choice?.click()
         },
       })
-      if (!used) return
-      event.preventDefault()
-      // Walking the graph again is going back to it from the conversation, which lets the panel tuck away.
-      if (!TALK_KEYS.has(event.key.toLowerCase())) session.getState().setTalking(false)
-    }
-    // A click on the graph is going back to it too. One in the panel or the code panel is not.
-    const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement).closest('[data-rv-steps], [data-rv-panel]')) session.getState().setTalking(false)
+      if (used) event.preventDefault()
     }
     element.addEventListener('keydown', onKeyDown)
-    element.addEventListener('pointerdown', onPointerDown, true)
     return () => {
       releaseFocus()
       element.removeEventListener('keydown', onKeyDown)
-      element.removeEventListener('pointerdown', onPointerDown, true)
     }
   }, [session])
 
@@ -350,7 +339,7 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
             <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} />
             <WireCard />
             <Finder />
-            <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} />
+            <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} ask={ask} units={assessment?.units?.units} />
             <StepsPanel canvas={canvas} chrome={chrome} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />
             {shortcuts ? (

@@ -7,16 +7,14 @@ import type { Verdict } from '#shared/review/verdict.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { spring } from '@/lib/motion.ts'
-import { targetLabel } from '../notes/notes.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import type { Size } from '../story/camera.ts'
 import type { VerdictCommands } from '../verdict.ts'
 import { Actions } from './Actions.tsx'
 import type { AskCommand } from './ask.ts'
 import { MENU, PanelHeader } from './Header.tsx'
-import { HobkinBox } from './HobkinBox.tsx'
-import { NoteButton, NoteEditor, NoteRow } from './notes.tsx'
-import { askExample, whatMatters } from './sidebar.ts'
+import { NoteButton, NoteRow } from './notes.tsx'
+import { whatMatters } from './sidebar.ts'
 import { useAskHobkin } from './use-ask.ts'
 import { WhatMatters } from './WhatMatters.tsx'
 
@@ -55,12 +53,13 @@ const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text
  * order is: this step > description that matters for me > agent I can ping and ask > other info"), where the step is
  * told on the canvas, in its card, and never again here ("step is just duplicating side bar"). At its top, the same
  * for the whole review: which project changes, the title with its overall risk, its size and its commits. Then,
- * scrolling and the same on every step: what the change does and what needs a look, hobkin to ask on a band of its
- * own, the comments and questions, the verdict, and the keys.
+ * scrolling and the same on every step: what the change does and what needs a look, the comments and questions, the
+ * verdict, and the keys. A note is written, and hobkin asked, in the review's input at the bottom of the canvas
+ * (`NoteInput`), and hobkin answers in its own chat: nothing here imitates the chat (the user, 2026-11-12).
  *
  * It stays open. The reviewer can hide it, with its chevron or S, to give the graph its width: a strip is left that
- * brings it back. Hidden, it comes back while they are in it: the keyboard in it, a message to hobkin, a note being
- * written. The part of it on screen counts as covered, so nothing is ever framed under it.
+ * brings it back. Hidden, it comes back while the keyboard is in it. The part of it on screen counts as covered, so
+ * nothing is ever framed under it.
  *
  * Purpose of the motion: spatial consistency. It slides on the same spring as the canvas grows on, so hiding it and
  * bringing it straight back turns it round from where it is. Nothing in it is dimmed or blurred on the way.
@@ -71,26 +70,16 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
   const reduced = useReduced()
   const panel = useRef<HTMLElement>(null)
   const noteList = useRef<HTMLDivElement>(null)
-  const box = useRef<HTMLTextAreaElement>(null)
-  const band = useRef<HTMLDivElement>(null)
   const review = useSession((session) => session.review)
   const steps = useSession((session) => session.view.story)
   const nodes = useSession((session) => session.view.nodes)
-  const step = useSession((session) => session.view.story[session.story.step])
-  // The node the reviewer is on, for the example of what to ask.
-  const on = useSession((session) => {
-    const id = session.pointed ?? session.focus[0]
-    return id ? session.nodeOf.get(id) : undefined
-  })
-  const editor = useSession((session) => session.editor)
   const notes = useSession((session) => session.notes)
   const removed = useSession((session) => session.view.removed)
-  const talking = useSession((session) => session.talking)
   const [hidden, setHidden] = useState(false)
   const [within, setWithin] = useState(false)
 
   const width = stepsPanelWidth(canvas.width)
-  const open = !hidden || within || talking || editor != null
+  const open = !hidden || within
   useEffect(() => store.getState().setPanelOpen(open), [open, store])
 
   // How much of the panel is on screen. The camera reads this as covered, and the panel reads its own place from it.
@@ -107,20 +96,9 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
   // The strip covers what the panel holds as it goes, and leaves as it comes back.
   const strip = useTransform(() => 1 - Math.max(0, Math.min(1, (rig.side.get() - STEPS_STRIP) / Math.max(1, width - STEPS_STRIP))))
 
-  const units = chrome.assessment?.units?.units
   const matters = useMemo(() => whatMatters(review, chrome.assessment, steps, nodes), [chrome.assessment, nodes, review, steps])
+  // A quick link's words go to hobkin at once, and hobkin's chat comes into view to answer.
   const ask = useAskHobkin(chrome.ask)
-  // A quick link's words go to hobkin at once, and the conversation comes into view to show them.
-  const askFromList = useMemo(
-    () =>
-      ask
-        ? (words: string) => {
-            band.current?.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
-            return ask(words)
-          }
-        : null,
-    [ask, reduced],
-  )
 
   // The notes in the order they were written, the newest last.
   const listed = useMemo(() => [...notes].sort((a, b) => a.at - b.at), [notes])
@@ -131,10 +109,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
 
   const hide = () => {
     setHidden(true)
-    // Whatever held it open lets go: the conversation, a note being written (its words wait as a draft), and the
-    // keyboard, which goes back to the graph.
-    store.getState().setTalking(false)
-    if (store.getState().editor) store.getState().closeEditor()
+    // The keyboard, which held it open, goes back to the graph.
     panel.current?.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
   }
   const toggle = useRef(hide)
@@ -145,21 +120,13 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
     const element = noteList.current
     if (element) element.scrollTop = element.scrollHeight
   }, [listed.length])
-  // H goes to hobkin's field, as clicking it does. S (`rv-toggle`) hides the panel, or brings it back.
+  // S (`rv-toggle`) hides the panel, or brings it back.
   useEffect(() => {
     const element = panel.current
     if (!element) return
-    const talk = () => {
-      box.current?.focus({ preventScroll: true })
-      box.current?.scrollIntoView({ block: 'nearest' })
-    }
     const flip = () => toggle.current()
-    element.addEventListener('rv-talk', talk)
     element.addEventListener('rv-toggle', flip)
-    return () => {
-      element.removeEventListener('rv-talk', talk)
-      element.removeEventListener('rv-toggle', flip)
-    }
+    return () => element.removeEventListener('rv-toggle', flip)
   }, [])
 
   return (
@@ -188,22 +155,15 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
         />
 
         <div className="rv-scroll min-h-0 flex-1 overflow-y-auto">
-          <WhatMatters matters={matters} ask={askFromList} />
-
-          <div ref={band} className="scroll-my-2">
-            <HobkinBox ref={box} review={review} ask={chrome.ask} notes={notes} example={askExample(step, units, nodes, on)} />
-          </div>
+          <WhatMatters matters={matters} ask={ask} />
 
           <section aria-label="Comments and questions" className="flex flex-col gap-2.5 px-4 pt-4 pb-3.5">
             <h3 className={HEADING}>Comments and questions</h3>
-            {editor ? (
-              <NoteEditor review={review} target={targetLabel(review, editor.target)} />
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                <NoteButton intent="comment" keys="N" onClick={() => store.getState().startNote('comment')} />
-                <NoteButton intent="question" keys="D" onClick={() => store.getState().startNote('question')} />
-              </div>
-            )}
+            {/* Each starts its note in the review's input, at the bottom of the canvas. */}
+            <div className="flex flex-wrap gap-1.5">
+              <NoteButton intent="comment" keys="N" onClick={() => store.getState().startNote('comment')} />
+              <NoteButton intent="question" keys="D" onClick={() => store.getState().startNote('question')} />
+            </div>
             <div ref={noteList} className="rv-scroll max-h-[320px] overflow-y-auto" aria-label="Notes">
               {listed.length === 0 ? (
                 <p className="text-[14px] leading-snug text-pretty text-muted-foreground">Your comments and questions, and hobkin's notes, show here. Comments go with the verdict. Choose one to read it beside its node.</p>

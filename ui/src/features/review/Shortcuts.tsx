@@ -29,9 +29,10 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'Notes and Hobkin',
     keys: [
-      [['N', 'C'], 'A comment on what you are on'],
-      [['D'], 'A question on what you are on'],
-      [['H'], 'Talk to Hobkin about this step'],
+      [['N', 'C'], 'A comment on what you are on, in the input at the bottom'],
+      [['D', 'H'], 'Ask Hobkin about what you are on, in the input at the bottom. Its chat comes into view to answer'],
+      [['↵'], 'In the input: keep the comment, or send the question. ⇧↵ starts a new line'],
+      [['esc'], 'In the input: back to the review, the words kept. It never stops Hobkin'],
       [['S'], 'Hide the panel, or bring it back'],
     ],
   },
@@ -46,7 +47,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'Leaving',
     keys: [
-      [['esc'], 'One level back: the note, the finder, a wire, selected lines, the code, then the review'],
+      [['esc'], 'One level back: the note being written, the finder, a wire, selected lines, the code, then the review'],
       [['⌘', '?'], 'These shortcuts'],
     ],
   },

@@ -20,16 +20,6 @@
   --rv-float: var(--hb-surface);
   /* The dots under the graph: barely there, for depth. */
   --rv-dot: color-mix(in oklab, var(--hb-text) 24%, transparent);
-  /*
-   * Where the reviewer talks to hobkin: a band across the panel in the periwinkle of the site's hills, the agent's own
-   * color, darker than the warm panel and apart from yellow (the user, 2026-11-12: "a different color to
-   * differentiate", "the darker bg, not a boxed one"). What the reviewer said sits on a lighter periwinkle. Secondary
-   * text on the band passes 4.5 to 1 in both themes; its error text is a deeper red, which does too.
-   */
-  --rv-ask: oklch(0.855 0.032 266);
-  --rv-ask-you: oklch(0.935 0.028 266);
-  --rv-ask-line: color-mix(in oklab, var(--hb-code) 32%, transparent);
-  --rv-ask-bad: color-mix(in oklab, var(--hb-bad-fg) 78%, var(--hb-text));
   /* The code panel's explanation, on the app's own surface beside the code's. */
   --rv-explain: var(--hb-tone-2);
 }
@@ -38,10 +28,6 @@
   --rv-ring-edge: transparent;
   --rv-float: var(--hb-surface-2);
   --rv-dot: color-mix(in oklab, var(--hb-text) 17%, transparent);
-  --rv-ask: oklch(0.17 0.035 270);
-  --rv-ask-you: oklch(0.28 0.06 268);
-  --rv-ask-line: color-mix(in oklab, var(--hb-code) 36%, transparent);
-  --rv-ask-bad: var(--hb-bad-fg);
   --rv-explain: var(--hb-tone-1);
 }
 
@@ -884,65 +870,6 @@
   box-shadow: inset 0 0 0 1.5px var(--level);
 }
 
-/*
- * Hobkin, to ask: a band across the full width of the panel, in its own color, not a box. It keeps one height: the
- * conversation scrolls inside it and the field stays at its foot, on a line of the band's periwinkle that the focus
- * draws over, so nothing around it moves.
- */
-.rv-ask {
-  background: var(--rv-ask);
-  box-shadow:
-    inset 0 1px 0 var(--rv-ask-line),
-    inset 0 -1px 0 var(--rv-ask-line);
-}
-.rv-ask-input {
-  box-shadow: inset 0 1px 0 var(--rv-ask-line);
-  transition: box-shadow var(--dur-fast) var(--ease-out);
-}
-.rv-ask-input:focus-within {
-  box-shadow: inset 0 2px 0 var(--hb-focus);
-}
-.rv-ask-you {
-  background: var(--rv-ask-you);
-}
-.rv-ask-bad {
-  color: var(--rv-ask-bad);
-}
-/* Hobkin is answering: three dots that rise in turn. Under reduced motion they stay still. */
-.rv-ask-dots {
-  display: inline-flex;
-  gap: 3px;
-}
-.rv-ask-dots i {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: currentColor;
-  animation: rv-ask-dot 1.2s var(--ease-in-out) infinite;
-}
-.rv-ask-dots i:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.rv-ask-dots i:nth-child(3) {
-  animation-delay: 0.3s;
-}
-@keyframes rv-ask-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
-}
-.rv[data-reduced='true'] .rv-ask-dots i {
-  animation: none;
-  opacity: 0.6;
-}
-
 /* The code panel's left: what the change review says about the code beside it, on the app's own surface. */
 .rv-explain {
   background: var(--rv-explain);
@@ -967,7 +894,7 @@
   }
 }
 
-/* A quick link to ask hobkin about one item: the agent's periwinkle, so it reads as talking to it, and as the band it sends to. */
+/* A quick link to ask hobkin about one item: the agent's periwinkle, so it reads as talking to it. */
 .rv-ask-link {
   background: color-mix(in oklab, var(--hb-code) 14%, transparent);
   color: var(--hb-code-fg);

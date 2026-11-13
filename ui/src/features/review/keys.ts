@@ -4,7 +4,8 @@
  * See _specs/019-keyboard and the keys in _specs/007-review-story.
  *
  * A key that was used is prevented, and the frame then leaves it alone. Escape is the screen's own
- * (`escapeReview` in entry.ts): it closes the editor, the finder, a wire, selected lines or the code, and otherwise the review.
+ * (`escapeReview` in entry.ts): it closes the note being written, the finder, a wire, selected lines or the code, and
+ * otherwise the review.
  */
 import type { Verdict } from '#shared/review/verdict.ts'
 import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
@@ -21,10 +22,19 @@ export interface KeyEffects {
   panelKey(key: string, shift: boolean): boolean
   /** Goes to the steps panel, or back from it to the graph. */
   toggleSteps(): void
-  /** Goes to the box where the reviewer talks to hobkin. */
-  talk(): void
   /** Shows what a verdict would do, ready for the reviewer's yes. */
   verdict(kind: Verdict): void
+}
+
+/**
+ * What a key does in the review's input, at the bottom of the canvas: Enter sends, Shift with Enter starts a new line,
+ * and Escape gives the keyboard back to the review. Every key there is the input's, so none walks the graph, and
+ * Escape never reaches hobkin's chat, where it would stop hobkin.
+ */
+export function inputKey({ key, shift, composing = false }: { key: string; shift: boolean; composing?: boolean }): 'send' | 'leave' | 'type' {
+  if (key === 'Enter' && !shift && !composing) return 'send'
+  if (key === 'Escape') return 'leave'
+  return 'type'
 }
 
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
@@ -38,27 +48,26 @@ function nextWire(session: Session): string | null {
   return wires[at + 1] ?? null
 }
 
-/** The keys of the panel: the panel itself, notes, hobkin and the verdict. Null for any other. */
+/** The keys of the panel, the review's input and the verdict. Null for any other. */
 function panelKeys(session: Session, key: string, effects: KeyEffects): boolean | null {
   switch (key) {
     // S for the steps panel: 1 now goes to step 1.
     case 's':
     case 'S':
       return effects.toggleSteps(), true
-    // A comment, kept for the verdict. N is the key 009 promises, and C is the one pi-coder uses.
+    // A comment in the review's input, kept for the verdict. N is the key 009 promises, and C is the one pi-coder uses.
     case 'n':
     case 'N':
     case 'c':
     case 'C':
       return session.startNote('comment'), true
-    // A question, to discuss with hobkin.
+    // A question in the review's input, asked of hobkin about what the reviewer is on. D was a question to discuss
+    // later, and H was talking to hobkin: both are asking it now.
     case 'd':
     case 'D':
-      return session.startNote('question'), true
-    // H talks to hobkin about what the reviewer is on.
     case 'h':
     case 'H':
-      return effects.talk(), true
+      return session.startNote('question'), true
     // The verdicts, each shown first and done only on a second press: A approves, M approves and merges, X sends the fixes.
     case 'a':
     case 'A':

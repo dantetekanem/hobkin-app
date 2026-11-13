@@ -1,9 +1,12 @@
 import { Maximize, RotateCcw } from 'lucide-react'
 import { motion, useTransform } from 'motion/react'
+import type { Unit } from '#shared/review/assessment.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import type { AskCommand } from './panel/ask.ts'
+import { NoteInput } from './panel/notes.tsx'
 import { useReduced, useReviewMemory, useRig, useSession, useSessionStore } from './state/context.tsx'
 import { Rail } from './story/Rail.tsx'
 
@@ -26,13 +29,14 @@ function RoundButton({ label, keys, onClick, children, className }: { label: str
 }
 
 /**
- * The bottom of the screen: the rail in the middle, the whole-graph button at its side.
- * It rides up on the code panel, and keeps to the middle of what the steps panel leaves uncovered.
+ * The bottom of the screen: the rail in the middle, the whole-graph button at its side, and under them the review's
+ * input, where a comment is written and hobkin asked (`NoteInput`). It rides up on the code panel, and keeps to the
+ * middle of what the steps panel leaves uncovered.
  *
  * It is drawn once the review has loaded, after the screen's own entrance has played, so it rises on its own initial
  * and animate. A `Rise` here would wait for that entrance and stay hidden (Reveal.tsx), which hid the step pager.
  */
-export function Dock({ room }: { room: number }) {
+export function Dock({ room, ask, units }: { room: number; ask: AskCommand | null; units?: readonly Unit[] | undefined }) {
   const store = useSessionStore()
   const rig = useRig()
   const reduced = useReduced()
@@ -46,21 +50,24 @@ export function Dock({ room }: { room: number }) {
       {/* Only as wide as what the steps panel leaves, so the rail never slides under it. */}
       <div className="mx-auto" style={{ maxWidth: Math.max(240, room) }}>
       <motion.div
-        className="flex items-center justify-center gap-2 p-3.5"
+        className="flex flex-col items-center gap-2.5 px-3.5 pt-3.5 pb-2"
         initial={{ opacity: 0, transform: reduced ? RESTING : BELOW }}
         animate={{ opacity: 1, transform: RESTING, transition: { transform: spring.rise, opacity: tween.enter } }}
       >
-        <RoundButton label="The whole graph" keys="G" onClick={() => store.getState().leave() || store.getState().refit()}>
-          <Maximize />
-        </RoundButton>
-        <Rail />
-        {moved ? (
-          <RoundButton label="Put the nodes back" onClick={() => store.getState().resetLayout()}>
-            <RotateCcw />
+        <div className="flex items-center justify-center gap-2">
+          <RoundButton label="The whole graph" keys="G" onClick={() => store.getState().leave() || store.getState().refit()}>
+            <Maximize />
           </RoundButton>
-        ) : (
-          <span className="size-9 shrink-0" aria-hidden="true" />
-        )}
+          <Rail />
+          {moved ? (
+            <RoundButton label="Put the nodes back" onClick={() => store.getState().resetLayout()}>
+              <RotateCcw />
+            </RoundButton>
+          ) : (
+            <span className="size-9 shrink-0" aria-hidden="true" />
+          )}
+        </div>
+        <NoteInput ask={ask} units={units} />
       </motion.div>
       </div>
     </motion.div>

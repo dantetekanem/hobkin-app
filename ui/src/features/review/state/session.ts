@@ -9,7 +9,7 @@ import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel,
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
 import { goBack, goForward, NO_HISTORY, recordFocus, type FocusEntry, type FocusHistory } from '../story/history.ts'
-import type { PendingAsk } from '../panel/thread.ts'
+import type { PendingAsk } from '../panel/ask.ts'
 import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
@@ -63,10 +63,8 @@ export interface Session {
   pendingDigits: string
   /** The places the reviewer jumped to, to go back and forward through. */
   history: FocusHistory
-  /** What the reviewer sent hobkin from this review that the conversation does not show yet. */
+  /** What the reviewer sent hobkin from this review, the newest last, and where each stands. */
   asks: readonly PendingAsk[]
-  /** The reviewer is talking to hobkin: the panel stays open, with the conversation, until they go back to the graph. */
-  talking: boolean
   /** The notes panel on the canvas: the notes about a node, or taken on a step, read beside the node. Null when closed. */
   notesShown: NotesShown | null
   /** The card of folded tests whose tests are listed under it. Null when none is. */
@@ -100,8 +98,8 @@ export interface Session {
   startNote(intent: NoteIntent): void
   /** Opens a note to change its words. */
   editNote(noteId: string): void
-  /** Keeps what was written as a note and closes the editor. */
-  saveNote(): void
+  /** Keeps what was written as a note and closes the editor. Returns the note when a new one was kept. */
+  saveNote(): Note | null
   /** Leaves the editor. What was written stays as a draft. */
   closeEditor(): void
   selectLines(selection: Session['selection']): void
@@ -109,13 +107,10 @@ export interface Session {
   moveNode(nodeId: string, position: Point): void
   decideWire(edgeId: string, decision: WireDecision | null): void
   resetLayout(): void
-  /** A message to hobkin is on its way. Returns its key. The reviewer is talking from now on. */
+  /** A message to hobkin is on its way. Returns its key. */
   startAsk(text: string): string
   /** hobkin took the message, now or after what it is doing, or it did not go and why. */
   settleAsk(key: string, outcome: 'queued' | 'taken' | { error: string }): void
-  /** Messages the conversation shows now, which need no place of their own. */
-  dropAsks(keys: readonly string[]): void
-  setTalking(talking: boolean): void
   /**
    * Opens the notes panel beside a node, for a quick read of its comments and questions. `node` lists the notes about
    * that node. `step`, the step's index in the story from 0 as `goTo` takes it, goes to that step and lists the notes
@@ -229,7 +224,6 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       pendingDigits: '',
       history: NO_HISTORY,
       asks: [],
-      talking: false,
       notesShown: null,
       opened: null,
 
@@ -363,12 +357,14 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         const draft = memory.getState().of(review).draft
         if (!editor || !draft) {
           set({ editor: null })
-          return
+          return null
         }
+        let kept: Note | null = null
         if (editor.editing) memory.getState().editNote(review, editor.editing, { text: draft.text, intent: draft.intent })
-        else memory.getState().addNote(review, { step: editor.step, target: editor.target, intent: draft.intent, text: draft.text })
+        else kept = memory.getState().addNote(review, { step: editor.step, target: editor.target, intent: draft.intent, text: draft.text })
         memory.getState().setDraft(review, null)
         set({ editor: null, selection: null })
+        return kept
       },
       closeEditor: () => {
         // An edit that was abandoned leaves the note as it was, and no draft behind.
@@ -387,7 +383,7 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       resetLayout: () => memory.getState().resetLayout(review),
       startAsk: (text) => {
         const key = `ask${(asked += 1)}`
-        set({ asks: [...get().asks, { key, text, at: Date.now(), state: 'sending' }], talking: true })
+        set({ asks: [...get().asks, { key, text, at: Date.now(), state: 'sending' }] })
         return key
       },
       settleAsk: (key, outcome) => {
@@ -396,12 +392,6 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
           return typeof outcome === 'string' ? { ...ask, state: outcome } : { ...ask, state: 'failed', error: outcome.error }
         }
         set({ asks: get().asks.map(settled) })
-      },
-      dropAsks: (keys) => {
-        if (keys.length > 0) set({ asks: get().asks.filter((ask) => !keys.includes(ask.key)) })
-      },
-      setTalking: (talking) => {
-        if (talking !== get().talking) set({ talking })
       },
       showNotes: (target) => {
         const close = () => {
