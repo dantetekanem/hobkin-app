@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { gitRepo } from '../src/git.ts'
-import { candidateTests, checkParses, detectRunbook, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
+import { candidateTests, checkParses, couldNotStart, detectRunbook, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
 import type { FileDiff, Scan, TestRun } from '../src/types.ts'
 
 function tempDir(t: TestContext, name: string): string {
@@ -691,4 +691,21 @@ test('a test that fails with the change is a break only when it passes with the 
   assert.equal(result.nodes.n2?.brokenTests, undefined)
   assert.deepEqual([result.nodes.n2?.value, result.nodes.n2?.evidence], ['unknown', 'its tests fail here with the change and with it put back, so they say nothing about it: test/label.test.ts.'])
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
+})
+
+test('a test command that dies before any test runs did not fail a test: it could not start, and says why', () => {
+  // As stored for a real review: the pull request's commit asked for gems that are not installed here.
+  const bundler = [
+    "/gems/bundler-4.0.13/lib/bundler/definition.rb:703:in 'Bundler::Definition#materialize': Could not find rails-8.1.3.1, actioncable-8.1.3.1 in locally installed gems (Bundler::GemNotFound)",
+    "\tfrom /gems/bundler-4.0.13/lib/bundler/definition.rb:240:in 'Bundler::Definition#specs'",
+    "\tfrom /work/shop/bin/rails:3:in '<main>'",
+  ].join('\n')
+  assert.equal(couldNotStart(bundler, 1), 'Could not find rails-8.1.3.1, actioncable-8.1.3.1 in locally installed gems (Bundler::GemNotFound)')
+  assert.equal(couldNotStart("Error: Cannot find module '/work/shop/node_modules/vitest/vitest.mjs'\n    at node:internal/modules", 1), "Error: Cannot find module '/work/shop/node_modules/vitest/vitest.mjs'")
+  // Tests ran and some failed or raised: that is a result, whatever else the output holds.
+  assert.equal(couldNotStart('LoadError: cannot load such file -- foo\n\n37 tests, 90 assertions, 0 failures, 18 errors, 0 skips', 1), null)
+  assert.equal(couldNotStart('ℹ tests 3\nℹ fail 1\nError: Cannot find module x', 1), null)
+  // A plain failure with nothing about starting, and a run that passed.
+  assert.equal(couldNotStart('something went wrong', 1), null)
+  assert.equal(couldNotStart(bundler, 0), null)
 })

@@ -767,6 +767,33 @@ function tailOf(run: Started, timeoutMs: number): string {
  */
 const NO_TESTS = [/^\s*No test files found\b/m, /^\s*No tests found\b/m]
 
+/** What a runner prints once tests have run, whatever their result: minitest and Rails, node, RSpec, jest and vitest. */
+const RAN_TESTS = [/\b\d+ (runs|tests), \d+ assertions/, /^[#ℹ] tests \d+/m, /\b\d+ examples?, \d+ failures?/, /^\s*Tests:?\s+\d+/m, /^\s*Test Files\s+\d+/m]
+/** What a test command prints when it dies while starting: a gem, a module or a database it needs is not there. */
+const NOT_STARTED = [
+  /\bCould not find [\w.-]+-\d[^\n]*/,
+  /\bRun `bundle install`[^\n]*/,
+  /\bCould not locate Gemfile[^\n]*/,
+  /\b(?:Error: )?Cannot find (?:module|package) [^\n]*/,
+  /\bcannot load such file -- [^\n]*/,
+  /\bActiveRecord::(?:NoDatabaseError|PendingMigrationError|ConnectionNotEstablished)[^\n]*/,
+  /\bdatabase "[^"\n]+" does not exist[^\n]*/,
+]
+
+/**
+ * Why a test command that exited non-zero never ran a test, in its own words, or null when tests ran or nothing says
+ * it could not start. A command that cannot start on this machine failed no test: the tests did not run, and that is
+ * what gets said. It is read only where the output holds no line a runner prints after running tests.
+ */
+export function couldNotStart(output: string, code: number | null): string | null {
+  if (code === 0 || RAN_TESTS.some((ran) => ran.test(output))) return null
+  for (const said of NOT_STARTED) {
+    const found = output.match(said)
+    if (found) return found[0].trim().slice(0, 240)
+  }
+  return null
+}
+
 function outcomeOf(run: Started): Outcome {
   if (run.timedOut) return 'timed-out'
   if (NO_TESTS.some((said) => said.test(run.tail))) return 'not-run'
@@ -841,6 +868,13 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
   if (files.length === 0) return { outcomes: new Map() }
   const first = await start(runner, files)
   if ('stopped' in first) return first
+  // Before anything is changed, a command that dies while starting ran no test and failed none: the proof stops here
+  // and says why, so no unit is told its tests fail.
+  const unstarted = kind === 'baseline' && !node && !first.aborted && !first.timedOut ? couldNotStart(first.tail, first.code) : null
+  if (unstarted) {
+    runner.record(testRunOf(runner, files, kind, node, first, []))
+    return { stopped: `the test command could not start here (${unstarted}).` }
+  }
   if (files.length === 1 || first.code === 0 || first.aborted) {
     runner.record(testRunOf(runner, files, kind, node, first, failedIn(first, files)))
     if (first.aborted) return { stopped: 'the proof was stopped.' }
@@ -930,7 +964,7 @@ function planOf(node: ProofNode, candidates: readonly TestCandidate[], book: Run
   const tests = candidates.filter((candidate) => candidate.path !== node.path)
   if (tests.length === 0) return { answer: settled('none', `no test file names ${node.symbol} or is named after ${node.path}.`) }
   const runnable = tests.filter((candidate) => accepts(book, candidate.path))
-  if (runnable.length === 0) return { answer: unknown(`${book.source} does not run ${listed(tests.map((test) => test.path))}.`) }
+  if (runnable.length === 0) return { answer: unknown(`its tests were not run: this review runs tests with ${book.source}, which does not take ${listed(tests.map((test) => test.path))}.`) }
   return { tests: runnable }
 }
 

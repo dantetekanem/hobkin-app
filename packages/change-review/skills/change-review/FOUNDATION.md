@@ -152,6 +152,8 @@ Deterministic, first match wins. The floor is computed from the four facts; no m
 
 **Why missing proof is `mid` and not `high`.** The first versions of this table put missing proof near the top, at `high`: no test, tests that could not be run on this machine, tests that already failed, and direct tests alone all gave `high`. Three real reviews in a row came out `high` that way, and none named anything that breaks: a front-end controller whose JavaScript tests the tool had no way to run, an action whose test file failed for a reason the change did not cause, and a read-only helper with five direct tests. A level that says "danger" when it means "I did not check" costs the reader's trust in every other level, and it buries the one unit that does break. So what the tests did not show is said, on the unit, at `mid`, and `high` is kept for a break that is shown or named.
 
+**A test command that cannot start failed no test.** When the command dies while starting, before any test runs (a gem the commit asks for is not installed here, a module is missing, there is no database), the proof stops and every unit says its tests were not run, with the command's own reason. Nothing is said to fail.
+
 **A failing test is asked one more question.** A test that fails with the change in place is run once more with the changed definition put back. If it passes then, the change breaks it: rule 1, `high` and critical. If it still fails, it says nothing about the change, and the unit says so.
 
 **Code outside a request.** A script or a build tool is entered by calling it, so rules 5 and 6 do not apply to it and the rows below decide. Direct tests never make it `safe`.
