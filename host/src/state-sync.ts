@@ -195,12 +195,13 @@ export class StateSync {
     // was edited in place after it was sent, every key is encoded again, and the routines' rows worked out again, at
     // least once a second.
     const now = this.now()
-    const full = now - this.encodedAt >= FULL_ENCODING_MS
-    if (full) this.encodedAt = now
-    const { values, messages } = snapshot ? toWire(snapshot, this.cleared, (list) => this.rowsOf(list, full)) : { values: {}, messages: [] }
+    const encodeAll = now - this.encodedAt >= FULL_ENCODING_MS
+    if (encodeAll) this.encodedAt = now
+    const { values, messages } = snapshot ? toWire(snapshot, this.cleared, (list) => this.rowsOf(list, encodeAll)) : { values: {}, messages: [] }
     const encoded = new Map(Object.entries(values).map(([key, value]) => {
       const kept = this.sent.get(key)
-      return [key, !full && kept !== undefined && value === this.values[key] ? kept : JSON.stringify(value)]
+      const sameObject = kept !== undefined && value === this.values[key]
+      return [key, sameObject && !encodeAll ? kept : JSON.stringify(value)]
     }))
     const changed = [...encoded].filter(([key, json]) => startOver || this.sent.get(key) !== json).map(([key]) => key)
     const unset = startOver ? [] : [...this.sent.keys()].filter((key) => !encoded.has(key))
@@ -269,9 +270,9 @@ export class StateSync {
     return json !== before
   }
 
-  /** The routines' rows. Each row hashes its definition, so a list hobkin kept keeps its rows, unless `again` asks for them anew. */
-  private rowsOf(list: unknown[], again: boolean): unknown[] {
-    if (!again && this.schedules?.list === list) return this.schedules.rows
+  /** The routines' rows. Each row hashes its definition, so a list hobkin kept keeps its rows, unless `rebuild` asks for them anew. */
+  private rowsOf(list: unknown[], rebuild: boolean): unknown[] {
+    if (!rebuild && this.schedules?.list === list) return this.schedules.rows
     const rows = wireSchedules(list)
     this.schedules = { list, rows }
     return rows

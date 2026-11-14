@@ -146,7 +146,13 @@ test('the other hobkins canvases travel whole, on a change and with every reset'
 })
 
 /** A value that counts each time it is serialized. It serializes as `value`. */
-const watched = <T extends object>(value: T, count: { reads: number }): T => ({ ...value, toJSON: () => { count.reads += 1; return value } })
+const watched = <T extends object>(value: T, count: { reads: number }): T => ({
+  ...value,
+  toJSON: () => {
+    count.reads += 1
+    return value
+  },
+})
 const canvasOf = (revision: number): CanvasState => ({ open: true, url: 'http://127.0.0.1:1/canvas/k?r=1', title: 'Sketch', kind: 'drawing', revision })
 
 test('kept messages that are the same objects are not serialized again, and a changed one is updated', () => {
