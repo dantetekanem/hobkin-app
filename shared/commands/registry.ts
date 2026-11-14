@@ -599,7 +599,7 @@ export const COMMANDS = {
   },
   'canvas.show': {
     description:
-      'Open the canvas, a panel beside the screens that shows a web page, so the user can see work happening for real, such as a local app under test. `url` is an http or https address. `title` names the page.',
+      "Open the canvas, the right side of the user's window, on a web page, so the user can see work happening for real, such as a local app under test. `url` is an http or https address. `title` names the page.",
     runs: 'host',
     args: Type.Object(
       { url: Type.String({ pattern: '^https?://\\S', maxLength: 4096 }), title: Type.Optional(words(120)), hobkin: Type.Optional(hobkinId) },
@@ -608,14 +608,14 @@ export const COMMANDS = {
     hobkin: true,
   },
   'canvas.close': {
-    description: "Close the canvas panel. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+    description: "Close the canvas. `hobkin` names a durable hobkin's canvas; left out, the main one.",
     runs: 'host',
     args: Type.Object({ hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
     hobkin: true,
   },
   'canvas.draw': {
     description:
-      "Draw on the canvas: `html` is one whole HTML document that stands by itself, such as a diagram, a whiteboard or a mock-up, and it replaces the drawing that was there. The canvas opens on it. `title` names it. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+      "Draw on the canvas: `html` is one whole HTML document that stands by itself, such as a diagram, a whiteboard or a mock-up, and it replaces the drawing that was there. The user sees it change in place, so keep each element's `id` from one drawing to the next. The canvas opens on it. `title` names it. `hobkin` names a durable hobkin's canvas; left out, the main one.",
     runs: 'host',
     args: Type.Object(
       { html: Type.String({ minLength: 1, maxLength: DRAWING_MAX_BYTES }), title: Type.Optional(words(120)), hobkin: Type.Optional(hobkinId) },

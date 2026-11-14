@@ -100,4 +100,3 @@ The canvas becomes a real drawing surface and whiteboard, as big as the right si
 
 ## Open questions
 - An arrow takes the shortest curve between two edges and does not route around other elements.
-- The `canvas.show` and `canvas.draw` descriptions in `shared/commands/registry.ts` still call the canvas a panel beside the screens. They change once another session's work in that file is finished.
