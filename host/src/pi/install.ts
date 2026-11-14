@@ -7,6 +7,7 @@ import { scrubText } from '#shared/integrations/redact.ts'
 import type { PiSetup } from '#shared/protocol/setup.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
 import { Unavailable, type HostHandlers } from '../commands.ts'
+import { nodeBuild } from './node.ts'
 
 /**
  * Pi on this Mac, for the first-run setup (025-onboarding): found, read and installed as `hobkin setup` says to (its
@@ -21,35 +22,53 @@ const VERSION = /\d+\.\d+\.\d+\S*/
 const LAST_LINES = 8
 const ANSI = /\x1b\[[0-9;]*m/g
 
-/** Where pnpm, npm and Homebrew put programs, then the Node the host runs on, for a host that launchd started with a short PATH. */
-export const programPlaces = (home: string): string[] => [
+/**
+ * Where pnpm, npm and Homebrew put programs, then hobkin's own Node (`ownNode`, its `bin` folder, `node.ts`), then the
+ * Node the host runs on, for a host that launchd started with a short PATH.
+ */
+export const programPlaces = (home: string, ownNode?: string): string[] => [
   join(home, 'Library', 'pnpm'),
   join(home, '.npm-global', 'bin'),
   '/opt/homebrew/bin',
   '/usr/local/bin',
+  ...(ownNode ? [ownNode] : []),
   dirname(process.execPath),
 ]
 
 export interface FindProgramOptions {
   path?: string
   home?: string
+  /** The `bin` folder of hobkin's own Node, where its npm puts Pi. */
+  ownNode?: string
   /** Replaces the places after the PATH. */
   places?: readonly string[]
 }
 
+const isProgram = (file: string) => {
+  try {
+    accessSync(file, constants.X_OK)
+    return statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+
 /** The program to run: the first one on the PATH, then the usual places. Looked up on every call. */
-export function findProgram(name: 'pi' | 'npm', { path = process.env.PATH ?? '', home = homedir(), places }: FindProgramOptions = {}): string | null {
-  for (const folder of [...path.split(delimiter), ...(places ?? programPlaces(home))]) {
-    if (!folder) continue
-    const file = join(folder, name)
-    try {
-      accessSync(file, constants.X_OK)
-      if (statSync(file).isFile()) return file
-    } catch {
-      // Not here.
-    }
+export function findProgram(name: 'pi' | 'npm' | 'node', { path = process.env.PATH ?? '', home = homedir(), ownNode, places }: FindProgramOptions = {}): string | null {
+  for (const folder of [...path.split(delimiter), ...(places ?? programPlaces(home, ownNode))]) {
+    if (folder && isProgram(join(folder, name))) return join(folder, name)
   }
   return null
+}
+
+/**
+ * The Node npm runs on: the one beside it, or else the host's own, as `environment` gives it. Without npm, the first
+ * Node found outside the host's own folder: in the app that folder holds the Node it carries, which has no npm.
+ */
+function nodeFor(npm: string | null, findNode: () => string | null): string | null {
+  if (npm) return isProgram(join(dirname(npm), 'node')) ? join(dirname(npm), 'node') : process.execPath
+  const node = findNode()
+  return node && dirname(node) !== dirname(process.execPath) ? node : null
 }
 
 export type PiRun = (
@@ -152,8 +171,12 @@ function writeSettingOnce(file: string, value: Record<string, unknown>): void {
 }
 
 export interface PiSetupOptions {
+  /** The `bin` folder of hobkin's own Node, looked in by the finders below when they are not given. */
+  ownNode?: string
   findPi?: () => string | null
   findNpm?: () => string | null
+  /** Finds a `node`, for a Mac without npm. */
+  findNode?: () => string | null
   run?: PiRun
   /**
    * Pi's own folder, where a package's setting goes. Without it no setting is written: only the app's own host
@@ -164,39 +187,51 @@ export interface PiSetupOptions {
   pinned?: string
 }
 
-/** Pi on this Mac and the packages hobkin's agents use. It only reads, and a program that fails says nothing. */
+/** Pi on this Mac, the Node npm runs on, and the packages hobkin's agents use. It only reads, and a program that fails says nothing. */
 export async function piSetup({
-  findPi = () => findProgram('pi'),
-  findNpm = () => findProgram('npm'),
+  ownNode,
+  findPi = () => findProgram('pi', { ownNode }),
+  findNpm = () => findProgram('npm', { ownNode }),
+  findNode = () => findProgram('node', { ownNode }),
   run = realRun,
   pinned = pinnedPi(),
 }: PiSetupOptions = {}): Promise<PiSetup> {
   const pi = findPi()
-  let versionText: string | null = null
-  let list: string | null = null
-  if (pi) [versionText, list] = await Promise.all([read(run, pi, ['--version']), read(run, pi, ['list'])])
+  const npm = findNpm()
+  const node = nodeFor(npm, findNode)
+  // The host's own Node says its version without being asked.
+  const askNode = node !== null && node !== process.execPath
+  const [versionText, list, nodeText] = await Promise.all([
+    pi ? read(run, pi, ['--version']) : null,
+    pi ? read(run, pi, ['list']) : null,
+    askNode ? read(run, node, ['--version']) : null,
+  ])
 
   const version = versionText?.match(VERSION)?.[0] ?? null
+  let nodeVersion: string | null = null
+  if (askNode) nodeVersion = nodeText?.match(VERSION)?.[0] ?? null
+  else if (node) nodeVersion = process.versions.node
   return {
     installed: pi !== null,
     version,
     pinned,
     matches: version === pinned,
-    canInstall: findNpm() !== null,
+    canInstall: npm !== null,
     installCommand: installCommand(pinned),
     packages: PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: list !== null && listed(list, name) })),
+    node: { found: node !== null, version: nodeVersion, installs: process.versions.node },
   }
 }
 
 /** Installs the pinned Pi, globally, with the npm found. */
-export async function installPi({ findNpm = () => findProgram('npm'), run = realRun, pinned = pinnedPi() }: PiSetupOptions = {}): Promise<void> {
+export async function installPi({ ownNode, findNpm = () => findProgram('npm', { ownNode }), run = realRun, pinned = pinnedPi() }: PiSetupOptions = {}): Promise<void> {
   const npm = findNpm()
   if (!npm) throw new Unavailable(`npm is not on this Mac, so Pi cannot be installed from here. Once Node is installed, run \`${installCommand(pinned)}\` in a terminal.`)
   await install(run, npm, installArgs(pinned), 'npm could not install Pi.')
 }
 
 /** Installs one of the catalog's packages through Pi, by its name, so what Pi installs never comes from the window. */
-export async function installPackage(name: string, { findPi = () => findProgram('pi'), run = realRun, agentDir }: PiSetupOptions = {}): Promise<void> {
+export async function installPackage(name: string, { ownNode, findPi = () => findProgram('pi', { ownNode }), run = realRun, agentDir }: PiSetupOptions = {}): Promise<void> {
   const known = PI_PACKAGES.find((item) => item.name === name)
   if (!known) throw new Unavailable(`${name} is not one of the Pi packages hobkin sets up.`)
   const pi = findPi()
@@ -223,14 +258,38 @@ export interface PiSetupHandlerOptions {
   read: () => Promise<PiSetup>
   installPi: () => Promise<void>
   installPackage: (name: string) => Promise<void>
+  /** Installs hobkin's own Node (`node.ts`). Without it the host offers none, and refuses to install one. */
+  installNode?: () => Promise<void>
+  /**
+   * Asks the login shell for its PATH again and adds the folders the host's lacks (`login-path.ts`), true when it
+   * added any. Without it the PATH stays as the host started with it, and no shell is ever asked.
+   */
+  refreshPath?: () => Promise<boolean>
 }
 
-export function piSetupHandlers({ live, read: readSetup, installPi: installThePi, installPackage: installTheirs }: PiSetupHandlerOptions): HostHandlers {
+export function piSetupHandlers({
+  live,
+  read,
+  installPi: installThePi,
+  installPackage: installTheirs,
+  installNode: installTheNode,
+  refreshPath,
+}: PiSetupHandlerOptions): HostHandlers {
   const mayInstall = () => {
     if (!live) throw new Unavailable('This is the scripted development host, so nothing is installed on this Mac. Start the host with --live to install Pi or its packages.')
   }
+  // Only a live host handed the installer offers a Node of hobkin's own, and only on a Mac it has a build for.
+  const canInstallNode = live && installTheNode !== undefined && nodeBuild() !== null
+  const readSetup = async (): Promise<PiSetup> => ({ ...(await read()), canInstallNode })
   return {
-    'setup.pi': () => readSetup(),
+    // A program installed while the app was open can be in a folder the host's PATH lacks, so with Pi or npm missing
+    // the login shell is asked again before the setup says so.
+    'setup.pi': async () => {
+      const found = await readSetup()
+      if ((found.installed && found.canInstall) || !refreshPath) return found
+      const added = await refreshPath().catch(() => false)
+      return added ? readSetup() : found
+    },
     'setup.install-pi': async () => {
       mayInstall()
       await installThePi()
@@ -239,6 +298,11 @@ export function piSetupHandlers({ live, read: readSetup, installPi: installThePi
     'setup.install-package': async ({ name }) => {
       mayInstall()
       await installTheirs(name)
+      return readSetup()
+    },
+    'setup.install-node': async () => {
+      mayInstall()
+      await (installTheNode ?? refuseInstall)()
       return readSetup()
     },
   }

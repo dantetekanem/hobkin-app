@@ -42,6 +42,20 @@ export interface PiSetup {
   installCommand: string
   /** The packages hobkin's agents use. All `installed: false` while Pi itself is missing. */
   packages: PiPackageState[]
+  /** The Node npm runs on. Left out by a host from before this was sent. */
+  node?: PiNodeState
+  /** hobkin can install a Node of its own here (`setup.install-node`): a live host on a Mac with Apple silicon or an Intel chip. Left out by a host from before. */
+  canInstallNode?: boolean
+}
+
+/** Node on this Mac, which npm and Pi run on. */
+export interface PiNodeState {
+  /** A Node was found. The one the app carries for its host has no npm, and does not count. */
+  found: boolean
+  /** Its version, such as "22.19.0". Null when there is none or it did not say. */
+  version: string | null
+  /** The version hobkin installs for itself, the one its host runs on. */
+  installs: string
 }
 
 /** A folder inside the user's projects folder. */

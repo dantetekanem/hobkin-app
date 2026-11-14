@@ -2,43 +2,41 @@ import { Check, Circle, Copy, LoaderCircle, X } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import type { PiSetup } from '#shared/protocol/setup.ts'
+import { agentPrompt } from '#shared/setup/agent-prompt.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { runCommand } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { piNeeds } from './story.ts'
+import { piByHand, piHandWords, piNeeds, piSteps, type PiStep } from './story.ts'
 import './story.css'
 
-/** One thing to install: Pi itself, or a package of Pi's by its name. */
-interface Step {
-  id: string
-  name: string
-  adds: string
-  /** Null for Pi itself. */
-  package: string | null
+/** Installs one step through the host, which answers with Pi as it is after. */
+function installStep(step: PiStep): Promise<PiSetup> {
+  switch (step.kind) {
+    case 'node':
+      return runCommand('setup.install-node')
+    case 'pi':
+      return runCommand('setup.install-pi')
+    case 'package':
+      return runCommand('setup.install-package', { name: step.id })
+  }
 }
 
-/** What is missing, in the order it is installed: Pi first, since its packages need it. */
-function stepsFor(pi: PiSetup): Step[] {
-  const missing = piNeeds(pi)
-  const needsPi = missing === 'pi' || missing === 'version'
+/** Copies the words, then says so. A clipboard that refuses says nothing. */
+const copyText = (text: string, copied: () => void) => void navigator.clipboard?.writeText(text).then(copied, () => {})
 
-  const piItself: Step = {
-    id: 'pi',
-    name: `Pi ${pi.pinned}`,
-    adds: 'What my checks and agents run on.',
-    package: null,
-  }
-  const packages: Step[] = pi.packages
-    .filter((entry) => !entry.installed)
-    .map((entry) => ({
-      id: entry.name,
-      name: entry.name,
-      adds: entry.adds,
-      package: entry.name,
-    }))
+/** How long a copy button says Copied. */
+const COPIED_MS = 1600
 
-  return needsPi ? [piItself, ...packages] : packages
+/** Says it copied for a moment after `copy` is called, then goes back. */
+function useCopied(): [boolean, () => void] {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), COPIED_MS)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return [copied, () => setCopied(true)]
 }
 
 type Run =
@@ -85,38 +83,43 @@ interface PiPanelProps {
 }
 
 /**
- * What of Pi is missing, and the way to install it from the window: Pi first, then each package, one at a time,
- * each shown as it goes. Where npm is not found the window cannot install Pi, so it gives the command to run.
+ * What of Pi is missing, and the way to install it from the window: without npm a Node of hobkin's own first, then
+ * Pi, then each package, one at a time, each shown as it goes. Where there is no npm and no Node hobkin can install,
+ * the window says what is missing and gives the command to run. Once something has failed, or by hand, it looks again
+ * on the user's press and offers a prompt for a coding agent, which can fix what stands in the way.
  */
 export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
   // Kept as it was when the panel opened: an installed step stays in the list, ticked.
-  const [steps, setSteps] = useState(() => stepsFor(pi))
+  const [steps, setSteps] = useState(() => piSteps(pi))
   const [run, setRun] = useState<Run>({ state: 'idle' })
   const [checking, setChecking] = useState(false)
-  const [copied, setCopied] = useState(false)
+  // What the last failure said, kept for the agent's prompt after Look again clears the list's marks.
+  const [lastFailure, setLastFailure] = useState<string | null>(null)
+  const [commandCopied, copiedCommand] = useCopied()
+  const [promptCopied, copiedPrompt] = useCopied()
   const primary = useRef<HTMLButtonElement | null>(null)
   const running = run.state === 'running'
-  // The window installs Pi through npm. Without npm the user runs the command, and the window looks again.
-  const byHand = steps[0]?.package === null && !pi.canInstall
+  const byHand = piByHand(pi)
+  // Something is still missing after a failure, or must be installed by hand: the user may look again, or ask an agent.
+  const stuck = byHand || lastFailure !== null
 
   useEffect(() => {
     primary.current?.focus({ preventScroll: true })
   }, [])
-  useEffect(() => {
-    if (!copied) return
-    const timer = setTimeout(() => setCopied(false), 1600)
-    return () => clearTimeout(timer)
-  }, [copied])
+
+  const fail = (at: number, reason: string) => {
+    setRun({ state: 'failed', at, reason })
+    setLastFailure(reason)
+  }
 
   const install = async (from: number) => {
     onBusy(true)
     for (let at = from; at < steps.length; at += 1) {
-      const step = steps[at]!
       setRun({ state: 'running', at })
       try {
-        onState(step.package === null ? await runCommand('setup.install-pi') : await runCommand('setup.install-package', { name: step.package }))
+        onState(await installStep(steps[at]!))
       } catch (error) {
-        setRun({ state: 'failed', at, reason: reasonOf(error) })
+        fail(at, reasonOf(error))
         onBusy(false)
         return
       }
@@ -131,9 +134,10 @@ export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
       const now = await runCommand('setup.pi')
       onState(now)
       if (!piNeeds(now)) return onDone('installed')
-      setSteps(stepsFor(now))
+      setSteps(piSteps(now))
+      setRun({ state: 'idle' })
     } catch (error) {
-      setRun({ state: 'failed', at: 0, reason: reasonOf(error) })
+      fail(0, reasonOf(error))
     } finally {
       setChecking(false)
     }
@@ -176,16 +180,16 @@ export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
 
       {byHand ? (
         <div className="flex flex-col gap-2 px-2">
-          <p className="text-[13px] leading-relaxed">I can't find npm on this Mac, so I can't install Pi myself. Run this in Terminal, then I'll look again:</p>
+          <p className="text-[13px] leading-relaxed">{piHandWords(pi)}</p>
           <div className="flex items-center gap-2 rounded-xl bg-code-bg py-1.5 pr-1.5 pl-3 text-code-text">
             <code className="scroll-quiet min-w-0 flex-1 overflow-x-auto font-mono text-[12px] leading-[1.7] whitespace-pre select-text">{pi.installCommand}</code>
             <button
               type="button"
-              aria-label={copied ? 'Copied' : 'Copy'}
-              onClick={() => void navigator.clipboard?.writeText(pi.installCommand).then(() => setCopied(true), () => {})}
+              aria-label={commandCopied ? 'Copied' : 'Copy'}
+              onClick={() => copyText(pi.installCommand, copiedCommand)}
               className="grid size-7 shrink-0 place-items-center rounded-full outline-offset-1 transition-[transform,background-color] duration-[140ms] ease-out hover:bg-surface-2 active:scale-[0.97]"
             >
-              {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+              {commandCopied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
             </button>
           </div>
         </div>
@@ -197,16 +201,31 @@ export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
         </p>
       ) : null}
 
+      {stuck ? (
+        <div className="flex items-center gap-3 px-2">
+          <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-muted-foreground">A coding agent can do this for you. Give it this prompt, then press Look again.</p>
+          <Button variant="outline" size="sm" className="px-3" onClick={() => copyText(agentPrompt(pi, lastFailure), copiedPrompt)}>
+            {promptCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            {promptCopied ? 'Copied' : 'Copy a prompt for an agent'}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-end gap-2">
         <Button variant="ghost" size="lg" className="px-3.5" disabled={running || checking} onClick={() => onDone('later')}>
           Not now
         </Button>
+        {stuck && !byHand ? (
+          <Button variant="outline" size="lg" className="px-3.5" disabled={running || checking} onClick={() => void lookAgain()}>
+            {checking ? 'Looking' : 'Look again'}
+          </Button>
+        ) : null}
         {byHand ? (
           <Button ref={primary} size="lg" className="min-w-[132px] px-4 text-[14px]" disabled={checking} onClick={() => void lookAgain()}>
             {checking ? 'Looking' : 'Look again'}
           </Button>
         ) : (
-          <Button ref={primary} size="lg" className="min-w-[132px] px-4 text-[14px]" disabled={running} onClick={() => void install(run.state === 'failed' ? run.at : 0)}>
+          <Button ref={primary} size="lg" className="min-w-[132px] px-4 text-[14px]" disabled={running || checking} onClick={() => void install(run.state === 'failed' ? run.at : 0)}>
             {running ? 'Installing' : run.state === 'failed' ? 'Try again' : 'Install'}
           </Button>
         )}

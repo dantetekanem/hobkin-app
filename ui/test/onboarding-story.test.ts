@@ -19,7 +19,26 @@ import {
   toggleSuggestion,
   type FollowUps,
 } from '../src/features/onboarding/questions.ts'
-import { beatAfter, beatOf, checkAnswer, followUpOf, piecesOf, piNeeds, spokenText, startTale, tellOn, workSaid, type Answers, type BeatId, type Facts, type Tale, type TaleEvent } from '../src/features/onboarding/story.ts'
+import {
+  beatAfter,
+  beatOf,
+  checkAnswer,
+  followUpOf,
+  piByHand,
+  piecesOf,
+  piHandWords,
+  piNeeds,
+  piSteps,
+  spokenText,
+  startTale,
+  tellOn,
+  workSaid,
+  type Answers,
+  type BeatId,
+  type Facts,
+  type Tale,
+  type TaleEvent,
+} from '../src/features/onboarding/story.ts'
 import { resolveTaleKey, type TaleKeyContext, type TalePress } from '../src/features/onboarding/tale-keys.ts'
 
 const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
@@ -140,6 +159,66 @@ test('what hobkin says about Pi follows what is missing, and putting it off is s
   assert.equal(absent.ask?.kind, 'pi')
   assert.equal(beatAfter('pi', { ...none, pi: 'later' }, bare), 'pi-later')
   assert.equal(beatAfter('pi', { ...none, pi: 'installed' }, bare), 'pi-ready')
+})
+
+/** A Mac without npm, as a host that sends the Node facts says it: no Node at all, and hobkin can install its own. */
+const noNode = (over: Partial<PiSetup> = {}) =>
+  pi({ installed: false, version: null, matches: false, canInstall: false, node: { found: false, version: null, installs: '26.1.0' }, canInstallNode: true, ...over })
+const ids = (state: PiSetup) => piSteps(state).map(({ id }) => id)
+const missingCoder = [{ name: 'pi-coder', adds: 'Opens a branch as a diff.', installed: false }]
+
+test('without npm the install starts with a Node of hobkin\'s own, then Pi, then the packages', () => {
+  assert.deepEqual(ids(pi({ installed: false, version: null, matches: false, packages: missingCoder })), ['pi', 'pi-coder'], 'with npm there is no Node step')
+  assert.deepEqual(ids(noNode({ packages: missingCoder })), ['node', 'pi', 'pi-coder'])
+  assert.deepEqual(ids(noNode({ installed: true, version: '1.5.0', matches: true, packages: missingCoder })), ['node', 'pi-coder'], 'Pi adds its packages through npm too')
+
+  const [node, piItself] = piSteps(noNode())
+  assert.deepEqual([node!.kind, node!.name], ['node', 'Node 26.1.0'])
+  assert.match(node!.adds, /\S/)
+  assert.deepEqual([piItself!.kind, piItself!.name], ['pi', 'Pi 1.5.0'])
+  assert.equal(piByHand(noNode()), false, 'the window installs it all')
+})
+
+test('without npm and no way to install Node, the steps are as before and the user installs by hand', () => {
+  const cannot = noNode({ canInstallNode: false, packages: missingCoder })
+  const { node: _node, canInstallNode: _can, ...before } = cannot
+
+  assert.deepEqual(ids(cannot), ['pi', 'pi-coder'])
+  assert.equal(piByHand(cannot), true)
+  // A host from before sends no Node facts, and the panel does what it did.
+  assert.deepEqual(ids(before), ['pi', 'pi-coder'])
+  assert.equal(piByHand(before), true)
+  assert.equal(piByHand(pi({ installed: false, version: null, matches: false })), false, 'with npm the window installs Pi')
+  assert.equal(piByHand(pi({ canInstall: false, packages: missingCoder })), false, 'only packages missing: the window tries, as before')
+})
+
+test('installing by hand says first what is missing, then how to get Node, then the line to run', () => {
+  const absent = piHandWords(noNode({ canInstallNode: false }))
+  assert.match(absent, /^I can't find Node on this Mac, so I can't install Pi myself\./)
+  assert.match(absent, /Node 22\.19 or newer from nodejs\.org/)
+  assert.match(absent, /run this in Terminal/)
+
+  assert.match(piHandWords(noNode({ canInstallNode: false, node: { found: true, version: '20.11.0', installs: '26.1.0' } })), /^I found Node 20\.11\.0 but no npm, so I can't install Pi myself\./)
+  const { node: _node, canInstallNode: _can, ...before } = noNode()
+  assert.match(piHandWords(before), /^I can't find npm on this Mac, so I can't install Pi myself\./)
+  for (const words of [absent, piHandWords(before)]) assert.doesNotMatch(words, /[—–]/)
+})
+
+test('what hobkin says about Pi without npm names Node, and offers to install it only when it can', () => {
+  const lines = (state: PiSetup) => beatOf('pi', none, { ...bare, pi: state }).lines.join(' ')
+
+  assert.match(lines(noNode()), /Node isn't on this Mac/)
+  assert.match(lines(noNode()), /Want me to install Node and Pi\?/)
+  assert.match(lines(noNode({ installed: true, version: '1.4.2' })), /Want me to install Node, then Pi 1\.5\.0\?/)
+  assert.match(lines(noNode({ installed: true, version: '1.5.0', matches: true, packages: missingCoder })), /Want me to install Node, then add them\?/)
+
+  const cannot = lines(noNode({ canInstallNode: false }))
+  assert.match(cannot, /Node isn't on this Mac/)
+  assert.doesNotMatch(cannot, /Want me to/)
+  assert.match(lines(noNode({ canInstallNode: false, node: { found: true, version: '20.11.0', installs: '26.1.0' } })), /Node on this Mac \(20\.11\.0\) has no npm/)
+
+  // With npm, hobkin says what it always said.
+  assert.equal(lines(pi({ installed: false, version: null, matches: false })), "I run on Pi, and I can't find it on this Mac. Want me to install it? I'll add the packages my agents use too.")
 })
 
 test('an account Pi already reaches is found, and none leads to the sign-in', () => {

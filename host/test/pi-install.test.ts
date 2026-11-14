@@ -5,7 +5,10 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { PiSetup } from '#shared/protocol/setup.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
+import { agentPrompt } from '#shared/setup/agent-prompt.ts'
+import { createClientTool } from '../src/client-tool.ts'
 import { findProgram, installPackage, installPi, piAgentFolder, piSetup, piSetupHandlers, pinnedPi, programPlaces, refuseInstall, type PiRun } from '../src/pi/install.ts'
+import { nodeBuild } from '../src/pi/node.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
 type Answer = { stdout: string } | { error: Error; stdout?: string; stderr?: string }
@@ -24,6 +27,8 @@ const NPM = '/fake.invalid/bin/npm'
 const PIN = '1.5.0'
 const COMMAND = `npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PIN}`
 const none = (installed: string[] = []) => PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: installed.includes(name) }))
+/** The fake npm has no Node beside it, so it runs on the host's own, as `environment` says. Its version is known without asking. */
+const HOST_NODE = { found: true, version: process.versions.node, installs: process.versions.node }
 
 function executable(folder: string, name: string): string {
   mkdirSync(folder, { recursive: true })
@@ -57,6 +62,24 @@ test('pi and npm are found on the PATH, then where pnpm, npm and Homebrew put th
   ])
 })
 
+test("hobkin's own Node is looked in after the usual places and before the host's Node, so its npm and the Pi it installs are found", (t) => {
+  const folder = temporaryDirectory(t)
+  const own = join(folder, 'hobkin', 'client', 'node', 'bin')
+  const npm = executable(own, 'npm')
+  const pi = executable(own, 'pi')
+
+  assert.deepEqual(programPlaces('/Users/someone', own).slice(-2), [own, dirname(process.execPath)])
+  // Homebrew's folders are left out here, since this Mac may have an npm of its own in them.
+  const places = programPlaces(folder, own).filter((place) => place.startsWith(folder))
+  assert.equal(findProgram('npm', { path: '', places }), npm)
+  assert.equal(findProgram('pi', { path: '', places }), pi)
+})
+
+test('the prompt for a coding agent names every place hobkin looks for programs', () => {
+  const prompt = agentPrompt({ installed: false, version: null, pinned: PIN, matches: false, canInstall: false, installCommand: COMMAND, packages: none() }, null)
+  for (const place of programPlaces('~').filter((place) => place !== dirname(process.execPath))) assert.ok(prompt.includes(place), place)
+})
+
 test('the pin is the Pi version hobkin runs on, from its package.json', () => {
   const manifest = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('hobkin/package.json')), 'utf8')) as { peerDependencies: Record<string, string> }
   assert.equal(pinnedPi(), manifest.peerDependencies['@earendil-works/pi-coding-agent'])
@@ -65,14 +88,14 @@ test('the pin is the Pi version hobkin runs on, from its package.json', () => {
 test('with Pi missing nothing is run, no package is installed, and the install command is still given', async () => {
   const calls: Call[] = []
   const setup = await piSetup({ findPi: () => null, findNpm: () => NPM, run: fakeRun({}, calls), pinned: PIN })
-  assert.deepEqual(setup, { installed: false, version: null, pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none() })
+  assert.deepEqual(setup, { installed: false, version: null, pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none(), node: HOST_NODE })
   assert.deepEqual(calls, [])
 })
 
 test('Pi at another version is installed but does not match the pin', async () => {
   const run = fakeRun({ 'pi --version': { stdout: '1.4.2\n' }, 'pi list': { stdout: 'No packages installed.\n' } })
   const setup = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
-  assert.deepEqual(setup, { installed: true, version: '1.4.2', pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none() })
+  assert.deepEqual(setup, { installed: true, version: '1.4.2', pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none(), node: HOST_NODE })
 })
 
 test('the pinned Pi says which packages it has, by their whole names', async () => {
@@ -80,25 +103,46 @@ test('the pinned Pi says which packages it has, by their whole names', async () 
   const list = ['User packages:', '  npm:pi-coder', '    /fake.invalid/lib/pi-coder', '  npm:pi-ask-user-extra', '', 'Project packages:', '  ../../Poetry/pi-agentic-search', ''].join('\n')
   const run = fakeRun({ 'pi --version': { stdout: '1.5.0\n' }, 'pi list': { stdout: list } }, calls)
   const setup = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
-  assert.deepEqual(setup, { installed: true, version: PIN, pinned: PIN, matches: true, canInstall: true, installCommand: COMMAND, packages: none(['pi-coder', 'pi-agentic-search']) })
+  assert.deepEqual(setup, { installed: true, version: PIN, pinned: PIN, matches: true, canInstall: true, installCommand: COMMAND, packages: none(['pi-coder', 'pi-agentic-search']), node: HOST_NODE })
   // Each read is short, and only reads.
   assert.deepEqual(calls.map(({ program, args, timeout }) => [program, ...args, timeout]), [[PI, '--version', 5000], [PI, 'list', 5000]])
 
   // A list that fails says nothing is installed, and a version that fails is no version.
   const failing = fakeRun({ 'pi --version': { error: new Error('boom') }, 'pi list': { error: new Error('boom') } })
   assert.deepEqual(await piSetup({ findPi: () => PI, findNpm: () => NPM, run: failing, pinned: PIN }), {
-    installed: true, version: null, pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none(),
+    installed: true, version: null, pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none(), node: HOST_NODE,
   })
 })
 
 test('without npm the window cannot install Pi, and the command for a person to run is still given', async () => {
-  const setup = await piSetup({ findPi: () => null, findNpm: () => null, run: fakeRun({}), pinned: PIN })
+  const setup = await piSetup({ findPi: () => null, findNpm: () => null, findNode: () => null, run: fakeRun({}), pinned: PIN })
   assert.equal(setup.canInstall, false)
   assert.equal(setup.installCommand, COMMAND)
+  assert.deepEqual(setup.node, { found: false, version: null, installs: process.versions.node })
 
   const calls: Call[] = []
   await assert.rejects(installPi({ findNpm: () => null, run: fakeRun({}, calls), pinned: PIN }), new RegExp(`npm is not on this Mac.*${COMMAND}`))
   assert.deepEqual(calls, [])
+})
+
+test('the Node named is the one npm runs on, and without npm a Node found elsewhere than the carried one, by its version', async (t) => {
+  const folder = temporaryDirectory(t)
+  const npm = executable(join(folder, 'nvm', 'bin'), 'npm')
+  const beside = executable(join(folder, 'nvm', 'bin'), 'node')
+  const calls: Call[] = []
+  const run = fakeRun({ 'node --version': { stdout: 'v22.19.0\n' } }, calls)
+
+  const withNpm = await piSetup({ findPi: () => null, findNpm: () => npm, findNode: () => null, run, pinned: PIN })
+  assert.deepEqual(withNpm.node, { found: true, version: '22.19.0', installs: process.versions.node })
+  assert.deepEqual(calls.map(({ program, args }) => [program, ...args]), [[beside, '--version']])
+
+  const alone = await piSetup({ findPi: () => null, findNpm: () => null, findNode: () => beside, run, pinned: PIN })
+  assert.deepEqual(alone.node, { found: true, version: '22.19.0', installs: process.versions.node })
+  assert.equal(alone.canInstall, false, 'a Node without npm cannot install Pi')
+
+  // The Node the app carries for its host sits in the host's own folder, without npm, and is no Node for Pi.
+  const carried = await piSetup({ findPi: () => null, findNpm: () => null, findNode: () => join(dirname(process.execPath), 'node'), run, pinned: PIN })
+  assert.deepEqual(carried.node, { found: false, version: null, installs: process.versions.node })
 })
 
 test('installing Pi runs exactly the pinned npm line, through the npm found, with its Node on the PATH', async () => {
@@ -152,21 +196,64 @@ test('the setup commands install only on a live host, with the installers it was
     installPackage: async (name: string) => void installed.push(name),
   }
 
-  const live = piSetupHandlers({ live: true, ...options })
-  assert.deepEqual(await live['setup.pi']!({}), fakeSetup)
-  assert.deepEqual(await live['setup.install-pi']!({}), fakeSetup)
-  assert.deepEqual(await live['setup.install-package']!({ name: 'pi-ask-user' }), fakeSetup)
-  assert.deepEqual(installed, ['pi', 'pi-ask-user'])
-  assert.equal(reads, 3)
+  const live = piSetupHandlers({ live: true, ...options, installNode: async () => void installed.push('node') })
+  const offered = { ...fakeSetup, canInstallNode: nodeBuild() !== null }
+  assert.deepEqual(await live['setup.pi']!({}), offered)
+  assert.deepEqual(await live['setup.install-pi']!({}), offered)
+  assert.deepEqual(await live['setup.install-package']!({ name: 'pi-ask-user' }), offered)
+  assert.deepEqual(await live['setup.install-node']!({}), offered)
+  assert.deepEqual(installed, ['pi', 'pi-ask-user', 'node'])
+  assert.equal(reads, 4)
 
-  // The scripted development host never installs anything on the Mac, whatever it was handed.
-  const scripted = piSetupHandlers({ live: false, ...options })
+  // The scripted development host never installs anything on the Mac, whatever it was handed, and offers no Node.
+  const scripted = piSetupHandlers({ live: false, ...options, installNode: async () => void installed.push('node') })
+  assert.equal((await scripted['setup.pi']!({})).canInstallNode, false)
   await assert.rejects(async () => scripted['setup.install-pi']!({}), /scripted.*--live/)
   await assert.rejects(async () => scripted['setup.install-package']!({ name: 'pi-coder' }), /scripted.*--live/)
-  assert.deepEqual(installed, ['pi', 'pi-ask-user'])
+  await assert.rejects(async () => scripted['setup.install-node']!({}), /scripted.*--live/)
+  assert.deepEqual(installed, ['pi', 'pi-ask-user', 'node'])
+
+  // A live host handed no Node installer offers none, and refuses one.
+  const withoutNode = piSetupHandlers({ live: true, ...options })
+  assert.equal((await withoutNode['setup.pi']!({})).canInstallNode, false)
+  await assert.rejects(async () => withoutNode['setup.install-node']!({}), /installs nothing on this Mac/)
 
   // What a host gets when no installer is handed in.
   await assert.rejects(refuseInstall(), /installs nothing on this Mac/)
+})
+
+test('with Pi or npm missing, the setup asks the login shell for its PATH again and looks again, and with both found it asks nothing', async () => {
+  const everything = { ...fakeSetup, installed: true, version: PIN, matches: true }
+  const states = (...answers: PiSetup[]) => {
+    let reads = 0
+    return { read: async () => answers[Math.min(reads++, answers.length - 1)]!, reads: () => reads }
+  }
+  const handlers = (read: () => Promise<PiSetup>, refreshPath: () => Promise<boolean>) =>
+    piSetupHandlers({ live: true, read, installPi: refuseInstall, installPackage: refuseInstall, refreshPath })
+
+  // Installed by hand while the app was open, in a folder the host's PATH lacked: found once the PATH has it.
+  let asked = 0
+  const missing = states({ ...fakeSetup, canInstall: false }, everything)
+  const found = await handlers(missing.read, async () => (asked++, true))['setup.pi']!({})
+  assert.equal(found.installed && found.canInstall, true)
+  assert.equal(asked, 1)
+  assert.equal(missing.reads(), 2)
+
+  // The shell had nothing new, so Pi is not looked for again.
+  asked = 0
+  const stillMissing = states(fakeSetup)
+  await handlers(stillMissing.read, async () => (asked++, false))['setup.pi']!({})
+  assert.equal(asked, 1)
+  assert.equal(stillMissing.reads(), 1)
+
+  // Nothing missing, nothing asked.
+  asked = 0
+  await handlers(states(everything).read, async () => (asked++, true))['setup.pi']!({})
+  assert.equal(asked, 0)
+
+  // A refresh that fails is a refresh that found nothing.
+  const failing = await handlers(states(fakeSetup).read, async () => Promise.reject(Error('no shell')))['setup.pi']!({})
+  assert.equal(failing.installed, false)
 })
 
 test('a host started with the default options installs nothing, and hobkin cannot ask it to', async (t) => {
@@ -174,8 +261,8 @@ test('a host started with the default options installs nothing, and hobkin canno
   const client = await Client.connect(host)
   afterTest(t, () => client.close())
 
-  assert.deepEqual(await client.run('setup.pi'), fakeSetup)
-  for (const [name, args] of [['setup.install-pi', {}], ['setup.install-package', { name: 'pi-coder' }]] as const) {
+  assert.deepEqual(await client.run('setup.pi'), { ...fakeSetup, canInstallNode: false })
+  for (const [name, args] of [['setup.install-pi', {}], ['setup.install-package', { name: 'pi-coder' }], ['setup.install-node', {}]] as const) {
     const refused = await client.command(name, args)
     assert.equal(!refused.ok && refused.error.code, 'unavailable', name)
   }
@@ -184,9 +271,18 @@ test('a host started with the default options installs nothing, and hobkin canno
   assert.equal(!unknown.ok && unknown.error.code, 'invalid-arguments')
 
   const { COMMANDS } = await import('#shared/commands/registry.ts')
-  for (const name of ['setup.pi', 'setup.install-pi', 'setup.install-package'] as const) assert.equal('hobkin' in COMMANDS[name], false, name)
+  for (const name of ['setup.pi', 'setup.install-pi', 'setup.install-package', 'setup.install-node'] as const) assert.equal('hobkin' in COMMANDS[name], false, name)
   assert.equal(COMMANDS['setup.install-pi'].outside, true)
   assert.equal(COMMANDS['setup.install-package'].outside, true)
+  assert.equal(COMMANDS['setup.install-node'].outside, true)
+
+  // hobkin's own client tool lists none of them and refuses to run one, so a Node is only ever installed on the user's press.
+  const ran: string[] = []
+  const tool = createClientTool({ run: async (name) => (ran.push(name), { ok: true, value: null }) })
+  const listed = JSON.stringify((await tool.execute('1', { action: 'list' })).details)
+  assert.ok(!listed.includes('setup.install-node'))
+  await assert.rejects(tool.execute('2', { action: 'run', name: 'setup.install-node' }), /outside the app/)
+  assert.deepEqual(ran, [])
 })
 
 const SEARCH = PI_PACKAGES.find(({ name }) => name === 'pi-search-hub')

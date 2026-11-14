@@ -1,5 +1,6 @@
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import { PROFILE_TEXT_MAX, type ComputerKind, type PiSetup, type SetupWorkDone } from '#shared/protocol/setup.ts'
+import { PI_NODE } from '#shared/setup/agent-prompt.ts'
 import type { Mood } from '../../avatar/moods.tsx'
 import { questionsFor, USUAL_FOLDER, type Question } from './questions.ts'
 
@@ -153,18 +154,71 @@ const CONNECTED = "Great! You're connected! Now I can be even smarter with you!"
 const CLAUDE_TOO = 'I also see Claude Code on this Mac. My agents can run on it, and Settings turns that on.'
 const withClaude = (lines: string[], { claude }: Facts) => (claude ? [...lines, CLAUDE_TOO] : lines)
 
+/** One thing to install: a Node of hobkin's own, Pi itself, or a package of Pi's, by its name as its id. */
+export interface PiStep {
+  id: string
+  kind: 'node' | 'pi' | 'package'
+  name: string
+  adds: string
+}
+
+/**
+ * What is missing, in the order it is installed: without npm a Node of hobkin's own first, when the host can install
+ * one, since npm installs Pi and Pi adds its packages through npm; then Pi; then its packages. A host from before
+ * says nothing of Node, and gets the steps it always got.
+ */
+export function piSteps(pi: PiSetup): PiStep[] {
+  const missing = piNeeds(pi)
+  const needsPi = missing === 'pi' || missing === 'version'
+  const packages = pi.packages.filter((entry) => !entry.installed).map((entry): PiStep => ({ id: entry.name, kind: 'package', name: entry.name, adds: entry.adds }))
+  const steps: PiStep[] = needsPi ? [{ id: 'pi', kind: 'pi', name: `Pi ${pi.pinned}`, adds: 'What my checks and agents run on.' }, ...packages] : packages
+  if (pi.canInstall || !pi.canInstallNode || !pi.node || steps.length === 0) return steps
+  return [{ id: 'node', kind: 'node', name: `Node ${pi.node.installs}`, adds: 'Pi runs on it. I keep this copy in my own folder.' }, ...steps]
+}
+
+/** Pi has to be installed by hand: it is missing, and there is no npm to install it with nor a Node hobkin can install. */
+export function piByHand(pi: PiSetup): boolean {
+  const missing = piNeeds(pi)
+  return (missing === 'pi' || missing === 'version') && !pi.canInstall && !pi.canInstallNode
+}
+
+/** What is missing, said first, then how to get Node, then the line to run. */
+export function piHandWords(pi: PiSetup): string {
+  let missing = "I can't find npm on this Mac"
+  if (pi.node && !pi.node.found) missing = "I can't find Node on this Mac"
+  else if (pi.node?.version) missing = `I found Node ${pi.node.version} but no npm`
+  return `${missing}, so I can't install Pi myself. Install Node ${PI_NODE} or newer from nodejs.org. It comes with npm. Then run this in Terminal and press Look again:`
+}
+
+/** Why Pi cannot be installed with what is here, when npm is missing. A host from before says only that npm is. */
+function nodeMissing(pi: PiSetup): string {
+  if (!pi.node) return "Pi installs with npm, and I can't find npm on this Mac."
+  if (!pi.node.found) return "Pi runs on Node, and Node isn't on this Mac."
+  return pi.node.version ? `Pi installs with npm, and the Node on this Mac (${pi.node.version}) has no npm.` : 'Pi installs with npm, and the Node on this Mac has no npm.'
+}
+
 function piWords(pi: PiSetup | null): string[] {
   const packagesToo = "I'll add the packages my agents use too."
   const missing = piNeeds(pi)
+  // Without npm hobkin says so, and offers its own Node when it can install one, or says what to do when it cannot.
+  const noNpm = pi !== null && !pi.canInstall
+  const byHand = "I can't install Node for you on this Mac, so I'll show you what to do."
 
   if (pi && missing === 'version') {
     const found = pi.version ? `Pi ${pi.version}` : 'a Pi that does not say its version'
-    return [`I found ${found} on this Mac, and I am built for ${pi.pinned}.`, `Want me to install that one? ${packagesToo}`]
+    const said = `I found ${found} on this Mac, and I am built for ${pi.pinned}.`
+    if (!noNpm) return [said, `Want me to install that one? ${packagesToo}`]
+    return [said, nodeMissing(pi), pi.canInstallNode ? `Want me to install Node, then Pi ${pi.pinned}? ${packagesToo}` : byHand]
   }
   if (missing === 'packages') {
-    return ['Pi is here, but some of the packages my agents use are missing.', 'Want me to add them?']
+    const said = 'Pi is here, but some of the packages my agents use are missing.'
+    // Without a Node to offer, the window still tries, as it always did, and a failure says why.
+    if (!noNpm || !pi?.canInstallNode) return [said, 'Want me to add them?']
+    return [said, nodeMissing(pi), 'Want me to install Node, then add them?']
   }
-  return ["I run on Pi, and I can't find it on this Mac.", `Want me to install it? ${packagesToo}`]
+  const said = "I run on Pi, and I can't find it on this Mac."
+  if (!noNpm) return [said, `Want me to install it? ${packagesToo}`]
+  return [said, nodeMissing(pi), pi.canInstallNode ? `Want me to install Node and Pi? ${packagesToo}` : byHand]
 }
 
 /** How a question is asked: typed, picked from bubbles, or chosen between two. */

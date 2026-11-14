@@ -16,6 +16,7 @@ import { ClaudeCodeSettingsFile } from './claude-code/settings.ts'
 import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { PiSetup } from '#shared/protocol/setup.ts'
 import { piSetup, piSetupHandlers, refuseInstall } from './pi/install.ts'
+import { nodeBin } from './pi/node.ts'
 import { profileHandlers } from './profile.ts'
 import { projectsHandlers } from './projects-folder.ts'
 import { setupAnswerHandlers } from './setup-answers.ts'
@@ -104,6 +105,10 @@ export interface HostOptions {
    */
   installPi?: () => Promise<void>
   installPiPackage?: (name: string) => Promise<void>
+  /** Install a Node of hobkin's own, for a Mac without npm. Only the entry passes it, for a live host, and without it none is offered. */
+  installNode?: () => Promise<void>
+  /** Ask the login shell for its PATH again when the setup finds no Pi or no npm. Only the entry passes it, so a test never asks a real shell. */
+  refreshPath?: () => Promise<boolean>
   /**
    * gh for Change Review: it reads pull requests, and a live host posts a verdict the user confirmed. Without it a
    * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
@@ -523,9 +528,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Pi on this Mac. Nothing installs unless the caller hands the installers in: only the entry does (main.ts).
     ...piSetupHandlers({
       live,
-      read: options.piSetup ?? (() => piSetup()),
+      read: options.piSetup ?? (() => piSetup({ ownNode: nodeBin(root) })),
       installPi: options.installPi ?? refuseInstall,
       installPackage: options.installPiPackage ?? refuseInstall,
+      installNode: options.installNode,
+      refreshPath: options.refreshPath,
     }),
     ...projectsHandlers(),
     // The setup's answers, the first context: the app's own copy, and hobkin's facts in front of its directions.

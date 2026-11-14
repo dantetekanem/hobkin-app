@@ -478,6 +478,13 @@ export const COMMANDS = {
     args: Type.Object({ name: oneOf(PI_PACKAGES.map(({ name }) => name)) }, { additionalProperties: false }),
     outside: true,
   },
+  'setup.install-node': {
+    description:
+      "Install a Node of hobkin's own, for a Mac without npm: the official build of the Node the host runs on, for this Mac's chip, checked against nodejs.org's checksums and unpacked into client/node in hobkin's home, then put on the host's PATH. It needs no admin password and changes nothing else on the Mac. Answers with Pi as it is after.",
+    runs: 'host',
+    args: nothing,
+    outside: true,
+  },
   'github.refresh': {
     description:
       "Read the user's GitHub again through gh, with the login gh already has: the pull requests waiting for their review, their own open pull requests, and their open issues. It only reads. A read already under way answers this one too.",
@@ -1121,6 +1128,7 @@ export interface CommandResults {
   /** Pi as it is once the install is done. */
   'setup.install-pi': PiSetup
   'setup.install-package': PiSetup
+  'setup.install-node': PiSetup
   'setup.projects': ProjectsFound
   /** What the app saved. */
   'setup.save': SetupSaved

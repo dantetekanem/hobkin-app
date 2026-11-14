@@ -9,6 +9,8 @@ import { openGitHubPage } from './github.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
 import { watchParent } from './parent-watch.ts'
 import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
+import { refreshPath } from './pi/login-path.ts'
+import { addOwnNode, installNode, nodeBin } from './pi/node.ts'
 import { openInBrowser } from './signin.ts'
 import { spawnGh } from './review/gh.ts'
 
@@ -56,6 +58,10 @@ async function main(args: readonly string[]): Promise<void> {
     console.log('The model is scripted: a message sent here gets a scripted reply, and both stay in the real conversation.')
   }
 
+  // A Node hobkin installed for itself on an earlier run goes on the PATH before anything starts, so its npm, the Pi
+  // that npm installed, and everything hobkin starts find them.
+  if (options.live) addOwnNode(home.root)
+
   // A scripted sign-in has no page to approve on, so nothing is ever opened in the browser for it.
   // Only a live host, started on purpose, opens pages in the browser: a real provider's sign-in page.
   const scripted = options.live
@@ -77,7 +83,16 @@ async function main(args: readonly string[]): Promise<void> {
     openFile: openFileInSystem,
     ...scripted,
     // Installing Pi or a Pi package changes the Mac outside the app: only a live host may, on the user's word in the window.
-    ...(options.live ? { installPi: () => installPi(), installPiPackage: (name: string) => installPackage(name, { agentDir: piAgentFolder }) } : {}),
+    // A live host may also install a Node of hobkin's own for a Mac without npm, and asks the login shell for its PATH
+    // again when the setup finds no Pi or no npm.
+    ...(options.live
+      ? {
+          installPi: () => installPi({ ownNode: nodeBin(home.root) }),
+          installPiPackage: (name: string) => installPackage(name, { agentDir: piAgentFolder, ownNode: nodeBin(home.root) }),
+          installNode: () => installNode({ root: home.root }),
+          refreshPath: () => refreshPath(),
+        }
+      : {}),
     // A live host always reads the real GitHub, read only. The scripted one shows made-up data unless asked.
     // Change Review reads pull requests the same way, and only a live host posts a verdict the user confirmed.
     ...(options.live || options.github ? { github: ghSource(), reviewGh: spawnGh() } : {}),
