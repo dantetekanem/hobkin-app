@@ -1,36 +1,40 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DOWNLOADS, releaseNames, updateFeed } from '../../scripts/package/feed.ts'
+import { DOWNLOADS, FEED, releaseNames, updateFeed } from '../../scripts/package/feed.ts'
 
-test('a release is published under names that carry its version', () => {
-  assert.deepEqual(releaseNames('0.1.19'), {
+test('a release is published under names that carry its version and, for Intel, its chip', () => {
+  assert.deepEqual(releaseNames('0.1.19', 'aarch64'), {
     dmg: 'hobkin-alpha-0.1.19.dmg',
     archive: 'hobkin-0.1.19-aarch64.app.tar.gz',
-    feed: 'latest.json',
   })
+  assert.deepEqual(releaseNames('0.1.19', 'x86_64'), {
+    dmg: 'hobkin-alpha-0.1.19-intel.dmg',
+    archive: 'hobkin-0.1.19-x86_64.app.tar.gz',
+  })
+  assert.equal(FEED, 'latest.json')
 })
 
-test("the feed names the version, where its archive is and the archive's signature", () => {
-  const feed = updateFeed({ version: '0.1.19', notes: 'First alpha.', publishedAt: '2026-11-14T03:00:00.000Z', signature: ' c2lnbmF0dXJl\n' })
+test("the feed names the version and, for each chip built, where its archive is and the archive's signature", () => {
+  const published = { version: '0.1.19', notes: 'First alpha.', publishedAt: '2026-11-14T03:00:00.000Z' }
 
-  assert.deepEqual(feed, {
+  assert.deepEqual(updateFeed({ ...published, signatures: { aarch64: ' c2lnLWFybQ==\n', x86_64: 'c2lnLWludGVs' } }), {
     version: '0.1.19',
     notes: 'First alpha.',
     pub_date: '2026-11-14T03:00:00.000Z',
     platforms: {
-      'darwin-aarch64': {
-        url: `${DOWNLOADS}/hobkin-0.1.19-aarch64.app.tar.gz`,
-        signature: 'c2lnbmF0dXJl',
-      },
+      'darwin-aarch64': { url: `${DOWNLOADS}/hobkin-0.1.19-aarch64.app.tar.gz`, signature: 'c2lnLWFybQ==' },
+      'darwin-x86_64': { url: `${DOWNLOADS}/hobkin-0.1.19-x86_64.app.tar.gz`, signature: 'c2lnLWludGVs' },
     },
   })
+  assert.deepEqual(Object.keys(updateFeed({ ...published, signatures: { aarch64: 'c2ln' } }).platforms), ['darwin-aarch64'], 'a chip that was not built is left out')
   assert.equal(DOWNLOADS, 'https://api.hobkin.dev/downloads')
 })
 
-test('a feed is never written for a version that is not three numbers, or without a signature', () => {
-  const good = { version: '0.1.19', notes: '', publishedAt: '2026-11-14T03:00:00.000Z', signature: 'c2ln' }
+test('a feed is never written for a version that is not three numbers, with an empty signature, or for no chip at all', () => {
+  const good = { version: '0.1.19', notes: '', publishedAt: '2026-11-14T03:00:00.000Z', signatures: { aarch64: 'c2ln' } }
 
   assert.throws(() => updateFeed({ ...good, version: 'v0.1' }), /version/)
-  assert.throws(() => releaseNames('../0.1.19'), /version/)
-  assert.throws(() => updateFeed({ ...good, signature: '  ' }), /signature/)
+  assert.throws(() => releaseNames('../0.1.19', 'aarch64'), /version/)
+  assert.throws(() => updateFeed({ ...good, signatures: { aarch64: '  ' } }), /signature/)
+  assert.throws(() => updateFeed({ ...good, signatures: {} }), /no chip/)
 })
