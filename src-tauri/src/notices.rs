@@ -113,6 +113,29 @@ pub fn notice_send<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, key: Stri
         .map_err(|error| error.to_string())
 }
 
+/// Takes hobkin's notifications out of Notification Center once the window is in front, since you are there. Each one
+/// left there keeps a thread waiting for its click and asks Notification Center for every delivered notification twice a
+/// second, so a pile of them kept the shell busy. In `tauri dev` they are posted as Terminal, so Terminal's go too.
+#[cfg(target_os = "macos")]
+pub fn clear_delivered() {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    let Some(class) = AnyClass::get(c"NSUserNotificationCenter") else {
+        return;
+    };
+    // SAFETY: both are Foundation methods without arguments, sent on the main thread, and a missing center is checked.
+    unsafe {
+        let center: *mut AnyObject = msg_send![class, defaultUserNotificationCenter];
+        if !center.is_null() {
+            let _: () = msg_send![center, removeAllDeliveredNotifications];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn clear_delivered() {}
+
 /// A click on a notification brings the window to the front, shown and focused, and tells the window which one it was.
 pub fn open_on_click<R: Runtime>(app: &AppHandle<R>) {
     let handle = app.clone();

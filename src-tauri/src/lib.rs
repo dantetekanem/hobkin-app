@@ -415,6 +415,8 @@ pub fn run() {
             }
             // Where the window is and how big is written as it changes, not only when the app quits.
             WindowEvent::Moved(_) | WindowEvent::Resized(_) => keep_window_place(window.app_handle()),
+            // The window in front means you are here: hobkin's notifications leave Notification Center (037-notifications).
+            WindowEvent::Focused(true) if window.label() == browser::MAIN => notices::clear_delivered(),
             _ => {}
         })
         .build(tauri::generate_context!())
