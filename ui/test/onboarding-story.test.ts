@@ -2,12 +2,24 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ProviderAccess } from '../../shared/protocol/models.ts'
 import type { PendingQuestion } from '../../shared/protocol/question.ts'
-import type { PiSetup } from '../../shared/protocol/setup.ts'
+import type { PiSetup, ProjectFolder, SetupProjectOutcome, SetupProjectWhy, SetupSaved, SetupWorkDone } from '../../shared/protocol/setup.ts'
 import { codexProvider, connectedNames } from '../src/features/onboarding/accounts.ts'
 import { balance, GLOW, GROW, shadesFor } from '../src/features/onboarding/balance.ts'
-import { matching, ownOption, pickedAnswer, picksOf, PICKS_SHOWN, shownOf, togglePick } from '../src/features/onboarding/picks.ts'
-import { FOLLOW_UPS_MAX, FOLLOW_UPS_WAIT, followUpRequest, followUpsOver, pickedSuggestions, QUESTIONS, routinesRequest, toggleSuggestion, type FollowUps } from '../src/features/onboarding/questions.ts'
-import { beatAfter, beatOf, checkAnswer, followUpOf, piecesOf, piNeeds, spokenText, startTale, tellOn, type Answers, type BeatId, type Facts, type Tale, type TaleEvent } from '../src/features/onboarding/story.ts'
+import { foldersPicked, matching, ownOption, pickedAnswer, picksOf, PICKS_SHOWN, shownOf, togglePick } from '../src/features/onboarding/picks.ts'
+import {
+  FOLLOW_UPS_MAX,
+  FOLLOW_UPS_WAIT,
+  followUpRequest,
+  followUpsOver,
+  pickedSuggestions,
+  QUESTIONS,
+  routinesRequest,
+  setupAnswersOf,
+  startingReply,
+  toggleSuggestion,
+  type FollowUps,
+} from '../src/features/onboarding/questions.ts'
+import { beatAfter, beatOf, checkAnswer, followUpOf, piecesOf, piNeeds, spokenText, startTale, tellOn, workSaid, type Answers, type BeatId, type Facts, type Tale, type TaleEvent } from '../src/features/onboarding/story.ts'
 import { resolveTaleKey, type TaleKeyContext, type TalePress } from '../src/features/onboarding/tale-keys.ts'
 
 const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
@@ -278,7 +290,7 @@ test('every beat has words, and only the last bubble of a beat asks', () => {
   const answers: Answers = { ...none, computer: 'work', name: 'Ada', more: true }
   const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true, smart: true, asked: null }
   const long = followUpOf(pending({ question: `${'Which of your projects should I watch first, and how often, '.repeat(3)}and why?` }))
-  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour']
+  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour']
 
   for (const asked of [null, long]) {
     for (const id of ids) {
@@ -496,4 +508,130 @@ test('typed words become a bubble of their own only where there is none by that 
   assert.equal(ownOption(['Email', 'Bills'], ' My bank '), 'My bank')
   assert.equal(ownOption(['Email', 'Bills'], 'email'), null)
   assert.equal(ownOption(['Email'], '   '), null)
+})
+
+const folderOf = (name: string, git = true): ProjectFolder => ({ name, path: `/Users/someone/Code/${name}`, git })
+const OFF = { enabled: false, autoPick: true }
+const CHOOSING = { enabled: true, autoPick: false }
+const PICKING = { enabled: true, autoPick: true }
+
+/** What the host answers once the picked projects went to work mode, one entry for each, in the order given. */
+const workDone = (outcomes: [SetupProjectOutcome, SetupProjectWhy | null][], workMode = OFF): SetupWorkDone => ({
+  folder: { typed: '~/Code', saved: '/Users/someone/Code', changed: true, problem: null },
+  workMode,
+  projects: outcomes.map(([outcome, why], index) => ({ path: `/Users/someone/Code/p${index}`, name: `p${index}`, outcome, why, reason: why ? 'Why.' : null })),
+})
+
+const picked: Answers = { ...none, computer: 'personal', more: true, replies: { 'projects-folder': '~/Code', projects: 'storefront, notes' } }
+const hosted: Facts = { ...smart, smart: false, host: true }
+
+test('after the projects are picked, hobkin says what it did with them, only with a host and a pick', () => {
+  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'questions-thanks', 'settings', 'tour'])
+  assert.deepEqual(walk({ ...picked, computer: 'work' }, { ...hosted, smart: true }, 'q2'), ['q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour'])
+  assert.equal(beatAfter('q2', { ...picked, replies: { projects: '  ' } }, hosted), 'q3', 'nothing picked, nothing to say')
+  assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3', 'with no host nothing was done, as in a browser tab on sample data')
+})
+
+test('while the projects go to Work the story waits, then hobkin says what was done, and none of it can be gone back to', () => {
+  const at: Tale = { at: 'q2', line: 0, trail: ['more', 'q1'], ended: null }
+  const saying = tellOn(at, 'answered', picked, hosted)
+  const done: Facts = { ...hosted, worked: workDone([['taken', null], ['taken', null]]) }
+
+  assert.equal(saying.at, 'projects-said')
+  assert.deepEqual(beatOf('projects-said', picked, hosted).ask, { kind: 'wait' })
+  assert.deepEqual(tellOn(saying, 'on', picked, hosted), saying, 'waiting holds the story')
+  assert.deepEqual(tellOn(saying, 'back', picked, hosted), saying, 'the projects are in Work already')
+
+  assert.deepEqual(beatOf('projects-said', picked, done).lines, [workSaid(workDone([['taken', null], ['taken', null]]))])
+  assert.equal(beatOf('projects-said', picked, done).ask, undefined, 'said, it only goes on')
+  const next = tellOn(saying, 'on', picked, done)
+  assert.equal(next.at, 'q3')
+  assert.deepEqual(tellOn(next, 'back', picked, done), next)
+
+  const failed = beatOf('projects-said', picked, { ...hosted, worked: 'failed' })
+  assert.equal(failed.ask, undefined, 'a failure never holds the story')
+  assert.equal(failed.lines.length, 1)
+})
+
+test('what hobkin says it did is true to what work mode did with the projects', () => {
+  assert.match(workSaid(workDone([['taken', null], ['taken', null]], OFF)), /work on two projects once work mode is on/)
+  assert.match(workSaid(workDone([['taken', null]], CHOOSING)), /^One project is in Work now, and nothing runs until you say so\.$/)
+  assert.match(workSaid(workDone([['proposed', null], ['proposed', null], ['proposed', null]], PICKING)), /running, so I put three projects in Work for you to take/)
+  assert.match(workSaid(workDone([['left', 'known']])), /^I had one project in Work already, and left it as it was\.$/)
+  assert.match(workSaid(workDone([['left', 'known'], ['left', 'known']])), /two projects in Work already, and left them as they were/)
+
+  // One more sentence for what was not added, or else for what was there already.
+  assert.match(workSaid(workDone([['taken', null], ['skipped', 'not-git']])), /once work mode is on\. One was not a git repository\.$/)
+  assert.match(workSaid(workDone([['taken', null], ['skipped', 'refused'], ['skipped', 'not-git']])), /I could not add two of them\.$/)
+  assert.match(workSaid(workDone([['taken', null], ['left', 'known']])), /I had one of them already\.$/)
+  assert.match(workSaid(workDone([['skipped', 'not-git'], ['skipped', 'not-git']])), /^None of them is a git repository, so I left them out\.$/)
+  assert.match(workSaid(workDone([['skipped', 'not-git']])), /^It is not a git repository, so I left it out\.$/)
+  assert.match(workSaid(workDone([['skipped', 'namesake']])), /^I could not add it to Work\.$/)
+  assert.doesNotMatch(workSaid(workDone([['taken', null]])), /git|already/, 'nothing is said that did not happen')
+
+  // Always one short bubble, however many there were.
+  const many = (outcome: SetupProjectOutcome, count: number, why: SetupProjectWhy | null = null) => Array.from({ length: count }, (): [SetupProjectOutcome, SetupProjectWhy | null] => [outcome, why])
+  for (const workMode of [OFF, CHOOSING, PICKING]) {
+    const main = workMode === PICKING ? 'proposed' : 'taken'
+    for (const projects of [many(main, 99), [...many(main, 99), ...many('skipped', 9, 'not-git')], [...many(main, 99), ...many('left', 12)], [...many('left', 99), ...many('skipped', 12, 'refused')]]) {
+      const said = workSaid(workDone(projects, workMode))
+      assert.ok(said.length <= 110, said)
+    }
+  }
+})
+
+test('when validation is wanted, hobkin is asked to propose each project its checks and write them only on a yes, and the logs are a fact with a question before the first scan', () => {
+  const replies = { ...picked.replies, validation: 'Set it up', logs: 'Yes' }
+  const asked = { ...picked, replies }
+
+  for (const message of [routinesRequest(asked)!, followUpRequest(asked)]) {
+    assert.match(message, /each project I picked/)
+    assert.match(message, /tests, lint and build/)
+    assert.match(message, /work\/<slug>\/directions\.md/)
+    assert.match(message, /only after I say yes/)
+    assert.match(message, /You may read my logs and past sessions/)
+    assert.match(message, /Ask me before your first scan/)
+    assert.match(message, /ask before you create or connect anything/i, 'the rest of the message is as it was')
+  }
+
+  const later = { ...picked, replies: { ...picked.replies, validation: 'Later', logs: 'No' } }
+  for (const message of [routinesRequest(later)!, followUpRequest(later)]) {
+    assert.doesNotMatch(message, /directions\.md/)
+    assert.doesNotMatch(message, /You may read my logs/)
+    assert.ok(message.includes(QUESTIONS.personal[4]!.ask), 'the answer itself is still handed over with its question')
+  }
+  const nothingPicked = { ...asked, replies: { ...replies, projects: '' } }
+  assert.doesNotMatch(routinesRequest(nothingPicked)!, /directions\.md/, 'with no project picked there are no checks to propose')
+})
+
+test('what the setup saves: whose computer, each answered question with its words, and the picked projects by path', () => {
+  const folders = [folderOf('storefront'), folderOf('notes', false)]
+  const [where, which] = QUESTIONS.personal
+
+  assert.deepEqual(setupAnswersOf({ ...picked, replies: { ...picked.replies, 'projects-folder': ' ~/Code ', check: ' ' } }, folders), {
+    computer: 'personal',
+    answers: [
+      { id: 'projects-folder', ask: where!.ask, answer: '~/Code' },
+      { id: 'projects', ask: which!.ask, answer: 'storefront, notes' },
+    ],
+    projects: folders,
+  })
+  assert.deepEqual(setupAnswersOf({ ...none, replies: { projects: '' } }, folders), { answers: [], projects: [] }, 'no computer said, and projects only once they are picked')
+})
+
+test('the projects picked are sent by their paths, in the order they were picked', () => {
+  const folders = [folderOf('storefront'), folderOf('notes', false)]
+
+  assert.deepEqual(foldersPicked(['notes', 'storefront', 'gone'], folders), [folders[1], folders[0]])
+  assert.deepEqual(foldersPicked([], folders), [])
+})
+
+test('run again, what was saved before is where a field starts, and what was answered this time comes first', () => {
+  const earlier: SetupSaved = { computer: 'personal', answers: [{ id: 'projects-folder', ask: 'Where?', answer: '~/Code' }], projects: [], savedAt: '2026-11-13T10:00:00.000Z' }
+
+  assert.equal(startingReply(none, earlier, 'projects-folder'), '~/Code')
+  assert.equal(startingReply({ ...none, replies: { 'projects-folder': '~/src' } }, earlier, 'projects-folder'), '~/src')
+  assert.equal(startingReply(none, earlier, 'check'), '')
+  assert.equal(startingReply(none, null, 'projects-folder'), '')
+  assert.equal(beatAfter('more', { ...none, more: true }, hosted), 'q1', 'the story still asks every question')
 })

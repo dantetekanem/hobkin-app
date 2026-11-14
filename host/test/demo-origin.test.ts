@@ -43,6 +43,18 @@ test('without --origin the same host turns that page away, as it always has', as
   assert.equal(answer.headers.get('access-control-allow-origin'), DEV_UI_ORIGIN)
 })
 
+test('a host on the options of a throwaway live host still turns away a page beyond its list', async (t) => {
+  // The pages it gets are the live host's. The model stays scripted: a test never starts a real one.
+  const origins = originsFor(parseArguments(['--dev', '--live', '--port', '5190', '--origin', DEMO_PAGE]))
+  assert.deepEqual(origins, [APP_ORIGIN, DEV_UI_ORIGIN, DEMO_PAGE])
+  const host = await hostFor(t, { dev: true, port: 0, origins, access: async () => scriptedModelAccess({ connected: [] }) })
+
+  const another = 'http://localhost:5191'
+  assert.equal((await ask(host, another)).status, 403)
+  await assert.rejects(Client.connect(host, { origin: another }), /403/)
+  assert.equal((await ask(host, DEMO_PAGE)).status, 200)
+})
+
 test('the handshake answers only pages served on this Mac, whatever the host was told to accept', async (t) => {
   const elsewhere = ['https://example.invalid', 'http://example.invalid:5187', 'https://localhost:5187']
   const host = await hostFor(t, { dev: true, port: 0, origins: [APP_ORIGIN, DEV_UI_ORIGIN, ...elsewhere] })

@@ -42,6 +42,11 @@ export function ownOption(options: readonly string[], typed: string): string | n
 /** The picks as the answer that is kept, in the order they were picked. */
 export const pickedAnswer = (picked: readonly string[]): string => picked.join(', ')
 
+/** The folders picked, by their names in the folder that was named, in the order they were picked, so they go to work mode by path. */
+export function foldersPicked<Folder extends { name: string }>(picked: readonly string[], folders: readonly Folder[]): Folder[] {
+  return picked.flatMap((name) => folders.find((folder) => folder.name === name) ?? [])
+}
+
 /** The picks an answer holds, for coming back to a question. Only the ones still among the options, unless own ones are allowed. */
 export function picksOf(answer: string | undefined, options: readonly string[], allowOwn: boolean): string[] {
   const named = (answer ?? '').split(',').map((part) => part.trim()).filter(Boolean)

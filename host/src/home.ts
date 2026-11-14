@@ -23,7 +23,7 @@ export interface ResolvedHome {
 }
 
 /** The folder a path really is, following links. A path that does not exist yet is itself. */
-const actual = (path: string) => {
+export const actual = (path: string) => {
   try {
     return realpathSync(path)
   } catch {

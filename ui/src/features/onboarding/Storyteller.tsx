@@ -12,7 +12,7 @@ import { useTour } from '@/features/tour/store.ts'
 import { answerQuestion, isLive, runCommand, useHasHost, useHost, useModels, usePendingQuestion, type QuestionReply } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import type { ComputerKind } from '#shared/protocol/setup.ts'
+import type { ComputerKind, ProjectFolder, SetupSaved, SetupWorkDone } from '#shared/protocol/setup.ts'
 import { connectedNames } from './accounts.ts'
 import { Actor, type Act } from './Actor.tsx'
 import { AnswerField } from './AnswerField.tsx'
@@ -22,10 +22,10 @@ import { ConnectPanel } from './ConnectPanel.tsx'
 import { FACE, footBelow, type Seat, type Viewport } from './face-size.ts'
 import { FollowUps } from './FollowUps.tsx'
 import { PickCloud } from './PickCloud.tsx'
-import { pickedAnswer, picksOf } from './picks.ts'
+import { foldersPicked, pickedAnswer, picksOf } from './picks.ts'
 import { PiPanel } from './PiPanel.tsx'
-import { followUpRequest, followUpsOver, routinesRequest, SAMPLE_PROJECTS } from './questions.ts'
-import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts } from './story.ts'
+import { followUpRequest, followUpsOver, routinesRequest, SAMPLE_PROJECTS, setupAnswersOf, startingReply } from './questions.ts'
+import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts, type Tale } from './story.ts'
 import { useSetup } from './store.ts'
 import { resolveTaleKey, type TaleKey, type TaleKeyContext } from './tale-keys.ts'
 import { WORLD_TIMES, World, type WorldPhase } from './World.tsx'
@@ -256,11 +256,13 @@ function useSaid(bubble: string, line: string, talking: boolean, still: boolean)
 interface Bubbles {
   state: 'loading' | 'ready' | 'none'
   options: readonly string[]
+  /** The folders found, with where each is, so what is picked goes to work mode by path. None for a list that is given. */
+  folders: readonly ProjectFolder[]
   /** Why there are none, when there are none. */
   note?: string
 }
 
-const LOOKING: Bubbles = { state: 'loading', options: [] }
+const LOOKING: Bubbles = { state: 'loading', options: [], folders: [] }
 
 /**
  * What there is to pick from for a question. A list is there at once. Projects are asked of the host, which reads
@@ -281,13 +283,13 @@ function useBubbles(ask: PickAsk | null, hasHost: boolean): Bubbles {
         if (!current) return
         const names = projects.map(({ name }) => name)
         if (names.length) {
-          setFound({ state: 'ready', options: names })
+          setFound({ state: 'ready', options: names, folders: projects })
           return
         }
-        setFound({ state: 'none', options: [], note: `I found no folders in ${folder}. Go back to name another one, or skip.` })
+        setFound({ state: 'none', options: [], folders: [], note: `I found no folders in ${folder}. Go back to name another one, or skip.` })
       },
       (error: unknown) => {
-        if (current) setFound({ state: 'none', options: [], note: reasonOf(error) })
+        if (current) setFound({ state: 'none', options: [], folders: [], note: reasonOf(error) })
       },
     )
     return () => {
@@ -296,8 +298,40 @@ function useBubbles(ask: PickAsk | null, hasHost: boolean): Bubbles {
   }, [folder, hasHost])
 
   if (!ask) return LOOKING
-  if ('options' in ask.from) return { state: 'ready', options: ask.from.options }
-  return hasHost ? found : { state: 'ready', options: SAMPLE_PROJECTS }
+  if ('options' in ask.from) return { state: 'ready', options: ask.from.options, folders: [] }
+  // Made-up ones have nowhere to be, and nothing is handed to work mode without a host.
+  return hasHost ? found : { state: 'ready', options: SAMPLE_PROJECTS, folders: [] }
+}
+
+/** What the setup saved the last time it ran, so its fields start from it when it runs again. Asked once, as it opens. */
+function useEarlier(): SetupSaved | null {
+  const hasHost = useHasHost()
+  const link = useHost((state) => state.link)
+  const [earlier, setEarlier] = useState<SetupSaved | null>(null)
+
+  useEffect(() => {
+    if (!hasHost || link !== 'open') return
+    let current = true
+    // A host from before the setup kept its answers does not know the command, and the fields start empty.
+    runCommand('setup.saved').then(
+      (saved) => {
+        if (current) setEarlier(saved)
+      },
+      () => {},
+    )
+    return () => {
+      current = false
+    }
+  }, [hasHost, link])
+
+  return earlier
+}
+
+/** Each bubble's id. A beat whose words change while it is up, as an answer comes back, says them as a new bubble. */
+function bubbleOf(tale: Tale, facts: Facts): string {
+  if (tale.at === 'follow-ups') return `${tale.at}:${facts.asked?.id ?? 'thinking'}`
+  if (tale.at === 'projects-said') return `${tale.at}:${facts.worked ? 'said' : 'waiting'}`
+  return `${tale.at}:${tale.line}`
 }
 
 /** What the story needs of main hobkin's own questions. */
@@ -419,7 +453,14 @@ export function Storyteller() {
   // Main hobkin can ask questions of its own only on a real model. The scripted host's hobkin has no `ask_question`.
   const smart = useHost((state) => isLive(state) && state.model === 'live')
   const pending = usePendingQuestion()
-  const facts: Facts = useMemo(() => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending) }), [pi, providers, claude, smart, pending])
+  // The answers of the last setup, where the fields start when it runs again. The story still asks every question.
+  const earlier = useEarlier()
+  // What work mode did with the projects picked: null while the host has not said.
+  const [worked, setWorked] = useState<SetupWorkDone | 'failed' | null>(null)
+  const facts: Facts = useMemo(
+    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked }),
+    [pi, providers, claude, smart, pending, hasHost, worked],
+  )
   const beat = beatOf(tale.at, answers, facts)
   const lastLine = tale.line >= beat.lines.length - 1
   const line = beat.lines[Math.min(tale.line, beat.lines.length - 1)]!
@@ -429,8 +470,8 @@ export function Storyteller() {
   const [arrival] = useState(() => grounded(arrivalFor({ width: innerWidth, height: innerHeight })))
   const talking = act === 'talking'
 
-  // Each question main hobkin asks is a bubble of its own, so its words arrive anew.
-  const bubble = tale.at === 'follow-ups' ? `${tale.at}:${facts.asked?.id ?? 'thinking'}` : `${tale.at}:${tale.line}`
+  // Each question main hobkin asks is a bubble of its own, so its words arrive anew, and so is what it did with the projects.
+  const bubble = bubbleOf(tale, facts)
   const [said, sayAll] = useSaid(bubble, line, talking, still)
   // The question comes with the last bubble, once that bubble is said.
   const asking: Ask | null = talking && !leaving && lastLine && said ? (beat.ask ?? null) : null
@@ -476,6 +517,48 @@ export function Storyteller() {
     }
   }
 
+  // The projects picked, with where each is, kept with every save once they were picked.
+  const picks = useRef<ProjectFolder[]>([])
+  // Each hand-off to work mode, so only the last one's answer is said.
+  const handed = useRef(0)
+
+  /** The answers so far, kept in hobkin's home after each one, so hobkin knows them from the first conversation. */
+  const keepAnswers = () => {
+    if (!hasHost) return
+    const now = useSetup.getState().answers
+    runCommand('setup.save', setupAnswersOf(now, picks.current)).catch((error: unknown) => {
+      setTrouble(`I could not keep your answers: ${reasonOf(error)}`)
+    })
+  }
+
+  /** One of the questions answered: the story goes on, and the answers so far are kept. */
+  const replied = (question: string, value: string) => {
+    answer({ replies: { ...answers.replies, [question]: value } }, facts)
+    keepAnswers()
+  }
+
+  /**
+   * The folder and the projects picked go to work mode, which answers with what it did with each. Nothing turns work
+   * mode on or starts a run here. Without a host nothing goes, and a failure is said quietly while the story goes on.
+   */
+  const handToWork = (folder: string, folders: readonly ProjectFolder[]) => {
+    if (!hasHost) return
+    const asked = ++handed.current
+    setWorked(null)
+    runCommand('setup.work', { folder, projects: folders.map(({ path }) => path) }).then(
+      (done) => {
+        if (asked !== handed.current) return
+        setWorked(done)
+        if (done.folder.problem) setTrouble(`I could not keep ${folder} for work mode. ${done.folder.problem}`)
+      },
+      (error: unknown) => {
+        if (asked !== handed.current) return
+        setWorked('failed')
+        setTrouble(`I could not put your projects in Work: ${reasonOf(error)}`)
+      },
+    )
+  }
+
   /** A typed answer: checked, kept, and the story goes on. It answers with what is wrong when it cannot be kept. */
   const typed = async (ask: InputAsk, text: string): Promise<string | null> => {
     const wrong = checkAnswer(ask.field.kind, text)
@@ -483,7 +566,7 @@ export function Storyteller() {
     const value = text.trim()
 
     if (ask.field.kind === 'reply') {
-      answer({ replies: { ...answers.replies, [ask.field.question]: value } }, facts)
+      replied(ask.field.question, value)
       return null
     }
 
@@ -511,7 +594,7 @@ export function Storyteller() {
       return answer({ sound: heard }, facts)
     }
     // One of the questions, answered with one of its two words.
-    if (typeof ask.field === 'object') return answer({ replies: { ...answers.replies, [ask.field.reply]: value } }, facts)
+    if (typeof ask.field === 'object') return replied(ask.field.reply, value)
 
     const computer = value as ComputerKind
     // The story goes on at once. If hobkin could not keep it, that is said, since the questions still follow it.
@@ -526,9 +609,18 @@ export function Storyteller() {
   // A list that is given takes bubbles of the user's own. Projects are only the ones that are there.
   const ownAllowed = picking !== null && 'options' in picking.from
 
-  /** What was typed for a question before, when the user comes back to it. */
+  /** A pick answered. Projects are kept by path and handed to work mode, and the story goes on to what it did with them. */
+  const pickedFor = (ask: PickAsk, picked: string[]) => {
+    if ('projectsIn' in ask.from) {
+      picks.current = foldersPicked(picked, bubbles.folders)
+      handToWork(ask.from.projectsIn, picks.current)
+    }
+    replied(ask.question, pickedAnswer(picked))
+  }
+
+  /** What was typed for a question before, when the user comes back to it, or the last time the setup ran. */
   const typedBefore = (ask: InputAsk): string => {
-    if (ask.field.kind === 'reply') return answers.replies[ask.field.question] ?? ''
+    if (ask.field.kind === 'reply') return startingReply(answers, earlier, ask.field.question)
     return answers[ask.field.kind] ?? ''
   }
 
@@ -683,10 +775,10 @@ export function Storyteller() {
               options={bubbles.options}
               state={bubbles.state}
               note={bubbles.note}
-              initial={picksOf(answers.replies[picking.question], bubbles.options, ownAllowed)}
+              initial={picksOf(startingReply(answers, earlier, picking.question), bubbles.options, ownAllowed)}
               allowOwn={ownAllowed}
               top={stage.y + footBelow(stage.scale) + 28}
-              onAnswer={(picked) => answer({ replies: { ...answers.replies, [picking.question]: pickedAnswer(picked) } }, facts)}
+              onAnswer={(picked) => pickedFor(picking, picked)}
               still={still}
             />
           ) : null}

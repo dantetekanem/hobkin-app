@@ -1,5 +1,5 @@
 import type { PendingQuestion } from '#shared/protocol/question.ts'
-import { PROFILE_TEXT_MAX, type ComputerKind, type PiSetup } from '#shared/protocol/setup.ts'
+import { PROFILE_TEXT_MAX, type ComputerKind, type PiSetup, type SetupWorkDone } from '#shared/protocol/setup.ts'
 import type { Mood } from '../../avatar/moods.tsx'
 import { questionsFor, USUAL_FOLDER, type Question } from './questions.ts'
 
@@ -33,6 +33,7 @@ export type BeatId =
   | 'no-account'
   | 'more'
   | QuestionBeat
+  | 'projects-said'
   | 'follow-ups'
   | 'questions-thanks'
   | 'settings'
@@ -50,6 +51,10 @@ export interface Facts {
   smart: boolean
   /** The question main hobkin has open now, or null when it has none. */
   asked: OpenQuestion | null
+  /** A host answers, so what is picked can be handed to hobkin. Left out, as in a browser tab on sample data, there is none. */
+  host?: boolean
+  /** What work mode did with the projects picked, once the host said, or `failed` when it could not. Left out while it has not. */
+  worked?: SetupWorkDone | 'failed' | null
 }
 
 /** A question main hobkin has open, as the story asks it. */
@@ -191,11 +196,26 @@ function askFor(question: Question, replies: Answers['replies']): Ask {
   }
 }
 
+/**
+ * Said once, under the first of the questions. hobkin keeps the answers in front of every agent's directions, so the
+ * model's provider sees them too, as the email question says of the profile.
+ */
+const ANSWERS_KEPT = 'I keep these answers in my home on this Mac. My agents read them, so your model provider sees them too.'
+
 function questionBeat(id: QuestionBeat, { computer, replies }: Answers): Omit<Beat, 'id'> {
   const questions = questionsFor(computer)
   // A beat past a computer's last question is never reached. It says the last one, so it still has words.
-  const question = questions[Math.min(QUESTION_BEATS.indexOf(id), questions.length - 1)]!
-  return { mood: 'listening', lines: [question.ask], ask: askFor(question, replies) }
+  const index = Math.min(QUESTION_BEATS.indexOf(id), questions.length - 1)
+  const question = questions[index]!
+  const ask = askFor(question, replies)
+  const keptNoted = index === 0 && ask.kind === 'input' ? { ...ask, note: ANSWERS_KEPT } : ask
+  return { mood: 'listening', lines: [question.ask], ask: keptNoted }
+}
+
+/** The beat for the question after one of this computer's, by its place, or what comes after the last. */
+function questionAfter(index: number, answers: Answers, facts: Facts): BeatId {
+  if (index + 1 < questionsFor(answers.computer).length) return QUESTION_BEATS[index + 1]!
+  return facts.smart ? 'follow-ups' : 'questions-thanks'
 }
 
 /** A beat's words and question, for what was answered and what is on this Mac. */
@@ -310,6 +330,14 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'q5':
     case 'q6':
       return questionBeat(id, answers)
+    case 'projects-said': {
+      // The projects went to work mode as the question was answered. hobkin waits for what was done, then says it.
+      const { worked } = facts
+      if (!worked) return { mood: 'working', lines: ["One moment. I'm putting them in Work."], ask: { kind: 'wait' } }
+      // The quiet line at the bottom says why. The story goes on.
+      if (worked === 'failed') return { mood: 'idle', lines: ['I could not put them in Work just now.'] }
+      return { mood: 'happy', lines: [workSaid(worked)] }
+    }
     case 'follow-ups': {
       // Main hobkin asks these itself, in the chat behind the setup. Its question is said in its own words.
       const asked = facts.asked
@@ -373,10 +401,14 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
     case 'q5':
     case 'q6': {
       // One beat for each of this computer's questions, then main hobkin's own when a real model can ask them.
-      const next = QUESTION_BEATS.indexOf(id) + 1
-      if (next < questionsFor(answers.computer).length) return QUESTION_BEATS[next]!
-      return facts.smart ? 'follow-ups' : 'questions-thanks'
+      const index = QUESTION_BEATS.indexOf(id)
+      const question = questionsFor(answers.computer)[index]
+      // Projects picked go to work mode through the host, and hobkin says what it did with them.
+      const handed = question?.kind === 'projects' && Boolean(answers.replies[question.id]?.trim()) && facts.host === true
+      return handed ? 'projects-said' : questionAfter(index, answers, facts)
     }
+    case 'projects-said':
+      return questionAfter(questionsFor(answers.computer).findIndex(({ kind }) => kind === 'projects'), answers, facts)
     case 'follow-ups':
       return 'questions-thanks'
     case 'questions-thanks':
@@ -386,6 +418,41 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
     case 'tour':
       return null
   }
+}
+
+const FEW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
+const few = (count: number) => FEW[count] ?? String(count)
+const projectsCounted = (count: number) => `${few(count)} ${count === 1 ? 'project' : 'projects'}`
+const capital = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}`
+
+/**
+ * What hobkin says it did with the projects picked, in one short bubble, true to what work mode did: what it took
+ * or only offered, and then what it could not add, or else what it had already.
+ */
+export function workSaid({ workMode, projects }: SetupWorkDone): string {
+  const counted = (outcome: string) => projects.filter((project) => project.outcome === outcome).length
+  const [taken, proposed, left] = [counted('taken'), counted('proposed'), counted('left')]
+  const skipped = projects.filter(({ outcome }) => outcome === 'skipped')
+  const notGit = skipped.every(({ why }) => why === 'not-git')
+
+  let main: string | null = null
+  if (proposed) main = `Work mode is running, so I put ${projectsCounted(proposed)} in Work for you to take.`
+  else if (taken && !workMode.enabled) main = `I'll work on ${projectsCounted(taken)} once work mode is on.`
+  else if (taken) main = `${capital(projectsCounted(taken))} ${taken === 1 ? 'is' : 'are'} in Work now, and nothing runs until you say so.`
+  else if (left) main = `I had ${projectsCounted(left)} in Work already, and left ${left === 1 ? 'it as it was' : 'them as they were'}.`
+
+  if (!main) {
+    if (!skipped.length) return 'I put nothing in Work.'
+    const one = skipped.length === 1
+    if (notGit) return one ? 'It is not a git repository, so I left it out.' : 'None of them is a git repository, so I left them out.'
+    return `I could not add ${one ? 'it' : 'them'} to Work.`
+  }
+
+  if (skipped.length) {
+    const tail = notGit ? `${capital(few(skipped.length))} ${skipped.length === 1 ? 'was not a git repository' : 'were not git repositories'}.` : `I could not add ${few(skipped.length)} of them.`
+    return `${main} ${tail}`
+  }
+  return left && (taken || proposed) ? `${main} I had ${few(left)} of them already.` : main
 }
 
 /** A piece of a bubble: a word, or a key to press, drawn as a key. */
@@ -428,8 +495,10 @@ function nextBeat(tale: Tale, beat: Beat, answers: Answers, facts: Facts): Tale 
   const next = beatAfter(tale.at, answers, facts)
   if (!next) return { ...tale, ended: 'done' }
   // An install or a sign-in happens once, so nothing before it can be gone back to. The follow-ups too: reaching
-  // them sends the answers to hobkin, so an answer changed after that, or a second visit, would never reach it.
-  const sealed = beat.ask?.kind === 'pi' || beat.ask?.kind === 'connect' || tale.at === 'follow-ups' || next === 'follow-ups'
+  // them sends the answers to hobkin, so an answer changed after that, or a second visit, would never reach it. And
+  // what hobkin says of the projects: they are in Work by then, and picking again would not take them out.
+  const once: BeatId[] = ['follow-ups', 'projects-said']
+  const sealed = beat.ask?.kind === 'pi' || beat.ask?.kind === 'connect' || once.includes(tale.at) || once.includes(next)
   return { at: next, line: 0, trail: sealed ? [] : [...tale.trail, tale.at], ended: null }
 }
 

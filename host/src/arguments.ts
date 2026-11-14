@@ -28,7 +28,7 @@ export const USAGE = [
   '  --github         with the scripted model, read the real GitHub through gh, read only. Default: sample GitHub data',
   '  --port <number>  listen on this port. Default: a free port, or 5188 with --dev',
   '  --parent <pid>   stop once this process has gone, as the app passes its own',
-  '  --origin <url>   with the scripted model, also talk to this page: http://localhost:<port> or http://127.0.0.1:<port>',
+  '  --origin <url>   also talk to this page: http://localhost:<port> or http://127.0.0.1:<port>. With --live, only on a new --home and a new folder in PI_CODING_AGENT_DIR',
 ].join('\n')
 
 export function parseArguments(args: readonly string[]): HostArguments {
@@ -63,8 +63,7 @@ export function parseArguments(args: readonly string[]): HostArguments {
   }
   // A real sign-in is Pi's. Only the scripted model has a scripted one.
   if (options.live && options.signedOut) throw Error(`--signed-out is for the scripted model. With --live, Pi decides who is signed in.\n${USAGE}`)
-  // A host on the real model may be on the real home, so it never talks to a page beyond the app and its own.
-  if (options.live && options.origin) throw Error(`--origin is for the scripted model. A host started with --live talks only to the app and the development UI.\n${USAGE}`)
+  // --origin with --live depends on the home and Pi's folder, which only the entry can see: `whyNotOrigin` in main.ts decides.
   return options
 }
 

@@ -270,6 +270,21 @@ declare module 'hobkin/src/cli/profile.mjs' {
   export function updateProfile(root: string, change: Partial<Record<'name' | 'call' | 'email' | 'computer', string>>): SavedProfile
 }
 
+declare module 'hobkin/src/cli/setup-facts.mjs' {
+  /** What the user answered in the app's setup, as hobkin puts it in front of its directions. */
+  export interface SetupFact {
+    about: string
+    said: string
+  }
+  export const SETUP_FACTS_MAX: number
+  /** The most `about` or `said` may hold. Each is one line. */
+  export const SETUP_TEXT_MAX: number
+  /** What was saved. A broken file reads as none. */
+  export function readSetupFacts(root: string): { facts: SetupFact[] }
+  /** Replaces every fact in one write. Throws with a plain sentence, and writes nothing, for a fact it refuses or too many. */
+  export function writeSetupFacts(root: string, facts: SetupFact[]): { facts: SetupFact[] }
+}
+
 declare module 'hobkin/src/cli/paste-image.mjs' {
   /** How many images one message holds. */
   export const MAX_IMAGES: number

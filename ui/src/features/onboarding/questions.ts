@@ -1,4 +1,4 @@
-import type { ComputerKind } from '#shared/protocol/setup.ts'
+import type { ComputerKind, ProjectFolder, SetupAnswer, SetupAnswers, SetupSaved } from '#shared/protocol/setup.ts'
 
 /**
  * The five questions hobkin asks when the user wants their first routines built, by whose computer this is, the
@@ -117,15 +117,40 @@ interface Answered {
   replies: Readonly<Record<string, string | undefined>>
 }
 
-/** Each question that was answered, with its answer under it. */
-function answeredOf(kind: ComputerKind, replies: Answered['replies']): string[] {
-  return questionsFor(kind).flatMap((question) => {
-    const reply = replies[question.id]?.trim()
-    return reply ? [`- ${question.ask}\n  ${reply}`] : []
+/** Each question of a computer that was answered, with the words it was asked with. */
+function answersOf(kind: ComputerKind | undefined, replies: Answered['replies']): SetupAnswer[] {
+  return questionsFor(kind).flatMap(({ id, ask }) => {
+    const answer = replies[id]?.trim()
+    return answer ? [{ id, ask, answer }] : []
   })
 }
 
+/** Each question that was answered, with its answer under it. */
+const answeredOf = (kind: ComputerKind, replies: Answered['replies']): string[] => answersOf(kind, replies).map(({ ask, answer }) => `- ${ask}\n  ${answer}`)
+
+/** Whether projects were picked, so there is something to put in Work and to check. */
+const projectsPicked = (kind: ComputerKind | undefined, replies: Answered['replies']): boolean =>
+  questionsFor(kind).some((question) => question.kind === 'projects' && Boolean(replies[question.id]?.trim()))
+
+/** Whether a yes-or-no question of this computer was answered with its yes. */
+function saidYes(kind: ComputerKind, replies: Answered['replies'], id: string): boolean {
+  const question = questionsFor(kind).find((one) => one.id === id)
+  return question?.kind === 'yes' && replies[id]?.trim() === question.yes
+}
+
 const PROPOSE = 'Propose two or three first routines that fit this, with one line each on why. Ask before you create or connect anything.'
+// Work mode has no setting for validation: a project's checks live in its directions, which hobkin writes on a yes.
+const CHECKS = "For each project I picked, propose the commands that check its work, such as its tests, lint and build. Write them into that project's directions (work/<slug>/directions.md) only after I say yes."
+// A fact, not a go-ahead: hobkin still asks before it reads them the first time.
+const LOGS = 'You may read my logs and past sessions for context. Ask me before your first scan of them.'
+
+/** What the answers ask of hobkin beyond the routines: the projects' checks, and the logs it may read. */
+function wishesOf(kind: ComputerKind, replies: Answered['replies']): string[] {
+  const wishes: string[] = []
+  if (projectsPicked(kind, replies) && saidYes(kind, replies, 'validation')) wishes.push(CHECKS)
+  if (saidYes(kind, replies, 'logs')) wishes.push(LOGS)
+  return wishes
+}
 
 /**
  * What goes to hobkin in the chat once the setup ends: each question that was answered, with its answer, and what
@@ -137,7 +162,24 @@ export function routinesRequest({ computer, more, replies }: Answered): string |
   const told = answeredOf(kind, replies)
   if (!told.length) return null
 
-  return [`I just finished the setup. This is my ${kind} computer. Here is what I answered there:`, ...told, PROPOSE].join('\n')
+  return [`I just finished the setup. This is my ${kind} computer. Here is what I answered there:`, ...told, ...wishesOf(kind, replies), PROPOSE].join('\n')
+}
+
+/**
+ * What the setup saves after each answer (`setup.save`): whose computer this is, each answered question with its
+ * words, and the projects picked, by path. hobkin keeps the answers in front of its directions from then on.
+ */
+export function setupAnswersOf({ computer, replies }: Answered, projects: readonly ProjectFolder[]): SetupAnswers {
+  return {
+    ...(computer ? { computer } : {}),
+    answers: answersOf(computer, replies),
+    projects: projectsPicked(computer, replies) ? [...projects] : [],
+  }
+}
+
+/** Where a typed answer starts: what was answered this time, or else what was saved the last time the setup ran. */
+export function startingReply({ replies }: Answered, earlier: SetupSaved | null, id: string): string {
+  return replies[id] ?? earlier?.answers.find((answer) => answer.id === id)?.answer ?? ''
 }
 
 /** The most questions main hobkin asks in the setup, after the fixed ones. */
@@ -156,6 +198,7 @@ export function followUpRequest({ computer, replies }: Answered): string {
 
   return [
     ...known,
+    ...wishesOf(kind, replies),
     `Now ask me what else you need to know to build my first routines. Ask one question at a time with your ask_question tool, and give me choices wherever you can. Ask at most ${FOLLOW_UPS_MAX} questions, fewer if you know enough.`,
     `Then, here in the chat: ${PROPOSE}`,
   ].join('\n')

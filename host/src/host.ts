@@ -17,6 +17,8 @@ import type { PiSetup } from '#shared/protocol/setup.ts'
 import { piSetup, piSetupHandlers, refuseInstall } from './pi/install.ts'
 import { profileHandlers } from './profile.ts'
 import { projectsHandlers } from './projects-folder.ts'
+import { setupAnswerHandlers } from './setup-answers.ts'
+import { setupWorkHandlers } from './setup-work.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { execFileSync } from 'node:child_process'
@@ -517,6 +519,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       installPackage: options.installPiPackage ?? refuseInstall,
     }),
     ...projectsHandlers(),
+    // The setup's answers, the first context: the app's own copy, and hobkin's facts in front of its directions.
+    ...setupAnswerHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
+    // The folder and projects picked in the setup, handed to work mode as the Work screen's actions are: through
+    // hobkin's own work functions while it is open here, then its state read again so Work shows them.
+    ...setupWorkHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
     // Whether this host runs older code than what is on disk, and the way to load it: the host closes as it does on
     // a signal, and the app that started it starts another. Answered first, so the window hears it went.
     'system.metrics': () => systemMetrics(root),

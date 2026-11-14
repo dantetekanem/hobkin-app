@@ -1,7 +1,9 @@
+import { statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { DEV_PORT } from './access.ts'
-import { originsFor, parseArguments, USAGE } from './arguments.ts'
+import { originsFor, parseArguments, USAGE, type HostArguments } from './arguments.ts'
 import { ghSource } from './github-gh.ts'
-import { resolveHome } from './home.ts'
+import { actual, resolveHome, type ResolvedHome } from './home.ts'
 import { startHost } from './host.ts'
 import { openGitHubPage } from './github.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
@@ -9,6 +11,33 @@ import { watchParent } from './parent-watch.ts'
 import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
 import { openInBrowser } from './signin.ts'
 import { spawnGh } from './review/gh.ts'
+
+const isFolder = (path: string) => {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Why this host may not also talk to the page `--origin` names, or null when it may. A scripted host may. A live host
+ * signs in for real and runs a real model, so it may only on a throwaway home and a throwaway Pi folder: then a page
+ * beyond the app's own can never reach the user's hobkin, or the accounts in Pi's real folder.
+ */
+export function whyNotOrigin({ home: named, live, origin }: Pick<HostArguments, 'home' | 'live' | 'origin'>, home: Pick<ResolvedHome, 'root' | 'real'>, env: NodeJS.ProcessEnv, userHome: string): string | null {
+  if (!origin || !live) return null
+  const words = `A live host talks to ${origin} only on a throwaway home with a throwaway Pi folder`
+  if (named === null) return `${words}. Name a new folder with --home.`
+  if (home.real) return `${words}, and ${home.root} is the real hobkin home.`
+  // Pi's own rule finds both folders, so the one compared is the one Pi will use.
+  if (!env.PI_CODING_AGENT_DIR) return `${words}. Set PI_CODING_AGENT_DIR to a new folder, so a sign-in never reaches Pi's real one.`
+  const piFolder = piAgentFolder(env, userHome)
+  if (!isFolder(piFolder)) return `${words}, and PI_CODING_AGENT_DIR names ${piFolder}, which is not a folder. Create it first.`
+  const realPiFolder = piAgentFolder({}, userHome)
+  if (actual(piFolder) === actual(realPiFolder)) return `${words}, and PI_CODING_AGENT_DIR names Pi's real folder, ${realPiFolder}.`
+  return null
+}
 
 /** The host's entry. The shell starts it, reads `client/host.json` in the home for the port and the token, and stops it with a signal. */
 async function main(args: readonly string[]): Promise<void> {
@@ -19,6 +48,9 @@ async function main(args: readonly string[]): Promise<void> {
   }
 
   const home = resolveHome({ home: options.home })
+  // Before anything opens: a host that may not talk to the page never starts.
+  const refusal = whyNotOrigin(options, home, process.env, homedir())
+  if (refusal) throw Error(`${refusal}\n${USAGE}`)
   if (home.notice) console.log(home.notice)
   if (home.real && !options.live) {
     console.log('The model is scripted: a message sent here gets a scripted reply, and both stay in the real conversation.')

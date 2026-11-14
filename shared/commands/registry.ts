@@ -13,7 +13,19 @@ import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
-import { COMPUTER_KINDS, PROFILE_TEXT_MAX, type PiSetup, type ProjectsFound, type UserProfile } from '../protocol/setup.ts'
+import {
+  COMPUTER_KINDS,
+  PROFILE_TEXT_MAX,
+  PROJECTS_MAX,
+  SETUP_ANSWER_MAX,
+  SETUP_ANSWERS_MAX,
+  SETUP_ASK_MAX,
+  type PiSetup,
+  type ProjectsFound,
+  type SetupSaved,
+  type SetupWorkDone,
+  type UserProfile,
+} from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
@@ -112,6 +124,8 @@ const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
 /** The commit a card showed. A merge pinned to it refuses a branch that moved since. */
 const commit = Type.String({ pattern: '^[0-9a-f]{7,64}$' })
+/** A folder on this Mac, written out in full, as `setup.projects` lists them. */
+const absolutePath = Type.String({ minLength: 2, maxLength: 1024, pattern: '^/' })
 /** A routine by hobkin's id for it, and a time of day as its files write one (hobkin's `src/cli/schedules.mjs`). */
 const routineId = Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' })
 const clock = Type.String({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' })
@@ -418,6 +432,33 @@ export const COMMANDS = {
     description: 'List the folders directly inside the folder the user says their projects live in, the ones changed most recently first, and whether each is a git repository. It reads names only, never a file.',
     runs: 'host',
     args: Type.Object({ folder: words(1024) }, { additionalProperties: false }),
+  },
+  'setup.save': {
+    description:
+      "Save the setup's answers so far: whose computer this is, each answered question with the words it was asked with, and the projects picked. The app keeps them in client/setup.json in hobkin's home, and hobkin keeps the answers, each cut to one short line, in front of its directions for the main chat, its checks and its work agents. Each save replaces the one before.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        computer: Type.Optional(oneOf(COMPUTER_KINDS)),
+        answers: Type.Array(
+          Type.Object({ id: Type.String({ pattern: '^[a-z][a-z0-9-]{0,63}$' }), ask: words(SETUP_ASK_MAX), answer: words(SETUP_ANSWER_MAX) }, { additionalProperties: false }),
+          { maxItems: SETUP_ANSWERS_MAX },
+        ),
+        projects: Type.Array(Type.Object({ name: words(255), path: absolutePath, git: Type.Boolean() }, { additionalProperties: false }), { maxItems: PROJECTS_MAX }),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  'setup.saved': {
+    description: 'Read what the setup saved the last time it ran, from client/setup.json in hobkin\'s home, or null when it never saved anything. It only reads.',
+    runs: 'host',
+    args: nothing,
+  },
+  'setup.work': {
+    description:
+      "Hand work mode the projects folder the user named in the setup and the projects they picked there, by path. The folder is saved only while work mode is off, and work mode is never turned on. A project work mode already knows is left as it is, and one that is not a git repository is skipped. The rest are taken, which starts nothing, or, while work mode runs and picks by itself, only proposed for the user to take in Work.",
+    runs: 'host',
+    args: Type.Object({ folder: words(1024), projects: Type.Array(absolutePath, { maxItems: PROJECTS_MAX }) }, { additionalProperties: false }),
   },
   'setup.install-pi': {
     description: 'Install the Pi version hobkin runs on, globally on this Mac, with npm. Answers with Pi as it is after.',
@@ -1030,6 +1071,10 @@ export interface CommandResults {
   'setup.install-pi': PiSetup
   'setup.install-package': PiSetup
   'setup.projects': ProjectsFound
+  /** What the app saved. */
+  'setup.save': SetupSaved
+  'setup.saved': SetupSaved | null
+  'setup.work': SetupWorkDone
   'github.refresh': GitHubState
   'github.open': { ok: true }
   /** What was done, in plain words: the issue closed on GitHub, and what hobkin said of its item, when it had one to decline. */

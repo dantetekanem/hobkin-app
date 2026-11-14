@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import { APP_ORIGIN, DEV_UI_ORIGIN } from '../src/access.ts'
 import { originsFor, parseArguments } from '../src/arguments.ts'
 import { resolveHome } from '../src/home.ts'
+import { whyNotOrigin } from '../src/main.ts'
 import { runHostProcess, temporaryDirectory } from './support.ts'
 
 test('refuses the real home without --home', async (t) => {
@@ -46,7 +47,7 @@ test('refuses the real home without --home', async (t) => {
   assert.match(host.output(), /Using the real hobkin home at .*\.hobkin/)
 })
 
-test('--origin adds one page on this Mac, and never to a host on the real model', () => {
+test('--origin adds one page on this Mac, and a host on the real model is refused it by default', (t) => {
   assert.equal(parseArguments(['--dev', '--signed-out', '--origin', 'http://localhost:5187']).origin, 'http://localhost:5187')
   assert.equal(parseArguments(['--origin', 'http://127.0.0.1:5190']).origin, 'http://127.0.0.1:5190')
   assert.equal('origin' in parseArguments(['--dev', '--signed-out']), false, 'a run without it parses as before')
@@ -59,6 +60,48 @@ test('--origin adds one page on this Mac, and never to a host on the real model'
   assert.throws(() => parseArguments(['--origin']), /--origin needs a value/)
   const notLoopback = ['https://localhost:5187', 'http://localhost', 'http://localhost:80', 'http://example.invalid:5187', 'http://[::1]:5187', 'http://localhost:5187/', 'http://localhost:5187/setup', 'http://me@localhost:5187', 'http://LOCALHOST:5187', 'localhost:5187', 'tauri://localhost']
   for (const page of notLoopback) assert.throws(() => parseArguments(['--origin', page]), /--origin takes a page on this Mac/, page)
-  assert.throws(() => parseArguments(['--live', '--origin', 'http://localhost:5187']), /--origin is for the scripted model/)
-  assert.throws(() => parseArguments(['--origin', 'http://localhost:5187', '--live']), /--origin is for the scripted model/, 'in either order')
+
+  // With --live it parses, in either order, and the host refuses it where it starts, since nothing names a throwaway home.
+  const userHome = join(temporaryDirectory(t), 'user')
+  for (const args of [['--live', '--origin', 'http://localhost:5187'], ['--origin', 'http://localhost:5187', '--live']]) {
+    const options = parseArguments(args)
+    assert.equal(options.live && options.origin, 'http://localhost:5187', args.join(' '))
+    const home = resolveHome({ home: options.home, userHome, repoRoot: join(userHome, 'repo'), env: {} })
+    assert.match(whyNotOrigin(options, home, {}, userHome) ?? '', /Name a new folder with --home/, args.join(' '))
+  }
+})
+
+test('a live host talks to --origin only on a throwaway home and a throwaway Pi folder', (t) => {
+  const base = temporaryDirectory(t)
+  const userHome = join(base, 'user')
+  const realHome = join(userHome, '.hobkin')
+  const realPi = join(userHome, '.pi', 'agent')
+  const throwaway = join(base, 'throwaway')
+  const throwawayHome = join(throwaway, 'home')
+  const throwawayPi = join(throwaway, 'pi')
+  for (const folder of [realHome, realPi, throwawayPi]) mkdirSync(folder, { recursive: true })
+  symlinkSync(realPi, join(throwaway, 'pi-link'))
+
+  // The host as the lead starts it, with the home and Pi's folder each test names.
+  const verdict = (home: string | null, env: NodeJS.ProcessEnv) => {
+    const options = parseArguments([...(home ? ['--home', home] : []), '--dev', '--live', '--port', '5190', '--origin', 'http://localhost:5187'])
+    return whyNotOrigin(options, resolveHome({ home: options.home, userHome, repoRoot: join(base, 'repo'), env: {} }), env, userHome)
+  }
+  const ownPi = { PI_CODING_AGENT_DIR: throwawayPi }
+
+  assert.equal(verdict(throwawayHome, ownPi), null, 'a throwaway home and a throwaway Pi folder')
+
+  assert.match(verdict(realHome, ownPi) ?? '', /is the real hobkin home/)
+  assert.match(verdict(null, ownPi) ?? '', /Name a new folder with --home/)
+  assert.match(verdict(throwawayHome, {}) ?? '', /Set PI_CODING_AGENT_DIR/)
+  assert.match(verdict(throwawayHome, { PI_CODING_AGENT_DIR: '' }) ?? '', /Set PI_CODING_AGENT_DIR/, 'empty is unset, as Pi reads it')
+  assert.match(verdict(throwawayHome, { PI_CODING_AGENT_DIR: join(throwaway, 'missing') }) ?? '', /which is not a folder/)
+  assert.match(verdict(throwawayHome, { PI_CODING_AGENT_DIR: realPi }) ?? '', /Pi's real folder/)
+  assert.match(verdict(throwawayHome, { PI_CODING_AGENT_DIR: join(throwaway, 'pi-link') }) ?? '', /Pi's real folder/, 'a link to it too')
+  assert.match(verdict(throwawayHome, { PI_CODING_AGENT_DIR: '~/.pi/agent' }) ?? '', /Pi's real folder/, 'written the way Pi reads ~')
+
+  // A scripted host talks to the page as before, on any home, and a live host without --origin is never asked.
+  const scripted = parseArguments(['--dev', '--signed-out', '--origin', 'http://localhost:5187'])
+  assert.equal(whyNotOrigin(scripted, resolveHome({ home: null, userHome, repoRoot: join(base, 'repo'), env: {} }), {}, userHome), null)
+  assert.equal(whyNotOrigin(parseArguments(['--home', realHome, '--dev', '--live']), resolveHome({ home: realHome, userHome, env: {} }), {}, userHome), null)
 })

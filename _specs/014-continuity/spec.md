@@ -39,6 +39,7 @@ Nothing is lost between sittings or between front ends. The app reopens where th
 
 - One home, one owner at a time. The lock decides, and the client waits its turn (`002-host`).
 - The client writes only inside `client/`, `canvas/` and `work/<slug>/reviews/`, plus whatever hobkin's own code writes.
+- The first-run setup's answers are kept in `client/setup.json` (`025-onboarding`), written whole under another name and moved into place, private to the user. hobkin's own copy of them (`setup.json`) and what the setup hands work mode are written by hobkin's own code.
 - Earlier main sessions, one for each `/reset`, are listed read-only in the sidebar's History section.
 
 ## Out of scope

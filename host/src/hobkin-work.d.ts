@@ -69,6 +69,22 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export function readMode(root: string): { enabled: boolean; folder: string | null; autoPick: boolean; [key: string]: unknown }
   /** Takes a project: a known one by slug, or a folder by its absolute path. */
   export function chooseProject(root: string, reference: string, level?: string): { slug: string; [key: string]: unknown }
+  /** hobkin's slug for a project's name: lowercase, with dashes. */
+  export function slugOf(name: string): string
+  /** Every project work mode knows, in any state, with the path it was found at. */
+  export function readProjects(root: string): { slug: string; name?: string; path?: string; remote?: string; state?: string; [key: string]: unknown }[]
+  /** Offers a project in Work for the user to take or skip. A known project that is not a proposal is answered as it is, unchanged. */
+  export function proposeProject(
+    root: string,
+    proposal: { name: string; path: string; level: string; summary?: string; reason?: string; first?: unknown[] },
+  ): { slug: string; state?: string; [key: string]: unknown }
+  /**
+   * Saves the folder work mode starts from, only while work mode is off. A running work mode keeps what it has and
+   * answers `changed: false` with it, which is null for one running without a folder. Throws `Not a folder: <path>`.
+   */
+  export function setFolder(root: string, requested: string): { folder: string | null; changed: boolean }
+  /** Turns work mode on from a folder, or the one it keeps. `autoPick` is `start --auto`: it starts on taken projects by itself. */
+  export function startWork(root: string, requested?: string, options?: { autoPick?: boolean }): { enabled: boolean; folder: string | null; autoPick: boolean; [key: string]: unknown }
   export function setProjectPriority(root: string, slug: string, priority: string): unknown
   export function setProjectPrMode(root: string, slug: string, prMode: string): unknown
 }
