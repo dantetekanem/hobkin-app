@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import type { HostAddress } from './host/connection.ts'
 
 /**
  * The Mac shell's own commands for the window (src-tauri/src/notices.rs and browser.rs): notifications, and the
@@ -59,7 +60,7 @@ export interface Shell {
 const NONE: Shell = { notices: null, browser: null }
 const MAIN = 'main'
 
-const inMacWindow = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+export const inMacWindow = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 const notices: NoticeShell = {
   permission: (ask) => invoke<ShellPermission>('notice_permission', { ask }),
@@ -115,4 +116,20 @@ export async function windowInFront(): Promise<boolean> {
   } catch {
     return page()
   }
+}
+
+/**
+ * Where the shell's own host is, for a packaged window. The shell may hold this call for several seconds while the
+ * host starts, and answers null when there is none yet. Any failure is also null, so the caller just asks again.
+ */
+export function shellHostAddress(): Promise<HostAddress | null> {
+  return invoke<HostAddress | null>('host_address').then((address) => address ?? null, () => null)
+}
+
+/** The updater's commands (src-tauri). A development build never registers them, so each call may reject. */
+export const updater = {
+  /** The version downloaded and ready to start, or null. */
+  status: () => invoke<string | null>('update_status'),
+  restart: () => invoke<void>('update_restart'),
+  onReady: (listener: (payload: unknown) => void) => listen<unknown>('update-ready', ({ payload }) => listener(payload)),
 }

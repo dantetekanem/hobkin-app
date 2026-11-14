@@ -20,6 +20,7 @@ import '@/features/notifications/live.ts'
 import { TiersLightbox } from '@/features/tiers/TiersLightbox.tsx'
 import { NewHobkin } from '@/features/hobkins/NewHobkin.tsx'
 import { NerdStatsPanel } from '@/features/settings/NerdStats.tsx'
+import { UpdateNotice } from '@/features/update/UpdateNotice.tsx'
 import { FirstRunSetup } from '@/features/onboarding/FirstRunSetup.tsx'
 
 /**
@@ -67,6 +68,7 @@ export function Frame() {
       <NerdStatsPanel />
       <FirstRunSetup />
       <QuestionSheet />
+      <UpdateNotice />
     </div>
     </MotionConfig>
   )
