@@ -93,9 +93,9 @@ The canvas becomes a real drawing surface and whiteboard, as big as the right si
 - A15. check: set Movement to Still and open both kinds of canvas.
 
 ## Steps
-- [ ] S1 (A8, A9, A10, A11, A12). The host's serving, the runtime and the kit.
-- [ ] S2 (A1, A2, A3, A4, A5, A6, A7, A8, A10, A15). The window: the canvas place, the split, the menu row, the keys and the live frame.
-- [ ] S3 (A13). The skill.
+- [x] S1 (A8, A9, A10, A11, A12). The host's serving, the runtime and the kit. 711cf8b.
+- [x] S2 (A1, A2, A3, A4, A5, A6, A7, A8, A10, A15). The window: the canvas place, the split, the menu row, the keys and the live frame. 9be647e.
+- [x] S3 (A13). The skill. hobkin 5c474f2.
 - [ ] S4 (A14). The shell's Escape for a page, as a patch applied with the user's word, because it restarts the app.
 
 ## Open questions
