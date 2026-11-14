@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["002-host"],
-  "updated": "2026-11-09"
+  "updated": "2026-11-14"
 }
 ---
 # Conversation with hobkin
@@ -18,6 +18,7 @@ The conversation column is the real, persistent hobkin conversation. The user re
 
 - History, sending, steering and stopping use hobkin's application methods unchanged (`send`, `interrupt`, `clear`, `reset`). hobkin stays the owner of the conversation and its file.
 - Live text comes from the `turn` events of `002-host`. The stored message replaces the live text when the turn ends.
+- A reply being written shows its finished lines, and the line still being written up to its last whole word (`ui/src/features/chat/stream-buffer.ts`). It grows by at most one step every 100 ms, and its first step shows at once. What would draw as something else once more arrives waits. A blank line waits for what follows it. A code block's opening waits for its first word of code. A table's lines show only once whole, and its header only with its divider. A heading, list item or quote waits for its first word. An emphasis, code span or link that is still open holds back the rest of its line until it closes or the line ends. A new block rises once and new words fade in once, so what already shows stays still.
 - Tool calls and thinking are not printed in the conversation. The line above the input says what hobkin is doing, with the elapsed time, as the terminal app does (`src/cli/doing.mjs`). A click on that line opens the turn's activity on the canvas.
 - Markdown is rendered with a sanitizer. Raw HTML shows as text. Code blocks use the Shiki setup from `008-review-code`.
 - Images are pasted, dropped or picked with a button, and sent as bytes. hobkin's limits on count and size apply.
@@ -58,6 +59,7 @@ The conversation column is the real, persistent hobkin conversation. The user re
 - A17. With the list open, Tab completes the input to the selected command and the screen does not change. Up and Down move the selection, Enter runs the selected command, and Escape closes the list with the typed text left in the input. With the list closed, Tab changes the screen again.
 - A18. Running a command adds to its count, and the count survives a restart.
 - A19. A message that arrives while the user is looking rises into place on the same spring as the pieces of a canvas screen, and the messages above make room without a jump. Each new block of a streaming reply rises the same way, and text inside a block appears smoothly as it grows. History that was already there when the app opened does not move.
+- A20. A reply's first whole word shows within one step of reaching the window, before the reply ends, and the reply then grows a few words at a time, the line still being written included. A code block's opening, a table's header before its divider, a heading or list item with no word yet, and an emphasis, code span or link still open never show half drawn. Words already shown do not rise or fade in again as the reply grows, and the view keeps following it.
 
 ## Proof
 
@@ -80,10 +82,11 @@ The conversation column is the real, persistent hobkin conversation. The user re
 - A17. `ui/test/conversation-slash.test.ts` › "tab completes, enter runs, escape keeps the text"
 - A18. `host/test/commands.test.ts` › "running a command counts it, across restarts"
 - A19. check: send a message to the scripted model and watch the reply stream in. Reload and see the history stay still.
+- A20. `ui/test/stream-buffer.test.ts` › "the line still being written shows up to its last whole word", "a paragraph grows a word at a time, and what showed stays", "a heading, list item or quote waits for its first whole word", "a code block waits for its first word of code, then grows as it arrives until it closes", "a table appears with its header and divider together, then a whole row at a time", "emphasis, code and links still open hold the rest of their line back", "no character is lost and the order holds, however the text arrives"; check: ask for a one paragraph answer and watch its first words show before it ends, the earlier words stay still while new ones fade in, and the view follow it. Not yet seen.
 
 ## Steps
 
-- [ ] S1 (A1, A2, A5, A19). Message list fed by the state store: day groups, notices, live text, scroll pinning, and messages that rise in as they arrive.
+- [ ] S1 (A1, A2, A5, A19, A20). Message list fed by the state store: day groups, notices, live text, scroll pinning, and messages that rise in as they arrive.
 - [ ] S2 (A3, A4, A10). Input: send, queue and steer, stop, the doing line, disabled states.
 - [ ] S3 (A8). Markdown renderer with sanitizing and code highlighting.
 - [ ] S4 (A6). Question card and its hand-off to Action items.

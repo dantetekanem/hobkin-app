@@ -1,6 +1,6 @@
 import { ArrowDown, Reply } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
@@ -24,11 +24,8 @@ const wordsOf = (entry: Entry) => entry.kind === 'shell' ? `shell\n${entry.comma
 /** A reply still held live: being written, or finished and waiting for hobkin to store it. Its blocks do the moving. */
 const isLive = (entry: Entry) => entry.key.startsWith('live:')
 
-/** Words that arrived within this long are still fading in. */
-const FRESH_MS = 400
-
-/** The least time between two pieces of a reply appearing. A line slower than this shows as soon as it is finished. */
-const CADENCE_MS = 140
+/** The least time between two pieces of a reply appearing. A word slower than this shows as soon as it is whole. */
+const CADENCE_MS = 100
 
 // What is above a new message glides up to make room. No bounce: it is the new message that lands.
 const makeRoom = { layout: spring.sheet }
@@ -144,7 +141,7 @@ function Row({ entry, order }: { entry: Entry; order: number | null }) {
   const text = useRevealed(entry.text, writing)
   // The time to a reply's first word ends when its words are first on screen.
   useFirstWordShown(entry.key, entry.kind === 'message' && entry.role === 'assistant' && /\S/.test(text))
-  // As before the first word, nothing is drawn before the first finished line.
+  // As before the first word arrives, nothing is drawn before the first whole word.
   if (writing && !text) return null
   const mine = entry.kind === 'message' && entry.role === 'user'
   // Several arriving together land one after another.
@@ -236,8 +233,9 @@ function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
 }
 
 /**
- * What shows of a reply being written: whole lines and Markdown blocks, at most one piece every CADENCE_MS, so it
- * grows in steps that read rather than letter by letter (`stream-buffer.ts`). A finished reply shows whole at once.
+ * What shows of a reply being written: its finished lines, and the line still being written up to its last whole
+ * word, at most one step every CADENCE_MS, so it grows a few words at a time rather than letter by letter
+ * (`stream-buffer.ts`). The first step shows at once. A finished reply shows whole at once.
  */
 function useRevealed(text: string, writing: boolean): string {
   const [shown, setShown] = useState(() => nextReveal(text, '', !writing))
@@ -254,18 +252,22 @@ function useRevealed(text: string, writing: boolean): string {
   return writing ? shown : text
 }
 
-/** A reply as it arrives. It remembers where the latest words began, so they can fade in while the rest stays still. */
-function WritingText({ text }: { text: string }) {
+/**
+ * A reply as it arrives. It remembers where each piece began, so each piece fades in once as it first shows while
+ * the words before it stay still. It keeps every piece until the reply is stored: Markdown keys its spans by their
+ * order, so dropping an old piece would hand each later piece the span, and the fade, of the one before it. Drawn
+ * again with the same text, it does nothing, so a word arriving that does not show yet costs no drawing.
+ */
+const WritingText = memo(function WritingText({ text }: { text: string }) {
   const still = useStill()
-  const seen = useRef<{ text: string; pieces: { from: number; at: number }[] }>({ text: '', pieces: [] })
+  const seen = useRef<{ text: string; marks: number[] }>({ text: '', marks: [] })
   if (text !== seen.current.text) {
-    const now = performance.now()
+    // Text the model rewrote starts over as one piece.
     const grew = text.startsWith(seen.current.text)
-    const recent = grew ? seen.current.pieces.filter((piece) => now - piece.at < FRESH_MS) : []
-    seen.current = { text, pieces: [...recent, { from: grew ? seen.current.text.length : 0, at: now }] }
+    seen.current = { text, marks: grew ? [...seen.current.marks, seen.current.text.length] : [0] }
   }
-  return <StreamingMarkdown text={text} marks={seen.current.pieces.map(({ from }) => from)} still={still} />
-}
+  return <StreamingMarkdown text={text} marks={seen.current.marks} still={still} />
+})
 
 const TONE_DOT: Record<NoticeEntry['tone'], string> = {
   critical: 'bg-bad',
