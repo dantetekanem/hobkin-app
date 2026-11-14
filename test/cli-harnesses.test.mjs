@@ -4,9 +4,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
+import { buildInvocation, closeKept, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { extensionPaths, LEFT_OUT_OF_THE_MAIN_CHAT } from '../src/cli/pi-extensions.mjs';
 import { readEvents } from '../src/cli/events.mjs';
+import { startRpcProcess } from '../src/cli/rpc-process.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 function request(t, harness = 'pi') {
@@ -101,6 +102,7 @@ for (const mode of ['completed', 'failed', 'interrupted', 'capture-only', 'stora
 
 test('a turn times its process start and its first text from when the turn began', { timeout: 3000 }, async t => {
   const input = request(t);
+  t.after(() => closeKept(input.sessionFile));
   const partial = { role: 'assistant', provider: 'test', model: 'model', timestamp: 1 };
   const message = { ...partial, responseId: 'response-1', stopReason: 'stop', content: [{ type: 'text', text: 'Done' }], usage: { input: 2, output: 3, cacheRead: 9 } };
   const program = rpc(`
@@ -696,4 +698,205 @@ test('the main chat leaves out the packages that would stop its compaction, keep
 
   assert.deepEqual(named(mainChat), ['pi-other']);
   assert.deepEqual(named(otherRun), ['pi-cache-compact-preserved-messages', 'pi-memory', 'pi-other', 'pi-scheduler']);
+});
+
+// A Pi that stays up for every prompt it is sent and reports the model and thinking it was started with. It answers
+// each prompt at once, except one that says "Hold on.", and a prompt that says "Fail." ends without a stop.
+const keptPi = `
+const args = process.argv.slice(1);
+const flag = name => args[args.indexOf(name) + 1];
+const [provider, model] = (args.includes('--model') ? flag('--model') : 'test/model').split('/');
+const send = event => process.stdout.write(JSON.stringify(event) + '\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  input += chunk;
+  let end;
+  while ((end = input.indexOf('\\n')) >= 0) {
+    const cmd = JSON.parse(input.slice(0, end));
+    input = input.slice(end + 1);
+    const reply = data => send({ type: 'response', id: cmd.id, command: cmd.type, success: true, data });
+    if (cmd.type === 'get_state') reply({ sessionId: 'pi-kept', thinkingLevel: flag('--thinking'), model: { provider, id: model } });
+    else if (cmd.type === 'get_session_stats') reply({ sessionId: 'pi-kept', cost: 0.1 });
+    else if (cmd.type === 'prompt') {
+      reply({ disposition: 'started' });
+      if (cmd.message === 'Hold on.') continue;
+      send({ type: 'message_end', message: { role: 'assistant', provider: 'test', model: 'model', timestamp: Date.now(),
+        stopReason: cmd.message === 'Fail.' ? 'error' : 'stop', content: [{ type: 'text', text: 'Took: ' + cmd.message }] } });
+      send({ type: 'agent_settled' });
+    }
+  }
+});
+`;
+
+/** Every Pi process the runs start, each with the commands hobkin sent it, in order. */
+function keptPis() {
+  const processes = [];
+  const spawnProcess = (command, args, options) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', keptPi, '--', ...args], options);
+    processes.push({ child, commands: [] });
+    return child;
+  };
+  const startProcess = options => {
+    const rpc = startRpcProcess(options);
+    const { commands } = processes.at(-1);
+    return Object.assign(Object.create(rpc), { request: (type, ...rest) => { commands.push(type); return rpc.request(type, ...rest); } });
+  };
+  return { processes, options: { spawnProcess, startProcess } };
+}
+
+const gone = child => child.exitCode !== null || child.signalCode !== null;
+const ended = child => new Promise(resolve => (gone(child) ? resolve() : child.once('exit', resolve)));
+const turnId = n => `f094b0ba-036c-4abc-9198-${String(n).padStart(12, '0')}`;
+const durableTurn = (t, extra = {}) => {
+  const input = { ...request(t), purpose: 'durable', ...extra };
+  t.after(() => closeKept(input.sessionFile));
+  return input;
+};
+const texts = events => events.filter(event => event.type === 'message_end').map(event => event.message.content[0].text);
+
+test("a durable turn leaves its process up, and the conversation's next turn only prompts it", { timeout: 5000 }, async t => {
+  const { processes, options } = keptPis();
+  const input = durableTurn(t);
+  const seen = [[], []];
+  const first = await runHarness({ ...input, id: turnId(1), prompt: 'First.' }, { ...options, onEvent: event => seen[0].push(event), turn: { since: Date.now(), marks: {} } });
+  assert.equal(first.status, 'completed');
+  assert.equal(gone(processes[0].child), false, 'the process waits for the next turn');
+
+  const second = await runHarness({ ...input, id: turnId(2), prompt: 'Second.' }, { ...options, onEvent: event => seen[1].push(event), turn: { since: Date.now(), marks: {} } });
+  assert.equal(second.status, 'completed');
+  assert.equal(processes.length, 1);
+  assert.deepEqual(processes[0].commands, ['get_state', 'prompt', 'get_session_stats', 'prompt', 'get_session_stats']);
+  assert.deepEqual([second.text, second.sessionId, second.model, second.cost.usd], ['Took: Second.', 'pi-kept', 'test/model', 0.1]);
+  assert.deepEqual(Object.keys(second).toSorted(), Object.keys(first).toSorted());
+  // With no process to start, the turn has no stage for one.
+  assert.ok(first.performance.stages.spawned >= 0 && first.performance.stages.ready >= 0);
+  assert.deepEqual(['spawned', 'ready'].filter(stage => stage in second.performance.stages), []);
+  assert.ok(second.performance.stages.prompted >= 0);
+  assert.deepEqual(texts(seen[0]), ['Took: First.'], "the second turn's records reach only its own handlers");
+  assert.deepEqual(texts(seen[1]), ['Took: Second.']);
+});
+
+test('a durable turn started any other way closes the kept process and starts its own', { timeout: 10000 }, async t => {
+  const otherCwd = mkdtempSync(join(tmpdir(), 'hobkin-harness-'));
+  t.after(() => rmSync(otherCwd, { recursive: true, force: true }));
+  const changes = { model: { model: 'test/other' }, effort: { effort: 'high' }, directions: { directions: 'Be thorough.' },
+    extensions: { extensions: ['/fixture/b.ts'] }, environment: { env: { HOBKIN_TURN: 'b'.repeat(32) } }, folder: { cwd: otherCwd } };
+  for (const [name, change] of Object.entries(changes)) {
+    const { processes, options } = keptPis();
+    const input = durableTurn(t, { model: 'test/model', directions: 'Be brief.', extensions: ['/fixture/a.ts'], env: { HOBKIN_TURN: 'a'.repeat(32) } });
+    assert.equal((await runHarness({ ...input, id: turnId(1) }, options)).status, 'completed', name);
+    const changed = await runHarness({ ...input, ...change, id: turnId(2) }, options);
+    assert.equal(changed.status, 'completed', name);
+    assert.equal(processes.length, 2, `a changed ${name} starts a new process`);
+    assert.ok(gone(processes[0].child), `and the one kept with the old ${name} is closed`);
+    assert.deepEqual(processes[1].commands, ['get_state', 'prompt', 'get_session_stats']);
+  }
+});
+
+test('a kept process goes after its idle time, and past four kept the one idle longest goes', { timeout: 10000 }, async t => {
+  const idle = keptPis();
+  const input = durableTurn(t);
+  await runHarness({ ...input, id: turnId(1) }, { ...idle.options, keepIdleMs: 50 });
+  await ended(idle.processes[0].child);
+  assert.equal((await runHarness({ ...input, id: turnId(2) }, idle.options)).status, 'completed');
+  assert.equal(idle.processes.length, 2, 'the next turn starts a process of its own');
+
+  const many = keptPis();
+  const inputs = Array.from({ length: 5 }, () => durableTurn(t));
+  for (const [n, input] of inputs.entries()) await runHarness({ ...input, id: turnId(10 + n) }, many.options);
+  // The first one kept goes, and a new process for its conversation starts only once that one has exited.
+  const oldGone = [];
+  const watching = { ...many.options, spawnProcess: (...args) => { oldGone.push(gone(many.processes[0].child)); return many.options.spawnProcess(...args); } };
+  assert.equal((await runHarness({ ...inputs[0], id: turnId(20) }, watching)).status, 'completed');
+  assert.deepEqual(oldGone, [true]);
+  // Keeping that one makes five again, so the one now idle longest goes.
+  await ended(many.processes[1].child);
+  assert.deepEqual(many.processes.map(({ child }) => gone(child)), [true, true, false, false, false, false]);
+});
+
+test('a failed or stopped turn closes its process, and one that exits between turns is replaced', { timeout: 10000 }, async t => {
+  for (const ending of ['failed', 'stopped', 'forced']) {
+    const { processes, options } = keptPis();
+    const input = durableTurn(t);
+    await runHarness({ ...input, id: turnId(1) }, options);
+    const controller = new AbortController();
+    const result = await runHarness({ ...input, id: turnId(2), prompt: ending === 'failed' ? 'Fail.' : 'Hold on.', signal: controller.signal }, {
+      ...options,
+      onControl: handle => { if (ending === 'forced') queueMicrotask(() => handle.force()); },
+      onReady: () => { if (ending === 'stopped') controller.abort(); },
+    });
+    assert.equal(result.status, ending === 'failed' ? 'failed' : 'interrupted', ending);
+    assert.equal(processes.length, 1, `the ${ending} turn ran on the kept process`);
+    assert.ok(gone(processes[0].child), `and a ${ending} turn closes it`);
+    assert.equal((await runHarness({ ...input, id: turnId(3) }, options)).status, 'completed');
+    assert.equal(processes.length, 2);
+  }
+
+  const { processes, options } = keptPis();
+  const input = durableTurn(t);
+  await runHarness({ ...input, id: turnId(1) }, options);
+  processes[0].child.kill('SIGKILL');
+  await ended(processes[0].child);
+  const replaced = await runHarness({ ...input, id: turnId(2), prompt: 'Again.' }, options);
+  assert.deepEqual([replaced.status, replaced.text, processes.length], ['completed', 'Took: Again.', 2]);
+});
+
+test("Stop and Force reach only the turn in flight, and a turn never takes a process another turn holds", { timeout: 5000 }, async t => {
+  const { processes, options } = keptPis();
+  const input = durableTurn(t);
+  const handles = [];
+  const onControl = handle => handles.push(handle);
+  await runHarness({ ...input, id: turnId(1) }, { ...options, onControl });
+  // The first turn's handle says it is closed once that turn ends, and forcing it then reaches nothing.
+  await handles[0].closed;
+  handles[0].force();
+
+  const holding = runHarness({ ...input, id: turnId(2), prompt: 'Hold on.' }, { ...options, onControl });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const alongside = await runHarness({ ...input, id: turnId(3), prompt: 'Meanwhile.' }, { ...options, onControl });
+  assert.equal(alongside.status, 'completed');
+  assert.equal(processes.length, 2, 'the held process was not handed to another turn');
+
+  handles[1].force();
+  assert.equal((await holding).status, 'interrupted');
+  assert.ok(gone(processes[0].child));
+  assert.equal(gone(processes[1].child), false, "Force on the second turn left the third turn's process alone");
+});
+
+test('a conversation closes its kept process on request, and other runs end theirs each time', { timeout: 5000 }, async t => {
+  const durable = keptPis();
+  const input = durableTurn(t);
+  await runHarness({ ...input, id: turnId(1) }, durable.options);
+  await closeKept(input.sessionFile);
+  assert.ok(gone(durable.processes[0].child));
+  await runHarness({ ...input, id: turnId(2) }, durable.options);
+  assert.equal(durable.processes.length, 2);
+
+  for (const purpose of [undefined, 'work-do']) {
+    const other = keptPis();
+    const job = { ...request(t), ...(purpose ? { purpose } : {}) };
+    await runHarness({ ...job, id: turnId(1) }, other.options);
+    assert.ok(gone(other.processes[0].child), `a ${purpose ?? 'check'} run ends its process`);
+    await runHarness({ ...job, id: turnId(2) }, other.options);
+    assert.equal(other.processes.length, 2);
+  }
+});
+
+test("a tool-using run records what its first model request was made of, as hashes and sizes and never the text", { timeout: 3000 }, async t => {
+  const input = { ...request(t), purpose: 'work-do' };
+  const status = statusText => ({ type: 'extension_ui_request', id: 'status', method: 'setStatus', statusKey: 'hobkin/prompt', statusText });
+  const first = { parts: { instructions: '0123456789ab', tools: 'ba9876543210' }, sizes: { instructions: 41250, tools: 98000, toolCount: 31 } };
+  const records = [
+    status(JSON.stringify({ parts: { instructions: 'You are hobkin, PRIVATE', tools: 'x' }, sizes: { instructions: 1, tools: 1, toolCount: 1 } })),
+    status(JSON.stringify(first)),
+    status(JSON.stringify({ parts: { instructions: 'ffffffffffff', tools: 'eeeeeeeeeeee' }, sizes: { instructions: 1, tools: 1, toolCount: 1 } })),
+    { type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Useful: Done.' }] } },
+    { type: 'agent_settled' },
+  ];
+  const result = await runHarness(input, { metricsRoot: input.cwd, spawnProcess: fake(rpc(records.map(record => `send(${JSON.stringify(record)});`).join('\n'))) });
+  assert.equal(result.status, 'completed');
+  const saved = readEvents(input.cwd).filter(event => event.type === 'turn_prompt');
+  assert.deepEqual(saved.map(({ at, ...facts }) => facts), [{ type: 'turn_prompt', id, ...first }]);
+  assert.doesNotMatch(JSON.stringify(readEvents(input.cwd)), /PRIVATE/);
 });

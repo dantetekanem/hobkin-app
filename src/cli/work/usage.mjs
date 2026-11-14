@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJson } from './store.mjs';
+import { PROMPT_FACTS } from './usage-extension.mjs';
 
 const MINUTE_MS = 60000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -19,6 +20,27 @@ export const usageExtension = fileURLToPath(new URL('./usage-extension.mjs', imp
 
 /** Adds the reader to a job's extensions, so checks refresh the numbers too. A launcher decides for itself, so a job with no list is left alone. */
 export const readingUsage = run => (request, options) => run(request.extensions ? { ...request, extensions: [...request.extensions, usageExtension] } : request, options);
+
+const promptHash = value => typeof value === 'string' && /^[0-9a-f]{12}$/.test(value);
+const promptSize = value => Number.isSafeInteger(value) && value >= 0;
+
+/** What a run's first model request was made of, from the extension's status record, or undefined for any other record. */
+export function promptFactsIn(record) {
+  if (record?.type !== 'extension_ui_request' || record.method !== 'setStatus' || record.statusKey !== PROMPT_FACTS) return undefined;
+  let facts;
+  try {
+    facts = JSON.parse(record.statusText);
+  } catch {
+    return undefined;
+  }
+  const { parts, sizes } = facts ?? {};
+  if (!promptHash(parts?.instructions) || !promptHash(parts?.tools)
+    || !['instructions', 'tools', 'toolCount'].every(key => promptSize(sizes?.[key]))) return undefined;
+  return {
+    parts: { instructions: parts.instructions, tools: parts.tools },
+    sizes: { instructions: sizes.instructions, tools: sizes.tools, toolCount: sizes.toolCount },
+  };
+}
 
 /** The last reading a job saw, or `null` before any job has seen one. */
 export const readSubscription = root => readJson(join(root, 'work', 'subscription.json'), null);

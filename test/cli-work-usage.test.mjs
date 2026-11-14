@@ -188,3 +188,27 @@ test('outside a job the extension writes nothing, and it never fails a run', t =
   assert.doesNotThrow(() => noFolder.after_provider_response(event));
   assert.throws(() => readFileSync('/nonexistent/work/subscription.json'));
 });
+
+test("the extension says what each run's first request is made of, as hashes and sizes, and never changes it", () => {
+  const handlers = piWith('/nonexistent/hobkins/run.jsonl');
+  const statuses = [];
+  const ctx = { ui: { setStatus: (key, text) => statuses.push([key, text]) } };
+  const tools = [{ type: 'function', name: 'read', description: 'PRIVATE tool words', parameters: {} }];
+  const codex = { instructions: 'PRIVATE instructions', input: [{ role: 'user', content: 'PRIVATE question' }], tools };
+
+  handlers.agent_start({});
+  assert.equal(handlers.before_provider_request({ payload: codex }, ctx), undefined, 'the request goes as Pi built it');
+  handlers.before_provider_request({ payload: { ...codex, instructions: 'Changed.' } }, ctx);
+  handlers.agent_start({});
+  handlers.before_provider_request({ payload: { system: [{ type: 'text', text: 'PRIVATE system' }], tools: [] } }, ctx);
+
+  assert.deepEqual(statuses.map(([key]) => key), ['hobkin/prompt', 'hobkin/prompt'], 'one for each run, from its first request');
+  const [first, second] = statuses.map(([, text]) => JSON.parse(text));
+  assert.match(first.parts.instructions, /^[0-9a-f]{12}$/);
+  assert.match(first.parts.tools, /^[0-9a-f]{12}$/);
+  assert.deepEqual(first.sizes, { instructions: 'PRIVATE instructions'.length, tools: JSON.stringify(tools).length, toolCount: 1 });
+  assert.deepEqual(second.sizes, { instructions: 'PRIVATE system'.length, tools: 2, toolCount: 0 });
+  assert.notEqual(second.parts.instructions, first.parts.instructions);
+  assert.doesNotMatch(JSON.stringify(statuses), /PRIVATE/);
+  assert.doesNotThrow(() => { handlers.agent_start({}); handlers.before_provider_request({ payload: null }, {}); }, 'and it never fails a run');
+});

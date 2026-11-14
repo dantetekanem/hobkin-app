@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { canvasSkill, closeCanvas, readCanvases } from './canvas.mjs';
 import { loadConfig } from './config.mjs';
+import { closeKept } from './harnesses.mjs';
 import { turnRunId, turnSchedule } from './hobkin-ids.mjs';
 import { answerTell, takeTellRequests, TELL_MAX, TOO_LONG, TURN_HOME, TURN_TOKEN, turnToken } from './hobkin-tell.mjs';
 import { MAX_MESSAGE_BYTES } from './runtime.mjs';
@@ -15,8 +16,10 @@ import { turnFrom } from './turn-metrics.mjs';
 /**
  * Durable hobkins: the hobkins the user starts with Command+N in the window and talks to directly. Each is one record in
  * the runtime's durable store, beside its runs, and one Pi conversation file under `hobkins/`. A turn is one background
- * run that reopens that file, so nothing stays alive between turns and a restart loses nothing but the turn in flight.
- * Only the user ends one. See the client's `_specs/034-durable-hobkins`.
+ * run on that file. On Pi, the process a turn ended well in stays up for the next turn while everything it was started
+ * with stays the same (`runHarness` in `harnesses.mjs`), and it closes when the hobkin ends, when hobkin closes, or after
+ * ten idle minutes. Any other turn starts a process that reopens the file, so a restart loses nothing but the turn in
+ * flight. Only the user ends one. See the client's `_specs/034-durable-hobkins`.
  */
 
 export const MOST_HOBKINS = 12;
@@ -211,8 +214,11 @@ export class Hobkins {
   records = {};
   // The messages waiting to be delivered, kept the same way.
   mail = {};
-  // Each running turn's token, which only that turn's process was given, and the turn it names.
+  // Each running turn's token and the turn it names. A token names nothing outside its turn.
   tokens = new Map();
+  // Each hobkin's token, the same for all its turns while hobkin runs, so a Pi process kept between turns keeps the
+  // environment it was started with and `hobkin tell` from it names whichever of its turns is running.
+  hobkinTokens = new Map();
   // The main agent's turn and the counts it may spend from: `from` each sender's it was woken for, `own` a fresh one.
   mainChain = null;
 
@@ -357,14 +363,16 @@ export class Hobkins {
 
   /**
    * One turn as one of the runner's background jobs, started as `startSessionJob` starts a session. A turn that a
-   * message started has `from`, who sent it. Its process is given a token for this turn alone, so `hobkin tell` from it
-   * is sent as this hobkin and spends the turn's count (`record.count`), and the home to reach hobkin through.
+   * message started has `from`, who sent it. Its process is given the hobkin's token, which names this turn while it
+   * runs, so `hobkin tell` from it is sent as this hobkin and spends the turn's count (`record.count`), and the home to
+   * reach hobkin through.
    */
   startTurn(record, asked, from = null, began = { since: Date.now(), origin: 'run', marks: {} }) {
     const n = record.turns;
     const runId = turnRunId(record.id, n);
     const { harness, model, effort, tier } = this.binding(record.engine);
-    const token = turnToken();
+    const token = this.hobkinTokens.get(record.id) ?? turnToken();
+    this.hobkinTokens.set(record.id, token);
     this.tokens.set(token, { id: record.id, run: runId });
     const resume = record.engine.kind === 'claude' && record.engineSession ? record.engineSession : undefined;
     // What the user chose for Claude Code, for the host that runs it. None when they chose nothing.
@@ -404,7 +412,8 @@ export class Hobkins {
     this.ending.set(record.id, ended);
     void ended.then(() => {
       if (this.ending.get(record.id) === ended) this.ending.delete(record.id);
-      this.tokens.delete(token);
+      // The hobkin's next turn may already name its own run with the same token.
+      if (this.tokens.get(token)?.run === runId) this.tokens.delete(token);
       // A message that waited for this turn to end starts the next one.
       return this.deliver(record.id);
     }).catch(() => {});
@@ -428,9 +437,12 @@ export class Hobkins {
     });
   }
 
-  /** The user's alone. It stops the turn in flight and closes the canvas, and the conversation file stays. Messages waiting for it go with it. */
+  /**
+   * The user's alone. It stops the turn in flight, closes the process kept for its next turn and closes the canvas, and
+   * the conversation file stays. Messages waiting for it go with it.
+   */
   async end(id) {
-    live(await this.runtime.state(), id);
+    const { sessionFile } = live(await this.runtime.state(), id);
     const endedAt = this.at();
     const ended = await this.change((hobkins, state) => {
       const record = hobkins[id];
@@ -443,6 +455,8 @@ export class Hobkins {
     if (!ended) throw Error('That hobkin has ended.');
     if (ended.run) await this.runner.kill(ended.run, { source: 'user', reason: 'The user ended this hobkin.' });
     await this.ending.get(id);
+    this.hobkinTokens.delete(id);
+    await closeKept(sessionFile);
     try {
       if (readCanvases(this.root)[id]?.open) closeCanvas(this.root, id);
     } catch {
@@ -734,5 +748,10 @@ export class Hobkins {
   /** Resolves once every turn that has ended has its record updated. */
   idle() {
     return Promise.all([...this.ending.values()]);
+  }
+
+  /** hobkin is closing, so every process kept for a hobkin's next turn closes. Resolves once they have exited. */
+  closeKept() {
+    return Promise.all(Object.values(this.records).map(record => closeKept(record.sessionFile)));
   }
 }

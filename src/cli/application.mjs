@@ -1433,6 +1433,8 @@ export class HobkinApplication {
           await Promise.all([children, this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
           // A durable hobkin's turn stopped here reads as cut off, so its record is written before the store closes.
           await this.hobkins?.idle();
+          // No turn runs now, so the processes kept for the hobkins' next turns close too.
+          await this.hobkins?.closeKept();
           await this.delivery?.close();
           await this.runtime.idle();
           this.pastedImages?.clear();

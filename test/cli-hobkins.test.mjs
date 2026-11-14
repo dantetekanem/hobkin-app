@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -1053,4 +1053,98 @@ test('a message to a hobkin counts its turn from when the user sent it, and one 
   assert.ok(turn.marks.host >= sentAt + 300 && turn.marks.admitted >= turn.marks.host);
   answer(await turns.nth(1), 'Added.');
   await waitingNow(app, id);
+});
+
+test("a hobkin's turns share one token, which sends only while a turn runs and spends that turn's count", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const plan = await app.hobkins.start({ text: 'Plan the release.', cwd: h.folder, engine: FAST, title: 'Plan' });
+  const planning = await turns.nth(0);
+  const build = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Build' });
+  await tell(app, h.root, asTurn(planning), [build.id, 'Build v2.']);
+  await turns.nth(1);
+  await tell(app, h.root, asTurn(planning), [build.id, 'Then tag it.']);
+  await tell(app, h.root, asTurn(planning), ['main', 'Release planned.']);
+  await assert.rejects(tell(app, h.root, asTurn(planning), ['main', 'One more thing.']), TOO_MANY);
+  answer(planning, 'Planned.');
+  await waitingNow(app, plan.id);
+  await assert.rejects(tell(app, h.root, asTurn(planning), ['main', 'Between turns.']), /not a turn hobkin is running/);
+
+  await app.hobkins.say(plan.id, { text: 'Ship it.' });
+  const shipping = await turns.nth(2);
+  assert.equal(shipping.request.sessionFile, planning.request.sessionFile, "Plan's second turn");
+  assert.equal(tokenOf(shipping), tokenOf(planning), 'the same environment, so a process kept from the first turn can take the second');
+  assert.equal((await tell(app, h.root, asTurn(shipping), ['main', 'Shipping.'])).sent, true, "the user's new words gave this turn a count of its own");
+  const sent = Object.values((await app.runtime.state()).hobkinMail).find(mail => mail.text === 'Shipping.');
+  assert.deepEqual(sent.from, { kind: 'hobkin', id: plan.id, title: 'Plan' });
+});
+
+// A Pi for a durable hobkin's turns that stays up between them. It answers each prompt at once, except "Hold on.", which
+// waits for the next message steered into the turn.
+const keptPi = `
+const args = process.argv.slice(1);
+const flag = name => args[args.indexOf(name) + 1];
+const [provider, model] = flag('--model').split('/');
+const send = event => process.stdout.write(JSON.stringify(event) + '\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  input += chunk;
+  let end;
+  while ((end = input.indexOf('\\n')) >= 0) {
+    const cmd = JSON.parse(input.slice(0, end));
+    input = input.slice(end + 1);
+    const reply = data => send({ type: 'response', id: cmd.id, command: cmd.type, success: true, data });
+    if (cmd.type === 'get_state') reply({ sessionId: 'pi-kept', thinkingLevel: flag('--thinking'), model: { provider, id: model } });
+    else if (cmd.type === 'get_session_stats') reply({ sessionId: 'pi-kept' });
+    else if (cmd.type === 'prompt') {
+      reply({ disposition: 'started' });
+      if (cmd.message === 'Hold on.') continue;
+      send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Took: ' + cmd.message }] } });
+      send({ type: 'agent_settled' });
+    }
+  }
+});
+`;
+const gone = child => child.exitCode !== null || child.signalCode !== null;
+
+test('a durable hobkin on Pi keeps one process for its turns, and ending it or closing hobkin closes that process', async t => {
+  const h = fixture(t);
+  const processes = [];
+  const spawnProcess = (command, args, options) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', keptPi, '--', ...args], options);
+    processes.push({ child, env: options.env });
+    return child;
+  };
+  const app = await h.openApp({ runHarness: (request, options) => runHarness(request, { ...options, spawnProcess }) });
+  t.after(() => app.close());
+  const engine = { kind: 'pi', model: 'test/model', effort: 'medium' };
+  const { id, run } = await app.hobkins.start({ text: 'First.', cwd: h.folder, engine, title: 'Kept' });
+  assert.equal((await waitingNow(app, id)).last.said, 'Took: First.');
+  assert.equal(gone(processes[0].child), false, 'the process waits for the next turn');
+  await until(async () => !(await app.refresh()).stopControls.targets.some(target => target.runId === run));
+  assert.equal(app.runtime.active.has(run), false, 'a finished turn leaves nothing for Stop or Force to reach');
+  const token = processes[0].env.HOBKIN_TURN;
+  await assert.rejects(tell(app, h.root, { HOBKIN_TURN: token }, ['main', 'Between turns.']), /not a turn hobkin is running/);
+
+  const second = await app.hobkins.say(id, { text: 'Hold on.' });
+  await until(async () => (await app.runtime.state()).runs[second.run]?.status === 'running');
+  assert.equal((await tell(app, h.root, { HOBKIN_TURN: token }, ['main', 'From the kept process.'])).sent, true);
+  const state = await app.runtime.state();
+  const mail = Object.values(state.hobkinMail).find(item => item.text === 'From the kept process.');
+  assert.deepEqual([mail.from, mail.count], [{ kind: 'hobkin', id, title: 'Kept' }, state.hobkins[id].count], "sent as this hobkin, from the second turn's count");
+  assert.equal((await app.hobkins.say(id, { text: 'Go on.' })).queued, true);
+  assert.equal((await waitingNow(app, id)).last.said, 'Took: Go on.');
+  assert.equal(processes.length, 1, "the second turn ran in the first turn's process");
+  assert.equal('spawned' in (await app.runtime.state()).runs[second.run].performance.stages, false);
+
+  await app.hobkins.end(id);
+  assert.ok(gone(processes[0].child), 'ending the hobkin closes its process');
+  const other = await app.hobkins.start({ text: 'Again.', cwd: h.folder, engine });
+  await waitingNow(app, other.id);
+  assert.deepEqual([processes.length, gone(processes[1].child)], [2, false]);
+  await app.close();
+  assert.ok(gone(processes[1].child), 'closing hobkin closes every process it kept');
 });

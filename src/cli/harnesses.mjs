@@ -10,6 +10,8 @@ import { createTurnMetrics } from './turn-metrics.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { assertPromptBytes, promptByteLimit } from './prompt-bounds.mjs';
+import { recordEvent } from './events.mjs';
+import { promptFactsIn } from './work/usage.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -87,8 +89,65 @@ export const namingExtensions = run => async (request, options) => {
   return run({ ...request, extensions }, { ...options, turn });
 };
 
+// A durable hobkin's Pi process stays up after a turn that ended well, so the next turn of that conversation only prompts
+// it. Each is kept by its conversation file, and goes after this long without a turn or when more are kept than this.
+const KEPT_IDLE_MS = 600000;
+const MOST_KEPT = 4;
+const keptProcesses = new Map();
+// Kept processes still exiting, by conversation file, so a new one for that file starts only once the old one is gone.
+const closingProcesses = new Map();
+
+/** Records that come while no turn holds a kept process reach no turn, and a dialog is declined as it is in a turn. */
+const between = child => record => {
+  if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
+};
+
+/** Closes the process kept for this conversation file, if one is kept, and resolves once it, or one closed before, has exited. */
+export async function closeKept(sessionFile) {
+  const kept = keptProcesses.get(sessionFile);
+  if (kept) {
+    keptProcesses.delete(sessionFile);
+    clearTimeout(kept.timer);
+    kept.child.terminate();
+    const closed = kept.child.closed.then(() => {
+      if (closingProcesses.get(sessionFile) === closed) closingProcesses.delete(sessionFile);
+    });
+    closingProcesses.set(sessionFile, closed);
+  }
+  await closingProcesses.get(sessionFile);
+}
+
+/**
+ * The kept process a turn takes: one started with exactly what this turn would start its own with. Any other kept for the
+ * conversation has exited before this resolves, so two processes never share the file. A process a turn holds is never kept.
+ */
+async function takeKept(sessionFile, key) {
+  const kept = keptProcesses.get(sessionFile);
+  if (kept?.key === key && !kept.child.failure && !kept.child.exited) {
+    keptProcesses.delete(sessionFile);
+    clearTimeout(kept.timer);
+    return kept;
+  }
+  await closeKept(sessionFile);
+}
+
+/** Keeps a process after its turn. One that exits on its own is forgotten, and past the most kept the one idle longest goes. */
+function keep(sessionFile, kept, idleMs) {
+  Object.assign(kept.lane, { accept: between(kept.child), fail: () => {} });
+  void closeKept(sessionFile);
+  kept.timer = setTimeout(() => void closeKept(sessionFile), idleMs);
+  kept.timer.unref();
+  keptProcesses.set(sessionFile, kept);
+  kept.child.closed.then(() => {
+    if (keptProcesses.get(sessionFile) !== kept) return;
+    keptProcesses.delete(sessionFile);
+    clearTimeout(kept.timer);
+  });
+  if (keptProcesses.size > MOST_KEPT) void closeKept(keptProcesses.keys().next().value);
+}
+
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn, keepIdleMs = KEPT_IDLE_MS } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -104,12 +163,33 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     sessionId: null,
     freshSession: !existsSync(request.sessionFile),
   };
-  if (request.signal?.aborted) return { ...result, status: 'interrupted', error: 'Cancelled before dispatch.' };
+  const durable = request.purpose === 'durable';
+  // What hobkin gives this run's own process, such as a durable hobkin's turn token (`hobkin-tell.mjs`).
+  const env = { ...piEnvironment(request.launcher), ...request.env };
+  // Everything a durable turn's process starts with. The conversation's next turn reuses it only when all of it is the same.
+  const key = durable && JSON.stringify([invocation.command, invocation.args, request.cwd, env]);
+  const reused = durable ? await takeKept(request.sessionFile, key) : undefined;
+  if (request.signal?.aborted) {
+    reused?.child.terminate();
+    await reused?.child.closed;
+    return { ...result, status: 'interrupted', error: 'Cancelled before dispatch.' };
+  }
 
   const settled = Promise.withResolvers();
   settled.promise.catch(() => {});
   let child;
   let spawned;
+  let state;
+  let promptFacts;
+  // A durable turn hands out a handle of its own, which lets go of the process when the turn ends, so Stop and Force
+  // reach only the turn in flight and never a process kept for the next one.
+  const released = Promise.withResolvers();
+  let holding = true;
+  const lease = {
+    closed: released.promise,
+    force: () => { if (holding) child.force(); },
+    terminate: () => { if (holding) child.terminate(); },
+  };
   let assistant;
   let metrics;
   let metricIdentity;
@@ -167,33 +247,41 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       if (record.aborted === true) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
       else if (!agents.size) void finishOwned();
     }
+    // What the run's first model request was made of, from the usage extension. Only hashes and sizes are kept.
+    promptFacts ??= promptFactsIn(record);
     onEvent(record);
   };
+  // This run reads the process's records and failures while it runs. A kept process already has its lane.
+  const lane = Object.assign(reused?.lane ?? {}, { accept, fail: error => settled.reject(error) });
   try {
-    child = startProcess({
-      ...invocation,
-      cwd: request.cwd,
-      // What hobkin gives this run's own process, such as a durable hobkin's turn token (`hobkin-tell.mjs`).
-      env: { ...piEnvironment(request.launcher), ...request.env },
-      spawnProcess,
-      maxRecordBytes: maxOutputBytes,
-      maxKeptBytes: Math.min(maxOutputBytes, MAX_KEPT_RECORD_BYTES),
-      onRecord: accept,
-      onFail: error => settled.reject(error),
-    });
-    spawned = Date.now();
-    onControl(child);
+    if (reused) child = reused.child;
+    else {
+      child = startProcess({
+        ...invocation,
+        cwd: request.cwd,
+        env,
+        spawnProcess,
+        maxRecordBytes: maxOutputBytes,
+        maxKeptBytes: Math.min(maxOutputBytes, MAX_KEPT_RECORD_BYTES),
+        onRecord: record => lane.accept(record),
+        onFail: error => lane.fail(error),
+      });
+      spawned = Date.now();
+      child.closed.then(({ error }) => lane.fail(error));
+    }
+    if (durable) child.closed.then(released.resolve);
+    onControl(durable ? lease : child);
   } catch (error) {
     child?.terminate();
     if (child) await child.closed;
     return { ...result, error: clean(error.message) };
   }
-  child.closed.then(({ error }) => settled.reject(error));
 
   const cancel = () => child.fail(Object.assign(Error('Harness cancelled.'), { interrupted: true }));
   request.signal?.addEventListener('abort', cancel, { once: true });
   try {
-    const state = await child.request('get_state');
+    // A kept process was checked when it started, and nothing it was started with has changed.
+    state = reused?.state ?? await child.request('get_state');
     const effortHeld = workPurposes.includes(request.purpose)
       ? keptEffort(state?.model, request.effort, state?.thinkingLevel)
       : state?.thinkingLevel === request.effort;
@@ -209,7 +297,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     metricIdentity = Object.freeze({ runId: request.id, sessionId: state.sessionId });
     const kind = request.purpose === 'durable' ? 'durable' : workPurposes.includes(request.purpose) ? 'work' : 'other';
     metrics = createTurnMetrics({ ...metricIdentity, turn: { since: entered, origin: 'run', kind, ...turn,
-      engine: 'pi', model, effort: request.effort, marks: { ...turn?.marks, spawned, ready: Date.now() } } });
+      engine: 'pi', model, effort: request.effort, marks: { ...turn?.marks, ...(reused ? {} : { spawned, ready: Date.now() }) } } });
     const response = await child.request('prompt', { message: request.prompt });
     if (response?.disposition === 'handled') {
       throw Error('Pi handled the prompt without starting an assistant response.');
@@ -245,8 +333,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
     if (stats?.tokens) result.tokens = (stats.tokens.input ?? 0) + (stats.tokens.cacheWrite ?? 0) + (stats.tokens.output ?? 0);
     result.status = 'completed';
-    child.terminate();
-    await child.closed;
+    if (!durable) {
+      child.terminate();
+      await child.closed;
+    }
   } catch (error) {
     result.status = (child.failure ?? error).interrupted ? 'interrupted' : 'failed';
     result.error = clean((child.failure ?? error).message).slice(0, 2000);
@@ -255,10 +345,17 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       result.performance = metrics.finish(metricIdentity);
       if (metricsRoot) metrics.record(metricsRoot, metricIdentity);
     }
+    if (metricsRoot && promptFacts) recordEvent(metricsRoot, 'turn_prompt', { id: request.id, ...promptFacts });
     takesMessages = false;
     request.signal?.removeEventListener('abort', cancel);
-    child.terminate();
-    await child.closed;
+    if (durable && result.status === 'completed' && !child.failure && !child.exited) {
+      holding = false;
+      released.resolve({ code: null, signal: null });
+      keep(request.sessionFile, { child, key, state, lane }, keepIdleMs);
+    } else {
+      child.terminate();
+      await child.closed;
+    }
   }
   return result;
 }
