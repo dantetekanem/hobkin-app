@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import type { spawn } from 'node:child_process'
 import { EventEmitter, once } from 'node:events'
-import { mkdirSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -9,7 +9,7 @@ import { test, type TestContext } from 'node:test'
 import type { QuestionAnswer } from 'hobkin/src/cli/application.mjs'
 import { followUsage, sessionError, sessionUsage } from 'hobkin/src/cli/work/store.mjs'
 import { CLAUDE_CODE_DEFAULTS, type ClaudeCodeSettings } from '#shared/protocol/claude-code.ts'
-import { runClaudeHarness, type ClaudeChild, type ClaudeHarnessRequest, type ClaudeRunSetup } from '../src/claude-code/harness.ts'
+import { runClaudeHarness, type ClaudeChild, type ClaudeHarnessOptions, type ClaudeHarnessRequest, type ClaudeRunSetup } from '../src/claude-code/harness.ts'
 import type { Ask, AskRequest } from '../src/questions.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -83,10 +83,11 @@ interface Launch {
   settings?: ClaudeCodeSettings
   request?: Partial<ClaudeHarnessRequest>
   setup?: Partial<ClaudeRunSetup>
+  options?: Pick<ClaudeHarnessOptions, 'metricsRoot' | 'turn'>
 }
 
 /** One run on a fake claude, with everything the harness hands back. */
-function launch(t: TestContext, { settings = SETTINGS, request = {}, setup = {} }: Launch = {}) {
+function launch(t: TestContext, { settings = SETTINGS, request = {}, setup = {}, options = {} }: Launch = {}) {
   const home = temporaryDirectory(t)
   const fake = new FakeClaude()
   const spawned: { command: string; args: string[]; options: Line }[] = []
@@ -108,6 +109,7 @@ function launch(t: TestContext, { settings = SETTINGS, request = {}, setup = {} 
     return fake
   }) as unknown as typeof spawn
   const finished = runClaudeHarness(run, {
+    ...options,
     onEvent: (event) => events.push(event),
     onReady: (given) => (send = given),
     onControl: (given) => (child = given),
@@ -230,8 +232,17 @@ test('a finished run reports its text, cost and tokens, and records its usage', 
   )
   await until(() => run.fake.inputClosed, 'the input to close')
   run.fake.exit(0)
-  const ended = await run.finished
+  const { performance, ...ended } = await run.finished
 
+  // Its timings count each of its two responses once, from their own usage.
+  assert.deepEqual([performance?.responses, performance?.input, performance?.output, performance?.cacheRead, performance?.cacheWrite, performance?.estimatedUsd], [
+    2,
+    { value: 37, state: 'complete' },
+    { value: 100, state: 'complete' },
+    { value: 3000, state: 'complete' },
+    { value: 3000, state: 'complete' },
+    { value: 0.0421, state: 'complete' },
+  ])
   const tokens = 12 + 3000 + 60 + (25 + 40)
   assert.deepEqual(ended, {
     id: RUN_ID,
@@ -473,4 +484,101 @@ test("Claude's questions and permission prompts are answered on the sheet one at
   run.fake.exit(0)
   assert.equal((await run.finished).status, 'completed')
   assert.equal(answerTo(run.fake.written, 'req-4'), undefined)
+})
+
+/** Every event in hobkin's event log under a data root, without the time it was written. */
+function loggedEvents(root: string): Line[] {
+  const folder = join(root, 'runtime', 'events')
+  return readdirSync(folder).flatMap((file) => readFileSync(join(folder, file), 'utf8').trim().split('\n').map((line) => {
+    const { at, ...event } = JSON.parse(line)
+    assert.ok(Number.isFinite(Date.parse(at)))
+    return event
+  }))
+}
+
+test("a turn's timings come back on its result and go once into hobkin's event log", async (t) => {
+  const root = temporaryDirectory(t)
+  const since = Date.now() - 50
+  const run = launch(t, { options: { metricsRoot: root, turn: { since, origin: 'window', kind: 'main', marks: { host: since + 10, admitted: since + 40 } } } })
+  await until(() => run.send(), 'the prompt')
+  const stream = (event: Line) => ({ type: 'stream_event', event, parent_tool_use_id: null, session_id: RUN_ID })
+  run.fake.print(
+    init(),
+    replay('Fix the flaky cache test.'),
+    stream({ type: 'message_start', message: { id: 'msg_1', model: MODEL, usage: usage(12, 1) } }),
+    stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Fixed.' } }),
+    { type: 'assistant', message: { id: 'msg_1', role: 'assistant', model: MODEL, content: [{ type: 'text', text: 'Fixed.' }], usage: usage(12, 1) }, parent_tool_use_id: null, session_id: RUN_ID },
+    stream({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } }),
+    stream({ type: 'message_stop' }),
+    result('Fixed.', { duration_api_ms: 900 }),
+  )
+  await until(() => run.fake.inputClosed, 'the input to close')
+  run.fake.exit(0)
+  const ended = await run.finished
+  assert.equal(ended.status, 'completed')
+  const { stages, firstObservedOutputMs, dispatchElapsedMs, ...facts } = ended.performance!
+  // The responses one by one are in the event only.
+  assert.equal('steps' in ended.performance!, false)
+  const [{ steps }] = loggedEvents(root) as unknown as [{ steps: Record<'at' | 'first' | 'text' | 'end' | 'input' | 'cacheRead' | 'output', number | null>[] }]
+
+  assert.deepEqual(facts, {
+    schemaVersion: 1,
+    runId: RUN_ID,
+    sessionId: RUN_ID,
+    responses: 1,
+    incomplete: false,
+    input: { value: 12, state: 'complete' },
+    output: { value: 8, state: 'complete' },
+    cacheRead: { value: 0, state: 'complete' },
+    cacheWrite: { value: 0, state: 'complete' },
+    estimatedUsd: { value: 0.01, state: 'complete' },
+    responseDurationMs: { value: 900, state: 'complete' },
+    kind: 'main',
+    engine: 'claude',
+    model: MODEL,
+    effort: 'low',
+    origin: 'window',
+  })
+  // Each moment is ms since the turn began, in the order a turn goes.
+  const order = ['host', 'admitted', 'spawned', 'prompted', 'ready', 'requested', 'text', 'ended'] as const
+  assert.deepEqual(Object.keys(stages).sort(), [...order].sort())
+  assert.deepEqual([stages.host, stages.admitted], [10, 40])
+  const times = order.map((stage) => stages[stage]!)
+  assert.deepEqual(times, [...times].sort((a, b) => a - b))
+  assert.ok(stages.spawned! >= 50, 'the turn began before the harness did')
+  assert.ok(firstObservedOutputMs !== null && dispatchElapsedMs !== null && firstObservedOutputMs <= dispatchElapsedMs)
+  assert.deepEqual(steps.map(({ input, cacheRead, output }) => [input, cacheRead, output]), [[12, 0, 8]])
+  assert.ok(steps.every((step) => [step.at, step.first, step.text, step.end].every((at) => typeof at === 'number' && at >= 0)))
+
+  assert.deepEqual(loggedEvents(root), [{ type: 'run_performance', ...ended.performance, steps }])
+  const folder = join(root, 'runtime', 'events')
+  assert.doesNotMatch(readFileSync(join(folder, readdirSync(folder)[0]!), 'utf8'), /Fixed|flaky/, 'nothing the model or the user wrote')
+})
+
+test('a stopped turn still records what it measured, and a log that cannot be written fails nothing', async (t) => {
+  const root = temporaryDirectory(t)
+  const stop = new AbortController()
+  const stopped = launch(t, { request: { signal: stop.signal }, options: { metricsRoot: root } })
+  await until(() => stopped.send(), 'the run to start')
+  stopped.fake.print(init())
+  await until(() => statSync(stopped.request.sessionFile, { throwIfNoEntry: false }), 'the session to begin')
+  stop.abort()
+  const ended = await stopped.finished
+  assert.equal(ended.status, 'interrupted')
+  assert.deepEqual([ended.performance?.incomplete, ended.performance?.origin, ended.performance?.kind, ended.performance?.responses], [true, 'run', 'work', 0])
+  assert.deepEqual(Object.keys(ended.performance!.stages), ['spawned', 'prompted', 'ready', 'ended'])
+  assert.deepEqual(loggedEvents(root), [{ type: 'run_performance', ...ended.performance, steps: [] }])
+
+  // A data root that is a file takes no event, and the turn goes on as ever.
+  const blocked = join(temporaryDirectory(t), 'a-file')
+  writeFileSync(blocked, '')
+  const run = launch(t, { options: { metricsRoot: blocked } })
+  await until(() => run.send(), 'the run to start')
+  run.fake.print(init(), result('Done.'))
+  await until(() => run.fake.inputClosed, 'the input to close')
+  run.fake.exit(0)
+  const done = await run.finished
+  assert.equal(done.status, 'completed')
+  assert.equal(done.performance?.runId, RUN_ID)
 })

@@ -4,10 +4,12 @@ import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Readable } from 'node:stream'
 import { stripVTControlCharacters } from 'node:util'
+import { recordEvent } from 'hobkin/src/cli/events.mjs'
 import { PERMISSION_MODE, type ClaudeCodeSettings } from '#shared/protocol/claude-code.ts'
 import type { Ask } from '../questions.ts'
 import { answerToolRequest, type ToolRequest } from './asking.ts'
 import { ClaudeStream, type ClaudeRecord, type PiEvent, type SessionLine } from './stream.ts'
+import { turnTiming, type TurnContext, type TurnFacts, type TurnTiming } from './timing.ts'
 
 /**
  * One of hobkin's agent runs on the installed `claude` CLI, headless (`033-claude-code-agents`). It takes the request,
@@ -25,6 +27,8 @@ export interface ClaudeHarnessRequest {
   resume?: string
   effort?: string
   purpose?: string
+  /** The routine a scheduled run belongs to, when hobkin names it. */
+  scheduleId?: string
   signal?: AbortSignal
 }
 
@@ -39,6 +43,10 @@ export interface ClaudeHarnessOptions {
   onEvent?: (event: Record<string, unknown>) => void
   onReady?: (send: (message: string) => Promise<{ disposition: 'queued' }>) => void
   onControl?: (child: ClaudeChild) => void
+  /** hobkin's data root: the turn's timings go in its event log. */
+  metricsRoot?: string
+  /** What the runtime knows of the turn before it reached the harness. */
+  turn?: TurnContext
 }
 
 type Signal = 'SIGTERM' | 'SIGKILL'
@@ -77,6 +85,8 @@ export interface ClaudeHarnessResult {
   freshSession: true
   tokens?: number
   error?: string
+  /** When each moment of the turn came, and what it spent: hobkin's `run_performance` facts. The event also lists each response. */
+  performance?: Omit<TurnFacts, 'steps'>
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -123,8 +133,11 @@ function killAtExit(kill: () => void): () => void {
   return () => live.delete(kill)
 }
 
+/** The `--effort` level Claude Code runs at, or undefined for its own. */
+const levelOf = (effort: ClaudeCodeSettings['effort'], request: ClaudeHarnessRequest) => (effort === 'tier' ? EFFORTS.get(request.effort ?? '') : effort)
+
 function claudeArguments({ model, effort, permissions }: ClaudeCodeSettings, request: ClaudeHarnessRequest, sessionId: string, directions: string): string[] {
-  const level = effort === 'tier' ? EFFORTS.get(request.effort ?? '') : effort
+  const level = levelOf(effort, request)
   return [
     '-p',
     '--input-format', 'stream-json',
@@ -234,8 +247,35 @@ function outcome(last: ClaudeRecord): { text: string } | { error: string } {
   return { error: said || errors || `Claude Code stopped without finishing (${clean(last.subtype) || 'no reason given'}).` }
 }
 
+/** The turn's timings go on its result and, given hobkin's data root, into its event log. Neither can fail the turn. */
+function timed(result: ClaudeHarnessResult, timing: TurnTiming, root: string | undefined): ClaudeHarnessResult {
+  try {
+    const facts = timing.facts()
+    if (!facts) return result
+    if (root) recordEvent(root, 'run_performance', facts)
+    // The responses one by one go in the event only, as on Pi: a run keeps its facts for good.
+    const { steps: _steps, ...performance } = facts
+    return { ...result, performance }
+  } catch {
+    return result
+  }
+}
+
 /** Runs one request on Claude Code. It never throws for the run itself: how the run went is in the result. */
 export async function runClaudeHarness(request: ClaudeHarnessRequest, options: ClaudeHarnessOptions = {}, setup: ClaudeRunSetup): Promise<ClaudeHarnessResult> {
+  const { settings } = setup
+  const timing = turnTiming({
+    runId: request.id,
+    purpose: request.purpose,
+    scheduleId: request.scheduleId,
+    model: settings.model === 'default' ? null : settings.model,
+    effort: levelOf(settings.effort, request) ?? null,
+    turn: options.turn,
+  })
+  return timed(await runTurn(request, options, setup, timing), timing, options.metricsRoot)
+}
+
+async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOptions, setup: ClaudeRunSetup, timing: TurnTiming): Promise<ClaudeHarnessResult> {
   const { onEvent = () => {}, onReady = () => {}, onControl = () => {} } = options
   // A stop ends the run within five seconds (A10): SIGTERM at two, SIGKILL at four.
   const { settings, stopMs = 2000, killMs = 4000, forceGraceMs = 1000 } = setup
@@ -328,6 +368,7 @@ export async function runClaudeHarness(request: ClaudeHarnessRequest, options: C
     await closed
     return { ...result, error: startFailure(failure, setup.claude, request.cwd) }
   }
+  timing.spawned(sessionId)
   unwatch = killAtExit(() => kill('SIGTERM'))
 
   const write = (line: object) => {
@@ -376,6 +417,7 @@ export async function runClaudeHarness(request: ClaudeHarnessRequest, options: C
   }
 
   const take = (line: ClaudeRecord) => {
+    timing.observe(line)
     if (line.type === 'control_request') return control(line)
     if (line.type === 'control_cancel_request') return asking.get(String(line.request_id))?.abort()
     if (line.type === 'control_response') return
@@ -436,6 +478,7 @@ export async function runClaudeHarness(request: ClaudeHarnessRequest, options: C
   }
   if (!stopping && !forced && !exited) {
     write(userMessage(request.prompt, sessionId))
+    timing.prompted()
     takesMessages = true
     try {
       onReady(async (message) => {
