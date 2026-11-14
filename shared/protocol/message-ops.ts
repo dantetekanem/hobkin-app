@@ -43,8 +43,10 @@ export function diffMessages(previous: readonly ChatMessage[], next: readonly Ch
   const appended = next.slice(lastKept + 1)
   if (appended.length) ops.push({ op: 'append', messages: appended })
 
+  // The same object is the same message, so only one that was replaced is compared.
   for (const message of keptInNext) {
-    if (JSON.stringify(before.get(message.id)) !== JSON.stringify(message)) ops.push({ op: 'update', id: message.id, message })
+    const old = before.get(message.id)
+    if (old !== message && JSON.stringify(old) !== JSON.stringify(message)) ops.push({ op: 'update', id: message.id, message })
   }
   return ops
 }

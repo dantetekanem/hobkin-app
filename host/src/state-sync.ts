@@ -20,6 +20,9 @@ import type { WorkState } from '#shared/protocol/work.ts'
  */
 const HOST_ONLY = new Set(['config', 'history', 'presentation', 'messages', 'jobActivity', 'mainActivity', 'savedAt', 'version'])
 
+/** Every key is encoded again at least this often, so a value edited in place after it was sent still goes out. */
+const FULL_ENCODING_MS = 1000
+
 /** Every job's activity in a snapshot. hobkin rebuilds it on each refresh, so it travels as steps (`shared/protocol/activity.ts`). */
 const activityOf = (snapshot: HobkinSnapshot | null): JobActivity => {
   const activity = snapshot?.jobActivity
@@ -28,20 +31,29 @@ const activityOf = (snapshot: HobkinSnapshot | null): JobActivity => {
   return Array.isArray(snapshot?.mainActivity) ? { ...jobs, [MAIN_ACTIVITY]: snapshot.mainActivity } : jobs
 }
 
-/**
- * hobkin's snapshot as the UI gets it: its top-level keys, and the conversation as the terminal app shows it,
- * without what the user cleared and without messages that have nothing to read, such as a reply stopped
- * before its first word (`isVisible` in hobkin's `src/cli/ui.mjs`).
- */
-export function toWire(snapshot: HobkinSnapshot, cleared: ReadonlySet<string> = new Set()): { values: WireSnapshot; messages: ChatMessage[] } {
-  // hobkin reads what was cleared when it opens. What is cleared after that is known here.
-  const hidden = new Set([...(snapshot.presentation?.hiddenMessageIds ?? []), ...cleared])
-  const values = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => !HOST_ONLY.has(key) && value !== undefined))
-  if (Array.isArray(values.schedules)) values.schedules = values.schedules.map((row: unknown) => {
+/** The routines as the UI gets them, each with the fingerprint of its definition, which a deletion must name. */
+export function wireSchedules(schedules: unknown[]): unknown[] {
+  return schedules.map((row: unknown) => {
     if (!row || typeof row !== 'object') return row
     const { nextRun: _next, ...definition } = row as Record<string, unknown>
     return { ...row, expectedDefinition: scheduleDefinition(definition) }
   })
+}
+
+/**
+ * hobkin's snapshot as the UI gets it: its top-level keys, and the conversation as the terminal app shows it,
+ * without what the user cleared and without messages that have nothing to read, such as a reply stopped
+ * before its first word (`isVisible` in hobkin's `src/cli/ui.mjs`). `schedules` gives the routines' rows.
+ */
+export function toWire(
+  snapshot: HobkinSnapshot,
+  cleared: ReadonlySet<string> = new Set(),
+  schedules: (rows: unknown[]) => unknown[] = wireSchedules,
+): { values: WireSnapshot; messages: ChatMessage[] } {
+  // hobkin reads what was cleared when it opens. What is cleared after that is known here.
+  const hidden = new Set([...(snapshot.presentation?.hiddenMessageIds ?? []), ...cleared])
+  const values = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => !HOST_ONLY.has(key) && value !== undefined))
+  if (Array.isArray(values.schedules)) values.schedules = schedules(values.schedules)
   const messages = ((snapshot.messages ?? []) as ChatMessage[]).flatMap((message): ChatMessage[] => {
     if (hidden.has(message.id)) return []
     if (message.role === 'bashExecution') {
@@ -78,7 +90,8 @@ export interface HostFacts {
 
 /**
  * Turns each new state into the smallest message that brings a UI up to date: the keys that changed, and the
- * conversation as steps. A long history is never sent again because one key moved.
+ * conversation as steps. A long history is never sent again because one key moved, and a value that is still the
+ * same object is not serialized again.
  */
 export class StateSync {
   private rev = 0
@@ -98,8 +111,19 @@ export class StateSync {
   private nudge: Nudge | null = null
   private appearance: AppearanceRequest | null = null
   private readonly cleared = new Set<string>()
+  /** Each host fact's JSON as last compared, so the value held is never serialized again. */
+  private readonly seen = new Map<keyof HostFacts, string>()
+  /** The routines last given rows, with those rows. */
+  private schedules: { list: unknown[]; rows: unknown[] } | null = null
+  /** When every key was last encoded. */
+  private encodedAt = -Infinity
+  private readonly now: () => number
 
-  constructor({ owner, signIn, models, github, integrations, canvas, canvases, appearance }: Omit<HostFacts, 'snapshot'>) {
+  constructor(
+    { owner, signIn, models, github, integrations, canvas, canvases, appearance }: Omit<HostFacts, 'snapshot'>,
+    { now = Date.now }: { now?: () => number } = {},
+  ) {
+    this.now = now
     this.canvas = canvas ?? null
     this.canvases = canvases ?? null
     this.appearance = appearance ?? null
@@ -143,18 +167,18 @@ export class StateSync {
 
   /** What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source. */
   update({ owner, signIn, models, github, integrations, work = null, canvas, canvases, nudge, appearance, snapshot }: HostFacts): StateMessage | null {
-    const ownerChanged = JSON.stringify(owner) !== JSON.stringify(this.owner)
-    const signInChanged = JSON.stringify(signIn) !== JSON.stringify(this.signIn)
-    const modelsChanged = models !== null && JSON.stringify(models) !== JSON.stringify(this.models)
-    const githubChanged = github !== undefined && JSON.stringify(github) !== JSON.stringify(this.github)
-    const integrationsChanged = integrations !== undefined && JSON.stringify(integrations) !== JSON.stringify(this.integrations)
-    const workChanged = JSON.stringify(work) !== JSON.stringify(this.work)
-    const canvasChanged = canvas !== undefined && JSON.stringify(canvas) !== JSON.stringify(this.canvas)
-    const canvasesChanged = canvases !== undefined && JSON.stringify(canvases) !== JSON.stringify(this.canvases)
+    const ownerChanged = this.differs('owner', owner, this.owner)
+    const signInChanged = this.differs('signIn', signIn, this.signIn)
+    const modelsChanged = models !== null && this.differs('models', models, this.models)
+    const githubChanged = github !== undefined && this.differs('github', github, this.github)
+    const integrationsChanged = integrations !== undefined && this.differs('integrations', integrations, this.integrations)
+    const workChanged = this.differs('work', work, this.work)
+    const canvasChanged = canvas !== undefined && this.differs('canvas', canvas, this.canvas)
+    const canvasesChanged = canvases !== undefined && this.differs('canvases', canvases, this.canvases)
     // A one-shot instruction is only ever sent when it is new, and never on a reset or in a full state, so the
     // window never replays a move or a draft on a reconnect.
-    const nudgeChanged = nudge != null && JSON.stringify(nudge) !== JSON.stringify(this.nudge)
-    const appearanceChanged = appearance !== undefined && JSON.stringify(appearance) !== JSON.stringify(this.appearance)
+    const nudgeChanged = nudge != null && this.differs('nudge', nudge, this.nudge)
+    const appearanceChanged = appearance !== undefined && this.differs('appearance', appearance, this.appearance)
     const startOver = owner.state !== this.owner.state
     this.owner = owner
     this.signIn = signIn
@@ -167,8 +191,17 @@ export class StateSync {
     if (appearance !== undefined) this.appearance = appearance
     this.work = work
 
-    const { values, messages } = snapshot ? toWire(snapshot, this.cleared) : { values: {}, messages: [] }
-    const encoded = new Map(Object.entries(values).map(([key, value]) => [key, JSON.stringify(value)]))
+    // hobkin changes a value by replacing it, so a value that is still the same object keeps its encoding. In case one
+    // was edited in place after it was sent, every key is encoded again, and the routines' rows worked out again, at
+    // least once a second.
+    const now = this.now()
+    const full = now - this.encodedAt >= FULL_ENCODING_MS
+    if (full) this.encodedAt = now
+    const { values, messages } = snapshot ? toWire(snapshot, this.cleared, (list) => this.rowsOf(list, full)) : { values: {}, messages: [] }
+    const encoded = new Map(Object.entries(values).map(([key, value]) => {
+      const kept = this.sent.get(key)
+      return [key, !full && kept !== undefined && value === this.values[key] ? kept : JSON.stringify(value)]
+    }))
     const changed = [...encoded].filter(([key, json]) => startOver || this.sent.get(key) !== json).map(([key]) => key)
     const unset = startOver ? [] : [...this.sent.keys()].filter((key) => !encoded.has(key))
     const steps = startOver ? [{ op: 'reset' as const, messages }] : diffMessages(this.messages, messages)
@@ -221,5 +254,26 @@ export class StateSync {
       ...(nudgeChanged ? { nudge } : {}),
       ...(appearanceChanged || startOver ? { appearance: this.appearance } : {}),
     }
+  }
+
+  /**
+   * Whether a host fact differs from the one held. The same object is the same fact, because each producer replaces
+   * its object to change it. Another object is compared by its JSON with the JSON last seen, or, the first time, with
+   * what the host opened with.
+   */
+  private differs(fact: keyof HostFacts, value: unknown, held: unknown): boolean {
+    if (value === held) return false
+    const json = JSON.stringify(value)
+    const before = this.seen.has(fact) ? this.seen.get(fact) : JSON.stringify(held)
+    this.seen.set(fact, json)
+    return json !== before
+  }
+
+  /** The routines' rows. Each row hashes its definition, so a list hobkin kept keeps its rows, unless `again` asks for them anew. */
+  private rowsOf(list: unknown[], again: boolean): unknown[] {
+    if (!again && this.schedules?.list === list) return this.schedules.rows
+    const rows = wireSchedules(list)
+    this.schedules = { list, rows }
+    return rows
   }
 }
