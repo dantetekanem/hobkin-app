@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { requestCanvasFocus } from './focus.ts'
-import { closeOver, depth, ground, toggleIntegrationsOver, toggleSettingsOver, type Over } from './overlays.ts'
+import { closeOver, depth, ground, toggleIntegrationsOver, togglePageOver, toggleSettingsOver, type Over, type PageUnderSettings } from './overlays.ts'
 import { screenIndex, type ScreenId, type VeilSection } from './screens.ts'
 import type { Place } from '../features/main-agent/mind.ts'
 
@@ -82,6 +82,8 @@ interface ViewState {
   closeSettings: () => void
   /** Opens Integrations, which always sits under Settings. In Integrations it steps back up to Settings. */
   toggleIntegrations: () => void
+  /** Opens a page under Settings, such as Skills or Pi extensions. On that page it steps back up to Settings. */
+  togglePage: (page: PageUnderSettings) => void
   /** Opens GitHub, from the menu, the spotlight or GitHub's entry in Integrations, whether or not the menu shows it. */
   openGitHub: () => void
   /** Leaves GitHub for the screen it was opened over. The menu offers it for a GitHub it leaves out, which is open only for now. */
@@ -209,6 +211,10 @@ export const useView = create<ViewState>()(
       },
       toggleIntegrations: () => {
         set(stepOver(get(), toggleIntegrationsOver))
+        requestCanvasFocus()
+      },
+      togglePage: (page) => {
+        set(stepOver(get(), (over) => togglePageOver(over, page)))
         requestCanvasFocus()
       },
       closeSettings: () => {

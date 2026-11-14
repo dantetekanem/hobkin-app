@@ -8,6 +8,7 @@ import { useSettings } from '@/features/settings/store.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { requestCanvasFocus } from './focus.ts'
+import { isUnderSettings, type PageUnderSettings } from './overlays.ts'
 import { useRunningAgents } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
@@ -43,7 +44,7 @@ type Second = 'agents' | 'review' | 'settings' | 'github'
 function secondFor(screen: ScreenId, githubInMenu: boolean): Second | null {
   if (screen === 'agent') return 'agents'
   if (screen === 'review') return 'review'
-  if (screen === 'settings' || screen === 'integrations') return 'settings'
+  if (screen === 'settings' || isUnderSettings(screen)) return 'settings'
   if (screen === 'github' && !githubInMenu) return 'github'
   return null
 }
@@ -113,7 +114,7 @@ export function ScreenMenu() {
         <AnimatePresence mode="popLayout" initial={false}>
           {second ? (
             <Born key={second} label={second === 'agents' ? 'Agents' : 'Open now'}>
-              {second === 'agents' ? <Agents /> : second === 'review' ? <ReviewItem /> : second === 'github' ? <GitHubItem /> : <SettingsTrail inIntegrations={screen === 'integrations'} />}
+              {second === 'agents' ? <Agents /> : second === 'review' ? <ReviewItem /> : second === 'github' ? <GitHubItem /> : <SettingsTrail under={isUnderSettings(screen) ? screen : null} />}
             </Born>
           ) : null}
         </AnimatePresence>
@@ -290,24 +291,27 @@ function ReviewItem() {
   )
 }
 
-/** Settings, and Integrations under it: Settings › Integrations. Settings is the way back up. */
-function SettingsTrail({ inIntegrations }: { inIntegrations: boolean }) {
+/** How the close button names a page under Settings, in the middle of a sentence. */
+const CLOSING: Record<PageUnderSettings, string> = { integrations: 'integrations', skills: 'skills', extensions: 'Pi extensions' }
+
+/** Settings, and the page under it: Settings › Integrations, Settings › Skills or Settings › Pi extensions. Settings is the way back up. */
+function SettingsTrail({ under }: { under: PageUnderSettings | null }) {
   const still = useStill()
   const toggleSettings = useView((view) => view.toggleSettings)
   const closeSettings = useView((view) => view.closeSettings)
 
   return (
     <>
-      <Crumb id="settings" label="Settings" index={0} active={!inIntegrations} onClick={toggleSettings} />
-      {inIntegrations ? (
+      <Crumb id="settings" label="Settings" index={0} active={!under} onClick={toggleSettings} />
+      {under ? (
         <>
           <motion.span layout="position" transition={spring.pill} {...popIn(1, still)} aria-hidden="true" className="grid place-items-center text-muted-foreground">
             <ChevronRight className="size-3.5" />
           </motion.span>
-          <Crumb id="integrations" label="Integrations" index={2} active />
+          <Crumb id={under} label={SCREENS.find((entry) => entry.id === under)!.label} index={2} active />
         </>
       ) : null}
-      <CloseButton label={inIntegrations ? 'Close integrations and settings' : 'Close settings'} index={3} onClick={closeSettings} />
+      <CloseButton label={under ? `Close ${CLOSING[under]} and settings` : 'Close settings'} index={3} onClick={closeSettings} />
     </>
   )
 }

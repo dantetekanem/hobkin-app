@@ -1,4 +1,4 @@
-import { Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Puzzle, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
 
 /** The screens in menu order. The order sets the direction a screen comes in from. */
 export const SCREENS = [
@@ -16,6 +16,9 @@ export const SCREENS = [
   { id: 'review', label: 'Review', icon: Waypoints, contextual: true },
   { id: 'settings', label: 'Settings', icon: Settings2, contextual: true },
   { id: 'integrations', label: 'Integrations', icon: Plug, contextual: true },
+  // Pi's skills and extensions, under Settings beside Integrations (039-skills-and-extensions).
+  { id: 'skills', label: 'Skills', icon: BookOpen, contextual: true },
+  { id: 'extensions', label: 'Pi extensions', icon: Puzzle, contextual: true },
 ] as const satisfies readonly ScreenDefinition[]
 
 export type ScreenId = (typeof SCREENS)[number]['id']
@@ -48,8 +51,10 @@ export interface WalkView {
 export function walkScreens({ screen, githubInMenu }: WalkView): ScreenId[] {
   const openNow: Partial<Record<ScreenId, boolean>> = {
     review: screen === 'review',
-    settings: screen === 'settings' || screen === 'integrations',
+    settings: screen === 'settings' || screen === 'integrations' || screen === 'skills' || screen === 'extensions',
     integrations: screen === 'integrations',
+    skills: screen === 'skills',
+    extensions: screen === 'extensions',
     github: screen === 'github',
   }
   return SCREENS.filter(({ id }) => inMenu(id, githubInMenu) || openNow[id]).map(({ id }) => id)

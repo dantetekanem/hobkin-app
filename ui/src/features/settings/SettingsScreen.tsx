@@ -488,17 +488,27 @@ function DailyBudget() {
 /** The way into Integrations. The services themselves live on their own screen (023-integrations). */
 function IntegrationsTile() {
   const toggleIntegrations = useView((view) => view.toggleIntegrations)
+  // Pi's skills and extensions have pages of their own beside it, under Settings (039-skills-and-extensions).
+  const togglePage = useView((view) => view.togglePage)
 
   return (
     <Tile name="Integrations" value="What hobkin can reach" className="col-span-6 @max-[820px]:col-span-2">
-      <div className="flex flex-1 items-center justify-between gap-4">
+      <div className="flex flex-1 items-center justify-between gap-4 @max-[820px]:flex-col @max-[820px]:items-start">
         <p className="max-w-[60ch] text-[13px] text-muted-foreground">
           GitHub, plus Linear, Sentry, Home Assistant and more, and any MCP server of your own. Routines and agents use them through Pi.
         </p>
-        <Button variant="outline" className="shrink-0" data-stop="" data-opens="integrations" onClick={toggleIntegrations}>
-          Open integrations
-          <Kbd>⌘I</Kbd>
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variant="outline" className="shrink-0" data-stop="" data-opens="integrations" onClick={toggleIntegrations}>
+            Open integrations
+            <Kbd>⌘I</Kbd>
+          </Button>
+          <Button variant="outline" className="shrink-0" data-stop="" data-opens="skills" onClick={() => togglePage('skills')}>
+            Skills
+          </Button>
+          <Button variant="outline" className="shrink-0" data-stop="" data-opens="extensions" onClick={() => togglePage('extensions')}>
+            Pi extensions
+          </Button>
+        </div>
       </div>
     </Tile>
   )

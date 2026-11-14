@@ -33,6 +33,9 @@ import { readJobSession } from './job-session.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
 import { Integrations, type McpSource } from './integrations.ts'
 import { piMcpSourceFor } from './integrations-pi.ts'
+import { PiExtensions } from './pi-extensions.ts'
+import { piExtensionSourceFor, piSkillSourceFor } from './pi-resources.ts'
+import { Skills } from './skills.ts'
 import { whyNotUsable } from './main-model.ts'
 import { openableUrl } from './open.ts'
 import { piModelAccess, type LiveModelAccess, type ModelAccess } from './model-access.ts'
@@ -279,6 +282,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const github = new GitHub({ source: options.github ?? sampleGitHubSource(), onChange: publish, wanted: connected, log })
   // Integrations reads Pi's MCP servers only when asked, through Pi's own code, and hides their secrets before anything is sent.
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
+  // Skills and Pi extensions read Pi's resources only when a page asks, and change them only through `pi config`'s own code (039-skills-and-extensions).
+  const skills = new Skills({ source: () => piSkillSourceFor({ live, root }), log })
+  const piExtensions = new PiExtensions({ source: () => piExtensionSourceFor({ live, root }), log })
   // The canvases: the page or drawing each hobkin shows, kept by hobkin under the home, where the `hobkin canvas`
   // command writes them too. The window draws them, and each drawing is served here (030-canvas-panel, 035-canvas-drawings).
   const canvases = new Canvases({
@@ -543,6 +549,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'integrations.turn-on': ({ name }) => integrations.turnOn(name),
     'integrations.add': ({ service, values }) => integrations.add(service, values),
     'integrations.remove': ({ name }) => integrations.remove(name),
+    // Skills and Pi extensions change Pi's settings only on the user's word, through the code `pi config` runs (039-skills-and-extensions).
+    'skills.refresh': () => skills.refresh(),
+    'skills.read': ({ path }) => skills.read(path),
+    'skills.turn-off': ({ path }) => skills.turnOff(path),
+    'skills.turn-on': ({ path }) => skills.turnOn(path),
+    'extensions.refresh': () => piExtensions.refresh(),
+    'extensions.check-updates': () => piExtensions.checkUpdates(),
+    'extensions.turn-off': ({ path }) => piExtensions.turnOff(path),
+    'extensions.turn-on': ({ path }) => piExtensions.turnOn(path),
     'github.open': ({ url }) => {
       // Nothing opens the user's browser unless the caller hands an opener in. The app does (main.ts); a test never does.
       ;(options.openGitHub ?? (() => {}))(url)

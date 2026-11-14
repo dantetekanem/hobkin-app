@@ -154,6 +154,7 @@ function perform(action: KeyAction): boolean {
       if (view.screen === 'agent') view.closeAgentCanvas()
       else if (view.screen === 'review') view.closeReview()
       else if (view.screen === 'integrations') view.toggleIntegrations()
+      else if (view.screen === 'skills' || view.screen === 'extensions') view.togglePage(view.screen)
       else if (view.screen === 'github') view.closeGitHub()
       else if (view.screen === 'world') view.openScreen('work')
       else view.closeSettings()
@@ -164,7 +165,8 @@ function perform(action: KeyAction): boolean {
         // As the World's own Back to Work does: onto the control that opened it.
         requestCanvasFocus('[data-opens="world"]')
       } else if (useView.getState().screen === 'settings') {
-        requestCanvasFocus('[data-opens="integrations"]')
+        // Back in Settings, onto the button that opened the page just left.
+        requestCanvasFocus(`[data-opens="${view.screen}"]`)
       } else {
         useView.getState().disengageCanvas()
         focusInput()

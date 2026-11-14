@@ -2,6 +2,7 @@ import { Type, type Static, type TSchema } from 'typebox'
 import { Check, Errors } from 'typebox/value'
 import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, type BackupState } from '../backup/types.ts'
 import type { IntegrationsState } from '../integrations/wire.ts'
+import type { ExtensionsState, SkillFile, SkillsState } from '../pi-resources/wire.ts'
 import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
 import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
@@ -131,6 +132,8 @@ const routineId = Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' })
 const clock = Type.String({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' })
 /** An MCP server by its name in Pi's configuration, which Pi limits to letters, digits, `_` and `-`. */
 const mcpServer = Type.Object({ name: Type.String({ pattern: '^[A-Za-z0-9_-]{1,64}$' }) }, { additionalProperties: false })
+/** A skill or an extension by Pi's own path for it: its file, or `builtin:<name>` for an extension built into Pi (039-skills-and-extensions). */
+const piResource = Type.Object({ path: Type.String({ minLength: 2, maxLength: 4096, pattern: '^(/|builtin:[a-z0-9.-]+$)' }) }, { additionalProperties: false })
 /** A review by what it reviews: a finished change, `change:<slug>:<item>`, or a pull request, `pr:<owner>/<repo>/<number>`. */
 const reviewId = Type.String({ pattern: '^(change|pr):\\S{3,300}$' })
 const verdict = oneOf(['comment', 'approve', 'approve-merge', 'request-changes', 'discard', 'discard-branch'])
@@ -531,6 +534,51 @@ export const COMMANDS = {
     description: "Remove an MCP server from Pi's configuration: its entry is deleted, and nothing else in the file changes.",
     runs: 'host',
     args: mcpServer,
+    outside: true,
+  },
+  // Skills and Pi extensions change Pi's settings only on the user's word, through the code `pi config` runs (039-skills-and-extensions).
+  'skills.refresh': {
+    description: "Read every skill Pi has again, as `pi config` lists them: each with Pi's name and description for it, where Pi found it, and whether it is on. It only reads, and installs nothing.",
+    runs: 'host',
+    args: nothing,
+  },
+  'skills.read': {
+    description: "Read one of Pi's skills in full, by its path: its description and the rest of its file. Only a file on Pi's list of skills is read.",
+    runs: 'host',
+    args: piResource,
+  },
+  'skills.turn-off': {
+    description: "Turn a skill off in Pi's settings, as `pi config` does: Pi stops loading it from its next start or reload. The skill's file stays as it is.",
+    runs: 'host',
+    args: piResource,
+    outside: true,
+  },
+  'skills.turn-on': {
+    description: "Turn a skill back on in Pi's settings, as `pi config` does. Pi loads it again from its next start or reload.",
+    runs: 'host',
+    args: piResource,
+    outside: true,
+  },
+  'extensions.refresh': {
+    description: "Read Pi's packages and extensions again, as `pi config` lists them: each package with its version and its extensions, and the extensions in Pi's own folder, its settings and Pi itself, each with whether it is on. It only reads, and installs nothing.",
+    runs: 'host',
+    args: nothing,
+  },
+  'extensions.check-updates': {
+    description: "Ask Pi whether its packages have updates, with the check behind Pi's startup notice: `npm view` for an npm package and `git ls-remote` for a git one. It only reads: nothing is installed or fetched.",
+    runs: 'host',
+    args: nothing,
+  },
+  'extensions.turn-off': {
+    description: "Turn an extension off in Pi's settings, as `pi config` does, by its path: Pi stops loading it from its next start or reload. Its files stay as they are.",
+    runs: 'host',
+    args: piResource,
+    outside: true,
+  },
+  'extensions.turn-on': {
+    description: "Turn an extension back on in Pi's settings, as `pi config` does. Pi loads it again from its next start or reload.",
+    runs: 'host',
+    args: piResource,
     outside: true,
   },
   'system.open': {
@@ -1129,6 +1177,15 @@ export interface CommandResults {
   'integrations.turn-on': IntegrationsState
   'integrations.add': IntegrationsState
   'integrations.remove': IntegrationsState
+  /** Each answers with Pi's list as it stands once the change is made, read again through Pi. */
+  'skills.refresh': SkillsState
+  'skills.read': SkillFile
+  'skills.turn-off': SkillsState
+  'skills.turn-on': SkillsState
+  'extensions.refresh': ExtensionsState
+  'extensions.check-updates': ExtensionsState
+  'extensions.turn-off': ExtensionsState
+  'extensions.turn-on': ExtensionsState
   'work.mode': { enabled: boolean }
   /** What hobkin said, when it says something: `now` says whether the row started or what still holds it. */
   'work.queue': { ok: true; message?: string }

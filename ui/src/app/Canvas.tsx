@@ -28,6 +28,8 @@ import { canvasGrowth, useView, type ScreenMotion } from './view-store.ts'
 // The menu's screens load with the frame. A screen loaded on demand slides in empty, and React shows it only once its
 // fallback has been up for a while, so its content would appear in place after the slide instead of sliding in.
 const IntegrationsScreen = lazy(() => import('@/features/integrations/IntegrationsScreen.tsx').then((module) => ({ default: module.IntegrationsScreen })))
+const SkillsScreen = lazy(() => import('@/features/skills/SkillsScreen.tsx').then((module) => ({ default: module.SkillsScreen })))
+const ExtensionsScreen = lazy(() => import('@/features/extensions/ExtensionsScreen.tsx').then((module) => ({ default: module.ExtensionsScreen })))
 const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').then((module) => ({ default: module.ReviewScreen })))
 
 /**
@@ -45,6 +47,8 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   reports: ReportsScreen,
   actions: ActionsScreen,
   integrations: IntegrationsScreen,
+  skills: SkillsScreen,
+  extensions: ExtensionsScreen,
   github: GitHubScreen,
   agent: AgentScreen,
   mind: MainAgentScreen,
