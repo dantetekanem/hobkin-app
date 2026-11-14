@@ -101,6 +101,9 @@ function useHobkin(id: string): { hobkin: HobkinSummary | undefined; state: Page
   return { hobkin, state, connected, fresh: firstMessageNext({ hobkin, started }) }
 }
 
+/** The split's spring: it forms on the screens' spring and undoes on their exit spring. */
+const splitSpring = (split: boolean) => (split ? spring.screen : spring.screenExit)
+
 /**
  * Stop for the turn in flight: the one an agent's screen has for its run. While the hobkin waits there is nothing to stop.
  * In the split it keeps its place at the window's top right, over the canvas, while the page narrows under it (`shift`).
@@ -109,12 +112,13 @@ function useHobkin(id: string): { hobkin: HobkinSummary | undefined; state: Page
 function StopTurn({ id, shift }: { id: string; shift: number }) {
   const still = useStill()
   const run = useHost((state) => state.snapshot.hobkins?.find((summary) => summary.id === id)?.run ?? null)
-  const was = useRef(shift > 0)
-  const turned = shift > 0 !== was.current
+  const inSplit = shift > 0
+  const was = useRef(inSplit)
+  const turned = inSplit !== was.current
   useEffect(() => {
-    was.current = shift > 0
+    was.current = inSplit
   })
-  const transition = still || !turned ? { duration: 0 } : shift > 0 ? spring.screen : spring.screenExit
+  const transition = still || !turned ? { duration: 0 } : splitSpring(inSplit)
   // As wide as the page, so Stop lays out as it always has, and no taller than nothing, so it covers nothing around Stop.
   return run ? (
     <motion.div className="absolute inset-x-0 top-0 z-10" initial={false} animate={{ x: shift }} transition={transition}>
@@ -235,7 +239,7 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
       animate={{
         ...holdStill(RISE_IN.animate, still),
         paddingTop: top,
-        transition: { ...RISE_IN.animate.transition, paddingTop: still ? { duration: 0 } : split ? spring.screen : spring.screenExit },
+        transition: { ...RISE_IN.animate.transition, paddingTop: still ? { duration: 0 } : splitSpring(split) },
       }}
     >
       <div className="flex items-center gap-3">

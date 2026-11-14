@@ -47,8 +47,11 @@ export const useCanvasBoards = create<CanvasBoardsState>()((set, get) => {
     reload: (owner) => change(owner, (board) => ({ reloads: board.reloads + 1 })),
     closeHere: (owner, host) => {
       const { dev } = get()
-      if (owner === MAIN_CANVAS && dev && dev.over === canvasKey(host)) set({ dev: { canvas: { ...dev.canvas, open: false }, over: dev.over } })
-      else change(owner, () => ({ closed: canvasKey(host) }))
+      if (owner === MAIN_CANVAS && dev && dev.over === canvasKey(host)) {
+        set({ dev: { canvas: { ...dev.canvas, open: false }, over: dev.over } })
+      } else {
+        change(owner, () => ({ closed: canvasKey(host) }))
+      }
     },
     save: async (owner, canvas, run) => {
       const key = canvasKey(canvas)

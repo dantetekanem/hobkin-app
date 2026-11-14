@@ -18,14 +18,29 @@ function setup(t: Parameters<typeof temporaryDirectory>[0], more: Partial<Canvas
   const downloads = join(temporaryDirectory(t), 'Downloads')
   mkdirSync(downloads)
   const changes: number[] = []
-  const canvases = new Canvases({ store, root: () => root, port: () => 4000, onChange: () => changes.push(Date.now()), downloads, home: root, ...more })
+  const canvases = new Canvases({
+    store,
+    root: () => root,
+    port: () => 4000,
+    onChange: () => changes.push(Date.now()),
+    downloads,
+    home: root,
+    ...more,
+  })
   afterTest(t, () => canvases.stop())
   return { root, downloads, changes, canvases }
 }
 
 /** A host server in this process that serves only the canvases' drawings. */
 async function serving(t: Parameters<typeof temporaryDirectory>[0], canvases: Canvases): Promise<string> {
-  const server = await listen({ port: 0, token: 'x', origins: [], dev: false, onConnection: () => {}, serve: (request, response) => canvases.serve(request, response) })
+  const server = await listen({
+    port: 0,
+    token: 'x',
+    origins: [],
+    dev: false,
+    onConnection: () => {},
+    serve: (request, response) => canvases.serve(request, response),
+  })
   afterTest(t, () => server.close())
   return `http://127.0.0.1:${server.port}`
 }

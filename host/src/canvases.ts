@@ -141,7 +141,8 @@ export class Canvases {
       const entries = Object.entries(this.options.store.readCanvases(root))
       const owner = entries.find(([, entry]) => entry.open && entry.kind === 'drawing' && sameKey(entry.key, key))?.[0]
       if (!owner) return false
-      const body = this.withRuntime(readFileSync(this.options.store.drawingFile(root, owner)))
+      const drawing = readFileSync(this.options.store.drawingFile(root, owner))
+      const body = this.asServed(drawing)
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'content-length': body.length,
@@ -160,9 +161,10 @@ export class Canvases {
   }
 
   /** A drawing as its frame gets it: with the kit and the runtime, or exactly as written when their files cannot be read. */
-  private withRuntime(drawing: Buffer): Buffer {
+  private asServed(drawing: Buffer): Buffer {
+    const readRuntime = this.options.runtime ?? canvasRuntime
     try {
-      return withRuntime(drawing, (this.options.runtime ?? canvasRuntime)())
+      return withRuntime(drawing, readRuntime())
     } catch {
       return drawing
     }

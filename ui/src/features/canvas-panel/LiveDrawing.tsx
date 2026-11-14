@@ -14,7 +14,13 @@ const themeNow = (): 'light' | 'dark' => (document.documentElement.classList.con
 function colorsNow(): Colors {
   const style = getComputedStyle(document.documentElement)
   const color = (name: string) => style.getPropertyValue(name).trim()
-  return { paper: color('--hb-surface'), ink: color('--hb-text'), muted: color('--hb-muted'), line: color('--hb-border-strong'), accent: color('--hb-accent') }
+  return {
+    paper: color('--hb-surface'),
+    ink: color('--hb-text'),
+    muted: color('--hb-muted'),
+    line: color('--hb-border-strong'),
+    accent: color('--hb-accent'),
+  }
 }
 
 /** What a drawing is told of the window's look, kept as it changes: the theme, a custom palette, Still. */
@@ -27,7 +33,10 @@ function useAppearance(still: boolean): ToDrawing {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-palette'] })
     return () => observer.disconnect()
   }, [])
-  return useMemo(() => ({ hobkin: 'canvas', type: 'appearance', still, ...(JSON.parse(look) as { theme: 'light' | 'dark'; colors: Colors }) }), [look, still])
+  return useMemo(() => {
+    const { theme, colors } = JSON.parse(look) as { theme: 'light' | 'dark'; colors: Colors }
+    return { hobkin: 'canvas', type: 'appearance', still, theme, colors }
+  }, [look, still])
 }
 
 /** How long a fresh frame takes to fade in over the one under it. */
@@ -86,9 +95,11 @@ export function LiveDrawing({ url, title, revision, reloads, arrived, onOpenInBr
   // What the drawing says. Only its own frames are heard, by their windows: the drawing has no origin to check.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      const id = frameOf(event.source, [...elements.current].map(([key, element]) => [key, element.contentWindow] as const))
-      const message = id === null ? null : readFrameMessage(event.data)
-      if (id === null || !message) return
+      const windows = [...elements.current].map(([frameId, element]) => [frameId, element.contentWindow] as const)
+      const id = frameOf(event.source, windows)
+      if (id === null) return
+      const message = readFrameMessage(event.data)
+      if (!message) return
       if (message.type === 'ready') {
         update(markReady(current.current, id))
         post(id, latest.current.appearance)
@@ -98,8 +109,9 @@ export function LiveDrawing({ url, title, revision, reloads, arrived, onOpenInBr
         if (drawingOf(message.url) === drawingOf(newest)) update(loadFresh(current.current, newest, src(newest)))
       } else {
         const frame = elements.current.get(id)
-        const press = frame ? passedKey(message, document.activeElement === frame) : null
-        if (frame && press) frame.dispatchEvent(new KeyboardEvent('keydown', press))
+        if (!frame) return
+        const press = passedKey(message, document.activeElement === frame)
+        if (press) frame.dispatchEvent(new KeyboardEvent('keydown', press))
       }
     }
     addEventListener('message', onMessage)
@@ -126,13 +138,14 @@ export function LiveDrawing({ url, title, revision, reloads, arrived, onOpenInBr
   const bottom = frames.list[0]!
   useEffect(() => {
     if (front === bottom) return
+    const wait = still ? 0 : FADE_S * 1000 + 60
     const timer = setTimeout(() => {
       const at = current.current.list.findIndex((frame) => frame.id === front.id)
       const under = at > 0 ? current.current.list.slice(0, at) : []
-      const leaving = under.some((frame) => elements.current.get(frame.id) === document.activeElement)
+      const keyboardUnder = under.some((frame) => elements.current.get(frame.id) === document.activeElement)
       update(settle(current.current, front.id))
-      if (leaving) elements.current.get(front.id)?.focus()
-    }, still ? 0 : FADE_S * 1000 + 60)
+      if (keyboardUnder) elements.current.get(front.id)?.focus()
+    }, wait)
     return () => clearTimeout(timer)
   }, [front.id, bottom.id, still])
 

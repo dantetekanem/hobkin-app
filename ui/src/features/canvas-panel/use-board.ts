@@ -37,7 +37,8 @@ export function useSplit(): { owner: string; canvas: CanvasState & { url: string
   const canvas = useBoard(id)
   return useMemo(() => {
     const owner = splitOwner({ screen, openAgent }, () => canvas)
-    return owner && canvas?.url ? { owner, canvas: { ...canvas, url: canvas.url } } : null
+    if (!owner || !canvas?.url) return null
+    return { owner, canvas: { ...canvas, url: canvas.url } }
   }, [screen, openAgent, canvas])
 }
 

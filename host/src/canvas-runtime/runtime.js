@@ -79,8 +79,8 @@
    */
   function revisionMode(mine, theirs) {
     if (!mine || !theirs) return 'load'
-    const own = (scripts) => scripts.some((script) => !script.runtime)
-    return own(mine) || own(theirs) ? 'load' : 'morph'
+    const runsOwnScript = (scripts) => scripts.some((script) => !script.runtime)
+    return runsOwnScript(mine) || runsOwnScript(theirs) ? 'load' : 'morph'
   }
 
   /**
@@ -111,10 +111,13 @@
       return -1
     }
     const steps = next.map((item) => {
-      const from = item.id ? take(byId, item.id, (candidate) => candidate.tag === item.tag) : take(byTag, item.tag, () => true)
+      const from = item.id
+        ? take(byId, item.id, (candidate) => candidate.tag === item.tag)
+        : take(byTag, item.tag, () => true)
       return from === -1 ? { op: 'insert' } : { op: 'keep', from }
     })
-    return { steps, remove: taken.flatMap((kept, index) => (kept ? [] : [index])) }
+    const remove = taken.flatMap((kept, index) => (kept ? [] : [index]))
+    return { steps, remove }
   }
 
   // ---- Motion ----
@@ -138,7 +141,8 @@
    * so the two together put the element where it was. Null when it neither moved nor resized, or had no box.
    */
   function flipDelta(before, after, origin, parent) {
-    if (!before || !after || !(before.width || before.height) || !(after.width || after.height)) return null
+    const hasBox = (box) => box && (box.width || box.height)
+    if (!hasBox(before) || !hasBox(after)) return null
     const o = origin || { x: after.left + after.width / 2, y: after.top + after.height / 2 }
     let sx = before.width && after.width ? before.width / after.width : 1
     let sy = before.height && after.height ? before.height / after.height : 1
@@ -227,7 +231,10 @@
     }
     const theme = values.get('theme')
     const still = values.get('still')
-    return { theme: theme === 'light' || theme === 'dark' ? theme : null, still: still === '1' || still === 'true' }
+    return {
+      theme: theme === 'light' || theme === 'dark' ? theme : null,
+      still: still === '1' || still === 'true',
+    }
   }
 
   const COLOR_NAMES = ['paper', 'ink', 'muted', 'line', 'accent']
@@ -240,11 +247,14 @@
   const REFERENCE = /\b(?:var|url|env|attr|image|expression)\s*\(/i
 
   function isColor(value) {
-    if (typeof value !== 'string' || value.length > 240 || !COLOR_CHARACTERS.test(value) || REFERENCE.test(value)) return false
+    if (typeof value !== 'string' || value.length > 240) return false
+    if (!COLOR_CHARACTERS.test(value) || REFERENCE.test(value)) return false
+    // Every parenthesis that opens closes, and none closes before it opens.
     let depth = 0
     for (const character of value) {
       if (character === '(') depth += 1
-      else if (character === ')' && --depth < 0) return false
+      if (character === ')') depth -= 1
+      if (depth < 0) return false
     }
     return depth === 0 && value.trim() !== ''
   }
@@ -260,7 +270,10 @@
   function readMessage(data) {
     if (!data || typeof data !== 'object' || data.hobkin !== 'canvas') return null
     if (data.type === 'show') return { type: 'show' }
-    if (data.type === 'revision') return typeof data.url === 'string' && /^https?:\/\//i.test(data.url) ? { type: 'revision', url: data.url } : null
+    if (data.type === 'revision') {
+      const fetchable = typeof data.url === 'string' && /^https?:\/\//i.test(data.url)
+      return fetchable ? { type: 'revision', url: data.url } : null
+    }
     if (data.type === 'appearance') {
       return {
         type: 'appearance',
@@ -295,10 +308,24 @@
     /** Whether the drawing sits in the app's frame. Opened on its own, nothing will send it a show. */
     const framed = window.parent !== window
     // The kit's tilts and every move here use translate, rotate and scale, which add to a drawing's own transform.
-    const individual = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('translate', '1px 1px') && CSS.supports('scale', '1')
+    const individual =
+      typeof CSS !== 'undefined' &&
+      typeof CSS.supports === 'function' &&
+      CSS.supports('translate', '1px 1px') &&
+      CSS.supports('scale', '1')
     const resizes = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
     const observed = new WeakSet()
-    const state = { still: first.still, ready: false, showAsked: false, entered: false, revision: 0, overlay: null, defs: null, showTimer: 0, traces: 0 }
+    const state = {
+      still: first.still,
+      ready: false,
+      showAsked: false,
+      entered: false,
+      revision: 0,
+      overlay: null,
+      defs: null,
+      showTimer: 0,
+      traces: 0,
+    }
     /** What is fading out: a revision passes over it, as if it were gone already. */
     const leaving = new WeakSet()
     /** When each new part's entrance ends, so an arrow to it waits for it. */
@@ -382,24 +409,35 @@
     /** The window's colors this browser can draw. One it cannot would leave the kit with no color at all. */
     function drawable(given) {
       if (typeof CSS === 'undefined' || typeof CSS.supports !== 'function') return given
-      return Object.fromEntries(COLOR_NAMES.filter((name) => typeof given[name] === 'string' && CSS.supports('color', given[name])).map((name) => [name, given[name]]))
+      const drawn = COLOR_NAMES.filter((name) => typeof given[name] === 'string' && CSS.supports('color', given[name]))
+      return Object.fromEntries(drawn.map((name) => [name, given[name]]))
     }
 
     function onMessage(event) {
       if (event.source !== window.parent) return
       const message = readMessage(event.data)
       if (!message) return
-      if (message.type === 'appearance') appearance(message)
-      else if (message.type === 'show') {
+      if (message.type === 'appearance') {
+        appearance(message)
+      } else if (message.type === 'show') {
         state.showAsked = true
         if (state.ready) begin(true)
-      } else revise(message.url)
+      } else {
+        revise(message.url)
+      }
     }
 
     function onKey(event) {
       // A drawing opened on its own, in a browser tab, has no window to tell, and its keys stay the browser's.
       if (!framed || event.defaultPrevented || event.isComposing) return
-      const press = { key: event.key, code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }
+      const press = {
+        key: event.key,
+        code: event.code,
+        meta: event.metaKey,
+        ctrl: event.ctrlKey,
+        alt: event.altKey,
+        shift: event.shiftKey,
+      }
       if (!passesKey(press)) return
       post(Object.assign({ type: 'key' }, press))
       if (preventsDefault(press)) event.preventDefault()
@@ -523,7 +561,10 @@
       const style = getComputedStyle(element)
       if (isSvgChild(element)) {
         const length = traceLength(element, style)
-        if (!length) return { element, end: delay + ENTER_MS, moves: [[[{ opacity: 0 }, { opacity: style.opacity }], timing(ENTER_MS, delay)]] }
+        if (!length) {
+          const fadeIn = [{ opacity: 0 }, { opacity: style.opacity }]
+          return { element, end: delay + ENTER_MS, moves: [[fadeIn, timing(ENTER_MS, delay)]] }
+        }
         const duration = traceDuration(length)
         const dashes = `${length}px ${length}px`
         const moves = [
@@ -578,7 +619,9 @@
         const opacity = getComputedStyle(node).opacity
         track(node.animate([{ opacity }, { opacity: 0 }], { duration: LEAVE_MS, easing: 'ease-in', fill: 'forwards' }))
         if (thenRemove) setTimeout(() => node.remove(), LEAVE_MS + 20)
-      } else if (thenRemove) node.remove()
+      } else if (thenRemove) {
+        node.remove()
+      }
     }
 
     // ---- Gliding ----
@@ -614,8 +657,11 @@
         const firstBox = before.get(element)
         if (!firstBox) continue
         const origin = { x: last.left + last.width / 2, y: last.top + last.height / 2 }
+        // The nearest ancestor gliding in this pass, if any.
         let parent = null
-        for (let at = element.parentElement; at && !parent; at = at.parentElement) parent = gliding.get(at) || null
+        for (let at = element.parentElement; at && !parent; at = at.parentElement) {
+          parent = gliding.get(at) || null
+        }
         const delta = flipDelta(firstBox, last, origin, parent)
         const plan = delta && glidePlan(element, delta)
         if (!plan) continue
@@ -715,8 +761,11 @@
         if (here && here.nodeName === element.nodeName) {
           syncAttributes(here, element, false)
           if (here.textContent !== element.textContent) here.textContent = element.textContent
-        } else if (here) here.replaceWith(document.importNode(element, true))
-        else mine.appendChild(document.importNode(element, true))
+        } else if (here) {
+          here.replaceWith(document.importNode(element, true))
+        } else {
+          mine.appendChild(document.importNode(element, true))
+        }
       })
       for (const extra of old.slice(next.length)) extra.remove()
     }
@@ -749,7 +798,9 @@
           syncAttributes(here, node, false)
           if (here.localName === 'template' && here.content) {
             if (here.innerHTML !== node.innerHTML) here.innerHTML = node.innerHTML
-          } else syncChildren(here, node, change)
+          } else {
+            syncChildren(here, node, change)
+          }
         }
         return here
       })
@@ -758,7 +809,9 @@
         if (node.nodeType === 1 && change.moving) {
           leaving.add(node)
           change.gone.push(node)
-        } else node.remove()
+        } else {
+          node.remove()
+        }
       }
       place(mine, placed)
     }
@@ -805,7 +858,10 @@
     /** A revision the window announced: changed in place when it can be, otherwise handed back to load fresh. */
     async function revise(url) {
       const ticket = ++state.revision
-      if (!state.ready) return post({ type: 'load', url })
+      if (!state.ready) {
+        post({ type: 'load', url })
+        return
+      }
       let next = null
       try {
         const response = await fetch(url, { credentials: 'omit', cache: 'no-store' })
@@ -816,7 +872,10 @@
       }
       // A newer revision came while this one was on its way: that one is the drawing now.
       if (ticket !== state.revision) return
-      if (revisionMode(scriptsOf(document), next && scriptsOf(next)) !== 'morph') return post({ type: 'load', url })
+      if (revisionMode(scriptsOf(document), next && scriptsOf(next)) !== 'morph') {
+        post({ type: 'load', url })
+        return
+      }
       try {
         change(next)
       } catch {
@@ -897,8 +956,9 @@
       following = true
       const step = () => {
         route(false)
-        if (running.size) requestAnimationFrame(step)
-        else {
+        if (running.size) {
+          requestAnimationFrame(step)
+        } else {
           following = false
           route(true)
         }
@@ -931,7 +991,21 @@
       label.append(backing, text)
       group.append(line, tip, label)
       overlay.append(group)
-      return { group, line, tip, label, backing, text, fresh: true, from: null, to: null, words: null, look: null, color: null, mask: null }
+      return {
+        group,
+        line,
+        tip,
+        label,
+        backing,
+        text,
+        fresh: true,
+        from: null,
+        to: null,
+        words: null,
+        look: null,
+        color: null,
+        mask: null,
+      }
     }
 
     function fitMask(record) {
@@ -978,8 +1052,15 @@
       record.mask = { element: mask, pen, done }
       fitMask(record)
       record.line.setAttribute('mask', `url(#${id})`)
-      track(pen.animate([{ strokeDashoffset: `${length}px` }, { strokeDashoffset: '0px' }], { duration, delay, easing: EASE_DRAW, fill: 'forwards' }), done)
-      for (const part of [record.tip, record.label]) track(part.animate([{ opacity: 0 }, { opacity: 1 }], timing(FILL_MS, delay + Math.round(duration * 0.85))))
+      const tracing = pen.animate(
+        [{ strokeDashoffset: `${length}px` }, { strokeDashoffset: '0px' }],
+        { duration, delay, easing: EASE_DRAW, fill: 'forwards' },
+      )
+      track(tracing, done)
+      const appearAt = delay + Math.round(duration * 0.85)
+      for (const part of [record.tip, record.label]) {
+        track(part.animate([{ opacity: 0 }, { opacity: 1 }], timing(FILL_MS, appearAt)))
+      }
       follow()
     }
 
@@ -1011,9 +1092,13 @@
       const color = (element.getAttribute('data-color') || '').trim()
       if (color !== record.color) {
         record.color = color
-        record.group.setAttribute('data-color', ARROW_COLORS.has(color) ? color : '')
-        if (!ARROW_COLORS.has(color) && isColor(color)) record.group.style.setProperty('--hb-arrow', color)
-        else record.group.style.removeProperty('--hb-arrow')
+        const named = ARROW_COLORS.has(color)
+        record.group.setAttribute('data-color', named ? color : '')
+        if (!named && isColor(color)) {
+          record.group.style.setProperty('--hb-arrow', color)
+        } else {
+          record.group.style.removeProperty('--hb-arrow')
+        }
       }
       const words = (element.getAttribute('label') || '').trim()
       if (words !== record.words) {
@@ -1129,7 +1214,19 @@
 
   const hook = typeof __hbCanvasTest === 'object' && __hbCanvasTest !== null ? __hbCanvasTest : null
   if (hook) {
-    Object.assign(hook, { passesKey, preventsDefault, revisionMode, planSiblings, staggerDelays, traceDuration, flipDelta, arrowGeometry, appearanceFromQuery, colorRule, readMessage })
+    Object.assign(hook, {
+      passesKey,
+      preventsDefault,
+      revisionMode,
+      planSiblings,
+      staggerDelays,
+      traceDuration,
+      flipDelta,
+      arrowGeometry,
+      appearanceFromQuery,
+      colorRule,
+      readMessage,
+    })
     return
   }
   try {

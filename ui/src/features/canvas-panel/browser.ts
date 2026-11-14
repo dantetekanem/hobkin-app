@@ -3,7 +3,7 @@ import type { BrowserArea, BrowserShell, BrowserShown } from '../../lib/native.t
 import { labelFor } from './rules.ts'
 
 /**
- * The canvas's browser (_specs/036-canvas-browser): a page canvas shows in a native webview laid over the panel's page
+ * The canvas's browser (_specs/036-canvas-browser): a page canvas shows in a native webview laid over the canvas's page
  * area, with an address field, Back, Forward and Reload. Pure rules, so they can be tested without a window: what a
  * typed address becomes, what the bar shows, when the native view shows, the rectangle it is sent, and what goes to it.
  */
@@ -79,7 +79,7 @@ export function barOf({ url, title, shown, editing }: { url: string; title: stri
   }
 }
 
-/** A native view draws over everything in the window, so it shows only over an open panel that nothing covers. */
+/** A native view draws over everything in the window, so it shows only over an open canvas that nothing covers. */
 export function nativeShown({ open, covered, area }: { open: boolean; covered: boolean; area: BrowserArea | null }): boolean {
   return open && !covered && area !== null
 }
@@ -107,7 +107,7 @@ export function covered(area: BrowserArea, ours: (point: { x: number; y: number 
   return samplePoints(area).some((point) => !ours(point))
 }
 
-/** What the panel wants of the native view now: hobkin's page and how many times hobkin showed it, and where it shows. */
+/** What the canvas wants of the native view now: hobkin's page and how many times hobkin showed it, and where it shows. */
 export interface Wanted {
   url: string
   visit: number
@@ -130,7 +130,10 @@ export function createNativeView(shell: BrowserShell) {
   let visited: string | null = null
   let placed: string | null = null
   let typed: string | null = null
-  const run = (step: () => Promise<void>) => (chain = chain.then(step).catch(() => {}))
+  const run = (step: () => Promise<void>): Promise<void> => {
+    chain = chain.then(step).catch(() => {})
+    return chain
+  }
   const whenOpen = (step: () => Promise<void>) => (opened && !closed ? run(step) : chain)
 
   return {

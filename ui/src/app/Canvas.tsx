@@ -163,7 +163,7 @@ export function Canvas() {
   const sizes = useSplitSizes()
   const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, split: split !== null })
   // The main canvas moves the view, unless the right side covers the chat right then.
-  useCanvasPlace({ covered: grow > 0, split: split && { owner: split.owner, revision: split.canvas.revision } })
+  useCanvasPlace({ covered: grow > 0, split: split ? { owner: split.owner, revision: split.canvas.revision } : null })
   const growth = useGrowth(split !== null, enteringAgent, still)
   const pageInset = usePageInset(durable, split !== null, sizes.canvasWidth, still)
   // While the split grows the right side over the chat, what floats over the canvas moves back by as much.
@@ -188,11 +188,19 @@ export function Canvas() {
           It never starts a text selection, which the Mac window would paint as a band of the selection color. */}
       {/* The empty top is a window-drag title bar, but it must not cover the top-right controls (Nerd stats, close,
           Stop) that some screens place there, or it swallows their clicks. Leave that corner out of the drag region. */}
-      <motion.div data-tauri-drag-region className="select-none-chrome absolute top-0 right-44 z-10 h-14" initial={false} animate={{ left: shift }} transition={growth} />
+      <motion.div
+        data-tauri-drag-region
+        className="select-none-chrome absolute top-0 right-44 z-10 h-14"
+        initial={false}
+        animate={{ left: shift }}
+        transition={growth}
+      />
       {needsModel ? null : <ScreenMenu shift={shift} transition={growth} />}
       <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float">
         {/* A durable hobkin's canvas in its split. Before the screens, so the page's own top-right control shows over it. */}
-        <AnimatePresence initial={false}>{split ? <CanvasPane key="split" owner={split.owner} width={sizes.canvasWidth} /> : null}</AnimatePresence>
+        <AnimatePresence initial={false}>
+          {split ? <CanvasPane key="split" owner={split.owner} width={sizes.canvasWidth} /> : null}
+        </AnimatePresence>
         <AnimatePresence initial={false} custom={travelOf}>
           <motion.section
             key={section}

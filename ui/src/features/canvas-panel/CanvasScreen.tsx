@@ -14,7 +14,11 @@ export function CanvasScreen() {
   const area = useRef<HTMLDivElement | null>(null)
   // The place pushes in on the screens' spring; the drawing's entrance waits for it.
   const arrived = useArrival(spring.push.duration)
-  useEffect(() => (area.current ? handOffCanvasFocus(area.current) : undefined), [])
+  useEffect(() => {
+    const element = area.current
+    if (!element) return
+    return handOffCanvasFocus(element)
+  }, [])
 
   return (
     <div className="relative h-full">

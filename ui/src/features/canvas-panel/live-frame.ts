@@ -26,8 +26,6 @@ export type ToDrawing =
 /** What a drawing tells the window: it is ready, it needs a revision loaded fresh, or a key it did not use. */
 export type FromDrawing = { type: 'ready'; version: 1 } | { type: 'load'; url: string } | ({ type: 'key' } & FrameKey)
 
-const KEY_FLAGS = ['meta', 'ctrl', 'alt', 'shift'] as const
-
 /** A message a drawing sent, or null for anything that is not of the contract. */
 export function readFrameMessage(data: unknown): FromDrawing | null {
   if (typeof data !== 'object' || data === null) return null
@@ -36,8 +34,9 @@ export function readFrameMessage(data: unknown): FromDrawing | null {
   if (message.type === 'ready') return message.version === 1 ? { type: 'ready', version: 1 } : null
   if (message.type === 'load') return typeof message.url === 'string' ? { type: 'load', url: message.url } : null
   if (message.type === 'key') {
-    if (typeof message.key !== 'string' || typeof message.code !== 'string' || !KEY_FLAGS.every((flag) => typeof message[flag] === 'boolean')) return null
-    const { key, code, meta, ctrl, alt, shift } = message as unknown as FrameKey
+    const { key, code, meta, ctrl, alt, shift } = message
+    if (typeof key !== 'string' || typeof code !== 'string') return null
+    if (typeof meta !== 'boolean' || typeof ctrl !== 'boolean' || typeof alt !== 'boolean' || typeof shift !== 'boolean') return null
     return { type: 'key', key, code, meta, ctrl, alt, shift }
   }
   return null
@@ -46,7 +45,9 @@ export function readFrameMessage(data: unknown): FromDrawing | null {
 /** Which of the window's own frames sent a message, by its window, or null for any other window. */
 export function frameOf(source: unknown, windows: Iterable<readonly [number, unknown]>): number | null {
   if (source === null || source === undefined) return null
-  for (const [id, window] of windows) if (window === source) return id
+  for (const [id, frameWindow] of windows) {
+    if (frameWindow === source) return id
+  }
   return null
 }
 
@@ -95,7 +96,8 @@ export function loadFresh(frames: Frames, url: string, src: string): Frames {
 export function revise(frames: Frames, url: string, src: string): { frames: Frames; post: { to: number; url: string } | null } {
   const shown = onScreen(frames)
   if (shown.ready && !behind(frames)) {
-    return { frames: { ...frames, list: frames.list.map((frame) => (frame === shown ? { ...frame, url } : frame)) }, post: { to: shown.id, url } }
+    const list = frames.list.map((frame) => (frame === shown ? { ...frame, url } : frame))
+    return { frames: { ...frames, list }, post: { to: shown.id, url } }
   }
   return { frames: loadFresh(frames, url, src), post: null }
 }

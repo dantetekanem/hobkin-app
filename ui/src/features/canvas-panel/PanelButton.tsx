@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-/** A round button of the canvas panel, named by its label. */
+/** A round button of the canvas's browser bar, named by its label. */
 export function PanelButton({ label, onClick, disabled = false, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
   return (
     <button

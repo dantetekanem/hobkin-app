@@ -40,8 +40,10 @@ const DOCTYPE = /^(?:[\t\n\f\r ]|<!--(?:(?!-->)[\s\S])*-->)*<!doctype[^>]*>/i
  */
 export function withRuntime(drawing: Buffer, runtime: CanvasRuntime): Buffer {
   const text = drawing.toString('latin1')
-  const mark = text.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK.length : 0
-  const at = mark + (DOCTYPE.exec(text.slice(mark))?.[0].length ?? 0)
-  const parts = Buffer.from(`<style data-hb-runtime>${runtime.css}</style><script data-hb-runtime>${runtime.js}</script>`, 'utf8')
-  return Buffer.concat([drawing.subarray(0, at), parts, drawing.subarray(at)])
+  const markLength = text.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK.length : 0
+  const doctypeLength = DOCTYPE.exec(text.slice(markLength))?.[0].length ?? 0
+  const insertAt = markLength + doctypeLength
+  const style = `<style data-hb-runtime>${runtime.css}</style>`
+  const script = `<script data-hb-runtime>${runtime.js}</script>`
+  return Buffer.concat([drawing.subarray(0, insertAt), Buffer.from(style + script, 'utf8'), drawing.subarray(insertAt)])
 }

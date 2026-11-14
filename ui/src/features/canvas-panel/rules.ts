@@ -169,5 +169,14 @@ export function passedKey(press: FrameKey, frameHasKeyboard: boolean): KeyboardE
   const key = press.key.length === 1 ? press.key.toLowerCase() : press.key
   const entry = PASSED.find((passed) => passed.key === key && Boolean(passed.meta) === press.meta && Boolean(passed.ctrl) === press.ctrl)
   if (!entry) return null
-  return { key: entry.key, code: entry.code, metaKey: Boolean(entry.meta), ctrlKey: Boolean(entry.ctrl), altKey: false, shiftKey: false, bubbles: true, cancelable: true }
+  return {
+    key: entry.key,
+    code: entry.code,
+    metaKey: Boolean(entry.meta),
+    ctrlKey: Boolean(entry.ctrl),
+    altKey: false,
+    shiftKey: false,
+    bubbles: true,
+    cancelable: true,
+  }
 }

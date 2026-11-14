@@ -143,10 +143,17 @@ function backFromGitHub(state: ViewState): ScreenId | null {
  * was under it. Nor is the canvas: the app comes back on the place it was opened over (Command+R keeps it, location.ts).
  */
 export function launchView({ screen, settingsReturn, canvasReturn, conversationWidth, openAgent, canvasSeen }: ViewState) {
-  const base = ground({ screen, settingsReturn }) === 'canvas' ? (canvasReturn ?? UNDER_CANVAS) : { screen, settingsReturn, openAgent }
-  const under = ground(base)
+  const onCanvas = ground({ screen, settingsReturn }) === 'canvas'
+  const place = onCanvas ? (canvasReturn ?? UNDER_CANVAS) : { screen, settingsReturn, openAgent }
+  const under = ground(place)
   // A review is not reopened either, so a review that cannot be drawn can never keep the app from starting.
-  return { screen: under === 'review' || under === 'canvas' ? 'work' : under, conversationWidth, openReview: null, openAgent: base.openAgent, canvasSeen }
+  return {
+    screen: under === 'review' || under === 'canvas' ? 'work' : under,
+    conversationWidth,
+    openReview: null,
+    openAgent: place.openAgent,
+    canvasSeen,
+  }
 }
 
 /**

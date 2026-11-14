@@ -6,13 +6,13 @@ import { shell, type BrowserShell, type BrowserShown } from '@/lib/native.ts'
 import { PanelButton } from './PanelButton.tsx'
 import { addressFrom, areaOf, barOf, covered, createNativeView, nativeShown, type NativeView } from './browser.ts'
 
-/** The shell's browser, once it has said whether it has one. Asked when the panel first loads, so it is known by the time a page opens. */
+/** The shell's browser, once it has said whether it has one. Asked when this module first loads, so it is known by the time a page opens. */
 let known: BrowserShell | null = null
 void shell().then((offered) => {
   known = offered.browser
 })
 
-/** The canvas's browser when the shell has it, or null: the panel then frames pages as before. */
+/** The canvas's browser when the shell has it, or null: the canvas then frames pages as before. */
 export function useShellBrowser(): BrowserShell | null {
   const [browser, setBrowser] = useState(known)
   useEffect(() => {
@@ -28,7 +28,7 @@ export function useShellBrowser(): BrowserShell | null {
 }
 
 /** The keyboard goes back to the canvas's area, where a second Escape closes the canvas. */
-const focusBoard = (from: Element) => from.closest<HTMLElement>('[data-canvas-board]')?.focus()
+const focusEnclosingBoard = (from: Element) => from.closest<HTMLElement>('[data-canvas-board]')?.focus()
 
 /**
  * A page canvas as a real browser (_specs/036-canvas-browser): the bar has Back, Forward, Reload, an address field and
@@ -55,7 +55,7 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
   const [refusal, setRefusal] = useState<string | null>(null)
   const bar = barOf({ url, title, shown, editing })
 
-  // What the panel wants of the native view, read on every frame.
+  // What the pane wants of the native view, read on every frame.
   const wanted = useRef({ url, visit: revision ?? 0, present })
   wanted.current = { url, visit: revision ?? 0, present }
 
@@ -116,7 +116,7 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
       event.preventDefault()
       setEditing(null)
       setRefusal(null)
-      focusBoard(event.currentTarget)
+      focusEnclosingBoard(event.currentTarget)
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const typed = addressFrom(event.currentTarget.value)
@@ -127,7 +127,7 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
       setRefusal(null)
       setEditing(null)
       void view.current?.go(typed.url)
-      focusBoard(event.currentTarget)
+      focusEnclosingBoard(event.currentTarget)
     }
   }
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import { frameOf, loadFresh, markLoaded, markReady, onScreen, readFrameMessage, revise, settle, startFrames } from '../src/features/canvas-panel/live-frame.ts'
-import { canSave, canvasKey, drawingOf, frameSrc, labelFor, passedKey, sandboxFor, windowCanvas } from '../src/features/canvas-panel/rules.ts'
+import { canSave, canvasKey, drawingOf, frameSrc, labelFor, passedKey, sandboxFor, windowCanvas, type FrameKey } from '../src/features/canvas-panel/rules.ts'
 import { hereOf, savedNote, useCanvasBoards } from '../src/features/canvas-panel/store.ts'
 
 const boards = () => useCanvasBoards.getState()
@@ -96,7 +96,8 @@ test('a revision becomes a message once the drawing is ready, and a fresh load b
 })
 
 test('a key from a drawing reaches the app only from the set it passes on, and only while its frame has the keyboard', () => {
-  const message = (press: Partial<{ key: string; code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }>) => ({
+  // A key message with nothing pressed, then the press.
+  const message = (press: Partial<FrameKey>) => ({
     type: 'key' as const, key: '', code: '', meta: false, ctrl: false, alt: false, shift: false, ...press,
   })
   const passes = [
@@ -131,7 +132,14 @@ test('a key from a drawing reaches the app only from the set it passes on, and o
   assert.equal(passedKey(message({ key: 'Escape', code: 'Escape' }), false), null, 'the frame does not have the keyboard')
   // What reaches the app is the key itself, never a code the drawing made up: a Tab cannot pass for Control+X.
   assert.deepEqual(passedKey(message({ key: 'Tab', code: 'KeyX', ctrl: true }), true), {
-    key: 'Tab', code: 'Tab', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false, bubbles: true, cancelable: true,
+    key: 'Tab',
+    code: 'Tab',
+    metaKey: false,
+    ctrlKey: true,
+    altKey: false,
+    shiftKey: false,
+    bubbles: true,
+    cancelable: true,
   })
 })
 

@@ -44,7 +44,9 @@ export function closeCanvasFromKeys(owner: string): void {
   if (owner === MAIN_CANVAS) {
     useView.getState().closeCanvasPlace()
     focusInput()
-  } else if (!focusTalk()) focusInput()
+  } else if (!focusTalk()) {
+    focusInput()
+  }
 }
 
 /** Saves `owner`'s drawing, and keeps where the file went, or why it could not go, as the canvas's note. */

@@ -73,7 +73,21 @@ const box = (left: number, top: number, width: number, height: number): Box => (
 
 test('under test the runtime hands over its rules and starts nothing', () => {
   const hook = rules()
-  for (const name of ['passesKey', 'preventsDefault', 'revisionMode', 'planSiblings', 'staggerDelays', 'traceDuration', 'flipDelta', 'arrowGeometry', 'appearanceFromQuery', 'colorRule', 'readMessage'] as const) {
+  const names = [
+    'passesKey',
+    'preventsDefault',
+    'revisionMode',
+    'planSiblings',
+    'staggerDelays',
+    'traceDuration',
+    'flipDelta',
+    'arrowGeometry',
+    'appearanceFromQuery',
+    'colorRule',
+    'readMessage',
+  ] as const
+
+  for (const name of names) {
     assert.equal(typeof hook[name], 'function', name)
   }
 })

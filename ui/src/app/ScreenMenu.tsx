@@ -62,6 +62,35 @@ function secondFor(screen: ScreenId, githubInMenu: boolean, canvasOpen: boolean)
 /** How many pieces each row puts before the main canvas's pill, so the pill drops in after them. */
 const BEFORE_PILL: Record<Second, number> = { agents: 0, review: 2, settings: 4, github: 2, canvas: 0 }
 
+/** The pieces the second row holds before the main canvas's pill. `canvas` is the main canvas as the window shows it. */
+function secondPieces({ second, screen, canvas, split }: {
+  second: Second | null
+  screen: ScreenId
+  canvas: CanvasState | null
+  split: ReturnType<typeof useSplit>
+}): ReactNode {
+  switch (second) {
+    case 'agents':
+      return (
+        <>
+          <Agents />
+          {/* A durable hobkin's split: its canvas's group after the agents. */}
+          {split ? <CanvasGroup owner={split.owner} canvas={split.canvas} active={false} start={0} /> : null}
+        </>
+      )
+    case 'review':
+      return <ReviewItem />
+    case 'github':
+      return <GitHubItem />
+    case 'canvas':
+      return isOpen(canvas) ? <CanvasGroup owner={MAIN_CANVAS} canvas={canvas} active start={0} /> : null
+    case 'settings':
+      return <SettingsTrail under={isUnderSettings(screen) ? screen : null} />
+    case null:
+      return null
+  }
+}
+
 function iconOf(id: ScreenId): LucideIcon {
   return SCREENS.find((entry) => entry.id === id)!.icon
 }
@@ -141,21 +170,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
         <AnimatePresence mode="popLayout" initial={false}>
           {row ? (
             <Born key={row} label={row === 'agents' ? 'Agents' : 'Open now'}>
-              {second === 'agents' ? (
-                <>
-                  <Agents />
-                  {/* A durable hobkin's split: its canvas's group after the agents. */}
-                  {split ? <CanvasGroup owner={split.owner} canvas={split.canvas} active={false} start={0} /> : null}
-                </>
-              ) : second === 'review' ? (
-                <ReviewItem />
-              ) : second === 'github' ? (
-                <GitHubItem />
-              ) : second === 'canvas' && isOpen(canvas) ? (
-                <CanvasGroup owner={MAIN_CANVAS} canvas={canvas} active start={0} />
-              ) : second === 'settings' ? (
-                <SettingsTrail under={isUnderSettings(screen) ? screen : null} />
-              ) : null}
+              {secondPieces({ second, screen, canvas, split })}
               {pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={second ? BEFORE_PILL[second] : 0} /> : null}
             </Born>
           ) : null}
