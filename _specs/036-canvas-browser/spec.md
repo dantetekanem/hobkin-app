@@ -27,11 +27,11 @@ A canvas that shows a web page is a real browser pane. The page loads in a nativ
 - The shell reports the address, the title, whether it is loading and whether Back and Forward can go: on each load and title change, after Back and Forward, and once a second while the pane is open, since a page can change its address without loading. Back and Forward are WebKit's own, so a page cannot stand in their way.
 
 ### The bar
-- Back, Forward, Reload, the page's name, the address field, Open in the browser, Close. Back and Forward are dimmed when they cannot go. Reload turns while the page loads, and stays still under Still movement.
+- Back, Forward, Reload, the page's name, the address field, Open in the browser. Close is in the menu's canvas group since `040-canvas-board`. Back and Forward are dimmed when they cannot go. Reload turns while the page loads, and stays still under Still movement.
 - The name is the page's own title. Before it has one: hobkin's name for its page, or the host of any other.
 - The field shows the address on screen. Clicking it selects it to type over.
 - What is typed is an address, never a search. Without a scheme it gets https, or http on this Mac (`localhost`, `127.0.0.1`) and on an IP address; `localhost:5173` is a host and a port. Words, a lone word, or an address the canvas does not take are refused with a plain line under the bar, and nothing loads.
-- Enter loads it. Escape puts back the address on screen and the keyboard in the panel, without closing it; a second Escape closes the panel, as in 030. The field's other keys are a text field's (`019-keyboard`). While the page has the keyboard its keys are its own: the window takes none of them.
+- Enter loads it. Escape puts back the address on screen and the keyboard in the panel, without closing it; a second Escape closes the panel, as in 030. The field's other keys are a text field's (`019-keyboard`). While the page has the keyboard its keys are its own, except that the shell tells the window about Escape, which closes the canvas without being taken from the page (`040-canvas-board` A14).
 - Open in the browser opens the page on screen, or hobkin's page when the pane shows no web page.
 
 ### What stays hobkin's
@@ -58,7 +58,7 @@ A canvas that shows a web page is a real browser pane. The page loads in a nativ
 - A5. The view opens the first time the area shows, at the page an address typed before then names, or hobkin's page. It is told only what changed, a page hobkin shows again takes it back there, and it closes once. The bar's actions reach it in order, and none reach it before it exists.
 - A6. Only http and https pages by the canvas's rule load in the pane, never the app's own address; blank, data and blob frames inside a page work.
 - A7. A page that refuses frames, such as `https://github.com`, loads in the pane, and Back, Forward, Reload and the address field work. (Native patch needed.)
-- A8. The pane follows the panel as it slides in, as its edge is dragged and as the window is resized, and hides under the question sheet, the spotlight and a dialog. (Native patch needed.)
+- A8. The pane follows the canvas as it travels in and as the window is resized, and hides under the question sheet, the spotlight and a dialog. (Native patch needed.) Changed on 2026-11-14: the canvas has no edge to drag since `040-canvas-board`.
 - A9. Escape in the address field leaves the panel open with the keyboard in it; a second Escape closes it, and the pane goes with it. (Native patch needed.)
 - A10. Without the shell's browser, a page canvas frames as in 030. A drawing frames as in 035 with or without it.
 - A11. A page in the pane cannot run the shell's commands nor Tauri's: calling `browser_close` or `notice_send` from it is refused. (Native patch needed.)

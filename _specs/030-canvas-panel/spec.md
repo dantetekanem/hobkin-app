@@ -11,7 +11,7 @@
 # Canvas panel
 
 ## Outcome
-When hobkin has something to show, such as an app it is testing or a page it is walking through, it opens the canvas: a panel that slides in from the right over the screens, about half the width, with the page in an iframe. The user can drag its edge to resize it, reload the page, open it in their browser, or close it. The user does not open it from a menu; hobkin does.
+When hobkin has something to show, such as an app it is testing or a page it is walking through, it opens the canvas: a panel that slides in from the right over the screens, about half the width, with the page in an iframe. The user can drag its edge to resize it, reload the page, open it in their browser, or close it. The user does not open it from a menu; hobkin does. Since `040-canvas-board` the canvas is the whole right side, not a panel with an edge to drag.
 
 ## Decisions
 - hobkin opens and closes the panel with the host commands `canvas.show { url, title? }` and `canvas.close`, both marked for hobkin's `client` tool. The host holds the state (open, url, title) and pushes it to the window as `canvas` in the state message, whole, on every change and with every reset.
@@ -19,7 +19,7 @@ When hobkin has something to show, such as an app it is testing or a page it is 
 - Only http and https addresses open, with a host and no sign-in in the address. The check is shared (`shared/protocol/canvas.ts`) and runs in the host, so no other kind of address reaches the window.
 - The panel is a separate component with its own store (`ui/src/features/canvas-panel`). The frame mounts it with one line inside the area it covers.
 - Pages on `http://localhost` and `http://127.0.0.1` run in a sandbox with scripts and their own origin, so a dev server works. Every other page runs scripts without its origin, with no top-level navigation and no downloads.
-- The bar shows the title hobkin gave, or the page's host, then reload, open in the browser (`system.open`) and close. Escape closes the panel.
+- ~~The bar shows the title hobkin gave, or the page's host, then reload, open in the browser (`system.open`) and close. Escape closes the panel.~~ Retired on 2026-11-14: the canvas's controls are in the menu's second row, and Escape closes it only when the keyboard is in it. See 040 A2 and A6.
 - A page that does not load within eight seconds, or errors, is replaced by a plain note with the open-in-the-browser button.
 - Motion holds still under the Movement setting: the slide is dropped and the fade stays.
 - For checks in development, `window.__canvasDev.show(url, title?)` and `.close()` open and close the panel without a host.
@@ -36,8 +36,8 @@ When hobkin has something to show, such as an app it is testing or a page it is 
 - A2. hobkin's `client` tool lists `canvas.show` and `canvas.close` and runs them.
 - A3. A new connection is told the canvas state, closed or open, with its first full state.
 - A4. A page on localhost or 127.0.0.1 over http gets a sandbox with its own origin; no other page does.
-- A5. The panel slides in from the right at about half the area, and its left edge drags (or arrow keys) between a third and four fifths.
-- A6. Reload loads the page again. Open in the browser opens the page in the Mac's browser through the host. Close and Escape send the panel away, and tell the host.
+- ~~A5. The panel slides in from the right at about half the area, and its left edge drags (or arrow keys) between a third and four fifths.~~ Retired on 2026-11-14: the canvas takes the whole right side. See 040 A1, A2 and A5.
+- ~~A6. Reload loads the page again. Open in the browser opens the page in the Mac's browser through the host. Close and Escape send the panel away, and tell the host.~~ Retired on 2026-11-14: the buttons moved to the menu's canvas group, and Escape works from inside the canvas. See 040 A2 and A6.
 - A7. A page that does not load shows a plain note with the open-in-the-browser button.
 - A8. Under Still movement, the panel fades and does not travel.
 
@@ -46,8 +46,8 @@ When hobkin has something to show, such as an app it is testing or a page it is 
 - A2. `host/test/canvas.test.ts` › "hobkin opens and closes the canvas through the client tool"
 - A3. `host/test/canvas.test.ts` › "the host tells the window when the canvas opens and closes"
 - A4. `ui/test/canvas-panel.test.ts` › "a page on this Mac runs with its own origin, any other page without it"
-- A5. `ui/test/canvas-panel.test.ts` › "the panel keeps between a third and four fifths of the area"; check: open the panel with `window.__canvasDev.show('http://localhost:5187')`, see it cover about half, drag its edge.
-- A6. check: with the panel open, click Reload, Open in the browser and Close, and press Escape.
+- ~~A5. `ui/test/canvas-panel.test.ts` › "the panel keeps between a third and four fifths of the area"; check: open the panel with `window.__canvasDev.show('http://localhost:5187')`, see it cover about half, drag its edge.~~ Retired with A5.
+- ~~A6. check: with the panel open, click Reload, Open in the browser and Close, and press Escape.~~ Retired with A6.
 - A7. check: show `http://localhost:1` and wait eight seconds.
 - A8. check: set Movement to Still and open the panel. It fades without sliding.
 

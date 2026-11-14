@@ -12,7 +12,7 @@
 
 ## Outcome
 
-The canvas becomes something a hobkin draws on as well as a window onto a site. The main hobkin and every durable hobkin has a canvas of its own. Each one shows either a web page or a drawing: an HTML document the hobkin wrote, which can be a whiteboard, a diagram, a Mermaid chart, a mock-up of a site or anything else HTML can hold. The main hobkin's canvas is the panel over the screens, as before. A durable hobkin's canvas opens on that hobkin's own page. The user can save a drawing as an HTML file. Both kinds of hobkin learn the canvas from one small skill and use the same commands.
+The canvas becomes something a hobkin draws on as well as a window onto a site. The main hobkin and every durable hobkin has a canvas of its own. Each one shows either a web page or a drawing: an HTML document the hobkin wrote, which can be a whiteboard, a diagram, a Mermaid chart, a mock-up of a site or anything else HTML can hold. The main hobkin's canvas is the panel over the screens, as before. A durable hobkin's canvas opens on that hobkin's own page. The user can save a drawing as an HTML file. Both kinds of hobkin learn the canvas from one small skill and use the same commands. Since `040-canvas-board` the main hobkin's canvas is a place on the right side, a durable hobkin's canvas forms a split with its page, and a redraw changes the drawing in place.
 
 ## Decisions
 
@@ -41,12 +41,12 @@ The canvas becomes something a hobkin draws on as well as a window onto a site. 
 - The host serves each drawing on the loopback port it already listens on, at an address with a random key in it, and tells the window that address with the revision. The window frames it like any page.
 - A drawing runs scripts and never has an origin of its own: the frame's sandbox leaves `allow-same-origin` out, and the host sends the same sandbox as a Content-Security-Policy header, so opening the address in a browser changes nothing. It cannot reach the window, the host's socket or other drawings.
 - A drawing may load from the network, since a Mermaid chart or a map needs it.
-- When the revision changes, the frame loads the drawing again.
+- ~~When the revision changes, the frame loads the drawing again.~~ Retired on 2026-11-14: a revision changes the drawing in place, or loads fresh behind the one on screen. See 040 A10.
 
 ### The panel
 
-- The panel takes the canvas it shows: the main hobkin's over the screens, and a durable hobkin's on that hobkin's page. Each keeps its own width.
-- The bar shows the title, then Reload, Save for a drawing, Open in the browser and Close. Save writes the file and says where, with a button that opens it.
+- ~~The panel takes the canvas it shows: the main hobkin's over the screens, and a durable hobkin's on that hobkin's page. Each keeps its own width.~~ Retired on 2026-11-14: the main canvas is a place on the right side and a durable hobkin's forms a split with its page, both the right side's width. See 040 A1 and A5.
+- ~~The bar shows the title, then Reload, Save for a drawing, Open in the browser and Close. Save writes the file and says where, with a button that opens it.~~ Retired on 2026-11-14: the same controls are the canvas group in the menu's second row. Save still says where the file went and offers to open it. See 040 A2.
 - Closing the panel closes that canvas for its hobkin too, as in `030-canvas-panel`.
 
 ## Out of scope
@@ -67,8 +67,8 @@ The canvas becomes something a hobkin draws on as well as a window onto a site. 
 - A5. The host tells the window each canvas, the main one and each durable hobkin's, when it changes and with every reset. A change made by the `hobkin canvas` command reaches the window within a second.
 - A6. A drawing is served only at its keyed address, as HTML that is never cached, with a sandbox header that leaves out its own origin. A wrong key, another path or another method gets nothing.
 - A7. The main hobkin's `client` tool lists and runs `canvas.show`, `canvas.draw`, `canvas.read`, `canvas.save` and `canvas.close`.
-- A8. The frame for a drawing allows scripts and never its own origin, and it loads again when the revision changes. A page on this Mac keeps the rule of `030-canvas-panel`.
-- A9. The main hobkin's canvas shows over the screens and a durable hobkin's on its own page. Closing one leaves the other.
+- ~~A8. The frame for a drawing allows scripts and never its own origin, and it loads again when the revision changes. A page on this Mac keeps the rule of `030-canvas-panel`.~~ Retired on 2026-11-14: the sandbox rule holds, and a revision changes the drawing in place. See 040 A9 and A10.
+- ~~A9. The main hobkin's canvas shows over the screens and a durable hobkin's on its own page. Closing one leaves the other.~~ Retired on 2026-11-14. See 040 A1 and A5.
 - A10. Save, on a drawing, writes the file, says where it went and offers to open it. A page has no Save.
 - A11. The main hobkin's prompts and a durable hobkin's directions both hold the canvas skill, and the durable hobkin's name its id.
 
@@ -81,8 +81,8 @@ The canvas becomes something a hobkin draws on as well as a window onto a site. 
 - A5. `host/test/canvases.test.ts` › "the window is told each canvas, and a change on disk reaches it"
 - A6. `host/test/canvases.test.ts` › "a drawing is served only at its keyed address, sandboxed and uncached"
 - A7. `host/test/canvases.test.ts` › "hobkin draws, reads, saves and closes through the client tool"
-- A8. `ui/test/canvas-panel.test.ts` › "a drawing runs scripts without an origin and reloads on a new revision"
-- A9. `ui/test/canvas-panel.test.ts` › "each hobkin's panel follows its own canvas"; check: draw on the main canvas and on a durable hobkin's, and close one.
+- ~~A8. `ui/test/canvas-panel.test.ts` › "a drawing runs scripts without an origin and reloads on a new revision"~~ Retired with A8.
+- ~~A9. `ui/test/canvas-panel.test.ts` › "each hobkin's panel follows its own canvas"; check: draw on the main canvas and on a durable hobkin's, and close one.~~ Retired with A9.
 - A10. `ui/test/canvas-panel.test.ts` › "Save shows for a drawing only and says where the file went"; check: save a drawing and open it from the note.
 - A11. `hobkin/test/cli-canvas.test.mjs` › "the main prompts and a durable hobkin's directions hold the canvas skill"
 
