@@ -745,6 +745,53 @@
 .rv-step-fact[data-tone='bad'] {
   color: var(--hb-bad-fg);
 }
+/*
+ * The tests of what is in focus, always on the card under its words (the user, 2026-11-14), in the same place on every
+ * card. A row is the list's row under a card of tests, at the card's size, flush with its text, and opens that test's code.
+ */
+.rv-step-tests {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rv-step-tests-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+.rv-step-tests .rv-tests-row {
+  padding: 5px 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.rv-step-tests .rv-tests-row:active {
+  transform: scale(0.98);
+}
+.rv-step-tests .rv-tests-row[data-current='true'] {
+  background: color-mix(in oklab, var(--hb-text) 11%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rv-step-tests .rv-tests-row:hover {
+    background: color-mix(in oklab, var(--hb-text) 8%, transparent);
+  }
+}
+.rv-step-tests .rv-tests-icon {
+  margin-top: 3px;
+}
+.rv-step-tests .rv-tests-name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.rv-step-tests .rv-tests-result {
+  font-size: 12.5px;
+  line-height: 19.6px;
+}
+.rv-step-tests .rv-step-more {
+  margin-top: 0;
+}
 .rv-step code {
   font-family: var(--font-mono);
   font-size: 14px;

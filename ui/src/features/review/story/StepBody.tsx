@@ -3,23 +3,24 @@ import { useState, type ReactNode } from 'react'
 import type { Unit } from '#shared/review/assessment.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { isLineCount, testsInWords, type TestGroup } from '../graph/arrange.ts'
+import { isLineCount } from '../graph/arrange.ts'
 import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
+import { noTestWords, testsFor, type TestsGraph } from './node-tests.ts'
 import type { CardContent } from './StepCard.tsx'
-import { isBlindNote, plainSentences, proofWords, reachWords, testsOf, testsWords, tldrOf, watchWords } from './words.ts'
+import { isBlindNote, plainSentences, proofWords, reachWords, tldrOf, watchWords } from './words.ts'
 
-/** What the card needs to know of the graph: what each test covers, the cards of folded tests, and every node by id. */
-export interface CardGraph {
+/** What the card needs to know of the graph: the review's wires, what each test covers, the cards of folded tests, every node. */
+export interface CardGraph extends TestsGraph {
   covers: Readonly<Record<string, string>>
-  groups: Readonly<Record<string, TestGroup>>
-  nodeOf: ReadonlyMap<string, ReviewNode>
 }
 
 export interface CardActions {
   openCode(): void
   back(): void
+  /** Shows a test's code in the code panel, and leaves the focus where it is. */
+  showTest(id: string): void
 }
 
 interface BodyProps {
@@ -33,21 +34,26 @@ interface BodyProps {
   ask: ((text: string) => Promise<boolean>) | null
   actions: CardActions
   canOpenCode: boolean
-  /** While the code panel is open it explains the unit beside its code, so the card keeps only its name. */
+  /** While the code panel is open it explains the unit beside its code, so the card keeps only its name and its tests. */
   brief: boolean
+  /** The node whose code the panel shows, or null when it is closed. */
+  code: string | null
 }
 
 /** The most of a list "Read more" shows: each part is short. */
 const MOST = 3
+/** The most tests the card lists before the rest wait behind "Show N more". */
+const TESTS_SHOWN = 4
 
 /**
  * The step told on its card beside its node (the user, 2026-11-12: "that step must be a TLDR of 1 paragraph, TOP. the
- * rest must be in a 'Read More'"). On top, its level, its title and one short paragraph. "Read more", closed at first,
+ * rest must be in a 'Read More'"). On top, its level, its title and one short paragraph. Under them, always, the tests
+ * of what is in focus (the user, 2026-11-14), so every move shows them in the same place. "Read more", closed at first,
  * holds the rest, each part short: the way a request takes, why it is rated so, its questions with a way to ask hobkin,
  * how it is proven, who it reaches, what to watch and what it holds. Open code is always at the bottom. A node the
  * reviewer went to off the path is told the same way, with the way back. Drawn twice: once unseen, to measure it.
  */
-export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode, brief }: BodyProps) {
+export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode, brief, code }: BodyProps) {
   const [more, setMore] = useState(false)
   const node = content.kind === 'node' ? content.node : undefined
   const focus = content.kind === 'step' ? content.step.focus : [content.node.id]
@@ -66,6 +72,12 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
         <>
           {tldr ? <p className="rv-step-text">{tldr}</p> : null}
           {gap ? <p className="rv-step-quiet">{gap}</p> : null}
+        </>
+      )}
+      {/* In the same place in the tree with the code open or closed, so its list stays as the reviewer left it. */}
+      <Tests focus={focus} graph={graph} unit={unit} code={code} onShow={actions.showTest} />
+      {brief ? null : (
+        <>
           {details.length > 0 ? (
             <>
               <button type="button" className="rv-step-more" aria-expanded={more} onClick={() => setMore((open) => !open)}>
@@ -98,6 +110,48 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
   )
 }
 
+/**
+ * The tests of what is in focus: each by name and result, a failed one first, and a press on one shows its code without
+ * leaving the node. Past four, the rest wait behind "Show N more". When none covers it, the card says so plainly.
+ */
+function Tests({ focus, graph, unit, code, onShow }: { focus: readonly string[]; graph: TestsGraph; unit: Unit | undefined; code: string | null; onShow: (id: string) => void }) {
+  const [all, setAll] = useState(false)
+  const tests = testsFor(focus, graph)
+  // One test behind a button would take the room of its own row: the list folds only when it hides two or more.
+  const folds = tests.length > TESTS_SHOWN + 1
+  return (
+    <section className="rv-step-tests" aria-label="Tests">
+      <h4 className="rv-step-section-title">Tests</h4>
+      {tests.length === 0 ? (
+        <p className="rv-step-quiet">{noTestWords(unit)}</p>
+      ) : (
+        <ul className="rv-step-tests-rows">
+          {(folds && !all ? tests.slice(0, TESTS_SHOWN) : tests).map((test) => {
+            const result = statusOf(test)
+            return (
+              <li key={test.id}>
+                <button type="button" className="rv-tests-row" data-current={code === test.id} title={test.summary} onClick={() => onShow(test.id)}>
+                  <result.icon className="rv-tests-icon" data-tone={result.tone} aria-hidden="true" />
+                  <span className="rv-tests-name">{test.title}</span>
+                  <span className="rv-tests-result" data-tone={result.tone}>
+                    {result.text}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {folds ? (
+        <button type="button" className="rv-step-more" aria-expanded={all} onClick={() => setAll((open) => !open)}>
+          {all ? 'Show fewer' : `Show ${tests.length - TESTS_SHOWN} more`}
+          {all ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+        </button>
+      ) : null}
+    </section>
+  )
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rv-step-section" aria-label={title}>
@@ -126,7 +180,6 @@ function unitDetails(unit: Unit, focus: readonly string[], graph: CardGraph, ask
   const why = unit.why_level.map((reason) => plainSentences(reason).join(' ')).filter(Boolean).slice(0, MOST)
   const questions = unit.questions.filter((question) => !isBlindNote(question))
   const blind = unit.questions.filter(isBlindNote)
-  const tests = testsOf(focus, graph.covers, graph.nodeOf)
   const watch = watchWords(unit).slice(0, MOST)
   return [
     way ? <Line key="way" text={way} className="rv-step-way" /> : null,
@@ -155,11 +208,6 @@ function unitDetails(unit: Unit, focus: readonly string[], graph: CardGraph, ask
     ...blind.map((note) => <Line key={note.text} text={`Blind check: ${note.text}`} className="rv-step-line rv-step-quiet" />),
     <Section key="proof" title="Proof">
       <p className="rv-step-fact">{proofWords(unit.facts)}</p>
-      {tests ? (
-        <p className="rv-step-fact" data-tone={tests.failed > 0 ? 'bad' : undefined}>
-          {testsWords(tests)}
-        </p>
-      ) : null}
       <p className="rv-step-fact">{reachWords(unit.facts)}</p>
     </Section>,
     watch.length > 0 ? (
@@ -185,23 +233,18 @@ function unitDetails(unit: Unit, focus: readonly string[], graph: CardGraph, ask
   ].filter((part) => part != null)
 }
 
-/** What "Read more" holds for a step or a node the change review has not told: what the graph knows of its nodes. */
+/**
+ * What "Read more" holds for a step or a node the change review has not told: what the graph knows of its nodes. Its
+ * tests are on the card already.
+ */
 function nodeDetails(content: CardContent, graph: CardGraph): ReactNode[] {
   const nodes = (content.kind === 'step' ? content.step.focus : [content.node.id]).map((id) => graph.nodeOf.get(id)).filter((node): node is ReviewNode => node != null)
-  const cards = nodes.map((node) => graph.groups[node.id]).filter((group): group is TestGroup => group != null)
-  const tests = cards.length === 0 ? testsOf(nodes.map((node) => node.id), graph.covers, graph.nodeOf) : null
   const covered = nodes.filter((node) => node.kind === 'test' && graph.covers[node.id]).map((node) => graph.nodeOf.get(graph.covers[node.id]!)?.title)
   const io = nodes.find((node) => node.io && (node.io.in || node.io.out))?.io
   const way = wayOf(null, nodes.map((node) => node.id), graph)
   return [
     way ? <Line key="way" text={way} className="rv-step-way" /> : null,
-    cards.length > 0 ? <p key="cards" className="rv-step-fact">{testsInWords(cards.flatMap((card) => card.tests).map((id) => graph.nodeOf.get(id)!).filter(Boolean))}</p> : null,
     covered.length > 0 ? <p key="covers" className="rv-step-fact">Covers {covered.join(', ')}.</p> : null,
-    tests ? (
-      <p key="tests" className="rv-step-fact" data-tone={tests.failed > 0 ? 'bad' : undefined}>
-        {testsWords(tests)}
-      </p>
-    ) : null,
     io ? (
       <p key="io" className="rv-step-fact">
         In: {io.in || 'nothing'}. Out: {io.out || 'nothing said'}.

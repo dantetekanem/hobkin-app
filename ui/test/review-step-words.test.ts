@@ -1,27 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { arrange } from '../src/features/review/graph/arrange.ts'
-import { pullAssessment, pullReview } from '../src/features/review/sample/pull.ts'
-import { isBlindNote, plainSentences, proofWords, ratingGap, testsOf, testsWords, tldrOf, watchWords } from '../src/features/review/story/words.ts'
+import { pullAssessment } from '../src/features/review/sample/pull.ts'
+import { isBlindNote, plainSentences, proofWords, ratingGap, tldrOf, watchWords } from '../src/features/review/story/words.ts'
 
-const pull = pullReview('pr:hobkin-sample/storefront/482')
-const shape = arrange(pull)
-const nodeOf = new Map([...shape.hidden, ...shape.nodes].map((node) => [node.id, node]))
 const units = pullAssessment().units!.units
-const idOf = (title: string) => pull.nodes.find((node) => node.title === title)!.id
-
-test("a unit's card says how its tests went, however they are folded", () => {
-  const helper = testsOf([idOf('link_user_tags')], shape.covers, nodeOf)!
-  assert.deepEqual([helper.total, helper.ran, helper.failed, helper.notRun, helper.proves], [5, 5, 0, 0, 3])
-  assert.equal(testsWords(helper), '5 of 5 tests ran; 3 prove the change.')
-
-  const fetch = testsOf([idOf('fetch_errors')], shape.covers, nodeOf)!
-  assert.deepEqual(fetch.failing, ['tries once more when the monitor times out'])
-  assert.equal(testsWords(fetch), '6 of 6 tests ran, 1 failed.')
-  assert.equal(testsWords(testsOf([idOf('report')], shape.covers, nodeOf)!), '6 of 7 tests ran, 1 not run.')
-  // Nothing covers the README.
-  assert.equal(testsOf([idOf('README.md')], shape.covers, nodeOf), null)
-})
 
 test('what to watch is said for a unit that needs a look, and only for one', () => {
   const high = units.find((unit) => unit.level === 'high')!

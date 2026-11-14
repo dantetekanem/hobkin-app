@@ -93,6 +93,11 @@ export interface Session {
   toggleCode(): boolean
   /** Shows another node's code in the open panel, without moving the focus. */
   showCode(nodeId: string): void
+  /**
+   * Shows a test's code, opening the panel when it is closed, from the list of tests on the card beside the focus: the
+   * focus, the step and the camera stay where they are. False for a node the review does not have.
+   */
+  showTest(testId: string): boolean
   /** A digit toward a step number: 1 to 9 are steps 1 to 9, 0 is step 10, and two quick digits make one number. */
   typeDigit(digit: string): void
   openFinder(): void
@@ -414,6 +419,12 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       },
       showCode: (nodeId) => {
         if (get().code != null && get().nodeOf.has(nodeId)) set({ code: nodeId })
+      },
+      showTest: (testId) => {
+        if (!get().nodeOf.has(testId)) return false
+        beforeCode = null
+        set({ code: testId, wire: null })
+        return true
       },
       moveNode: (nodeId, position) => memory.getState().moveNode(review, nodeId, position),
       decideWire: (edgeId, decision) => memory.getState().decideWire(review, edgeId, decision),

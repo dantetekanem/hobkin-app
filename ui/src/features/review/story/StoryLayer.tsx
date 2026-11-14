@@ -78,7 +78,8 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const move = useSession((session) => session.move)
   const nodeOf = useSession((session) => session.nodeOf)
   const panelOpen = useSession((session) => session.panelOpen)
-  const codeOpen = useSession((session) => session.code != null)
+  const code = useSession((session) => session.code)
+  const codeOpen = code != null
   // The steps panel covers the left of the canvas by as much of it as is on screen.
   const side = panelOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP
   const area = rig.area(panelHeight, side)
@@ -101,11 +102,18 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
     const named = content.step.unit ? units.find((entry) => entry.id === content.step.unit) : undefined
     return named ?? unitInFocus(units, content.step.focus.map((id) => nodeOf.get(id)).filter((node) => node != null), null)
   }, [content, nodeOf, units])
-  const graphFacts = useMemo<CardGraph>(() => ({ covers: view.covers, groups: view.groups, nodeOf }), [nodeOf, view.covers, view.groups])
+  // The card lists the tests of its focus from the review's own wires, without the proposed ones the reviewer removed.
+  const graphFacts = useMemo<CardGraph>(() => {
+    const removed = new Set(view.removed.map((edge) => edge.id))
+    return { covers: view.covers, groups: view.groups, nodeOf, edges: review.edges.filter((edge) => !removed.has(edge.id)) }
+  }, [nodeOf, review.edges, view.covers, view.groups, view.removed])
   // hobkin is asked about a node of the review: a card of folded tests stands for its first test.
   const about = content?.kind === 'node' ? content.node.id : focus[0]
   const askAbout = useAskHobkin(ask, about ? (view.groups[about]?.tests[0] ?? about) : null)
-  const actions = useMemo(() => ({ openCode: () => void store.getState().openCode(), back: () => store.getState().back() }), [store])
+  const actions = useMemo(
+    () => ({ openCode: () => void store.getState().openCode(), back: () => store.getState().back(), showTest: (id: string) => void store.getState().showTest(id) }),
+    [store],
+  )
 
   // With a focus the step is told beside its node. Without one it is told beside the whole graph.
   const beside = content != null && focus.length > 0
@@ -185,7 +193,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const shownCard = placement && content?.kind === 'step' && placement.key === content.key ? { placement, content } : null
   const body = (inPlace: boolean) =>
     content && beside ? (
-      <StepBody content={content} unit={unit} gap={ratingGap(units)} graph={graphFacts} ask={inPlace ? askAbout : null} actions={actions} canOpenCode={canOpenCode} brief={brief} />
+      <StepBody content={content} unit={unit} gap={ratingGap(units)} graph={graphFacts} ask={inPlace ? askAbout : null} actions={actions} canOpenCode={canOpenCode} brief={brief} code={code} />
     ) : content?.kind === 'step' ? (
       <CardBody content={content} review={review} />
     ) : null

@@ -3,8 +3,6 @@
  * useless): how the change is proven, who it reaches, how it is undone, and what to watch once it ships. Pure.
  */
 import type { Unit } from '#shared/review/assessment.ts'
-import type { ReviewNode } from '#shared/review/types.ts'
-import type { TestCounts } from '../graph/arrange.ts'
 
 type Facts = Unit['facts']
 
@@ -52,38 +50,6 @@ export function watchWords(unit: Pick<Unit, 'level' | 'watch'>): string[] {
     ...gaps.map((gap) => `Not watched: ${gap.trim().replace(/\.+$/, '')}.`),
     ...(undo ? [`If it goes wrong: ${undo.trim().replace(/\.+$/, '')}.`] : []),
   ]
-}
-
-/**
- * What the tests that cover these nodes did: the tests whose wires lead to them first (`Arranged.covers`), however they
- * are folded. Null when no test covers them.
- */
-export function testsOf(nodes: readonly string[], covers: Readonly<Record<string, string>>, nodeOf: ReadonlyMap<string, ReviewNode>): (TestCounts & { total: number; failing: string[] }) | null {
-  const covered = new Set(nodes)
-  const tests = Object.entries(covers)
-    .filter(([, subject]) => covered.has(subject))
-    .map(([test]) => nodeOf.get(test))
-    .filter((test): test is ReviewNode => test != null)
-  if (tests.length === 0) return null
-  const counts = { total: tests.length, ran: 0, failed: 0, notRun: 0, proves: 0, failing: [] as string[] }
-  for (const test of tests) {
-    if (test.status === 'passed' || test.status === 'failed' || test.status === 'proves-change') counts.ran += 1
-    else counts.notRun += 1
-    if (test.status === 'failed') {
-      counts.failed += 1
-      counts.failing.push(test.title)
-    }
-    if (test.status === 'proves-change') counts.proves += 1
-  }
-  return counts
-}
-
-/** How the tests went, in a line: "5 of 5 tests ran; 3 prove the change." */
-export function testsWords(tests: NonNullable<ReturnType<typeof testsOf>>): string {
-  const ran = `${tests.ran} of ${tests.total} ${tests.total === 1 ? 'test' : 'tests'} ran`
-  const parts = [tests.failed > 0 ? `${tests.failed} failed` : '', tests.notRun > 0 ? `${tests.notRun} not run` : ''].filter(Boolean)
-  const proves = tests.proves > 0 ? `; ${tests.proves} ${tests.proves === 1 ? 'proves' : 'prove'} the change` : ''
-  return `${ran}${parts.length > 0 ? `, ${parts.join(', ')}` : ''}${proves}.`
 }
 
 // ───────────────────────────── The step's TL;DR ─────────────────────────────
