@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { CANVAS_CLOSED } from '#shared/protocol/canvas.ts'
-import { Canvases, canvasHandlers } from '../src/canvases.ts'
+import { readCanvasRuntime } from '../src/canvas-runtime/inject.ts'
+import { Canvases, canvasHandlers, type CanvasesOptions } from '../src/canvases.ts'
 import { createClientTool } from '../src/client-tool.ts'
 import { runCommand } from '../src/commands.ts'
 import { listen } from '../src/server.ts'
@@ -12,14 +13,42 @@ import { afterTest, temporaryDirectory } from './support.ts'
 
 const DURABLE = 'a1b2c3d4'
 
-function setup(t: Parameters<typeof temporaryDirectory>[0], port = 4000) {
+function setup(t: Parameters<typeof temporaryDirectory>[0], more: Partial<CanvasesOptions> = {}) {
   const root = temporaryDirectory(t)
   const downloads = join(temporaryDirectory(t), 'Downloads')
   mkdirSync(downloads)
   const changes: number[] = []
-  const canvases = new Canvases({ store, root: () => root, port: () => port, onChange: () => changes.push(Date.now()), downloads, home: root })
+  const canvases = new Canvases({ store, root: () => root, port: () => 4000, onChange: () => changes.push(Date.now()), downloads, home: root, ...more })
   afterTest(t, () => canvases.stop())
   return { root, downloads, changes, canvases }
+}
+
+/** A host server in this process that serves only the canvases' drawings. */
+async function serving(t: Parameters<typeof temporaryDirectory>[0], canvases: Canvases): Promise<string> {
+  const server = await listen({ port: 0, token: 'x', origins: [], dev: false, onConnection: () => {}, serve: (request, response) => canvases.serve(request, response) })
+  afterTest(t, () => server.close())
+  return `http://127.0.0.1:${server.port}`
+}
+
+/** A drawing as the frame receives it: its bytes as sent, which keep a byte order mark that `text()` would drop. */
+async function received(url: string) {
+  const response = await fetch(url)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  return { response, bytes, text: bytes.toString('utf8') }
+}
+
+/** The headers every drawing is sent with: its own sandbox, never cached, and readable by the drawing itself, which has no origin. */
+function assertDrawingHeaders(response: Response, bytes: Buffer) {
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8')
+  assert.equal(Number(response.headers.get('content-length')), bytes.length)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
+  assert.equal(response.headers.get('access-control-allow-origin'), '*')
+  const policy = response.headers.get('content-security-policy') ?? ''
+  assert.match(policy, /^sandbox /)
+  assert.doesNotMatch(policy, /allow-same-origin/)
 }
 
 async function until(check: () => boolean, what: string) {
@@ -67,22 +96,15 @@ test('the window is told each canvas, and a change on disk reaches it', async (t
 
 test('a drawing is served only at its keyed address, sandboxed and uncached', async (t) => {
   const { root, canvases } = setup(t)
-  const server = await listen({ port: 0, token: 'x', origins: [], dev: false, onConnection: () => {}, serve: (request, response) => canvases.serve(request, response) })
-  afterTest(t, () => server.close())
+  const base = await serving(t, canvases)
   const html = '<!doctype html><title>t</title><p>drawn</p>'
   const entry = store.drawCanvas(root, 'main', { html, title: 'Drawn' })
-  const base = `http://127.0.0.1:${server.port}`
 
-  const ok = await fetch(`${base}/canvas/${entry.key}?r=1`)
-  assert.equal(ok.status, 200)
-  assert.equal(await ok.text(), html)
-  assert.equal(ok.headers.get('content-type'), 'text/html; charset=utf-8')
-  assert.equal(ok.headers.get('cache-control'), 'no-store')
-  assert.equal(ok.headers.get('x-content-type-options'), 'nosniff')
-  assert.equal(ok.headers.get('referrer-policy'), 'no-referrer')
-  const policy = ok.headers.get('content-security-policy') ?? ''
-  assert.match(policy, /^sandbox /)
-  assert.doesNotMatch(policy, /allow-same-origin/)
+  // The kit and the runtime are the files beside the host's code, put in right after the doctype.
+  const { css, js } = readCanvasRuntime()
+  const { response, bytes, text } = await received(`${base}/canvas/${entry.key}?r=1`)
+  assertDrawingHeaders(response, bytes)
+  assert.equal(text, `<!doctype html><style data-hb-runtime>${css}</style><script data-hb-runtime>${js}</script><title>t</title><p>drawn</p>`)
 
   for (const path of [`/canvas/${'0'.repeat(32)}`, `/canvas/${entry.key}/x`, '/canvas/../state.json', '/canvas/main', `/${entry.key}`, '/canvas/']) {
     assert.equal((await fetch(base + path)).status, 404, path)
@@ -92,6 +114,54 @@ test('a drawing is served only at its keyed address, sandboxed and uncached', as
   // A closed canvas no longer serves its drawing.
   store.closeCanvas(root, 'main')
   assert.equal((await fetch(`${base}/canvas/${entry.key}`)).status, 404)
+
+  // A page is never served from here, at the key a drawing once had or at any other.
+  store.showPage(root, 'main', { url: 'http://localhost:3000/' })
+  assert.equal((await fetch(`${base}/canvas/${entry.key}`)).status, 404)
+})
+
+test('the kit and the runtime go in right after the doctype, or first when there is none', async (t) => {
+  const runtime = { css: '.k{}', js: 'void 0' }
+  const { root, canvases } = setup(t, { runtime: () => runtime })
+  const base = await serving(t, canvases)
+  const put = `<style data-hb-runtime>${runtime.css}</style><script data-hb-runtime>${runtime.js}</script>`
+
+  // Each drawing as hobkin wrote it, split where the two go in.
+  const cases: [before: string, after: string][] = [
+    ['<!doctype html>', '<title>t</title><p>café ✏️</p>'],
+    ['<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">', '\n<html><body><p>upper case</p>'],
+    ['﻿<!doctype html>', '<p>after a byte order mark</p>'],
+    ['\n \t<!DocType html>', '\n<p>after white space</p>'],
+    ['<!-- a note first --><!doctype html>', '<p>after a comment</p>'],
+    ['', '<p>no doctype</p>'],
+    ['', '<html><head><title>t</title></head><body><p>no doctype</p></body></html>'],
+    // A byte order mark is not the drawing's content, so the two go after it.
+    ['﻿', '<p>a byte order mark and no doctype</p>'],
+    // A doctype that is not first is not the drawing's own.
+    ['', '<p>late</p><!doctype html>'],
+  ]
+  for (const [before, after] of cases) {
+    const entry = store.drawCanvas(root, 'main', { html: before + after })
+    const { response, bytes, text } = await received(`${base}/canvas/${entry.key}?r=${entry.revision}`)
+    assertDrawingHeaders(response, bytes)
+    assert.equal(text, before + put + after, JSON.stringify(before + after))
+  }
+})
+
+test('a drawing is served exactly as before when the runtime cannot be read', async (t) => {
+  const { root, canvases } = setup(t, {
+    runtime: () => {
+      throw Error('The runtime is not there.')
+    },
+  })
+  const base = await serving(t, canvases)
+  const html = '﻿<!doctype html><title>t</title><p>café</p>'
+  const entry = store.drawCanvas(root, 'main', { html })
+
+  const { response, bytes, text } = await received(`${base}/canvas/${entry.key}?r=1`)
+  assertDrawingHeaders(response, bytes)
+  assert.equal(text, html)
+  assert.deepEqual(bytes, readFileSync(store.drawingFile(root, 'main')))
 })
 
 test('hobkin draws, reads, saves and closes through the client tool', async (t) => {

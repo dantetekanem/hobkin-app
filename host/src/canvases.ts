@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import type { CanvasEntry } from 'hobkin/src/cli/canvas.mjs'
 import { CANVAS_CLOSED, canvasUrl, MAIN_CANVAS, type CanvasContent, type CanvasSaved, type CanvasState } from '#shared/protocol/canvas.ts'
+import { canvasRuntime, withRuntime, type CanvasRuntime } from './canvas-runtime/inject.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
 /** The parts of hobkin's canvas store the host calls. The runtime's module fits; a test passes a copy over a folder. */
@@ -27,6 +28,11 @@ export interface CanvasesOptions {
   onChange: () => void
   home?: string
   downloads?: string
+  /**
+   * The kit and the runtime every drawing is served with (040-canvas-board): by default the files beside the host's
+   * code, read once. A test passes its own. When this throws, drawings are served as they are.
+   */
+  runtime?: () => CanvasRuntime
 }
 
 interface Published {
@@ -124,6 +130,7 @@ export class Canvases {
   /**
    * Answers `GET /canvas/<key>` for a key that belongs to a drawing now. Returns false and writes nothing for
    * anything else, so the server's own 404 stands. The file is found through the store, never from the request.
+   * The drawing goes out with the kit and the runtime put in after its doctype, still in its own sandbox.
    */
   serve(request: IncomingMessage, response: ServerResponse): boolean {
     if (request.method !== 'GET') return false
@@ -134,7 +141,7 @@ export class Canvases {
       const entries = Object.entries(this.options.store.readCanvases(root))
       const owner = entries.find(([, entry]) => entry.open && entry.kind === 'drawing' && sameKey(entry.key, key))?.[0]
       if (!owner) return false
-      const body = readFileSync(this.options.store.drawingFile(root, owner))
+      const body = this.withRuntime(readFileSync(this.options.store.drawingFile(root, owner)))
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'content-length': body.length,
@@ -142,11 +149,22 @@ export class Canvases {
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
         'content-security-policy': SANDBOX,
+        // The drawing runs with no origin of its own, and fetches its next revision from here to change in place.
+        'access-control-allow-origin': '*',
       })
       response.end(body)
       return true
     } catch {
       return false
+    }
+  }
+
+  /** A drawing as its frame gets it: with the kit and the runtime, or exactly as written when their files cannot be read. */
+  private withRuntime(drawing: Buffer): Buffer {
+    try {
+      return withRuntime(drawing, (this.options.runtime ?? canvasRuntime)())
+    } catch {
+      return drawing
     }
   }
 

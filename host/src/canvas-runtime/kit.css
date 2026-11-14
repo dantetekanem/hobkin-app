@@ -1,0 +1,347 @@
+/*
+ * hobkin's canvas kit (_specs/040-canvas-board). The host puts this stylesheet into every drawing it serves, right
+ * after the doctype and before the runtime. Every rule sits under one of the kit's classes or attributes, or the
+ * kit's own hb-arrow element, so a drawing that does not use the kit looks as it always has.
+ *
+ * The colors follow the app's light and dark theme: the runtime sets data-hb-theme on the root before the first
+ * paint, and puts the app's own colors on --hb-paper, --hb-ink, --hb-muted, --hb-line and --hb-accent when the window
+ * sends them. Each note color has a variable of its own. Fonts are the Mac's own; nothing comes from the network.
+ *
+ * This file is served inside a style element as it is, so it never holds the characters that would end one.
+ */
+
+:root:not([data-hb-theme="dark"]) {
+  --hb-paper: #f8f4e8;
+  --hb-ink: #16181f;
+  --hb-muted: #5a5648;
+  --hb-line: #d8ceb2;
+  --hb-accent: #ffc940;
+  --hb-yellow: #ffe17d;
+  --hb-green: #c8e6b0;
+  --hb-blue: #c3daf6;
+  --hb-pink: #f8c8d4;
+  --hb-purple: #dbd0f4;
+  --hb-gray: #e1ddd1;
+  /* Notes are light in both themes, so the words on them are always dark. */
+  --hb-note-ink: #1d1e22;
+  --hb-card: color-mix(in oklab, var(--hb-paper), white 55%);
+  --hb-edge: var(--hb-ink);
+  --hb-tint: 48%;
+  --hb-lift: 0 1px 1px rgb(22 24 31 / 0.08), 0 7px 16px -8px rgb(22 24 31 / 0.34);
+  --hb-offset: rgb(22 24 31 / 0.12);
+}
+
+:root[data-hb-theme="dark"] {
+  --hb-paper: #17191f;
+  --hb-ink: #f0ead6;
+  --hb-muted: #a8a291;
+  --hb-line: #343844;
+  --hb-accent: #ffc940;
+  --hb-yellow: #e2c766;
+  --hb-green: #a3c993;
+  --hb-blue: #98b6df;
+  --hb-pink: #dfa5b5;
+  --hb-purple: #b8a9dd;
+  --hb-gray: #b0ada3;
+  --hb-note-ink: #16181f;
+  --hb-card: color-mix(in oklab, var(--hb-paper), white 5%);
+  --hb-edge: color-mix(in oklab, var(--hb-ink) 84%, var(--hb-paper));
+  --hb-tint: 24%;
+  --hb-lift: 0 1px 1px rgb(0 0 0 / 0.35), 0 9px 20px -8px rgb(0 0 0 / 0.7);
+  --hb-offset: rgb(0 0 0 / 0.5);
+}
+
+/* A board takes the app's theme as a whole page, the browser's own controls and scroll bars included. */
+:root[data-hb-theme="light"]:has(> body.hb-board) {
+  color-scheme: light;
+}
+:root[data-hb-theme="dark"]:has(> body.hb-board) {
+  color-scheme: dark;
+}
+
+/* ---- The board: whiteboard paper with a faint dot grid ---- */
+
+body.hb-board {
+  margin: 0;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 32px;
+  color: var(--hb-ink);
+  background-color: var(--hb-paper);
+  background-image: radial-gradient(circle at 1.5px 1.5px, var(--hb-line) 1.1px, transparent 1.6px);
+  background-size: 24px 24px;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.hb-board :is(h1, h2, h3) {
+  margin: 0 0 0.55em;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+body.hb-board h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+body.hb-board h2 {
+  font-size: 17px;
+  font-weight: 650;
+}
+body.hb-board h3 {
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+:is(.hb-note, .hb-box, .hb-pill, .hb-frame, .hb-row, .hb-col, .hb-grid),
+:is(.hb-note, .hb-box, .hb-frame)::before {
+  box-sizing: border-box;
+}
+
+/* ---- Sticky notes ---- */
+
+.hb-note {
+  --hb-note: var(--hb-yellow);
+  width: fit-content;
+  min-width: 128px;
+  max-width: 220px;
+  min-height: 76px;
+  padding: 12px 14px 14px;
+  color: var(--hb-note-ink);
+  background: linear-gradient(176deg, color-mix(in oklab, var(--hb-note), white 22%), var(--hb-note) 42%);
+  border-radius: 3px 3px 6px 4px;
+  box-shadow: var(--hb-lift);
+  rotate: -1.2deg;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+/* A slight tilt that changes from one note to the next. */
+.hb-note:nth-child(5n + 2) {
+  rotate: 0.9deg;
+}
+.hb-note:nth-child(5n + 3) {
+  rotate: -0.5deg;
+}
+.hb-note:nth-child(5n + 4) {
+  rotate: 1.5deg;
+}
+.hb-note:nth-child(5n + 5) {
+  rotate: -1.8deg;
+}
+.hb-note > :first-child {
+  margin-top: 0;
+}
+.hb-note > :last-child {
+  margin-bottom: 0;
+}
+
+.hb-note[data-color="green"],
+.hb-box[data-color="green"],
+.hb-pill[data-color="green"] {
+  --hb-note: var(--hb-green);
+}
+.hb-note[data-color="blue"],
+.hb-box[data-color="blue"],
+.hb-pill[data-color="blue"] {
+  --hb-note: var(--hb-blue);
+}
+.hb-note[data-color="pink"],
+.hb-box[data-color="pink"],
+.hb-pill[data-color="pink"] {
+  --hb-note: var(--hb-pink);
+}
+.hb-note[data-color="purple"],
+.hb-box[data-color="purple"],
+.hb-pill[data-color="purple"] {
+  --hb-note: var(--hb-purple);
+}
+.hb-note[data-color="gray"],
+.hb-box[data-color="gray"],
+.hb-pill[data-color="gray"] {
+  --hb-note: var(--hb-gray);
+}
+.hb-box[data-color="yellow"],
+.hb-pill[data-color="yellow"] {
+  --hb-note: var(--hb-yellow);
+}
+
+/* ---- Boxes: an outlined card with an edge that looks drawn by hand ---- */
+
+.hb-box {
+  position: relative;
+  isolation: isolate;
+  padding: 14px 16px;
+  color: var(--hb-ink);
+}
+/* The edge and the fill are drawn behind the words, so the wobble, when there is one, never touches the text. */
+.hb-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--hb-card);
+  border: 2px solid var(--hb-edge);
+  border-radius: 16px 9px 14px 10px / 10px 14px 9px 16px;
+  box-shadow: 2px 3px 0 var(--hb-offset);
+  pointer-events: none;
+}
+.hb-box[data-color]::before {
+  background: color-mix(in oklab, var(--hb-note) var(--hb-tint), var(--hb-card));
+}
+.hb-box > :first-child {
+  margin-top: 0;
+}
+.hb-box > :last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Pills: a small rounded label ---- */
+
+.hb-pill {
+  --hb-note: var(--hb-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  border: 1px solid color-mix(in oklab, var(--hb-note), var(--hb-ink) 30%);
+  border-radius: 999px;
+  color: var(--hb-ink);
+  background: color-mix(in oklab, var(--hb-note) var(--hb-tint), var(--hb-card));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* ---- Frames: a titled group with a dashed edge ---- */
+
+.hb-frame {
+  position: relative;
+  margin-top: 10px;
+  padding: 24px 18px 18px;
+  border: 2px dashed color-mix(in oklab, var(--hb-line), var(--hb-muted) 45%);
+  border-radius: 18px;
+}
+/* The title sits on the edge, on a piece of paper that hides the dashes behind it. */
+.hb-frame[data-title]::before {
+  content: attr(data-title);
+  position: absolute;
+  top: -1px;
+  left: 14px;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  translate: 0 -50%;
+  padding: 0 8px;
+  color: var(--hb-muted);
+  background: var(--hb-paper);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Layout ---- */
+
+.hb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 18px;
+}
+.hb-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.hb-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
+}
+
+/* ---- Handwriting and the hand-drawn wobble ---- */
+
+.hb-hand {
+  font-family: "Chalkboard SE", "Marker Felt", "Bradley Hand", cursive;
+  letter-spacing: 0.005em;
+}
+/* The wobble is an SVG filter the runtime adds once. Until it has, nothing refers to it, and nothing wobbles. */
+:root[data-hb-sketch] .hb-sketch,
+:root[data-hb-sketch] .hb-box.hb-sketch::before {
+  filter: url(#hb-sketch);
+}
+:root[data-hb-sketch] .hb-box.hb-sketch {
+  filter: none;
+}
+
+/* ---- Arrows: written as hb-arrow, drawn by the runtime on its own layer ---- */
+
+hb-arrow {
+  display: none !important;
+}
+svg[data-hb-runtime] .hb-arrow {
+  --hb-arrow: color-mix(in oklab, var(--hb-ink) 82%, var(--hb-paper));
+  color: var(--hb-arrow);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="yellow"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-yellow), var(--hb-ink) 38%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="green"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-green), var(--hb-ink) 38%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="blue"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-blue), var(--hb-ink) 38%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="pink"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-pink), var(--hb-ink) 38%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="purple"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-purple), var(--hb-ink) 38%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="gray"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-gray), var(--hb-ink) 38%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="ink"] {
+  --hb-arrow: var(--hb-ink);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="muted"] {
+  --hb-arrow: var(--hb-muted);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="line"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-line), var(--hb-muted) 45%);
+}
+svg[data-hb-runtime] .hb-arrow[data-color="accent"] {
+  --hb-arrow: color-mix(in oklab, var(--hb-accent), var(--hb-ink) 28%);
+}
+svg[data-hb-runtime] .hb-arrow-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+svg[data-hb-runtime] .hb-arrow[data-style="dashed"] .hb-arrow-line {
+  stroke-dasharray: 7px 7px;
+}
+svg[data-hb-runtime] .hb-arrow[data-style="dotted"] .hb-arrow-line {
+  stroke-dasharray: 0.5px 6px;
+}
+svg[data-hb-runtime] .hb-arrow-head {
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+svg[data-hb-runtime] .hb-arrow-backing {
+  fill: var(--hb-paper);
+}
+svg[data-hb-runtime] .hb-arrow-text {
+  fill: var(--hb-ink);
+  font: 600 12px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
