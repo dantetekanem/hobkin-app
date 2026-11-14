@@ -1,6 +1,7 @@
 import { ArrowUp, FileText, Square, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
@@ -65,8 +66,13 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const availability = availabilityOf({ link, home, owner, signIn, models })
   const ready = availability.ready
   const turnRunning = useHost(canStopConversation)
-  const host = useHost(state => state)
-  const main = executionTargets(host).find(target => target.kind === 'main')
+  // With link, home and owner above, exactly what `executionTargets` reads, so a word of a reply being written does not
+  // draw the input again. Its disconnect boundary (`observeExecutionBoundary`) moves only with link, home and epoch.
+  const { epoch, stopControls } = useHost(useShallow((state) => ({ epoch: state.epoch, stopControls: state.snapshot.stopControls })))
+  const main = useMemo(
+    () => executionTargets({ link, home, owner, epoch, snapshot: { stopControls } }).find(target => target.kind === 'main'),
+    [link, home, owner, epoch, stopControls],
+  )
   const execution = useExecution()
   const canSend = ready && canSendDraft({ text, attachments })
   const list = ready ? slashList(text, commands, slash) : null
