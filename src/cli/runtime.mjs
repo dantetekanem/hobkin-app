@@ -179,8 +179,15 @@ export class HobkinRuntime {
     }
   }
 
+  // pi-durable hands back the same document until a commit swaps in a new one, and never changes one in place, so its
+  // text is encoded once per commit. Every caller still gets a copy of its own to change.
   async state() {
-    return copy(await this.harness.snapshot(RuntimeDoc, this.root.id, context));
+    const document = await this.harness.snapshot(RuntimeDoc, this.root.id, context);
+    if (document !== this.encodedDocument) {
+      this.encodedState = JSON.stringify(document);
+      this.encodedDocument = document;
+    }
+    return JSON.parse(this.encodedState);
   }
 
   async change(update) {
