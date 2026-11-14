@@ -71,7 +71,7 @@ test('real Pi turns write their stages from the window\'s send to the first text
   await client.until((view) => view.messages.some((message) => message.role === 'assistant' && message.content === 'A reply from the model.'), 'the live reply')
   await client.until(() => eventsOf(root).some((event) => event.type === 'run_performance' && event.runId === sent.id), "the main turn's timing")
 
-  // A durable hobkin on Pi: every turn starts a process.
+  // A durable hobkin on Pi: its first turn starts a process, which stays up for the next.
   const folder = temporaryDirectory(t)
   const engine = { kind: 'pi', model: 'deepseek/deepseek-flash', effort: 'high' }
   const { id } = await client.run<{ id: string }>('hobkin.start', { cwd: folder, engine, text: 'first turn' })
@@ -92,8 +92,10 @@ test('real Pi turns write their stages from the window\'s send to the first text
   const [started, said] = timings.filter((event) => event.kind === 'durable')
   assert.deepEqual([started!.engine, started!.model, started!.origin], ['pi', 'deepseek/deepseek-flash', 'run'])
   inOrder(started!.stages!, ['admitted', 'resolved', 'spawned', 'ready', 'prompted', 'started', 'requested', 'text', 'ended'])
+  // The second turn finds the first one's process still up, so it starts none.
   assert.equal(said!.origin, 'window')
-  inOrder(said!.stages!, ['host', 'admitted', 'resolved', 'spawned', 'ready', 'prompted', 'started', 'requested', 'text', 'ended'])
+  inOrder(said!.stages!, ['host', 'admitted', 'resolved', 'prompted', 'started', 'requested', 'text', 'ended'])
+  assert.deepEqual(['spawned', 'ready'].filter((stage) => stage in said!.stages!), [])
 
   // With a model that answers at once, what is left is hobkin's and Pi's own time.
   t.diagnostic(`\n${firstWordTable(summarizeFirstWord(events))}`)
