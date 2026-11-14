@@ -9,6 +9,7 @@ import { clean, startRpcProcess } from './rpc-process.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
+import { assertPromptBytes, promptByteLimit } from './prompt-bounds.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -34,12 +35,14 @@ const agentsStarted = ({ toolName, isError, result }) => {
 };
 
 export function buildInvocation(request) {
+  const maxPromptBytes = promptByteLimit();
   if (request.harness !== 'pi') throw Error('Execution requires an explicit Pi binding.');
   validateBinding(request);
   if (!uuid.test(request.id) || !isAbsolute(request.cwd ?? '') || typeof request.prompt !== 'string'
-    || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 65536) {
+    || !request.prompt.trim()) {
     throw Error('Invalid harness request identity, cwd or bounded prompt.');
   }
+  assertPromptBytes(request.prompt, maxPromptBytes, 'harness prompt');
   if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', 'humanizer', 'durable', ...workPurposes].includes(request.purpose)) {
     throw Error('Unsupported harness purpose.');
   }

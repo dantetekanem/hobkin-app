@@ -42,7 +42,19 @@ test('what the user answered in the setup comes after who they are and before th
   const setup = aboutSetup(readSetupFacts(root));
 
   assert.match(setup, /~\/Code/);
-  assert.equal(readDirections(root), `The user's name is Ada.\n\n${setup}\n\n${long.slice(0, 16384)}`);
+  assert.ok(readDirections(root).endsWith(long), 'all standing directions survive the setup prefix');
+  assert.equal(readDirections(root), `The user's name is Ada.\n\n${setup}\n\n${long}`);
+});
+
+test('standing directions retain complete UTF-8 through 64 KiB and reject oversize instead of truncating', t => {
+  const root = dataRoot(t);
+  const full = '界'.repeat(21845) + 'x';
+  assert.equal(Buffer.byteLength(full), 65536);
+  writeFileSync(directionsPath(root), full);
+  assert.equal(Buffer.byteLength(readDirections(root)), 65536);
+  assert.equal(readDirections(root), full);
+  writeFileSync(directionsPath(root), full + 'x');
+  assert.throws(() => readDirections(root), /AGENTS.md.*65536/);
 });
 
 test('with no setup answers the directions read exactly as they did', t => {

@@ -2,12 +2,13 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { runOutcomeText } from './reports.mjs';
+import { assertPromptBytes, promptByteLimit } from './prompt-bounds.mjs';
 
 const MAX_FILE_BYTES = 32768;
-const MAX_PROMPT_BYTES = 65536;
 
 /** Explicit regular-file sources only. This bounds context, not the child's filesystem access. */
 export async function buildContext(schedule, latestOutcome = null, memory = [], check = { memory: null, log: [] }, work = undefined) {
+  const maxPromptBytes = promptByteLimit();
   const cwd = resolve(schedule.cwd);
   if (await realpath(cwd) !== cwd || !(await lstat(cwd)).isDirectory()) {
     throw Error('cwd must be a real directory without symlinks');
@@ -59,11 +60,9 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
     ...(work ? { work } : { decide: check.decide, action: check.action, reportId: check.reportId }),
   };
   const prompt = JSON.stringify(envelope);
-  if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) {
-    throw Error('context envelope exceeded its byte limit: shorten the sources, AGENTS.md or this check\'s memory');
-  }
+  assertPromptBytes(prompt, maxPromptBytes, 'context envelope');
   if (!check.learning?.length) return prompt;
   // Lessons go in the request, never the system prompt, so a new lesson leaves what every run shares cached. A run with no room for advice still runs.
   const advised = JSON.stringify({ ...envelope, learning: check.learning });
-  return Buffer.byteLength(advised) > MAX_PROMPT_BYTES ? prompt : advised;
+  return Buffer.byteLength(advised) > maxPromptBytes ? prompt : advised;
 }

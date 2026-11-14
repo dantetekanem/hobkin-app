@@ -10,6 +10,7 @@ import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize, setLearning } from '../src/cli/config.mjs';
 import { buildContext } from '../src/cli/context.mjs';
+import { promptByteLimit } from '../src/cli/prompt-bounds.mjs';
 import { isHoldBrief } from '../src/cli/holds.mjs';
 import { conclude, MAX_TOKENS, requestTokens, tokensIn } from '../src/cli/learning/lessons.mjs';
 import { runLearningCommand } from '../src/cli/learning/commands.mjs';
@@ -344,7 +345,8 @@ test('a corrupt store never reaches a session, and the next pass puts it right',
 
 test('a request with no room for advice still runs, without it', async t => {
   const h = fixture(t);
-  const schedule = { id: 'big', title: 'Big', prompt: 'x'.repeat(65000), cwd: h.base, harness: 'pi', model: null, context: [] };
+  const schedule = { id: 'big', title: 'Big', prompt: '', cwd: h.base, harness: 'pi', model: null, context: [] };
+  schedule.prompt = 'x'.repeat(promptByteLimit() - Buffer.byteLength(await buildContext(schedule)) - 1);
   const learning = ['learned: advice', `+big used x5: ${'keep '.repeat(200)}`];
 
   const envelope = JSON.parse(await buildContext(schedule, null, [], { memory: null, log: [], learning }));

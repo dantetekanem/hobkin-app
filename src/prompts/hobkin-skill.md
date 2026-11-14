@@ -177,7 +177,7 @@ Every enabled check spends the user's money on each run. Say so when you add one
 
 ## Write instructions that work
 
-Each run is a fresh Pi process in `cwd` with the user's normal tools. The instructions arrive inside a JSON request, with a limit of 64 KiB:
+Each run is a fresh Pi process in `cwd` with the user's normal tools. The instructions arrive inside a JSON request, with a default limit of 256 KiB of serialized UTF-8. The owner process can set `HOBKIN_MAX_PROMPT_BYTES` from 65536 through 1048576; this is a resource bound, not the model's token window. Root `AGENTS.md` directions are kept whole through 64 KiB and rejected above that, never silently truncated:
 
 - `routine`: the check's ID, title and instructions.
 - `sources`: the `context` files.
