@@ -65,6 +65,7 @@ import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
 import { projectPerformance, readLocalView, safePerformance } from './view.mjs';
 import { safeSteps, turnFrom } from './turn-metrics.mjs';
+import { withoutSinceNote } from './prompt-parts.mjs';
 import { PastedImages } from './paste-image.mjs';
 import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
@@ -84,7 +85,7 @@ const imagesIn = message => (Array.isArray(message.content) ? message.content : 
 // Every refresh hashes the whole chat, and an image would be most of what it hashes.
 const withoutImageData = (_, value) => (value?.type === 'image' ? { ...value, data: '' } : value);
 // What the user typed, and the report it was about, without the notes hobkin sends ahead of it.
-const typedPart = text => splitReportReference(withoutBriefNote(withoutLearningNote(withoutWorkNote(text))));
+const typedPart = text => splitReportReference(withoutSinceNote(withoutBriefNote(withoutLearningNote(withoutWorkNote(text)))));
 const chatMessage = (message, index, shown) => {
   const { text, about } = typedPart(textOf(message));
   const endedTheChat = index === shown.length - 1;
@@ -755,7 +756,13 @@ export class HobkinApplication {
     const brief = !report && asksForBrief(text) ? this.briefBlock(room) : '';
     // A message with no room for the note still goes, and the note goes with the next one.
     const fits = Buffer.byteLength(`${opening}${learned}${brief}${message}`) <= MAX_MESSAGE_BYTES;
-    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${brief}${message}`, images, turn);
+    // What the user decided and how memory changed since the main agent's prompt was written goes with their words, so
+    // the prompt itself can stay as it is and the conversation stays cached (`prompt-parts.mjs`). With no room it waits.
+    const news = this.runtime.main?.promptNews?.() ?? null;
+    const notes = `${opening}${fits ? learned : ''}${brief}`;
+    const since = news && Buffer.byteLength(`${notes}${news.text}${message}`) <= MAX_MESSAGE_BYTES ? news.text : '';
+    const accepted = await this.sendWhenFree(`${notes}${since}${message}`, images, turn);
+    if (since) news.told();
     // The user's words reached the main agent's turn, a wake's they joined included, so its messages count from them.
     this.hobkins.userWrote();
     this.pastedImages.remove(images);

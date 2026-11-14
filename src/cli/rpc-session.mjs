@@ -8,6 +8,7 @@ import { readDecided } from './decided.mjs';
 import { readDirections } from './directions.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
+import { keptPrompt } from './prompt-parts.mjs';
 import { createMemoryTool, readMemory } from './memory.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs';
@@ -140,6 +141,8 @@ export class PiRpcSession {
   }
 
   getSessionStats() { return this.stats ?? { sessionId: this.sessionId }; }
+  /** What the user decided and how memory changed since the system prompt was written, as a note for the next message, or null. */
+  promptNews() { return this.keptPrompt?.news() ?? null; }
   getContextUsage() { return this.stats?.contextUsage; }
 
   accept(record) {
@@ -167,6 +170,8 @@ export class PiRpcSession {
       this.open = null;
     } else if (record.type === 'compaction_end') {
       this.isCompacting = false;
+      // The conversation was rewritten, so its cached start is gone: the prompt is written again, with what is new in it.
+      this.keptPrompt?.renew();
       this.pull().catch(() => {});
     }
     for (const listener of this.listeners) {
@@ -303,6 +308,8 @@ export class PiRpcSession {
   async apply({ model, effort }) {
     try {
       if (model) await this.child.request('set_model', { provider: model.provider, modelId: model.id });
+      // Another model has no cache of this conversation, so its prompt is written fresh.
+      if (model) this.keptPrompt?.renew();
       if (effort !== undefined) await this.child.request('set_thinking_level', { level: effort });
     } catch (error) {
       throw Object.assign(Error(error.message), { effective: await this.binding().catch(() => undefined) });
@@ -382,14 +389,18 @@ export async function openRpcSession(
   if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
     throw Error('Main Pi conversation was recorded in a different directory than the configured cwd.');
   }
+  // Memory and decisions stay in the prompt as last written (`prompt-parts.mjs`), so a change in them does not send the
+  // whole conversation uncached. Directions and persona are read each turn: the user changes those on purpose, and rarely.
+  const kept = keptPrompt({ memory: () => readMemory(root), decided: () => readDecided(root) });
   const prompt = fingerprinted({
-    memory: () => readMemory(root),
+    memory: kept.memory,
     directions: () => readDirections(root),
-    decided: () => readDecided(root),
+    decided: kept.decided,
     persona: () => readPersona(root),
   });
   const session = new PiRpcSession({ askQuestion, graceMs, tools: {}, ...prompt.readers });
   session.promptParts = prompt.parts;
+  session.keptPrompt = kept;
   session.tools = scriptedMain ? {} : {
     ask_question: createQuestionTool(askQuestion, root),
     run_routine: createScheduleTool(triggerSchedule),

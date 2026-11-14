@@ -582,7 +582,10 @@ test('bridge requests run the real Hobkin tools in Hobkin with the child’s own
   const remembered = await bridge(h.fake, { op: 'tool', name: 'hobkin_memory', id: 'call-3', params: { action: 'add', text: 'Rent is due November 1' } });
   assert.equal(remembered.answer.ok, true);
   assert.equal(readFileSync(join(h.root, 'memory.md'), 'utf8'), '- Rent is due November 1\n');
-  assert.deepEqual((await bridge(h.fake, { op: 'memory' })).answer, { ok: true, result: ['Rent is due November 1'] });
+  // The prompt was written when its decisions were read above, so it keeps the memory it had then, and the new item
+  // goes to the agent as a note with the next message.
+  assert.deepEqual((await bridge(h.fake, { op: 'memory' })).answer, { ok: true, result: [] });
+  assert.match(runtime.main.promptNews().text, /Memory now also holds:\n- Rent is due November 1\n/);
 
   const invalid = await bridge(h.fake, { op: 'tool', name: 'ask_question', id: 'call-4', params: { question: 'Only one', choices: [question.choices[0]] } });
   assert.equal(invalid.answer.ok, false);
