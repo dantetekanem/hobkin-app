@@ -64,7 +64,7 @@ export const QUESTIONS: Record<ComputerKind, readonly Question[]> = {
       id: 'team',
       ask: 'How does your team work?',
       kind: 'pick',
-      options: ['Pull requests', 'Code review', 'CI must pass', 'Staging first', 'Feature flags'],
+      options: ['Pull requests', 'Code review', 'CI must pass', 'Staging first', 'Feature flags', 'GitHub issues', 'Slack messages', 'Instrumentation', 'Local tooling for APIs'],
     },
     { id: 'board', ask: 'Is there a board I should follow?', kind: 'pick', options: ['Linear', 'Jira', 'GitHub', 'Notion', 'None'] },
     {
@@ -199,7 +199,10 @@ export function followUpRequest({ computer, replies }: Answered): string {
   return [
     ...known,
     ...wishesOf(kind, replies),
-    `Now ask me what else you need to know to build my first routines. Ask one question at a time with your ask_question tool, and give me choices wherever you can. Ask at most ${FOLLOW_UPS_MAX} questions, fewer if you know enough.`,
+    'Now ask me what else you need to know to build my first routines.',
+    // A new hobkin with no routines starts with its own first-run guide, and the user waits on screen while it reads.
+    "The app already took me through the first steps, so do not run `hobkin setup` or read its guide now: ask your first question right away.",
+    `Ask one question at a time with your ask_question tool, and give me choices wherever you can. Ask at most ${FOLLOW_UPS_MAX} questions, fewer if you know enough.`,
     `Then, here in the chat: ${PROPOSE}`,
   ].join('\n')
 }
