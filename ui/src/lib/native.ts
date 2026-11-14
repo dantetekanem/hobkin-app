@@ -38,6 +38,11 @@ export interface BrowserShown {
   forward: boolean
 }
 
+/** A key the shell saw while the page had the keyboard. It tells the window without taking the key from the page. */
+export interface BrowserKey {
+  key: string
+}
+
 export interface BrowserShell {
   /** Opens the page over the area, or takes the open browser there. */
   open(url: string, area: BrowserArea): Promise<void>
@@ -50,6 +55,8 @@ export interface BrowserShell {
   close(): Promise<void>
   shown(): Promise<BrowserShown | null>
   onShown(listener: (shown: BrowserShown) => void): Promise<() => void>
+  /** Escape pressed in the page (_specs/040-canvas-board A14). A shell from before it never sends one. */
+  onKey(listener: (key: BrowserKey) => void): Promise<() => void>
 }
 
 export interface Shell {
@@ -88,6 +95,9 @@ const browser: BrowserShell = {
   close: () => inTurn('browser_close'),
   shown: () => inTurn('browser_shown'),
   onShown: (listener) => listen<BrowserShown>('canvas-browser:state', ({ payload }) => listener(payload)),
+  onKey: (listener) => listen<BrowserKey>('canvas-browser:key', ({ payload }) => {
+    if (typeof payload?.key === 'string') listener(payload)
+  }),
 }
 
 let asked: Promise<Shell> | null = null

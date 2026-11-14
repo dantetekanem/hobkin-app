@@ -42,6 +42,13 @@ export interface KeyContext {
   typing?: boolean
   /** The agent screen shows a durable hobkin's page (`034-durable-hobkins`). */
   hobkinPage?: boolean
+  /** The canvas that has the keyboard (its area, its drawing or its controls in the menu): whose it is and what it shows. */
+  board?: { owner: string; kind: 'page' | 'drawing' } | null
+  /**
+   * The canvas on screen, if any (`040-canvas-board`), and where its agent takes the keyboard: the message input for the
+   * main canvas, the page's talk box for a durable hobkin's split. A canvas showing only as a pill is not on screen.
+   */
+  canvasShowing?: { owner: string; agent: 'input' | 'talk' } | null
 }
 
 export type KeyAction =
@@ -68,10 +75,15 @@ export type KeyAction =
   | { do: 'force-stop' }
   | { do: 'go-back' }
   | { do: 'go-forward' }
+  | { do: 'close-canvas'; owner: string }
+  | { do: 'save-canvas'; owner: string }
+  | { do: 'focus-board'; owner: string }
+  | { do: 'focus-canvas-agent'; agent: 'input' | 'talk' }
 
 /**
  * What the frame does for a key, or null when the key is not the frame's. Tab is never the frame's: it moves the
- * keyboard between controls as it does anywhere, and Command with a number changes the screen.
+ * keyboard between controls as it does anywhere, and Command with a number changes the screen. Control+Tab is the
+ * frame's only while a canvas is on screen.
  */
 export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | null {
   // Command+R reloads the window, as it does in a browser, and the app reopens where it was (location.ts). A screen's own
@@ -122,6 +134,13 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
   }
   if (context.inOverlay) return null
 
+  // Control+Tab moves the keyboard between the canvas on screen and its agent. With no canvas showing it keeps its meaning.
+  if (press.ctrl && !press.meta && !press.alt && !press.shift && press.key === 'Tab') {
+    const showing = context.canvasShowing
+    if (!showing) return null
+    return context.board ? { do: 'focus-canvas-agent', agent: showing.agent } : { do: 'focus-board', owner: showing.owner }
+  }
+
   if (press.meta) {
     // Command with nothing else. Command with Shift, Option or Control belongs to something else.
     if (press.ctrl || press.alt || press.shift) return null
@@ -155,6 +174,8 @@ function commandKey(key: string, context: KeyContext): KeyAction | null {
   if (key === 'i') return { do: 'open-integrations' }
   // G goes to the agent that needs you. Nothing to go to leaves the key alone. (Command+U attaches an image.)
   if (key === 'g') return context.asking ? { do: 'answer-agent' } : null
+  // Command+S saves the drawing that has the keyboard, as its Save button does. Anywhere else the key is not the frame's.
+  if (key === 's') return context.board?.kind === 'drawing' ? { do: 'save-canvas', owner: context.board.owner } : null
   return null
 }
 
@@ -181,9 +202,13 @@ function openForNow({ screen, githubInMenu }: KeyContext): boolean {
  * A screen that is open only for now is left: a review for its opener, Integrations for Settings, Settings for the screen
  * under it, a GitHub the menu leaves out for the screen it was opened over, the World for Work. A menu screen stays open and the
  * keyboard goes home.
+ *
+ * A canvas with the keyboard in it closes (`040-canvas-board`). The main canvas is not a place open only for now: Escape
+ * anywhere else leaves it open.
  */
 export function resolveEscape(context: KeyContext, prevented: boolean): KeyAction | null {
   if (prevented || context.inOverlay) return null
+  if (context.board) return { do: 'close-canvas', owner: context.board.owner }
   // The mind is open only for now too: leaving it goes back to where the user was.
   if (context.screen === 'mind') return { do: 'toggle-mind' }
   if (openForNow(context)) return { do: 'leave-screen' }

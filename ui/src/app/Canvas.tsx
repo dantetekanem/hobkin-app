@@ -1,5 +1,5 @@
-import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { lazy, Suspense, type ComponentType } from 'react'
+import { AnimatePresence, animate, motion, useMotionValue, type MotionValue, type Transition, type Variants } from 'motion/react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ComponentType } from 'react'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { HomeScreen } from '@/features/home/HomeScreen.tsx'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
@@ -15,7 +15,10 @@ import { WorkScreen } from '@/features/work/WorkScreen.tsx'
 import { WorldScreen } from '@/features/work/WorldScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
 import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
-import { CanvasPanel } from '@/features/canvas-panel/CanvasPanel.tsx'
+import { CanvasPane } from '@/features/canvas-panel/CanvasPane.tsx'
+import { CanvasScreen } from '@/features/canvas-panel/CanvasScreen.tsx'
+import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
+import { useCanvasPlace } from '@/features/canvas-panel/use-place.ts'
 import { HobkinScreen } from '@/features/hobkins/HobkinScreen.tsx'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { NotWiredYet } from './NotWiredYet.tsx'
@@ -54,6 +57,7 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   mind: MainAgentScreen,
   review: ReviewScreen,
   settings: SettingsScreen,
+  canvas: CanvasScreen,
 }
 
 const place = (x: number, y: number, scale: number) => `translateX(${x}%) translateY(${y}%) scale(${scale})`
@@ -94,9 +98,49 @@ const arrive: Variants = {
 }
 
 /**
+ * How the right side grows over the chat: on the screens' spring, as it always has. A durable hobkin's split forms on
+ * that spring and undoes on the exit spring. Under Still it is set at once.
+ */
+function useGrowth(split: boolean, enteringAgent: boolean, still: boolean): Transition {
+  const was = useRef(split)
+  const undoing = was.current && !split
+  useEffect(() => {
+    was.current = split
+  })
+  if (still) return { duration: 0 }
+  if (split) return spring.screen
+  if (undoing) return spring.screenExit
+  return entryTransition(enteringAgent, still, spring.screen)
+}
+
+/**
+ * How far a durable hobkin's page is inset from the right, to give its split's canvas the room. The split forming or
+ * undoing on the page moves it on the split's spring; arriving on the page, a resize or Still put it straight there. A
+ * page on its way out keeps the width it had, as everything else on it does.
+ */
+function usePageInset(onPage: boolean, split: boolean, canvasWidth: number, still: boolean): MotionValue<number> {
+  const inset = useMotionValue(split ? canvasWidth : 0)
+  const was = useRef({ onPage, split })
+  useLayoutEffect(() => {
+    const before = was.current
+    was.current = { onPage, split }
+    if (!onPage) return
+    const target = split ? canvasWidth : 0
+    if (!before.onPage || before.split === split || still) inset.jump(target)
+    else animate(inset, target, split ? spring.screen : spring.screenExit)
+  }, [onPage, split, canvasWidth, still, inset])
+  return inset
+}
+
+/**
  * The canvas: the right side of a two-sided app. It runs flush to the top, bottom and right of the window,
  * and its left edge, rounded and shadowed, is the one division, where it lies over the chat.
  * The screen menu floats over its top. A screen fills it edge to edge, so its content may pass under the menu.
+ *
+ * The main hobkin's canvas is a screen of its own here, `canvas` (040-canvas-board). A durable hobkin's canvas forms a
+ * split with its page instead: the right side grows over the whole chat, the page takes the chat's place, and the
+ * canvas slides in at the right side's usual width. The menu, the drag strip and the page's top-right control keep
+ * their places over the canvas, on the same spring.
  */
 export function Canvas() {
   const screen = useView((view) => view.screen)
@@ -114,10 +158,20 @@ export function Canvas() {
   // A durable hobkin is an agent with a page of its own (034-durable-hobkins). Moving between it and an agent travels.
   const durable = enteringAgent && hobkinOfAgent(openAgent) !== null
   const View = needsModel ? SignInScreen : durable ? HobkinScreen : SCREEN_VIEWS[screen]
-  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth })
+  const splitNow = useSplit()
+  const split = needsModel ? null : splitNow
+  const sizes = useSplitSizes()
+  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, split: split !== null })
+  // The main canvas moves the view, unless the right side covers the chat right then.
+  useCanvasPlace({ covered: grow > 0, split: split && { owner: split.owner, revision: split.canvas.revision } })
+  const growth = useGrowth(split !== null, enteringAgent, still)
+  const pageInset = usePageInset(durable, split !== null, sizes.canvasWidth, still)
+  // While the split grows the right side over the chat, what floats over the canvas moves back by as much.
+  const shift = split ? grow : 0
   // Each agent has a key of its own, which focus and the keys go by. The agents share one section, though: moving from
   // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
   const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen
+  const section = enteringAgent ? (durable ? 'hobkin' : 'agent') : key
 
   return (
     <motion.main
@@ -126,7 +180,7 @@ export function Canvas() {
       // The canvas takes room from the chat by sliding its left edge over it. The chat itself does not move.
       initial={false}
       animate={{ marginLeft: -grow }}
-      transition={entryTransition(enteringAgent, still, still ? { duration: 0 } : spring.screen)}
+      transition={growth}
       // A click in the canvas is as good as stepping into it with the keyboard.
       onPointerDown={engageCanvas}
     >
@@ -134,12 +188,14 @@ export function Canvas() {
           It never starts a text selection, which the Mac window would paint as a band of the selection color. */}
       {/* The empty top is a window-drag title bar, but it must not cover the top-right controls (Nerd stats, close,
           Stop) that some screens place there, or it swallows their clicks. Leave that corner out of the drag region. */}
-      <div data-tauri-drag-region className="select-none-chrome absolute top-0 left-0 right-44 z-10 h-14" />
-      {needsModel ? null : <ScreenMenu />}
+      <motion.div data-tauri-drag-region className="select-none-chrome absolute top-0 right-44 z-10 h-14" initial={false} animate={{ left: shift }} transition={growth} />
+      {needsModel ? null : <ScreenMenu shift={shift} transition={growth} />}
       <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float">
+        {/* A durable hobkin's canvas in its split. Before the screens, so the page's own top-right control shows over it. */}
+        <AnimatePresence initial={false}>{split ? <CanvasPane key="split" owner={split.owner} width={sizes.canvasWidth} /> : null}</AnimatePresence>
         <AnimatePresence initial={false} custom={travelOf}>
           <motion.section
-            key={enteringAgent ? (durable ? 'hobkin' : 'agent') : key}
+            key={section}
             custom={travelOf}
             variants={travel}
             initial="enter"
@@ -147,6 +203,8 @@ export function Canvas() {
             exit="exit"
             tabIndex={-1}
             data-canvas-screen={key}
+            // A durable hobkin's page narrows to the chat's place while its canvas is open beside it.
+            style={section === 'hobkin' ? { marginRight: pageInset } : undefined}
             className="col-start-1 row-start-1 min-h-0 min-w-0 rounded-l-[26px] outline-none will-change-transform"
           >
             <ScreenBoundary of={key}>
@@ -158,7 +216,6 @@ export function Canvas() {
             </ScreenBoundary>
           </motion.section>
         </AnimatePresence>
-        <CanvasPanel />
       </div>
     </motion.main>
   )

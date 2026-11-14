@@ -43,6 +43,30 @@ export function requestCanvasFocus(selector?: string): void {
   })
 }
 
+/** The area of `owner`'s canvas on screen (040-canvas-board), not one on its way out. */
+export function canvasBoard(owner: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`[data-canvas-board="${CSS.escape(owner)}"]:not([inert])`)
+}
+
+/** Puts the keyboard in `owner`'s canvas. False when it is not on screen. */
+export function focusBoard(owner: string): boolean {
+  const board = canvasBoard(owner)
+  board?.focus({ preventScroll: true })
+  return board !== null
+}
+
+/** Puts the keyboard in the talk box of the durable hobkin's page on screen. False when there is none. */
+export function focusTalk(): boolean {
+  const box = activeCanvasScreen()?.querySelector<HTMLElement>('[data-agent-input]')
+  box?.focus({ preventScroll: true })
+  return Boolean(box)
+}
+
+/** The keyboard is in a canvas: its area, its drawing, its controls in the menu, or the canvas place itself. */
+export function keyboardInCanvas(): boolean {
+  return document.activeElement?.closest('[data-canvas-board], [data-canvas-controls], [data-canvas-screen="canvas"]') != null
+}
+
 /** A lazy screen takes a pending handoff, never focus that has since moved to typing or an overlay. */
 export function handOffCanvasFocus(element: HTMLElement): () => void {
   const section = element.closest<HTMLElement>('[data-canvas-screen]')

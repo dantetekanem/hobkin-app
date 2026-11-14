@@ -1,13 +1,19 @@
-import { ChevronRight, X, type LucideIcon } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { ChevronRight, Download, ExternalLink, Presentation, RotateCw, X, type LucideIcon } from 'lucide-react'
+import { AnimatePresence, motion, type Transition } from 'motion/react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
 import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { useActionCount } from '@/features/actions/store.ts'
+import { useShellBrowser } from '@/features/canvas-panel/BrowserPane.tsx'
+import { canOpenInBrowser, closeCanvas, openInBrowser, reloadCanvas, saveCanvas } from '@/features/canvas-panel/controls.ts'
+import { canSave, isOpen, labelFor, mainPill } from '@/features/canvas-panel/rules.ts'
+import { useBoard, useSplit } from '@/features/canvas-panel/use-board.ts'
 import { useSettings } from '@/features/settings/store.ts'
+import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { requestCanvasFocus } from './focus.ts'
+import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './focus.ts'
 import { isUnderSettings, type PageUnderSettings } from './overlays.ts'
 import { useRunningAgents } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
@@ -38,16 +44,23 @@ function popIn(index: number, still: boolean) {
   }
 }
 
-/** What the second row holds: the agents, the review, Settings with Integrations under it, or a GitHub the menu leaves out. */
-type Second = 'agents' | 'review' | 'settings' | 'github'
+/**
+ * What the second row holds: the agents, the review, Settings with Integrations under it, a GitHub the menu leaves out,
+ * or the main canvas's group on the canvas place.
+ */
+type Second = 'agents' | 'review' | 'settings' | 'github' | 'canvas'
 
-function secondFor(screen: ScreenId, githubInMenu: boolean): Second | null {
+function secondFor(screen: ScreenId, githubInMenu: boolean, canvasOpen: boolean): Second | null {
   if (screen === 'agent') return 'agents'
   if (screen === 'review') return 'review'
   if (screen === 'settings' || isUnderSettings(screen)) return 'settings'
   if (screen === 'github' && !githubInMenu) return 'github'
+  if (screen === 'canvas' && canvasOpen) return 'canvas'
   return null
 }
+
+/** How many pieces each row puts before the main canvas's pill, so the pill drops in after them. */
+const BEFORE_PILL: Record<Second, number> = { agents: 0, review: 2, settings: 4, github: 2, canvas: 0 }
 
 function iconOf(id: ScreenId): LucideIcon {
   return SCREENS.find((entry) => entry.id === id)!.icon
@@ -66,8 +79,12 @@ function Marker() {
  * It is one surface. The first row never changes: the main screens stay where they are. Whatever is open
  * for now (an agent, a review, Settings and Integrations) is a second row inside the same surface, which
  * grows downward to hold it. Nothing is ever added at the end of the first row, so it never jumps sideways.
+ *
+ * The main canvas, while it is open, ends the second row as a pill, or holds the row with its controls on its own place.
+ * During a durable hobkin's split the right side grows over the chat, and `shift` keeps the menu exactly where it was,
+ * over the canvas, on the same spring (`transition`). The menu sizes its labels by its own width, not the right side's.
  */
-export function ScreenMenu() {
+export function ScreenMenu({ shift = 0, transition }: { shift?: number; transition?: Transition }) {
   const screen = useView((view) => view.screen)
   const openScreen = useView((view) => view.openScreen)
   const githubInMenu = useSettings((settings) => settings.showGitHubInMenu)
@@ -75,10 +92,20 @@ export function ScreenMenu() {
   // The badge matches the Action Items screen exactly: the same filtered rows it lists, so it never reads "2" over an
   // empty list. Only genuine decisions wait on the user, both in the count and on the screen.
   const badges: Partial<Record<ScreenId, number>> = { actions: useActionCount() }
-  const second = secondFor(screen, githubInMenu)
+  const canvas = useBoard(MAIN_CANVAS)
+  const split = useSplit()
+  const seen = useView((view) => view.canvasSeen[MAIN_CANVAS])
+  const second = secondFor(screen, githubInMenu, isOpen(canvas))
+  const pill = mainPill({ screen, split: split !== null, main: canvas, seen })
+  const row = second ?? (pill ? 'pill' : null)
 
   return (
-    <div className="select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex justify-center">
+    <motion.div
+      className="@container select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex justify-center"
+      initial={false}
+      animate={{ left: shift }}
+      transition={transition}
+    >
       <Surface>
         <nav aria-label="Screens" className={ROW}>
           {main.map((tab) => {
@@ -112,14 +139,29 @@ export function ScreenMenu() {
           })}
         </nav>
         <AnimatePresence mode="popLayout" initial={false}>
-          {second ? (
-            <Born key={second} label={second === 'agents' ? 'Agents' : 'Open now'}>
-              {second === 'agents' ? <Agents /> : second === 'review' ? <ReviewItem /> : second === 'github' ? <GitHubItem /> : <SettingsTrail under={isUnderSettings(screen) ? screen : null} />}
+          {row ? (
+            <Born key={row} label={row === 'agents' ? 'Agents' : 'Open now'}>
+              {second === 'agents' ? (
+                <>
+                  <Agents />
+                  {/* A durable hobkin's split: its canvas's group after the agents. */}
+                  {split ? <CanvasGroup owner={split.owner} canvas={split.canvas} active={false} start={0} /> : null}
+                </>
+              ) : second === 'review' ? (
+                <ReviewItem />
+              ) : second === 'github' ? (
+                <GitHubItem />
+              ) : second === 'canvas' && isOpen(canvas) ? (
+                <CanvasGroup owner={MAIN_CANVAS} canvas={canvas} active start={0} />
+              ) : second === 'settings' ? (
+                <SettingsTrail under={isUnderSettings(screen) ? screen : null} />
+              ) : null}
+              {pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={second ? BEFORE_PILL[second] : 0} /> : null}
             </Born>
           ) : null}
         </AnimatePresence>
       </Surface>
-    </div>
+    </motion.div>
   )
 }
 
@@ -262,7 +304,8 @@ function Crumb({ id, label, index, active, onClick }: { id: ScreenId; label: str
   )
 }
 
-function CloseButton({ label, index, onClick }: { label: string; index: number; onClick: () => void }) {
+/** A round button of the second row, named by its label, dropping in after the pieces before it. */
+function IconButton({ label, icon: Icon, index, onClick }: { label: string; icon: LucideIcon; index: number; onClick: () => void }) {
   const still = useStill()
   return (
     <motion.button
@@ -276,7 +319,100 @@ function CloseButton({ label, index, onClick }: { label: string; index: number; 
       onClick={onClick}
       className="grid size-8 place-items-center rounded-full text-muted-foreground outline-offset-0 transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2 hover:text-foreground"
     >
-      <X className="size-3.5" aria-hidden="true" />
+      <Icon className="size-3.5" aria-hidden="true" />
+    </motion.button>
+  )
+}
+
+function CloseButton({ label, index, onClick }: { label: string; index: number; onClick: () => void }) {
+  return <IconButton label={label} icon={X} index={index} onClick={onClick} />
+}
+
+/**
+ * A canvas's group (040-canvas-board): its name, then Reload, Save for a drawing while a host is connected, Open in the
+ * browser, and Close. A page in the shell's browser keeps Reload and Open in the browser in its own bar. The group is
+ * the canvas's too: Escape here closes it (`keys.ts`).
+ */
+function CanvasGroup({ owner, canvas, active, start }: { owner: string; canvas: CanvasState & { url: string }; active: boolean; start: number }) {
+  const hasHost = useHasHost()
+  const connected = useHost((state) => state.link === 'open')
+  const browser = useShellBrowser()
+  const kind = canvas.kind ?? 'page'
+  const ownBar = browser !== null && kind === 'page'
+  const buttons = [
+    ownBar ? null : { label: 'Reload', icon: RotateCw, onClick: () => reloadCanvas(owner) },
+    canSave(kind) && connected ? { label: 'Save', icon: Download, onClick: () => saveCanvas(owner) } : null,
+    !ownBar && canOpenInBrowser(hasHost) ? { label: 'Open in the browser', icon: ExternalLink, onClick: () => openInBrowser(canvas.url) } : null,
+  ].filter((button) => button !== null)
+  const close = () => {
+    // A split undoes as its canvas closes: the keyboard that was in it goes to the page's talk box. The main canvas's
+    // place sends it home itself.
+    const inCanvas = keyboardInCanvas()
+    closeCanvas(owner)
+    if (inCanvas && owner !== MAIN_CANVAS) focusTalk()
+  }
+
+  return (
+    <div data-canvas-controls={owner} data-canvas-kind={kind} className="contents">
+      <CanvasName owner={owner} label={labelFor(canvas.url, canvas.title, kind)} index={start} active={active} />
+      {buttons.map((button, at) => (
+        <IconButton key={button.label} label={button.label} icon={button.icon} index={start + 1 + at} onClick={button.onClick} />
+      ))}
+      <CloseButton label="Close the canvas" index={start + 1 + buttons.length} onClick={close} />
+    </div>
+  )
+}
+
+/** The canvas's name with its icon. On the canvas place it carries the marker. A click puts the keyboard in the canvas. */
+function CanvasName({ owner, label, index, active }: { owner: string; label: string; index: number; active: boolean }) {
+  const still = useStill()
+  return (
+    <motion.button
+      layout="position"
+      transition={spring.pill}
+      type="button"
+      aria-current={active ? 'page' : undefined}
+      title={label}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => focusBoard(owner)}
+      className={cn(ITEM, 'max-w-[32ch]', active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
+    >
+      {active ? <Marker /> : null}
+      <motion.span className="relative flex min-w-0 items-center gap-1.5" {...popIn(index, still)}>
+        <Presentation className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+      </motion.span>
+    </motion.button>
+  )
+}
+
+/**
+ * The main canvas while another screen shows: its name at the end of the second row, with a dot once it is redrawn and
+ * not seen since. It goes back to the canvas, as Command with its number does.
+ */
+function CanvasPill({ canvas, dot, index }: { canvas: CanvasState & { url: string }; dot: boolean; index: number }) {
+  const still = useStill()
+  const label = labelFor(canvas.url, canvas.title, canvas.kind)
+  return (
+    <motion.button
+      layout="position"
+      transition={spring.pill}
+      type="button"
+      title={label}
+      aria-label={dot ? `${label}, redrawn` : label}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        useView.getState().openCanvasPlace()
+        useView.getState().engageCanvas()
+        requestCanvasFocus()
+      }}
+      className={cn(ITEM, 'max-w-[24ch] text-muted-foreground hover:text-foreground')}
+    >
+      <motion.span className="relative flex min-w-0 items-center gap-1.5" {...popIn(index, still)}>
+        <Presentation className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+        {dot ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
+      </motion.span>
     </motion.button>
   )
 }

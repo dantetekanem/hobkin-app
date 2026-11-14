@@ -84,6 +84,7 @@ function fakeShell() {
     close: async () => { calls.push('close') },
     shown: async () => null,
     onShown: async () => () => {},
+    onKey: async () => () => {},
   }
   return { shell, calls }
 }

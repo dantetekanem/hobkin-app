@@ -6,7 +6,7 @@ import { type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
 import { useQuestions } from '@/features/questions/store.ts'
 
-type PlaceholderScreen = Exclude<ScreenId, 'review' | 'agent' | 'mind' | 'home' | 'settings' | 'github' | 'world' | 'skills' | 'extensions'>
+type PlaceholderScreen = Exclude<ScreenId, 'review' | 'agent' | 'mind' | 'home' | 'settings' | 'github' | 'world' | 'skills' | 'extensions' | 'canvas'>
 
 const COPY: Record<PlaceholderScreen, { mood: Mood; line: string; spec: string }> = {
   work: { mood: 'working', line: 'hobkin and the agents it started, live, with the queue and the finished changes.', spec: '011-work' },

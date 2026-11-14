@@ -9,13 +9,26 @@ import type { Place } from '../features/main-agent/mind.ts'
 export const CONVERSATION_WIDTH = { min: 360, initial: 460, max: 720 } as const
 /** How much of the chat stays in view beside a review that has the user's attention, in pixels. */
 export const REVIEW_KEEPS = 112
+/** The gap between the chat and the right side (`Divider.tsx`, `w-2.5`), in pixels. */
+export const DIVIDER_WIDTH = 10
 
 /**
  * How far the canvas slides over the chat, in pixels. A review that has the user's attention takes almost the whole
- * window. Every other screen, an agent's however it was opened, leaves the chat its room.
+ * window, and a durable hobkin's split takes all of it: its page lies where the chat was. Every other screen, an
+ * agent's however it was opened, leaves the chat its room.
  */
-export function canvasGrowth({ screen, canvasEngaged, conversationWidth }: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'>): number {
+export function canvasGrowth({ screen, canvasEngaged, conversationWidth, split = false }: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { split?: boolean }): number {
+  if (split) return conversationWidth + DIVIDER_WIDTH
   return screen === 'review' && canvasEngaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : 0
+}
+
+/**
+ * A durable hobkin's split (040-canvas-board): the right side grows over the chat by the chat and the divider, the
+ * page takes that room, and the canvas keeps the right side's usual width beside it.
+ */
+export function splitSizes(windowWidth: number, conversationWidth: number): { grow: number; pageWidth: number; canvasWidth: number } {
+  const pageWidth = Math.max(0, conversationWidth + DIVIDER_WIDTH)
+  return { grow: pageWidth, pageWidth, canvasWidth: Math.max(0, windowWidth - pageWidth) }
 }
 
 /** How the canvas moves to its next screen: along the menu (x) or along the agents list (y), and which way. */
@@ -52,6 +65,10 @@ interface ViewState {
   githubReturn: ScreenId | null
   /** Where leaving hobkin's mind goes back to. A reload keeps it (location.ts). */
   mindReturn: Place | null
+  /** Where closing the main canvas goes back to: the place it was opened over. A reload keeps it (location.ts). */
+  canvasReturn: Place | null
+  /** The last revision of each canvas the user has seen in front, by owner. A newer one dots the canvas's pill. */
+  canvasSeen: Record<string, number>
   /**
    * True while the canvas has the user's attention: the keyboard is in it, or it was just clicked.
    * A review takes almost the whole window while it does, and gives the room back when the user returns to the chat.
@@ -88,9 +105,21 @@ interface ViewState {
   openGitHub: () => void
   /** Leaves GitHub for the screen it was opened over. The menu offers it for a GitHub it leaves out, which is open only for now. */
   closeGitHub: () => void
+  /** Takes the right side to the main canvas, coming in from the right, and keeps the place it came from. */
+  openCanvasPlace: () => void
+  /** Leaves the main canvas for the place it was opened over, exactly as it was. */
+  closeCanvasPlace: () => void
+  /** The revision of `owner`'s canvas the user has now seen. */
+  seeCanvas: (owner: string, revision: number) => void
   engageCanvas: () => void
   disengageCanvas: () => void
 }
+
+/** The screen and its ways back, as a way back of its own. */
+const placeOf = ({ screen, settingsReturn, githubReturn, openAgent, previewReturn }: Place): Place => ({ screen, settingsReturn, githubReturn, openAgent, previewReturn })
+
+/** The screen under the canvas, for a canvas with no way back. */
+const UNDER_CANVAS: Place = { screen: 'work', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null }
 
 /** One step of Settings or Integrations opening or being left, with the direction the canvas travels for it. */
 function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewState> {
@@ -107,6 +136,17 @@ function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewSta
 function backFromGitHub(state: ViewState): ScreenId | null {
   const back = state.screen === 'agent' ? (state.previewReturn ?? 'work') : ground(state)
   return back === 'github' ? state.githubReturn : back
+}
+
+/**
+ * What a new launch of the app comes back to. Settings is not a place to reopen in: the app comes back on the screen that
+ * was under it. Nor is the canvas: the app comes back on the place it was opened over (Command+R keeps it, location.ts).
+ */
+export function launchView({ screen, settingsReturn, canvasReturn, conversationWidth, openAgent, canvasSeen }: ViewState) {
+  const base = ground({ screen, settingsReturn }) === 'canvas' ? (canvasReturn ?? UNDER_CANVAS) : { screen, settingsReturn, openAgent }
+  const under = ground(base)
+  // A review is not reopened either, so a review that cannot be drawn can never keep the app from starting.
+  return { screen: under === 'review' || under === 'canvas' ? 'work' : under, conversationWidth, openReview: null, openAgent: base.openAgent, canvasSeen }
 }
 
 /**
@@ -131,6 +171,8 @@ export const useView = create<ViewState>()(
       settingsReturn: null,
       githubReturn: null,
       mindReturn: null,
+      canvasReturn: null,
+      canvasSeen: {},
       canvasEngaged: false,
 
       openScreen: (screen) => {
@@ -226,6 +268,23 @@ export const useView = create<ViewState>()(
         const { screen, githubReturn } = get()
         if (screen === 'github') get().openScreen(githubReturn ?? 'work')
       },
+      // The canvas is a place to the right of everything: it comes in from the right and goes back the same way.
+      openCanvasPlace: () => {
+        const view = get()
+        if (view.screen === 'canvas') return
+        // Settings, or a page under it, opened over the canvas gives the canvas back with the way back it had.
+        const back = ground(view) === 'canvas' && view.canvasReturn ? view.canvasReturn : placeOf(view)
+        set({ screen: 'canvas', canvasReturn: back, settingsReturn: null, previewReturn: null, screenMotion: { axis: 'x', direction: 1 } })
+      },
+      closeCanvasPlace: () => {
+        const { screen, canvasReturn } = get()
+        if (screen !== 'canvas') return
+        set({ ...(canvasReturn ?? UNDER_CANVAS), canvasReturn: null, screenMotion: { axis: 'x', direction: -1 } })
+      },
+      seeCanvas: (owner, revision) => {
+        const { canvasSeen } = get()
+        if (canvasSeen[owner] !== revision) set({ canvasSeen: { ...canvasSeen, [owner]: revision } })
+      },
       engageCanvas: () => set({ canvasEngaged: true }),
       disengageCanvas: () => set({ canvasEngaged: false }),
     }),
@@ -239,12 +298,7 @@ export const useView = create<ViewState>()(
         const view = saved as { screen?: unknown }
         return view.screen === 'pages' ? { ...view, screen: 'github' } : view
       },
-      // Settings is not a place to reopen in: the app comes back on the screen that was under it.
-      partialize: ({ screen, settingsReturn, conversationWidth, openAgent }) => {
-        const under = ground({ screen, settingsReturn })
-        // A review is not reopened either, so a review that cannot be drawn can never keep the app from starting.
-        return { screen: under === 'review' ? 'work' : under, conversationWidth, openReview: null, openAgent }
-      },
+      partialize: launchView,
     },
   ),
 )

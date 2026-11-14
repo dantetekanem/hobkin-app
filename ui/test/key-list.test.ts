@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { HINT_KEYS, KEY_LIST, navigationGuide } from '../src/app/key-list.ts'
-import { resolveKey, type KeyContext } from '../src/app/key-map.ts'
+import { resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { SCREENS, inMenu } from '../src/app/screens.ts'
 
 const MENU = SCREENS.filter(({ id }) => inMenu(id, true)).map(({ id }) => id)
@@ -35,6 +35,16 @@ test('each frame key in the list resolves in the key map', () => {
   assert.ok(KEY_LIST.some((entry) => entry.keys === '⌃X'), '⌃X is listed')
   assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', hobkinPage: true, zone: 'canvas' }), "⌃X does something on a durable hobkin's page")
   assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', zone: 'canvas' }), "⌃X does something on any other agent's page")
+})
+
+test('the canvas keys are listed for the canvas, and each does something there', () => {
+  const inCanvas: KeyContext = { ...context, zone: 'canvas', screen: 'canvas', board: { owner: 'main', kind: 'drawing' }, canvasShowing: { owner: 'main', agent: 'input' } }
+  for (const keys of ['esc', '⌘S', '⌃⇥']) {
+    assert.ok(KEY_LIST.some((entry) => entry.keys === keys && !entry.basic && entry.where.includes('canvas')), `${keys} is listed for the canvas`)
+  }
+  assert.ok(resolveEscape(inCanvas, false), 'esc does something in the canvas')
+  assert.ok(resolveKey({ key: 's', code: 'KeyS', meta: true }, inCanvas), '⌘S does something on a drawing')
+  assert.ok(resolveKey({ key: 'Tab', code: 'Tab', ctrl: true }, inCanvas), '⌃⇥ does something while a canvas shows')
 })
 
 test('the hints are in the list and the walkthrough names every key', () => {

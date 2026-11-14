@@ -338,3 +338,51 @@ test('escape that nothing used leaves a screen that is open only for now', () =>
   assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'github' }), false), { do: 'focus-input' }, 'github in the menu is a menu screen')
   assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'github', githubInMenu: false }), false), { do: 'leave-screen' }, 'github opened while the menu leaves it out')
 })
+
+const MAIN_BOARD = { owner: 'main', kind: 'drawing' } as const
+const SPLIT = { screen: 'agent', hobkinPage: true, canvasShowing: { owner: '0123abcd', agent: 'talk' } } as const
+
+test('escape closes the canvas that has the keyboard: its area, its drawing or its controls in the menu', () => {
+  assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'canvas', board: MAIN_BOARD }), false), { do: 'close-canvas', owner: 'main' })
+  assert.deepEqual(resolveEscape(context({ ...SPLIT, zone: 'canvas', board: { owner: '0123abcd', kind: 'page' } }), false), { do: 'close-canvas', owner: '0123abcd' }, "a durable hobkin's split, though its page is open only for now")
+  assert.equal(resolveEscape(context({ zone: 'canvas', screen: 'canvas', board: MAIN_BOARD }), true), null, 'what has the keyboard used it')
+  assert.equal(resolveEscape(context({ zone: 'canvas', screen: 'canvas', board: MAIN_BOARD, inOverlay: true }), false), null, 'a dialog keeps it')
+})
+
+test('escape anywhere else leaves the canvas open', () => {
+  assert.equal(resolveEscape(context({ zone: 'input', screen: 'canvas' }), false), null, 'the canvas is not a place open only for now')
+  for (const zone of ['agents', 'veil', 'canvas', 'other'] as const) {
+    assert.deepEqual(resolveEscape(context({ zone, screen: 'canvas' }), false), { do: 'focus-input' }, zone)
+  }
+  // In the split the agents list is covered, so Escape in the talk box leaves the page, as it does with no list.
+  assert.deepEqual(resolveEscape(context({ ...SPLIT, zone: 'canvas', typing: true }), false), { do: 'leave-screen' })
+})
+
+test('command s saves the drawing that has the keyboard, and nothing else', () => {
+  const press = { key: 's', code: 'KeyS', meta: true }
+  assert.deepEqual(resolveKey(press, context({ zone: 'canvas', screen: 'canvas', board: MAIN_BOARD })), { do: 'save-canvas', owner: 'main' })
+  assert.deepEqual(resolveKey(press, context({ ...SPLIT, zone: 'canvas', board: { owner: '0123abcd', kind: 'drawing' } })), { do: 'save-canvas', owner: '0123abcd' })
+  assert.equal(resolveKey(press, context({ zone: 'canvas', screen: 'canvas', board: { owner: 'main', kind: 'page' } })), null, 'a page is not saved')
+  assert.equal(resolveKey(press, context({ zone: 'canvas', screen: 'canvas' })), null, 'the keyboard on the screen, not in the canvas')
+  assert.equal(resolveKey(press, context({ zone: 'input', screen: 'canvas' })), null, 'the message input')
+  for (const other of [{ shift: true }, { alt: true }, { ctrl: true }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context({ zone: 'canvas', screen: 'canvas', board: MAIN_BOARD })), null, JSON.stringify(other))
+  }
+})
+
+test('control tab moves the keyboard between a canvas on screen and its agent, and keeps its meaning without one', () => {
+  const press = { key: 'Tab', code: 'Tab', ctrl: true }
+  const place = { screen: 'canvas', canvasShowing: { owner: 'main', agent: 'input' } } as const
+  for (const zone of ['input', 'agents', 'other', 'canvas'] as const) {
+    assert.deepEqual(resolveKey(press, context({ ...place, zone })), { do: 'focus-board', owner: 'main' }, `into the canvas from ${zone}`)
+  }
+  assert.deepEqual(resolveKey(press, context({ ...place, zone: 'canvas', board: MAIN_BOARD })), { do: 'focus-canvas-agent', agent: 'input' }, 'back to the message input')
+  assert.deepEqual(resolveKey(press, context({ ...SPLIT, zone: 'canvas', typing: true })), { do: 'focus-board', owner: '0123abcd' }, 'from the talk box')
+  assert.deepEqual(resolveKey(press, context({ ...SPLIT, zone: 'canvas', board: { owner: '0123abcd', kind: 'page' } })), { do: 'focus-canvas-agent', agent: 'talk' })
+
+  assert.equal(resolveKey(press, context({ zone: 'canvas', screen: 'work' })), null, 'no canvas on screen')
+  assert.equal(resolveKey(press, context({ ...place, zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
+  for (const other of [{ shift: true }, { alt: true }, { meta: true }, { ctrl: false }]) {
+    assert.equal(resolveKey({ ...press, ...other }, context({ ...place, zone: 'input' })), null, JSON.stringify(other))
+  }
+})

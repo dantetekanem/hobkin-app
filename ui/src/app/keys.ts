@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { useBlocks } from '@/features/agent-activity/blocks.ts'
+import { boardAt, canvasShowingNow, closeCanvasFromKeys, mainCanvasInMenu, saveCanvas } from '@/features/canvas-panel/controls.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { pressEndOf } from '@/features/hobkins/end.ts'
 import { useNewHobkin } from '@/features/hobkins/store.ts'
@@ -15,7 +16,7 @@ import { inOverlay, installFrameKeys } from './key-page.ts'
 import { travel } from './location.ts'
 import { walkScreens, type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
-import { focusInput, messageInput, requestCanvasFocus } from './focus.ts'
+import { focusBoard, focusInput, focusTalk, messageInput, requestCanvasFocus } from './focus.ts'
 export { focusCanvas, focusInput } from './focus.ts'
 
 /**
@@ -27,11 +28,17 @@ export { focusCanvas, focusInput } from './focus.ts'
 
 /**
  * The screens Command with a number opens, in order: the menu's own, then a review, Settings or Integrations while
- * one is open. Agents are not here. They are reached with Down and walked with Up and Down.
+ * one is open, then the main canvas while the menu shows it. Agents are not here. They are reached with Down and
+ * walked with Up and Down.
  */
 export function visibleScreens(): ScreenId[] {
   const { openReview, screen } = useView.getState()
-  return walkScreens({ screen, reviewOpen: openReview !== null, githubInMenu: useSettings.getState().showGitHubInMenu })
+  return walkScreens({
+    screen,
+    reviewOpen: openReview !== null,
+    githubInMenu: useSettings.getState().showGitHubInMenu,
+    canvasOpen: safely(() => mainCanvasInMenu(), false),
+  })
 }
 
 /** The rows of the list that is veiling the chat. */
@@ -44,7 +51,8 @@ function zoneOf(target: EventTarget | null): Zone {
   if (target === messageInput()) return 'input'
   if (target.closest('[data-agents-dock]')) return 'agents'
   if (target.closest('[data-chat-veil]')) return 'veil'
-  if (target.closest('[data-canvas-screen]')) return 'canvas'
+  // A canvas's area, its drawing and its controls in the menu are the canvas too (040-canvas-board).
+  if (target.closest('[data-canvas-screen], [data-canvas-board], [data-canvas-controls]')) return 'canvas'
   return 'other'
 }
 
@@ -76,6 +84,8 @@ function contextOf(target: EventTarget | null): KeyContext {
     githubInMenu: useSettings.getState().showGitHubInMenu,
     typing: typingIn(target),
     hobkinPage: screen === 'agent' && hobkinOfAgent(openAgent) !== null,
+    board: safely(() => boardAt(target), null),
+    canvasShowing: safely(() => canvasShowingNow(), null),
   }
 }
 
@@ -84,7 +94,9 @@ function perform(action: KeyAction): boolean {
   const view = useView.getState()
   switch (action.do) {
     case 'open-screen':
-      view.openScreen(action.screen)
+      // The canvas is a place with a way back of its own, kept as it opens.
+      if (action.screen === 'canvas') view.openCanvasPlace()
+      else view.openScreen(action.screen)
       if (action.focusCanvas) {
         view.engageCanvas()
         requestCanvasFocus()
@@ -197,6 +209,18 @@ function perform(action: KeyAction): boolean {
         view.engageCanvas()
         requestCanvasFocus()
       }
+      return true
+    case 'close-canvas':
+      closeCanvasFromKeys(action.owner)
+      return true
+    case 'save-canvas':
+      saveCanvas(action.owner)
+      return true
+    case 'focus-board':
+      return focusBoard(action.owner)
+    case 'focus-canvas-agent':
+      if (action.agent === 'talk') return focusTalk()
+      focusInput()
       return true
   }
 }

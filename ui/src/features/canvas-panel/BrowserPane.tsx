@@ -1,5 +1,5 @@
 import { useIsPresent } from 'motion/react'
-import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, RotateCw } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStill } from '@/app/still.ts'
 import { shell, type BrowserShell, type BrowserShown } from '@/lib/native.ts'
@@ -27,21 +27,22 @@ export function useShellBrowser(): BrowserShell | null {
   return browser
 }
 
-/** The keyboard goes back to the panel, which a second Escape closes. */
-const focusPanel = (from: Element) => from.closest<HTMLElement>('[data-canvas-panel]')?.focus()
+/** The keyboard goes back to the canvas's area, where a second Escape closes the canvas. */
+const focusBoard = (from: Element) => from.closest<HTMLElement>('[data-canvas-board]')?.focus()
 
 /**
- * A page canvas as a real browser (_specs/036-canvas-browser): the bar has Back, Forward, Reload, an address field,
- * Open in the browser and Close, and the page shows in a native webview the shell lays exactly over the page area. A
- * native view draws over everything, so it hides whenever anything covers the area or the panel is leaving. What the
- * user browses to stays here: hobkin's canvas keeps the page hobkin showed.
+ * A page canvas as a real browser (_specs/036-canvas-browser): the bar has Back, Forward, Reload, an address field and
+ * Open in the browser, and the page shows in a native webview the shell lays exactly over the page area. Close is in the
+ * menu's canvas group (040-canvas-board). A native view draws over everything, so it hides whenever anything covers the
+ * area or the canvas is leaving. What the user browses to stays here: hobkin's canvas keeps the page hobkin showed.
  */
-export function BrowserPane({ browser, url, title, revision, onClose, onOpenInBrowser }: {
+export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInBrowser }: {
   browser: BrowserShell
   url: string
   title: string | null
   revision: number | undefined
-  onClose: () => void
+  /** Escape while the page has the keyboard, as the shell tells it: it acts as Escape in the canvas. */
+  onEscape: () => void
   /** Null when there is no way to the Mac's browser. */
   onOpenInBrowser: ((page: string) => void) | null
 }) {
@@ -69,8 +70,7 @@ export function BrowserPane({ browser, url, title, revision, onClose, onOpenInBr
       const at = element ? areaOf(element.getBoundingClientRect(), { width: innerWidth, height: innerHeight }) : null
       const ours = ({ x, y }: { x: number; y: number }) => {
         const hit = document.elementFromPoint(x, y)
-        // The edge's drag shield lies over the whole window while the panel is resized; it does not hide the page.
-        return hit !== null && (element?.contains(hit) === true || hit.closest('[data-canvas-shield]') !== null)
+        return hit !== null && element?.contains(hit) === true
       }
       const show = at !== null && nativeShown({ open: wanted.current.present, covered: covered(at, ours), area: at })
       void native.sync({ url: wanted.current.url, visit: wanted.current.visit, area: show ? at : null })
@@ -99,13 +99,24 @@ export function BrowserPane({ browser, url, title, revision, onClose, onOpenInBr
     }
   }, [browser])
 
+  // The page keeps its own keys, and the shell tells the window of an Escape there without taking it from the page. A
+  // shell from before it never tells.
+  const escape = useRef(onEscape)
+  escape.current = onEscape
+  useEffect(() => {
+    const stop = browser.onKey(({ key }) => {
+      if (key === 'Escape' && wanted.current.present) escape.current()
+    })
+    return () => void stop.then((unlisten) => unlisten(), () => {})
+  }, [browser])
+
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
-      // Back to the panel, without closing it.
+      // Back to the canvas, without closing it.
       event.preventDefault()
       setEditing(null)
       setRefusal(null)
-      focusPanel(event.currentTarget)
+      focusBoard(event.currentTarget)
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const typed = addressFrom(event.currentTarget.value)
@@ -116,7 +127,7 @@ export function BrowserPane({ browser, url, title, revision, onClose, onOpenInBr
       setRefusal(null)
       setEditing(null)
       void view.current?.go(typed.url)
-      focusPanel(event.currentTarget)
+      focusBoard(event.currentTarget)
     }
   }
 
@@ -158,9 +169,6 @@ export function BrowserPane({ browser, url, title, revision, onClose, onOpenInBr
             <ExternalLink className="size-3.5" />
           </PanelButton>
         ) : null}
-        <PanelButton label="Close" onClick={onClose}>
-          <X className="size-3.5" />
-        </PanelButton>
       </header>
       {refusal ? (
         <p role="status" className="flex h-7 shrink-0 items-center border-b border-border px-4 text-[12px] text-muted-foreground">

@@ -1,112 +1,75 @@
 import { create } from 'zustand'
-import { MAIN_CANVAS, type CanvasKind, type CanvasState } from '#shared/protocol/canvas.ts'
-import { clampWidth, PANEL_WIDTH } from './rules.ts'
+import { MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
+import { canvasKey, type CanvasHere } from './rules.ts'
+
+/** After Save: where the file went, or the host's sentence. */
+export type SavedNote = { path: string } | { error: string }
+
+/** What the window keeps of one canvas beside what the host says of it. */
+export interface Board {
+  /** Goes up to load the canvas again: Reload. */
+  reloads: number
+  /** The last Save's note, for the canvas as it was then (`canvasKey`). A canvas that changed since has none. */
+  saved: { for: string; note: SavedNote } | null
+  /** The canvas the user closed here, until the host says anything new (`windowCanvas`). */
+  closed: string | null
+}
+
+const NO_BOARD: Board = { reloads: 0, saved: null, closed: null }
+
+interface CanvasBoardsState {
+  /** By owner: `main` for the main hobkin's canvas, a durable hobkin's id for its own. */
+  boards: Record<string, Board>
+  /** Development only: the main canvas shown by hand (`window.__canvasDev`), over what the host said then. */
+  dev: CanvasHere['dev']
+  reload: (owner: string) => void
+  /** Closes the canvas here at once, while the host is told. `host` is what the host says of it now. */
+  closeHere: (owner: string, host: CanvasState | null | undefined) => void
+  /** Saves the drawing through `run` and keeps the answer as the note for the canvas as it is now. */
+  save: (owner: string, canvas: CanvasState, run: () => Promise<{ path: string }>) => Promise<void>
+  /** Shows a canvas by hand as the main one, for checks without hobkin. `host` is what the host says of it now. */
+  showDev: (canvas: CanvasState, host: CanvasState | null | undefined) => void
+}
 
 /**
- * The canvas panel's own state. The host decides when hobkin opens or closes it (`apply`); the user's close and
- * the dev helper act here at once. The page stays after closing, so the panel can slide away with it still drawn.
+ * The window's own part of each canvas, by owner (`040-canvas-board`). The host decides what each canvas shows, and the
+ * views read that straight from the host's state; this keeps only Reload, the Save note, a close the host has not
+ * answered yet, and the development helper's canvas.
  */
-interface CanvasPanelState {
-  open: boolean
-  url: string | null
-  title: string | null
-  kind: CanvasKind
-  /** Goes up each time a drawing is replaced. */
-  revision: number | undefined
-  /** Whose canvas the panel shows now. */
-  owner: string
-  /** Each owner's width, kept while the panel shows another's. */
-  widths: Record<string, number>
-  /** After Save: where the file went, or the host's sentence. Gone when the canvas changes or closes. */
-  saved: { path: string } | { error: string } | null
-  /** Goes up to load the page again. */
-  reloads: number
-  /** The panel's share of the area it lies over. */
-  width: number
-  show: (url: string, title?: string | null, drawing?: { kind?: CanvasKind; revision?: number }) => void
-  close: () => void
-  reload: () => void
-  resize: (share: number) => void
-  /** Shows `owner`'s canvas: swaps to it when the owner changed, then follows what the host said about it. */
-  sync: (owner: string, canvas: CanvasState | null | undefined) => void
-  /** Saves the drawing through `run` and keeps the answer in `saved`. */
-  save: (run: (owner: string) => Promise<{ path: string }>) => Promise<void>
-  /** Follows what the host said. */
-  apply: (state: CanvasState) => void
+export const useCanvasBoards = create<CanvasBoardsState>()((set, get) => {
+  const change = (owner: string, update: (board: Board) => Partial<Board>) => {
+    const board = get().boards[owner] ?? NO_BOARD
+    set({ boards: { ...get().boards, [owner]: { ...board, ...update(board) } } })
+  }
+  return {
+    boards: {},
+    dev: null,
+    reload: (owner) => change(owner, (board) => ({ reloads: board.reloads + 1 })),
+    closeHere: (owner, host) => {
+      const { dev } = get()
+      if (owner === MAIN_CANVAS && dev && dev.over === canvasKey(host)) set({ dev: { canvas: { ...dev.canvas, open: false }, over: dev.over } })
+      else change(owner, () => ({ closed: canvasKey(host) }))
+    },
+    save: async (owner, canvas, run) => {
+      const key = canvasKey(canvas)
+      try {
+        const { path } = await run()
+        change(owner, () => ({ saved: { for: key, note: { path } } }))
+      } catch (error) {
+        const why = error instanceof Error && error.message ? error.message : 'The drawing could not be saved.'
+        change(owner, () => ({ saved: { for: key, note: { error: why } } }))
+      }
+    },
+    showDev: (canvas, host) => set({ dev: { canvas, over: canvasKey(host) } }),
+  }
+})
+
+/** What the window adds to the host's word on `owner`'s canvas. */
+export function hereOf(state: Pick<CanvasBoardsState, 'boards' | 'dev'>, owner: string): CanvasHere {
+  return { closed: state.boards[owner]?.closed ?? null, dev: owner === MAIN_CANVAS ? state.dev : null }
 }
 
-type ShownCanvas = Pick<CanvasPanelState, 'open' | 'url' | 'title' | 'kind' | 'revision' | 'saved' | 'reloads'>
-
-/** No canvas at all: the panel as it starts, and as it is the moment it moves to another owner's canvas. */
-const NO_CANVAS: ShownCanvas = {
-  open: false,
-  url: null,
-  title: null,
-  kind: 'page',
-  revision: undefined,
-  saved: null,
-  reloads: 0,
+/** The Save note to show over `canvas`: only one made for it as it is now. */
+export function savedNote(board: Board | undefined, canvas: CanvasState | null): SavedNote | null {
+  return board?.saved && canvas && board.saved.for === canvasKey(canvas) ? board.saved.note : null
 }
-
-export const useCanvasPanel = create<CanvasPanelState>()((set, get) => ({
-  ...NO_CANVAS,
-  owner: MAIN_CANVAS,
-  widths: {},
-  width: PANEL_WIDTH.initial,
-  show: (url, title = null, drawing) => {
-    set({
-      open: true,
-      url,
-      title,
-      kind: drawing?.kind ?? 'page',
-      revision: drawing?.revision,
-      saved: null,
-    })
-  },
-  close: () => set({ open: false, saved: null }),
-  reload: () => set({ reloads: get().reloads + 1 }),
-  resize: (share) => {
-    const width = clampWidth(share)
-    set({ width, widths: { ...get().widths, [get().owner]: width } })
-  },
-  sync: (owner, canvas) => {
-    const now = get()
-    if (owner !== now.owner) {
-      set({
-        ...NO_CANVAS,
-        owner,
-        widths: { ...now.widths, [now.owner]: now.width },
-        width: now.widths[owner] ?? PANEL_WIDTH.initial,
-      })
-    }
-    if (canvas) get().apply(canvas)
-  },
-  save: async (run) => {
-    const owner = get().owner
-    // An answer that comes back once the panel shows another owner's canvas is not kept.
-    const stillShown = () => get().owner === owner
-    try {
-      const { path } = await run(owner)
-      if (stillShown()) set({ saved: { path } })
-    } catch (error) {
-      const why = error instanceof Error && error.message ? error.message : 'The drawing could not be saved.'
-      if (stillShown()) set({ saved: { error: why } })
-    }
-  },
-  apply: ({ open, url, title, kind, revision }) => {
-    const now = get()
-    if (open && url) {
-      const next = { kind: kind ?? 'page', revision }
-      // The same canvas said again keeps the note from Save. Anything new clears it.
-      const same =
-        now.open &&
-        now.url === url &&
-        now.title === title &&
-        now.kind === next.kind &&
-        now.revision === revision
-      set({ open: true, url, title, ...next, ...(same ? {} : { saved: null }) })
-    } else if (now.open) {
-      set({ open: false, saved: null })
-    }
-  },
-}))

@@ -8,6 +8,7 @@ import { useView } from '@/app/view-store.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
@@ -32,26 +33,36 @@ import { useConversation, useMarkSeen } from './use-conversation.ts'
  * the turn in flight drawn as any agent's are (`021-agent-rendering`); and the talk box, always there until it is ended.
  *
  * Moving to another durable hobkin, its own pieces cross-fade, as an agent's do. Stop and the talk box stay in place.
+ *
+ * While its canvas is open the page forms a split with it (`040-canvas-board`): the page takes the chat's place and
+ * the canvas the right side. The agents list is covered then, so the page's keys no longer lead to it.
  */
 export function HobkinScreen() {
-  // A screen on its way out keeps showing its own hobkin while the next one arrives.
+  // A screen on its way out keeps showing its own hobkin while the next one arrives, and the split it had.
   const present = useIsPresent()
   const openAgent = useView((view) => view.openAgent)
   const kept = useRef(openAgent)
   if (present) kept.current = openAgent
   const id = hobkinOfAgent(kept.current)
   const notes = useSentNotes()
+  const splitOwner = useSplit()?.owner ?? null
+  const keptSplit = useRef(false)
+  if (present) keptSplit.current = id !== null && splitOwner === id
+  const split = keptSplit.current
+  const sizes = useSplitSizes()
 
   return (
-    <div className="relative flex h-full flex-col" onKeyDown={upToAgents}>
-      {id ? <StopTurn id={id} /> : null}
+    <div className="relative flex h-full flex-col" onKeyDown={split ? undefined : upToAgents}>
+      {/* Where the chat's header was, the window is dragged by the top of the page. */}
+      {split ? <div data-tauri-drag-region className="select-none-chrome absolute inset-x-0 top-0 z-10 h-12" /> : null}
+      {id ? <StopTurn id={id} shift={split ? sizes.canvasWidth : 0} /> : null}
       <div className="relative min-h-0 flex-1">
         {/* Propagated, so a page leaving with its screen counts as gone, as an agent's does. */}
         <AnimatePresence initial={false} propagate>
-          {id ? <Part key={id} id={id} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} /> : null}
+          {id ? <Part key={id} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} /> : null}
         </AnimatePresence>
       </div>
-      {id ? <Talk key={id} id={id} onSending={(note) => notes.sendingTo(id, note)} onSent={(note) => notes.add(id, note)} /> : null}
+      {id ? <Talk key={id} id={id} split={split} onSending={(note) => notes.sendingTo(id, note)} onSent={(note) => notes.add(id, note)} /> : null}
     </div>
   )
 }
@@ -90,10 +101,26 @@ function useHobkin(id: string): { hobkin: HobkinSummary | undefined; state: Page
   return { hobkin, state, connected, fresh: firstMessageNext({ hobkin, started }) }
 }
 
-/** Stop for the turn in flight: the one an agent's screen has for its run. While the hobkin waits there is nothing to stop. */
-function StopTurn({ id }: { id: string }) {
+/**
+ * Stop for the turn in flight: the one an agent's screen has for its run. While the hobkin waits there is nothing to stop.
+ * In the split it keeps its place at the window's top right, over the canvas, while the page narrows under it (`shift`).
+ * Only the split forming or undoing moves it, on the split's spring; a resize puts it straight there.
+ */
+function StopTurn({ id, shift }: { id: string; shift: number }) {
+  const still = useStill()
   const run = useHost((state) => state.snapshot.hobkins?.find((summary) => summary.id === id)?.run ?? null)
-  return run ? <AgentStopControl key={run} agentId={run} /> : null
+  const was = useRef(shift > 0)
+  const turned = shift > 0 !== was.current
+  useEffect(() => {
+    was.current = shift > 0
+  })
+  const transition = still || !turned ? { duration: 0 } : shift > 0 ? spring.screen : spring.screenExit
+  // As wide as the page, so Stop lays out as it always has, and no taller than nothing, so it covers nothing around Stop.
+  return run ? (
+    <motion.div className="absolute inset-x-0 top-0 z-10" initial={false} animate={{ x: shift }} transition={transition}>
+      <AgentStopControl key={run} agentId={run} />
+    </motion.div>
+  ) : null
 }
 
 const RISE_IN = {
@@ -102,7 +129,7 @@ const RISE_IN = {
 } as const
 
 /** The hobkin's own pieces: its header and its conversation. Leaving, it takes no keyboard and no pointer. */
-function Part({ id, sent, sending }: { id: string; sent: readonly SentNote[]; sending: SendingNote | null }) {
+function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: readonly SentNote[]; sending: SendingNote | null }) {
   const present = useIsPresent()
   const { hobkin, state, connected, fresh } = useHobkin(id)
   const onPage = useView((view) => view.screen === 'agent' && view.openAgent === hobkinAgentId(id))
@@ -124,7 +151,7 @@ function Part({ id, sent, sending }: { id: string; sent: readonly SentNote[]; se
       animate={{ opacity: 1, transition: tween.enter }}
       exit={{ opacity: 0, transition: tween.exit }}
     >
-      <Header id={id} hobkin={hobkin} state={state} mood={mood} />
+      <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
       {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it. */}
       <div className="relative z-10 flex shrink-0 justify-center px-[10%]">
         <TaskList entries={activity?.entries} hue={hueOf(id)} />
@@ -147,9 +174,13 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /**
  * Its face, its name (renamed in place), its folder, what it runs on and whether it works; and End, which asks once.
  * Control+X presses End too (`end.ts`), so the key and the button share the ask.
+ *
+ * Its top leaves room for the floating menu above it. In the split the menu is over the canvas and the page is where the
+ * chat is, so it leaves room for the window's own buttons and a drag strip instead.
  */
-function Header({ id, hobkin, state, mood }: { id: string; hobkin: HobkinSummary | undefined; state: PageState; mood: ReturnType<typeof doingOf>['mood'] }) {
+function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: HobkinSummary | undefined; state: PageState; mood: ReturnType<typeof doingOf>['mood']; split: boolean }) {
   const still = useStill()
+  const top = split ? 56 : 76
   const models = useModelChoices()
   const [naming, setNaming] = useState<string | null>(null)
   const [renamed, setRenamed] = useState<string | null>(null)
@@ -199,9 +230,13 @@ function Header({ id, hobkin, state, mood }: { id: string; hobkin: HobkinSummary
 
   return (
     <motion.div
-      className="flex flex-col gap-2 px-[10%] pt-[76px] pb-3"
-      initial={holdStill(RISE_IN.initial, still)}
-      animate={holdStill(RISE_IN.animate, still)}
+      className="flex flex-col gap-2 px-[10%] pb-3"
+      initial={{ ...holdStill(RISE_IN.initial, still), paddingTop: top }}
+      animate={{
+        ...holdStill(RISE_IN.animate, still),
+        paddingTop: top,
+        transition: { ...RISE_IN.animate.transition, paddingTop: still ? { duration: 0 } : split ? spring.screen : spring.screenExit },
+      }}
     >
       <div className="flex items-center gap-3">
         <AgentHood hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} />
@@ -470,7 +505,7 @@ function Working() {
  * one included; while it works the message reaches the turn in flight. It takes the keyboard when clicked, or when the
  * page is entered for it. Under it is only what the user cannot see otherwise: a refusal, or that nothing can be sent.
  */
-function Talk({ id, onSending, onSent }: { id: string; onSending: (note: SendingNote | null) => void; onSent: (note: SentNote) => void }) {
+function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; onSending: (note: SendingNote | null) => void; onSent: (note: SentNote) => void }) {
   const { hobkin, state, connected, fresh } = useHobkin(id)
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
@@ -527,20 +562,24 @@ function Talk({ id, onSending, onSent }: { id: string; onSending: (note: Sending
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
-              // Back onto the hobkin in the list. Without the list the frame leaves the page.
-              if (focusAgentsDock()) event.preventDefault()
+              // Back onto the hobkin in the list. Without the list, or with the split over it, the frame leaves the page.
+              if (!split && focusAgentsDock()) event.preventDefault()
             } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               void send()
             } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
-              if (focusNewestStep(event.currentTarget) || focusAgentsDock()) event.preventDefault()
+              if (focusNewestStep(event.currentTarget) || (!split && focusAgentsDock())) event.preventDefault()
             }
           }}
           rows={1}
           maxLength={HOBKIN_MESSAGE_MAX}
           placeholder={placeholder}
           aria-label={label}
-          className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
+          // In the split the page is the chat's width, where a hobkin's long name would wrap the placeholder out of sight.
+          className={cn(
+            'field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground',
+            split && 'placeholder:truncate',
+          )}
         />
         <button
           type="submit"

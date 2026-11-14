@@ -131,6 +131,27 @@ test('Home is a restorable location and back/forward preserves report and routin
   assert.equal(useView.getState().screen, 'routines')
 })
 
+test('the canvas place is a move of its own along the side, and Command+R keeps its way back', async () => {
+  useView.getState().openScreen('reports')
+  await settled()
+  useView.getState().toggleSettings()
+  await settled()
+  useView.getState().openCanvasPlace()
+  await settled()
+  const saved = readSpot(sessionStorage.getItem(KEY))
+  assert.equal(saved?.screen, 'canvas')
+  assert.deepEqual(saved?.canvasReturn, place('settings', { settingsReturn: 'reports' }), 'the way back is kept for the reload')
+
+  assert.equal(travel(-1), true)
+  assert.deepEqual([useView.getState().screen, useView.getState().screenMotion], ['settings', { axis: 'x', direction: -1 }], 'back along the side, as closing goes')
+  travel(1)
+  assert.deepEqual([useView.getState().screen, useView.getState().canvasReturn, useView.getState().screenMotion], ['canvas', place('settings', { settingsReturn: 'reports' }), { axis: 'x', direction: 1 }])
+  useView.getState().closeCanvasPlace()
+  assert.equal(useView.getState().screen, 'settings')
+  useView.getState().closeSettings()
+  assert.equal(readSpot('{"screen":"canvas","canvasReturn":{"screen":"nowhere"}}')?.canvasReturn, null)
+})
+
 test('a saved place is read only when it is one this window wrote', () => {
   assert.equal(readSpot(null), null)
   assert.equal(readSpot('{"screen":"pages"}'), null, 'a screen that is gone')

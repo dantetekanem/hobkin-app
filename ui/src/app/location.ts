@@ -21,6 +21,8 @@ export interface Spot {
   openReview: string | null
   reviewReturn: Place | null
   mindReturn: Place | null
+  /** Where closing the canvas goes back to. A reload on the canvas comes back to it while it is open. */
+  canvasReturn: Place | null
   report: string | null
   routine: string | null
   action: string | null
@@ -54,7 +56,7 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
   return {
     agentReturn: screenOr(raw.agentReturn),
     screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
-    openReview: idOr(raw.openReview), reviewReturn: placeOr(raw.reviewReturn), mindReturn: placeOr(raw.mindReturn), report: idOr(raw.report),
+    openReview: idOr(raw.openReview), reviewReturn: placeOr(raw.reviewReturn), mindReturn: placeOr(raw.mindReturn), canvasReturn: placeOr(raw.canvasReturn), report: idOr(raw.report),
     routine: idOr(raw.routine), action: idOr(raw.action), githubTab: raw.githubTab === 'issues' ? 'issues' : 'pulls', githubProject: idOr(raw.githubProject), home: idOr(raw.home),
   }
 }
@@ -67,6 +69,8 @@ export function moveKey(spot: Spot): string {
 
 /** The canvas travels back and forth the way the move itself went: down into Settings, up from an agent, along the menu. */
 export function motionBetween(from: Spot, to: Spot): ScreenMotion {
+  // The main canvas lies to the right of everything, as opening and closing it travel.
+  if (to.screen === 'canvas' || from.screen === 'canvas') return { axis: 'x', direction: to.screen === 'canvas' ? 1 : -1 }
   const deeper = depth(to) - depth(from)
   if (deeper !== 0) return { axis: 'y', direction: deeper > 0 ? -1 : 1 }
   if (to.screen === 'agent' || from.screen === 'agent') return { axis: 'y', direction: to.screen === 'agent' ? 1 : -1 }
@@ -100,14 +104,17 @@ export function useRemembered<K extends keyof Remembered>(key: K): [Remembered[K
 }
 
 function spotNow(): Spot {
-  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn } = useView.getState()
-  return { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn } = useView.getState()
+  return { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
 }
 
-/** Puts the canvas on a spot. A report or routine that is gone leaves its screen on the list. */
+/**
+ * Puts the canvas on a spot. A report or routine that is gone leaves its screen on the list. A main canvas that has
+ * closed meanwhile is left for the place under it by the canvas itself (`placeMove`), once the host has said so.
+ */
 function show(spot: Spot, screenMotion?: ScreenMotion): void {
-  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, action, githubTab, githubProject } = spot
-  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, previewReturn: null, ...(screenMotion ? { screenMotion } : {}) })
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, action, githubTab, githubProject } = spot
+  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, previewReturn: null, ...(screenMotion ? { screenMotion } : {}) })
   remembered.setState({ action, githubTab, githubProject })
 }
 
