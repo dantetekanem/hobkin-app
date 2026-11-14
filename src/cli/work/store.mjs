@@ -203,6 +203,18 @@ export function startWork(root, requested, { autoPick = false } = {}) {
 /** The user's own word on auto-pick, kept beside the switch, so turning work mode on again keeps it. Until they say, there is none. */
 export const chooseAutoPick = (root, on) => writeMode(root, { autoPick: on, autoPickChoice: on });
 
+/**
+ * The folder work mode will start from, saved while it is off, so the setup can ask for it once. A running work mode keeps what it has:
+ * the plan looks at a new folder at once, and making that look due is `startWork`'s job.
+ */
+export function setFolder(root, requested) {
+  const folder = realFolder(requested);
+  const mode = readMode(root);
+  if (mode.enabled || mode.folder === folder) return { folder: mode.folder, changed: false };
+  writeMode(root, { folder });
+  return { folder, changed: true };
+}
+
 // How long room the user added waits to be filled before the usual spacing of starts is back.
 const ROOM_FILLS_FOR_MS = 10 * 60000;
 

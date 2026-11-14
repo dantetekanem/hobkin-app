@@ -7,6 +7,8 @@ import { serveBridge } from '../src/cli/bridge.mjs';
 import { openCheck } from '../src/cli/checks.mjs';
 import { directionsPath, readDirections } from '../src/cli/directions.mjs';
 import { createMemoryExtension } from '../src/cli/memory.mjs';
+import { setProfile } from '../src/cli/profile.mjs';
+import { aboutSetup, readSetupFacts, writeSetupFacts } from '../src/cli/setup-facts.mjs';
 
 function dataRoot(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-directions-')));
@@ -28,6 +30,29 @@ test('a new folder gets the default directions, and an edit is never replaced', 
   assert.equal(readFileSync(directionsPath(root), 'utf8'), first);
   writeFileSync(directionsPath(root), 'Always answer in Portuguese.\n');
   assert.equal(readDirections(root), 'Always answer in Portuguese.\n');
+});
+
+test('what the user answered in the setup comes after who they are and before the directions, outside their cap', t => {
+  const root = dataRoot(t);
+  const long = `Keep reports short.\n${'x'.repeat(20000)}`;
+  writeFileSync(directionsPath(root), long);
+  setProfile(root, 'name', 'Ada');
+  writeSetupFacts(root, [{ about: 'Where do your projects live?', said: '~/Code' }]);
+
+  const setup = aboutSetup(readSetupFacts(root));
+
+  assert.match(setup, /~\/Code/);
+  assert.equal(readDirections(root), `The user's name is Ada.\n\n${setup}\n\n${long.slice(0, 16384)}`);
+});
+
+test('with no setup answers the directions read exactly as they did', t => {
+  const root = dataRoot(t);
+  writeFileSync(directionsPath(root), 'Keep reports short.\n');
+  writeSetupFacts(root, []);
+
+  assert.equal(readDirections(root), 'Keep reports short.\n');
+  setProfile(root, 'name', 'Ada');
+  assert.equal(readDirections(root), "The user's name is Ada.\n\nKeep reports short.\n");
 });
 
 test('the main chat reads the directions on every turn, so an edit applies at once', t => {

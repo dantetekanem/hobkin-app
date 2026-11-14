@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
   paths, prFile, priorityOf, proposeProject, readDiscovery, readItems, readLaunches, readMode, readProject, readProjects, recordDiscovery, recordLaunch, recordTokens, retryItem, sessionError, sessionUsage, setAgents,
-  setDailyTokens, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  setDailyTokens, setFolder, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -73,6 +73,52 @@ test('a home-relative folder is expanded', t => {
   const root = dataRoot(t);
 
   assert.equal(startWork(root, '~').folder, realpathSync(homedir()));
+});
+
+test('the setup saves the folder work mode starts from, and work mode stays off with no look made due', t => {
+  const root = dataRoot(t);
+  const projects = join(root, 'projects');
+  mkdirSync(projects);
+  writeMode(root, { folder: root, lastDiscoveryAt: '2026-01-01T00:00:00.000Z' });
+  const before = readMode(root);
+
+  assert.deepEqual(setFolder(root, projects), { folder: projects, changed: true });
+
+  assert.deepEqual(readMode(root), { ...before, folder: projects });
+  assert.deepEqual(setFolder(root, projects), { folder: projects, changed: false });
+  assert.equal(startWork(root).folder, projects);
+});
+
+test('the setup\'s folder can be home-relative, and one that is not a folder saves nothing', t => {
+  const root = dataRoot(t);
+  writeFileSync(join(root, 'notes.txt'), 'not a folder');
+
+  assert.deepEqual(setFolder(root, '~'), { folder: realpathSync(homedir()), changed: true });
+
+  assert.throws(() => setFolder(root, join(root, 'missing')), /Not a folder/);
+  assert.throws(() => setFolder(root, join(root, 'notes.txt')), /Not a folder/);
+  assert.equal(readMode(root).folder, realpathSync(homedir()));
+});
+
+test('a running work mode keeps its folder, because changing it there is a start\'s job', t => {
+  const root = dataRoot(t);
+  const projects = join(root, 'projects');
+  mkdirSync(projects);
+  startWork(root, root);
+  const before = readMode(root);
+
+  assert.deepEqual(setFolder(root, projects), { folder: root, changed: false });
+
+  assert.deepEqual(readMode(root), before);
+});
+
+test('a running work mode with no folder gets none from the setup, since a folder there would start a look at once', t => {
+  const root = dataRoot(t);
+  writeMode(root, { enabled: true });
+
+  assert.deepEqual(setFolder(root, root), { folder: null, changed: false });
+
+  assert.equal(readMode(root).folder, null);
 });
 
 test('naming a folder always runs discovery, and resuming does only with nothing to show', t => {
